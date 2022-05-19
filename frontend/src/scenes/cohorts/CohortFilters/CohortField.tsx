@@ -56,28 +56,31 @@ export function CohortSelectorField({
             className="CohortField"
             sideIcon={undefined}
             popup={{
+                className: 'Popup__CohortField',
                 placement: 'bottom-start',
                 overlay: (
                     <div className="CohortField__dropdown">
-                        {fieldOptionGroups.map(({ label, type: groupKey, values }, i) => (
-                            <div key={i}>
-                                {i !== 0 && <LemonDivider />}
-                                <h5>{label}</h5>
-                                {Object.entries(values).map(([_value, option]) => (
-                                    <LemonButton
-                                        key={_value}
-                                        onClick={() => {
-                                            onChange({ [fieldKey]: _value })
-                                        }}
-                                        type={_value == value ? 'highlighted' : 'stealth'}
-                                        fullWidth
-                                        data-attr={`cohort-${groupKey}-${_value}-type`}
-                                    >
-                                        {option.label}
-                                    </LemonButton>
-                                ))}
-                            </div>
-                        ))}
+                        {fieldOptionGroups.map(({ label, type: groupKey, values }, i) =>
+                            Object.keys(values).length != 0 ? (
+                                <div key={i}>
+                                    {i !== 0 && <LemonDivider />}
+                                    <h5>{label}</h5>
+                                    {Object.entries(values).map(([_value, option]) => (
+                                        <LemonButton
+                                            key={_value}
+                                            onClick={() => {
+                                                onChange({ [fieldKey]: _value })
+                                            }}
+                                            type={_value == value ? 'highlighted' : 'stealth'}
+                                            fullWidth
+                                            data-attr={`cohort-${groupKey}-${_value}-type`}
+                                        >
+                                            {option.label}
+                                        </LemonButton>
+                                    ))}
+                                </div>
+                            ) : null
+                        )}
                     </div>
                 ),
             }}
@@ -103,7 +106,7 @@ export function CohortTaxonomicField({
         onChange: _onChange,
     })
 
-    const { calculatedValue } = useValues(logic)
+    const { calculatedValue, calculatedValueLoading } = useValues(logic)
     const { onChange } = useActions(logic)
     const groupType = criteria[groupTypeFieldKey] as TaxonomicFilterGroupType
 
@@ -112,6 +115,7 @@ export function CohortTaxonomicField({
             className="CohortField"
             type="secondary"
             groupType={groupType}
+            loading={calculatedValueLoading(groupType)}
             value={calculatedValue(groupType) as TaxonomicFilterValue}
             onChange={(v, g) => {
                 onChange({ [fieldKey]: v, [groupTypeFieldKey]: g })

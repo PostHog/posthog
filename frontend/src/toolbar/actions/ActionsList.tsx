@@ -31,7 +31,7 @@ export function ActionsList(): JSX.Element {
                         <PlusOutlined /> New Action
                     </Button>
                 </Row>
-                {true || (allActions.length === 0 && allActionsLoading) ? (
+                {allActions.length === 0 && allActionsLoading ? (
                     <div className="text-center mt mb">
                         <Spinner />
                     </div>

@@ -1,5 +1,12 @@
 import ClickHouse from '@posthog/clickhouse'
-import { Meta, PluginAttachment, PluginConfigSchema, PluginEvent, Properties } from '@posthog/plugin-scaffold'
+import {
+    Meta,
+    PluginAttachment,
+    PluginConfigSchema,
+    PluginEvent,
+    ProcessedPluginEvent,
+    Properties,
+} from '@posthog/plugin-scaffold'
 import { Pool as GenericPool } from 'generic-pool'
 import { StatsD } from 'hot-shots'
 import { Redis } from 'ioredis'
@@ -105,7 +112,6 @@ export interface PluginsServerConfig extends Record<string, any> {
     DISTINCT_ID_LRU_SIZE: number
     EVENT_PROPERTY_LRU_SIZE: number
     INTERNAL_MMDB_SERVER_PORT: number
-    PLUGIN_SERVER_IDLE: boolean
     JOB_QUEUES: string
     JOB_QUEUE_GRAPHILE_URL: string
     JOB_QUEUE_GRAPHILE_SCHEMA: string
@@ -221,7 +227,6 @@ export interface JobQueue {
 export enum JobQueueType {
     FS = 'fs',
     Graphile = 'graphile',
-    S3 = 's3',
 }
 
 export enum JobQueuePersistence {
@@ -229,8 +234,6 @@ export enum JobQueuePersistence {
     Local = 'local',
     /** Remote persistent job queues that can be read from concurrently */
     Concurrent = 'concurrent',
-    /** Remote persistent job queues that must be read from one redlocked server at a time */
-    Redlocked = 'redlocked',
 }
 
 export type JobQueueExport = {
@@ -313,7 +316,7 @@ export interface PluginError {
     time: string
     name?: string
     stack?: string
-    event?: PluginEvent | null
+    event?: PluginEvent | ProcessedPluginEvent | null
 }
 
 export interface PluginAttachmentDB {
@@ -372,9 +375,9 @@ export interface PluginTask {
 }
 
 export type WorkerMethods = {
-    onEvent: (event: PluginEvent) => Promise<void>
-    onAction: (action: Action, event: PluginEvent) => Promise<void>
-    onSnapshot: (event: PluginEvent) => Promise<void>
+    onEvent: (event: ProcessedPluginEvent) => Promise<void>
+    onAction: (action: Action, event: ProcessedPluginEvent) => Promise<void>
+    onSnapshot: (event: ProcessedPluginEvent) => Promise<void>
     processEvent: (event: PluginEvent) => Promise<PluginEvent | null>
     ingestEvent: (event: PluginEvent) => Promise<IngestEventResponse>
     ingestBufferEvent: (event: PreIngestionEvent) => Promise<IngestEventResponse>
@@ -384,9 +387,9 @@ export type WorkerMethods = {
 export type VMMethods = {
     setupPlugin?: () => Promise<void>
     teardownPlugin?: () => Promise<void>
-    onEvent?: (event: PluginEvent) => Promise<void>
-    onAction?: (action: Action, event: PluginEvent) => Promise<void>
-    onSnapshot?: (event: PluginEvent) => Promise<void>
+    onEvent?: (event: ProcessedPluginEvent) => Promise<void>
+    onAction?: (action: Action, event: ProcessedPluginEvent) => Promise<void>
+    onSnapshot?: (event: ProcessedPluginEvent) => Promise<void>
     exportEvents?: (events: PluginEvent[]) => Promise<void>
     processEvent?: (event: PluginEvent) => Promise<PluginEvent>
     handleAlert?: (alert: Alert) => Promise<void>
@@ -833,7 +836,9 @@ export interface JobQueueConsumerControl {
     resume: () => Promise<void> | void
 }
 
-export type IngestEventResponse = { success?: boolean; error?: string; actionMatches?: Action[] }
+export type IngestEventResponse =
+    | { success: true; actionMatches: Action[]; preIngestionEvent: PreIngestionEvent | null }
+    | { success: false; error: string }
 
 export interface EventDefinitionType {
     id: string
@@ -920,9 +925,11 @@ export enum PluginServerMode {
 export interface PreIngestionEvent {
     eventUuid: string
     event: string
+    ip: string | null
     teamId: TeamId
     distinctId: string
     properties: Properties
     timestamp: DateTime | string
     elementsList: Element[]
+    siteUrl: string
 }

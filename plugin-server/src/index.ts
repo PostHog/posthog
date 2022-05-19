@@ -13,7 +13,6 @@ enum AlternativeMode {
     Help = 'HELP',
     Version = 'VRSN',
     Healthcheck = 'HLTH',
-    Idle = 'IDLE',
     Migrate = 'MGRT',
 }
 
@@ -26,8 +25,6 @@ if (argv.includes('--help') || argv.includes('-h')) {
     alternativeMode = AlternativeMode.Healthcheck
 } else if (argv.includes('--migrate')) {
     alternativeMode = AlternativeMode.Migrate
-} else if (defaultConfig.PLUGIN_SERVER_IDLE) {
-    alternativeMode = AlternativeMode.Idle
 }
 
 const status = new Status(alternativeMode)
@@ -42,12 +39,6 @@ switch (alternativeMode) {
         break
     case AlternativeMode.Healthcheck:
         void healthcheckWithExit()
-        break
-    case AlternativeMode.Idle:
-        status.info('💤', `Disengaging this plugin server instance due to the PLUGIN_SERVER_IDLE env var...`)
-        setInterval(() => {
-            status.info('💤', 'Plugin server still disengaged with PLUGIN_SERVER_IDLE...')
-        }, 30_000)
         break
     case AlternativeMode.Migrate:
         const isGraphileEnabled = defaultConfig.JOB_QUEUES.split(',')

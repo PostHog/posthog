@@ -62,7 +62,7 @@ export function VerificationPanel(): JSX.Element {
                             <LemonButton
                                 data-attr="wizard-complete-button"
                                 type="primary"
-                                onClick={completeOnboarding}
+                                onClick={() => completeOnboarding()}
                                 fullWidth
                                 center
                             >

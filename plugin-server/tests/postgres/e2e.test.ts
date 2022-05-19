@@ -6,13 +6,13 @@ import { startPluginsServer } from '../../src/main/pluginsServer'
 import { AlertLevel, LogLevel, Service } from '../../src/types'
 import { Hub } from '../../src/types'
 import { Client } from '../../src/utils/celery/client'
-import { createRedis, delay, UUIDT } from '../../src/utils/utils'
+import { delay, UUIDT } from '../../src/utils/utils'
 import { makePiscina } from '../../src/worker/piscina'
 import { createPosthog, DummyPostHog } from '../../src/worker/vm/extensions/posthog'
 import { writeToFile } from '../../src/worker/vm/extensions/test-utils'
+import { delayUntilEventIngested } from '../helpers/clickhouse'
 import { pluginConfig39 } from '../helpers/plugins'
 import { resetTestDatabase } from '../helpers/sql'
-import { delayUntilEventIngested } from '../shared/process-event'
 
 const { console: testConsole } = writeToFile
 const HISTORICAL_EVENTS_COUNTER_CACHE_KEY = '@plugin/60/2/historical_events_seen'
@@ -162,18 +162,6 @@ describe('e2e', () => {
             expect(
                 pluginLogEntries.filter(({ message, type }) => message.includes('amogus') && type === 'INFO').length
             ).toEqual(1)
-        })
-
-        test('action matches are saved', async () => {
-            await posthog.capture('xyz', { foo: 'bar' })
-
-            await delayUntilEventIngested(() => hub.db.fetchActionMatches())
-
-            const savedMatches = await hub.db.fetchActionMatches()
-
-            expect(savedMatches).toStrictEqual([
-                { id: expect.any(Number), event_id: expect.any(Number), action_id: 69 },
-            ])
         })
     })
 

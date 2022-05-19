@@ -10,6 +10,7 @@ import { ActionDraftType, ActionForm, AntdFieldData } from '~/toolbar/types'
 import { FormInstance } from 'antd/lib/form'
 import { posthog } from '~/toolbar/posthog'
 import { lemonToast } from 'lib/components/lemonToast'
+import { urls } from 'scenes/urls'
 
 function newAction(element: HTMLElement | null, dataAttributes: string[] = []): ActionDraftType {
     return {
@@ -181,7 +182,7 @@ export const actionsTabLogic = kea<actionsTabLogicType<ActionFormInstance>>({
             lemonToast.success('Action saved', {
                 button: {
                     label: 'Open in PostHog',
-                    action: () => window.open(`${apiURL}/projects/@current/actions/${response.id}`, '_blank'),
+                    action: () => window.open(`${apiURL}${urls.action(response.id)}`, '_blank'),
                 },
             })
         },

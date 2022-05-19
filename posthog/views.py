@@ -103,7 +103,7 @@ def preflight_check(request: HttpRequest) -> JsonResponse:
         "demo": settings.DEMO,
         "realm": get_instance_realm(),
         "available_social_auth_providers": get_instance_available_sso_providers(),
-        "can_create_org": get_can_create_org(),
+        "can_create_org": get_can_create_org(request.user),
         "email_service_available": is_email_available(with_absolute_urls=True),
     }
 

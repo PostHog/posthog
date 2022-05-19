@@ -260,5 +260,7 @@ export function Histogram({
         [data, config]
     )
 
-    return <div className="histogram-container" ref={ref} />
+    /* minWidth required to enforce d3's width calculations on the div wrapping the svg
+     so that scrolling horizontally works */
+    return <div className="histogram-container" ref={ref} style={{ minWidth: config.width }} />
 }
