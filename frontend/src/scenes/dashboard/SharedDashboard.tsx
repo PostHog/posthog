@@ -14,11 +14,19 @@ initKea()
 
 const dashboard = (window as any).__SHARED_DASHBOARD__
 const isEmbedded = window.location.search.includes('embedded')
-const whiteLabel = window.location.search.includes('whitelabel') && dashboard.available_features.includes(AvailableFeature.WHITE_LABELLING)
+const whiteLabel =
+    window.location.search.includes('whitelabel') &&
+    dashboard.available_features.includes(AvailableFeature.WHITE_LABELLING)
 
 ReactDOM.render(
     <>
-        <div style={{ minHeight: '100vh', top: 0, padding: isEmbedded ? '0.5rem 1rem' : whiteLabel ? '0.25rem 1rem' : '1rem' }}>
+        <div
+            style={{
+                minHeight: '100vh',
+                top: 0,
+                padding: isEmbedded ? '0.5rem 1rem' : whiteLabel ? '0.25rem 1rem' : '1rem',
+            }}
+        >
             {!whiteLabel ? (
                 !isEmbedded ? (
                     <Row align="middle">
@@ -29,7 +37,10 @@ ReactDOM.render(
                         </Col>
                         <Col sm={10} xs={24} style={{ textAlign: 'center' }}>
                             <>
-                                <h1 style={{ marginBottom: '0.25rem', fontWeight: 600 }} data-attr="dashboard-item-title">
+                                <h1
+                                    style={{ marginBottom: '0.25rem', fontWeight: 600 }}
+                                    data-attr="dashboard-item-title"
+                                >
                                     {dashboard.name}
                                 </h1>
                                 <span>{dashboard.description}</span>
