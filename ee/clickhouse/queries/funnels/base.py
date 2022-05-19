@@ -604,9 +604,19 @@ class ClickhouseFunnelBase(ABC):
         if self._filter.breakdown:
             self.params.update({"breakdown": self._filter.breakdown})
             if self._filter.breakdown_type == "person":
-                return get_single_or_multi_property_string_expr(
-                    self._filter.breakdown, table="person", query_alias="prop", column="person_props"
-                )
+
+                if self._team.actor_on_events_querying_enabled:
+                    return get_single_or_multi_property_string_expr(
+                        self._filter.breakdown,
+                        table="person",
+                        query_alias="prop",
+                        column="person_properties",
+                        allow_denormalized_props=False,
+                    )
+                else:
+                    return get_single_or_multi_property_string_expr(
+                        self._filter.breakdown, table="person", query_alias="prop", column="person_props"
+                    )
             elif self._filter.breakdown_type == "event":
                 return get_single_or_multi_property_string_expr(
                     self._filter.breakdown, table="events", query_alias="prop", column="properties"
@@ -616,10 +626,24 @@ class ClickhouseFunnelBase(ABC):
             elif self._filter.breakdown_type == "group":
                 # :TRICKY: We only support string breakdown for group properties
                 assert isinstance(self._filter.breakdown, str)
-                properties_field = f"group_properties_{self._filter.breakdown_group_type_index}"
-                expression, _ = get_property_string_expr(
-                    table="groups", property_name=self._filter.breakdown, var="%(breakdown)s", column=properties_field
-                )
+
+                if self._team.actor_on_events_querying_enabled:
+                    properties_field = f"group{self._filter.breakdown_group_type_index}_properties"
+                    expression, _ = get_property_string_expr(
+                        table="groups",
+                        property_name=self._filter.breakdown,
+                        var="%(breakdown)s",
+                        column=properties_field,
+                        allow_denormalized_props=False,
+                    )
+                else:
+                    properties_field = f"group_properties_{self._filter.breakdown_group_type_index}"
+                    expression, _ = get_property_string_expr(
+                        table="groups",
+                        property_name=self._filter.breakdown,
+                        var="%(breakdown)s",
+                        column=properties_field,
+                    )
                 return f"{expression} AS prop"
 
         return ""

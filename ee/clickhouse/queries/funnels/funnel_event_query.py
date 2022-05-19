@@ -104,7 +104,6 @@ class _FunnelEventQuery(EnterpriseEventQuery):
             {date_query}
             {prop_query}
         """
-
         return query, self.params
 
     def _determine_should_join_distinct_ids(self) -> None:
@@ -166,23 +165,12 @@ class _FunnelEventQuery_PersonOnEvents(EnterpriseEventQuery):
         )
 
         _fields.extend(
-            f"group{group_index}_properties as group_properties_{group_index}"
+            f"group{group_index}_properties AS group_properties_{group_index}"
             for group_index in self._column_optimizer.group_types_to_query
         )
 
-        _fields.extend(
-            [
-                get_property_string_expr(
-                    "events",
-                    column_name,
-                    f"'{column_name}'",
-                    "person_properties",
-                    table_alias=self.EVENT_TABLE_ALIAS,
-                    allow_denormalized_props=False,
-                )[0]
-                for column_name in self._person_query.fields
-            ]
-        )
+        if self._column_optimizer.person_columns_to_query:
+            _fields += [f"{self.EVENT_TABLE_ALIAS}.person_properties AS person_properties"]
 
         _fields = list(filter(None, _fields))
 

@@ -518,7 +518,11 @@ def property_table(property: Property) -> TableWithProperties:
 
 
 def get_single_or_multi_property_string_expr(
-    breakdown, table: TableWithProperties, query_alias: Literal["prop", "value", None], column: str
+    breakdown,
+    table: TableWithProperties,
+    query_alias: Literal["prop", "value", None],
+    column: str,
+    allow_denormalized_props=True,
 ):
     """
     When querying for breakdown properties:
@@ -535,11 +539,13 @@ def get_single_or_multi_property_string_expr(
     """
 
     if isinstance(breakdown, str) or isinstance(breakdown, int):
-        expression, _ = get_property_string_expr(table, str(breakdown), escape_param(breakdown), column)
+        expression, _ = get_property_string_expr(
+            table, str(breakdown), escape_param(breakdown), column, allow_denormalized_props
+        )
     else:
         expressions = []
         for b in breakdown:
-            expr, _ = get_property_string_expr(table, b, escape_param(b), column)
+            expr, _ = get_property_string_expr(table, b, escape_param(b), column, allow_denormalized_props)
             expressions.append(expr)
 
         expression = f"array({','.join(expressions)})"
