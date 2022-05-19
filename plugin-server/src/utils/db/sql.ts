@@ -35,12 +35,6 @@ export async function getPluginRows(hub: Hub): Promise<Plugin[]> {
         'getPluginRows'
     )
 
-    // Pre-fetch the "index.ts" source from posthog_pluginsourcefile
-    for (const row of rows) {
-        row['source'] = (row as any)['source__index_ts']
-        delete (row as any)['source__index_ts']
-    }
-
     return rows
 }
 
