@@ -292,7 +292,8 @@
        AND event = 'sign up'
        AND timestamp >= toDateTime('2020-01-01 00:00:00', 'UTC')
        AND timestamp <= toDateTime('2020-01-12 23:59:59', 'UTC')
-       AND (has(['value'], replaceRegexpAll(JSONExtractRaw(e.person_properties, 'key'), '^"|"$', '')))
+       AND (person_id != '00000000-0000-0000-0000-000000000000'
+            AND (has(['value'], replaceRegexpAll(JSONExtractRaw(e.person_properties, 'key'), '^"|"$', ''))))
      GROUP BY value
      ORDER BY count DESC
      LIMIT 25
@@ -332,7 +333,8 @@
            FROM events e
            WHERE e.team_id = 2
              AND event = 'sign up'
-             AND (has(['value'], replaceRegexpAll(JSONExtractRaw(e.person_properties, 'key'), '^"|"$', '')))
+             AND (person_id != '00000000-0000-0000-0000-000000000000'
+                  AND (has(['value'], replaceRegexpAll(JSONExtractRaw(e.person_properties, 'key'), '^"|"$', ''))))
              AND timestamp >= toStartOfDay(toDateTime('2020-01-01 00:00:00'), 'UTC')
              AND timestamp <= toDateTime('2020-01-12 23:59:59', 'UTC')
              AND replaceRegexpAll(JSONExtractRaw(group0_properties, 'industry'), '^"|"$', '') in (['finance'])
@@ -563,7 +565,8 @@
              AND event = 'watched movie'
              AND timestamp >= toStartOfDay(toDateTime('2019-12-28 00:00:00'), 'UTC')
              AND timestamp <= toDateTime('2020-01-04 23:59:59', 'UTC')
-             AND (has(['person1'], replaceRegexpAll(JSONExtractRaw(e.person_properties, 'name'), '^"|"$', ''))) )
+             AND (person_id != '00000000-0000-0000-0000-000000000000'
+                  AND (has(['person1'], replaceRegexpAll(JSONExtractRaw(e.person_properties, 'name'), '^"|"$', '')))) )
         GROUP BY date)
      group by day_start
      order by day_start SETTINGS allow_experimental_window_functions = 1) SETTINGS timeout_before_checking_execution_speed = 60
@@ -636,7 +639,8 @@
              AND event = 'watched movie'
              AND timestamp >= toStartOfDay(toDateTime('2019-12-28 00:00:00'), 'UTC')
              AND timestamp <= toDateTime('2020-01-04 23:59:59', 'UTC')
-             AND (has(['person1'], replaceRegexpAll(JSONExtractRaw(e.person_properties, 'name'), '^"|"$', ''))) )
+             AND (person_id != '00000000-0000-0000-0000-000000000000'
+                  AND (has(['person1'], replaceRegexpAll(JSONExtractRaw(e.person_properties, 'name'), '^"|"$', '')))) )
         GROUP BY date)
      group by day_start
      order by day_start SETTINGS allow_experimental_window_functions = 1) SETTINGS timeout_before_checking_execution_speed = 60
