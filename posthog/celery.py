@@ -63,6 +63,7 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
     # Cloud (posthog-cloud) cron jobs
     if getattr(settings, "MULTI_TENANCY", False):
         sender.add_periodic_task(crontab(hour=0, minute=0), calculate_billing_daily_usage.s())  # every day midnight UTC
+        sender.add_periodic_task(crontab(hour=16, minute=23), transition_startup_users.s())  # every day 16:23 utc
 
     sender.add_periodic_task(crontab(day_of_week="fri", hour=0, minute=0), clean_stale_partials.s())
 
@@ -374,6 +375,17 @@ def calculate_billing_daily_usage():
         pass
     else:
         compute_daily_usage_for_organizations()
+
+
+@app.task(ignore_result=True)
+def transition_startup_users():
+    # Should be able to get rid of this code after 2022-10-27 as that's when the last user will have transitioned
+    try:
+        from multi_tenancy.tasks import transition_startup_users  # noqa: F401
+    except ImportError:
+        pass
+    else:
+        transition_startup_users()
 
 
 @app.task(ignore_result=True)
