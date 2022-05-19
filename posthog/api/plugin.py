@@ -226,7 +226,9 @@ class PluginViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         for key, value in request.data.items():
             if key not in sources:
                 performed_changes = True
-                sources[key] = PluginSourceFile.objects.create(plugin=plugin, filename=key, source=value)
+                sources[key] = PluginSourceFile.objects.update_or_create(
+                    plugin=plugin, filename=key, defaults={"source": value}
+                )
                 continue
             if sources[key].source != value:
                 performed_changes = True
