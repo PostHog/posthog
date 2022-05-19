@@ -11,11 +11,6 @@ jest.mock('kafkajs/src/loggers/console')
 jest.mock('../../src/utils/status')
 jest.setTimeout(70000) // 60 sec timeout
 
-const extraServerConfig: Partial<PluginsServerConfig> = {
-    KAFKA_ENABLED: true,
-    KAFKA_HOSTS: process.env.KAFKA_HOSTS || 'kafka:9092',
-}
-
 describe('kafka health check', () => {
     let hub: Hub
     let closeHub: () => Promise<void>
@@ -23,7 +18,7 @@ describe('kafka health check', () => {
     let consumer: Consumer
 
     beforeAll(async () => {
-        await resetKafka(extraServerConfig)
+        await resetKafka()
     })
 
     beforeEach(async () => {

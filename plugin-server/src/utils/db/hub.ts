@@ -136,9 +136,6 @@ export async function createHub(
 
     if (serverConfig.KAFKA_ENABLED) {
         status.info('🤔', `ClickHouse`)
-        if (!serverConfig.KAFKA_HOSTS) {
-            throw new Error('You must set KAFKA_HOSTS to process events from Kafka!')
-        }
         clickhouse = new ClickHouse({
             host: serverConfig.CLICKHOUSE_HOST,
             port: serverConfig.CLICKHOUSE_SECURE ? 8443 : 8123,
