@@ -98,36 +98,6 @@ function startQueueRedis(server: Hub, piscina: Piscina, workerMethods: WorkerMet
 
     let startQueue = false
 
-    if (server.capabilities.processJobs) {
-        startQueue = true
-        // this queue is for triggering plugin jobs from the PostHog UI
-        celeryQueue.register(
-            'posthog.tasks.plugins.plugin_job',
-            async (
-                pluginConfigTeam: Team['id'],
-                pluginConfigId: PluginConfig['id'],
-                type: string,
-                jobOp: CeleryTriggeredJobOperation,
-                payload: Record<string, any>
-            ) => {
-                try {
-                    payload['$operation'] = jobOp
-                    const job = {
-                        type,
-                        payload,
-                        pluginConfigId,
-                        pluginConfigTeam,
-                        timestamp: Date.now(),
-                    }
-                    pauseQueueIfWorkerFull(() => celeryQueue.pause(), server, piscina)
-                    await piscina?.run({ task: 'enqueueJob', args: { job } })
-                } catch (e) {
-                    Sentry.captureException(e)
-                }
-            }
-        )
-    }
-
     // if kafka is enabled, we'll process events from there
     if (!server.KAFKA_ENABLED && server.capabilities.ingestion) {
         startQueue = true

@@ -1,5 +1,3 @@
-import datetime as dt
-import time
 from typing import Any, Dict, Optional, Union, cast
 
 import structlog
@@ -10,6 +8,7 @@ from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
 from django.shortcuts import redirect, render
 from django.urls.base import reverse
+from django.utils import timezone
 from rest_framework import exceptions, generics, permissions, response, serializers, validators
 from sentry_sdk import capture_exception
 from social_core.pipeline.partial import partial
@@ -19,7 +18,7 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.demo.hedgebox import HedgeboxMatrix
 from posthog.demo.matrix import MatrixManager
 from posthog.event_usage import alias_invite_id, report_user_joined_organization, report_user_signed_up
-from posthog.models import Organization, OrganizationDomain, OrganizationInvite, OrganizationMembership, Team, User
+from posthog.models import Organization, OrganizationDomain, OrganizationInvite, Team, User
 from posthog.permissions import CanCreateOrg
 from posthog.tasks import user_identify
 from posthog.utils import get_can_create_org, mask_email_address
@@ -89,22 +88,12 @@ class SignupSerializer(serializers.Serializer):
         email = validated_data["email"]
         first_name = validated_data["first_name"]
         organization_name = validated_data["organization_name"]
-        # If there's an email collision in signup in the demo environment, we treat it as a login
-        existing_user = User.objects.filter(email=email).first()
-        if existing_user is None:
-            organization = Organization.objects.create(name=organization_name)
-            new_user = User.objects.create_and_join(
-                organization, email, None, first_name, OrganizationMembership.Level.ADMIN
-            )
-            demo_time = time.time()
-            matrix = HedgeboxMatrix(
-                start=dt.datetime.now() - dt.timedelta(days=120), end=dt.datetime.now(), n_clusters=50,
-            )
-            team = MatrixManager.create_team_and_run(matrix, organization, new_user)
-            print(f"[DEMO] Prepared in {time.time() - demo_time:.2f} s!")  # noqa: T001
-            self._organization, self._team, self._user = organization, team, new_user
-        else:
-            self._organization, self._team, self._user = existing_user.organization, existing_user.team, existing_user
+        matrix = HedgeboxMatrix(
+            start=timezone.datetime.now() - timezone.timedelta(days=120), end=timezone.datetime.now(), n_clusters=50,
+        )
+        self._organization, self._team, self._user = MatrixManager.ensure_account_and_run(
+            matrix, email, first_name, organization_name
+        )
 
         login(
             self.context["request"], self._user, backend="django.contrib.auth.backends.ModelBackend",
