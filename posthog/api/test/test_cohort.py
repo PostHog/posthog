@@ -351,7 +351,7 @@ email@example.org,
             self.assertEqual(response.status_code, 200, response.content)
             self.assertEqual(2, len(response.json()["results"]))
 
-        with override_constance_config(NEW_COHORT_QUERY_TEAMS=f"{self.team.pk}"):
+        with override_constance_config("NEW_COHORT_QUERY_TEAMS", f"{self.team.pk}"):
             response = self.client.patch(
                 f"/api/projects/{self.team.id}/cohorts/{cohort_id}",
                 data={
