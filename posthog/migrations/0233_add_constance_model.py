@@ -27,6 +27,7 @@ def rollback(apps, schema_editor):
 
 
 class Migration(migrations.Migration):
+    atomic = False
 
     dependencies = [
         ("posthog", "0232_add_team_person_display_name_properties"),
