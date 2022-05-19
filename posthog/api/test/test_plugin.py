@@ -917,11 +917,13 @@ class TestPluginAPI(APIBaseTest):
             format="multipart",
         )
         plugin_config_id = response.json()["id"]
-        response = self.client.post(
-            f"/api/plugin_config/{plugin_config_id}/job",
-            {"job": {"type": "myJob", "payload": {"a": 1}, "operation": "stop"}},
-            format="json",
-        )
+        with self.settings(DEBUG=1):
+            response = self.client.post(
+                f"/api/plugin_config/{plugin_config_id}/job",
+                {"job": {"type": "myJob", "payload": {"a": 1}, "operation": "stop"}},
+                format="json",
+            )
+            print(response.content)
         self.assertEqual(response.status_code, 200)
         self.assertEqual(execute_postgres.call_count, 1)
         expected_sql = "SELECT graphile_worker.add_job('pluginJob', %s)"
