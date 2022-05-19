@@ -53,6 +53,7 @@ export const saveToDashboardModalLogic = kea<saveToDashboardModalLogicType<SaveT
                 addToDashboard: (_, { dashboardId }) => dashboardId,
                 removeFromDashboard: (_, { dashboardId }) => dashboardId,
                 updateInsightSuccess: () => null,
+                updateInsightFailure: () => null,
             },
         ],
     },
