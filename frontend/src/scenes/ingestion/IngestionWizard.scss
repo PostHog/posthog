@@ -43,7 +43,7 @@
 }
 
 .sidebar-bottom {
-    margin: auto 2rem 3rem 2rem;
+    margin-top: auto;
 }
 
 .sidebar-help {
@@ -52,13 +52,20 @@
     font-weight: 500;
     color: $primary;
     border-top: 3px dashed $border;
-    padding-left: $default_spacing / 2;
     padding-top: $default_spacing * 1.5;
     margin-top: $default_spacing;
+    padding-bottom: $default_spacing * 1.5;
+
+    .popover {
+        padding-left: $default_spacing / 2;
+        padding-right: $default_spacing / 2;
+    }
 }
 
 .IngestionSidebar__steps {
     color: $text_muted_alt;
+    font-size: 14px;
+    margin-top: $default_spacing * 2;
 
     div {
         &:hover {
@@ -71,4 +78,21 @@
             cursor: default;
         }
     }
+}
+
+.IngestionSidebar {
+    background: white;
+    width: 300px;
+    display: flex;
+    flex-direction: column;
+    position: relative;
+    align-items: center;
+}
+
+.IngestionSidebar__content {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    position: fixed;
+    padding-top: $default_spacing * 2;
 }

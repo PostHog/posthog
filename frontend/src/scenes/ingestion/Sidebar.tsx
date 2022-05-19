@@ -5,6 +5,11 @@ import { useActions, useValues } from 'kea'
 import './IngestionWizard.scss'
 import { InviteMembersButton, SitePopover } from '~/layout/navigation/TopBar/SitePopover'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { LemonButton } from 'lib/components/LemonButton'
+import { IconArticle, IconQuestionAnswer } from 'lib/components/icons'
+import { HelpType } from '~/types'
+
+const HELP_UTM_TAGS = '?utm_medium=in-product-onboarding&utm_campaign=help-button-sidebar'
 
 export function Sidebar(): JSX.Element {
     const { currentIndex, platform } = useValues(ingestionLogic)
@@ -12,14 +17,10 @@ export function Sidebar(): JSX.Element {
     const { reportIngestionHelpClicked } = useActions(eventUsageLogic)
 
     return (
-        <div
-            style={{ background: 'white', width: 300, display: 'flex', flexDirection: 'column', position: 'relative' }}
-        >
-            <div style={{ display: 'flex', flexDirection: 'column', height: '100%', position: 'fixed' }}>
-                <div style={{ padding: '2em' }}>
-                    <img src={posthogLogo} style={{ width: 157, height: 30 }} />
-                </div>
-                <div className="IngestionSidebar__steps" style={{ fontSize: 14, padding: '2em' }}>
+        <div className="IngestionSidebar">
+            <div className="IngestionSidebar__content">
+                <img src={posthogLogo} style={{ width: 157, height: 30 }} />
+                <div className="IngestionSidebar__steps">
                     <b>
                         <div
                             className={`mb ${currentIndex === 0 && 'ingestion-current-nav-step'}`}
@@ -55,23 +56,38 @@ export function Sidebar(): JSX.Element {
                 <div className="sidebar-bottom">
                     <InviteMembersButton />
                     <div className="sidebar-help">
-                        <SitePopover />
-                        <a
-                            style={{ marginBottom: '1.5em', marginTop: '1.5em' }}
-                            data-attr="support-slack-help"
-                            href="https://posthog.com/slack"
-                            target="_blank"
-                            onClick={() => reportIngestionHelpClicked('support')}
-                        >
-                            Get support on Slack
+                        <div className="popover">
+                            <SitePopover />
+                        </div>
+                        <a href={`https://posthog.com/slack${HELP_UTM_TAGS}`} rel="noopener" target="_blank">
+                            <LemonButton
+                                icon={<IconQuestionAnswer style={{ color: 'var(--primary)' }} />}
+                                type="tertiary"
+                                fullWidth
+                                style={{ marginTop: '1.5em', color: 'var(--primary)' }}
+                                onClick={() => {
+                                    reportIngestionHelpClicked(HelpType.Slack)
+                                }}
+                            >
+                                Get support on Slack
+                            </LemonButton>
                         </a>
                         <a
-                            data-attr="ingestion-docs-help"
-                            href="https://posthog.com/docs/integrate/ingest-live-data"
+                            href={`https://posthog.com/docs/integrate/ingest-live-data${HELP_UTM_TAGS}`}
+                            rel="noopener"
                             target="_blank"
-                            onClick={() => reportIngestionHelpClicked('documentation')}
                         >
-                            Read our documentation
+                            <LemonButton
+                                icon={<IconArticle style={{ color: 'var(--primary)' }} />}
+                                type="tertiary"
+                                style={{ color: 'var(--primary)' }}
+                                fullWidth
+                                onClick={() => {
+                                    reportIngestionHelpClicked(HelpType.Docs)
+                                }}
+                            >
+                                Read our documentation
+                            </LemonButton>
                         </a>
                     </div>
                 </div>
