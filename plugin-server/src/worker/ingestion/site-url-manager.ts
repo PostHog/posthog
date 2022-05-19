@@ -20,7 +20,7 @@ export class SiteUrlManager {
     }
 
     async updateIngestionSiteUrl(newSiteUrl: string): Promise<void> {
-        if (this.hub.SITE_URL) {
+        if (this.hub.SITE_URL || !newSiteUrl) {
             return
         }
 
