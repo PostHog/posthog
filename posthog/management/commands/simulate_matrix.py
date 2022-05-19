@@ -1,29 +1,43 @@
-import datetime as dt
 from time import time
 
 from django.core.management.base import BaseCommand
+from django.db import transaction
+from django.utils import timezone
 
 from posthog.demo.hedgebox import HedgeboxMatrix
+from posthog.demo.matrix.manager import MatrixManager
 
 
 class Command(BaseCommand):
     help = "Rehearse demo data simulation"
 
     def add_arguments(self, parser):
-        parser.add_argument("--seed", type=str, required=True, help="Simulation seed for deterministic output")
         parser.add_argument(
-            "--start", type=lambda s: dt.datetime.strptime(s, "%Y-%m-%d"), required=True, help="Simulation start date"
+            "--save-as",
+            type=str,
+            help="Email of the account that should be created to save the results of the simulation (the password: 12345678)",
+        )
+        parser.add_argument("--seed", type=str, help="Simulation seed for deterministic output")
+        parser.add_argument(
+            "--start",
+            type=lambda s: timezone.make_aware(timezone.datetime.strptime(s, "%Y-%m-%d")),
+            help="Simulation start date (default: 90 days ago)",
         )
         parser.add_argument(
-            "--end", type=lambda s: dt.datetime.strptime(s, "%Y-%m-%d"), required=True, help="Simulation end date"
+            "--end",
+            type=lambda s: timezone.make_aware(timezone.datetime.strptime(s, "%Y-%m-%d")),
+            help="Simulation end date (default: today)",
         )
-        parser.add_argument("--n-clusters", type=int, default=1, help="Number of clusters")
+        parser.add_argument("--n-clusters", type=int, default=20, help="Number of clusters")
         parser.add_argument("--list-events", action="store_true", help="Print events individually")
 
     def handle(self, *args, **options):
         timer = time()
         matrix = HedgeboxMatrix(
-            options["seed"], start=options["start"], end=options["end"], n_clusters=options["n_clusters"],
+            options["seed"],
+            start=options["start"] or timezone.now() - timezone.timedelta(90),
+            end=options["end"] or timezone.now(),
+            n_clusters=options["n_clusters"],
         )
         matrix.simulate()
         duration = time() - timer
@@ -66,3 +80,10 @@ class Command(BaseCommand):
             f"within {len(matrix.clusters)} cluster{'' if len(matrix.clusters) == 1 else 's'} "
             f"for a total of {total_event_count} event{'' if total_event_count == 1 else 's'}."
         )
+        if email := options["save_as"]:
+            print(f"Saving as {email}…")
+            with transaction.atomic():
+                MatrixManager.ensure_account_and_run(
+                    matrix, email, "Employee 427", "Hedgebox Inc.", password="12345678", disallow_collision=True
+                )
+            print(f"{email} is ready!")

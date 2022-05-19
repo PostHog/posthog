@@ -5,7 +5,6 @@ from unittest.mock import patch
 from freezegun.api import freeze_time
 from rest_framework.exceptions import ValidationError
 
-from ee.clickhouse.materialized_columns import materialize
 from ee.clickhouse.queries.funnels.funnel import ClickhouseFunnel
 from ee.clickhouse.queries.funnels.funnel_persons import ClickhouseFunnelActors
 from ee.clickhouse.queries.funnels.test.breakdown_cases import (
@@ -1084,6 +1083,7 @@ class TestClickhouseFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFu
             self._get_actor_ids_at_step(filter, 2), [person1.uuid, person3.uuid],
         )
 
+    @test_with_materialized_columns(["test_prop"])
     def test_funnel_with_denormalised_properties(self):
         filters = {
             "events": [
@@ -1101,8 +1101,6 @@ class TestClickhouseFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFu
             "date_to": "2020-01-14",
         }
 
-        materialize("events", "test_prop")
-
         filter = Filter(data=filters)
         funnel = ClickhouseFunnel(filter, self.team)
 
@@ -1119,7 +1117,6 @@ class TestClickhouseFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFu
             team=self.team, event="paid", distinct_id="user_1", timestamp="2020-01-10T14:00:00Z",
         )
 
-        self.assertNotIn("json", funnel.get_query().lower())
         result = funnel.run()
 
         self.assertEqual(result[0]["name"], "user signed up")
