@@ -268,6 +268,7 @@ export interface Plugin {
     config_schema: Record<string, PluginConfigSchema> | PluginConfigSchema[]
     tag?: string
     archive: Buffer | null
+    /* Joined "source" column from "posthog_pluginsourcefile" where filename="index.ts" */
     source?: string
     error?: PluginError
     from_json?: boolean
