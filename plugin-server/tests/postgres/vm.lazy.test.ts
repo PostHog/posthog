@@ -1,5 +1,3 @@
-import { mocked } from 'ts-jest/utils'
-
 import { PluginLogEntrySource, PluginLogEntryType, PluginTaskType } from '../../src/types'
 import { status } from '../../src/utils/status'
 import { LazyPluginVM } from '../../src/worker/vm/lazy'
@@ -57,7 +55,7 @@ describe('LazyPluginVM', () => {
 
     describe('VM creation succeeds', () => {
         beforeEach(() => {
-            mocked(createPluginConfigVM).mockReturnValue(mockVM as any)
+            jest.mocked(createPluginConfigVM).mockReturnValue(mockVM as any)
         })
 
         it('returns correct values for get methods', async () => {
@@ -102,7 +100,7 @@ describe('LazyPluginVM', () => {
         })
 
         it('returns empty values for get methods', async () => {
-            mocked(createPluginConfigVM).mockImplementation(() => {
+            jest.mocked(createPluginConfigVM).mockImplementation(() => {
                 throw error
             })
 
@@ -114,7 +112,7 @@ describe('LazyPluginVM', () => {
         })
 
         it('disables plugin if vm creation fails before setupPlugin', async () => {
-            mocked(createPluginConfigVM).mockImplementation(() => {
+            jest.mocked(createPluginConfigVM).mockImplementation(() => {
                 throw new Error('VM creation failed before setupPlugin')
             })
 
