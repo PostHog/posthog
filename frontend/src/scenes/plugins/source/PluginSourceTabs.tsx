@@ -1,6 +1,6 @@
 import React from 'react'
 import { useActions, useValues } from 'kea'
-import { pluginSourceLogic } from 'scenes/plugins/edit/pluginSourceLogic'
+import { pluginSourceLogic } from 'scenes/plugins/source/pluginSourceLogic'
 import { LemonButton } from 'lib/components/LemonButton'
 
 export function PluginSourceTabs(): JSX.Element {

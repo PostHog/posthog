@@ -294,7 +294,6 @@ class TestPluginAPI(APIBaseTest):
                     "bar": {"name": "What's in the bar?", "type": "string", "default": "baz", "required": False},
                 },
                 "tag": HELLO_WORLD_PLUGIN_GITHUB_ZIP[0],
-                "source": None,
                 "latest_tag": None,
                 "is_global": False,
                 "organization_id": response.json()["organization_id"],
@@ -330,7 +329,6 @@ class TestPluginAPI(APIBaseTest):
                     "bar": {"name": "What's in the bar?", "type": "string", "default": "baz", "required": False},
                 },
                 "tag": HELLO_WORLD_PLUGIN_GITHUB_ZIP[0],
-                "source": None,
                 "latest_tag": None,
                 "is_global": False,
                 "organization_id": response.json()["organization_id"],
@@ -367,7 +365,6 @@ class TestPluginAPI(APIBaseTest):
                     "foodb": {"name": "Upload your database", "type": "attachment", "required": False},
                 },
                 "tag": HELLO_WORLD_PLUGIN_GITHUB_ATTACHMENT_ZIP[0],
-                "source": None,
                 "latest_tag": None,
                 "is_global": False,
                 "organization_id": response2.json()["organization_id"],
@@ -463,39 +460,47 @@ class TestPluginAPI(APIBaseTest):
             )
             self.assertEqual(response.status_code, 201)
 
-    def test_create_plugin_source(self, mock_get, mock_reload):
+    def test_update_plugin_source(self, mock_get, mock_reload):
+        # Create the plugin
         self.assertEqual(mock_reload.call_count, 0)
         response = self.client.post(
-            "/api/organizations/@current/plugins/",
-            {"plugin_type": "source", "name": "myplugin", "source": "const processEvent = e => e",},
+            "/api/organizations/@current/plugins/", {"plugin_type": "source", "name": "myplugin_original",},
         )
-        self.assertEqual(response.status_code, 201)
-        self.assertEqual(
-            response.json(),
-            {
-                "id": response.json()["id"],
-                "plugin_type": "source",
-                "name": "myplugin",
-                "description": None,
-                "url": None,
-                "config_schema": {},
-                "tag": None,
-                "source": "const processEvent = e => e",
-                "latest_tag": None,
-                "is_global": False,
-                "organization_id": response.json()["organization_id"],
-                "organization_name": self.CONFIG_ORGANIZATION_NAME,
-                "capabilities": {},
-                "metrics": {},
-                "public_jobs": {},
-            },
-        )
-        self.assertEqual(Plugin.objects.count(), 1)
+        plugin_id = response.json()["id"]
         self.assertEqual(mock_reload.call_count, 1)
 
-        self.client.delete("/api/organizations/@current/plugins/{}".format(response.json()["id"]))
-        self.assertEqual(Plugin.objects.count(), 0)
+        # There is no actual source code stored yet
+        response = self.client.get(f"/api/organizations/@current/plugins/{plugin_id}/source")
+        self.assertEqual(response.json(), {})
+        self.assertEqual(Plugin.objects.get(pk=plugin_id).name, "myplugin_original")
+
+        # Create two files: index.ts and plugin.json
+        response = self.client.patch(
+            f"/api/organizations/@current/plugins/{plugin_id}/update_source",
+            data=json.dumps({"index.ts": "'hello world'", "plugin.json": '{"name":"my plugin"}'}),
+            content_type="application/json",
+        )
+        self.assertEqual(response.json(), {"index.ts": "'hello world'", "plugin.json": '{"name":"my plugin"}'})
+        self.assertEqual(Plugin.objects.get(pk=plugin_id).name, "my plugin")
         self.assertEqual(mock_reload.call_count, 2)
+
+        # Modifying just one file will not alter the other
+        response = self.client.patch(
+            f"/api/organizations/@current/plugins/{plugin_id}/update_source",
+            data=json.dumps({"index.ts": "'hello again'"}),
+            content_type="application/json",
+        )
+        self.assertEqual(response.json(), {"index.ts": "'hello again'", "plugin.json": '{"name":"my plugin"}'})
+        self.assertEqual(mock_reload.call_count, 3)
+
+        # Deleting a file by passing `None`
+        response = self.client.patch(
+            f"/api/organizations/@current/plugins/{plugin_id}/update_source",
+            data=json.dumps({"index.ts": None}),
+            content_type="application/json",
+        )
+        self.assertEqual(response.json(), {"plugin.json": '{"name":"my plugin"}'})
+        self.assertEqual(mock_reload.call_count, 4)
 
     def test_plugin_repository(self, mock_get, mock_reload):
         response = self.client.get("/api/organizations/@current/plugins/repository/")

@@ -1,4 +1,3 @@
-import datetime as dt
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import (
@@ -14,6 +13,8 @@ from typing import (
 )
 from urllib.parse import urlparse
 from uuid import UUID
+
+from django.utils import timezone
 
 from posthog.models.utils import UUIDT
 
@@ -38,7 +39,7 @@ class SimEvent:
 
     event: str
     properties: Properties
-    timestamp: dt.datetime
+    timestamp: timezone.datetime
 
     def __str__(self) -> str:
         display = f"{self.timestamp} - {self.event} # {self.properties['$distinct_id']}"
@@ -75,7 +76,7 @@ class SimWebClient:
 class SimPerson(ABC):
     """A simulation agent, representing an individual person."""
 
-    _simulation_time: dt.datetime  # Current simulation time, populated by running .simulate()
+    _simulation_time: timezone.datetime  # Current simulation time, populated by running .simulate()
     _active_client: SimWebClient  # Client used by person, populated by running .simulate()
     _super_properties: Properties
     _end_pageview: Optional[Callable[[], None]]
@@ -85,7 +86,7 @@ class SimPerson(ABC):
     properties: Properties
 
     events: List[SimEvent]
-    scheduled_effects: Deque[Tuple[dt.datetime, Effect]]
+    scheduled_effects: Deque[Tuple[timezone.datetime, Effect]]
 
     kernel: bool  # Whether this person is the cluster kernel. Kernels are the most likely to become users
     cluster: "Cluster"
@@ -144,11 +145,11 @@ class SimPerson(ABC):
         for neighbor in self.cluster._list_neighbors(self.x, self.y):
             neighbor.schedule_effect(self._simulation_time, effect)
 
-    def schedule_effect(self, timestamp: dt.datetime, effect: Effect):
+    def schedule_effect(self, timestamp: timezone.datetime, effect: Effect):
         self.scheduled_effects.append((timestamp, effect))
 
     def _advance_timer(self, seconds: float):
-        self._simulation_time += dt.timedelta(seconds=seconds)
+        self._simulation_time += timezone.timedelta(seconds=seconds)
 
     def _capture(
         self,
