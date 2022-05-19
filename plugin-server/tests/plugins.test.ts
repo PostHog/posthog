@@ -499,6 +499,7 @@ describe('plugins', () => {
             }
         `
         }
+
         getPluginRows.mockReturnValueOnce([
             { ...plugin60, id: 60, plugin_type: 'source', archive: null, source: setOrderCode(60) },
             { ...plugin60, id: 61, plugin_type: 'source', archive: null, source: setOrderCode(61) },
@@ -615,6 +616,7 @@ describe('plugins', () => {
         function onSnapshot (event, meta) { return event }
     `
         getPluginRows.mockReturnValueOnce([mockPluginSourceCode(source_code)])
+
         getPluginConfigRows.mockReturnValueOnce([pluginConfig39])
         getPluginAttachmentRows.mockReturnValueOnce([pluginAttachment1])
 
