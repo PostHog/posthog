@@ -1,113 +1,108 @@
 import Piscina from '@posthog/piscina'
-import * as IORedis from 'ioredis'
+import IORedis from 'ioredis'
 
-import { ONE_HOUR } from '../../src/config/constants'
-import { startPluginsServer } from '../../src/main/pluginsServer'
-import { AlertLevel, LogLevel, Service } from '../../src/types'
-import { Hub } from '../../src/types'
-import { Client } from '../../src/utils/celery/client'
-import { delay, UUIDT } from '../../src/utils/utils'
-import { makePiscina } from '../../src/worker/piscina'
-import { createPosthog, DummyPostHog } from '../../src/worker/vm/extensions/posthog'
-import { writeToFile } from '../../src/worker/vm/extensions/test-utils'
-import { delayUntilEventIngested } from '../helpers/clickhouse'
-import { pluginConfig39 } from '../helpers/plugins'
-import { resetTestDatabase } from '../helpers/sql'
+import { ONE_HOUR } from '../src/config/constants'
+import { KAFKA_EVENTS_PLUGIN_INGESTION } from '../src/config/kafka-topics'
+import { startPluginsServer } from '../src/main/pluginsServer'
+import { AlertLevel, LogLevel, PluginsServerConfig, Service } from '../src/types'
+import { Hub } from '../src/types'
+import { Client } from '../src/utils/celery/client'
+import { delay, UUIDT } from '../src/utils/utils'
+import { makePiscina } from '../src/worker/piscina'
+import { createPosthog, DummyPostHog } from '../src/worker/vm/extensions/posthog'
+import { writeToFile } from '../src/worker/vm/extensions/test-utils'
+import { delayUntilEventIngested, resetTestDatabaseClickhouse } from './helpers/clickhouse'
+import { resetKafka } from './helpers/kafka'
+import { pluginConfig39 } from './helpers/plugins'
+import { resetTestDatabase } from './helpers/sql'
 
 const { console: testConsole } = writeToFile
-const HISTORICAL_EVENTS_COUNTER_CACHE_KEY = '@plugin/60/2/historical_events_seen'
 
-jest.mock('../../src/utils/status')
+jest.mock('../src/utils/status')
 jest.setTimeout(60000) // 60 sec timeout
 
+const extraServerConfig: Partial<PluginsServerConfig> = {
+    WORKER_CONCURRENCY: 2,
+    KAFKA_CONSUMPTION_TOPIC: KAFKA_EVENTS_PLUGIN_INGESTION,
+    LOG_LEVEL: LogLevel.Log,
+    CELERY_DEFAULT_QUEUE: 'test-celery-default-queue',
+}
+
 const indexJs = `
-    import { console as testConsole } from 'test-utils/write-to-file'
+import { console as testConsole } from 'test-utils/write-to-file'
 
-    export async function processEvent (event) {
-        testConsole.log('processEvent')
-        console.info('amogus')
-        event.properties.processed = 'hell yes'
-        event.properties.upperUuid = event.properties.uuid?.toUpperCase()
-        event.properties['$snapshot_data'] = 'no way'
-        const counter = await meta.cache.get('events_seen')
-        return event
+export async function processEvent (event) {
+    testConsole.log('processEvent')
+    console.info('amogus')
+    event.properties.processed = 'hell yes'
+    event.properties.upperUuid = event.properties.uuid?.toUpperCase()
+    event.properties['$snapshot_data'] = 'no way'
+    return event
+}
+
+export function onEvent (event, { global }) {
+    // we use this to mock setupPlugin being
+    // run after some events were already ingested
+    global.timestampBoundariesForTeam = {
+        max: new Date(),
+        min: new Date(Date.now()-${ONE_HOUR})
     }
+    testConsole.log('onEvent', event.event)
+}
 
-    export function onEvent (event, { global }) {
-        // we use this to mock setupPlugin being
-        // run after some events were already ingested
-        global.timestampBoundariesForTeam = {
-            max: new Date(),
-            min: new Date(Date.now()-${ONE_HOUR})
+export function onSnapshot (event) {
+    testConsole.log('onSnapshot', event.event)
+}
+
+
+export async function exportEvents(events) {
+    for (const event of events) {
+        if (event.properties && event.properties['$$is_historical_export_event']) {
+            testConsole.log('exported historical event', event)
         }
-        testConsole.log('onEvent', event.event)
     }
+}
 
-    export function onSnapshot (event) {
-        testConsole.log('onSnapshot', event.event)
-    }
+export async function onAction(action, event) {
+    testConsole.log('onAction', action, event)
+}
 
-    export async function exportEvents(events) {
-        for (const event of events) {
-            if (event.properties && event.properties['$$is_historical_export_event']) {
-                testConsole.log('exported historical event', event)
-            }
-        }
-    }
+export async function handleAlert(alert) {
+    testConsole.log('handleAlert', alert)
+}
 
-    export async function onAction(action, event) {
-        testConsole.log('onAction', action, event)
-    }
-
-    export async function handleAlert(alert) {
-        testConsole.log('handleAlert', alert)
-    }
-
-    export async function runEveryMinute() {}
+export async function runEveryMinute() {}
 `
 
-// TODO: merge these tests with clickhouse/e2e.test.ts
 describe('e2e', () => {
     let hub: Hub
-    let closeHub: () => Promise<void>
+    let stopServer: () => Promise<void>
     let posthog: DummyPostHog
-    let redis: IORedis.Redis
     let piscina: Piscina
+    let redis: IORedis.Redis
+
+    beforeAll(async () => {
+        await resetKafka(extraServerConfig)
+    })
 
     beforeEach(async () => {
         testConsole.reset()
-        console.debug = jest.fn()
-
         await resetTestDatabase(indexJs)
-        const startResponse = await startPluginsServer(
-            {
-                WORKER_CONCURRENCY: 2,
-                PLUGINS_CELERY_QUEUE: 'test-plugins-celery-queue',
-                CELERY_DEFAULT_QUEUE: 'test-celery-default-queue',
-                LOG_LEVEL: LogLevel.Log,
-                KAFKA_ENABLED: false,
-            },
-            makePiscina
-        )
+        await resetTestDatabaseClickhouse(extraServerConfig)
+        const startResponse = await startPluginsServer(extraServerConfig, makePiscina)
         hub = startResponse.hub
-        closeHub = startResponse.stop
         piscina = startResponse.piscina
-
+        stopServer = startResponse.stop
         redis = await hub.redisPool.acquire()
-
-        await redis.del(hub.PLUGINS_CELERY_QUEUE)
-        await redis.del(hub.CELERY_DEFAULT_QUEUE)
-        await redis.del(HISTORICAL_EVENTS_COUNTER_CACHE_KEY)
-
         posthog = createPosthog(hub, pluginConfig39)
     })
 
     afterEach(async () => {
         await hub.redisPool.release(redis)
-        await closeHub()
+        await stopServer()
     })
 
-    describe('e2e postgres ingestion', () => {
+    describe('e2e clickhouse ingestion', () => {
         test('event captured, processed, ingested', async () => {
             expect((await hub.db.fetchEvents()).length).toBe(0)
 
@@ -117,6 +112,7 @@ describe('e2e', () => {
 
             await delayUntilEventIngested(() => hub.db.fetchEvents())
 
+            await hub.kafkaProducer?.flush()
             const events = await hub.db.fetchEvents()
             await delay(1000)
 
@@ -137,6 +133,7 @@ describe('e2e', () => {
 
             await delayUntilEventIngested(() => hub.db.fetchSessionRecordingEvents())
 
+            await hub.kafkaProducer?.flush()
             const events = await hub.db.fetchSessionRecordingEvents()
             await delay(1000)
 
@@ -155,9 +152,12 @@ describe('e2e', () => {
 
             await posthog.capture('custom event', { name: 'hehe', uuid: new UUIDT().toString() })
 
-            await delayUntilEventIngested(async () =>
-                (await getLogsSinceStart()).filter(({ message }) => message.includes('amogus'))
-            )
+            await hub.kafkaProducer?.flush()
+            await delayUntilEventIngested(() => hub.db.fetchEvents())
+            await delayUntilEventIngested(() => hub.db.fetchPluginLogEntries())
+
+            await delay(2000)
+
             const pluginLogEntries = await getLogsSinceStart()
             expect(
                 pluginLogEntries.filter(({ message, type }) => message.includes('amogus') && type === 'INFO').length
@@ -236,6 +236,7 @@ describe('e2e', () => {
         })
     })
 
+    // TODO: we should enable this test again - they are enabled on self-hosted
     // historical exports are currently disabled
     describe.skip('e2e export historical events', () => {
         const awaitHistoricalEventLogs = async () =>
@@ -243,7 +244,7 @@ describe('e2e', () => {
                 resolve(testConsole.read().filter((log) => log[0] === 'exported historical event'))
             })
 
-        test('export historical events without payload timestamps', async () => {
+        test('export historical events', async () => {
             await posthog.capture('historicalEvent1')
             await posthog.capture('historicalEvent2')
             await posthog.capture('historicalEvent3')
@@ -280,7 +281,7 @@ describe('e2e', () => {
             const client = new Client(hub.db, hub.PLUGINS_CELERY_QUEUE)
             client.sendTask('posthog.tasks.plugins.plugin_job', args, {})
 
-            await delayUntilEventIngested(awaitHistoricalEventLogs, 4, 1000)
+            await delayUntilEventIngested(awaitHistoricalEventLogs, 4, 1000, 50)
 
             const exportLogs = testConsole.read().filter((log) => log[0] === 'exported historical event')
             const exportedEventsCountAfterJob = exportLogs.length
@@ -292,14 +293,13 @@ describe('e2e', () => {
             )
             expect(Object.keys(exportedEvents[0].properties)).toEqual(
                 expect.arrayContaining([
-                    '$$postgres_event_id',
                     '$$historical_export_source_db',
                     '$$is_historical_export_event',
                     '$$historical_export_timestamp',
                 ])
             )
 
-            expect(exportedEvents[0].properties['$$historical_export_source_db']).toEqual('postgres')
+            expect(exportedEvents[0].properties['$$historical_export_source_db']).toEqual('clickhouse')
         })
 
         test('export historical events with specified timestamp boundaries', async () => {
@@ -347,14 +347,13 @@ describe('e2e', () => {
             )
             expect(Object.keys(exportedEvents[0].properties)).toEqual(
                 expect.arrayContaining([
-                    '$$postgres_event_id',
                     '$$historical_export_source_db',
                     '$$is_historical_export_event',
                     '$$historical_export_timestamp',
                 ])
             )
 
-            expect(exportedEvents[0].properties['$$historical_export_source_db']).toEqual('postgres')
+            expect(exportedEvents[0].properties['$$historical_export_source_db']).toEqual('clickhouse')
         })
 
         test('correct $elements included in historical event', async () => {
@@ -397,7 +396,6 @@ describe('e2e', () => {
 
             expect(Object.keys(exportedEvents[0].properties)).toEqual(
                 expect.arrayContaining([
-                    '$$postgres_event_id',
                     '$$historical_export_source_db',
                     '$$is_historical_export_event',
                     '$$historical_export_timestamp',
@@ -410,9 +408,10 @@ describe('e2e', () => {
                     attributes: { attr__class: 'btn btn-sm' },
                     nth_child: 1,
                     nth_of_type: 2,
+                    order: 0,
                     tag_name: 'a',
                 },
-                { $el_text: '💻', attributes: {}, nth_child: 1, nth_of_type: 2, tag_name: 'div', text: '💻' },
+                { $el_text: '💻', attributes: {}, nth_child: 1, nth_of_type: 2, order: 1, tag_name: 'div', text: '💻' },
             ])
         })
     })
