@@ -28,7 +28,7 @@ export async function loadPlugin(server: Hub, pluginConfig: PluginConfig): Promi
         } else if (plugin.plugin_type === 'source') {
             getFile = async (file) => {
                 if (file === 'index.ts' && plugin.source) {
-                    return file
+                    return plugin.source
                 }
                 return await server.db.getPluginSource(plugin.id, file)
             }
