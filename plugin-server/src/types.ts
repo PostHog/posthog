@@ -152,9 +152,9 @@ export interface Hub extends PluginsServerConfig {
     db: DB
     postgres: Pool
     redisPool: GenericPool<Redis>
-    clickhouse?: ClickHouse
-    kafka?: Kafka
-    kafkaProducer?: KafkaProducerWrapper
+    clickhouse: ClickHouse
+    kafka: Kafka
+    kafkaProducer: KafkaProducerWrapper
     // metrics
     statsd?: StatsD
     internalMetrics?: InternalMetrics
