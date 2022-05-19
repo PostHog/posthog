@@ -1,4 +1,5 @@
 import json
+from datetime import datetime
 from typing import (
     Any,
     Callable,
@@ -38,6 +39,7 @@ from ee.clickhouse.queries.retention.clickhouse_retention import ClickhouseReten
 from ee.clickhouse.queries.stickiness.clickhouse_stickiness import ClickhouseStickiness
 from ee.clickhouse.queries.trends.lifecycle import ClickhouseLifecycle
 from ee.clickhouse.sql.person import GET_PERSON_PROPERTIES_COUNT
+from posthog.api.capture import capture_internal
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.utils import format_paginated_url, get_target_entity
 from posthog.client import sync_execute
@@ -101,6 +103,26 @@ class PersonSerializer(serializers.HyperlinkedModelSerializer):
             "created_at",
             "uuid",
         ]
+        read_only_fields = ("id", "distinct_ids", "created_at", "uuid")
+
+    def update(self, instance: Person, validated_data: Dict):
+        # :KLUDGE: Keep clickhouse in sync with any property updates.
+        # Note we don't update the person model here as plugin-server is responsible for that.
+        capture_internal(
+            distinct_id=instance.distinct_ids[0],
+            ip=None,
+            site_url=None,
+            team_id=instance.team_id,
+            now=datetime.now(),
+            sent_at=None,
+            event={
+                "event": "$set",
+                "properties": {"$set": validated_data["properties"]},
+                "distinct_id": instance.distinct_ids[0],
+                "timestamp": datetime.now().isoformat(),
+            },
+        )
+        return instance
 
     def get_name(self, person: Person) -> str:
         return get_person_name(person)
