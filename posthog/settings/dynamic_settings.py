@@ -33,6 +33,11 @@ CONSTANCE_CONFIG = {
         "Whether cohort calculations should use the new query or the old query.",
         str,
     ),
+    "ENABLE_ACTOR_ON_EVENTS_TEAMS": (
+        get_from_env("ENABLE_ACTOR_ON_EVENTS_TEAMS", ""),
+        "Whether to use query path using person_id, person_properties, and group_properties on events or the old query",
+        str,
+    ),
     "AUTO_START_ASYNC_MIGRATIONS": (
         get_from_env("AUTO_START_ASYNC_MIGRATIONS", False, type_cast=str_to_bool),
         "Whether the earliest unapplied async migration should be triggered automatically on server startup.",

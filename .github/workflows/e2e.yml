@@ -95,6 +95,7 @@ jobs:
             - name: Install python dependencies
               if: steps.cache-virtualenv.outputs.cache-hit != 'true'
               run: |
+                  python -m pip install --upgrade pip
                   python -m pip install -r requirements.txt --no-cache-dir --compile
             - uses: actions/setup-node@v1
               with:
