@@ -1685,6 +1685,33 @@ export class DB {
         return result
     }
 
+    public async fetchConstanceSetting<Type>(key: string): Promise<Type | null> {
+        const result = await this.postgresQuery<{ raw_value: string }>(
+            `SELECT raw_value FROM posthog_constance WHERE key = $1`,
+            [key],
+            'fetchConstanceSetting'
+        )
+
+        if (result.rows.length > 0) {
+            const value = JSON.parse(result.rows[0].raw_value)
+            return value
+        } else {
+            return null
+        }
+    }
+
+    public async upsertConstanceSetting(key: string, value: string | number | boolean): Promise<void> {
+        await this.postgresQuery(
+            `
+                INSERT INTO posthog_grouptypemapping (key, raw_value)
+                VALUES ($1, $2)
+                ON CONFLICT DO UPDATE SET raw_value = EXCLUDED.raw_value
+            `,
+            [key, JSON.stringify(value)],
+            'upsertConstanceSetting'
+        )
+    }
+
     public async insertGroupType(
         teamId: TeamId,
         groupType: string,

@@ -16,6 +16,7 @@ import { JobQueueManager } from 'main/job-queues/job-queue-manager'
 import { Job } from 'node-schedule'
 import { Pool } from 'pg'
 import { VM } from 'vm2'
+import { SiteUrlManager } from 'worker/ingestion/site-url-manager'
 
 import { ObjectStorage } from './main/services/object_storage'
 import { DB } from './utils/db/db'
@@ -187,6 +188,7 @@ export interface Hub extends PluginsServerConfig {
     hookCannon: HookCommander
     eventsProcessor: EventsProcessor
     jobQueueManager: JobQueueManager
+    siteUrlManager: SiteUrlManager
     // diagnostics
     lastActivity: number
     lastActivityType: string
