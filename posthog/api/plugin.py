@@ -245,11 +245,11 @@ class PluginViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         # Update values from plugin.json, if one exists
         if response.get("plugin.json"):
             plugin_json = json.loads(response["plugin.json"])
-            if plugin_json.get("name") != plugin.name:
+            if "name" in plugin_json and plugin_json["name"] != plugin.name:
                 plugin.name = plugin_json.get("name")
                 performed_changes = True
-            if json.dumps(plugin_json.get("config")) != json.dumps(plugin.config_schema):
-                plugin.config_schema = plugin_json.get("config")
+            if "config" in plugin_json and json.dumps(plugin_json["config"]) != json.dumps(plugin.config_schema):
+                plugin.config_schema = plugin_json["config"]
                 performed_changes = True
 
         # TODO: Truly deprecate this old field. Keeping the sync just in case for now.
