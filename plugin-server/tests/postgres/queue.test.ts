@@ -25,6 +25,7 @@ async function createTestHub(): Promise<[Hub, () => Promise<void>]> {
         PLUGINS_CELERY_QUEUE: 'ttt-test-plugins-celery-queue',
         CELERY_DEFAULT_QUEUE: 'ttt-test-celery-default-queue',
         LOG_LEVEL: LogLevel.Log,
+        KAFKA_ENABLED: false,
     })
 
     const redis = await hub.redisPool.acquire()
