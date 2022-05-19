@@ -885,8 +885,8 @@ class TestPluginAPI(APIBaseTest):
         plugin_config = PluginConfig.objects.get(plugin=plugin_id)
         self.assertEqual(plugin_config.config, {"bar": "a new very secret value"})
 
-    @patch("posthog.api.plugin.celery_app.send_task")
-    def test_wat(self, patch_celery_that_doesnt_exist, mock_get, mock_reload):
+    @patch("posthog.api.plugin.connection")
+    def test_job_trigger(self, db_connection, mock_get, mock_reload):
         response = self.client.post(
             "/api/organizations/@current/plugins/", {"url": "https://github.com/PostHog/helloworldplugin"}
         )
@@ -902,30 +902,9 @@ class TestPluginAPI(APIBaseTest):
             {"job": {"type": "myJob", "payload": {"a": 1}, "operation": "stop"}},
             format="json",
         )
-
-        self.assertEqual(patch_celery_that_doesnt_exist.call_count, 1)
-
-    @patch("posthog.api.plugin.execute_postgres")
-    def test_job_trigger(self, execute_postgres, mock_get, mock_reload):
-        response = self.client.post(
-            "/api/organizations/@current/plugins/", {"url": "https://github.com/PostHog/helloworldplugin"}
-        )
-        plugin_id = response.json()["id"]
-        response = self.client.post(
-            "/api/plugin_config/",
-            {"plugin": plugin_id, "enabled": True, "order": 0, "config": json.dumps({"bar": "moop"})},
-            format="multipart",
-        )
-        plugin_config_id = response.json()["id"]
-        with self.settings(DEBUG=1):
-            response = self.client.post(
-                f"/api/plugin_config/{plugin_config_id}/job",
-                {"job": {"type": "myJob", "payload": {"a": 1}, "operation": "stop"}},
-                format="json",
-            )
-            print(response.content)
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(execute_postgres.call_count, 1)
+        execute_fn = db_connection.cursor().__enter__().execute
+        self.assertEqual(execute_fn.call_count, 1)
         expected_sql = "SELECT graphile_worker.add_job('pluginJob', %s)"
         expected_params = [
             (
@@ -934,7 +913,7 @@ class TestPluginAPI(APIBaseTest):
                 "}"
             )
         ]
-        execute_postgres.assert_called_with(expected_sql, expected_params)
+        execute_fn.assert_called_with(expected_sql, expected_params)
 
     def test_check_for_updates_plugins_reload_not_called(self, _, mock_reload):
         response = self.client.post(
