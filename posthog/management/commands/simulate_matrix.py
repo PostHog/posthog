@@ -1,6 +1,7 @@
 from time import time
 
 from django.core.management.base import BaseCommand
+from django.db import transaction
 from django.utils import timezone
 
 from posthog.demo.hedgebox import HedgeboxMatrix
@@ -80,6 +81,9 @@ class Command(BaseCommand):
             f"for a total of {total_event_count} event{'' if total_event_count == 1 else 's'}."
         )
         if email := options["save_as"]:
-            MatrixManager.ensure_account_and_run(
-                matrix, email, "Employee 427", "Hedgebox Inc.", password="12345678", disallow_collision=True
-            )
+            print(f"Saving as {email}…")
+            with transaction.atomic():
+                MatrixManager.ensure_account_and_run(
+                    matrix, email, "Employee 427", "Hedgebox Inc.", password="12345678", disallow_collision=True
+                )
+            print(f"{email} is ready!")
