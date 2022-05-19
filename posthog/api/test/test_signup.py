@@ -13,9 +13,9 @@ from rest_framework import status
 
 from posthog.constants import AvailableFeature
 from posthog.models import Dashboard, Organization, Team, User
+from posthog.models.constance import override_constance_config
 from posthog.models.organization import OrganizationInvite, OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
-from posthog.models.constance import override_constance_config
 from posthog.test.base import APIBaseTest
 from posthog.utils import get_instance_realm
 
@@ -800,7 +800,8 @@ class TestInviteSignup(APIBaseTest):
 
             with self.settings(EMAIL_ENABLED=True, SITE_URL="http://test.posthog.com"):
                 response = self.client.post(
-                    f"/api/signup/{invite.id}/", {"first_name": "Alice", "password": "test_password", "email_opt_in": True},
+                    f"/api/signup/{invite.id}/",
+                    {"first_name": "Alice", "password": "test_password", "email_opt_in": True},
                 )
 
             self.assertEqual(response.status_code, status.HTTP_201_CREATED)
