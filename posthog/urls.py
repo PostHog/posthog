@@ -22,7 +22,7 @@ from posthog.api import (
     user,
 )
 from posthog.api.decide import hostname_in_app_urls
-from posthog.demo import demo
+from posthog.demo import demo_route
 from posthog.models import User
 
 from .utils import render_template
@@ -117,7 +117,7 @@ urlpatterns = [
     re_path(r"^api.+", api_not_found),
     path("authorize_and_redirect/", login_required(authorize_and_redirect)),
     path("shared_dashboard/<str:share_token>", dashboard.shared_dashboard),
-    re_path(r"^demo.*", login_required(demo)),
+    re_path(r"^demo.*", login_required(demo_route)),
     # ingestion
     opt_slash_path("decide", decide.get_decide),
     opt_slash_path("e", capture.get_event),

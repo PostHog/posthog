@@ -8,6 +8,7 @@ import { insightsModel } from '~/models/insightsModel'
 import { DashboardPrivilegeLevel, FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import {
+    AnyPropertyFilter,
     Breadcrumb,
     ChartDisplayType,
     DashboardLayoutSize,
@@ -92,6 +93,7 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
             dateTo,
             reloadDashboard,
         }),
+        setProperties: (properties: AnyPropertyFilter[]) => ({ properties }),
         setAutoRefresh: (enabled: boolean, interval: number) => ({ enabled, interval }),
         setRefreshStatus: (shortId: InsightShortId, loading = false) => ({ shortId, loading }),
         setRefreshStatuses: (shortIds: InsightShortId[], loading = false) => ({ shortIds, loading }),
@@ -154,6 +156,10 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
                     ...state,
                     date_from: dateFrom || null,
                     date_to: dateTo || null,
+                }),
+                setProperties: (state, { properties }) => ({
+                    ...state,
+                    properties: properties || null,
                 }),
             },
         ],
@@ -678,6 +684,10 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
                 actions.updateAndRefreshDashboard()
             }
             eventUsageLogic.actions.reportDashboardDateRangeChanged(dateFrom, dateTo)
+        },
+        setProperties: () => {
+            actions.updateAndRefreshDashboard()
+            eventUsageLogic.actions.reportDashboardPropertiesChanged()
         },
         setDashboardMode: async ({ mode, source }) => {
             // Edit mode special handling

@@ -1,12 +1,11 @@
 import { PluginEvent } from '@posthog/plugin-scaffold/src/types'
 
-import { Hub, LogLevel, PluginsServerConfig, Team, TimestampFormat } from '../../src/types'
+import { Hub, LogLevel, PluginsServerConfig } from '../../src/types'
 import { createHub } from '../../src/utils/db/hub'
 import { UUIDT } from '../../src/utils/utils'
 import { generateEventDeadLetterQueueMessage } from '../../src/worker/ingestion/utils'
-import { resetTestDatabaseClickhouse } from '../helpers/clickhouse'
+import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../helpers/clickhouse'
 import { resetTestDatabase } from '../helpers/sql'
-import { delayUntilEventIngested } from '../shared/process-event'
 import { workerTasks } from './../../src/worker/tasks'
 
 const extraServerConfig: Partial<PluginsServerConfig> = {

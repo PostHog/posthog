@@ -1,7 +1,9 @@
 import ClickHouse from '@posthog/clickhouse'
+import { performance } from 'perf_hooks'
 
 import { defaultConfig } from '../../src/config/config'
 import { PluginsServerConfig } from '../../src/types'
+import { delay } from '../../src/utils/utils'
 
 export async function resetTestDatabaseClickhouse(extraServerConfig: Partial<PluginsServerConfig>): Promise<void> {
     const config = { ...defaultConfig, ...extraServerConfig }
@@ -25,4 +27,28 @@ export async function resetTestDatabaseClickhouse(extraServerConfig: Partial<Plu
         clickhouse.querying('TRUNCATE events_dead_letter_queue'),
         clickhouse.querying('TRUNCATE groups'),
     ])
+}
+
+export async function delayUntilEventIngested(
+    fetchEvents: () => Promise<any[] | any>,
+    minCount = 1,
+    delayMs = 100,
+    maxDelayCount = 100,
+    debug = false
+): Promise<void> {
+    const timer = performance.now()
+    for (let i = 0; i < maxDelayCount; i++) {
+        const events = await fetchEvents()
+        if (debug) {
+            console.log(
+                `Waiting. ${Math.round((performance.now() - timer) / 100) / 10}s since the start. ${
+                    typeof events === 'number' ? events : events.length
+                } events.`
+            )
+        }
+        if ((typeof events === 'number' ? events : events.length) >= minCount) {
+            return
+        }
+        await delay(delayMs)
+    }
 }

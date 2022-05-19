@@ -42,6 +42,7 @@ export enum AvailableFeature {
     MULTIVARIATE_FLAGS = 'multivariate_flags',
     EXPERIMENTATION = 'experimentation',
     TAGGING = 'tagging',
+    BEHAVIORAL_COHORT_FILTERING = 'behavioral_cohort_filtering',
 }
 
 export enum LicensePlan {
@@ -1164,6 +1165,7 @@ export interface FunnelStep {
     // The type returned from the API.
     action_id: string
     average_conversion_time: number | null
+    median_conversion_time: number | null
     count: number
     name: string
     custom_name?: string
