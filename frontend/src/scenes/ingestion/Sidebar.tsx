@@ -4,10 +4,12 @@ import { ingestionLogic } from './ingestionLogic'
 import { useActions, useValues } from 'kea'
 import './IngestionWizard.scss'
 import { InviteMembersButton, SitePopover } from '~/layout/navigation/TopBar/SitePopover'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 export function Sidebar(): JSX.Element {
     const { currentIndex, platform } = useValues(ingestionLogic)
     const { setVerify, setPlatform } = useActions(ingestionLogic)
+    const { reportIngestionHelpClicked } = useActions(eventUsageLogic)
 
     return (
         <div
@@ -54,8 +56,23 @@ export function Sidebar(): JSX.Element {
                     <InviteMembersButton />
                     <div className="sidebar-help">
                         <SitePopover />
-                        <a style={{ marginBottom: '1.5em', marginTop: '1.5em' }}>Get support on Slack</a>
-                        <a>Read our documentation</a>
+                        <a
+                            style={{ marginBottom: '1.5em', marginTop: '1.5em' }}
+                            data-attr="support-slack-help"
+                            href="https://posthog.com/slack"
+                            target="_blank"
+                            onClick={() => reportIngestionHelpClicked('support')}
+                        >
+                            Get support on Slack
+                        </a>
+                        <a
+                            data-attr="ingestion-docs-help"
+                            href="https://posthog.com/docs/integrate/ingest-live-data"
+                            target="_blank"
+                            onClick={() => reportIngestionHelpClicked('documentation')}
+                        >
+                            Read our documentation
+                        </a>
                     </div>
                 </div>
             </div>
