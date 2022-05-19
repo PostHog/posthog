@@ -4,7 +4,7 @@ set -e
 
 # Check Kafka
 while true; do
-nc -z localhost 9092 && break || docker ps -a -f name=kafka --format 'Checking Kafka status...\n {{.Names}} {{.Image}} {{ .Status }}' && sleep 1
+nc -z localhost 9092 && break || docker ps -a --format 'Checking Kafka status...\n {{.Names}} {{.Image}} {{ .Status }}' && sleep 1
 done
 
 # Check ClickHouse
