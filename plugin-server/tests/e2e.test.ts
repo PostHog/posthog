@@ -25,7 +25,6 @@ const extraServerConfig: Partial<PluginsServerConfig> = {
     WORKER_CONCURRENCY: 2,
     KAFKA_CONSUMPTION_TOPIC: KAFKA_EVENTS_PLUGIN_INGESTION,
     LOG_LEVEL: LogLevel.Log,
-    CELERY_DEFAULT_QUEUE: 'test-celery-default-queue',
 }
 
 const indexJs = `
