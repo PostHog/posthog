@@ -176,14 +176,14 @@ export const ingestionLogic = kea<ingestionLogicType>([
                 platform === 'mobile'
                     ? MOBILE
                     : platform === 'web'
-                        ? WEB
-                        : platform === 'backend'
-                            ? BACKEND
-                            : platform === 'just-exploring'
-                                ? BOOKMARKLET
-                                : platform === 'third-party'
-                                    ? THIRD_PARTY
-                                    : null,
+                    ? WEB
+                    : platform === 'backend'
+                    ? BACKEND
+                    : platform === 'just-exploring'
+                    ? BOOKMARKLET
+                    : platform === 'third-party'
+                    ? THIRD_PARTY
+                    : null,
                 framework,
                 true
             )
@@ -200,14 +200,14 @@ export const ingestionLogic = kea<ingestionLogicType>([
                 platform === 'mobile'
                     ? MOBILE
                     : platform === 'web'
-                        ? WEB
-                        : platform === 'backend'
-                            ? BACKEND
-                            : platform === 'just-exploring'
-                                ? BOOKMARKLET
-                                : platform === 'third-party'
-                                    ? THIRD_PARTY
-                                    : null,
+                    ? WEB
+                    : platform === 'backend'
+                    ? BACKEND
+                    : platform === 'just-exploring'
+                    ? BOOKMARKLET
+                    : platform === 'third-party'
+                    ? THIRD_PARTY
+                    : null,
                 framework as Framework,
                 false
             )
@@ -245,14 +245,14 @@ function getUrl(values: ingestionLogicType['values']): string | [string, Record<
                     platform === WEB
                         ? 'web'
                         : platform === MOBILE
-                            ? 'mobile'
-                            : platform === BACKEND
-                                ? 'backend'
-                                : platform === BOOKMARKLET
-                                    ? 'just-exploring'
-                                    : platform === THIRD_PARTY
-                                        ? 'third-party'
-                                        : undefined,
+                        ? 'mobile'
+                        : platform === BACKEND
+                        ? 'backend'
+                        : platform === BOOKMARKLET
+                        ? 'just-exploring'
+                        : platform === THIRD_PARTY
+                        ? 'third-party'
+                        : undefined,
                 framework: framework?.toLowerCase() || undefined,
             },
         ]
@@ -267,10 +267,10 @@ function getUrl(values: ingestionLogicType['values']): string | [string, Record<
                     platform === WEB
                         ? 'web'
                         : platform === MOBILE
-                            ? 'mobile'
-                            : platform === BACKEND
-                                ? 'backend'
-                                : undefined,
+                        ? 'mobile'
+                        : platform === BACKEND
+                        ? 'backend'
+                        : undefined,
             },
         ]
     }
