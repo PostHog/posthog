@@ -1,4 +1,5 @@
 import json
+from datetime import datetime
 from typing import (
     Any,
     Callable,
@@ -38,6 +39,7 @@ from ee.clickhouse.queries.retention.clickhouse_retention import ClickhouseReten
 from ee.clickhouse.queries.stickiness.clickhouse_stickiness import ClickhouseStickiness
 from ee.clickhouse.queries.trends.lifecycle import ClickhouseLifecycle
 from ee.clickhouse.sql.person import GET_PERSON_PROPERTIES_COUNT
+from posthog.api.capture import capture_internal
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.utils import format_paginated_url, get_target_entity
 from posthog.client import sync_execute
@@ -478,6 +480,43 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         )
 
         return response.Response({"success": True}, status=201)
+
+    @action(methods=["POST"], detail=False)
+    def update_property(self, request: request.Request) -> response.Response:
+        distinct_id = request.data.get("main_distinct_id", None)
+
+        if not distinct_id:
+            return response.Response(
+                {"message": "Distinct ID missing", "detail": "Request requires main_distinct_id to be set"}, status=400
+            )
+
+        key = request.data.get("key", None)
+
+        if not key:
+            return response.Response(
+                {"message": "Property key missing", "detail": "You must specify a property key to add/update."},
+                status=400,
+            )
+
+        value = request.data.get("new_value", None)
+
+        event_data = {
+            "event": "$set",
+            "properties": {"$set": {key: value}},
+            "distinct_id": distinct_id,
+            "timestamp": datetime.now().isoformat(),
+        }
+
+        capture_internal(
+            distinct_id=distinct_id,
+            ip=None,
+            site_url=request.build_absolute_uri("/")[:-1],
+            team_id=self.team_id,
+            now=datetime.now(),
+            sent_at=None,
+            event=event_data,
+        )
+        return response.Response({"success": True}, status=200)
 
     @action(methods=["GET"], detail=False)
     def lifecycle(self, request: request.Request) -> response.Response:

@@ -10,6 +10,7 @@ import { convertPropertyGroupToProperties, toParams } from 'lib/utils'
 import { asDisplay } from 'scenes/persons/PersonHeader'
 import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { lemonToast } from 'lib/components/lemonToast'
+import { toast } from 'react-toastify'
 
 interface PersonPaginatedResponse {
     next: string | null
@@ -148,6 +149,8 @@ export const personsLogic = kea<personsLogicType<PersonFilters, PersonLogicProps
             const person = values.person
 
             if (person) {
+                const oldPerson = { ...person }
+
                 let parsedValue = newValue
 
                 // Instrumentation stuff
@@ -176,9 +179,20 @@ export const personsLogic = kea<personsLogicType<PersonFilters, PersonLogicProps
                     action = parsedValue !== undefined ? 'updated' : 'removed'
                 }
 
-                actions.setPerson(person) // To update the UI immediately while the request is being processed
-                const response = await api.update(`api/person/${person.id}`, person)
-                actions.setPerson(response)
+                actions.setPerson({ ...person }) // To update the UI immediately while the request is being processed
+
+                try {
+                    await api.create(`api/person/update_property`, {
+                        key,
+                        new_value: newValue,
+                        main_distinct_id: person.distinct_ids[0],
+                    })
+                } catch (error) {
+                    actions.setPerson(oldPerson)
+                    toast.error(
+                        `Unable to update person property with error: ${(error as Error).message || 'unknown error'}`
+                    )
+                }
 
                 eventUsageLogic.actions.reportPersonPropertyUpdated(
                     action,

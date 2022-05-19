@@ -603,6 +603,58 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
+    @mock.patch("posthog.api.capture.log_event")
+    def test_update_user_property_success(self, mock_log_event):
+        _create_person(
+            team=self.team,
+            distinct_ids=["1", "2", "3"],
+            properties={"$browser": "whatever", "$os": "Mac OS X"},
+            immediate=True,
+        )
+
+        response = self.client.post(
+            "/api/person/update_property/", {"main_distinct_id": "1", "key": "foo", "new_value": "bar"}
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        self.assertEqual(
+            json.loads(mock_log_event.call_args_list[0].args[0]["data"])["properties"], {"$set": {"foo": "bar"}}
+        )
+
+    @mock.patch("posthog.api.capture.log_event")
+    def test_update_user_property_missing_distinct_id(self, mock_log_event):
+        _create_person(
+            team=self.team,
+            distinct_ids=["1", "2", "3"],
+            properties={"$browser": "whatever", "$os": "Mac OS X"},
+            immediate=True,
+        )
+
+        response = self.client.post("/api/person/update_property/", {"key": "foo", "new_value": "bar"})
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(), {"message": "Distinct ID missing", "detail": "Request requires main_distinct_id to be set"}
+        )
+
+    @mock.patch("posthog.api.capture.log_event")
+    def test_update_user_property_missing_key(self, mock_log_event):
+        _create_person(
+            team=self.team,
+            distinct_ids=["1", "2", "3"],
+            properties={"$browser": "whatever", "$os": "Mac OS X"},
+            immediate=True,
+        )
+
+        response = self.client.post("/api/person/update_property/", {"main_distinct_id": "1", "new_value": "bar"})
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {"message": "Property key missing", "detail": "You must specify a property key to add/update."},
+        )
+
     def test_csv_export(self):
         _create_person(
             team=self.team, distinct_ids=["1", "2", "3"], properties={"$browser": "whatever", "$os": "Mac OS X"}
