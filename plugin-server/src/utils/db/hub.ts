@@ -183,7 +183,7 @@ export async function createHub(
     const postgres = createPostgresPool(serverConfig)
     status.info('👍', `Postgresql`)
 
-    status.info('🤔', `Redis`)
+    status.info('🤔', `Connecting to Redis...`)
     const redisPool = createPool<Redis.Redis>(
         {
             create: () => createRedis(serverConfig),
@@ -197,7 +197,7 @@ export async function createHub(
             autostart: true,
         }
     )
-    status.info('👍', `Redis`)
+    status.info('👍', `Redis ready`)
 
     const db = new DB(
         postgres,
