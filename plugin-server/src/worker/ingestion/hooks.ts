@@ -204,14 +204,14 @@ export class HookCommander {
                 )
             ).flat()
 
+            const restHookRequests = restHooks.map((hook) => this.postRestHook(hook, event, person))
+            await Promise.all(restHookRequests).catch((error) => captureException(error))
+
             if (restHooks.length > 0) {
                 this.statsd?.increment('zapier_hooks_fired', {
                     team_id: String(team.id),
                 })
             }
-
-            const restHookRequests = restHooks.map((hook) => this.postRestHook(hook, event, person))
-            await Promise.all(restHookRequests).catch((error) => captureException(error))
         }
     }
 
