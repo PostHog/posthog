@@ -1,3 +1,4 @@
+import './PluginSource.scss'
 import React, { useEffect } from 'react'
 import { useActions, useValues } from 'kea'
 import { Button } from 'antd'
@@ -16,9 +17,16 @@ interface PluginSourceProps {
     pluginConfigId?: number
     visible: boolean
     close: () => void
+    placement?: 'top' | 'right' | 'bottom' | 'left'
 }
 
-export function PluginSource({ pluginId, pluginConfigId, visible, close }: PluginSourceProps): JSX.Element | null {
+export function PluginSource({
+    pluginId,
+    pluginConfigId,
+    visible,
+    close,
+    placement,
+}: PluginSourceProps): JSX.Element | null {
     const monaco = useMonaco()
     const { user } = useValues(userLogic)
 
@@ -46,7 +54,7 @@ export function PluginSource({ pluginId, pluginConfigId, visible, close }: Plugi
             onClose={closePluginSource}
             width={'min(90vw, 64rem)'}
             title={`Edit App: ${name}`}
-            placement="left"
+            placement={placement ?? 'left'}
             footer={
                 <div style={{ textAlign: 'right' }}>
                     <Button onClick={closePluginSource} style={{ marginRight: 16 }}>
@@ -58,7 +66,7 @@ export function PluginSource({ pluginId, pluginConfigId, visible, close }: Plugi
                 </div>
             }
         >
-            <VerticalForm logic={pluginSourceLogic} props={logicProps} formKey="pluginSource">
+            <VerticalForm logic={pluginSourceLogic} props={logicProps} formKey="pluginSource" className="PluginSource">
                 {visible ? (
                     <>
                         <p>

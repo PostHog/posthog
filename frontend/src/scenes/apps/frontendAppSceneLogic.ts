@@ -1,6 +1,6 @@
 import { actions, BuiltLogic, connect, kea, key, listeners, LogicWrapper, props, selectors, path } from 'kea'
 import { frontendAppsLogic } from 'scenes/apps/frontendAppsLogic'
-import { FrontendApp, FrontendAppConfig } from '~/types'
+import { Breadcrumb, FrontendApp, FrontendAppConfig } from '~/types'
 import type { frontendAppSceneLogicType } from './frontendAppSceneLogicType'
 import { subscriptions } from 'kea-subscriptions'
 import { objectsEqual } from 'lib/utils'
@@ -69,12 +69,18 @@ export const frontendAppSceneLogic = kea<frontendAppSceneLogicType>([
         Component: [(s) => [s.frontendApp], (frontendApp: any) => frontendApp?.component],
         breadcrumbsSelector: [(s) => [s.builtLogic], (builtLogic) => builtLogic?.selectors.breadcrumbs],
         breadcrumbs: [
-            (s) => [(state, props) => s.breadcrumbsSelector(state, props)?.(state, props), s.frontendApp],
-            (breadcrumbs, frontendApp: FrontendApp) => {
+            (s) => [
+                (state, props) => s.breadcrumbsSelector(state, props)?.(state, props),
+                s.frontendApp,
+                (_, props) => props.id,
+            ],
+            (breadcrumbs, frontendApp: FrontendApp, id): Breadcrumb[] => {
                 return (
                     breadcrumbs ?? [
                         {
-                            name: frontendApp?.title || `App #${frontendApp?.id}`,
+                            name: frontendApp
+                                ? frontendApp?.title || `App #${frontendApp?.id ?? id}`
+                                : `Loading app...`,
                         },
                     ]
                 )

@@ -11403,9 +11403,9 @@ junk@^3.1.0:
   integrity sha512-pBxcB3LFc8QVgdggvZWyeys+hnrNWg4OcZIU/1X59k5jQdLBlCsYGRQaz234SqoRLTCgMH00fY0xRJH+F9METQ==
 
 kea-forms@^3.0.0-alpha.4:
-  version "3.0.0-alpha.4"
-  resolved "https://registry.yarnpkg.com/kea-forms/-/kea-forms-3.0.0-alpha.4.tgz#0e194b1d2f126996341cca4fcaddc70a1d2986df"
-  integrity sha512-bnZWluf36skuOSFKoRme8b9ZhVhKjJxzhL0fUFgaU26VaA7Voj8dJGgZUzCI54zoyivl2stZGNAaCqbvj6kAvw==
+  version "3.0.1"
+  resolved "https://registry.yarnpkg.com/kea-forms/-/kea-forms-3.0.1.tgz#41e253248e7974edb46316b02c19e673cfb266af"
+  integrity sha512-U/0K1lVOsZAIxEh1IrHnyIvWCaBWgxoCGAT5OCNianvbAVbNSUVq3fCK0QkSr50fI34xrDMiLXv0stLb3KWdiQ==
 
 kea-loaders@^3.0.0-alpha.4:
   version "3.0.0-alpha.4"
@@ -11437,9 +11437,9 @@ kea-test-utils@^0.2.2:
     kea-waitfor "^0.2.1"
 
 kea-typegen@^3.0.0-alpha.11:
-  version "3.0.0-alpha.11"
-  resolved "https://registry.yarnpkg.com/kea-typegen/-/kea-typegen-3.0.0-alpha.11.tgz#77e683bdeca21c73bc8e57b02baa53ef16fc7818"
-  integrity sha512-9bDtyEKZwWoNdRedpICmZAdLy+Z8kiyf3SP//lCdDwN4sCYJDth4+vnFI/Hl/BofecNm6/pzAL2+wvB8JCfQjw==
+  version "3.0.0"
+  resolved "https://registry.yarnpkg.com/kea-typegen/-/kea-typegen-3.0.0.tgz#da461a6e5cd41c2442a5590d381b97687a2ee559"
+  integrity sha512-6FOijspc2S+E/2TTCyV6tScd8A/veiDsd0HwTQ+sp+lRB2Tn3gewK9ggK6rXNIUM6u5JzyuZrJPBn5MTUfIY5w==
   dependencies:
     "@wessberg/ts-clone-node" "0.3.19"
     prettier "^2.5.1"

@@ -11,7 +11,6 @@ import {
     IconBarChart,
     IconCohort,
     IconComment,
-    IconEdit,
     IconExperiment,
     IconExtension,
     IconFlag,
@@ -119,6 +118,7 @@ function Pages(): JSX.Element {
     const { currentLocation } = useValues(router)
 
     const [arePinnedDashboardsShown, setArePinnedDashboardsShown] = useState(false)
+    const [openAppMenu, setOpenAppMenu] = useState<number | null>(null)
 
     return (
         <div className="Pages">
@@ -245,33 +245,51 @@ function Pages(): JSX.Element {
                                     to={urls.plugins()}
                                 />
                             )}
-                            {Object.values(frontendApps).map(({ id, pluginId, title }) => {
-                                const selected = currentLocation.pathname === urls.frontendApp(id)
-                                return (
-                                    <PageButton
-                                        key={id}
-                                        icon={<IconExtension />}
-                                        title={title || `App #${id}`}
-                                        identifier={selected ? Scene.FrontendAppScene : 'nope'}
-                                        to={urls.frontendApp(id)}
-                                        sideAction={
-                                            selected && canInstallPlugins(currentOrganization)
-                                                ? {
-                                                      icon: <IconEdit />,
-                                                      tooltip: `Edit ${title || `App #${id}`}`,
-                                                      onClick: () => openAppSourceEditor(id, pluginId),
-                                                  }
-                                                : undefined
-                                        }
-                                    />
-                                )
-                            })}
+                            {Object.values(frontendApps).map(({ id, pluginId, title }) => (
+                                <PageButton
+                                    key={id}
+                                    icon={<IconExtension />}
+                                    title={title || `App #${id}`}
+                                    identifier={
+                                        currentLocation.pathname === urls.frontendApp(id)
+                                            ? Scene.FrontendAppScene
+                                            : 'nope'
+                                    }
+                                    to={urls.frontendApp(id)}
+                                    sideAction={
+                                        canInstallPlugins(currentOrganization)
+                                            ? {
+                                                  identifier: 'app-menu',
+                                                  onClick: () => setOpenAppMenu((state) => (state === id ? null : id)),
+                                                  popup: {
+                                                      visible: openAppMenu === id,
+                                                      onClickOutside: () => setOpenAppMenu(null),
+                                                      onClickInside: () => {
+                                                          setOpenAppMenu(null)
+                                                          hideSideBarMobile()
+                                                      },
+                                                      overlay: (
+                                                          <LemonButton
+                                                              type="stealth"
+                                                              onClick={() => openAppSourceEditor(id, pluginId)}
+                                                              fullWidth
+                                                          >
+                                                              Edit Source
+                                                          </LemonButton>
+                                                      ),
+                                                  },
+                                              }
+                                            : undefined
+                                    }
+                                />
+                            ))}
                             {appSourceEditor ? (
                                 <PluginSource
                                     pluginConfigId={appSourceEditor.id}
                                     pluginId={appSourceEditor.pluginId}
                                     visible={!!appSourceEditor}
                                     close={() => closeAppSourceEditor()}
+                                    placement="right"
                                 />
                             ) : null}
                             <div className="SideBar__heading">Configuration</div>
