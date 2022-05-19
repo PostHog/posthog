@@ -268,8 +268,12 @@ export interface Plugin {
     config_schema: Record<string, PluginConfigSchema> | PluginConfigSchema[]
     tag?: string
     archive: Buffer | null
-    /* Joined "source" column from "posthog_pluginsourcefile" where filename="index.ts" */
+    /** @deprecated Replaced with source__index_ts */
     source?: string
+    /** Cached source for index.ts from a joined PluginSourceFile query */
+    source__index_ts?: string
+    /** Cached source for frontend.tsx from a joined PluginSourceFile query */
+    source__frontend_tsx?: string
     error?: PluginError
     from_json?: boolean
     from_web?: boolean
@@ -362,6 +366,12 @@ export interface PluginLogEntry {
     type: PluginLogEntryType
     message: string
     instance_id: string
+}
+
+export enum PluginSourceFileStatus {
+    Transpiled = 'TRANSPILED',
+    Locked = 'LOCKED',
+    Error = 'ERROR',
 }
 
 export enum PluginTaskType {

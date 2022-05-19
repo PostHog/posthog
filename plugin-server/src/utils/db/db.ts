@@ -44,6 +44,7 @@ import {
     PluginLogEntry,
     PluginLogEntrySource,
     PluginLogEntryType,
+    PluginSourceFileStatus,
     PostgresSessionRecordingEvent,
     PropertiesLastOperation,
     PropertiesLastUpdatedAt,
@@ -1916,7 +1917,7 @@ export class DB {
             `INSERT INTO posthog_pluginsourcefile (id, plugin_id, filename, status, transpiled) VALUES($1, $2, $3, $4, $5)
                 ON CONFLICT ON CONSTRAINT unique_filename_for_plugin
                 DO UPDATE SET status = $4, transpiled = $5, error = NULL`,
-            [new UUIDT().toString(), pluginId, filename, 'TRANSPILED', transpiled],
+            [new UUIDT().toString(), pluginId, filename, PluginSourceFileStatus.Transpiled, transpiled],
             'setPluginTranspiled'
         )
     }
@@ -1926,7 +1927,7 @@ export class DB {
             `INSERT INTO posthog_pluginsourcefile (id, plugin_id, filename, status, error) VALUES($1, $2, $3, $4, $5)
                 ON CONFLICT ON CONSTRAINT unique_filename_for_plugin
                 DO UPDATE SET status = $4, error = $5, transpiled = NULL`,
-            [new UUIDT().toString(), pluginId, filename, 'ERROR', error],
+            [new UUIDT().toString(), pluginId, filename, PluginSourceFileStatus.Error, error],
             'setPluginTranspiledError'
         )
     }
@@ -1936,7 +1937,7 @@ export class DB {
             `INSERT INTO posthog_pluginsourcefile (id, plugin_id, filename, status, transpiled) VALUES($1, $2, $3, $4, NULL)
                 ON CONFLICT ON CONSTRAINT unique_filename_for_plugin
                 DO UPDATE SET status = $4 WHERE (posthog_pluginsourcefile.status IS NULL OR posthog_pluginsourcefile.status = $5) RETURNING status`,
-            [new UUIDT().toString(), pluginId, filename, 'LOCKED', ''],
+            [new UUIDT().toString(), pluginId, filename, PluginSourceFileStatus.Locked, ''],
             'getPluginTranspilationLock'
         )
         return response.rowCount > 0

@@ -28,8 +28,10 @@ export async function loadPlugin(hub: Hub, pluginConfig: PluginConfig): Promise<
             getFile = (file) => getFileFromArchive(archive, file)
         } else if (plugin.plugin_type === 'source') {
             getFile = async (file) => {
-                if (file === 'index.ts' && plugin.source) {
-                    return file
+                if (file === 'index.ts' && plugin.source__index_ts) {
+                    return plugin.source__index_ts
+                } else if (file === 'frontend.tsx' && plugin.source__frontend_tsx) {
+                    return plugin.source__frontend_tsx
                 }
                 return await hub.db.getPluginSource(plugin.id, file)
             }
@@ -105,6 +107,7 @@ export async function loadPlugin(hub: Hub, pluginConfig: PluginConfig): Promise<
                         config['main'] || 'index.ts, index.js'
                     }`
                 )
+                return false
             }
         }
     } catch (error) {
