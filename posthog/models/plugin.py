@@ -244,6 +244,19 @@ class PluginLogEntry(UUIDModel):
     __repr__ = sane_repr("plugin_config_id", "timestamp", "source", "type", "message")
 
 
+class PluginSourceFile(UUIDModel):
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(name="unique_filename_for_plugin", fields=("plugin_id", "filename")),
+        ]
+
+    plugin: models.ForeignKey = models.ForeignKey("Plugin", on_delete=models.CASCADE)
+    filename: models.CharField = models.CharField(max_length=200, blank=False)
+    source: models.TextField = models.TextField(blank=True, null=True)
+
+    __repr__ = sane_repr("plugin_id", "filename", "source")
+
+
 @dataclass(frozen=True)
 class PluginLogEntryRaw:
     id: UUID
@@ -340,16 +353,3 @@ def plugin_config_reload_needed(sender, instance, created=None, **kwargs):
 @receiver([post_save, post_delete], sender=PluginAttachment)
 def plugin_attachement_reload_needed(sender, instance, created=None, **kwargs):
     reload_plugins_on_workers()
-
-
-class PluginSourceFile(UUIDModel):
-    class Meta:
-        constraints = [
-            models.UniqueConstraint(name="unique_filename_for_plugin", fields=("plugin_id", "filename")),
-        ]
-
-    plugin: models.ForeignKey = models.ForeignKey("Plugin", on_delete=models.CASCADE)
-    filename: models.CharField = models.CharField(max_length=200, blank=False)
-    source: models.TextField = models.TextField(blank=True, null=True)
-
-    __repr__ = sane_repr("plugin_id", "filename", "source")

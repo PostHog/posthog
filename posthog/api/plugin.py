@@ -224,7 +224,7 @@ class PluginViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         for source in PluginSourceFile.objects.filter(plugin=plugin):
             sources[source.filename] = source
         for key, value in request.data.items():
-            if not sources.get(key):
+            if key not in sources:
                 sources[key] = PluginSourceFile.objects.create(plugin=plugin, filename=key, source=value)
                 continue
             if sources[key].source != value:
