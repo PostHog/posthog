@@ -1908,6 +1908,6 @@ export class DB {
             [pluginId, filename],
             'getPluginSource'
         )
-        return rows[0]?.source
+        return rows[0]?.source ?? null
     }
 }
