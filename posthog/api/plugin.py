@@ -239,6 +239,7 @@ class PluginViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
                     sources[key].source = value
                     sources[key].status = None
                     sources[key].transpiled = None
+                    sources[key].error = None
                     sources[key].save()
         response: Dict[str, str] = {}
         for key, source in sources.items():
