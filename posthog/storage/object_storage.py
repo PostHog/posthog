@@ -35,10 +35,7 @@ def health_check() -> bool:
     # noinspection PyBroadException
     try:
         response = storage_client().head_bucket(Bucket=OBJECT_STORAGE_BUCKET)
-        if response:
-            return True
-        else:
-            return False
+        return bool(response)
     except Exception as e:
         logger.warn("object_storage.health_check_failed", error=e)
         return False
