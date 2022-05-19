@@ -142,11 +142,12 @@ export function mockPluginTempFolder(indexJs: string, pluginJson?: string): [Plu
     ]
 }
 
-export const mockPluginSourceCode = (): Plugin => ({
+export const mockPluginSourceCode = (indexJs: string): Plugin => ({
     ...plugin60,
     archive: null,
     plugin_type: 'source',
     url: undefined,
+    source: indexJs,
 })
 
 export const plugin70 = {

@@ -1901,13 +1901,4 @@ export class DB {
             }
         })
     }
-
-    public async getPluginSource(pluginId: Plugin['id'], filename = 'index.ts'): Promise<string | null> {
-        const { rows }: { rows: { source: string }[] } = await this.postgresQuery(
-            `SELECT source FROM posthog_pluginsourcefile WHERE plugin_id = $1 AND filename = $2`,
-            [pluginId, filename],
-            'getPluginSource'
-        )
-        return rows[0]?.source
-    }
 }

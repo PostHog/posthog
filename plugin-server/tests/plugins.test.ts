@@ -2,7 +2,7 @@ import { PluginEvent } from '@posthog/plugin-scaffold/src/types'
 import { mocked } from 'ts-jest/utils'
 
 import { Hub, LogLevel, PluginTaskType } from '../src/types'
-import { processError } from '../src/utils/db/error'
+import { clearError, processError } from '../src/utils/db/error'
 import { createHub } from '../src/utils/db/hub'
 import { delay, IllegalOperationError } from '../src/utils/utils'
 import { loadPlugin } from '../src/worker/plugins/loadPlugin'
@@ -415,7 +415,7 @@ describe('plugins', () => {
         expect(processError).toHaveBeenCalledWith(
             hub,
             pluginConfigs.get(39)!,
-            `Could not load "plugin.json" for plugin test-maxmind-plugin ID ${plugin60.id} (organization ID ${commonOrganizationId})`
+            `Can not load plugin.json for plugin test-maxmind-plugin ID ${plugin60.id} (organization ID ${commonOrganizationId})`
         )
 
         expect(await pluginConfigs.get(39)!.vm!.getTasks(PluginTaskType.Schedule)).toEqual({})
@@ -440,7 +440,7 @@ describe('plugins', () => {
         expect(processError).toHaveBeenCalledWith(
             hub,
             pluginConfigs.get(39)!,
-            expect.stringContaining('Could not load "plugin.json" for plugin ')
+            expect.stringContaining('Could not load posthog config at ')
         )
         expect(await pluginConfigs.get(39)!.vm!.getTasks(PluginTaskType.Schedule)).toEqual({})
 
@@ -463,7 +463,7 @@ describe('plugins', () => {
         expect(processError).toHaveBeenCalledWith(
             hub,
             pluginConfigs.get(39)!,
-            `Plugin plugin test-maxmind-plugin ID ${plugin60.id} (organization ID ${commonOrganizationId} - global) is not a local, remote or source plugin. Can not load.`
+            `Tried using undownloaded remote plugin test-maxmind-plugin ID ${plugin60.id} (organization ID ${commonOrganizationId} - global), which is not supported!`
         )
         expect(await pluginConfigs.get(39)!.vm!.getTasks(PluginTaskType.Schedule)).toEqual({})
     })
@@ -490,19 +490,19 @@ describe('plugins', () => {
     })
 
     test('plugin config order', async () => {
-        hub.db.getPluginSource = (pluginId, filename) =>
-            Promise.resolve(
-                filename == 'index.ts'
-                    ? `function processEvent(event) {
-                         event.properties.plugins = [...(event.properties.plugins || []), ${pluginId}]
-                         return event
-                       }`
-                    : null
-            )
+        const setOrderCode = (id: number) => {
+            return `
+            function processEvent(event) {
+                if (!event.properties.plugins) { event.properties.plugins = [] }
+                event.properties.plugins.push(${id})
+                return event
+            }
+        `
+        }
         getPluginRows.mockReturnValueOnce([
-            { ...plugin60, id: 60, plugin_type: 'source', archive: null },
-            { ...plugin60, id: 61, plugin_type: 'source', archive: null },
-            { ...plugin60, id: 62, plugin_type: 'source', archive: null },
+            { ...plugin60, id: 60, plugin_type: 'source', archive: null, source: setOrderCode(60) },
+            { ...plugin60, id: 61, plugin_type: 'source', archive: null, source: setOrderCode(61) },
+            { ...plugin60, id: 62, plugin_type: 'source', archive: null, source: setOrderCode(62) },
         ])
         getPluginAttachmentRows.mockReturnValueOnce([])
         getPluginConfigRows.mockReturnValueOnce([
@@ -614,11 +614,9 @@ describe('plugins', () => {
         function randomFunction (event, meta) { return event}
         function onSnapshot (event, meta) { return event }
     `
-        getPluginRows.mockReturnValueOnce([mockPluginSourceCode()])
+        getPluginRows.mockReturnValueOnce([mockPluginSourceCode(source_code)])
         getPluginConfigRows.mockReturnValueOnce([pluginConfig39])
         getPluginAttachmentRows.mockReturnValueOnce([pluginAttachment1])
-
-        hub.db.getPluginSource = (_, filename) => Promise.resolve(filename == 'index.ts' ? source_code : null)
 
         await setupPlugins(hub)
         const { pluginConfigs } = hub
