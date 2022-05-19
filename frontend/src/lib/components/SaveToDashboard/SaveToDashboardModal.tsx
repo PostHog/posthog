@@ -24,11 +24,13 @@ interface SaveToDashboardModalProps {
     visible: boolean
     closeModal: () => void
     insight: Partial<InsightModel>
+    canEditInsight: boolean
 }
 
 interface DashboardRelationRowProps {
     dashboard: DashboardType
     insight: Partial<InsightModel>
+    canEditInsight: boolean
     isHighlighted: boolean
     isAlreadyOnDashboard: boolean
     style: React.CSSProperties
@@ -40,6 +42,7 @@ const DashboardRelationRow = ({
     isAlreadyOnDashboard,
     dashboard,
     insight,
+    canEditInsight,
 }: DashboardRelationRowProps): JSX.Element => {
     const logic = saveToDashboardModalLogic({
         insight: insight,
@@ -52,6 +55,7 @@ const DashboardRelationRow = ({
             <Link to={urls.dashboard(dashboard.id)}>{dashboard.name || 'Untitled'}</Link>
             <LemonButton
                 type={isAlreadyOnDashboard ? 'primary' : 'secondary'}
+                disabled={!canEditInsight}
                 size="small"
                 onClick={(e) => {
                     e.preventDefault()
@@ -66,7 +70,12 @@ const DashboardRelationRow = ({
     )
 }
 
-export function AddToDashboardModal({ visible, closeModal, insight }: SaveToDashboardModalProps): JSX.Element {
+export function AddToDashboardModal({
+    visible,
+    closeModal,
+    insight,
+    canEditInsight,
+}: SaveToDashboardModalProps): JSX.Element {
     const logic = saveToDashboardModalLogic({
         insight: insight,
         fromDashboard: insight.dashboards?.[0] || undefined,
@@ -83,6 +92,7 @@ export function AddToDashboardModal({ visible, closeModal, insight }: SaveToDash
                 key={rowIndex}
                 dashboard={orderedDashboards[rowIndex]}
                 insight={insight}
+                canEditInsight={canEditInsight}
                 isHighlighted={rowIndex === scrollIndex}
                 isAlreadyOnDashboard={currentDashboards.some(
                     (currentDashboard: DashboardType) => currentDashboard.id === orderedDashboards[rowIndex].id
@@ -131,7 +141,7 @@ export function AddToDashboardModal({ visible, closeModal, insight }: SaveToDash
                 </div>
             </section>
             <section className="space-between-items">
-                <LemonButton type="secondary" size="small" onClick={addNewDashboard}>
+                <LemonButton type="secondary" size="small" onClick={addNewDashboard} disabled={!canEditInsight}>
                     Add to a new dashboard
                 </LemonButton>
                 <LemonButton

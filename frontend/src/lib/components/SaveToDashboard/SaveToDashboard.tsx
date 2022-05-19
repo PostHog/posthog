@@ -11,10 +11,10 @@ import { FEATURE_FLAGS } from 'lib/constants'
 
 interface SaveToDashboardProps {
     insight: Partial<InsightModel>
-    disabled: boolean
+    canEditInsight: boolean
 }
 
-export function SaveToDashboard({ insight, disabled }: SaveToDashboardProps): JSX.Element {
+export function SaveToDashboard({ insight, canEditInsight }: SaveToDashboardProps): JSX.Element {
     const [openModal, setOpenModal] = useState<boolean>(false)
     const { rawDashboards } = useValues(dashboardsModel)
     const dashboards = insight.dashboards?.map((dashboard) => rawDashboards[dashboard]).filter((d) => !!d) || []
@@ -26,9 +26,13 @@ export function SaveToDashboard({ insight, disabled }: SaveToDashboardProps): JS
         <span className="save-to-dashboard" data-attr="save-to-dashboard-button">
             {multiDashboardInsights ? (
                 <>
-                    <AddToDashboardModal visible={openModal} closeModal={() => setOpenModal(false)} insight={insight} />
+                    <AddToDashboardModal
+                        visible={openModal}
+                        closeModal={() => setOpenModal(false)}
+                        insight={insight}
+                        canEditInsight={canEditInsight}
+                    />
                     <LemonButton
-                        disabled={disabled}
                         onClick={() => setOpenModal(true)}
                         type="secondary"
                         icon={
@@ -46,10 +50,11 @@ export function SaveToDashboard({ insight, disabled }: SaveToDashboardProps): JS
                         visible={openModal}
                         closeModal={() => setOpenModal(false)}
                         insight={insight}
+                        canEditInsight={canEditInsight}
                     />
                     {dashboards.length > 0 ? (
                         <LemonButton
-                            disabled={disabled}
+                            disabled={!canEditInsight}
                             to={urls.dashboard(dashboards[0].id, insight.short_id)}
                             type="secondary"
                             icon={<IconGauge />}
@@ -58,7 +63,7 @@ export function SaveToDashboard({ insight, disabled }: SaveToDashboardProps): JS
                         </LemonButton>
                     ) : (
                         <LemonButton
-                            disabled={disabled}
+                            disabled={!canEditInsight}
                             onClick={() => setOpenModal(true)}
                             type="secondary"
                             icon={<IconGauge />}
