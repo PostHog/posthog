@@ -8,6 +8,7 @@ import { createHub } from '../../src/utils/db/hub'
 import { delay } from '../../src/utils/utils'
 import { MAXIMUM_RETRIES } from '../../src/worker/vm/upgrades/export-events'
 import { createPluginConfigVM } from '../../src/worker/vm/vm'
+import { delayUntilEventIngested } from '../helpers/clickhouse'
 import { pluginConfig39 } from '../helpers/plugins'
 import { resetTestDatabase } from '../helpers/sql'
 import { PluginConfig, PluginConfigVMResponse } from './../../src/types'
@@ -692,6 +693,7 @@ describe('vm tests', () => {
         await vm.methods.processEvent!(event)
 
         await hub.db.postgresLogsWrapper.flushLogs()
+        await delayUntilEventIngested(async () => await hub.db.fetchPluginLogEntries())
         const entries = await hub.db.fetchPluginLogEntries()
 
         expect(entries).toEqual(
