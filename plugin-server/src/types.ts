@@ -198,6 +198,7 @@ export interface PluginServerCapabilities {
     ingestion?: boolean
     pluginScheduledTasks?: boolean
     processJobs?: boolean
+    processAsyncHandlers?: boolean
 }
 
 export interface Pausable {
