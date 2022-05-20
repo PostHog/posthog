@@ -222,7 +222,7 @@ function Pages(): JSX.Element {
                     <PageButton icon={<IconComment />} identifier={Scene.Annotations} to={urls.annotations()} />
                     <LemonDivider />
                     {canViewPlugins(currentOrganization) && (
-                        <PageButton icon={<IconExtension />} identifier={Scene.Plugins} to={urls.plugins()} />
+                        <PageButton icon={<IconExtension />} identifier={Scene.Plugins} to={urls.projectApps()} />
                     )}
                     <PageButton icon={<IconTools />} identifier={Scene.ToolbarLaunch} to={urls.toolbarLaunch()} />
                     <PageButton

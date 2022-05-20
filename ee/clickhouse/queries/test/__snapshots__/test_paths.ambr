@@ -89,7 +89,7 @@
                              WHERE team_id = 2
                                AND event IN ['step one', 'step three', 'step two']
                                AND timestamp >= toDateTime('2021-05-01 00:00:00')
-                               AND timestamp <= toDateTime('2021-05-07 23:59:59') ) events
+                               AND timestamp <= toDateTime('2021-05-07 00:00:00') ) events
                           WHERE (step_0 = 1
                                  OR step_1 = 1
                                  OR step_2 = 1) ))))
@@ -166,7 +166,7 @@
                  JOIN funnel_actors ON funnel_actors.actor_id = pdi.person_id
                  WHERE team_id = 2
                    AND timestamp >= toDateTime('2021-05-01 00:00:00')
-                   AND timestamp <= toDateTime('2021-05-07 23:59:59')
+                   AND timestamp <= toDateTime('2021-05-07 00:00:00')
                    AND (has(['technology'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
                    AND e.timestamp >= target_timestamp
                  ORDER BY pdi.person_id,
@@ -276,7 +276,7 @@
                              WHERE team_id = 2
                                AND event IN ['step one', 'step three', 'step two']
                                AND timestamp >= toDateTime('2021-05-01 00:00:00')
-                               AND timestamp <= toDateTime('2021-05-07 23:59:59') ) events
+                               AND timestamp <= toDateTime('2021-05-07 00:00:00') ) events
                           WHERE (step_0 = 1
                                  OR step_1 = 1
                                  OR step_2 = 1) ))))
@@ -350,7 +350,7 @@
                  JOIN funnel_actors ON funnel_actors.actor_id = pdi.person_id
                  WHERE team_id = 2
                    AND timestamp >= toDateTime('2021-05-01 00:00:00')
-                   AND timestamp <= toDateTime('2021-05-07 23:59:59')
+                   AND timestamp <= toDateTime('2021-05-07 00:00:00')
                    AND (has(['technology'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
                    AND e.timestamp >= target_timestamp
                  ORDER BY pdi.person_id,
@@ -458,7 +458,7 @@
                              WHERE team_id = 2
                                AND event IN ['step one', 'step three', 'step two']
                                AND timestamp >= toDateTime('2021-05-01 00:00:00')
-                               AND timestamp <= toDateTime('2021-05-07 23:59:59') ) events
+                               AND timestamp <= toDateTime('2021-05-07 00:00:00') ) events
                           WHERE (step_0 = 1
                                  OR step_1 = 1
                                  OR step_2 = 1) ))))
@@ -532,7 +532,7 @@
                  JOIN funnel_actors ON funnel_actors.actor_id = pdi.person_id
                  WHERE team_id = 2
                    AND timestamp >= toDateTime('2021-05-01 00:00:00')
-                   AND timestamp <= toDateTime('2021-05-07 23:59:59')
+                   AND timestamp <= toDateTime('2021-05-07 00:00:00')
                    AND (has(['technology'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
                    AND e.timestamp >= target_timestamp
                  ORDER BY pdi.person_id,
@@ -640,7 +640,7 @@
                              WHERE team_id = 2
                                AND event IN ['step one', 'step three', 'step two']
                                AND timestamp >= toDateTime('2021-05-01 00:00:00')
-                               AND timestamp <= toDateTime('2021-05-07 23:59:59') ) events
+                               AND timestamp <= toDateTime('2021-05-07 00:00:00') ) events
                           WHERE (step_0 = 1
                                  OR step_1 = 1
                                  OR step_2 = 1) ))))
@@ -714,7 +714,7 @@
                  JOIN funnel_actors ON funnel_actors.actor_id = pdi.person_id
                  WHERE team_id = 2
                    AND timestamp >= toDateTime('2021-05-01 00:00:00')
-                   AND timestamp <= toDateTime('2021-05-07 23:59:59')
+                   AND timestamp <= toDateTime('2021-05-07 00:00:00')
                    AND (has(['technology'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
                    AND e.timestamp >= target_timestamp
                  ORDER BY pdi.person_id,
@@ -822,7 +822,7 @@
                              WHERE team_id = 2
                                AND event IN ['step one', 'step three', 'step two']
                                AND timestamp >= toDateTime('2021-05-01 00:00:00')
-                               AND timestamp <= toDateTime('2021-05-07 23:59:59') ) events
+                               AND timestamp <= toDateTime('2021-05-07 00:00:00') ) events
                           WHERE (step_0 = 1
                                  OR step_1 = 1
                                  OR step_2 = 1) ))))
@@ -896,7 +896,7 @@
                  JOIN funnel_actors ON funnel_actors.actor_id = pdi.person_id
                  WHERE team_id = 2
                    AND timestamp >= toDateTime('2021-05-01 00:00:00')
-                   AND timestamp <= toDateTime('2021-05-07 23:59:59')
+                   AND timestamp <= toDateTime('2021-05-07 00:00:00')
                    AND (has(['technology'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
                    AND e.timestamp >= target_timestamp
                  ORDER BY pdi.person_id,
@@ -1275,7 +1275,7 @@
                  WHERE team_id = 2
                    AND (event = '$pageview')
                    AND timestamp >= toDateTime('2012-01-01 00:00:00')
-                   AND timestamp <= toDateTime('2012-01-02 23:59:59')
+                   AND timestamp <= toDateTime('2012-01-02 00:00:00')
                  ORDER BY pdi.person_id,
                           e.timestamp)
               GROUP BY person_id) ARRAY
@@ -1396,7 +1396,7 @@
                  WHERE team_id = 2
                    AND (event = '$pageview')
                    AND timestamp >= toDateTime('2012-01-01 00:00:00')
-                   AND timestamp <= toDateTime('2012-01-02 23:59:59')
+                   AND timestamp <= toDateTime('2012-01-02 00:00:00')
                  ORDER BY pdi.person_id,
                           e.timestamp)
               GROUP BY person_id) ARRAY
@@ -1517,7 +1517,7 @@
                  WHERE team_id = 2
                    AND (event = '$pageview')
                    AND timestamp >= toDateTime('2012-01-01 00:00:00')
-                   AND timestamp <= toDateTime('2012-01-02 23:59:59')
+                   AND timestamp <= toDateTime('2012-01-02 00:00:00')
                  ORDER BY pdi.person_id,
                           e.timestamp)
               GROUP BY person_id) ARRAY
@@ -1644,7 +1644,7 @@
                  WHERE team_id = 2
                    AND (event = '$pageview')
                    AND timestamp >= toDateTime('2012-01-01 00:00:00')
-                   AND timestamp <= toDateTime('2012-01-02 23:59:59')
+                   AND timestamp <= toDateTime('2012-01-02 00:00:00')
                  ORDER BY pdi.person_id,
                           e.timestamp)
               GROUP BY person_id) ARRAY

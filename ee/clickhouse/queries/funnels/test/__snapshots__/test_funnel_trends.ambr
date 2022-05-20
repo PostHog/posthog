@@ -80,7 +80,7 @@
                           WHERE team_id = 2
                             AND event IN ['step one', 'step three', 'step two']
                             AND timestamp >= toDateTime('2021-04-30 00:00:00')
-                            AND timestamp <= toDateTime('2021-05-07 23:59:59') ) events
+                            AND timestamp <= toDateTime('2021-05-07 00:00:00') ) events
                        WHERE (step_0 = 1
                               OR step_1 = 1
                               OR step_2 = 1) ))))
@@ -90,7 +90,7 @@
      GROUP BY entrance_period_start) data
   RIGHT OUTER JOIN
     (SELECT toStartOfDay(toDateTime('2021-04-30 00:00:00') + toIntervalDay(number), 'UTC') AS entrance_period_start
-     FROM numbers(dateDiff('day', toDateTime('2021-04-30 00:00:00'), toDateTime('2021-05-07 23:59:59')) + 1) AS period_offsets) fill USING (entrance_period_start)
+     FROM numbers(dateDiff('day', toDateTime('2021-04-30 00:00:00'), toDateTime('2021-05-07 00:00:00')) + 1) AS period_offsets) fill USING (entrance_period_start)
   ORDER BY entrance_period_start ASC SETTINGS allow_experimental_window_functions = 1
   '
 ---
@@ -176,7 +176,7 @@
                           WHERE team_id = 2
                             AND event IN ['step one', 'step three', 'step two']
                             AND timestamp >= toDateTime('2021-04-30 07:00:00')
-                            AND timestamp <= toDateTime('2021-05-08 06:59:59') ) events
+                            AND timestamp <= toDateTime('2021-05-07 07:00:00') ) events
                        WHERE (step_0 = 1
                               OR step_1 = 1
                               OR step_2 = 1) ))))
@@ -186,7 +186,7 @@
      GROUP BY entrance_period_start) data
   RIGHT OUTER JOIN
     (SELECT toStartOfDay(toDateTime('2021-04-30 07:00:00') + toIntervalDay(number), 'US/Pacific') AS entrance_period_start
-     FROM numbers(dateDiff('day', toDateTime('2021-04-30 07:00:00'), toDateTime('2021-05-08 06:59:59')) + 1) AS period_offsets) fill USING (entrance_period_start)
+     FROM numbers(dateDiff('day', toDateTime('2021-04-30 07:00:00'), toDateTime('2021-05-07 07:00:00')) + 1) AS period_offsets) fill USING (entrance_period_start)
   ORDER BY entrance_period_start ASC SETTINGS allow_experimental_window_functions = 1
   '
 ---
