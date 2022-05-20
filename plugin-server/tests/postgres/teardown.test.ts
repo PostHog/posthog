@@ -121,7 +121,6 @@ describe('teardown', () => {
             'testTag'
         )
         const event1 = await processEvent(piscina, defaultEvent)
-        // const event1 = await piscina!.run({ task: 'runEventPipeline', args: { event: { ...defaultEvent } } })
         expect(event1.properties.storage).toBe('nope')
 
         await piscina!.broadcastTask({ task: 'reloadPlugins' })
