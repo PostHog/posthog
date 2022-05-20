@@ -5,6 +5,8 @@ import { loaders } from 'kea-loaders'
 import { FrontendApp, FrontendAppConfig } from '~/types'
 import { frontendAppRequire } from './frontendAppRequire'
 import { lemonToast } from 'lib/components/lemonToast'
+import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
+import { urls } from 'scenes/urls'
 
 /** Manages the loading and lifecycle of frontend apps. */
 export const frontendAppsLogic = kea<frontendAppsLogicType>([
@@ -26,7 +28,22 @@ export const frontendAppsLogic = kea<frontendAppsLogicType>([
         frontendApps: {
             loadFrontendApp: async ({ id, pluginId, reload, attempt }) => {
                 if (!values.appConfigs[id]) {
-                    // TODO: load an app config
+                    if (pluginsLogic.findMounted()) {
+                        const pluginConfig = Object.values(pluginsLogic.values.pluginConfigs).find((c) => c.id === id)
+                        const plugin = pluginConfig ? pluginsLogic.values.plugins[pluginConfig.plugin] : undefined
+                        if (!plugin && !pluginConfig) {
+                            throw Error(`Could not load metadata for app with ID ${id}`)
+                        }
+                        actions.updateAppConfigs({
+                            [id]: {
+                                url: urls.frontendApp(id),
+                                config: pluginConfig?.config ?? {},
+                                pluginConfigId: id,
+                                pluginId: pluginId,
+                                name: plugin?.name ?? `App #${id}`,
+                            },
+                        })
+                    }
                 }
                 try {
                     const siteUrl = location.origin
