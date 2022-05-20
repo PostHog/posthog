@@ -245,12 +245,14 @@ describe('eventsTableLogic', () => {
                 })
 
                 it('fetch events sets after to 5 days ago and then a year ago when there are no events', async () => {
+                    ;(api.get as jest.Mock).mockClear() // because it will have been called on mount
+
                     await expectLogic(logic, () => {
                         logic.actions.fetchEvents()
                     }).toFinishListeners()
 
                     const mockCalls = (api.get as jest.Mock).mock.calls
-                    const firstGetCallUrl = mockCalls[1][0]
+                    const firstGetCallUrl = mockCalls[0][0]
                     expect(getUrlParameters(firstGetCallUrl)).toEqual({
                         properties: emptyProperties,
                         orderBy: orderByTimestamp,
@@ -462,6 +464,8 @@ describe('eventsTableLogic', () => {
                 })
 
                 it('preserves fetchNextEvents params when no new events found in the following timeslice', async () => {
+                    ;(api.get as jest.Mock).mockClear() // because it will have been called on mount
+
                     await expectLogic(logic, () => {
                         logic.actions.fetchEventsSuccess({
                             events: [firstEvent, secondEvent],
@@ -479,7 +483,7 @@ describe('eventsTableLogic', () => {
                         .toFinishListeners()
 
                     const mockCalls = (api.get as jest.Mock).mock.calls
-                    const firstGetCallUrl = mockCalls[1][0]
+                    const firstGetCallUrl = mockCalls[0][0]
                     expect(getUrlParameters(firstGetCallUrl)).toEqual({
                         properties: emptyProperties,
                         orderBy: orderByTimestamp,
@@ -681,10 +685,27 @@ describe('eventsTableLogic', () => {
             })
 
             it('fires two actions to change state, but just one API.get', async () => {
+                ;(api.get as jest.Mock).mockClear() // because it will have been called on mount
+                // Return a single event, so the logic doesn't make a second call
+                // Normally, if the logic does not receive any event in the first call
+                // it makes a second call with a longer time frame
+                useMocks({
+                    get: {
+                        '/api/projects/:team/events/': { results: [{}], count: 1 },
+                    },
+                })
                 await expectLogic(logic, () => {
                     const propertyFilter = makePropertyFilter()
                     router.actions.push(urls.events(), { properties: [propertyFilter], eventFilter: 'new event' })
-                }).toDispatchActions(['setProperties', 'fetchEvents', 'setEventFilter', 'fetchEvents'])
+                })
+                    .toDispatchActions([
+                        'setProperties',
+                        'fetchEvents',
+                        'setEventFilter',
+                        'fetchEvents',
+                        'fetchEventsSuccess',
+                    ])
+                    .toFinishAllListeners()
                 expect(api.get).toHaveBeenCalledTimes(1)
             })
         })

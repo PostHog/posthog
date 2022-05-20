@@ -46,7 +46,7 @@ describe('vm tests', () => {
 
     beforeEach(async () => {
         ;(Client as any).mockClear()
-        ;[hub, closeHub] = await createHub()
+        ;[hub, closeHub] = await createHub({ KAFKA_ENABLED: false })
     })
 
     afterEach(async () => {

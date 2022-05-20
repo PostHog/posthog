@@ -11,11 +11,6 @@ jest.mock('kafkajs/src/loggers/console')
 jest.mock('../../src/utils/status')
 jest.setTimeout(70000) // 60 sec timeout
 
-const extraServerConfig: Partial<PluginsServerConfig> = {
-    KAFKA_ENABLED: true,
-    KAFKA_HOSTS: process.env.KAFKA_HOSTS || 'kafka:9092',
-}
-
 describe('kafka health check', () => {
     let hub: Hub
     let closeHub: () => Promise<void>
@@ -23,7 +18,7 @@ describe('kafka health check', () => {
     let consumer: Consumer
 
     beforeAll(async () => {
-        await resetKafka(extraServerConfig)
+        await resetKafka()
     })
 
     beforeEach(async () => {
@@ -32,14 +27,13 @@ describe('kafka health check', () => {
             timing: jest.fn(),
         }
         consumer = await setupKafkaHealthcheckConsumer(hub.kafka!)
-
         await consumer.connect()
         consumer.pause([{ topic: KAFKA_HEALTHCHECK }])
     })
 
     afterEach(async () => {
-        await closeHub()
         await consumer.disconnect()
+        await closeHub()
     })
 
     // if kafka is up and running it should pass this healthcheck
@@ -72,9 +66,14 @@ describe('kafka health check', () => {
     })
 
     test('healthcheck fails if consumer cannot consume a message within the timeout', async () => {
-        consumer.resume = jest.fn()
+        const fakeConsumer: any = {
+            ...consumer,
+            resume: jest.fn(),
+            pause: jest.fn(),
+            on: jest.fn(),
+        }
 
-        const [kafkaHealthy, error] = await kafkaHealthcheck(hub!.kafkaProducer!.producer, consumer, statsd, 0)
+        const [kafkaHealthy, error] = await kafkaHealthcheck(hub!.kafkaProducer!.producer, fakeConsumer, statsd, 0)
         expect(kafkaHealthy).toEqual(false)
         expect(error!.message).toEqual('Consumer did not start fetching messages in time.')
         expect(statsd.timing).not.toHaveBeenCalled()

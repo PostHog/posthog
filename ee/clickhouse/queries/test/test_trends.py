@@ -1,7 +1,6 @@
 from datetime import datetime
 from unittest.mock import patch
 
-from constance.test import override_config
 from django.utils import timezone
 from freezegun import freeze_time
 from rest_framework.exceptions import ValidationError
@@ -138,7 +137,7 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
         filter = Filter(
             data={
                 "date_from": "2020-01-01T00:00:00Z",
-                "date_to": "2020-01-12T00:00:00Z",
+                "date_to": "2020-01-12",
                 "breakdown": "industry",
                 "breakdown_type": "group",
                 "breakdown_group_type_index": 0,
@@ -147,11 +146,6 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
         )
         response = ClickhouseTrends().run(filter, self.team,)
 
-        with override_config(ENABLE_ACTOR_ON_EVENTS_TEAMS=f"{self.team.pk}"):
-            new_response = ClickhouseTrends().run(filter, self.team)
-
-        self.assertEqual(response, new_response)
-
         self.assertEqual(len(response), 2)
         self.assertEqual(response[0]["breakdown_value"], "finance")
         self.assertEqual(response[0]["count"], 2)
@@ -159,7 +153,7 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
         self.assertEqual(response[1]["count"], 1)
 
         filter = filter.with_data(
-            {"breakdown_value": "technology", "date_from": "2020-01-02T00:00:00Z", "date_to": "2020-01-03T00:00:00Z"}
+            {"breakdown_value": "technology", "date_from": "2020-01-02T00:00:00Z", "date_to": "2020-01-03"}
         )
         entity = Entity({"id": "sign up", "name": "sign up", "type": "events", "order": 0,})
         res = self._get_trend_people(filter, entity)
@@ -204,11 +198,6 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
         )
 
         response = ClickhouseTrends().run(filter, self.team,)
-
-        with override_config(ENABLE_ACTOR_ON_EVENTS_TEAMS=f"{self.team.pk}"):
-            new_response = ClickhouseTrends().run(filter, self.team)
-
-        self.assertEqual(response, new_response)
 
         self.assertEqual(len(response), 1)
         self.assertEqual(response[0]["breakdown_value"], "finance")
@@ -1279,6 +1268,7 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
                     self.team,
                 )
 
+    @snapshot_clickhouse_queries
     @patch("posthoganalytics.feature_enabled", return_value=True)
     def test_timezones_hourly(self, patch_fe):
         self.team.timezone = "US/Pacific"
@@ -1335,6 +1325,8 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
                 ],
             )
             self.assertEqual(response[0]["data"], [0.0, 0.0, 0.0, 0.0, 0, 0, 0, 1, 1, 0, 0])
+            persons = self.client.get("/" + response[0]["persons_urls"][7]["url"]).json()
+            self.assertEqual(persons["results"][0]["count"], 1)
 
             response = ClickhouseTrends().run(
                 Filter(
@@ -1366,6 +1358,7 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
             )
             self.assertEqual(response[0]["data"], [0.0, 0.0, 0.0, 0.0, 0, 0, 0, 1, 1, 0, 0])
 
+    @snapshot_clickhouse_queries
     @patch("posthoganalytics.feature_enabled", return_value=True)
     def test_timezones(self, patch_feature_enabled):
         self.team.timezone = "US/Pacific"
@@ -1516,3 +1509,55 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
                 self.team,
             )
             self.assertEqual(response[0]["data"], [0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0])
+
+        # Custom date range, single day, hourly interval
+        response = ClickhouseTrends().run(
+            Filter(
+                data={
+                    "date_from": "2020-01-03",
+                    "date_to": "2020-01-03 23:59:59",
+                    "interval": "hour",
+                    "events": [{"id": "sign up", "name": "sign up"},],
+                },
+                team=self.team,
+            ),
+            self.team,
+        )
+        self.assertEqual(response[0]["data"][17], 1)
+        self.assertEqual(len(response[0]["data"]), 24)
+
+        # Custom date range, single day, dayly interval
+        response = ClickhouseTrends().run(
+            Filter(
+                data={
+                    "date_from": "2020-01-03",
+                    "date_to": "2020-01-03",
+                    "events": [{"id": "sign up", "name": "sign up"},],
+                },
+                team=self.team,
+            ),
+            self.team,
+        )
+        self.assertEqual(response[0]["data"], [1.0])
+
+    def test_same_day(self):
+        Person.objects.create(team_id=self.team.pk, distinct_ids=["blabla"], properties={})
+        with freeze_time("2020-01-03T01:01:01Z"):
+            _create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="blabla",
+                properties={"$current_url": "first url", "$browser": "Firefox", "$os": "Mac"},
+            )
+        response = ClickhouseTrends().run(
+            Filter(
+                data={
+                    "date_from": "2020-01-03",
+                    "date_to": "2020-01-03",
+                    "events": [{"id": "sign up", "name": "sign up"},],
+                },
+                team=self.team,
+            ),
+            self.team,
+        )
+        self.assertEqual(response[0]["data"], [1.0])

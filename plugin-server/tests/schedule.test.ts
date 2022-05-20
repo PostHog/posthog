@@ -57,13 +57,17 @@ describe('schedule', () => {
     `
         await resetTestDatabase(testCode)
         const piscina = setupPiscina(workerThreads, 10)
-        const processEvent = (event: PluginEvent) => piscina.run({ task: 'processEvent', args: { event } })
+        const ingestEvent = async (event: PluginEvent) => {
+            const result = await piscina.run({ task: 'runEventPipeline', args: { event } })
+            const resultEvent = result.args[0]
+            return resultEvent
+        }
 
         const [hub, closeHub] = await createHub({ LOG_LEVEL: LogLevel.Log })
         hub.pluginSchedule = await loadPluginSchedule(piscina)
         expect(hub.pluginSchedule).toEqual({ runEveryDay: [], runEveryHour: [], runEveryMinute: [39] })
 
-        const event1 = await processEvent(createEvent())
+        const event1 = await ingestEvent(createEvent())
         expect(event1.properties['counter']).toBe(0)
 
         runScheduleDebounced(hub, piscina, 'runEveryMinute')
@@ -71,12 +75,12 @@ describe('schedule', () => {
         runScheduleDebounced(hub, piscina, 'runEveryMinute')
         await delay(100)
 
-        const event2 = await processEvent(createEvent())
+        const event2 = await ingestEvent(createEvent())
         expect(event2.properties['counter']).toBe(0)
 
         await delay(500)
 
-        const event3 = await processEvent(createEvent())
+        const event3 = await ingestEvent(createEvent())
         expect(event3.properties['counter']).toBe(1)
 
         await waitForTasksToFinish(hub)

@@ -43,6 +43,7 @@ export enum AvailableFeature {
     EXPERIMENTATION = 'experimentation',
     TAGGING = 'tagging',
     BEHAVIORAL_COHORT_FILTERING = 'behavioral_cohort_filtering',
+    WHITE_LABELLING = 'white_labelling',
 }
 
 export enum LicensePlan {
@@ -792,6 +793,7 @@ export interface InsightModel extends DashboardTile {
     last_modified_by: UserBasicType | null
     effective_restriction_level: DashboardRestrictionLevel
     effective_privilege_level: DashboardPrivilegeLevel
+    timezone?: string
     /** Only used in the frontend to store the next breakdown url */
     next?: string
 }
@@ -1390,6 +1392,7 @@ export interface PreflightStatus {
     licensed_users_available?: number | null
     site_url?: string
     instance_preferences?: InstancePreferencesInterface
+    object_storage: boolean
 }
 
 export enum ItemMode { // todo: consolidate this and dashboardmode

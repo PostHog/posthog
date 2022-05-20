@@ -7,7 +7,7 @@ from freezegun.api import freeze_time
 from ee.clickhouse.queries.funnels.funnel_trends import ClickhouseFunnelTrends
 from ee.clickhouse.queries.funnels.funnel_trends_persons import ClickhouseFunnelTrendsActors
 from ee.clickhouse.test.test_journeys import journeys_for
-from ee.clickhouse.util import ClickhouseTestMixin
+from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
 from posthog.constants import INSIGHT_FUNNELS, TRENDS_LINEAR, FunnelOrderType
 from posthog.models.cohort import Cohort
 from posthog.models.filters import Filter
@@ -201,7 +201,6 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
                 "display": TRENDS_LINEAR,
                 "interval": "hour",
                 "date_from": "2021-05-01 00:00:00",
-                "date_to": "2021-05-07 00:00:00",
                 "funnel_window_days": 7,
                 "events": [
                     {"id": "step one", "order": 0},
@@ -210,8 +209,9 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
                 ],
             }
         )
-        results = ClickhouseFunnelTrends(filter, self.team)._exec_query()
-        self.assertEqual(len(results), 145)
+        with freeze_time("2021-05-06T23:40:59Z"):
+            results = ClickhouseFunnelTrends(filter, self.team)._exec_query()
+        self.assertEqual(len(results), 144)
 
     def test_day_interval(self):
         filter = Filter(
@@ -1215,6 +1215,7 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(result), 1)
         self.assertEqual(result[0]["data"], [100.0, 100.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
 
+    @snapshot_clickhouse_queries
     @patch("posthoganalytics.feature_enabled", return_value=True)
     def test_timezones_trends(self, patch_feature_enabled):
         journeys_for(

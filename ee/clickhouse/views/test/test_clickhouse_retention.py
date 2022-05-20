@@ -1,7 +1,6 @@
 from dataclasses import asdict, dataclass
 from typing import List, Literal, Optional, TypedDict, Union
 
-from constance.test import override_config
 from django.test import TestCase
 from django.test.client import Client
 
@@ -11,6 +10,7 @@ from ee.clickhouse.views.test.funnel.util import EventPattern
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
 from posthog.api.test.test_user import create_user
+from posthog.models.instance_setting import override_instance_config
 from posthog.test.base import test_with_materialized_columns
 from posthog.utils import encode_get_request_params
 
@@ -85,7 +85,7 @@ class RetentionTests(TestCase, ClickhouseTestMixin):
             team=team,
         )
 
-        with override_config(AGGREGATE_BY_DISTINCT_IDS_TEAMS=f"{team.pk}"):
+        with override_instance_config("AGGREGATE_BY_DISTINCT_IDS_TEAMS", f"{team.pk}"):
             retention = get_retention_ok(
                 client=self.client,
                 team_id=team.pk,
