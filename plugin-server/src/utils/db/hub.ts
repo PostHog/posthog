@@ -12,6 +12,7 @@ import { ConnectionOptions } from 'tls'
 
 import { defaultConfig } from '../../config/config'
 import { JobQueueManager } from '../../main/job-queues/job-queue-manager'
+import { connectObjectStorage, ObjectStorage } from '../../main/services/object_storage'
 import { Hub, KafkaSecurityProtocol, PluginId, PluginServerCapabilities, PluginsServerConfig } from '../../types'
 import { ActionManager } from '../../worker/ingestion/action-manager'
 import { ActionMatcher } from '../../worker/ingestion/action-matcher'
@@ -204,6 +205,18 @@ export async function createHub(
         }
     )
     status.info('👍', `Redis`)
+
+    status.info('🤔', `Storage`)
+    const objectStorage: ObjectStorage = connectObjectStorage(serverConfig)
+    try {
+        if (serverConfig.OBJECT_STORAGE_ENABLED && (await objectStorage.healthCheck())) {
+            status.info('👍', `storage 🪣`)
+        } else {
+            status.info('🪣', `storage not in use`)
+        }
+    } catch (e) {
+        status.warn('🪣', `storage failed healthcheck: ${e}`)
+    }
 
     const db = new DB(
         postgres,
