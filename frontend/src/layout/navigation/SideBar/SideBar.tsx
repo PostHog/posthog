@@ -192,7 +192,11 @@ function Pages(): JSX.Element {
                         <>
                             <LemonDivider />
                             {canViewPlugins(currentOrganization) && (
-                                <PageButton icon={<IconExtension />} identifier={Scene.Plugins} to={urls.plugins()} />
+                                <PageButton
+                                    icon={<IconExtension />}
+                                    identifier={Scene.Plugins}
+                                    to={urls.projectApps()}
+                                />
                             )}
                         </>
                     )}

@@ -115,7 +115,7 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     },
     [Scene.Plugins]: {
         projectBased: true,
-        name: 'Plugins',
+        name: 'Apps',
     },
     [Scene.FrontendAppScene]: {
         projectBased: true,
@@ -206,7 +206,8 @@ export const redirects: Record<string, string | ((params: Params) => string)> = 
     '/': urls.projectHomepage(),
     '/saved_insights': urls.savedInsights(),
     '/dashboards': urls.dashboards(),
-    '/plugins': urls.plugins(),
+    '/plugins': urls.projectApps(),
+    '/project/plugins': urls.projectApps(),
     '/actions': urls.actions(),
     '/organization/members': urls.organizationSettings(),
     '/i/:shortId': ({ shortId }) => urls.insightView(shortId),
@@ -250,7 +251,7 @@ export const routes: Record<string, Scene> = {
     [urls.annotations()]: Scene.Annotations,
     [urls.projectHomepage()]: Scene.ProjectHomepage,
     [urls.projectSettings()]: Scene.ProjectSettings,
-    [urls.plugins()]: Scene.Plugins,
+    [urls.projectApps()]: Scene.Plugins,
     [urls.frontendApp(':id')]: Scene.FrontendAppScene,
     [urls.projectCreateFirst()]: Scene.ProjectCreateFirst,
     [urls.organizationSettings()]: Scene.OrganizationSettings,

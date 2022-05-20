@@ -1,5 +1,5 @@
 export const createDefaultPluginSource = (name: string): Record<string, any> => ({
-    'index.ts': `// Learn more about plugins at: https://posthog.com/docs/plugins/build/overview
+    'index.ts': `// Learn more about plugins at: https://posthog.com/docs/apps/build
 
 // Processes each event, optionally transforming it
 export function processEvent(event, { config }) {
