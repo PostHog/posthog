@@ -58,7 +58,7 @@ export const clickhouseEventTimestampToDate = (timestamp: string): Date => {
 }
 
 export const fetchTimestampBoundariesForTeam = async (db: DB, teamId: number): Promise<TimestampBoundaries> => {
-    if (defaultConfig.KAFKA_ENABLED) {
+    if (db.KAFKA_ENABLED) {
         const clickhouseFetchTimestampsResult = await db.clickhouseQuery(`
             SELECT min(_timestamp) as min, max(_timestamp) as max
             FROM events
@@ -102,7 +102,7 @@ export const fetchEventsForInterval = async (
 ): Promise<HistoricalExportEvent[]> => {
     const timestampUpperBound = new Date(timestampLowerBound.getTime() + eventsTimeInterval)
 
-    if (defaultConfig.KAFKA_ENABLED) {
+    if (db.KAFKA_ENABLED) {
         const chTimestampLower = castTimestampToClickhouseFormat(
             DateTime.fromISO(timestampLowerBound.toISOString()),
             TimestampFormat.ClickHouseSecondPrecision

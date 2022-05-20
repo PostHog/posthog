@@ -8,7 +8,6 @@ import { ProducerRecord } from 'kafkajs'
 import { DateTime } from 'luxon'
 import { Pool, PoolClient, QueryResult, QueryResultRow } from 'pg'
 
-import { defaultConfig } from '../../config/config'
 import {
     KAFKA_GROUPS,
     KAFKA_PERSON_DISTINCT_ID,
@@ -46,6 +45,7 @@ import {
     PluginLogEntrySource,
     PluginLogEntryType,
     PluginSourceFileStatus,
+    PluginsServerConfig,
     PostgresSessionRecordingEvent,
     PropertiesLastOperation,
     PropertiesLastUpdatedAt,
@@ -171,6 +171,8 @@ export class DB {
     /** Whether to write to clickhouse_person_unique_id topic */
     writeToPersonUniqueId?: boolean
 
+    KAFKA_ENABLED: boolean
+
     /** How many seconds to keep person info in Redis cache */
     PERSONS_AND_GROUPS_CACHE_TTL: number
 
@@ -183,6 +185,7 @@ export class DB {
         kafkaProducer: KafkaProducerWrapper,
         clickhouse: ClickHouse,
         statsd: StatsD | undefined,
+        kafkaEnabled = true,
         personAndGroupsCacheTtl = 1,
         personAndGroupsCachingEnabledTeams: Set<number> = new Set<number>()
     ) {
@@ -192,6 +195,7 @@ export class DB {
         this.clickhouse = clickhouse
         this.statsd = statsd
         this.postgresLogsWrapper = new PostgresLogsWrapper(this)
+        this.KAFKA_ENABLED = kafkaEnabled
         this.PERSONS_AND_GROUPS_CACHE_TTL = personAndGroupsCacheTtl
         this.personAndGroupsCachingEnabledTeams = personAndGroupsCachingEnabledTeams
     }
@@ -796,7 +800,7 @@ export class DB {
                 version: Number(personCreated.version || 0),
             } as Person
 
-            if (defaultConfig.KAFKA_ENABLED) {
+            if (this.KAFKA_ENABLED) {
                 kafkaMessages.push(
                     generateKafkaPersonUpdateMessage(createdAt, properties, teamId, isIdentified, uuid, person.version)
                 )
@@ -810,7 +814,7 @@ export class DB {
             return person
         })
 
-        if (defaultConfig.KAFKA_ENABLED) {
+        if (this.KAFKA_ENABLED) {
             await this.kafkaProducer.queueMessages(kafkaMessages)
         }
 
@@ -864,7 +868,7 @@ export class DB {
         const updatedPerson: Person = { ...person, ...update, version: updatedPersonVersion }
 
         const kafkaMessages = []
-        if (defaultConfig.KAFKA_ENABLED) {
+        if (this.KAFKA_ENABLED) {
             const message = generateKafkaPersonUpdateMessage(
                 updatedPerson.created_at,
                 updatedPerson.properties,
@@ -890,7 +894,7 @@ export class DB {
     public async deletePerson(person: Person, client: PoolClient): Promise<ProducerRecord[]> {
         await client.query('DELETE FROM posthog_person WHERE team_id = $1 AND id = $2', [person.team_id, person.id])
         const kafkaMessages = []
-        if (defaultConfig.KAFKA_ENABLED) {
+        if (this.KAFKA_ENABLED) {
             kafkaMessages.push(
                 generateKafkaPersonUpdateMessage(
                     person.created_at,
@@ -953,7 +957,7 @@ export class DB {
 
     public async addDistinctId(person: Person, distinctId: string): Promise<void> {
         const kafkaMessages = await this.addDistinctIdPooled(person, distinctId)
-        if (defaultConfig.KAFKA_ENABLED && kafkaMessages.length) {
+        if (this.KAFKA_ENABLED && kafkaMessages.length) {
             await this.kafkaProducer.queueMessages(kafkaMessages)
         }
         // Update person info cache - we want to await to make sure the Event gets the right properties
@@ -973,7 +977,7 @@ export class DB {
         )
 
         const { id, version: versionStr, ...personDistinctIdCreated } = insertResult.rows[0] as PersonDistinctId
-        if (defaultConfig.KAFKA_ENABLED) {
+        if (this.KAFKA_ENABLED) {
             const version = Number(versionStr || 0)
             const messages = [
                 {
@@ -1056,7 +1060,7 @@ export class DB {
         }
 
         const kafkaMessages = []
-        if (defaultConfig.KAFKA_ENABLED) {
+        if (this.KAFKA_ENABLED) {
             for (const row of movedDistinctIdResult.rows) {
                 const { id, version: versionStr, ...usefulColumns } = row as PersonDistinctId
                 const version = Number(versionStr || 0)
@@ -1129,7 +1133,7 @@ export class DB {
         person: CachedPersonData | Person,
         teamId: Team['id']
     ): Promise<boolean> {
-        if (defaultConfig.KAFKA_ENABLED) {
+        if (this.KAFKA_ENABLED) {
             const chResult = await this.clickhouseQuery(
                 `SELECT 1 FROM person_static_cohort
                 WHERE
@@ -1165,7 +1169,7 @@ export class DB {
     // Event
 
     public async fetchEvents(): Promise<Event[] | ClickHouseEvent[]> {
-        if (defaultConfig.KAFKA_ENABLED) {
+        if (this.KAFKA_ENABLED) {
             const events = (await this.clickhouseQuery(`SELECT * FROM events ORDER BY timestamp ASC`))
                 .data as ClickHouseEvent[]
             return (
@@ -1217,7 +1221,7 @@ export class DB {
     // SessionRecordingEvent
 
     public async fetchSessionRecordingEvents(): Promise<PostgresSessionRecordingEvent[] | SessionRecordingEvent[]> {
-        if (defaultConfig.KAFKA_ENABLED) {
+        if (this.KAFKA_ENABLED) {
             const events = (
                 (await this.clickhouseQuery(`SELECT * FROM session_recording_events`)).data as SessionRecordingEvent[]
             ).map((event) => {
@@ -1240,7 +1244,7 @@ export class DB {
     // Element
 
     public async fetchElements(event?: Event): Promise<Element[]> {
-        if (defaultConfig.KAFKA_ENABLED) {
+        if (this.KAFKA_ENABLED) {
             const events = (
                 await this.clickhouseQuery(
                     `SELECT elements_chain FROM events WHERE uuid='${escapeClickHouseString((event as any).uuid)}'`
@@ -1357,7 +1361,7 @@ export class DB {
     // PluginLogEntry
 
     public async fetchPluginLogEntries(): Promise<PluginLogEntry[]> {
-        if (defaultConfig.KAFKA_ENABLED) {
+        if (this.KAFKA_ENABLED) {
             return (await this.clickhouseQuery(`SELECT * FROM plugin_log_entries`)).data as PluginLogEntry[]
         } else {
             return (await this.postgresQuery('SELECT * FROM posthog_pluginlogentry', undefined, 'fetchAllPluginLogs'))
@@ -1392,7 +1396,7 @@ export class DB {
             plugin_id: pluginConfig.plugin_id.toString(),
         })
 
-        if (defaultConfig.KAFKA_ENABLED) {
+        if (this.KAFKA_ENABLED) {
             try {
                 await this.kafkaProducer.queueMessage({
                     topic: KAFKA_PLUGIN_LOG_ENTRIES,
@@ -1830,7 +1834,7 @@ export class DB {
         createdAt: DateTime,
         version: number
     ): Promise<void> {
-        if (defaultConfig.KAFKA_ENABLED) {
+        if (this.KAFKA_ENABLED) {
             await this.kafkaProducer.queueMessage({
                 topic: KAFKA_GROUPS,
                 messages: [
