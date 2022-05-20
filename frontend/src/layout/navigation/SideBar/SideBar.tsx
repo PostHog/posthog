@@ -11,7 +11,6 @@ import {
     IconCohort,
     IconComment,
     IconExperiment,
-    IconExtension,
     IconFlag,
     IconGauge,
     IconPerson,
@@ -192,11 +191,7 @@ function Pages(): JSX.Element {
                         <>
                             <LemonDivider />
                             {canViewPlugins(currentOrganization) && (
-                                <PageButton
-                                    icon={<IconExtension />}
-                                    identifier={Scene.Plugins}
-                                    to={urls.projectApps()}
-                                />
+                                <PageButton icon={<IconApps />} identifier={Scene.Plugins} to={urls.projectApps()} />
                             )}
                         </>
                     )}
