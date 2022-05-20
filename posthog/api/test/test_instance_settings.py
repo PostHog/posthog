@@ -1,6 +1,7 @@
 from django.core import mail
 from rest_framework import status
 
+from posthog.api.instance_settings import get_instance_setting as get_instance_setting_helper
 from posthog.models.instance_setting import get_instance_setting, override_instance_config, set_instance_setting
 from posthog.settings import CONSTANCE_CONFIG
 from posthog.test.base import APIBaseTest
@@ -100,7 +101,7 @@ class TestInstanceSettings(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["value"], True)
 
-        self.assertEqual(get_instance_setting("AUTO_START_ASYNC_MIGRATIONS").value, True)
+        self.assertEqual(get_instance_setting_helper("AUTO_START_ASYNC_MIGRATIONS").value, True)
         self.assertEqual(get_instance_setting("AUTO_START_ASYNC_MIGRATIONS"), True)
 
     def test_updating_email_settings(self):
@@ -151,5 +152,5 @@ class TestInstanceSettings(APIBaseTest):
             response.json(), self.permission_denied_response("You are not a staff user, contact your instance admin.")
         )
 
-        self.assertEqual(get_instance_setting("AUTO_START_ASYNC_MIGRATIONS").value, False)
+        self.assertEqual(get_instance_setting_helper("AUTO_START_ASYNC_MIGRATIONS").value, False)
         self.assertEqual(get_instance_setting("AUTO_START_ASYNC_MIGRATIONS"), False)
