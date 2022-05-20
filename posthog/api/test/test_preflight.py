@@ -2,10 +2,10 @@ from typing import cast
 from unittest.mock import patch
 
 import pytest
-from constance.test import override_config
 from django.utils import timezone
 from rest_framework import status
 
+from posthog.models.instance_setting import set_instance_setting
 from posthog.models.organization import Organization, OrganizationInvite
 from posthog.test.base import APIBaseTest
 from posthog.version import VERSION
@@ -132,9 +132,9 @@ class TestPreflight(APIBaseTest):
             )
             self.assertDictContainsSubset({"Europe/Moscow": 3, "UTC": 0}, available_timezones)
 
-    @override_config(EMAIL_HOST="localhost")
     @pytest.mark.ee
     def test_cloud_preflight_request_unauthenticated(self):
+        set_instance_setting("EMAIL_HOST", "localhost")
 
         self.client.logout()  # make sure it works anonymously
 
@@ -200,9 +200,10 @@ class TestPreflight(APIBaseTest):
             )
             self.assertDictContainsSubset({"Europe/Moscow": 3, "UTC": 0}, available_timezones)
 
-    @override_config(EMAIL_HOST="localhost")
     @pytest.mark.ee
     def test_cloud_preflight_request_with_social_auth_providers(self):
+        set_instance_setting("EMAIL_HOST", "localhost")
+
         with self.settings(
             SOCIAL_AUTH_GOOGLE_OAUTH2_KEY="test_key",
             SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET="test_secret",
