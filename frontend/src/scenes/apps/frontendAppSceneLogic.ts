@@ -4,7 +4,6 @@ import { Breadcrumb, FrontendApp, FrontendAppConfig } from '~/types'
 import type { frontendAppSceneLogicType } from './frontendAppSceneLogicType'
 import { subscriptions } from 'kea-subscriptions'
 import { objectsEqual } from 'lib/utils'
-import { urls } from 'scenes/urls'
 import { FrontendAppSceneLogicProps } from 'scenes/apps/types'
 
 /** Logic responsible for loading the injected frontend scene */
@@ -16,24 +15,18 @@ export const frontendAppSceneLogic = kea<frontendAppSceneLogicType>([
         values: [frontendAppsLogic, ['frontendApps', 'appConfigs']],
     }),
     selectors(() => ({
+        // Frontend app created after receiving a bundle via import('').getFrontendApp()
         frontendApp: [
             (s) => [s.frontendApps, (_, props) => props.id],
             (frontendApps, id): FrontendApp | undefined => frontendApps[id],
         ],
+        // Config passed to app component and logic as props. Sent in Django's app context.
         appConfig: [
             (s) => [s.appConfigs, (_, props) => props.id],
             (appConfigs, id): FrontendAppConfig | undefined => appConfigs[id],
         ],
         logic: [(s) => [s.frontendApp], (frontendApp): LogicWrapper | undefined => frontendApp?.logic],
-        logicProps: [
-            (s) => [s.appConfig],
-            (appConfig): FrontendAppConfig | undefined =>
-                appConfig ? { ...appConfig, url: urls.frontendApp(appConfig.pluginConfigId) } : undefined,
-        ],
-        builtLogic: [
-            (s) => [s.logic, s.logicProps],
-            (logic: any, props: any) => (logic && props ? logic(props) : null),
-        ],
+        builtLogic: [(s) => [s.logic, s.appConfig], (logic: any, props: any) => (logic && props ? logic(props) : null)],
         Component: [(s) => [s.frontendApp], (frontendApp: any) => frontendApp?.component],
         breadcrumbsSelector: [(s) => [s.builtLogic], (builtLogic) => builtLogic?.selectors.breadcrumbs],
         breadcrumbs: [

@@ -863,6 +863,7 @@ export interface PluginType {
     public_jobs?: Record<string, JobSpec>
 }
 
+/** Frontend app created after receiving a bundle via import('').getFrontendApp() */
 export interface FrontendApp {
     id: number
     pluginId: number
@@ -873,7 +874,7 @@ export interface FrontendApp {
     onInit?: () => void
 }
 
-/** Config passed to app from Django's app context */
+/** Config passed to app component and logic as props. Sent in Django's app context */
 export interface FrontendAppConfig {
     pluginId: number
     pluginConfigId: number

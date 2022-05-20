@@ -6,18 +6,18 @@ import { frontendAppSceneLogic } from 'scenes/apps/frontendAppSceneLogic'
 import { PageHeader } from 'lib/components/PageHeader'
 
 export function FrontendAppScene(): JSX.Element {
-    const { Component, logicProps, breadcrumbs } = useValues(frontendAppSceneLogic)
+    const { Component, appConfig, breadcrumbs } = useValues(frontendAppSceneLogic)
 
     return (
         <>
             <PageHeader
                 title={
                     (breadcrumbs.length > 0 && breadcrumbs[breadcrumbs.length - 1]?.name) ||
-                    logicProps?.name ||
+                    appConfig?.name ||
                     'App Loading...'
                 }
             />
-            {Component ? <Component {...logicProps} /> : <Skeleton />}
+            {Component ? <Component {...appConfig} /> : <Skeleton />}
         </>
     )
 }
