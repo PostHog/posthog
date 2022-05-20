@@ -180,7 +180,7 @@ function Pages(): JSX.Element {
                                             title="Browse Apps"
                                             icon={<IconApps />}
                                             identifier={Scene.Plugins}
-                                            to={urls.plugins()}
+                                            to={urls.projectApps()}
                                         />
                                     )}
                                     {Object.keys(frontendApps).length > 0 && <SideBarApps />}
