@@ -811,7 +811,7 @@ export class DB {
         })
 
         if (defaultConfig.KAFKA_ENABLED) {
-            await defaultConfig.KAFKA_ENABLED.queueMessages(kafkaMessages)
+            await this.kafkaProducer.queueMessages(kafkaMessages)
         }
 
         // Update person info cache - we want to await to make sure the Event gets the right properties
@@ -954,7 +954,7 @@ export class DB {
     public async addDistinctId(person: Person, distinctId: string): Promise<void> {
         const kafkaMessages = await this.addDistinctIdPooled(person, distinctId)
         if (defaultConfig.KAFKA_ENABLED && kafkaMessages.length) {
-            await defaultConfig.KAFKA_ENABLED.queueMessages(kafkaMessages)
+            await this.kafkaProducer.queueMessages(kafkaMessages)
         }
         // Update person info cache - we want to await to make sure the Event gets the right properties
         await this.updatePersonIdCache(person.team_id, distinctId, person.id)
