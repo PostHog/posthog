@@ -1,7 +1,6 @@
 import ClickHouse from '@posthog/clickhouse'
 import { CacheOptions, Properties } from '@posthog/plugin-scaffold'
 import { captureException } from '@sentry/node'
-import { defaultConfig } from 'config/config'
 import { Pool as GenericPool } from 'generic-pool'
 import { StatsD } from 'hot-shots'
 import Redis from 'ioredis'
@@ -9,6 +8,7 @@ import { ProducerRecord } from 'kafkajs'
 import { DateTime } from 'luxon'
 import { Pool, PoolClient, QueryResult, QueryResultRow } from 'pg'
 
+import { defaultConfig } from '../../config/config'
 import {
     KAFKA_GROUPS,
     KAFKA_PERSON_DISTINCT_ID,

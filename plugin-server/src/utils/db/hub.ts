@@ -70,7 +70,7 @@ export async function createHub(
     )
 
     if (serverConfig.STATSD_HOST) {
-        status.info('🤔', `StatsD`)
+        status.info('🤔', `Connecting to StatsD...`)
         statsd = new StatsD({
             port: serverConfig.STATSD_PORT,
             host: serverConfig.STATSD_HOST,
@@ -108,7 +108,7 @@ export async function createHub(
                 `Sending metrics to StatsD at ${serverConfig.STATSD_HOST}:${serverConfig.STATSD_PORT}, prefix: "${serverConfig.STATSD_PREFIX}"`
             )
         }
-        status.info('👍', `StatsD`)
+        status.info('👍', `StatsD ready`)
     }
 
     let kafkaSsl: ConnectionOptions | boolean | undefined
@@ -200,16 +200,16 @@ export async function createHub(
     )
     status.info('👍', `Redis ready`)
 
-    status.info('🤔', `Connecting to Storage...`)
+    status.info('🤔', `Connecting to object storage...`)
     const objectStorage: ObjectStorage = connectObjectStorage(serverConfig)
     try {
         if (serverConfig.OBJECT_STORAGE_ENABLED && (await objectStorage.healthCheck())) {
-            status.info('👍', `storage 🪣`)
+            status.info('👍', 'Object storage ready')
         } else {
-            status.info('🪣', `storage not in use`)
+            status.info('🪣', 'Object storage not in use')
         }
     } catch (e) {
-        status.warn('🪣', `storage failed healthcheck: ${e}`)
+        status.warn('🪣', `Object storage failed healthcheck: ${e}`)
     }
 
     const db = new DB(
