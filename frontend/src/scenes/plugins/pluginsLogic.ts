@@ -210,8 +210,7 @@ export const pluginsLogic = kea<pluginsLogicType<PluginForm, PluginSection, Plug
                 },
                 toggleEnabled: async ({ id, enabled }) => {
                     const { pluginConfigs, plugins } = values
-                    // pluginConfigs are indexed by plugin id, must look up the right config manually
-                    const pluginConfig = Object.values(pluginConfigs).find((config) => config.id === id)
+                    const pluginConfig = values.getPluginConfig(id)
                     if (pluginConfig) {
                         const plugin = plugins[pluginConfig.plugin]
                         if (plugin) {
@@ -440,6 +439,12 @@ export const pluginsLogic = kea<pluginsLogicType<PluginForm, PluginSection, Plug
     }),
 
     selectors({
+        getPluginConfig: [
+            (s) => [s.pluginConfigs],
+            (pluginConfigs): ((id: number) => PluginConfigType | undefined) =>
+                (id: number) =>
+                    Object.values(pluginConfigs).find(({ id: _id }) => id === _id),
+        ],
         installedPlugins: [
             (s) => [s.plugins, s.pluginConfigs, s.updateStatus],
             (plugins, pluginConfigs, updateStatus): PluginTypeWithConfig[] => {
@@ -659,9 +664,7 @@ export const pluginsLogic = kea<pluginsLogicType<PluginForm, PluginSection, Plug
         },
         // Load or unload an app, as directed by its enabled state in pluginsLogic
         syncFrontendAppState: ({ id }) => {
-            const getPluginConfig = (): PluginConfigType | undefined =>
-                Object.values(values.pluginConfigs).find(({ id: _id }) => id === _id)
-            const pluginConfig = getPluginConfig()
+            const pluginConfig = values.getPluginConfig(id)
             if (pluginConfig) {
                 frontendAppsLogic.actions.unloadFrontendApp(id)
                 if (pluginConfig.enabled) {
