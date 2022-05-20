@@ -99,8 +99,8 @@
                           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                        WHERE team_id = 2
                          AND event IN ['$pageview', 'insight analyzed']
-                         AND timestamp >= toDateTime('2021-01-01 00:00:00', 'UTC')
-                         AND timestamp <= toDateTime('2021-01-08 23:59:59', 'UTC') ) events
+                         AND timestamp >= toDateTime('2021-01-01 00:00:00')
+                         AND timestamp <= toDateTime('2021-01-08 23:59:59') ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1) ))
               WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
@@ -320,8 +320,8 @@
                                 HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                              WHERE team_id = 2
                                AND event IN ['$pageview', 'insight analyzed', 'insight updated']
-                               AND timestamp >= toDateTime('2021-01-01 00:00:00', 'UTC')
-                               AND timestamp <= toDateTime('2021-01-08 23:59:59', 'UTC') ) events
+                               AND timestamp >= toDateTime('2021-01-01 00:00:00')
+                               AND timestamp <= toDateTime('2021-01-08 23:59:59') ) events
                           WHERE (step_0 = 1
                                  OR step_1 = 1
                                  OR step_2 = 1) ))))
@@ -471,8 +471,8 @@
                           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                        WHERE team_id = 2
                          AND event IN ['$pageview', 'insight analyzed']
-                         AND timestamp >= toDateTime('2021-01-01 00:00:00', 'UTC')
-                         AND timestamp <= toDateTime('2021-01-08 23:59:59', 'UTC') ) events
+                         AND timestamp >= toDateTime('2021-01-01 00:00:00')
+                         AND timestamp <= toDateTime('2021-01-08 23:59:59') ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1) ))
               WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
@@ -609,8 +609,8 @@
                           GROUP BY distinct_id
                           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                        WHERE team_id = 2
-                         AND timestamp >= toDateTime('2021-01-01 00:00:00', 'UTC')
-                         AND timestamp <= toDateTime('2021-01-08 23:59:59', 'UTC') ) events
+                         AND timestamp >= toDateTime('2021-01-01 00:00:00')
+                         AND timestamp <= toDateTime('2021-01-08 23:59:59') ) events
                     WHERE (1=1) ))
               WHERE step_0 = 1 ))
         GROUP BY aggregation_target,
@@ -746,8 +746,8 @@
                           GROUP BY distinct_id
                           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                        WHERE team_id = 2
-                         AND timestamp >= toDateTime('2021-01-01 00:00:00', 'UTC')
-                         AND timestamp <= toDateTime('2021-01-08 23:59:59', 'UTC') ) events
+                         AND timestamp >= toDateTime('2021-01-01 00:00:00')
+                         AND timestamp <= toDateTime('2021-01-08 23:59:59') ) events
                     WHERE (1=1) ))
               WHERE step_0 = 1 ))
         GROUP BY aggregation_target,

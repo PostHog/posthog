@@ -14,7 +14,7 @@ from posthog.models import Entity
 from posthog.models.action.util import Action, format_action_filter
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.team import Team
-from posthog.queries.util import get_trunc_func_ch
+from posthog.queries.util import format_ch_timestamp, get_trunc_func_ch
 
 
 class RetentionEventsQuery(EnterpriseEventQuery):
@@ -194,18 +194,25 @@ class RetentionEventsQuery(EnterpriseEventQuery):
 
     def _get_date_filter(self):
         query = (
-            f"event_date >= toDateTime(%({self._event_query_type}_start_date)s, %(timezone)s) AND event_date <= toDateTime(%({self._event_query_type}_end_date)s, %(timezone)s)"
+            f"event_date >= toDateTime(%({self._event_query_type}_start_date)s) AND event_date <= toDateTime(%({self._event_query_type}_end_date)s)"
             if self._event_query_type == RetentionQueryType.TARGET_FIRST_TIME
-            else f"toDateTime({self.EVENT_TABLE_ALIAS}.timestamp) >= toDateTime(%({self._event_query_type}_start_date)s, %(timezone)s) AND toDateTime({self.EVENT_TABLE_ALIAS}.timestamp) <= toDateTime(%({self._event_query_type}_end_date)s, %(timezone)s)"
+            else f"toDateTime({self.EVENT_TABLE_ALIAS}.timestamp) >= toDateTime(%({self._event_query_type}_start_date)s) AND toDateTime({self.EVENT_TABLE_ALIAS}.timestamp) <= toDateTime(%({self._event_query_type}_end_date)s)"
         )
+        start_date = self._filter.date_from
+        end_date = (
+            (self._filter.date_from + self._filter.period_increment)
+            if self._filter.display == TRENDS_LINEAR and self._event_query_type == RetentionQueryType.TARGET
+            else self._filter.date_to
+        )
+        if self._filter.period != "Hour":
+            start_date = start_date.replace(hour=0, minute=0, second=0, microsecond=0)
+            end_date = end_date.replace(hour=0, minute=0, second=0, microsecond=0)
         params = {
-            f"{self._event_query_type}_start_date": self._filter.date_from.strftime(
-                "%Y-%m-%d{}".format(" %H:%M:%S" if self._filter.period == "Hour" else " 00:00:00")
+            f"{self._event_query_type}_start_date": format_ch_timestamp(
+                start_date, convert_to_timezone=self._team.timezone_for_charts
             ),
-            f"{self._event_query_type}_end_date": (
-                (self._filter.date_from + self._filter.period_increment)
-                if self._filter.display == TRENDS_LINEAR and self._event_query_type == RetentionQueryType.TARGET
-                else self._filter.date_to
-            ).strftime("%Y-%m-%d{}".format(" %H:%M:%S" if self._filter.period == "Hour" else " 00:00:00")),
+            f"{self._event_query_type}_end_date": format_ch_timestamp(
+                end_date, convert_to_timezone=self._team.timezone_for_charts
+            ),
         }
         return query, params

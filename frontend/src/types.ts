@@ -793,6 +793,7 @@ export interface InsightModel extends DashboardTile {
     last_modified_by: UserBasicType | null
     effective_restriction_level: DashboardRestrictionLevel
     effective_privilege_level: DashboardPrivilegeLevel
+    timezone?: string
     /** Only used in the frontend to store the next breakdown url */
     next?: string
 }
