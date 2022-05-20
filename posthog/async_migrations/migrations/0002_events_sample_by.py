@@ -11,7 +11,7 @@ from posthog.async_migrations.definition import (
 from posthog.async_migrations.utils import execute_op_clickhouse
 from posthog.client import sync_execute
 from posthog.constants import AnalyticsDBMS
-from posthog.models.instance_setting import set_dynamic_setting
+from posthog.models.instance_setting import set_instance_setting
 from posthog.settings import (
     ASYNC_MIGRATIONS_DEFAULT_TIMEOUT_SECONDS,
     CLICKHOUSE_CLUSTER,
@@ -104,8 +104,8 @@ class Migration(AsyncMigrationDefinition):
 
         detach_mv_ops = [
             AsyncMigrationOperation(
-                fn=lambda _: set_dynamic_setting("COMPUTE_MATERIALIZED_COLUMNS_ENABLED", False),
-                rollback_fn=lambda _: set_dynamic_setting("COMPUTE_MATERIALIZED_COLUMNS_ENABLED", True),
+                fn=lambda _: set_instance_setting("COMPUTE_MATERIALIZED_COLUMNS_ENABLED", False),
+                rollback_fn=lambda _: set_instance_setting("COMPUTE_MATERIALIZED_COLUMNS_ENABLED", True),
             ),
             AsyncMigrationOperationSQL(
                 database=AnalyticsDBMS.CLICKHOUSE,
@@ -153,8 +153,8 @@ class Migration(AsyncMigrationDefinition):
                 rollback=f"DETACH TABLE {EVENTS_TABLE_NAME}_mv ON CLUSTER '{CLICKHOUSE_CLUSTER}'",
             ),
             AsyncMigrationOperation(
-                fn=lambda _: set_dynamic_setting("COMPUTE_MATERIALIZED_COLUMNS_ENABLED", True),
-                rollback_fn=lambda _: set_dynamic_setting("COMPUTE_MATERIALIZED_COLUMNS_ENABLED", False),
+                fn=lambda _: set_instance_setting("COMPUTE_MATERIALIZED_COLUMNS_ENABLED", True),
+                rollback_fn=lambda _: set_instance_setting("COMPUTE_MATERIALIZED_COLUMNS_ENABLED", False),
             ),
             AsyncMigrationOperation(fn=optimize_table_fn),
         ]

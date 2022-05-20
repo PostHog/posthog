@@ -13,7 +13,7 @@ from rest_framework import status
 
 from posthog.constants import AvailableFeature
 from posthog.models import Dashboard, Organization, Team, User
-from posthog.models.instance_setting import override_constance_config
+from posthog.models.instance_setting import override_instance_config
 from posthog.models.organization import OrganizationInvite, OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
 from posthog.test.base import APIBaseTest
@@ -791,7 +791,7 @@ class TestInviteSignup(APIBaseTest):
         self.assertEqual(len(mail.outbox), 0)
 
     def test_api_invite_sign_up_member_joined_email_is_sent_for_next_members(self):
-        with override_constance_config("EMAIL_HOST", "localhost"):
+        with override_instance_config("EMAIL_HOST", "localhost"):
             initial_user = User.objects.create_and_join(self.organization, "test+420@posthog.com", None)
 
             invite: OrganizationInvite = OrganizationInvite.objects.create(

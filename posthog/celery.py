@@ -246,9 +246,9 @@ def clickhouse_mutation_count():
 
 
 def recompute_materialized_columns_enabled() -> bool:
-    from posthog.models.instance_setting import get_dynamic_setting
+    from posthog.models.instance_setting import get_instance_setting
 
-    if get_dynamic_setting("MATERIALIZED_COLUMNS_ENABLED") and get_dynamic_setting(
+    if get_instance_setting("MATERIALIZED_COLUMNS_ENABLED") and get_instance_setting(
         "COMPUTE_MATERIALIZED_COLUMNS_ENABLED"
     ):
         return True

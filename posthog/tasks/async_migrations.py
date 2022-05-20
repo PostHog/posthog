@@ -9,7 +9,7 @@ from posthog.async_migrations.runner import (
 )
 from posthog.async_migrations.utils import force_stop_migration, process_error, trigger_migration
 from posthog.celery import app
-from posthog.models.instance_setting import get_dynamic_setting
+from posthog.models.instance_setting import get_instance_setting
 
 
 # we're hijacking an entire worker to do this - consider:
@@ -58,7 +58,7 @@ def check_async_migration_health() -> None:
 
     # the worker crashed - this is how we find out and process the error
     if migration_instance.celery_task_id not in active_task_ids:
-        if get_dynamic_setting("ASYNC_MIGRATIONS_AUTO_CONTINUE"):
+        if get_instance_setting("ASYNC_MIGRATIONS_AUTO_CONTINUE"):
             trigger_migration(migration_instance, fresh_start=False)
         else:
             process_error(migration_instance, "Celery worker crashed while running migration.")

@@ -19,7 +19,7 @@ class InstanceSetting(models.Model):
         return json.loads(self.raw_value)
 
 
-def get_dynamic_setting(key: str) -> Any:
+def get_instance_setting(key: str) -> Any:
     assert key in CONSTANCE_CONFIG, f"Unknown dynamic setting: {repr(key)}"
 
     saved_setting = InstanceSetting.objects.filter(key=CONSTANCE_DATABASE_PREFIX + key).first()
@@ -29,18 +29,18 @@ def get_dynamic_setting(key: str) -> Any:
         return CONSTANCE_CONFIG[key][0]  # Get the default value
 
 
-def set_dynamic_setting(key: str, value: Any):
+def set_instance_setting(key: str, value: Any):
     InstanceSetting.objects.update_or_create(
         key=CONSTANCE_DATABASE_PREFIX + key, defaults={"raw_value": json.dumps(value)},
     )
 
 
 @contextmanager
-def override_constance_config(key: str, value: Any):
-    current_value = get_dynamic_setting(key)
-    set_dynamic_setting(key, value)
+def override_instance_config(key: str, value: Any):
+    current_value = get_instance_setting(key)
+    set_instance_setting(key, value)
 
     try:
         yield
     finally:
-        set_dynamic_setting(key, current_value)
+        set_instance_setting(key, current_value)

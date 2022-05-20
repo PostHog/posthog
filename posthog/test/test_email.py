@@ -5,7 +5,7 @@ from freezegun import freeze_time
 
 from posthog.email import EmailMessage, _send_email
 from posthog.models import MessagingRecord, Organization, Person, Team, User
-from posthog.models.instance_setting import override_constance_config
+from posthog.models.instance_setting import override_instance_config
 from posthog.test.base import BaseTest
 
 
@@ -34,14 +34,14 @@ class TestEmail(BaseTest):
         )  # This user should not get the emails
 
     def test_cant_send_emails_if_not_properly_configured(self) -> None:
-        with override_constance_config("EMAIL_HOST", None):
+        with override_instance_config("EMAIL_HOST", None):
             with self.assertRaises(ImproperlyConfigured) as e:
                 EmailMessage("test_campaign", "Subject", "template")
             self.assertEqual(
                 str(e.exception), "Email is not enabled in this instance.",
             )
 
-        with override_constance_config("EMAIL_ENABLED", False):
+        with override_instance_config("EMAIL_ENABLED", False):
             with self.assertRaises(ImproperlyConfigured) as e:
                 EmailMessage("test_campaign", "Subject", "template")
             self.assertEqual(
@@ -49,7 +49,7 @@ class TestEmail(BaseTest):
             )
 
     def test_cant_send_same_campaign_twice(self) -> None:
-        with override_constance_config("EMAIL_HOST", "localhost"):
+        with override_instance_config("EMAIL_HOST", "localhost"):
             sent_at = timezone.now()
 
             record, _ = MessagingRecord.objects.get_or_create(raw_email="test0@posthog.com", campaign_key="campaign_1")

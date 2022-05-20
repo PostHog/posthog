@@ -9,7 +9,7 @@ from posthog.async_migrations.examples.test_migration import Migration
 from posthog.async_migrations.runner import run_async_migration_next_op, run_async_migration_operations
 from posthog.async_migrations.test.util import create_async_migration
 from posthog.models.async_migration import AsyncMigration, MigrationStatus
-from posthog.models.instance_setting import set_dynamic_setting
+from posthog.models.instance_setting import set_instance_setting
 from posthog.tasks.async_migrations import check_async_migration_health
 from posthog.test.base import BaseTest
 
@@ -53,7 +53,7 @@ class TestAsyncMigrations(BaseTest):
         Given the op is resumable, we would expect check_async_migration_health to re-trigger the migration
         from where we left off
         """
-        set_dynamic_setting("ASYNC_MIGRATIONS_AUTO_CONTINUE", True)
+        set_instance_setting("ASYNC_MIGRATIONS_AUTO_CONTINUE", True)
 
         sm = AsyncMigration.objects.get(name="test_migration")
         sm.status = MigrationStatus.Running
@@ -83,8 +83,8 @@ class TestAsyncMigrations(BaseTest):
         Given the op is not resumable, we would expect check_async_migration_health to *not* re-trigger the migration
         and instead roll it back.
         """
-        set_dynamic_setting("ASYNC_MIGRATIONS_AUTO_CONTINUE", False)
-        set_dynamic_setting("ASYNC_MIGRATIONS_DISABLE_AUTO_ROLLBACK", False)
+        set_instance_setting("ASYNC_MIGRATIONS_AUTO_CONTINUE", False)
+        set_instance_setting("ASYNC_MIGRATIONS_DISABLE_AUTO_ROLLBACK", False)
 
         sm = AsyncMigration.objects.get(name="test_migration")
         sm.status = MigrationStatus.Running

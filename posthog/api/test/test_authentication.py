@@ -10,7 +10,7 @@ from rest_framework import status
 from social_django.models import UserSocialAuth
 
 from posthog.models import User
-from posthog.models.instance_setting import set_dynamic_setting
+from posthog.models.instance_setting import set_instance_setting
 from posthog.models.organization_domain import OrganizationDomain
 from posthog.test.base import APIBaseTest
 
@@ -170,7 +170,7 @@ class TestPasswordResetAPI(APIBaseTest):
 
     @patch("posthoganalytics.capture")
     def test_anonymous_user_can_request_password_reset(self, mock_capture):
-        set_dynamic_setting("EMAIL_HOST", "localhost")
+        set_instance_setting("EMAIL_HOST", "localhost")
 
         with self.settings(
             CELERY_TASK_ALWAYS_EAGER=True, SITE_URL="https://my.posthog.net",
@@ -206,7 +206,7 @@ class TestPasswordResetAPI(APIBaseTest):
         """
         If the user has logged in / signed up with SSO, we let them know so they don't have to reset their password.
         """
-        set_dynamic_setting("EMAIL_HOST", "localhost")
+        set_instance_setting("EMAIL_HOST", "localhost")
 
         UserSocialAuth.objects.create(
             user=self.user,
@@ -247,7 +247,7 @@ class TestPasswordResetAPI(APIBaseTest):
         self.assertIn("https://my.posthog.net/login", html_message)  # CTA link
 
     def test_success_response_even_on_invalid_email(self):
-        set_dynamic_setting("EMAIL_HOST", "localhost")
+        set_instance_setting("EMAIL_HOST", "localhost")
 
         with self.settings(
             CELERY_TASK_ALWAYS_EAGER=True, SITE_URL="https://my.posthog.net",

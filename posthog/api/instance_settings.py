@@ -3,7 +3,8 @@ from typing import Any, Dict, Optional, Tuple, Union
 
 from rest_framework import exceptions, mixins, permissions, serializers, viewsets
 
-from posthog.models.instance_setting import get_dynamic_setting, set_dynamic_setting
+from posthog.models.instance_setting import get_instance_setting as get_instance_setting_raw
+from posthog.models.instance_setting import set_instance_setting as set_instance_setting_raw
 from posthog.permissions import IsStaffUser
 from posthog.settings import CONSTANCE_CONFIG, MULTI_TENANCY, SECRET_SETTINGS, SETTINGS_ALLOWING_API_OVERRIDE
 from posthog.utils import str_to_bool
@@ -19,7 +20,7 @@ def cast_str_to_desired_type(str_value: str, target_type: type) -> Any:
     return str_value
 
 
-class InstanceSetting(object):
+class InstanceSettingHelper(object):
     key: str = ""
     value: Union[str, bool, int, None] = None
     value_type: str = ""
@@ -32,12 +33,12 @@ class InstanceSetting(object):
             setattr(self, field, kwargs.get(field, None))
 
 
-def get_instance_setting(key: str, setting_config: Optional[Tuple] = None) -> InstanceSetting:
+def get_instance_setting(key: str, setting_config: Optional[Tuple] = None) -> InstanceSettingHelper:
     setting_config = setting_config or CONSTANCE_CONFIG[key]
     is_secret = key in SECRET_SETTINGS
-    value = get_dynamic_setting(key)
+    value = get_instance_setting_raw(key)
 
-    return InstanceSetting(
+    return InstanceSettingHelper(
         key=key,
         value=value if not is_secret or not value else "*****",
         value_type=re.sub(r"<class '(\w+)'>", r"\1", str(setting_config[2])),
@@ -55,7 +56,7 @@ class InstanceSettingsSerializer(serializers.Serializer):
     editable = serializers.BooleanField(read_only=True)
     is_secret = serializers.BooleanField(read_only=True)
 
-    def update(self, instance: InstanceSetting, validated_data: Dict[str, Any]) -> InstanceSetting:
+    def update(self, instance: InstanceSettingHelper, validated_data: Dict[str, Any]) -> InstanceSettingHelper:
         if instance.key not in SETTINGS_ALLOWING_API_OVERRIDE:
             raise serializers.ValidationError("This setting cannot be updated from the API.", code="no_api_override")
 
@@ -81,7 +82,7 @@ class InstanceSettingsSerializer(serializers.Serializer):
 
             sync_execute(UPDATE_RECORDINGS_TABLE_TTL_SQL(), {"weeks": new_value_parsed})
 
-        set_dynamic_setting(instance.key, new_value_parsed)
+        set_instance_setting_raw(instance.key, new_value_parsed)
         instance.value = new_value_parsed
 
         if instance.key.startswith("EMAIL_") and "request" in self.context:
@@ -105,7 +106,7 @@ class InstanceSettingsViewset(
             output.append(get_instance_setting(key, setting_config))
         return output
 
-    def get_object(self) -> InstanceSetting:
+    def get_object(self) -> InstanceSettingHelper:
         # Perform the lookup filtering.
         lookup_url_kwarg = self.lookup_url_kwarg or self.lookup_field
         key = self.kwargs[lookup_url_kwarg]

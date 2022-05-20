@@ -13,7 +13,7 @@ from django.utils.module_loading import import_string
 from sentry_sdk import capture_exception
 
 from posthog.celery import app
-from posthog.models.instance_setting import get_dynamic_setting
+from posthog.models.instance_setting import get_instance_setting
 from posthog.models.messaging import MessagingRecord
 
 
@@ -35,8 +35,8 @@ def is_email_available(with_absolute_urls: bool = False) -> bool:
     Emails with absolute URLs can't be sent if SITE_URL is unset.
     """
     return (
-        get_dynamic_setting("EMAIL_ENABLED")
-        and bool(get_dynamic_setting("EMAIL_HOST"))
+        get_instance_setting("EMAIL_ENABLED")
+        and bool(get_instance_setting("EMAIL_HOST"))
         and (not with_absolute_urls or settings.SITE_URL is not None)
     )
 
@@ -71,12 +71,12 @@ def _send_email(
                 continue
 
             records.append(record)
-            reply_to = reply_to or get_dynamic_setting("EMAIL_REPLY_TO")
+            reply_to = reply_to or get_instance_setting("EMAIL_REPLY_TO")
 
             email_message = mail.EmailMultiAlternatives(
                 subject=subject,
                 body=txt_body,
-                from_email=get_dynamic_setting("EMAIL_DEFAULT_FROM"),
+                from_email=get_instance_setting("EMAIL_DEFAULT_FROM"),
                 to=[dest["recipient"]],
                 headers=headers,
                 reply_to=[reply_to] if reply_to else None,
@@ -89,12 +89,12 @@ def _send_email(
         try:
             klass = import_string(settings.EMAIL_BACKEND) if settings.EMAIL_BACKEND else EmailBackend
             connection = klass(
-                host=get_dynamic_setting("EMAIL_HOST"),
-                port=get_dynamic_setting("EMAIL_PORT"),
-                username=get_dynamic_setting("EMAIL_HOST_USER"),
-                password=get_dynamic_setting("EMAIL_HOST_PASSWORD"),
-                use_tls=get_dynamic_setting("EMAIL_USE_TLS"),
-                use_ssl=get_dynamic_setting("EMAIL_USE_SSL"),
+                host=get_instance_setting("EMAIL_HOST"),
+                port=get_instance_setting("EMAIL_PORT"),
+                username=get_instance_setting("EMAIL_HOST_USER"),
+                password=get_instance_setting("EMAIL_HOST_PASSWORD"),
+                use_tls=get_instance_setting("EMAIL_USE_TLS"),
+                use_ssl=get_instance_setting("EMAIL_USE_SSL"),
             )
             connection.open()
             connection.send_messages(messages)
