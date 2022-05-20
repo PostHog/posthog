@@ -1,5 +1,4 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
-import { mocked } from 'ts-jest/utils'
 
 import { pluginsProcessEventStep } from '../../../../src/worker/ingestion/event-pipeline/pluginsProcessEventStep'
 import { runProcessEvent } from '../../../../src/worker/plugins/run'
@@ -35,7 +34,7 @@ describe('pluginsProcessEventStep()', () => {
 
     it('forwards processed plugin event to `prepareEventStep`', async () => {
         const processedEvent = { ...pluginEvent, event: 'processed' }
-        mocked(runProcessEvent).mockResolvedValue(processedEvent)
+        jest.mocked(runProcessEvent).mockResolvedValue(processedEvent)
 
         const response = await pluginsProcessEventStep(runner, pluginEvent)
 
@@ -52,7 +51,7 @@ describe('pluginsProcessEventStep()', () => {
     })
 
     it('does not forward but counts dropped events by plugins', async () => {
-        mocked(runProcessEvent).mockResolvedValue(null)
+        jest.mocked(runProcessEvent).mockResolvedValue(null)
 
         const response = await pluginsProcessEventStep(runner, pluginEvent)
 

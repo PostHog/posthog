@@ -1,5 +1,4 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
-import { mocked } from 'ts-jest/utils'
 
 import { PreIngestionEvent } from '../../../../src/types'
 import { createEventStep } from '../../../../src/worker/ingestion/event-pipeline/createEventStep'
@@ -78,11 +77,11 @@ describe('EventPipelineRunner', () => {
         }
         runner = new TestEventPipelineRunner(hub, pluginEvent)
 
-        mocked(pluginsProcessEventStep).mockResolvedValue(['prepareEventStep', [pluginEvent]])
-        mocked(prepareEventStep).mockResolvedValue(['determineShouldBufferStep', [preIngestionEvent]])
-        mocked(determineShouldBufferStep).mockResolvedValue(['createEventStep', [preIngestionEvent]])
-        mocked(createEventStep).mockResolvedValue(['runAsyncHandlersStep', [preIngestionEvent]])
-        mocked(runAsyncHandlersStep).mockResolvedValue(null)
+        jest.mocked(pluginsProcessEventStep).mockResolvedValue(['prepareEventStep', [pluginEvent]])
+        jest.mocked(prepareEventStep).mockResolvedValue(['determineShouldBufferStep', [preIngestionEvent]])
+        jest.mocked(determineShouldBufferStep).mockResolvedValue(['createEventStep', [preIngestionEvent]])
+        jest.mocked(createEventStep).mockResolvedValue(['runAsyncHandlersStep', [preIngestionEvent]])
+        jest.mocked(runAsyncHandlersStep).mockResolvedValue(null)
     })
 
     describe('runEventPipeline()', () => {
@@ -142,7 +141,7 @@ describe('EventPipelineRunner', () => {
             const error = new Error('testError')
 
             it('runs and increments metrics', async () => {
-                mocked(prepareEventStep).mockRejectedValue(error)
+                jest.mocked(prepareEventStep).mockRejectedValue(error)
 
                 await runner.runEventPipeline(pluginEvent)
 
@@ -159,8 +158,8 @@ describe('EventPipelineRunner', () => {
             })
 
             it('emits failures to dead letter queue until createEvent', async () => {
-                mocked(generateEventDeadLetterQueueMessage).mockReturnValue('DLQ event' as any)
-                mocked(prepareEventStep).mockRejectedValue(error)
+                jest.mocked(generateEventDeadLetterQueueMessage).mockReturnValue('DLQ event' as any)
+                jest.mocked(prepareEventStep).mockRejectedValue(error)
 
                 await runner.runEventPipeline(pluginEvent)
 
@@ -169,7 +168,7 @@ describe('EventPipelineRunner', () => {
             })
 
             it('does not emit to dead letter queue for runAsyncHandlersStep', async () => {
-                mocked(runAsyncHandlersStep).mockRejectedValue(error)
+                jest.mocked(runAsyncHandlersStep).mockRejectedValue(error)
 
                 await runner.runEventPipeline(pluginEvent)
 
