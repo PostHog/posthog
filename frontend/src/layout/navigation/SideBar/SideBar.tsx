@@ -40,6 +40,7 @@ import { userLogic } from 'scenes/userLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SideBarApps } from '~/layout/navigation/SideBar/SideBarApps'
 import { PageButton } from '~/layout/navigation/SideBar/PageButton'
+import { frontendAppsLogic } from 'scenes/apps/frontendAppsLogic'
 
 function Pages(): JSX.Element {
     const { currentOrganization } = useValues(organizationLogic)
@@ -51,6 +52,7 @@ function Pages(): JSX.Element {
     const { hasAvailableFeature } = useValues(userLogic)
     const { preflight } = useValues(preflightLogic)
     const { currentTeam } = useValues(teamLogic)
+    const { frontendApps } = useValues(frontendAppsLogic)
 
     const [arePinnedDashboardsShown, setArePinnedDashboardsShown] = useState(false)
 
@@ -170,16 +172,20 @@ function Pages(): JSX.Element {
                     <PageButton icon={<IconComment />} identifier={Scene.Annotations} to={urls.annotations()} />
                     {featureFlags[FEATURE_FLAGS.FRONTEND_APPS] ? (
                         <>
-                            <div className="SideBar__heading">Apps</div>
-                            {canViewPlugins(currentOrganization) && (
-                                <PageButton
-                                    title="Browse Apps"
-                                    icon={<IconApps />}
-                                    identifier={Scene.Plugins}
-                                    to={urls.plugins()}
-                                />
-                            )}
-                            <SideBarApps />
+                            {canViewPlugins(currentOrganization) || Object.keys(frontendApps).length > 0 ? (
+                                <>
+                                    <div className="SideBar__heading">Apps</div>
+                                    {canViewPlugins(currentOrganization) && (
+                                        <PageButton
+                                            title="Browse Apps"
+                                            icon={<IconApps />}
+                                            identifier={Scene.Plugins}
+                                            to={urls.plugins()}
+                                        />
+                                    )}
+                                    {Object.keys(frontendApps).length > 0 && <SideBarApps />}
+                                </>
+                            ) : null}
                             <div className="SideBar__heading">Configuration</div>
                         </>
                     ) : (
@@ -190,6 +196,7 @@ function Pages(): JSX.Element {
                             )}
                         </>
                     )}
+
                     <PageButton icon={<IconTools />} identifier={Scene.ToolbarLaunch} to={urls.toolbarLaunch()} />
                     <PageButton
                         icon={<IconSettings />}
