@@ -54,11 +54,11 @@ describe('prepareEventStep()', () => {
         await closeHub()
     })
 
-    it('goes to `determineShouldBufferStep` for normal events', async () => {
+    it('goes to `emitToBufferStep` for normal events', async () => {
         const response = await prepareEventStep(runner, pluginEvent)
 
         expect(response).toEqual([
-            'determineShouldBufferStep',
+            'emitToBufferStep',
             {
                 distinctId: 'my_id',
                 elementsList: [],

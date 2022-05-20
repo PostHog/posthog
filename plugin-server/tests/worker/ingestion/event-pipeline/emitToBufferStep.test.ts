@@ -2,9 +2,9 @@ import { DateTime } from 'luxon'
 
 import { Person, PreIngestionEvent } from '../../../../src/types'
 import {
-    determineShouldBufferStep,
+    emitToBufferStep,
     shouldSendEventToBuffer,
-} from '../../../../src/worker/ingestion/event-pipeline/determineShouldBufferStep'
+} from '../../../../src/worker/ingestion/event-pipeline/emitToBufferStep'
 
 const now = DateTime.fromISO('2020-01-01T12:00:05.200Z')
 
@@ -49,16 +49,16 @@ beforeEach(() => {
     }
 })
 
-describe('determineShouldBufferStep()', () => {
+describe('emitToBufferStep()', () => {
     it('calls `produceEventToBuffer` if event should be buffered, stops processing', async () => {
-        const response = await determineShouldBufferStep(runner, preIngestionEvent, () => true)
+        const response = await emitToBufferStep(runner, preIngestionEvent, () => true)
 
         expect(runner.hub.eventsProcessor.produceEventToBuffer).toHaveBeenCalledWith(preIngestionEvent)
         expect(response).toEqual(null)
     })
 
     it('calls `createEventStep` next if not buffering', async () => {
-        const response = await determineShouldBufferStep(runner, preIngestionEvent, () => false)
+        const response = await emitToBufferStep(runner, preIngestionEvent, () => false)
 
         expect(response).toEqual(['createEventStep', preIngestionEvent, existingPerson])
         expect(runner.hub.eventsProcessor.produceEventToBuffer).not.toHaveBeenCalled()

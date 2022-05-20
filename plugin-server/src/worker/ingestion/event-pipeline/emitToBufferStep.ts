@@ -3,7 +3,7 @@ import { DateTime } from 'luxon'
 import { Hub, Person, PreIngestionEvent, TeamId } from '../../../types'
 import { EventPipelineRunner, StepResult } from './runner'
 
-export async function determineShouldBufferStep(
+export async function emitToBufferStep(
     runner: EventPipelineRunner,
     event: PreIngestionEvent,
     shouldBuffer: (

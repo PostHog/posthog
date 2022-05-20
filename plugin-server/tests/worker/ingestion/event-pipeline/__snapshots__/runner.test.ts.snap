@@ -71,7 +71,7 @@ Array [
     ],
   ],
   Array [
-    "determineShouldBufferStep",
+    "emitToBufferStep",
     Array [
       Object {
         "distinctId": "my_id",

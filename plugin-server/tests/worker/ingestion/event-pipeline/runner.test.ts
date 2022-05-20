@@ -2,7 +2,7 @@ import { PluginEvent } from '@posthog/plugin-scaffold'
 
 import { PreIngestionEvent } from '../../../../src/types'
 import { createEventStep } from '../../../../src/worker/ingestion/event-pipeline/createEventStep'
-import { determineShouldBufferStep } from '../../../../src/worker/ingestion/event-pipeline/determineShouldBufferStep'
+import { emitToBufferStep } from '../../../../src/worker/ingestion/event-pipeline/emitToBufferStep'
 import { pluginsProcessEventStep } from '../../../../src/worker/ingestion/event-pipeline/pluginsProcessEventStep'
 import { prepareEventStep } from '../../../../src/worker/ingestion/event-pipeline/prepareEventStep'
 import { runAsyncHandlersStep } from '../../../../src/worker/ingestion/event-pipeline/runAsyncHandlersStep'
@@ -17,7 +17,7 @@ import { generateEventDeadLetterQueueMessage } from '../../../../src/worker/inge
 
 jest.mock('../../../../src/utils/status')
 jest.mock('../../../../src/worker/ingestion/event-pipeline/createEventStep')
-jest.mock('../../../../src/worker/ingestion/event-pipeline/determineShouldBufferStep')
+jest.mock('../../../../src/worker/ingestion/event-pipeline/emitToBufferStep')
 jest.mock('../../../../src/worker/ingestion/event-pipeline/pluginsProcessEventStep')
 jest.mock('../../../../src/worker/ingestion/event-pipeline/prepareEventStep')
 jest.mock('../../../../src/worker/ingestion/event-pipeline/runAsyncHandlersStep')
@@ -78,8 +78,8 @@ describe('EventPipelineRunner', () => {
         runner = new TestEventPipelineRunner(hub, pluginEvent)
 
         jest.mocked(pluginsProcessEventStep).mockResolvedValue(['prepareEventStep', [pluginEvent]])
-        jest.mocked(prepareEventStep).mockResolvedValue(['determineShouldBufferStep', [preIngestionEvent]])
-        jest.mocked(determineShouldBufferStep).mockResolvedValue(['createEventStep', [preIngestionEvent]])
+        jest.mocked(prepareEventStep).mockResolvedValue(['emitToBufferStep', [preIngestionEvent]])
+        jest.mocked(emitToBufferStep).mockResolvedValue(['createEventStep', [preIngestionEvent]])
         jest.mocked(createEventStep).mockResolvedValue(['runAsyncHandlersStep', [preIngestionEvent]])
         jest.mocked(runAsyncHandlersStep).mockResolvedValue(null)
     })
@@ -91,7 +91,7 @@ describe('EventPipelineRunner', () => {
             expect(runner.steps).toEqual([
                 'pluginsProcessEventStep',
                 'prepareEventStep',
-                'determineShouldBufferStep',
+                'emitToBufferStep',
                 'createEventStep',
                 'runAsyncHandlersStep',
             ])

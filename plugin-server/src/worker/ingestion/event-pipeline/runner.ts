@@ -6,7 +6,7 @@ import { timeoutGuard } from '../../../utils/db/utils'
 import { status } from '../../../utils/status'
 import { generateEventDeadLetterQueueMessage } from '../utils'
 import { createEventStep } from './createEventStep'
-import { determineShouldBufferStep } from './determineShouldBufferStep'
+import { emitToBufferStep } from './emitToBufferStep'
 import { pluginsProcessEventStep } from './pluginsProcessEventStep'
 import { prepareEventStep } from './prepareEventStep'
 import { runAsyncHandlersStep } from './runAsyncHandlersStep'
@@ -21,7 +21,7 @@ export type StepParameters<T extends (...args: any[]) => any> = T extends (
 const EVENT_PIPELINE_STEPS = {
     pluginsProcessEventStep,
     prepareEventStep,
-    determineShouldBufferStep,
+    emitToBufferStep,
     createEventStep,
     runAsyncHandlersStep,
 }
@@ -34,7 +34,7 @@ export type StepResult =
     | null
     | NextStep<'pluginsProcessEventStep'>
     | NextStep<'prepareEventStep'>
-    | NextStep<'determineShouldBufferStep'>
+    | NextStep<'emitToBufferStep'>
     | NextStep<'createEventStep'>
     | NextStep<'runAsyncHandlersStep'>
 
@@ -48,7 +48,7 @@ export type EventPipelineResult = {
 const STEPS_TO_EMIT_TO_DLQ_ON_FAILURE: Array<StepType> = [
     'pluginsProcessEventStep',
     'prepareEventStep',
-    'determineShouldBufferStep',
+    'emitToBufferStep',
     'createEventStep',
 ]
 
