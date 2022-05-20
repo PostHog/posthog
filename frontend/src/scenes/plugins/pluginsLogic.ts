@@ -1,4 +1,6 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { loaders } from 'kea-loaders'
+import { urlToAction } from 'kea-router'
 import { pluginsLogicType } from './pluginsLogicType'
 import api from 'lib/api'
 import { PersonalAPIKeyType, PluginConfigType, PluginType } from '~/types'
@@ -16,8 +18,6 @@ import { FormInstance } from 'antd/lib/form'
 import { canGloballyManagePlugins, canInstallPlugins } from './access'
 import { teamLogic } from '../teamLogic'
 import { createDefaultPluginSource } from 'scenes/plugins/source/createDefaultPluginSource'
-import { loaders } from 'kea-loaders'
-import { urlToAction } from 'kea-router'
 import { frontendAppsLogic } from 'scenes/apps/frontendAppsLogic'
 
 type PluginForm = FormInstance
@@ -203,6 +203,7 @@ export const pluginsLogic = kea<pluginsLogicType<PluginForm, PluginSection, Plug
                         capturePluginEvent(`plugin ${response.enabled ? 'enabled' : 'disabled'}`, editingPlugin)
                     }
                     if ('id' in response) {
+                        // Run the sync after we return from the loader, and save its data
                         window.setTimeout(() => response.id && actions.syncFrontendAppState(response.id), 0)
                     }
                     return { ...pluginConfigs, [response.plugin]: response }
@@ -656,6 +657,7 @@ export const pluginsLogic = kea<pluginsLogicType<PluginForm, PluginSection, Plug
         toggleEnabledSuccess: ({ payload: { id } }) => {
             actions.syncFrontendAppState(id)
         },
+        // Load or unload an app, as directed by its enabled state in pluginsLogic
         syncFrontendAppState: ({ id }) => {
             const getPluginConfig = (): PluginConfigType | undefined =>
                 Object.values(values.pluginConfigs).find(({ id: _id }) => id === _id)

@@ -74,6 +74,7 @@ export const pluginSourceLogic = kea<pluginSourceLogicType<PluginSourceProps>>([
                 if (appsLogic && props.pluginConfigId) {
                     const appConfig = appsLogic.values.appConfigs[props.pluginConfigId]
                     if (appConfig) {
+                        // TODO: also take pluginConfig.enabled into account
                         appsLogic.actions.unloadFrontendApp(appConfig.pluginConfigId)
                         appsLogic.actions.loadFrontendApp(appConfig.pluginConfigId, appConfig.pluginId, true)
                     }
