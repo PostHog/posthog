@@ -35,7 +35,7 @@ export function ingestOneEvent(
 export async function ingestCountEvents(piscina: ReturnType<typeof makePiscina>, count: number): Promise<void> {
     const maxPromises = 500
     const promises = Array(maxPromises)
-    const ingestEvent = (event: PluginEvent) => piscina.run({ task: 'ingestEvent', args: { event } })
+    const ingestEvent = (event: PluginEvent) => piscina.run({ task: 'runEventPipeline', args: { event } })
 
     const groups = Math.ceil(count / maxPromises)
     for (let j = 0; j < groups; j++) {
