@@ -1,23 +1,13 @@
 import Piscina from '@posthog/piscina'
-import { PluginEvent, ProcessedPluginEvent } from '@posthog/plugin-scaffold'
+import { PluginEvent } from '@posthog/plugin-scaffold'
 import * as Sentry from '@sentry/node'
 
-import {
-    CeleryTriggeredJobOperation,
-    Hub,
-    PluginConfig,
-    PreIngestionEvent,
-    Queue,
-    Team,
-    WorkerMethods,
-} from '../../types'
+import { Hub, PreIngestionEvent, Queue, WorkerMethods } from '../../types'
 import { status } from '../../utils/status'
 import { sanitizeEvent, UUIDT } from '../../utils/utils'
-import { Action } from './../../types'
 import { CeleryQueue } from './celery-queue'
 import { ingestEvent } from './ingest-event'
 import { IngestionQueue } from './ingestion-queue'
-import { KafkaQueue } from './kafka-queue'
 
 interface Queues {
     ingestion: Queue | null

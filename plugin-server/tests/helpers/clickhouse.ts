@@ -5,7 +5,7 @@ import { defaultConfig } from '../../src/config/config'
 import { PluginsServerConfig } from '../../src/types'
 import { delay } from '../../src/utils/utils'
 
-export async function resetTestDatabaseClickhouse(extraServerConfig: Partial<PluginsServerConfig>): Promise<void> {
+export async function resetTestDatabaseClickhouse(extraServerConfig?: Partial<PluginsServerConfig>): Promise<void> {
     const config = { ...defaultConfig, ...extraServerConfig }
     const clickhouse = new ClickHouse({
         host: config.CLICKHOUSE_HOST,

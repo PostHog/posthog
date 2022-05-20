@@ -202,11 +202,9 @@ export interface PluginServerCapabilities {
 }
 
 export interface Pausable {
-    pause: () => Promise<void> | void
-    resume: () => Promise<void> | void
-    isPaused: () => boolean
+    pause: (targetTopic?: string, partition?: number) => Promise<void> | void
+    resume: (targetTopic?: string, partition?: number) => Promise<void> | void
 }
-
 export interface Queue extends Pausable {
     start: () => Promise<void> | void
     stop: () => Promise<void> | void

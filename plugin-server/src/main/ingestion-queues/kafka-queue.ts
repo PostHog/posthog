@@ -16,15 +16,15 @@ export abstract class KafkaQueue implements Queue {
     protected consumer: Consumer
     protected wasConsumerRan: boolean
     protected consumerName: string
-    protected topic: string
+    protected topics: string[]
 
-    constructor(pluginsServer: Hub, consumer: Consumer, topic: string, consumerName = '') {
+    constructor(pluginsServer: Hub, consumer: Consumer, topics: string[], consumerName = '') {
         this.pluginsServer = pluginsServer
         this.kafka = pluginsServer.kafka!
         this.consumer = consumer
         this.wasConsumerRan = false
         this.consumerName = consumerName
-        this.topic = topic
+        this.topics = topics
     }
 
     protected abstract runConsumer(): Promise<void>
@@ -38,50 +38,64 @@ export abstract class KafkaQueue implements Queue {
             status.info('⏬', `Connecting Kafka consumer ${this.consumerName} to ${this.pluginsServer.KAFKA_HOSTS}...`)
             this.wasConsumerRan = true
 
-            await this.consumer.subscribe({
-                topic: this.topic,
-            })
+            for (const topic of this.topics) {
+                await this.consumer.subscribe({ topic })
+            }
 
             await this.runConsumer()
         })
         return await startPromise
     }
 
-    async pause(partition?: number): Promise<void> {
-        if (this.wasConsumerRan && !this.isPaused(partition)) {
-            const pausePayload: ConsumerManagementPayload = { topic: this.topic }
+    async pause(targetTopic?: string, partition?: number): Promise<void> {
+        if (!targetTopic) {
+            for (const topic of this.topics) {
+                await this.pause(topic)
+            }
+            return
+        }
+
+        if (this.wasConsumerRan && !this.isPaused(targetTopic, partition)) {
+            const pausePayload: ConsumerManagementPayload = { topic: targetTopic }
             let partitionInfo = ''
             if (partition) {
                 pausePayload.partitions = [partition]
                 partitionInfo = `(partition ${partition})`
             }
 
-            status.info('⏳', `Pausing Kafka consumer for topic ${this.topic} ${partitionInfo}...`)
+            status.info('⏳', `Pausing Kafka consumer for topic ${targetTopic} ${partitionInfo}...`)
             this.consumer.pause([pausePayload])
-            status.info('⏸', `Kafka consumer for topic ${this.topic} ${partitionInfo} paused!`)
+            status.info('⏸', `Kafka consumer for topic ${targetTopic} ${partitionInfo} paused!`)
         }
         return Promise.resolve()
     }
 
-    resume(partition?: number): void {
-        if (this.wasConsumerRan && this.isPaused(partition)) {
-            const resumePayload: ConsumerManagementPayload = { topic: this.topic }
+    resume(targetTopic?: string, partition?: number): void {
+        if (!targetTopic) {
+            for (const topic of this.topics) {
+                this.resume(topic)
+            }
+            return
+        }
+
+        if (this.wasConsumerRan && this.isPaused(targetTopic, partition)) {
+            const resumePayload: ConsumerManagementPayload = { topic: targetTopic }
             let partitionInfo = ''
             if (partition) {
                 resumePayload.partitions = [partition]
                 partitionInfo = `(partition ${partition})`
             }
-            status.info('⏳', `Resuming Kafka consumer for topic ${this.topic} ${partitionInfo}...`)
+            status.info('⏳', `Resuming Kafka consumer for topic ${targetTopic} ${partitionInfo}...`)
             this.consumer.resume([resumePayload])
-            status.info('▶️', `Kafka consumer for topic ${this.topic} ${partitionInfo} resumed!`)
+            status.info('▶️', `Kafka consumer for topic ${targetTopic} ${partitionInfo} resumed!`)
         }
     }
 
-    isPaused(partition?: number): boolean {
+    isPaused(targetTopic?: string, partition?: number): boolean {
         // if we pass a partition, check that as well, else just return if the topic is paused
         return this.consumer
             .paused()
-            .some(({ topic, partitions }) => topic === this.topic && (!partition || partitions.includes(partition)))
+            .some(({ topic, partitions }) => topic === targetTopic && (!partition || partitions.includes(partition)))
     }
 
     async stop(): Promise<void> {

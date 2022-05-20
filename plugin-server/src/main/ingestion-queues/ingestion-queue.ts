@@ -12,21 +12,27 @@ const CONSUMER_NAME = 'main-ingestion-consumer'
 export class IngestionQueue extends KafkaQueue {
     workerMethods: WorkerMethods
     sleepTimeout: NodeJS.Timeout | null
+    ingestionTopic: string
+    bufferTopic: string
 
     constructor(pluginsServer: Hub, workerMethods: WorkerMethods) {
         const kafka = pluginsServer.kafka!
         const consumer = KafkaQueue.buildConsumer(kafka, CONSUMER_NAME, undefined)
-        const topic = pluginsServer.KAFKA_CONSUMPTION_TOPIC!
 
-        super(pluginsServer, consumer, topic)
+        const ingestionTopic = pluginsServer.KAFKA_CONSUMPTION_TOPIC!
+        const bufferTopic = KAFKA_BUFFER
 
+        const topics = [ingestionTopic]
+
+        super(pluginsServer, consumer, topics)
+
+        this.ingestionTopic = ingestionTopic
+        this.bufferTopic = bufferTopic
         this.sleepTimeout = null
         this.workerMethods = workerMethods
     }
 
     async runConsumer(): Promise<void> {
-        const ingestionTopic = this.pluginsServer.KAFKA_CONSUMPTION_TOPIC!
-
         // KafkaJS batching: https://kafka.js.org/docs/consuming#a-name-each-batch-a-eachbatch
         await this.consumer.run({
             eachBatchAutoResolve: false,
@@ -36,9 +42,9 @@ export class IngestionQueue extends KafkaQueue {
             eachBatch: async (payload) => {
                 const batchTopic = payload.batch.topic
                 try {
-                    if (batchTopic === ingestionTopic) {
+                    if (batchTopic === this.ingestionTopic) {
                         await eachBatchIngestion(payload, this)
-                    } else if (batchTopic === KAFKA_BUFFER) {
+                    } else if (batchTopic === this.bufferTopic) {
                         // currently this never runs - it depends on us subscribing to the buffer topic
                         await eachBatchBuffer(payload, this)
                     }

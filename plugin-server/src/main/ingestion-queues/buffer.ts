@@ -50,9 +50,9 @@ export async function eachBatchBuffer(
             if (queue.sleepTimeout) {
                 clearTimeout(queue.sleepTimeout)
             }
-            queue.resume(batch.partition)
+            queue.resume(queue.bufferTopic, batch.partition)
         }, consumerSleep)
-        await queue.pause(batch.partition)
+        await queue.pause(queue.bufferTopic, batch.partition)
 
         // we throw an error to prevent the non-processed message offsets from being committed
         // from the kafkajs docs:
