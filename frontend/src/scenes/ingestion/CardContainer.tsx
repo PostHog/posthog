@@ -23,15 +23,12 @@ export function CardContainer({
     const { onboarding1, onboardingSidebar } = useValues(ingestionLogic)
 
     return (
-        <>
+        <div>
+            {onboardingSidebar && index !== 0 && (
+                <LemonButton className="mb" icon={<ArrowLeftOutlined />} size="small" onClick={onBack} />
+            )}
             <div className="ingestion-card-container">
-                {onboardingSidebar ? (
-                    <>
-                        {index !== 0 && (
-                            <LemonButton className="mb" icon={<ArrowLeftOutlined />} size="small" onClick={onBack} />
-                        )}
-                    </>
-                ) : (
+                {!onboardingSidebar && (
                     <Row align="middle" data-attr="wizard-step-counter">
                         {index !== 0 && (
                             <ArrowLeftOutlined
@@ -69,6 +66,6 @@ export function CardContainer({
                         ))}
                 </div>
             </div>
-        </>
+        </div>
     )
 }
