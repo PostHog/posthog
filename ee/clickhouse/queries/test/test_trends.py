@@ -18,7 +18,6 @@ from posthog.models.cohort import Cohort
 from posthog.models.entity import Entity
 from posthog.models.filters import Filter
 from posthog.models.group_type_mapping import GroupTypeMapping
-from posthog.models.instance_setting import override_instance_config
 from posthog.models.person import Person
 from posthog.queries.test.test_trends import trend_test_factory
 from posthog.test.base import _create_event, _create_person, flush_persons_and_events, test_with_materialized_columns
@@ -147,11 +146,6 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
         )
         response = ClickhouseTrends().run(filter, self.team,)
 
-        with override_instance_config("ENABLE_ACTOR_ON_EVENTS_TEAMS", f"{self.team.pk}"):
-            new_response = ClickhouseTrends().run(filter, self.team)
-
-        self.assertEqual(response, new_response)
-
         self.assertEqual(len(response), 2)
         self.assertEqual(response[0]["breakdown_value"], "finance")
         self.assertEqual(response[0]["count"], 2)
@@ -204,11 +198,6 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
         )
 
         response = ClickhouseTrends().run(filter, self.team,)
-
-        with override_instance_config("ENABLE_ACTOR_ON_EVENTS_TEAMS", f"{self.team.pk}"):
-            new_response = ClickhouseTrends().run(filter, self.team)
-
-        self.assertEqual(response, new_response)
 
         self.assertEqual(len(response), 1)
         self.assertEqual(response[0]["breakdown_value"], "finance")
