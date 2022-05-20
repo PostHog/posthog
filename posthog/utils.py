@@ -885,10 +885,12 @@ class DataclassJSONEncoder(json.JSONEncoder):
         return super().default(o)
 
 
-def encode_value_as_param(value: Union[str, list, dict]) -> str:
+def encode_value_as_param(value: Union[str, list, dict, datetime.datetime]) -> str:
     if isinstance(value, (list, dict, tuple)):
         return json.dumps(value, cls=DataclassJSONEncoder)
     elif isinstance(value, Enum):
         return value.value
+    elif isinstance(value, datetime.datetime):
+        return value.isoformat()
     else:
         return value

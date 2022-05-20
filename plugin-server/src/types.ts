@@ -394,12 +394,7 @@ export interface PluginTask {
 }
 
 export type WorkerMethods = {
-    onEvent: (event: ProcessedPluginEvent) => Promise<void>
-    onAction: (action: Action, event: ProcessedPluginEvent) => Promise<void>
-    onSnapshot: (event: ProcessedPluginEvent) => Promise<void>
-    processEvent: (event: PluginEvent) => Promise<PluginEvent | null>
-    ingestEvent: (event: PluginEvent) => Promise<IngestEventResponse>
-    ingestBufferEvent: (event: PreIngestionEvent) => Promise<IngestEventResponse>
+    runBufferEventPipeline: (event: PreIngestionEvent) => Promise<IngestEventResponse>
     runEventPipeline: (event: PluginEvent) => Promise<void>
 }
 
