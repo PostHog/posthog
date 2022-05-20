@@ -14,7 +14,7 @@ export async function runAsyncHandlersStep(
     let actionMatches: Action[] = []
     if (event.event !== '$snapshot') {
         actionMatches = await runner.hub.actionMatcher.match(event, person, elements)
-        promises.push(runner.hub.hookCannon.findAndFireHooks(event, person, event.siteUrl, actionMatches))
+        promises.push(runner.hub.hookCannon.findAndFireHooks(event, person, actionMatches))
     }
 
     const processedPluginEvent = convertToProcessedPluginEvent(event)

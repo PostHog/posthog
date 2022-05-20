@@ -231,7 +231,7 @@ export async function createHub(
     const actionManager = new ActionManager(db)
     await actionManager.prepare()
 
-    const hub: Omit<Hub, 'eventsProcessor' | 'siteUrlManager'> = {
+    const hub: Partial<Hub> = {
         ...serverConfig,
         instanceId,
         capabilities,
@@ -259,14 +259,14 @@ export async function createHub(
         promiseManager,
         actionManager,
         actionMatcher: new ActionMatcher(db, actionManager, statsd),
-        hookCannon: new HookCommander(db, teamManager, organizationManager, statsd),
         conversionBufferEnabledTeams,
     }
 
     // :TODO: This is only used on worker threads, not main
-    hub.siteUrlManager = new SiteUrlManager(hub as Hub)
     hub.eventsProcessor = new EventsProcessor(hub as Hub)
     hub.jobQueueManager = new JobQueueManager(hub as Hub)
+    hub.siteUrlManager = new SiteUrlManager(hub as Hub)
+    hub.hookCannon = new HookCommander(db, teamManager, organizationManager, hub.siteUrlManager!, statsd)
 
     if (serverConfig.CAPTURE_INTERNAL_METRICS) {
         hub.internalMetrics = new InternalMetrics(hub as Hub)
