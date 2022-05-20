@@ -13,7 +13,7 @@ from django.utils.module_loading import import_string
 from sentry_sdk import capture_exception
 
 from posthog.celery import app
-from posthog.models.constance import get_dynamic_setting
+from posthog.models.instance_setting import get_dynamic_setting
 from posthog.models.messaging import MessagingRecord
 
 

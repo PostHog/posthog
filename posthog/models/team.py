@@ -9,8 +9,8 @@ from django.db import models
 
 from posthog.constants import AvailableFeature
 from posthog.helpers.dashboard_templates import create_dashboard_from_template
-from posthog.models.constance import get_dynamic_setting
 from posthog.models.filters.mixins.utils import cached_property
+from posthog.models.instance_setting import get_dynamic_setting
 from posthog.settings.utils import get_list
 from posthog.utils import GenericEmails
 

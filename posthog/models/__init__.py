@@ -3,7 +3,6 @@ from .action_step import ActionStep
 from .activity_logging.activity_log import ActivityLog
 from .annotation import Annotation
 from .cohort import Cohort, CohortPeople
-from .constance import Constance
 from .dashboard import Dashboard
 from .dashboard_tile import DashboardTile
 from .element import Element
@@ -18,6 +17,7 @@ from .filters import Filter, RetentionFilter
 from .group import Group
 from .group_type_mapping import GroupTypeMapping
 from .insight import Insight, InsightViewed
+from .instance_setting import InstanceSetting
 from .messaging import MessagingRecord
 from .organization import Organization, OrganizationInvite, OrganizationMembership
 from .organization_domain import OrganizationDomain
@@ -39,7 +39,7 @@ __all__ = [
     "Annotation",
     "Cohort",
     "CohortPeople",
-    "Constance",
+    "InstanceSetting",
     "Dashboard",
     "DashboardTile",
     "Insight",

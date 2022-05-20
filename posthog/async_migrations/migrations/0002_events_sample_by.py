@@ -11,7 +11,7 @@ from posthog.async_migrations.definition import (
 from posthog.async_migrations.utils import execute_op_clickhouse
 from posthog.client import sync_execute
 from posthog.constants import AnalyticsDBMS
-from posthog.models.constance import set_dynamic_setting
+from posthog.models.instance_setting import set_dynamic_setting
 from posthog.settings import (
     ASYNC_MIGRATIONS_DEFAULT_TIMEOUT_SECONDS,
     CLICKHOUSE_CLUSTER,

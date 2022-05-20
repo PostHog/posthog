@@ -2,7 +2,7 @@ from django.core import mail
 from rest_framework import status
 
 from posthog.api.instance_settings import get_instance_setting
-from posthog.models.constance import get_dynamic_setting, override_constance_config, set_dynamic_setting
+from posthog.models.instance_setting import get_dynamic_setting, override_constance_config, set_dynamic_setting
 from posthog.settings import CONSTANCE_CONFIG
 from posthog.test.base import APIBaseTest
 

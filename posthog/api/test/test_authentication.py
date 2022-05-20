@@ -10,7 +10,7 @@ from rest_framework import status
 from social_django.models import UserSocialAuth
 
 from posthog.models import User
-from posthog.models.constance import set_dynamic_setting
+from posthog.models.instance_setting import set_dynamic_setting
 from posthog.models.organization_domain import OrganizationDomain
 from posthog.test.base import APIBaseTest
 

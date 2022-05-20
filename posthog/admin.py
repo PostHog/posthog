@@ -6,10 +6,10 @@ from django.utils.translation import gettext_lazy as _
 from posthog.models import (
     Action,
     ActionStep,
-    Constance,
     Element,
     FeatureFlag,
     Insight,
+    InstanceSetting,
     Organization,
     Person,
     Plugin,
@@ -24,7 +24,7 @@ admin.site.register(FeatureFlag)
 admin.site.register(Action)
 admin.site.register(ActionStep)
 admin.site.register(Insight)
-admin.site.register(Constance)
+admin.site.register(InstanceSetting)
 
 
 @admin.register(Plugin)

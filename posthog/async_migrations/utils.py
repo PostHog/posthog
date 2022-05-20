@@ -12,7 +12,7 @@ from posthog.async_migrations.setup import DEPENDENCY_TO_ASYNC_MIGRATION
 from posthog.celery import app
 from posthog.email import is_email_available
 from posthog.models.async_migration import AsyncMigration, AsyncMigrationError, MigrationStatus
-from posthog.models.constance import get_dynamic_setting
+from posthog.models.instance_setting import get_dynamic_setting
 from posthog.models.user import User
 from posthog.plugins.alert import AlertLevel, send_alert_to_plugins
 from posthog.utils import get_machine_id

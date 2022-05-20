@@ -5,7 +5,7 @@ from freezegun import freeze_time
 
 from posthog.constants import ENTITY_ID, ENTITY_TYPE, TREND_FILTER_TYPE_EVENTS, TRENDS_BAR_VALUE, TRENDS_TABLE
 from posthog.models import Action, ActionStep, Cohort, Entity, Filter, Organization, Person
-from posthog.models.constance import override_constance_config
+from posthog.models.instance_setting import override_constance_config
 from posthog.test.base import APIBaseTest, flush_persons_and_events, test_with_materialized_columns
 
 

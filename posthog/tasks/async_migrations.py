@@ -9,7 +9,7 @@ from posthog.async_migrations.runner import (
 )
 from posthog.async_migrations.utils import force_stop_migration, process_error, trigger_migration
 from posthog.celery import app
-from posthog.models.constance import get_dynamic_setting
+from posthog.models.instance_setting import get_dynamic_setting
 
 
 # we're hijacking an entire worker to do this - consider:

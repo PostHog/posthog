@@ -13,8 +13,8 @@ from posthog.constants import (
     TREND_FILTER_TYPE_EVENTS,
 )
 from posthog.models import Person
-from posthog.models.constance import override_constance_config
 from posthog.models.filters import RetentionFilter
+from posthog.models.instance_setting import override_constance_config
 from posthog.test.base import APIBaseTest
 
 

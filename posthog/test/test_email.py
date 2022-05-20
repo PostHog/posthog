@@ -5,7 +5,7 @@ from freezegun import freeze_time
 
 from posthog.email import EmailMessage, _send_email
 from posthog.models import MessagingRecord, Organization, Person, Team, User
-from posthog.models.constance import override_constance_config
+from posthog.models.instance_setting import override_constance_config
 from posthog.test.base import BaseTest
 
 

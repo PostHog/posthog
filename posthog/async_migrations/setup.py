@@ -6,7 +6,7 @@ from semantic_version.base import Version
 
 from posthog.async_migrations.definition import AsyncMigrationDefinition
 from posthog.models.async_migration import AsyncMigration, get_all_completed_async_migrations
-from posthog.models.constance import get_dynamic_setting
+from posthog.models.instance_setting import get_dynamic_setting
 from posthog.settings import TEST
 from posthog.version import VERSION
 

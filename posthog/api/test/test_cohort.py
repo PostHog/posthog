@@ -9,7 +9,7 @@ from rest_framework.test import APIClient
 
 from posthog.models import Person
 from posthog.models.cohort import Cohort
-from posthog.models.constance import override_constance_config
+from posthog.models.instance_setting import override_constance_config
 from posthog.test.base import APIBaseTest, _create_event, _create_person, flush_persons_and_events
 
 

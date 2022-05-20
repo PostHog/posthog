@@ -5,7 +5,7 @@ from ee.api.test.base import APILicensedTest
 from ee.clickhouse.sql.session_recording_events import SESSION_RECORDING_EVENTS_DATA_TABLE
 from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_alter_queries
 from posthog.client import sync_execute
-from posthog.models.constance import get_dynamic_setting
+from posthog.models.instance_setting import get_dynamic_setting
 from posthog.settings.data_stores import CLICKHOUSE_DATABASE
 
 

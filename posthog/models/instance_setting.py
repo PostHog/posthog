@@ -7,7 +7,7 @@ from django.db import models
 from posthog.settings import CONSTANCE_CONFIG, CONSTANCE_DATABASE_PREFIX
 
 
-class Constance(models.Model):
+class InstanceSetting(models.Model):
     class Meta:
         constraints = [models.UniqueConstraint(fields=["key"], name="unique key",)]
 
@@ -22,7 +22,7 @@ class Constance(models.Model):
 def get_dynamic_setting(key: str) -> Any:
     assert key in CONSTANCE_CONFIG, f"Unknown dynamic setting: {repr(key)}"
 
-    saved_setting = Constance.objects.filter(key=CONSTANCE_DATABASE_PREFIX + key).first()
+    saved_setting = InstanceSetting.objects.filter(key=CONSTANCE_DATABASE_PREFIX + key).first()
     if saved_setting is not None:
         return saved_setting.value
     else:
@@ -30,7 +30,7 @@ def get_dynamic_setting(key: str) -> Any:
 
 
 def set_dynamic_setting(key: str, value: Any):
-    Constance.objects.update_or_create(
+    InstanceSetting.objects.update_or_create(
         key=CONSTANCE_DATABASE_PREFIX + key, defaults={"raw_value": json.dumps(value)},
     )
 

@@ -10,32 +10,28 @@ from django.db import connection, migrations, models, utils
 logger = logging.getLogger(__name__)
 
 
-def populate_constance(apps, schema_editor):
+def populate_instance_settings(apps, schema_editor):
     try:
-        Constance = apps.get_model("posthog", "Constance")
+        InstanceSetting = apps.get_model("posthog", "InstanceSetting")
         with connection.cursor() as cursor:
             cursor.execute("SELECT key, value FROM constance_config")
             for key, pickled_value in cursor.fetchall():
                 value = pickle.loads(b64decode(pickled_value.encode()))
-                Constance.objects.create(key=key, raw_value=json.dumps(value))
+                InstanceSetting.objects.create(key=key, raw_value=json.dumps(value))
     except utils.ProgrammingError:
-        logger.info("constance_config table did not exist, skipping populating posthog_constance table")
-
-
-def rollback(apps, schema_editor):
-    pass
+        logger.info("constance_config table did not exist, skipping populating posthog_instance_setting table")
 
 
 class Migration(migrations.Migration):
     atomic = False
 
     dependencies = [
-        ("posthog", "0233_plugin_source_file"),
+        ("posthog", "0235_plugin_source_transpilation"),
     ]
 
     operations = [
         migrations.CreateModel(
-            name="Constance",
+            name="InstanceSetting",
             fields=[
                 ("id", models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
                 ("key", models.CharField(max_length=128)),
@@ -43,7 +39,7 @@ class Migration(migrations.Migration):
             ],
         ),
         migrations.AddConstraint(
-            model_name="constance", constraint=models.UniqueConstraint(fields=("key",), name="unique key"),
+            model_name="instance_setting", constraint=models.UniqueConstraint(fields=("key",), name="unique key"),
         ),
-        migrations.RunPython(populate_constance, rollback),
+        migrations.RunPython(populate_instance_settings, migrations.RunPython.noop),
     ]

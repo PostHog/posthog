@@ -24,23 +24,23 @@ function pluginConfigsInForceQuery(specificField?: keyof PluginConfig): string {
 }
 
 export async function getPluginRows(hub: Hub): Promise<Plugin[]> {
-    const { rows: pluginRows }: { rows: Plugin[] } = await hub.db.postgresQuery(
-        `SELECT posthog_plugin.*, psf.source as psf_source
+    const { rows }: { rows: Plugin[] } = await hub.db.postgresQuery(
+        `SELECT
+            posthog_plugin.*,
+            psf__index_ts.source as source__index_ts,
+            psf__frontend_tsx.source as source__frontend_tsx
         FROM posthog_plugin
-        LEFT JOIN posthog_pluginsourcefile psf
-            ON (posthog_plugin.plugin_type = 'source' AND psf.plugin_id = posthog_plugin.id AND psf.filename = 'index.ts')
+        LEFT JOIN posthog_pluginsourcefile psf__index_ts
+            ON (psf__index_ts.plugin_id = posthog_plugin.id AND psf__index_ts.filename = 'index.ts')
+        LEFT JOIN posthog_pluginsourcefile psf__frontend_tsx
+            ON (psf__frontend_tsx.plugin_id = posthog_plugin.id AND psf__frontend_tsx.filename = 'frontend.tsx')
         WHERE posthog_plugin.id IN (${pluginConfigsInForceQuery('plugin_id')}
         GROUP BY posthog_pluginconfig.plugin_id)`,
         undefined,
         'getPluginRows'
     )
 
-    // TODO: properly support multiple files via "posthog_pluginsourcefile"
-    for (const row of pluginRows) {
-        row['source'] = (row as any)['psf_source']
-        delete (row as any)['psf_source']
-    }
-    return pluginRows
+    return rows
 }
 
 export async function getPluginAttachmentRows(hub: Hub): Promise<PluginAttachmentDB[]> {

@@ -1,4 +1,4 @@
-import { actions, afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 
 import type { pluginSourceLogicType } from './pluginSourceLogicType'
 import { forms } from 'kea-forms'
@@ -9,6 +9,8 @@ import { validateJson } from 'lib/utils'
 import React from 'react'
 import { FormErrors } from 'lib/forms/Errors'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 interface PluginSourceProps {
     id: number
@@ -19,6 +21,8 @@ export const pluginSourceLogic = kea<pluginSourceLogicType<PluginSourceProps>>([
     path(['scenes', 'plugins', 'edit', 'pluginSourceLogic']),
     props({} as PluginSourceProps),
     key((props) => props.id),
+
+    connect({ values: [featureFlagLogic, ['featureFlags']] }),
 
     actions({
         setCurrentFile: (currentFile: string) => ({ currentFile }),
@@ -67,7 +71,13 @@ export const pluginSourceLogic = kea<pluginSourceLogicType<PluginSourceProps>>([
                 }
             },
         ],
-        fileNames: [() => [], (): string[] => ['plugin.json', 'index.ts']],
+        fileNames: [
+            (s) => [s.featureFlags],
+            (featureFlags): string[] =>
+                featureFlags[FEATURE_FLAGS.FRONTEND_APPS]
+                    ? ['plugin.json', 'index.ts', 'frontend.tsx']
+                    : ['plugin.json', 'index.ts'],
+        ],
     }),
 
     listeners(({ props, values }) => ({

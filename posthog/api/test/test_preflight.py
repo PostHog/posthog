@@ -4,7 +4,7 @@ import pytest
 from django.utils import timezone
 from rest_framework import status
 
-from posthog.models.constance import set_dynamic_setting
+from posthog.models.instance_setting import set_dynamic_setting
 from posthog.models.organization import Organization, OrganizationInvite
 from posthog.test.base import APIBaseTest
 from posthog.version import VERSION

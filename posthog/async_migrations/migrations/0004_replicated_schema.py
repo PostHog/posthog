@@ -17,7 +17,7 @@ from posthog.async_migrations.definition import (
 )
 from posthog.client import sync_execute
 from posthog.errors import lookup_error_code
-from posthog.models.constance import set_dynamic_setting
+from posthog.models.instance_setting import set_dynamic_setting
 from posthog.utils import flatten
 
 logger = structlog.get_logger(__name__)

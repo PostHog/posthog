@@ -3,7 +3,7 @@ from typing import Any, Dict, Optional, Tuple, Union
 
 from rest_framework import exceptions, mixins, permissions, serializers, viewsets
 
-from posthog.models.constance import get_dynamic_setting, set_dynamic_setting
+from posthog.models.instance_setting import get_dynamic_setting, set_dynamic_setting
 from posthog.permissions import IsStaffUser
 from posthog.settings import CONSTANCE_CONFIG, MULTI_TENANCY, SECRET_SETTINGS, SETTINGS_ALLOWING_API_OVERRIDE
 from posthog.utils import str_to_bool

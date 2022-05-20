@@ -81,7 +81,7 @@ export interface PluginsServerConfig extends Record<string, any> {
     CLICKHOUSE_CA: string | null
     CLICKHOUSE_SECURE: boolean
     KAFKA_ENABLED: boolean
-    KAFKA_HOSTS: string | null
+    KAFKA_HOSTS: string
     KAFKA_CLIENT_CERT_B64: string | null
     KAFKA_CLIENT_CERT_KEY_B64: string | null
     KAFKA_TRUSTED_CERT_B64: string | null
@@ -268,7 +268,12 @@ export interface Plugin {
     config_schema: Record<string, PluginConfigSchema> | PluginConfigSchema[]
     tag?: string
     archive: Buffer | null
+    /** @deprecated Replaced with source__index_ts */
     source?: string
+    /** Cached source for index.ts from a joined PluginSourceFile query */
+    source__index_ts?: string
+    /** Cached source for frontend.tsx from a joined PluginSourceFile query */
+    source__frontend_tsx?: string
     error?: PluginError
     from_json?: boolean
     from_web?: boolean
@@ -361,6 +366,12 @@ export interface PluginLogEntry {
     type: PluginLogEntryType
     message: string
     instance_id: string
+}
+
+export enum PluginSourceFileStatus {
+    Transpiled = 'TRANSPILED',
+    Locked = 'LOCKED',
+    Error = 'ERROR',
 }
 
 export enum PluginTaskType {

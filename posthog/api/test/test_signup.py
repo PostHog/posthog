@@ -13,7 +13,7 @@ from rest_framework import status
 
 from posthog.constants import AvailableFeature
 from posthog.models import Dashboard, Organization, Team, User
-from posthog.models.constance import override_constance_config
+from posthog.models.instance_setting import override_constance_config
 from posthog.models.organization import OrganizationInvite, OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
 from posthog.test.base import APIBaseTest

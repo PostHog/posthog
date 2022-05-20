@@ -8,7 +8,7 @@ from ee.clickhouse.materialized_columns.util import cache_for
 from ee.clickhouse.replication.utils import clickhouse_is_replicated
 from ee.clickhouse.sql.clickhouse import trim_quotes_expr
 from posthog.client import sync_execute
-from posthog.models.constance import get_dynamic_setting
+from posthog.models.instance_setting import get_dynamic_setting
 from posthog.models.property import PropertyName, TableWithProperties
 from posthog.models.utils import generate_random_short_suffix
 from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE, TEST

@@ -10,7 +10,7 @@ from ee.clickhouse.views.test.funnel.util import EventPattern
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
 from posthog.api.test.test_user import create_user
-from posthog.models.constance import override_constance_config
+from posthog.models.instance_setting import override_constance_config
 from posthog.test.base import test_with_materialized_columns
 from posthog.utils import encode_get_request_params
 

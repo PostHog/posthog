@@ -12,8 +12,8 @@ from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.constants import INSIGHT_FUNNELS
 from posthog.models.action import Action
 from posthog.models.action_step import ActionStep
-from posthog.models.constance import override_constance_config
 from posthog.models.filters import Filter
+from posthog.models.instance_setting import override_constance_config
 from posthog.test.base import APIBaseTest, _create_event, _create_person
 
 FORMAT_TIME = "%Y-%m-%d 00:00:00"

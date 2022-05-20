@@ -9,7 +9,7 @@ from posthog.async_migrations.examples.test_migration import Migration
 from posthog.async_migrations.runner import run_async_migration_next_op, run_async_migration_operations
 from posthog.async_migrations.test.util import create_async_migration
 from posthog.models.async_migration import AsyncMigration, MigrationStatus
-from posthog.models.constance import set_dynamic_setting
+from posthog.models.instance_setting import set_dynamic_setting
 from posthog.tasks.async_migrations import check_async_migration_health
 from posthog.test.base import BaseTest
 
