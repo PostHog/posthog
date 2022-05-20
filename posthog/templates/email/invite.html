@@ -1,12 +1,13 @@
 {% extends "email/base_transactional.html" %} {% load posthog_assets %} {% block section %}
-<p>
-    <strong>{{ invite.created_by.first_name }}</strong> ({{ invite.created_by.email }}) has invited you to join
-    {{invite.organization.name }} on PostHog.<br /><br />
+<p class="text-center">
+    <strong>{{ invite.created_by.first_name }}first_name</strong> ({{ invite.created_by.email }}) has invited you to
+    join
+    {{invite.organization.name }} org_name_placeholder on PostHog.<br /><br />
     PostHog is a product analytics tool that will help you better understand your users.<br />
     Build the best product <i>together</i>.
 </p>
 <div class="mb mt text-center">
-    <a class="button" href="{{ invite }}">Join {{ invite.organization.name }} now</a>
+    <a class="button primary" href="{{ invite }}">Join now</a>
 </div>
 <div class="mt">
     <p>
@@ -15,4 +16,8 @@
     </p>
 </div>
 <p>Please note this invite will expire in <b>3 days</b>.</p>
-{% endblock %}{% load posthog_filters %} {% block heading %}Join {{ invite.organization.name }} on PostHog{% endblock %}
+{% endblock %}{% load posthog_filters %} {% block heading %}<h1 class="invite-header"><strong>Li
+        {{ invite.created_by.first_name }}</strong> has invited you to
+    join
+    <strong>{{ invite.organization.name }} placeholder_org</strong> on PostHog
+</h1>{% endblock %}
