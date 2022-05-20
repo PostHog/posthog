@@ -105,7 +105,7 @@ export function RepositoryTab(): JSX.Element {
                                             <span>
                                                 Community apps are not built nor maintained by the PostHog team.{' '}
                                                 <a
-                                                    href="https://posthog.com/docs/plugins/build"
+                                                    href="https://posthog.com/docs/apps/build"
                                                     target="_blank"
                                                     rel="noopener"
                                                 >

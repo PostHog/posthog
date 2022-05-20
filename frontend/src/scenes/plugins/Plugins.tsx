@@ -43,11 +43,11 @@ export function Plugins(): JSX.Element | null {
                         Apps enable you to extend PostHog's core data processing functionality.
                         <br />
                         Make use of verified apps from the{' '}
-                        <a href="https://posthog.com/plugins" target="_blank">
+                        <a href="https://posthog.com/apps" target="_blank">
                             App Library
                         </a>{' '}
                         – or{' '}
-                        <a href="https://posthog.com/docs/plugins/build" target="_blank">
+                        <a href="https://posthog.com/docs/apps/build" target="_blank">
                             build your own
                         </a>
                         .
