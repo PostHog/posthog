@@ -282,7 +282,6 @@ export async function createHub(
         }
 
         hub.mmdbUpdateJob?.cancel()
-        await hub.db.postgresLogsWrapper.flushLogs()
         await hub.jobQueueManager?.disconnectProducer()
         if (kafkaProducer) {
             clearInterval(kafkaProducer.flushInterval)
