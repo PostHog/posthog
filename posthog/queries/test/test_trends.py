@@ -1,11 +1,11 @@
 import json
 from typing import Dict, List, Optional, Tuple, Union
 
-from constance.test import override_config
 from freezegun import freeze_time
 
 from posthog.constants import ENTITY_ID, ENTITY_TYPE, TREND_FILTER_TYPE_EVENTS, TRENDS_BAR_VALUE, TRENDS_TABLE
 from posthog.models import Action, ActionStep, Cohort, Entity, Filter, Organization, Person
+from posthog.models.instance_setting import override_instance_config
 from posthog.test.base import APIBaseTest, flush_persons_and_events, test_with_materialized_columns
 
 
@@ -2414,7 +2414,7 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                     team=self.team, event="sign up", distinct_id="third",
                 )
 
-            with override_config(AGGREGATE_BY_DISTINCT_IDS_TEAMS=f"{self.team.pk},4"):
+            with override_instance_config("AGGREGATE_BY_DISTINCT_IDS_TEAMS", f"{self.team.pk},4"):
                 with freeze_time("2019-12-31T13:00:01Z"):
                     daily_response = trends().run(
                         Filter(data={"interval": "day", "events": [{"id": "sign up", "math": "dau"}],}), self.team,
