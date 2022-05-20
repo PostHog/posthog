@@ -1275,7 +1275,7 @@
                  WHERE team_id = 2
                    AND (event = '$pageview')
                    AND timestamp >= toDateTime('2012-01-01 00:00:00')
-                   AND timestamp <= toDateTime('2012-01-02 23:59:59')
+                   AND timestamp <= toDateTime('2012-01-02 00:00:00')
                  ORDER BY pdi.person_id,
                           e.timestamp)
               GROUP BY person_id) ARRAY
@@ -1396,7 +1396,7 @@
                  WHERE team_id = 2
                    AND (event = '$pageview')
                    AND timestamp >= toDateTime('2012-01-01 00:00:00')
-                   AND timestamp <= toDateTime('2012-01-02 23:59:59')
+                   AND timestamp <= toDateTime('2012-01-02 00:00:00')
                  ORDER BY pdi.person_id,
                           e.timestamp)
               GROUP BY person_id) ARRAY
@@ -1517,7 +1517,7 @@
                  WHERE team_id = 2
                    AND (event = '$pageview')
                    AND timestamp >= toDateTime('2012-01-01 00:00:00')
-                   AND timestamp <= toDateTime('2012-01-02 23:59:59')
+                   AND timestamp <= toDateTime('2012-01-02 00:00:00')
                  ORDER BY pdi.person_id,
                           e.timestamp)
               GROUP BY person_id) ARRAY
@@ -1644,7 +1644,7 @@
                  WHERE team_id = 2
                    AND (event = '$pageview')
                    AND timestamp >= toDateTime('2012-01-01 00:00:00')
-                   AND timestamp <= toDateTime('2012-01-02 23:59:59')
+                   AND timestamp <= toDateTime('2012-01-02 00:00:00')
                  ORDER BY pdi.person_id,
                           e.timestamp)
               GROUP BY person_id) ARRAY
