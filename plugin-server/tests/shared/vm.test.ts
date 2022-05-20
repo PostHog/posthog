@@ -1,6 +1,7 @@
 import { PluginEvent, ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 import * as fetch from 'node-fetch'
 
+import { KAFKA_EVENTS_PLUGIN_INGESTION, KAFKA_PLUGIN_LOG_ENTRIES } from '../../src/config/kafka-topics'
 import { JobQueueManager } from '../../src/main/job-queues/job-queue-manager'
 import { Hub } from '../../src/types'
 import { PluginConfig, PluginConfigVMResponse } from '../../src/types'
@@ -9,8 +10,6 @@ import { KafkaProducerWrapper } from '../../src/utils/db/kafka-producer-wrapper'
 import { delay } from '../../src/utils/utils'
 import { MAXIMUM_RETRIES } from '../../src/worker/vm/upgrades/export-events'
 import { createPluginConfigVM } from '../../src/worker/vm/vm'
-import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../helpers/clickhouse'
-import { resetKafka } from '../helpers/kafka'
 import { pluginConfig39 } from '../helpers/plugins'
 import { plugin60 } from '../helpers/plugins'
 import { resetTestDatabase } from '../helpers/sql'
@@ -685,36 +684,28 @@ describe('vm tests', () => {
             }
         `
         await resetTestDatabase(indexJs)
-        await resetKafka()
-        await resetTestDatabaseClickhouse()
         const vm = await createReadyPluginConfigVm(hub, { ...pluginConfig39, plugin: plugin60 }, indexJs)
         const event: PluginEvent = {
             ...defaultEvent,
             event: 'logged event',
         }
+        const queueMessageSpy = jest.spyOn(hub.kafkaProducer, 'queueMessage')
 
         await vm.methods.processEvent!(event)
 
-        const entriesMinCount = (await hub.db.fetchPluginLogEntries()).length
-        await hub.db.kafkaProducer.flush()
-        await delayUntilEventIngested(async () => await hub.db.fetchPluginLogEntries(), entriesMinCount + 1)
-        const entries = (await hub.db.fetchPluginLogEntries()).slice(entriesMinCount)
-
-        expect(entries).toEqual(
-            expect.arrayContaining([
-                expect.objectContaining({
-                    id: expect.anything(),
-                    instance_id: expect.anything(),
-                    message: 'logged event',
-                    plugin_config_id: 39,
-                    plugin_id: 60,
-                    source: 'CONSOLE',
-                    team_id: 2,
-                    timestamp: expect.anything(),
-                    type: 'LOG',
-                }),
-            ])
-        )
+        expect(queueMessageSpy).toHaveBeenCalledTimes(1)
+        expect(queueMessageSpy.mock.calls[0][0].topic).toEqual(KAFKA_PLUGIN_LOG_ENTRIES)
+        expect(JSON.parse(queueMessageSpy.mock.calls[0][0].messages[0].value.toString())).toEqual({
+            id: expect.anything(),
+            instance_id: expect.anything(),
+            message: 'logged event',
+            plugin_config_id: 39,
+            plugin_id: 60,
+            source: 'CONSOLE',
+            team_id: 2,
+            timestamp: expect.anything(),
+            type: 'LOG',
+        })
     })
 
     test('fetch', async () => {
@@ -961,37 +952,23 @@ describe('vm tests', () => {
         await resetTestDatabase(indexJs)
         const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
 
-        expect(KafkaProducerWrapper).not.toHaveBeenCalled
+        const queueMessageSpy = jest.spyOn(hub.kafkaProducer, 'queueMessage')
 
         const response = await vm.tasks.schedule.runEveryMinute.exec()
+
         expect(response).toBe('haha')
-
-        expect(KafkaProducerWrapper).toHaveBeenCalledTimes(2)
-        expect(jest.mocked(KafkaProducerWrapper).mock.calls[0][1]).toEqual(hub.CELERY_DEFAULT_QUEUE) // webhook to celery queue
-        expect(jest.mocked(KafkaProducerWrapper).mock.calls[1][1]).toEqual(hub.PLUGINS_CELERY_QUEUE) // events out to start of plugin queue
-
-        const mockKafkaProducerWrapper = jest.mocked(KafkaProducerWrapper).mock.instances[1]
-        const mockQueueMessage = jest.mocked(mockKafkaProducerWrapper.queueMessage)
-
-        expect(mockQueueMessage.mock.calls[0][0]).toEqual('posthog.tasks.process_event.process_event_with_plugins')
-        expect(mockQueueMessage.mock.calls[0][1]).toEqual([
-            'plugin-id-60',
-            null,
-            null,
-            expect.objectContaining({
+        expect(queueMessageSpy).toHaveBeenCalledTimes(1)
+        expect(queueMessageSpy.mock.calls[0][0].topic).toEqual(KAFKA_EVENTS_PLUGIN_INGESTION)
+        const parsedMessage = JSON.parse(queueMessageSpy.mock.calls[0][0].messages[0].value.toString())
+        expect(JSON.parse(parsedMessage.data)).toMatchObject({
+            distinct_id: 'plugin-id-60',
+            event: 'my-new-event',
+            properties: expect.objectContaining({
+                $lib: 'posthog-plugin-server',
+                random: 'properties',
                 distinct_id: 'plugin-id-60',
-                event: 'my-new-event',
-                properties: expect.objectContaining({
-                    $lib: 'posthog-plugin-server',
-                    random: 'properties',
-                    distinct_id: 'plugin-id-60',
-                }),
             }),
-            2,
-            mockQueueMessage.mock.calls[0][1][5],
-            mockQueueMessage.mock.calls[0][1][6],
-        ])
-        expect(mockQueueMessage.mock.calls[0][2]).toEqual({})
+        })
     })
 
     test('posthog in runEvery with timestamp', async () => {
@@ -1004,34 +981,20 @@ describe('vm tests', () => {
         await resetTestDatabase(indexJs)
         const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
 
-        expect(KafkaProducerWrapper).not.toHaveBeenCalled
+        const queueMessageSpy = jest.spyOn(hub.kafkaProducer, 'queueMessage')
 
         const response = await vm.tasks.schedule.runEveryMinute.exec()
+
         expect(response).toBe('haha')
-
-        expect(KafkaProducerWrapper).toHaveBeenCalledTimes(2)
-        expect(jest.mocked(KafkaProducerWrapper).mock.calls[0][1]).toEqual(hub.CELERY_DEFAULT_QUEUE) // webhook to celery queue
-        expect(jest.mocked(KafkaProducerWrapper).mock.calls[1][1]).toEqual(hub.PLUGINS_CELERY_QUEUE) // events out to start of plugin queue
-
-        const mockKafkaProducerWrapper = jest.mocked(KafkaProducerWrapper).mock.instances[1]
-        const mockQueueMessage = jest.mocked(mockKafkaProducerWrapper.queueMessage)
-
-        expect(mockQueueMessage.mock.calls[0][0]).toEqual('posthog.tasks.process_event.process_event_with_plugins')
-        expect(mockQueueMessage.mock.calls[0][1]).toEqual([
-            'plugin-id-60',
-            null,
-            null,
-            expect.objectContaining({
-                timestamp: '2020-02-23T02:15:00Z', // taken out of the properties
-                distinct_id: 'plugin-id-60',
-                event: 'my-new-event',
-                properties: expect.objectContaining({ $lib: 'posthog-plugin-server', random: 'properties' }),
-            }),
-            2,
-            mockQueueMessage.mock.calls[0][1][5],
-            mockQueueMessage.mock.calls[0][1][6],
-        ])
-        expect(mockQueueMessage.mock.calls[0][2]).toEqual({})
+        expect(queueMessageSpy).toHaveBeenCalledTimes(1)
+        expect(queueMessageSpy.mock.calls[0][0].topic).toEqual(KAFKA_EVENTS_PLUGIN_INGESTION)
+        const parsedMessage = JSON.parse(queueMessageSpy.mock.calls[0][0].messages[0].value.toString())
+        expect(JSON.parse(parsedMessage.data)).toMatchObject({
+            timestamp: '2020-02-23T02:15:00Z', // taken out of the properties
+            distinct_id: 'plugin-id-60',
+            event: 'my-new-event',
+            properties: expect.objectContaining({ $lib: 'posthog-plugin-server', random: 'properties' }),
+        })
     })
 
     test('posthog.capture accepts user-defined distinct id', async () => {
@@ -1044,32 +1007,24 @@ describe('vm tests', () => {
         await resetTestDatabase(indexJs)
         const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
 
-        expect(KafkaProducerWrapper).not.toHaveBeenCalled
+        const queueMessageSpy = jest.spyOn(hub.kafkaProducer, 'queueMessage')
 
         const response = await vm.tasks.schedule.runEveryMinute.exec()
+
         expect(response).toBe('haha')
-
-        const mockKafkaProducerWrapper = jest.mocked(KafkaProducerWrapper).mock.instances[1]
-        const mockQueueMessage = jest.mocked(mockKafkaProducerWrapper.queueMessage)
-
-        expect(mockQueueMessage.mock.calls[0][0]).toEqual('posthog.tasks.process_event.process_event_with_plugins')
-        expect(mockQueueMessage.mock.calls[0][1]).toEqual([
-            'custom id',
-            null,
-            null,
-            expect.objectContaining({
+        expect(response).toBe('haha')
+        expect(queueMessageSpy).toHaveBeenCalledTimes(1)
+        expect(queueMessageSpy.mock.calls[0][0].topic).toEqual(KAFKA_EVENTS_PLUGIN_INGESTION)
+        const parsedMessage = JSON.parse(queueMessageSpy.mock.calls[0][0].messages[0].value.toString())
+        expect(JSON.parse(parsedMessage.data)).toMatchObject({
+            distinct_id: 'custom id',
+            event: 'my-new-event',
+            properties: expect.objectContaining({
+                $lib: 'posthog-plugin-server',
+                random: 'properties',
                 distinct_id: 'custom id',
-                event: 'my-new-event',
-                properties: expect.objectContaining({
-                    $lib: 'posthog-plugin-server',
-                    random: 'properties',
-                    distinct_id: 'custom id',
-                }),
             }),
-            2,
-            mockQueueMessage!.mock.calls[0][1][5],
-            mockQueueMessage!.mock.calls[0][1][6],
-        ])
+        })
     })
 
     test('onEvent', async () => {
