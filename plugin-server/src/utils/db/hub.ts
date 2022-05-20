@@ -32,7 +32,7 @@ import { KafkaProducerWrapper } from './kafka-producer-wrapper'
 
 const { version } = require('../../../package.json')
 
-// `node-postgres` woulkd return dates as plain JS Date objects, which would use the local timezone.
+// `node-postgres` would return dates as plain JS Date objects, which would use the local timezone.
 // This converts all date fields to a proper luxon UTC DateTime and then casts them to a string
 // Unfortunately this must be done on a global object before initializing the `Pool`
 pgTypes.setTypeParser(1083 /* types.TypeId.TIME */, (timeStr) =>
@@ -180,9 +180,9 @@ export async function createHub(
     const kafkaProducer = new KafkaProducerWrapper(producer, statsd, serverConfig)
     status.info('👍', `Kafka ready`)
 
-    status.info('🤔', `Postgresql`)
+    status.info('🤔', `Connecting to Postgresql...`)
     const postgres = createPostgresPool(serverConfig)
-    status.info('👍', `Postgresql`)
+    status.info('👍', `Postgresql ready`)
 
     status.info('🤔', `Connecting to Redis...`)
     const redisPool = createPool<Redis.Redis>(
@@ -200,7 +200,7 @@ export async function createHub(
     )
     status.info('👍', `Redis ready`)
 
-    status.info('🤔', `Storage`)
+    status.info('🤔', `Connecting to Storage...`)
     const objectStorage: ObjectStorage = connectObjectStorage(serverConfig)
     try {
         if (serverConfig.OBJECT_STORAGE_ENABLED && (await objectStorage.healthCheck())) {
