@@ -39,35 +39,10 @@ export async function startQueues(
     workerMethods: Partial<WorkerMethods> = {}
 ): Promise<Queues> {
     const mergedWorkerMethods = {
-        onEvent: (event: ProcessedPluginEvent) => {
+        runBufferEventPipeline: (event: PreIngestionEvent) => {
             server.lastActivity = new Date().valueOf()
-            server.lastActivityType = 'onEvent'
-            return piscina.run({ task: 'onEvent', args: { event } })
-        },
-        onAction: (action: Action, event: ProcessedPluginEvent) => {
-            server.lastActivity = new Date().valueOf()
-            server.lastActivityType = 'onAction'
-            return piscina.run({ task: 'onAction', args: { event, action } })
-        },
-        onSnapshot: (event: ProcessedPluginEvent) => {
-            server.lastActivity = new Date().valueOf()
-            server.lastActivityType = 'onSnapshot'
-            return piscina.run({ task: 'onSnapshot', args: { event } })
-        },
-        processEvent: (event: PluginEvent) => {
-            server.lastActivity = new Date().valueOf()
-            server.lastActivityType = 'processEvent'
-            return piscina.run({ task: 'processEvent', args: { event } })
-        },
-        ingestEvent: (event: PluginEvent) => {
-            server.lastActivity = new Date().valueOf()
-            server.lastActivityType = 'ingestEvent'
-            return piscina.run({ task: 'ingestEvent', args: { event } })
-        },
-        ingestBufferEvent: (event: PreIngestionEvent) => {
-            server.lastActivity = new Date().valueOf()
-            server.lastActivityType = 'ingestBufferEvent'
-            return piscina.run({ task: 'ingestBufferEvent', args: { event } })
+            server.lastActivityType = 'runBufferEventPipeline'
+            return piscina.run({ task: 'runBufferEventPipeline', args: { event } })
         },
         runEventPipeline: (event: PluginEvent) => {
             server.lastActivity = new Date().valueOf()
