@@ -2,20 +2,20 @@
 <p class="text-center">
     <strong>{{ invite.created_by.first_name }}first_name</strong> ({{ invite.created_by.email }}) has invited you to
     join
-    {{invite.organization.name }} org_name_placeholder on PostHog.<br /><br />
+    <strong>{{invite.organization.name }} org_name_placeholder</strong> on PostHog.
     PostHog is a product analytics tool that will help you better understand your users.<br />
     Build the best product <i>together</i>.
 </p>
 <div class="mb mt text-center">
     <a class="button primary" href="{{ invite }}">Join now</a>
 </div>
-<div class="mt">
+<div class="mt text-center dashed-border">
     <p>
-        If the button above does not work, paste the following link into your browser:<br />
-        <a href="{{ invite }}">{{ invite }}</a>
+        Or paste this link into your browser:<br />
+        <a href="{{ invite }}">{{ invite }}invite_link_placehoolder</a>
     </p>
 </div>
-<p>Please note this invite will expire in <b>3 days</b>.</p>
+<p class="text-center">Please note this invite will expire in <b>3 days</b>.</p>
 {% endblock %}{% load posthog_filters %} {% block heading %}<h1 class="invite-header"><strong>Li
         {{ invite.created_by.first_name }}</strong> has invited you to
     join
