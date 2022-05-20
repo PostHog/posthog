@@ -265,7 +265,7 @@ export async function startPluginsServer(
         serverInstance.queue = queue
         serverInstance.stop = closeJobs
 
-        if (hub.kafka) {
+        if (hub.KAFKA_ENABLED) {
             healthCheckConsumer = await setupKafkaHealthcheckConsumer(hub.kafka)
             serverInstance.kafkaHealthcheckConsumer = healthCheckConsumer
 

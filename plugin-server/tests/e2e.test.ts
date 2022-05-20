@@ -111,7 +111,7 @@ describe('e2e', () => {
 
             await delayUntilEventIngested(() => hub.db.fetchEvents())
 
-            await hub.kafkaProducer?.flush()
+            await hub.kafkaProducer.flush()
             const events = await hub.db.fetchEvents()
             await delay(1000)
 
@@ -132,7 +132,7 @@ describe('e2e', () => {
 
             await delayUntilEventIngested(() => hub.db.fetchSessionRecordingEvents())
 
-            await hub.kafkaProducer?.flush()
+            await hub.kafkaProducer.flush()
             const events = await hub.db.fetchSessionRecordingEvents()
             await delay(1000)
 
@@ -151,7 +151,7 @@ describe('e2e', () => {
 
             await posthog.capture('custom event', { name: 'hehe', uuid: new UUIDT().toString() })
 
-            await hub.kafkaProducer?.flush()
+            await hub.kafkaProducer.flush()
             await delayUntilEventIngested(() => hub.db.fetchEvents())
             await delayUntilEventIngested(() => hub.db.fetchPluginLogEntries())
 

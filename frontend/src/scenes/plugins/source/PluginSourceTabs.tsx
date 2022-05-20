@@ -5,7 +5,7 @@ import { LemonButton } from 'lib/components/LemonButton'
 
 export function PluginSourceTabs(): JSX.Element {
     const { setCurrentFile } = useActions(pluginSourceLogic)
-    const { currentFile, fileNames, pluginSourceValidationErrors } = useValues(pluginSourceLogic)
+    const { currentFile, fileNames, pluginSourceAllErrors } = useValues(pluginSourceLogic)
 
     return (
         <div className="flex-center mb-05" style={{ gap: '0.5rem' }}>
@@ -15,7 +15,7 @@ export function PluginSourceTabs(): JSX.Element {
                     active={currentFile === fileName}
                     onClick={() => setCurrentFile(fileName)}
                     size="small"
-                    status={pluginSourceValidationErrors[fileName] ? 'danger' : undefined}
+                    status={pluginSourceAllErrors[fileName] ? 'danger' : undefined}
                 >
                     {fileName}
                 </LemonButton>

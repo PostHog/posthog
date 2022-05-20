@@ -1,5 +1,5 @@
 export const createDefaultPluginSource = (name: string): Record<string, any> => ({
-    'index.ts': `// Learn more about plugins at: https://posthog.com/docs/plugins/build/overview
+    'index.ts': `// Learn more about plugins at: https://posthog.com/docs/apps/build
 
 // Processes each event, optionally transforming it
 export function processEvent(event, { config }) {
@@ -23,9 +23,29 @@ export async function runEveryHour(meta) {
     const randomSpanishWord = data.body.Word
     console.log(\`¡\${randomSpanishWord.toUpperCase()}!\`)
 }`,
+    'frontend.tsx': `import React from "react"
+
+export const scene = {
+    title: "My Stuff",
+    component: function MyStuff({ config }) {
+        return (
+            <div>
+                <h1>My Favourite Links</h1>
+                <ul>
+                    <li>
+                        <a href="https://news.ycombinator.com">The NEWS</a>
+                    </li>
+                </ul>
+                <h1>My Favourite Cow</h1>
+                <img src="https://media.giphy.com/media/RYKFEEjtYpxL2/giphy.gif" />
+            </div>
+        )
+    },
+}
+`,
     'plugin.json': JSON.stringify(
         {
-            name,
+            name: name ?? 'My Plugin',
             config: [
                 {
                     markdown: 'Specify your config here',

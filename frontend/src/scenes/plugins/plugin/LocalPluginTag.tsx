@@ -15,7 +15,7 @@ export function LocalPluginTag({
     return (
         <Tooltip title={url.substring(5)}>
             <Tag color="purple" onClick={() => copyToClipboard(url.substring(5))} style={style}>
-                {title || 'Local Plugin'}
+                {title || 'Local App'}
             </Tag>
         </Tooltip>
     )
