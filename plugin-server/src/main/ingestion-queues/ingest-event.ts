@@ -6,7 +6,7 @@ import { status } from '../../utils/status'
 import { groupIntoBatches, sanitizeEvent } from '../../utils/utils'
 import { IngestionQueue } from './ingestion-queue'
 
-export async function eachMessageIngestion(message: KafkaMessage, ingestionQueue: IngestionQueue): Promise<void> {
+export async function eachMessageIngestion(message: KafkaMessage, queue: IngestionQueue): Promise<void> {
     const { data: dataStr, ...rawEvent } = JSON.parse(message.value!.toString())
     const combinedEvent = { ...rawEvent, ...JSON.parse(dataStr) }
     const event: PluginEvent = sanitizeEvent({
@@ -14,19 +14,19 @@ export async function eachMessageIngestion(message: KafkaMessage, ingestionQueue
         site_url: combinedEvent.site_url || null,
         ip: combinedEvent.ip || null,
     })
-    await ingestEvent(ingestionQueue.pluginsServer, ingestionQueue.workerMethods, event)
+    await ingestEvent(queue.pluginsServer, queue.workerMethods, event)
 }
 
 export async function eachBatchIngestion(
     { batch, resolveOffset, heartbeat, commitOffsetsIfNecessary, isRunning, isStale }: EachBatchPayload,
-    ingestionQueue: IngestionQueue
+    queue: IngestionQueue
 ): Promise<void> {
     const batchStartTimer = new Date()
 
     try {
         const messageBatches = groupIntoBatches(
             batch.messages,
-            ingestionQueue.pluginsServer.WORKER_CONCURRENCY * ingestionQueue.pluginsServer.TASKS_PER_WORKER
+            queue.pluginsServer.WORKER_CONCURRENCY * queue.pluginsServer.TASKS_PER_WORKER
         )
 
         for (const messageBatch of messageBatches) {
@@ -39,7 +39,7 @@ export async function eachBatchIngestion(
                 return
             }
 
-            await Promise.all(messageBatch.map((message) => eachMessageIngestion(message, ingestionQueue)))
+            await Promise.all(messageBatch.map((message) => eachMessageIngestion(message, queue)))
 
             // this if should never be false, but who can trust computers these days
             if (messageBatch.length > 0) {
@@ -56,7 +56,7 @@ export async function eachBatchIngestion(
             }ms`
         )
     } finally {
-        ingestionQueue.pluginsServer.statsd?.timing('kafka_queue.each_batch', batchStartTimer)
+        queue.pluginsServer.statsd?.timing('kafka_queue.each_batch', batchStartTimer)
     }
 }
 

@@ -8,13 +8,13 @@ class DelayProcessing extends Error {}
 export async function eachMessageBuffer(
     message: KafkaMessage,
     resolveOffset: EachBatchPayload['resolveOffset'],
-    ingestionQueue: IngestionQueue
+    queue: IngestionQueue
 ): Promise<void> {
     const bufferEvent = JSON.parse(message.value!.toString())
     await runInstrumentedFunction({
-        server: ingestionQueue.pluginsServer,
+        server: queue.pluginsServer,
         event: bufferEvent,
-        func: () => ingestionQueue.workerMethods.runBufferEventPipeline(bufferEvent),
+        func: () => queue.workerMethods.runBufferEventPipeline(bufferEvent),
         statsKey: `kafka_queue.ingest_buffer_event`,
         timeoutMessage: 'After 30 seconds still running runBufferEventPipeline',
     })
@@ -23,7 +23,7 @@ export async function eachMessageBuffer(
 
 export async function eachBatchBuffer(
     { batch, resolveOffset, commitOffsetsIfNecessary }: EachBatchPayload,
-    ingestionQueue: IngestionQueue
+    queue: IngestionQueue
 ): Promise<void> {
     if (batch.messages.length === 0) {
         return
@@ -33,11 +33,11 @@ export async function eachBatchBuffer(
     let consumerSleep = 0
     for (const message of batch.messages) {
         // kafka timestamps are unix timestamps in string format
-        const processAt = Number(message.timestamp) + ingestionQueue.pluginsServer.BUFFER_CONVERSION_SECONDS * 1000
+        const processAt = Number(message.timestamp) + queue.pluginsServer.BUFFER_CONVERSION_SECONDS * 1000
         const delayUntilTimeToProcess = processAt - Date.now()
 
         if (delayUntilTimeToProcess < 0) {
-            await eachMessageBuffer(message, resolveOffset, ingestionQueue)
+            await eachMessageBuffer(message, resolveOffset, queue)
         } else {
             consumerSleep = Math.max(consumerSleep, delayUntilTimeToProcess)
         }
@@ -46,13 +46,13 @@ export async function eachBatchBuffer(
     // if consumerSleep > 0 it means we didn't process at least one message
     if (consumerSleep > 0) {
         // pause the consumer for this partition until we can process all unprocessed messages from this batch
-        ingestionQueue.sleepTimeout = setTimeout(() => {
-            if (ingestionQueue.sleepTimeout) {
-                clearTimeout(ingestionQueue.sleepTimeout)
+        queue.sleepTimeout = setTimeout(() => {
+            if (queue.sleepTimeout) {
+                clearTimeout(queue.sleepTimeout)
             }
-            ingestionQueue.resume(batch.topic, batch.partition)
+            queue.resume(batch.partition)
         }, consumerSleep)
-        await ingestionQueue.pause(batch.topic, batch.partition)
+        await queue.pause(batch.partition)
 
         // we throw an error to prevent the non-processed message offsets from being committed
         // from the kafkajs docs:
@@ -63,5 +63,5 @@ export async function eachBatchBuffer(
 
     await commitOffsetsIfNecessary()
 
-    ingestionQueue.pluginsServer.statsd?.timing('kafka_queue.each_batch_buffer', batchStartTimer)
+    queue.pluginsServer.statsd?.timing('kafka_queue.each_batch_buffer', batchStartTimer)
 }

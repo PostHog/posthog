@@ -47,41 +47,41 @@ export abstract class KafkaQueue implements Queue {
         return await startPromise
     }
 
-    async pause(targetTopic: string = this.pluginsServer.KAFKA_CONSUMPTION_TOPIC!, partition?: number): Promise<void> {
-        if (this.wasConsumerRan && !this.isPaused(targetTopic, partition)) {
-            const pausePayload: ConsumerManagementPayload = { topic: targetTopic }
+    async pause(partition?: number): Promise<void> {
+        if (this.wasConsumerRan && !this.isPaused(partition)) {
+            const pausePayload: ConsumerManagementPayload = { topic: this.topic }
             let partitionInfo = ''
             if (partition) {
                 pausePayload.partitions = [partition]
                 partitionInfo = `(partition ${partition})`
             }
 
-            status.info('⏳', `Pausing Kafka consumer for topic ${targetTopic} ${partitionInfo}...`)
+            status.info('⏳', `Pausing Kafka consumer for topic ${this.topic} ${partitionInfo}...`)
             this.consumer.pause([pausePayload])
-            status.info('⏸', `Kafka consumer for topic ${targetTopic} ${partitionInfo} paused!`)
+            status.info('⏸', `Kafka consumer for topic ${this.topic} ${partitionInfo} paused!`)
         }
         return Promise.resolve()
     }
 
-    resume(targetTopic: string = this.pluginsServer.KAFKA_CONSUMPTION_TOPIC!, partition?: number): void {
-        if (this.wasConsumerRan && this.isPaused(targetTopic, partition)) {
-            const resumePayload: ConsumerManagementPayload = { topic: targetTopic }
+    resume(partition?: number): void {
+        if (this.wasConsumerRan && this.isPaused(partition)) {
+            const resumePayload: ConsumerManagementPayload = { topic: this.topic }
             let partitionInfo = ''
             if (partition) {
                 resumePayload.partitions = [partition]
                 partitionInfo = `(partition ${partition})`
             }
-            status.info('⏳', `Resuming Kafka consumer for topic ${targetTopic} ${partitionInfo}...`)
+            status.info('⏳', `Resuming Kafka consumer for topic ${this.topic} ${partitionInfo}...`)
             this.consumer.resume([resumePayload])
-            status.info('▶️', `Kafka consumer for topic ${targetTopic} ${partitionInfo} resumed!`)
+            status.info('▶️', `Kafka consumer for topic ${this.topic} ${partitionInfo} resumed!`)
         }
     }
 
-    isPaused(targetTopic: string = this.pluginsServer.KAFKA_CONSUMPTION_TOPIC!, partition?: number): boolean {
+    isPaused(partition?: number): boolean {
         // if we pass a partition, check that as well, else just return if the topic is paused
         return this.consumer
             .paused()
-            .some(({ topic, partitions }) => topic === targetTopic && (!partition || partitions.includes(partition)))
+            .some(({ topic, partitions }) => topic === this.topic && (!partition || partitions.includes(partition)))
     }
 
     async stop(): Promise<void> {
