@@ -942,5 +942,4 @@ export interface PreIngestionEvent {
     properties: Properties
     timestamp: DateTime | string
     elementsList: Element[]
-    siteUrl: string
 }
