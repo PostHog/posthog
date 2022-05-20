@@ -16,6 +16,7 @@ import { sanitizeEvent, UUIDT } from '../../utils/utils'
 import { Action } from './../../types'
 import { CeleryQueue } from './celery-queue'
 import { ingestEvent } from './ingest-event'
+import { IngestionQueue } from './ingestion-queue'
 import { KafkaQueue } from './kafka-queue'
 
 interface Queues {
@@ -123,8 +124,8 @@ async function startQueueKafka(server: Hub, workerMethods: WorkerMethods): Promi
         return null
     }
 
-    const kafkaQueue: Queue = new KafkaQueue(server, workerMethods)
-    await kafkaQueue.start()
+    const ingestionQueue: Queue = new IngestionQueue(server, workerMethods)
+    await ingestionQueue.start()
 
-    return kafkaQueue
+    return ingestionQueue
 }
