@@ -60,9 +60,9 @@ export class KafkaQueue implements Queue {
         await runInstrumentedFunction({
             server: this.pluginsServer,
             event: bufferEvent,
-            func: (_) => this.workerMethods.ingestBufferEvent(bufferEvent),
+            func: (_) => this.workerMethods.runBufferEventPipeline(bufferEvent),
             statsKey: `kafka_queue.ingest_buffer_event`,
-            timeoutMessage: 'After 30 seconds still running ingestBufferEvent',
+            timeoutMessage: 'After 30 seconds still running runBufferEventPipeline',
         })
         resolveOffset(message.offset)
     }

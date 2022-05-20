@@ -696,7 +696,6 @@ describe('vm tests', () => {
         await vm.methods.processEvent!(event)
 
         const entriesMinCount = (await hub.db.fetchPluginLogEntries()).length
-        console.log('X', hub.db.kafkaProducer.currentBatch)
         await hub.db.kafkaProducer.flush()
         await delayUntilEventIngested(async () => await hub.db.fetchPluginLogEntries(), entriesMinCount + 1)
         const entries = (await hub.db.fetchPluginLogEntries()).slice(entriesMinCount)

@@ -455,6 +455,7 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
             response_data,
             {
                 "is_cached": False,
+                "timezone": "UTC",
                 "result": {
                     "bins": [[2220.0, 2], [29080.0, 0], [55940.0, 0], [82800.0, 1]],
                     "average_conversion_time": 29540.0,
@@ -512,6 +513,7 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
             response_data,
             {
                 "is_cached": False,
+                "timezone": "UTC",
                 "result": {
                     "bins": [[2220.0, 2], [29080.0, 0], [55940.0, 0], [82800.0, 1]],
                     "average_conversion_time": 29540.0,
@@ -569,6 +571,7 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
             response_data,
             {
                 "is_cached": False,
+                "timezone": "UTC",
                 "result": {
                     "bins": [[2220.0, 2], [29080.0, 0], [55940.0, 0], [82800.0, 1]],
                     "average_conversion_time": 29540.0,

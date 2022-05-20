@@ -4,6 +4,7 @@ from unittest.mock import patch
 from freezegun import freeze_time
 from rest_framework.test import APIRequestFactory
 
+from ee.clickhouse.util import snapshot_clickhouse_queries
 from posthog.constants import FILTER_TEST_ACCOUNTS, TRENDS_LIFECYCLE
 from posthog.models import Filter
 from posthog.test.base import APIBaseTest
@@ -558,6 +559,7 @@ def lifecycle_test_factory(trends, event_factory, person_factory, action_factory
 
             self.assertEquals(sorted_results, sorted_expected)
 
+        @snapshot_clickhouse_queries
         @patch("posthoganalytics.feature_enabled", return_value=True)
         def test_timezones(self, patch_something):
             self._create_events(

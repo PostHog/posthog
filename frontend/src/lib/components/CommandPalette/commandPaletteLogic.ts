@@ -537,7 +537,7 @@ export const commandPaletteLogic = kea<
                         display: 'Go to Plugins',
                         synonyms: ['integrations'],
                         executor: () => {
-                            push(urls.plugins())
+                            push(urls.projectApps())
                         },
                     },
                     {
