@@ -22,6 +22,7 @@ class AvailableFeature(str, Enum):
     EXPERIMENTATION = "experimentation"
     TAGGING = "tagging"
     BEHAVIORAL_COHORT_FILTERING = "behavioral_cohort_filtering"
+    WHITE_LABELLING = "white_labelling"
 
 
 TREND_FILTER_TYPE_ACTIONS = "actions"
