@@ -1,5 +1,8 @@
 import urllib.parse
+from datetime import datetime
 from typing import Any, Callable, Dict, List, Tuple
+
+import pytz
 
 from ee.clickhouse.queries.trends.trend_event_query import TrendsEventQuery
 from ee.clickhouse.queries.trends.util import enumerate_time_range, parse_response, process_math
@@ -21,6 +24,7 @@ from posthog.utils import encode_get_request_params
 
 class ClickhouseTrendsTotalVolume:
     def _total_volume_query(self, entity: Entity, filter: Filter, team: Team) -> Tuple[str, Dict, Callable]:
+
         trunc_func = get_trunc_func_ch(filter.interval)
         interval_func = get_interval_func_ch(filter.interval)
         aggregate_operation, join_condition, math_params = process_math(entity, team, person_id_alias="person_id")
@@ -101,9 +105,7 @@ class ClickhouseTrendsTotalVolume:
             parsed_results = []
             for _, stats in enumerate(result):
                 parsed_result = parse_response(stats, filter)
-                parsed_result.update(
-                    {"persons_urls": self._get_persons_url(filter, entity, team.pk, parsed_result["days"])}
-                )
+                parsed_result.update({"persons_urls": self._get_persons_url(filter, entity, team.pk, stats[0])})
                 parsed_results.append(parsed_result)
 
                 parsed_result.update({"filter": filter.to_dict()})
@@ -135,16 +137,27 @@ class ClickhouseTrendsTotalVolume:
 
         return _parse
 
-    def _get_persons_url(self, filter: Filter, entity: Entity, team_id: int, dates: List[str]) -> List[Dict[str, Any]]:
+    def _get_persons_url(
+        self, filter: Filter, entity: Entity, team_id: int, dates: List[datetime]
+    ) -> List[Dict[str, Any]]:
         persons_url = []
         for date in dates:
+            date_in_utc = datetime(
+                date.year,
+                date.month,
+                date.day,
+                getattr(date, "hour", 0),
+                getattr(date, "minute", 0),
+                getattr(date, "second", 0),
+                tzinfo=getattr(date, "tzinfo", pytz.UTC),
+            ).astimezone(pytz.UTC)
             filter_params = filter.to_params()
             extra_params = {
                 "entity_id": entity.id,
                 "entity_type": entity.type,
                 "entity_math": entity.math,
-                "date_from": filter.date_from if filter.display == TRENDS_CUMULATIVE else date,
-                "date_to": date,
+                "date_from": filter.date_from if filter.display == TRENDS_CUMULATIVE else date_in_utc,
+                "date_to": date_in_utc,
             }
 
             parsed_params: Dict[str, str] = encode_get_request_params({**filter_params, **extra_params})

@@ -24,7 +24,7 @@ class TestPreflight(APIBaseTest):
         For security purposes, the information contained in an unauthenticated preflight request is minimal.
         """
         self.client.logout()
-        with self.settings(MULTI_TENANCY=False):
+        with self.settings(MULTI_TENANCY=False, OBJECT_STORAGE_ENABLED=False):
             response = self.client.get("/_preflight/")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -51,7 +51,9 @@ class TestPreflight(APIBaseTest):
 
     def test_preflight_request(self):
         with self.settings(
-            MULTI_TENANCY=False, INSTANCE_PREFERENCES=self.instance_preferences(debug_queries=True),
+            MULTI_TENANCY=False,
+            INSTANCE_PREFERENCES=self.instance_preferences(debug_queries=True),
+            OBJECT_STORAGE_ENABLED=False,
         ):
             response = self.client.get("/_preflight/")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -87,9 +89,9 @@ class TestPreflight(APIBaseTest):
             )
             self.assertDictContainsSubset({"Europe/Moscow": 3, "UTC": 0}, available_timezones)
 
-    @patch("posthog.storage.object_storage.client.head_bucket")
-    def test_preflight_request_with_object_storage_available(self, patched_head_bucket):
-        patched_head_bucket.return_value = True
+    @patch("posthog.storage.object_storage.s3_client")
+    def test_preflight_request_with_object_storage_available(self, patched_s3_client):
+        patched_s3_client.head_bucket.return_value = True
 
         with self.settings(
             MULTI_TENANCY=False,
@@ -136,7 +138,7 @@ class TestPreflight(APIBaseTest):
 
         self.client.logout()  # make sure it works anonymously
 
-        with self.settings(MULTI_TENANCY=True):
+        with self.settings(MULTI_TENANCY=True, OBJECT_STORAGE_ENABLED=False):
             response = self.client.get("/_preflight/")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -163,7 +165,7 @@ class TestPreflight(APIBaseTest):
 
     @pytest.mark.ee
     def test_cloud_preflight_request(self):
-        with self.settings(MULTI_TENANCY=True, SITE_URL="https://app.posthog.com"):
+        with self.settings(MULTI_TENANCY=True, SITE_URL="https://app.posthog.com", OBJECT_STORAGE_ENABLED=False):
             response = self.client.get("/_preflight/")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             response = response.json()
@@ -206,6 +208,7 @@ class TestPreflight(APIBaseTest):
             SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET="test_secret",
             MULTI_TENANCY=True,
             INSTANCE_PREFERENCES=self.instance_preferences(disable_paid_fs=True),
+            OBJECT_STORAGE_ENABLED=False,
         ):
             response = self.client.get("/_preflight/")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -245,7 +248,7 @@ class TestPreflight(APIBaseTest):
     def test_demo(self):
         self.client.logout()  # make sure it works anonymously
 
-        with self.settings(DEMO=True):
+        with self.settings(DEMO=True, OBJECT_STORAGE_ENABLED=False):
             response = self.client.get("/_preflight/")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)

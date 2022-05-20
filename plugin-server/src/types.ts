@@ -82,7 +82,7 @@ export interface PluginsServerConfig extends Record<string, any> {
     CLICKHOUSE_CA: string | null
     CLICKHOUSE_SECURE: boolean
     KAFKA_ENABLED: boolean
-    KAFKA_HOSTS: string | null
+    KAFKA_HOSTS: string
     KAFKA_CLIENT_CERT_B64: string | null
     KAFKA_CLIENT_CERT_KEY_B64: string | null
     KAFKA_TRUSTED_CERT_B64: string | null
@@ -144,8 +144,7 @@ export interface PluginsServerConfig extends Record<string, any> {
     KAFKA_HEALTHCHECK_SECONDS: number
     HISTORICAL_EXPORTS_ENABLED: boolean
     OBJECT_STORAGE_ENABLED: boolean
-    OBJECT_STORAGE_HOST: string
-    OBJECT_STORAGE_PORT: number
+    OBJECT_STORAGE_ENDPOINT: string
     OBJECT_STORAGE_ACCESS_KEY_ID: string
     OBJECT_STORAGE_SECRET_ACCESS_KEY: string
     OBJECT_STORAGE_SESSION_RECORDING_FOLDER: string
@@ -277,7 +276,12 @@ export interface Plugin {
     config_schema: Record<string, PluginConfigSchema> | PluginConfigSchema[]
     tag?: string
     archive: Buffer | null
+    /** @deprecated Replaced with source__index_ts */
     source?: string
+    /** Cached source for index.ts from a joined PluginSourceFile query */
+    source__index_ts?: string
+    /** Cached source for frontend.tsx from a joined PluginSourceFile query */
+    source__frontend_tsx?: string
     error?: PluginError
     from_json?: boolean
     from_web?: boolean
@@ -372,6 +376,12 @@ export interface PluginLogEntry {
     instance_id: string
 }
 
+export enum PluginSourceFileStatus {
+    Transpiled = 'TRANSPILED',
+    Locked = 'LOCKED',
+    Error = 'ERROR',
+}
+
 export enum PluginTaskType {
     Job = 'job',
     Schedule = 'schedule',
@@ -384,12 +394,7 @@ export interface PluginTask {
 }
 
 export type WorkerMethods = {
-    onEvent: (event: ProcessedPluginEvent) => Promise<void>
-    onAction: (action: Action, event: ProcessedPluginEvent) => Promise<void>
-    onSnapshot: (event: ProcessedPluginEvent) => Promise<void>
-    processEvent: (event: PluginEvent) => Promise<PluginEvent | null>
-    ingestEvent: (event: PluginEvent) => Promise<IngestEventResponse>
-    ingestBufferEvent: (event: PreIngestionEvent) => Promise<IngestEventResponse>
+    runBufferEventPipeline: (event: PreIngestionEvent) => Promise<IngestEventResponse>
     runEventPipeline: (event: PluginEvent) => Promise<void>
 }
 

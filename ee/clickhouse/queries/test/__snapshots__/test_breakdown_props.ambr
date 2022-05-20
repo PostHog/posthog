@@ -15,8 +15,8 @@
         GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
      WHERE team_id = 2
        AND event = '$pageview'
-       AND timestamp >= toDateTime('2020-01-01 00:00:00', 'UTC')
-       AND timestamp <= toDateTime('2020-01-12 23:59:59', 'UTC')
+       AND timestamp >= toDateTime('2020-01-01 00:00:00')
+       AND timestamp <= toDateTime('2020-01-12 23:59:59')
        AND ((isNull(replaceRegexpAll(JSONExtractRaw(group_properties_0, 'out'), '^"|"$', ''))
              OR NOT JSONHas(group_properties_0, 'out')))
      GROUP BY value
@@ -42,8 +42,8 @@
         GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
      WHERE team_id = 2
        AND event = '$pageview'
-       AND timestamp >= toDateTime('2020-01-01 00:00:00', 'UTC')
-       AND timestamp <= toDateTime('2020-01-12 23:59:59', 'UTC')
+       AND timestamp >= toDateTime('2020-01-01 00:00:00')
+       AND timestamp <= toDateTime('2020-01-12 23:59:59')
        AND ((isNull(replaceRegexpAll(JSONExtractRaw(group_properties_0, 'out'), '^"|"$', ''))
              OR NOT JSONHas(group_properties_0, 'out')))
      GROUP BY value
@@ -76,8 +76,8 @@
         HAVING max(is_deleted) = 0) person ON pdi.person_id = person.id
      WHERE team_id = 2
        AND event = '$pageview'
-       AND timestamp >= toDateTime('2019-12-21 00:00:00', 'UTC')
-       AND timestamp <= toDateTime('2020-01-04 23:59:59', 'UTC')
+       AND timestamp >= toDateTime('2019-12-21 00:00:00')
+       AND timestamp <= toDateTime('2020-01-04 23:59:59')
      GROUP BY value
      ORDER BY count DESC
      LIMIT 5
@@ -108,8 +108,8 @@
         HAVING max(is_deleted) = 0) person ON pdi.person_id = person.id
      WHERE team_id = 2
        AND event = '$pageview'
-       AND timestamp >= toDateTime('2019-12-21 00:00:00', 'UTC')
-       AND timestamp <= toDateTime('2020-01-04 23:59:59', 'UTC')
+       AND timestamp >= toDateTime('2019-12-21 00:00:00')
+       AND timestamp <= toDateTime('2020-01-04 23:59:59')
      GROUP BY value
      ORDER BY count DESC
      LIMIT 5
@@ -141,8 +141,8 @@
         AND ((replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), '$browser'), '^"|"$', '') ILIKE '%test%'))) person ON pdi.person_id = person.id
      WHERE team_id = 2
        AND event = '$pageview'
-       AND timestamp >= toDateTime('2019-12-21 00:00:00', 'UTC')
-       AND timestamp <= toDateTime('2020-01-04 23:59:59', 'UTC')
+       AND timestamp >= toDateTime('2019-12-21 00:00:00')
+       AND timestamp <= toDateTime('2020-01-04 23:59:59')
        AND ((has(['test2'], replaceRegexpAll(JSONExtractRaw(person_props, '$os'), '^"|"$', ''))
              OR has(['val'], replaceRegexpAll(JSONExtractRaw(e.properties, 'key'), '^"|"$', ''))))
      GROUP BY value

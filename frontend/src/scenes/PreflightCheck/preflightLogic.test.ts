@@ -89,8 +89,7 @@ describe('preflightLogic', () => {
                         {
                             id: 'object_storage',
                             name: 'Object Storage',
-                            status: 'warning',
-                            caption: 'Some features will not work without object storage',
+                            status: 'validated',
                         },
                     ],
                 })
@@ -153,8 +152,7 @@ describe('preflightLogic', () => {
                         {
                             id: 'object_storage',
                             name: 'Object Storage',
-                            status: 'warning',
-                            caption: 'Some features will not work without object storage',
+                            status: 'validated',
                         },
                     ],
                 })
@@ -168,7 +166,7 @@ describe('preflightLogic', () => {
                 .toDispatchActions(['loadPreflightSuccess'])
                 .toMatchValues({
                     checksSummary: {
-                        summaryString: '6 successful, 2 warnings, 2 errors',
+                        summaryString: '7 successful, 1 warning, 2 errors',
                         summaryStatus: 'error',
                     },
                 })
@@ -181,7 +179,7 @@ describe('preflightLogic', () => {
                 .toDispatchActions(['loadPreflightSuccess'])
                 .toMatchValues({
                     checksSummary: {
-                        summaryString: '6 successful, 2 warnings, 1 error, 1 optional',
+                        summaryString: '7 successful, 1 warning, 1 error, 1 optional',
                         summaryStatus: 'error',
                     },
                 })

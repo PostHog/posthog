@@ -137,9 +137,6 @@ export async function createHub(
 
     if (serverConfig.KAFKA_ENABLED) {
         status.info('🤔', `ClickHouse`)
-        if (!serverConfig.KAFKA_HOSTS) {
-            throw new Error('You must set KAFKA_HOSTS to process events from Kafka!')
-        }
         clickhouse = new ClickHouse({
             host: serverConfig.CLICKHOUSE_HOST,
             port: serverConfig.CLICKHOUSE_SECURE ? 8443 : 8123,
@@ -210,24 +207,15 @@ export async function createHub(
     status.info('👍', `Redis`)
 
     status.info('🤔', `Storage`)
-    let objectStorage: ObjectStorage
+    const objectStorage: ObjectStorage = connectObjectStorage(serverConfig)
     try {
-        objectStorage = connectObjectStorage(serverConfig)
-    } catch (e) {
-        status.error('❌', `could not initialise storage: ${e}`)
-        throw e
-    }
-
-    try {
-        if (serverConfig.OBJECT_STORAGE_ENABLED) {
-            await objectStorage.healthCheck()
+        if (serverConfig.OBJECT_STORAGE_ENABLED && (await objectStorage.healthCheck())) {
             status.info('👍', `storage 🪣`)
         } else {
             status.info('🪣', `storage not in use`)
         }
     } catch (e) {
-        status.error('❌', `storage failed healthcheck: ${e}`)
-        throw e
+        status.warn('🪣', `storage failed healthcheck: ${e}`)
     }
 
     const db = new DB(

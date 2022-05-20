@@ -1,34 +1,31 @@
 import Piscina from '@posthog/piscina'
-import { Consumer } from 'kafkajs'
+import IORedis from 'ioredis'
 import { DateTime } from 'luxon'
 
-import { ONE_HOUR } from '../../src/config/constants'
-import { KAFKA_EVENTS_PLUGIN_INGESTION, KAFKA_HEALTHCHECK } from '../../src/config/kafka-topics'
-import { startPluginsServer } from '../../src/main/pluginsServer'
-import { kafkaHealthcheck, setupKafkaHealthcheckConsumer } from '../../src/main/utils'
-import { Hub, LogLevel, PluginsServerConfig } from '../../src/types'
-import { Client } from '../../src/utils/celery/client'
-import { delay, UUIDT } from '../../src/utils/utils'
-import { makePiscina } from '../../src/worker/piscina'
-import { createPosthog, DummyPostHog } from '../../src/worker/vm/extensions/posthog'
-import { writeToFile } from '../../src/worker/vm/extensions/test-utils'
-import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../helpers/clickhouse'
-import { resetKafka } from '../helpers/kafka'
-import { pluginConfig39 } from '../helpers/plugins'
-import { resetTestDatabase } from '../helpers/sql'
+import { ONE_HOUR } from '../src/config/constants'
+import { KAFKA_EVENTS_PLUGIN_INGESTION } from '../src/config/kafka-topics'
+import { startPluginsServer } from '../src/main/pluginsServer'
+import { AlertLevel, LogLevel, PluginsServerConfig, Service } from '../src/types'
+import { Hub } from '../src/types'
+import { Client } from '../src/utils/celery/client'
+import { delay, UUIDT } from '../src/utils/utils'
+import { makePiscina } from '../src/worker/piscina'
+import { createPosthog, DummyPostHog } from '../src/worker/vm/extensions/posthog'
+import { writeToFile } from '../src/worker/vm/extensions/test-utils'
+import { delayUntilEventIngested, resetTestDatabaseClickhouse } from './helpers/clickhouse'
+import { resetKafka } from './helpers/kafka'
+import { pluginConfig39 } from './helpers/plugins'
+import { resetTestDatabase } from './helpers/sql'
 
 const { console: testConsole } = writeToFile
 
-jest.mock('../../src/utils/status')
-jest.setTimeout(70000) // 60 sec timeout
+jest.mock('../src/utils/status')
+jest.setTimeout(60000) // 60 sec timeout
 
 const extraServerConfig: Partial<PluginsServerConfig> = {
-    KAFKA_ENABLED: true,
-    KAFKA_HOSTS: process.env.KAFKA_HOSTS || 'kafka:9092',
     WORKER_CONCURRENCY: 2,
     KAFKA_CONSUMPTION_TOPIC: KAFKA_EVENTS_PLUGIN_INGESTION,
     LOG_LEVEL: LogLevel.Log,
-    CELERY_DEFAULT_QUEUE: 'test-celery-default-queue',
     OBJECT_STORAGE_ENABLED: true,
 }
 
@@ -67,15 +64,23 @@ export async function exportEvents(events) {
     }
 }
 
+export async function onAction(action, event) {
+    testConsole.log('onAction', action, event)
+}
+
+export async function handleAlert(alert) {
+    testConsole.log('handleAlert', alert)
+}
+
 export async function runEveryMinute() {}
 `
 
-// TODO: merge these tests with postgres/e2e.test.ts
 describe('e2e', () => {
     let hub: Hub
     let stopServer: () => Promise<void>
     let posthog: DummyPostHog
     let piscina: Piscina
+    let redis: IORedis.Redis
 
     beforeAll(async () => {
         await resetKafka(extraServerConfig)
@@ -89,10 +94,12 @@ describe('e2e', () => {
         hub = startResponse.hub
         piscina = startResponse.piscina
         stopServer = startResponse.stop
+        redis = await hub.redisPool.acquire()
         posthog = createPosthog(hub, pluginConfig39)
     })
 
     afterEach(async () => {
+        await hub.redisPool.release(redis)
         await stopServer()
     })
 
@@ -125,20 +132,18 @@ describe('e2e', () => {
 
             expect((await hub.db.fetchSessionRecordingEvents(sessionId)).length).toBe(0)
 
-            await posthog.capture('$snapshot', {
-                $session_id: sessionId,
-                $snapshot_data: { data: 'yes way' },
-            })
+            await posthog.capture('$snapshot', { $session_id: sessionId, $snapshot_data: { data: 'yes way' } })
 
             await delayUntilEventIngested(() => hub.db.fetchSessionRecordingEvents(sessionId))
 
             await hub.kafkaProducer?.flush()
             const events = await hub.db.fetchSessionRecordingEvents(sessionId)
+            await delay(1000)
+
             expect(events.length).toBe(1)
 
             // processEvent stored data to disk and added path to the snapshot data
             const expectedDate = DateTime.utc().toFormat('yyyy-MM-dd')
-
             expect((events[0].snapshot_data as unknown as Record<string, any>)['object_storage_path']).toEqual(
                 `session_recordings/${expectedDate}/${sessionId}/undefined/undefined`
             )
@@ -166,61 +171,78 @@ describe('e2e', () => {
         })
     })
 
-    describe('kafkaHealthcheck', () => {
-        let statsd: any
-        let consumer: Consumer
-
-        beforeEach(async () => {
-            statsd = {
-                timing: jest.fn(),
-            }
-            consumer = await setupKafkaHealthcheckConsumer(hub.kafka!)
-
-            await consumer.connect()
-            consumer.pause([{ topic: KAFKA_HEALTHCHECK }])
-        })
-
-        afterEach(async () => {
-            await consumer.disconnect()
-        })
-
-        // if kafka is up and running it should pass this healthcheck
-        test('healthcheck passes under normal conditions', async () => {
-            const [kafkaHealthy, error] = await kafkaHealthcheck(hub!.kafkaProducer!.producer, consumer, statsd, 5000)
-            expect(kafkaHealthy).toEqual(true)
-            expect(error).toEqual(null)
-        })
-
-        test('healthcheck fails if producer throws', async () => {
-            hub!.kafkaProducer!.producer.send = jest.fn(() => {
-                throw new Error('producer error')
+    describe('onAction', () => {
+        const awaitOnActionLogs = async () =>
+            await new Promise((resolve) => {
+                resolve(testConsole.read().filter((log) => log[1] === 'onAction event'))
             })
 
-            const [kafkaHealthy, error] = await kafkaHealthcheck(hub!.kafkaProducer!.producer, consumer, statsd, 5000)
-            expect(kafkaHealthy).toEqual(false)
-            expect(error!.message).toEqual('producer error')
-            expect(statsd.timing).not.toHaveBeenCalled()
-        })
+        test('onAction receives the action and event', async () => {
+            await posthog.capture('onAction event', { foo: 'bar' })
 
-        test('healthcheck fails if consumer throws', async () => {
-            consumer.resume = jest.fn(() => {
-                throw new Error('consumer error')
-            })
+            await delayUntilEventIngested(awaitOnActionLogs, 1)
 
-            const [kafkaHealthy, error] = await kafkaHealthcheck(hub!.kafkaProducer!.producer, consumer, statsd, 5000)
-            expect(kafkaHealthy).toEqual(false)
-            expect(error!.message).toEqual('consumer error')
-            expect(statsd.timing).not.toHaveBeenCalled()
-        })
+            const log = testConsole.read().filter((log) => log[0] === 'onAction')[0]
 
-        test('healthcheck fails if consumer cannot consume a message within the timeout', async () => {
-            const [kafkaHealthy, error] = await kafkaHealthcheck(hub!.kafkaProducer!.producer, consumer, statsd, 0)
-            expect(kafkaHealthy).toEqual(false)
-            expect(error!.message).toEqual('Consumer did not start fetching messages in time.')
-            expect(statsd.timing).not.toHaveBeenCalled()
+            const [logName, action, event] = log
+
+            expect(logName).toEqual('onAction')
+            expect(action).toEqual(
+                expect.objectContaining({
+                    id: 69,
+                    name: 'Test Action',
+                    team_id: 2,
+                    deleted: false,
+                    post_to_slack: true,
+                })
+            )
+            expect(event).toEqual(
+                expect.objectContaining({
+                    distinct_id: 'plugin-id-60',
+                    team_id: 2,
+                    event: 'onAction event',
+                })
+            )
         })
     })
 
+    describe('handleAlert', () => {
+        const awaitHandleAlertLogs = async () =>
+            await new Promise((resolve) => {
+                resolve(testConsole.read().filter((log) => log[0] === 'handleAlert'))
+            })
+
+        test('handleAlert receives alert correctly', async () => {
+            const alert = {
+                id: 'some id',
+                key: 'alert name',
+                description: 'alert description',
+                level: AlertLevel.P0,
+                trigger_location: Service.PluginServer,
+            }
+
+            await redis.publish('plugins-alert', JSON.stringify(alert))
+
+            await delayUntilEventIngested(awaitHandleAlertLogs, 1)
+
+            const log = testConsole.read().filter((log) => log[0] === 'handleAlert')[0]
+
+            const [logName, loggedAlert] = log
+
+            expect(logName).toEqual('handleAlert')
+            expect(loggedAlert).toEqual(
+                expect.objectContaining({
+                    id: 'some id',
+                    key: 'alert name',
+                    description: 'alert description',
+                    level: AlertLevel.P0,
+                    trigger_location: Service.PluginServer,
+                })
+            )
+        })
+    })
+
+    // TODO: we should enable this test again - they are enabled on self-hosted
     // historical exports are currently disabled
     describe.skip('e2e export historical events', () => {
         const awaitHistoricalEventLogs = async () =>

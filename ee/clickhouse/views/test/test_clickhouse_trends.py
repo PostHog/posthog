@@ -98,6 +98,7 @@ def test_includes_only_intervals_within_range(client: Client):
             "is_cached": False,
             "last_refresh": "2021-09-20T16:00:00Z",
             "next": None,
+            "timezone": "UTC",
             "result": [
                 {
                     "action": ANY,
@@ -170,6 +171,7 @@ def test_can_specify_number_of_smoothing_intervals(client: Client):
             "is_cached": False,
             "last_refresh": "2021-09-20T16:00:00Z",
             "next": None,
+            "timezone": "UTC",
             "result": [
                 {
                     "action": ANY,
@@ -211,6 +213,7 @@ def test_can_specify_number_of_smoothing_intervals(client: Client):
             "is_cached": False,
             "last_refresh": "2021-09-20T16:00:00Z",
             "next": None,
+            "timezone": "UTC",
             "result": [
                 {
                     "action": ANY,
@@ -252,6 +255,7 @@ def test_can_specify_number_of_smoothing_intervals(client: Client):
             "is_cached": False,
             "last_refresh": "2021-09-20T16:00:00Z",
             "next": None,
+            "timezone": "UTC",
             "result": [
                 {
                     "action": {
@@ -334,6 +338,7 @@ def test_smoothing_intervals_copes_with_null_values(client: Client):
             "is_cached": False,
             "last_refresh": "2021-09-20T16:00:00Z",
             "next": None,
+            "timezone": "UTC",
             "result": [
                 {
                     "action": ANY,
@@ -375,6 +380,7 @@ def test_smoothing_intervals_copes_with_null_values(client: Client):
             "is_cached": False,
             "last_refresh": "2021-09-20T16:00:00Z",
             "next": None,
+            "timezone": "UTC",
             "result": [
                 {
                     "action": ANY,

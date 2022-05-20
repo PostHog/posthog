@@ -1,4 +1,5 @@
-import { kea } from 'kea'
+import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
+import React from 'react'
 import api from 'lib/api'
 import { teamLogicType } from './teamLogicType'
 import { TeamType } from '~/types'
@@ -7,6 +8,9 @@ import { identifierToHuman, isUserLoggedIn, resolveWebhookService } from 'lib/ut
 import { organizationLogic } from './organizationLogic'
 import { getAppContext } from '../lib/utils/getAppContext'
 import { lemonToast } from 'lib/components/lemonToast'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { IconSwapHoriz } from 'lib/components/icons'
+import { loaders } from 'kea-loaders'
 
 const parseUpdatedAttributeName = (attr: string | null): string => {
     if (attr === 'slack_incoming_webhook') {
@@ -18,14 +22,17 @@ const parseUpdatedAttributeName = (attr: string | null): string => {
     return attr ? identifierToHuman(attr) : 'Project'
 }
 
-export const teamLogic = kea<teamLogicType>({
-    path: ['scenes', 'teamLogic'],
-    actions: {
+export const teamLogic = kea<teamLogicType>([
+    path(['scenes', 'teamLogic']),
+    connect({
+        actions: [eventUsageLogic, ['reportTeamHasIngestedEvents'], userLogic, ['loadUser']],
+    }),
+    actions({
         deleteTeam: (team: TeamType) => ({ team }),
         deleteTeamSuccess: true,
         deleteTeamFailure: true,
-    },
-    reducers: {
+    }),
+    reducers({
         teamBeingDeleted: [
             null as TeamType | null,
             {
@@ -34,8 +41,8 @@ export const teamLogic = kea<teamLogicType>({
                 deleteTeamFailure: () => null,
             },
         ],
-    },
-    loaders: ({ values }) => ({
+    }),
+    loaders(({ values, actions }) => ({
         currentTeam: [
             null as TeamType | null,
             {
@@ -55,7 +62,7 @@ export const teamLogic = kea<teamLogicType>({
                         throw new Error('Current team has not been loaded yet, so it cannot be updated!')
                     }
                     const patchedTeam = (await api.update(`api/projects/${values.currentTeam.id}`, payload)) as TeamType
-                    userLogic.actions.loadUser()
+                    actions.loadUser()
 
                     /* Notify user the update was successful  */
                     const updatedAttribute = Object.keys(payload).length === 1 ? Object.keys(payload)[0] : null
@@ -82,8 +89,8 @@ export const teamLogic = kea<teamLogicType>({
                 resetToken: async () => await api.update(`api/projects/${values.currentTeamId}/reset_token`, {}),
             },
         ],
-    }),
-    selectors: {
+    })),
+    selectors({
         currentTeamId: [
             (selectors) => [selectors.currentTeam],
             (currentTeam): number | null => (currentTeam ? currentTeam.id : null),
@@ -111,8 +118,8 @@ export const teamLogic = kea<teamLogicType>({
                 return currentTeam?.correlation_config || {}
             },
         ],
-    },
-    listeners: ({ actions }) => ({
+    }),
+    listeners(({ actions, values }) => ({
         deleteTeam: async ({ team }) => {
             try {
                 await api.delete(`api/projects/${team.id}`)
@@ -128,11 +135,30 @@ export const teamLogic = kea<teamLogicType>({
         createTeamSuccess: () => {
             window.location.href = '/ingestion'
         },
-    }),
-    events: ({ actions }) => ({
+        loadCurrentTeamSuccess: () => {
+            // For Onboarding 1's experiment, we are tracking whether a team has ingested events on the client side
+            // because experiments doesn't support this yet in other libraries
+            if (values.currentTeam?.ingested_event) {
+                actions.reportTeamHasIngestedEvents()
+            }
+        },
+    })),
+    events(({ actions }) => ({
         afterMount: () => {
             const appContext = getAppContext()
             const contextualTeam = appContext?.current_team
+
+            const switchedTeam = appContext?.switched_team
+            if (switchedTeam) {
+                lemonToast.info(<>You've switched to&nbsp;project {contextualTeam?.name}</>, {
+                    button: {
+                        label: 'Switch back',
+                        action: () => userLogic.actions.updateCurrentTeam(switchedTeam),
+                    },
+                    icon: <IconSwapHoriz />,
+                })
+            }
+
             if (contextualTeam) {
                 // If app context is available (it should be practically always) we can immediately know currentTeam
                 actions.loadCurrentTeamSuccess(contextualTeam)
@@ -141,5 +167,5 @@ export const teamLogic = kea<teamLogicType>({
                 actions.loadCurrentTeam()
             }
         },
-    }),
-})
+    })),
+])

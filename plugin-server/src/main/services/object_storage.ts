@@ -12,45 +12,55 @@ export interface ObjectStorage {
 }
 
 export const connectObjectStorage = (serverConfig: Partial<PluginsServerConfig>): ObjectStorage => {
-    const {
-        OBJECT_STORAGE_HOST,
-        OBJECT_STORAGE_PORT,
-        OBJECT_STORAGE_ACCESS_KEY_ID,
-        OBJECT_STORAGE_SECRET_ACCESS_KEY,
-        OBJECT_STORAGE_ENABLED,
-        OBJECT_STORAGE_BUCKET,
-    } = serverConfig
-
-    if (OBJECT_STORAGE_ENABLED && !S3) {
-        S3 = new aws.S3({
-            endpoint: `http://${OBJECT_STORAGE_HOST}:${OBJECT_STORAGE_PORT}`,
-            accessKeyId: OBJECT_STORAGE_ACCESS_KEY_ID,
-            secretAccessKey: OBJECT_STORAGE_SECRET_ACCESS_KEY,
-            s3ForcePathStyle: true, // needed with minio?
-            signatureVersion: 'v4',
-        })
-    }
-
-    return {
-        isEnabled: !!OBJECT_STORAGE_ENABLED,
-        putObject: OBJECT_STORAGE_ENABLED ? (params, callback) => S3.putObject(params, callback) : () => ({}),
+    let storage: ObjectStorage = {
+        isEnabled: false,
+        putObject: () => ({}),
         healthCheck: async () => {
-            if (!OBJECT_STORAGE_BUCKET) {
-                status.error('😢', 'No object storage bucket configured')
-                return false
-            }
-
-            try {
-                await S3.headBucket({
-                    Bucket: OBJECT_STORAGE_BUCKET,
-                }).promise()
-                return true
-            } catch (error) {
-                if (error.statusCode === 404) {
-                    return false
-                }
-                throw error
-            }
+            return Promise.resolve(false)
         },
     }
+
+    try {
+        const {
+            OBJECT_STORAGE_ENDPOINT,
+            OBJECT_STORAGE_ACCESS_KEY_ID,
+            OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            OBJECT_STORAGE_ENABLED,
+            OBJECT_STORAGE_BUCKET,
+        } = serverConfig
+
+        if (OBJECT_STORAGE_ENABLED && !S3) {
+            S3 = new aws.S3({
+                endpoint: OBJECT_STORAGE_ENDPOINT,
+                accessKeyId: OBJECT_STORAGE_ACCESS_KEY_ID,
+                secretAccessKey: OBJECT_STORAGE_SECRET_ACCESS_KEY,
+                s3ForcePathStyle: true, // needed with minio?
+                signatureVersion: 'v4',
+            })
+        }
+
+        storage = {
+            isEnabled: !!OBJECT_STORAGE_ENABLED,
+            putObject: OBJECT_STORAGE_ENABLED ? (params, callback) => S3.putObject(params, callback) : () => ({}),
+            healthCheck: async () => {
+                if (!OBJECT_STORAGE_BUCKET) {
+                    status.error('😢', 'No object storage bucket configured')
+                    return false
+                }
+
+                try {
+                    await S3.headBucket({
+                        Bucket: OBJECT_STORAGE_BUCKET,
+                    }).promise()
+                    return true
+                } catch (error) {
+                    return false
+                }
+            },
+        }
+    } catch (e) {
+        status.warn('😢', `could not initialise storage: ${e}`)
+    }
+
+    return storage
 }

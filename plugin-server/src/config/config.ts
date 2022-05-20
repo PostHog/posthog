@@ -31,8 +31,8 @@ export function getDefaultConfig(): PluginsServerConfig {
         CLICKHOUSE_CA: null,
         CLICKHOUSE_SECURE: false,
         CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS: true,
-        KAFKA_ENABLED: false,
-        KAFKA_HOSTS: null,
+        KAFKA_ENABLED: true,
+        KAFKA_HOSTS: 'kafka:9092', // KEEP IN SYNC WITH posthog/settings/data_stores.py
         KAFKA_CLIENT_CERT_B64: null,
         KAFKA_CLIENT_CERT_KEY_B64: null,
         KAFKA_TRUSTED_CERT_B64: null,
@@ -96,8 +96,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         KAFKA_HEALTHCHECK_SECONDS: 20,
         HISTORICAL_EXPORTS_ENABLED: true,
         OBJECT_STORAGE_ENABLED: false,
-        OBJECT_STORAGE_HOST: 'localhost',
-        OBJECT_STORAGE_PORT: 19000,
+        OBJECT_STORAGE_ENDPOINT: 'http://localhost:19000',
         OBJECT_STORAGE_ACCESS_KEY_ID: 'object_storage_root_user',
         OBJECT_STORAGE_SECRET_ACCESS_KEY: 'object_storage_root_password',
         OBJECT_STORAGE_SESSION_RECORDING_FOLDER: 'session_recordings',
@@ -178,8 +177,7 @@ export function getConfigHelp(): Record<keyof PluginsServerConfig, string> {
         CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: '(advanced) topic to send events to for clickhouse ingestion',
         OBJECT_STORAGE_ENABLED:
             'Disables or enables the use of object storage. It will become mandatory to use object storage',
-        OBJECT_STORAGE_HOST: 'minio storage host',
-        OBJECT_STORAGE_PORT: 'minio storage port',
+        OBJECT_STORAGE_ENDPOINT: 'minio endpoint',
         OBJECT_STORAGE_ACCESS_KEY_ID: 'access key for minio',
         OBJECT_STORAGE_SECRET_ACCESS_KEY: 'secret key for minio',
         OBJECT_STORAGE_SESSION_RECORDING_FOLDER:
