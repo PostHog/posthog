@@ -1,5 +1,4 @@
 import { DateTime, Settings } from 'luxon'
-import { mocked } from 'ts-jest/utils'
 
 import { defaultConfig } from '../../../src/config/config'
 import { DateTimePropertyTypeFormat, Hub, PropertyType } from '../../../src/types'
@@ -49,7 +48,7 @@ describe('TeamManager()', () => {
             jest.spyOn(global.Date, 'now').mockImplementation(() => new Date('2020-02-27T11:00:25Z').getTime())
             await hub.db.postgresQuery("UPDATE posthog_team SET name = 'Updated Name!'", undefined, 'testTag')
 
-            mocked(hub.db.postgresQuery).mockClear()
+            jest.mocked(hub.db.postgresQuery).mockClear()
 
             team = await teamManager.fetchTeam(2)
             expect(team!.name).toEqual('TEST PROJECT')
@@ -291,8 +290,8 @@ describe('TeamManager()', () => {
             expect(hub.db.postgresQuery).toHaveBeenCalledTimes(1)
 
             // Scenario: Next request but a real update
-            mocked(teamManager.fetchTeam).mockClear()
-            mocked(hub.db.postgresQuery).mockClear()
+            jest.mocked(teamManager.fetchTeam).mockClear()
+            jest.mocked(hub.db.postgresQuery).mockClear()
 
             await teamManager.updateEventNamesAndProperties(2, '$newevent', {})
             expect(teamManager.fetchTeam).toHaveBeenCalledTimes(1)

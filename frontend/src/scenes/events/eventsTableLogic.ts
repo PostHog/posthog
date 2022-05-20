@@ -7,7 +7,6 @@ import { FixedFilters } from 'scenes/events/EventsTable'
 import { AnyPropertyFilter, EventsTableRowItem, EventType, PropertyFilter, PropertyGroupFilter } from '~/types'
 import { teamLogic } from '../teamLogic'
 import { dayjs, now } from 'lib/dayjs'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { lemonToast } from 'lib/components/lemonToast'
 
 const DAYS_FIRST_FETCH = 5
@@ -70,7 +69,7 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
             .filter((keyPart) => !!keyPart)
             .join('-'),
     connect: {
-        values: [teamLogic, ['currentTeamId'], featureFlagLogic, ['featureFlags']],
+        values: [teamLogic, ['currentTeamId']],
     },
     actions: {
         setPollingActive: (pollingActive: boolean) => ({

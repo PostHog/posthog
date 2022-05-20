@@ -1,5 +1,3 @@
-import { mocked } from 'ts-jest/utils'
-
 import { Hub } from '../../../src/types'
 import { createHub } from '../../../src/utils/db/hub'
 import { UUIDT } from '../../../src/utils/utils'
@@ -33,7 +31,7 @@ describe('OrganizationManager()', () => {
             jest.spyOn(global.Date, 'now').mockImplementation(() => new Date('2020-02-27 11:00:25').getTime())
             await hub.db.postgresQuery("UPDATE posthog_organization SET name = 'Updated Name!'", undefined, 'testTag')
 
-            mocked(hub.db.postgresQuery).mockClear()
+            jest.mocked(hub.db.postgresQuery).mockClear()
 
             organization = await organizationManager.fetchOrganization(commonOrganizationId)
 

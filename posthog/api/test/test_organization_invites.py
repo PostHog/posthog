@@ -1,10 +1,10 @@
 import random
 from unittest.mock import ANY, patch
 
-from constance.test import override_config
 from django.core import mail
 from rest_framework import status
 
+from posthog.models.instance_setting import set_instance_setting
 from posthog.models.organization import Organization, OrganizationInvite, OrganizationMembership
 from posthog.test.base import APIBaseTest
 
@@ -60,9 +60,9 @@ class TestOrganizationInvitesAPI(APIBaseTest):
 
         mock_capture.assert_not_called()
 
-    @override_config(EMAIL_HOST="localhost")
     @patch("posthoganalytics.capture")
     def test_add_organization_invite_with_email(self, mock_capture):
+        set_instance_setting("EMAIL_HOST", "localhost")
         email = "x@x.com"
 
         with self.settings(EMAIL_ENABLED=True, SITE_URL="http://test.posthog.com"):
@@ -148,9 +148,10 @@ class TestOrganizationInvitesAPI(APIBaseTest):
 
     # Bulk create invites
 
-    @override_config(EMAIL_HOST="localhost")
     @patch("posthoganalytics.capture")
     def test_allow_bulk_creating_invites(self, mock_capture):
+        set_instance_setting("EMAIL_HOST", "localhost")
+
         count = OrganizationInvite.objects.count()
         payload = self.helper_generate_bulk_invite_payload(7)
 

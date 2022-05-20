@@ -1601,6 +1601,7 @@ class TestClickhouseFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFu
             self._get_actor_ids_at_step(filter, 3), [people["stopped_after_pageview3"].uuid,],
         )
 
+    @snapshot_clickhouse_queries
     @patch("posthoganalytics.feature_enabled", return_value=True)
     def test_timezones(self, patch_feature_enabled):
         self.team.timezone = "US/Pacific"

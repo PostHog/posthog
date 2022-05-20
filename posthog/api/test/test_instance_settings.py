@@ -1,9 +1,8 @@
-from constance import config
-from constance.test import override_config
 from django.core import mail
 from rest_framework import status
 
-from posthog.api.instance_settings import get_instance_setting
+from posthog.api.instance_settings import get_instance_setting as get_instance_setting_helper
+from posthog.models.instance_setting import get_instance_setting, override_instance_config, set_instance_setting
 from posthog.settings import CONSTANCE_CONFIG
 from posthog.test.base import APIBaseTest
 
@@ -68,7 +67,7 @@ class TestInstanceSettings(APIBaseTest):
         self.assertEqual(json_response["is_secret"], True)
 
         # When a value is set, the value is never exposed again
-        with override_config(EMAIL_HOST_PASSWORD="this_is_a_secret_sssshhh"):
+        with override_instance_config("EMAIL_HOST_PASSWORD", "this_is_a_secret_sssshhh"):
             response = self.client.get(f"/api/instance_settings/EMAIL_HOST_PASSWORD")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         json_response = response.json()
@@ -102,11 +101,11 @@ class TestInstanceSettings(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["value"], True)
 
-        self.assertEqual(get_instance_setting("AUTO_START_ASYNC_MIGRATIONS").value, True)
-        self.assertEqual(getattr(config, "AUTO_START_ASYNC_MIGRATIONS"), True)
+        self.assertEqual(get_instance_setting_helper("AUTO_START_ASYNC_MIGRATIONS").value, True)
+        self.assertEqual(get_instance_setting("AUTO_START_ASYNC_MIGRATIONS"), True)
 
-    @override_config(EMAIL_HOST="localhost")
     def test_updating_email_settings(self):
+        set_instance_setting("EMAIL_HOST", "localhost")
         with self.settings(SITE_URL="http://localhost:8000", CELERY_TASK_ALWAYS_EAGER=True):
             response = self.client.patch(
                 f"/api/instance_settings/EMAIL_DEFAULT_FROM", {"value": "hellohello@posthog.com"}
@@ -127,7 +126,7 @@ class TestInstanceSettings(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["value"], 48343943943)
-        self.assertEqual(getattr(config, "ASYNC_MIGRATIONS_ROLLBACK_TIMEOUT"), 48343943943)
+        self.assertEqual(get_instance_setting("ASYNC_MIGRATIONS_ROLLBACK_TIMEOUT"), 48343943943)
 
     def test_cant_update_setting_that_is_not_overridable(self):
         response = self.client.patch(f"/api/instance_settings/MATERIALIZED_COLUMNS_ENABLED", {"value": False},)
@@ -141,7 +140,7 @@ class TestInstanceSettings(APIBaseTest):
                 "attr": None,
             },
         )
-        self.assertEqual(getattr(config, "MATERIALIZED_COLUMNS_ENABLED"), True)
+        self.assertEqual(get_instance_setting("MATERIALIZED_COLUMNS_ENABLED"), True)
 
     def test_non_staff_user_cant_update(self):
         self.user.is_staff = False
@@ -153,5 +152,5 @@ class TestInstanceSettings(APIBaseTest):
             response.json(), self.permission_denied_response("You are not a staff user, contact your instance admin.")
         )
 
-        self.assertEqual(get_instance_setting("AUTO_START_ASYNC_MIGRATIONS").value, False)
-        self.assertEqual(getattr(config, "AUTO_START_ASYNC_MIGRATIONS"), False)
+        self.assertEqual(get_instance_setting_helper("AUTO_START_ASYNC_MIGRATIONS").value, False)
+        self.assertEqual(get_instance_setting("AUTO_START_ASYNC_MIGRATIONS"), False)
