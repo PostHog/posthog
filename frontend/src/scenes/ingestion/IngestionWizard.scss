@@ -33,28 +33,10 @@
     color: black;
     display: flex;
     font-weight: bold;
-
-    .step-indicator {
-        width: 3px;
-        height: 20px;
-        background-color: var(--blue-light);
-        margin-right: $default_spacing / 2;
-    }
 }
 
 .sidebar-bottom {
     margin-top: auto;
-}
-
-.sidebar-help {
-    display: flex;
-    flex-direction: column;
-    font-weight: 500;
-    color: $primary;
-    border-top: 3px dashed $border;
-    padding-top: $default_spacing * 1.5;
-    margin-top: $default_spacing;
-    padding-bottom: $default_spacing * 1.5;
 
     .popover {
         padding-left: $default_spacing / 2;
@@ -62,10 +44,21 @@
     }
 }
 
+.sidebar-help {
+    display: flex;
+    flex-direction: column;
+    font-weight: 500;
+    color: $primary;
+    margin-top: $default_spacing;
+    padding-bottom: $default_spacing * 1.5;
+}
+
 .IngestionSidebar__steps {
     color: $text_muted_alt;
     font-size: 14px;
     margin-top: $default_spacing * 2;
+    padding-left: $default_spacing / 2;
+    padding-right: $default_spacing / 2;
 
     div {
         &:hover {
@@ -94,5 +87,5 @@
     flex-direction: column;
     height: 100%;
     position: fixed;
-    padding-top: $default_spacing * 2;
+    padding-top: $default_spacing * 4;
 }

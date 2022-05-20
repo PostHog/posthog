@@ -7,7 +7,6 @@ import { LemonRow } from '../../../lib/components/LemonRow'
 import {
     IconCheckmark,
     IconOffline,
-    IconPlus,
     IconLogout,
     IconUpdate,
     IconExclamation,
@@ -15,6 +14,7 @@ import {
     IconArrowDropDown,
     IconSettings,
     IconCorporate,
+    IconPersonAdd,
 } from 'lib/components/icons'
 import { Popup } from '../../../lib/components/Popup/Popup'
 import { Link } from '../../../lib/components/Link'
@@ -102,7 +102,7 @@ export function InviteMembersButton(): JSX.Element {
 
     return (
         <LemonButton
-            icon={<IconPlus />}
+            icon={<IconPersonAdd />}
             onClick={() => {
                 closeSitePopover()
                 showInviteModal()

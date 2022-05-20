@@ -8,6 +8,7 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { LemonButton } from 'lib/components/LemonButton'
 import { IconArticle, IconQuestionAnswer } from 'lib/components/icons'
 import { HelpType } from '~/types'
+import { LemonDivider } from 'lib/components/LemonDivider'
 
 const HELP_UTM_TAGS = '?utm_medium=in-product-onboarding&utm_campaign=help-button-sidebar'
 
@@ -19,14 +20,15 @@ export function Sidebar(): JSX.Element {
     return (
         <div className="IngestionSidebar">
             <div className="IngestionSidebar__content">
-                <img src={posthogLogo} style={{ width: 157, height: 30 }} />
+                <div style={{ paddingLeft: 8 }}>
+                    <img src={posthogLogo} style={{ width: 157, height: 30 }} />
+                </div>
                 <div className="IngestionSidebar__steps">
                     <b>
                         <div
                             className={`mb ${currentIndex === 0 && 'ingestion-current-nav-step'}`}
                             onClick={() => setPlatform(null)}
                         >
-                            {currentIndex === 0 && <div className="step-indicator" />}
                             <span>Get started</span>
                         </div>
                         <div
@@ -35,7 +37,6 @@ export function Sidebar(): JSX.Element {
                             }`}
                             onClick={() => setVerify(false)}
                         >
-                            {currentIndex === 1 && <div className="step-indicator" />}
                             <span>Connect your product</span>
                         </div>
                         <div
@@ -48,17 +49,17 @@ export function Sidebar(): JSX.Element {
                                 }
                             }}
                         >
-                            {currentIndex === 2 && <div className="step-indicator" />}
                             <span>Listen for events</span>
                         </div>
                     </b>
                 </div>
                 <div className="sidebar-bottom">
+                    <div className="popover mb">
+                        <SitePopover />
+                    </div>
                     <InviteMembersButton />
                     <div className="sidebar-help">
-                        <div className="popover">
-                            <SitePopover />
-                        </div>
+                        <LemonDivider thick dashed />
                         <a href={`https://posthog.com/slack${HELP_UTM_TAGS}`} rel="noopener" target="_blank">
                             <LemonButton
                                 icon={<IconQuestionAnswer style={{ color: 'var(--primary)' }} />}
