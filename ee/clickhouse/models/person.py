@@ -58,6 +58,7 @@ if TEST:
 
     def bulk_create_persons(persons_list: List[Dict]):
         persons = []
+        person_mapping = {}
         for _person in persons_list:
             with ExitStack() as stack:
                 if _person.get("created_at"):
@@ -75,6 +76,7 @@ if TEST:
                     PersonDistinctId(person_id=person.pk, distinct_id=distinct_id, team_id=person.team_id)
                 )
                 distinct_id_inserts.append(f"('{distinct_id}', '{person.uuid}', {person.team_id}, 0, 0, now(), 0, 0)")
+                person_mapping[distinct_id] = person
 
             created_at = now().strftime("%Y-%m-%d %H:%M:%S.%f")
             timestamp = now().strftime("%Y-%m-%d %H:%M:%S")
@@ -85,6 +87,8 @@ if TEST:
         PersonDistinctId.objects.bulk_create(distinct_ids)
         sync_execute(INSERT_PERSON_BULK_SQL + ", ".join(person_inserts), flush=False)
         sync_execute(BULK_INSERT_PERSON_DISTINCT_ID2 + ", ".join(distinct_id_inserts), flush=False)
+
+        return person_mapping
 
 
 def create_person(

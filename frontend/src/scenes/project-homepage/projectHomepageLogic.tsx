@@ -7,13 +7,11 @@ import { DashboardPlacement, InsightModel, PersonType } from '~/types'
 import api from 'lib/api'
 import { subscriptions } from 'kea-subscriptions'
 import { loaders } from 'kea-loaders'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 export const projectHomepageLogic = kea<projectHomepageLogicType>([
     path(['scenes', 'project-homepage', 'projectHomepageLogic']),
     connect({
         values: [teamLogic, ['currentTeamId', 'currentTeam']],
-        actions: [eventUsageLogic, ['reportTeamHasIngestedEvents']],
     }),
 
     selectors({
@@ -58,14 +56,9 @@ export const projectHomepageLogic = kea<projectHomepageLogicType>([
         },
     })),
 
-    afterMount(({ cache, actions, values }) => {
+    afterMount(({ cache, actions }) => {
         cache.unmount?.()
         actions.loadRecentInsights()
         actions.loadPersons()
-        // For Onboarding 1's experiment, we are tracking whether a team has ingested events on the client side
-        // because experiments doesn't support this yet in other libraries
-        if (values.currentTeam?.ingested_event) {
-            actions.reportTeamHasIngestedEvents()
-        }
     }),
 ])

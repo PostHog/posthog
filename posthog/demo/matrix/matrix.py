@@ -1,4 +1,3 @@
-import datetime as dt
 from abc import ABC, abstractmethod
 from collections import defaultdict
 from typing import (
@@ -15,6 +14,7 @@ from typing import (
 import mimesis
 import mimesis.random
 from django.conf import settings
+from django.utils import timezone
 
 from posthog.constants import GROUP_TYPES_LIMIT
 from posthog.demo.matrix.randomization import PropertiesProvider
@@ -30,8 +30,8 @@ class Cluster(ABC):
 
     index: int  # Cluster index
     matrix: "Matrix"  # Parent
-    start: dt.datetime  # Start of the simulation
-    end: dt.datetime  # End of the simulation
+    start: timezone.datetime  # Start of the simulation
+    end: timezone.datetime  # End of the simulation
 
     radius: int
     # Grid containing all people in the cluster.
@@ -135,11 +135,12 @@ class Matrix(ABC):
     event_definitions: Sequence[str]
     property_definitions: Sequence[Tuple[str, Optional[PropertyType]]]
 
-    start: dt.datetime
-    end: dt.datetime
+    start: timezone.datetime
+    end: timezone.datetime
     # A mapping of groups. The first key is the group type, the second key is the group key.
     groups: DefaultDict[str, DefaultDict[str, Dict[str, Any]]]
     clusters: List[Cluster]
+    simulation_complete: Optional[bool]
 
     random: mimesis.random.Random
     properties_provider: PropertiesProvider
@@ -152,7 +153,7 @@ class Matrix(ABC):
     file_provider: mimesis.File
 
     def __init__(
-        self, seed: Optional[str] = None, *, start: dt.datetime, end: dt.datetime, n_clusters: int,
+        self, seed: Optional[str] = None, *, start: timezone.datetime, end: timezone.datetime, n_clusters: int,
     ):
         self.start = start
         self.end = end
@@ -170,6 +171,7 @@ class Matrix(ABC):
         self.file_provider = mimesis.File(seed=seed)
         self.groups = defaultdict(lambda: defaultdict(dict))
         self.clusters = [self.cluster_model(index=i, matrix=self) for i in range(n_clusters)]
+        self.simulation_complete = None
 
     @abstractmethod
     def set_project_up(self, team: Team, user: User):
@@ -193,8 +195,12 @@ class Matrix(ABC):
         )
 
     def simulate(self):
+        if self.simulation_complete is not None:
+            raise RuntimeError("Simulation can only be started once!")
+        self.simulation_complete = False
         for cluster in self.clusters:
             cluster.simulate()
+        self.simulation_complete = True
 
     def update_group(self, group_type: str, group_key: str, set_properties: Dict[str, Any]):
         if len(self.groups) == GROUP_TYPES_LIMIT and group_type not in self.groups:

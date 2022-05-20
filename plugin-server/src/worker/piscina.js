@@ -16,7 +16,7 @@ if (isMainThread) {
     }
 } else {
     if (process.env.NODE_ENV === 'test') {
-        require('ts-node').register({ transpileOnly: true })
+        require('@swc-node/register')
     }
 
     const { createWorker } = require('./worker')

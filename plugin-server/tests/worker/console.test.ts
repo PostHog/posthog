@@ -11,7 +11,7 @@ describe('console extension', () => {
     let closeHub: () => Promise<void>
 
     beforeEach(async () => {
-        ;[hub, closeHub] = await createHub()
+        ;[hub, closeHub] = await createHub({ KAFKA_ENABLED: false })
         await resetTestDatabase()
     })
 

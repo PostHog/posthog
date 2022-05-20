@@ -1,5 +1,4 @@
 import { PluginEvent } from '@posthog/plugin-scaffold/src/types'
-import { mocked } from 'ts-jest/utils'
 
 import { loadPluginSchedule } from '../../src/main/services/schedule'
 import { Hub, PreIngestionEvent } from '../../src/types'
@@ -181,7 +180,7 @@ describe('worker', () => {
         })
 
         it('handles `runEvery` tasks', async () => {
-            mocked(runPluginTask).mockImplementation((server, task, taskType, pluginId) =>
+            jest.mocked(runPluginTask).mockImplementation((server, task, taskType, pluginId) =>
                 Promise.resolve(`${task} for ${pluginId}`)
             )
 

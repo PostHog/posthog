@@ -1,5 +1,6 @@
-import datetime as dt
 from typing import Literal, Optional
+
+from django.utils import timezone
 
 from posthog.constants import INSIGHT_TRENDS, TRENDS_LINEAR, TRENDS_WORLD_MAP
 from posthog.models import Cohort, Dashboard, DashboardTile, Experiment, FeatureFlag, Insight
@@ -61,7 +62,7 @@ class HedgeboxPerson(SimPerson):
     def _simulate_session(self):
         super()._simulate_session()
         # Make sure the time makes sense
-        self._simulation_time += dt.timedelta(
+        self._simulation_time += timezone.timedelta(
             seconds=self.cluster.random.betavariate(2.5, 1 + self.need) * (36_000 if self.plan is not None else 172_800)
             + 24
         )
@@ -240,13 +241,15 @@ class HedgeboxMatrix(Matrix):
         ("email", PropertyType.String),
     ]
 
-    new_signup_page_experiment_start: dt.datetime
-    new_signup_page_experiment_end: dt.datetime
+    new_signup_page_experiment_start: timezone.datetime
+    new_signup_page_experiment_end: timezone.datetime
 
-    def __init__(self, seed: Optional[str] = None, *, start: dt.datetime, end: dt.datetime, n_clusters: int):
+    def __init__(
+        self, seed: Optional[str] = None, *, start: timezone.datetime, end: timezone.datetime, n_clusters: int
+    ):
         super().__init__(seed, start=start, end=end, n_clusters=n_clusters)
         # Start new signup page experiment roughly halfway through the simulation, end late into it
-        self.new_signup_page_experiment_end = self.end - dt.timedelta(days=2, hours=3, seconds=43)
+        self.new_signup_page_experiment_end = self.end - timezone.timedelta(days=2, hours=3, seconds=43)
         self.new_signup_page_experiment_start = self.start + (self.new_signup_page_experiment_end - self.start) / 2
 
     def set_project_up(self, team, user):
@@ -291,10 +294,12 @@ class HedgeboxMatrix(Matrix):
             saved=True,
             name="Last month's signups by country",
             filters={
-                "events": [{"id": EVENT_SIGNED_UP, "type": "events", "order": 0, "math": "dau"}],
+                "events": [{"id": EVENT_SIGNED_UP, "type": "events", "order": 0}],
                 "actions": [],
                 "display": TRENDS_WORLD_MAP,
                 "insight": INSIGHT_TRENDS,
+                "breakdown_type": "event",
+                "breakdown": "$geoip_country_code",
                 "date_from": "-1m",
             },
         )
@@ -350,7 +355,7 @@ class HedgeboxMatrix(Matrix):
                 ]
             },
             created_by=user,
-            # TODO: created_at
+            created_at=self.end - timezone.timedelta(days=15),
         )
 
         # Experiments
@@ -368,7 +373,7 @@ class HedgeboxMatrix(Matrix):
                 },
             },
             created_by=user,
-            # TODO: created_at
+            created_at=self.new_signup_page_experiment_start - timezone.timedelta(hours=1),
         )
         Experiment.objects.create(
             team=team,
@@ -413,5 +418,5 @@ class HedgeboxMatrix(Matrix):
             },
             start_date=self.new_signup_page_experiment_start,
             end_date=self.new_signup_page_experiment_end,
-            created_at=self.new_signup_page_experiment_start - dt.timedelta(hours=1),
+            created_at=new_signup_page_flag.created_at,
         )

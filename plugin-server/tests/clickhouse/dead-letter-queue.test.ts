@@ -8,11 +8,6 @@ import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../helpers
 import { resetTestDatabase } from '../helpers/sql'
 import { workerTasks } from './../../src/worker/tasks'
 
-const extraServerConfig: Partial<PluginsServerConfig> = {
-    KAFKA_ENABLED: true,
-    KAFKA_HOSTS: process.env.KAFKA_HOSTS || 'kafka:9092',
-}
-
 jest.setTimeout(60000) // 60 sec timeout
 jest.mock('../../src/utils/status')
 jest.mock('../../src/worker/ingestion/utils', () => {
@@ -53,10 +48,10 @@ describe('events dead letter queue', () => {
     let closeHub: () => Promise<void>
 
     beforeEach(async () => {
-        ;[hub, closeHub] = await createHub({ LOG_LEVEL: LogLevel.Log, ...extraServerConfig })
+        ;[hub, closeHub] = await createHub({ LOG_LEVEL: LogLevel.Log })
         console.warn = jest.fn() as any
         await resetTestDatabase()
-        await resetTestDatabaseClickhouse(extraServerConfig)
+        await resetTestDatabaseClickhouse()
     })
 
     afterEach(async () => {

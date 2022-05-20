@@ -32,8 +32,8 @@ export async function resetTestDatabaseClickhouse(extraServerConfig: Partial<Plu
 export async function delayUntilEventIngested(
     fetchEvents: () => Promise<any[] | any>,
     minCount = 1,
-    delayMs = 500,
-    maxDelayCount = 30,
+    delayMs = 100,
+    maxDelayCount = 100,
     debug = false
 ): Promise<void> {
     const timer = performance.now()

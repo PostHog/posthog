@@ -6,11 +6,10 @@ import { Drawer } from 'lib/components/Drawer'
 
 import { userLogic } from 'scenes/userLogic'
 import { canGloballyManagePlugins } from '../access'
-import { pluginSourceLogic } from 'scenes/plugins/edit/pluginSourceLogic'
+import { pluginSourceLogic } from 'scenes/plugins/source/pluginSourceLogic'
 import { VerticalForm } from 'lib/forms/VerticalForm'
 import { Field } from 'lib/forms/Field'
-import { LemonInput } from 'lib/components/LemonInput/LemonInput'
-import { PluginSourceTabs } from 'scenes/plugins/edit/PluginSourceTabs'
+import { PluginSourceTabs } from 'scenes/plugins/source/PluginSourceTabs'
 
 interface PluginSourceProps {
     id: number
@@ -24,7 +23,7 @@ export function PluginSource({ id, visible, close }: PluginSourceProps): JSX.Ele
 
     const logicProps = { id, onClose: close }
     const { submitPluginSource, closePluginSource } = useActions(pluginSourceLogic(logicProps))
-    const { isPluginSourceSubmitting, currentFile, pluginSource } = useValues(pluginSourceLogic(logicProps))
+    const { isPluginSourceSubmitting, currentFile, name } = useValues(pluginSourceLogic(logicProps))
 
     useEffect(() => {
         if (!monaco) {
@@ -45,7 +44,7 @@ export function PluginSource({ id, visible, close }: PluginSourceProps): JSX.Ele
             visible={visible}
             onClose={closePluginSource}
             width={'min(90vw, 64rem)'}
-            title={`Coding Plugin: ${pluginSource.name}`}
+            title={`Coding Plugin: ${name}`}
             placement="left"
             footer={
                 <div style={{ textAlign: 'right' }}>
@@ -77,9 +76,6 @@ export function PluginSource({ id, visible, close }: PluginSourceProps): JSX.Ele
                             </a>
                             .
                         </p>
-                        <Field label="The App's Name" name="name">
-                            <LemonInput />
-                        </Field>
 
                         <PluginSourceTabs />
 
