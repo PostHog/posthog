@@ -1,6 +1,7 @@
+import './PluginSource.scss'
 import React, { useEffect } from 'react'
 import { useActions, useValues } from 'kea'
-import { Button } from 'antd'
+import { Button, Skeleton } from 'antd'
 import MonacoEditor, { useMonaco } from '@monaco-editor/react'
 import { Drawer } from 'lib/components/Drawer'
 
@@ -10,20 +11,32 @@ import { pluginSourceLogic } from 'scenes/plugins/source/pluginSourceLogic'
 import { VerticalForm } from 'lib/forms/VerticalForm'
 import { Field } from 'lib/forms/Field'
 import { PluginSourceTabs } from 'scenes/plugins/source/PluginSourceTabs'
+import { LemonButton } from 'lib/components/LemonButton'
+import { createDefaultPluginSource } from 'scenes/plugins/source/createDefaultPluginSource'
 
 interface PluginSourceProps {
-    id: number
+    pluginId: number
+    pluginConfigId?: number
     visible: boolean
     close: () => void
+    placement?: 'top' | 'right' | 'bottom' | 'left'
 }
 
-export function PluginSource({ id, visible, close }: PluginSourceProps): JSX.Element | null {
+export function PluginSource({
+    pluginId,
+    pluginConfigId,
+    visible,
+    close,
+    placement,
+}: PluginSourceProps): JSX.Element | null {
     const monaco = useMonaco()
     const { user } = useValues(userLogic)
 
-    const logicProps = { id, onClose: close }
+    const logicProps = { pluginId, pluginConfigId, onClose: close }
     const { submitPluginSource, closePluginSource } = useActions(pluginSourceLogic(logicProps))
-    const { isPluginSourceSubmitting, currentFile, name } = useValues(pluginSourceLogic(logicProps))
+    const { isPluginSourceSubmitting, pluginSourceLoading, currentFile, name } = useValues(
+        pluginSourceLogic(logicProps)
+    )
 
     useEffect(() => {
         if (!monaco) {
@@ -44,8 +57,8 @@ export function PluginSource({ id, visible, close }: PluginSourceProps): JSX.Ele
             visible={visible}
             onClose={closePluginSource}
             width={'min(90vw, 64rem)'}
-            title={`Coding Plugin: ${name}`}
-            placement="left"
+            title={pluginSourceLoading ? 'Loading...' : `Edit App: ${name}`}
+            placement={placement ?? 'left'}
             footer={
                 <div style={{ textAlign: 'right' }}>
                     <Button onClick={closePluginSource} style={{ marginRight: 16 }}>
@@ -57,7 +70,7 @@ export function PluginSource({ id, visible, close }: PluginSourceProps): JSX.Ele
                 </div>
             }
         >
-            <VerticalForm logic={pluginSourceLogic} props={logicProps} formKey="pluginSource">
+            <VerticalForm logic={pluginSourceLogic} props={logicProps} formKey="pluginSource" className="PluginSource">
                 {visible ? (
                     <>
                         <p>
@@ -74,23 +87,42 @@ export function PluginSource({ id, visible, close }: PluginSourceProps): JSX.Ele
                             .
                         </p>
 
-                        <PluginSourceTabs />
-
-                        <Field name={[currentFile]}>
-                            {({ value, onChange }) => (
-                                <MonacoEditor
-                                    theme="vs-dark"
-                                    path={currentFile}
-                                    language={currentFile.endsWith('.json') ? 'json' : 'typescript'}
-                                    value={value}
-                                    onChange={(v) => onChange(v ?? '')}
-                                    height={700}
-                                    options={{
-                                        minimap: { enabled: false },
-                                    }}
-                                />
-                            )}
-                        </Field>
+                        {pluginSourceLoading ? (
+                            <Skeleton />
+                        ) : (
+                            <>
+                                <PluginSourceTabs />
+                                <Field name={[currentFile]}>
+                                    {({ value, onChange }) => (
+                                        <>
+                                            <MonacoEditor
+                                                theme="vs-dark"
+                                                path={currentFile}
+                                                language={currentFile.endsWith('.json') ? 'json' : 'typescript'}
+                                                value={value}
+                                                onChange={(v) => onChange(v ?? '')}
+                                                height={700}
+                                                options={{
+                                                    minimap: { enabled: false },
+                                                }}
+                                            />
+                                            {!value && createDefaultPluginSource(name)[currentFile] ? (
+                                                <div style={{ marginTop: '0.5rem' }}>
+                                                    <LemonButton
+                                                        type="primary"
+                                                        onClick={() =>
+                                                            onChange(createDefaultPluginSource(name)[currentFile])
+                                                        }
+                                                    >
+                                                        Add example "{currentFile}"
+                                                    </LemonButton>
+                                                </div>
+                                            ) : null}
+                                        </>
+                                    )}
+                                </Field>
+                            </>
+                        )}
                     </>
                 ) : null}
             </VerticalForm>

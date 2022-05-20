@@ -4,6 +4,7 @@
         "paths": {
             "lib/*": ["./src/lib/*"],
             "scenes/*": ["./src/scenes/*"],
+            "packages/*": ["./src/packages/*"],
             "storybook/*": ["../.storybook/*"],
             "~/*": ["./src/*"],
             "public/*": ["./public/*"]
