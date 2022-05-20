@@ -3,7 +3,6 @@ import uuid
 from abc import ABC
 from typing import Any, Dict, List, Optional, Tuple, Union, cast
 
-from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 
 from ee.clickhouse.materialized_columns.columns import ColumnName
@@ -115,9 +114,6 @@ class ClickhouseFunnelBase(ABC):
         data: Dict[str, Any] = {}
         if not self._filter._date_from:
             data.update({"date_from": relative_date_parse("-7d")})
-
-        if not self._filter._date_to:
-            data.update({"date_to": timezone.now()})
 
         if self._filter.breakdown and not self._filter.breakdown_type:
             data.update({"breakdown_type": "event"})

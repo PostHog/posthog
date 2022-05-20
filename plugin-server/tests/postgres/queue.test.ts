@@ -25,6 +25,7 @@ async function createTestHub(): Promise<[Hub, () => Promise<void>]> {
         PLUGINS_CELERY_QUEUE: 'ttt-test-plugins-celery-queue',
         CELERY_DEFAULT_QUEUE: 'ttt-test-celery-default-queue',
         LOG_LEVEL: LogLevel.Log,
+        KAFKA_ENABLED: false,
     })
 
     const redis = await hub.redisPool.acquire()
@@ -94,8 +95,6 @@ describe('queue', () => {
         beforeEach(async () => {
             ;[hub, closeHub] = await createHub({
                 LOG_LEVEL: LogLevel.Warn,
-                KAFKA_ENABLED: true,
-                KAFKA_HOSTS: process.env.KAFKA_HOSTS || 'kafka:9092',
             })
             piscina = { run: jest.fn() } as any
         })

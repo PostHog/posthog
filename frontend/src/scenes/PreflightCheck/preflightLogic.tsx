@@ -69,7 +69,7 @@ export const preflightLogic = kea<
         checks: [
             (s) => [s.preflight, s.preflightMode],
             (preflight, preflightMode) => {
-                return [
+                const preflightItems = [
                     {
                         id: 'database',
                         name: 'Application database · Postgres',
@@ -132,7 +132,21 @@ export const preflightLogic = kea<
                                 ? 'Not required for experimentation mode'
                                 : 'Set up before ingesting real user data',
                     },
-                ] as PreflightItemInterface[]
+                ]
+
+                if (preflight?.object_storage || preflight?.is_debug) {
+                    /** __for now__, only prompt debug users if object storage is unhealthy **/
+                    preflightItems.push({
+                        id: 'object_storage',
+                        name: 'Object Storage',
+                        status: preflight?.object_storage ? 'validated' : 'warning',
+                        caption: preflight?.object_storage
+                            ? undefined
+                            : 'Some features will not work without object storage',
+                    })
+                }
+
+                return preflightItems as PreflightItemInterface[]
             },
         ],
         checksSummary: [

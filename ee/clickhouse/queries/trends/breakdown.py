@@ -1,5 +1,8 @@
 import urllib.parse
+from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
+
+import pytz
 
 from ee.clickhouse.models.property import get_property_string_expr, parse_prop_grouped_clauses
 from ee.clickhouse.queries.breakdown_props import (
@@ -276,7 +279,7 @@ class ClickhouseTrendsBreakdown:
                 parsed_result.update(
                     {
                         "persons_urls": self._get_persons_url(
-                            filter, entity, self.team_id, parsed_result["days"], result_descriptors["breakdown_value"]
+                            filter, entity, self.team_id, stats[0], result_descriptors["breakdown_value"]
                         )
                     }
                 )
@@ -287,17 +290,26 @@ class ClickhouseTrendsBreakdown:
         return _parse
 
     def _get_persons_url(
-        self, filter: Filter, entity: Entity, team_id: int, dates: List[str], breakdown_value: Union[str, int]
+        self, filter: Filter, entity: Entity, team_id: int, dates: List[datetime], breakdown_value: Union[str, int]
     ) -> List[Dict[str, Any]]:
         persons_url = []
         for date in dates:
+            date_in_utc = datetime(
+                date.year,
+                date.month,
+                date.day,
+                getattr(date, "hour", 0),
+                getattr(date, "minute", 0),
+                getattr(date, "second", 0),
+                tzinfo=getattr(date, "tzinfo", pytz.UTC),
+            ).astimezone(pytz.UTC)
             filter_params = filter.to_params()
             extra_params = {
                 "entity_id": entity.id,
                 "entity_type": entity.type,
                 "entity_math": entity.math,
-                "date_from": filter.date_from if filter.display == TRENDS_CUMULATIVE else date,
-                "date_to": date,
+                "date_from": filter.date_from if filter.display == TRENDS_CUMULATIVE else date_in_utc,
+                "date_to": date_in_utc,
                 "breakdown_value": breakdown_value,
                 "breakdown_type": filter.breakdown_type or "event",
             }

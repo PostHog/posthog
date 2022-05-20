@@ -1,32 +1,30 @@
 import Piscina from '@posthog/piscina'
+import IORedis from 'ioredis'
 
-import { ONE_HOUR } from '../../src/config/constants'
-import { KAFKA_EVENTS_PLUGIN_INGESTION } from '../../src/config/kafka-topics'
-import { startPluginsServer } from '../../src/main/pluginsServer'
-import { LogLevel, PluginsServerConfig } from '../../src/types'
-import { Hub } from '../../src/types'
-import { Client } from '../../src/utils/celery/client'
-import { delay, UUIDT } from '../../src/utils/utils'
-import { makePiscina } from '../../src/worker/piscina'
-import { createPosthog, DummyPostHog } from '../../src/worker/vm/extensions/posthog'
-import { writeToFile } from '../../src/worker/vm/extensions/test-utils'
-import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../helpers/clickhouse'
-import { resetKafka } from '../helpers/kafka'
-import { pluginConfig39 } from '../helpers/plugins'
-import { resetTestDatabase } from '../helpers/sql'
+import { ONE_HOUR } from '../src/config/constants'
+import { KAFKA_EVENTS_PLUGIN_INGESTION } from '../src/config/kafka-topics'
+import { startPluginsServer } from '../src/main/pluginsServer'
+import { AlertLevel, LogLevel, PluginsServerConfig, Service } from '../src/types'
+import { Hub } from '../src/types'
+import { Client } from '../src/utils/celery/client'
+import { delay, UUIDT } from '../src/utils/utils'
+import { makePiscina } from '../src/worker/piscina'
+import { createPosthog, DummyPostHog } from '../src/worker/vm/extensions/posthog'
+import { writeToFile } from '../src/worker/vm/extensions/test-utils'
+import { delayUntilEventIngested, resetTestDatabaseClickhouse } from './helpers/clickhouse'
+import { resetKafka } from './helpers/kafka'
+import { pluginConfig39 } from './helpers/plugins'
+import { resetTestDatabase } from './helpers/sql'
 
 const { console: testConsole } = writeToFile
 
-jest.mock('../../src/utils/status')
-jest.setTimeout(70000) // 60 sec timeout
+jest.mock('../src/utils/status')
+jest.setTimeout(60000) // 60 sec timeout
 
 const extraServerConfig: Partial<PluginsServerConfig> = {
-    KAFKA_ENABLED: true,
-    KAFKA_HOSTS: process.env.KAFKA_HOSTS || 'kafka:9092',
     WORKER_CONCURRENCY: 2,
     KAFKA_CONSUMPTION_TOPIC: KAFKA_EVENTS_PLUGIN_INGESTION,
     LOG_LEVEL: LogLevel.Log,
-    CELERY_DEFAULT_QUEUE: 'test-celery-default-queue',
 }
 
 const indexJs = `
@@ -64,15 +62,23 @@ export async function exportEvents(events) {
     }
 }
 
+export async function onAction(action, event) {
+    testConsole.log('onAction', action, event)
+}
+
+export async function handleAlert(alert) {
+    testConsole.log('handleAlert', alert)
+}
+
 export async function runEveryMinute() {}
 `
 
-// TODO: merge these tests with postgres/e2e.test.ts
 describe('e2e', () => {
     let hub: Hub
     let stopServer: () => Promise<void>
     let posthog: DummyPostHog
     let piscina: Piscina
+    let redis: IORedis.Redis
 
     beforeAll(async () => {
         await resetKafka(extraServerConfig)
@@ -86,10 +92,12 @@ describe('e2e', () => {
         hub = startResponse.hub
         piscina = startResponse.piscina
         stopServer = startResponse.stop
+        redis = await hub.redisPool.acquire()
         posthog = createPosthog(hub, pluginConfig39)
     })
 
     afterEach(async () => {
+        await hub.redisPool.release(redis)
         await stopServer()
     })
 
@@ -119,8 +127,6 @@ describe('e2e', () => {
 
         test('snapshot captured, processed, ingested', async () => {
             expect((await hub.db.fetchSessionRecordingEvents()).length).toBe(0)
-
-            const uuid = new UUIDT().toString()
 
             await posthog.capture('$snapshot', { $session_id: '1234abc', $snapshot_data: 'yes way' })
 
@@ -158,6 +164,78 @@ describe('e2e', () => {
         })
     })
 
+    describe('onAction', () => {
+        const awaitOnActionLogs = async () =>
+            await new Promise((resolve) => {
+                resolve(testConsole.read().filter((log) => log[1] === 'onAction event'))
+            })
+
+        test('onAction receives the action and event', async () => {
+            await posthog.capture('onAction event', { foo: 'bar' })
+
+            await delayUntilEventIngested(awaitOnActionLogs, 1)
+
+            const log = testConsole.read().filter((log) => log[0] === 'onAction')[0]
+
+            const [logName, action, event] = log
+
+            expect(logName).toEqual('onAction')
+            expect(action).toEqual(
+                expect.objectContaining({
+                    id: 69,
+                    name: 'Test Action',
+                    team_id: 2,
+                    deleted: false,
+                    post_to_slack: true,
+                })
+            )
+            expect(event).toEqual(
+                expect.objectContaining({
+                    distinct_id: 'plugin-id-60',
+                    team_id: 2,
+                    event: 'onAction event',
+                })
+            )
+        })
+    })
+
+    describe('handleAlert', () => {
+        const awaitHandleAlertLogs = async () =>
+            await new Promise((resolve) => {
+                resolve(testConsole.read().filter((log) => log[0] === 'handleAlert'))
+            })
+
+        test('handleAlert receives alert correctly', async () => {
+            const alert = {
+                id: 'some id',
+                key: 'alert name',
+                description: 'alert description',
+                level: AlertLevel.P0,
+                trigger_location: Service.PluginServer,
+            }
+
+            await redis.publish('plugins-alert', JSON.stringify(alert))
+
+            await delayUntilEventIngested(awaitHandleAlertLogs, 1)
+
+            const log = testConsole.read().filter((log) => log[0] === 'handleAlert')[0]
+
+            const [logName, loggedAlert] = log
+
+            expect(logName).toEqual('handleAlert')
+            expect(loggedAlert).toEqual(
+                expect.objectContaining({
+                    id: 'some id',
+                    key: 'alert name',
+                    description: 'alert description',
+                    level: AlertLevel.P0,
+                    trigger_location: Service.PluginServer,
+                })
+            )
+        })
+    })
+
+    // TODO: we should enable this test again - they are enabled on self-hosted
     // historical exports are currently disabled
     describe.skip('e2e export historical events', () => {
         const awaitHistoricalEventLogs = async () =>
