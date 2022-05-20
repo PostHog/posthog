@@ -71,7 +71,6 @@ import {
 } from '../utils'
 import { OrganizationPluginsAccessLevel, PluginLogLevel } from './../../types'
 import { KafkaProducerWrapper } from './kafka-producer-wrapper'
-import { PostgresLogsWrapper } from './postgres-logs-wrapper'
 import {
     chainToElements,
     generateKafkaPersonUpdateMessage,
@@ -161,9 +160,6 @@ export class DB {
     /** StatsD instance used to do instrumentation */
     statsd: StatsD | undefined
 
-    /** A buffer for Postgres logs to prevent too many log insert ueries */
-    postgresLogsWrapper: PostgresLogsWrapper
-
     /** How many unique group types to allow per team */
     MAX_GROUP_TYPES_PER_TEAM = 5
 
@@ -190,7 +186,6 @@ export class DB {
         this.kafkaProducer = kafkaProducer
         this.clickhouse = clickhouse
         this.statsd = statsd
-        this.postgresLogsWrapper = new PostgresLogsWrapper(this)
         this.PERSONS_AND_GROUPS_CACHE_TTL = personAndGroupsCacheTtl
         this.personAndGroupsCachingEnabledTeams = personAndGroupsCachingEnabledTeams
     }
@@ -1405,8 +1400,6 @@ export class DB {
                 console.error(parsedEntry)
                 console.error(e)
             }
-        } else {
-            await this.postgresLogsWrapper.addLog(parsedEntry)
         }
     }
 
