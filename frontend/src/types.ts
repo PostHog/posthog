@@ -863,17 +863,6 @@ export interface PluginType {
     public_jobs?: Record<string, JobSpec>
 }
 
-/** Frontend app created after receiving a bundle via import('').getFrontendApp() */
-export interface FrontendApp {
-    id: number
-    pluginId: number
-    error?: any
-    title?: string
-    logic?: LogicWrapper
-    component?: (...args: any[]) => JSX.Element
-    onInit?: () => void
-}
-
 /** Config passed to app component and logic as props. Sent in Django's app context */
 export interface FrontendAppConfig {
     pluginId: number
@@ -881,6 +870,17 @@ export interface FrontendAppConfig {
     name: string
     url: string
     config: Record<string, any>
+}
+
+/** Frontend app created after receiving a bundle via import('').getFrontendApp() */
+export interface FrontendApp {
+    id: number
+    pluginId: number
+    error?: any
+    title?: string
+    logic?: LogicWrapper
+    component?: (props: FrontendAppConfig) => JSX.Element
+    onInit?: (props: FrontendAppConfig) => void
 }
 
 export interface JobPayloadFieldOptions {

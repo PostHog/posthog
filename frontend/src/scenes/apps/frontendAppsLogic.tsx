@@ -53,6 +53,9 @@ export const frontendAppsLogic = kea<frontendAppsLogicType>([
                     if ('getFrontendApp' in exports) {
                         const app = exports.getFrontendApp(frontendAppRequire)
                         if ('scene' in app) {
+                            if (app.scene.onInit) {
+                                window.setTimeout(() => app.scene.onInit(values.appConfigs[id]), 0)
+                            }
                             return { ...values.frontendApps, [id]: { ...app.scene, id, pluginId } }
                         }
                         if ('no_frontend' in app || 'transpiling' in app) {
