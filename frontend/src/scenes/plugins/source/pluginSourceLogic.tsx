@@ -46,7 +46,7 @@ export const pluginSourceLogic = kea<pluginSourceLogicType<PluginSourceProps>>([
                 const changes = {}
                 const errors = {}
                 for (const [file, source] of Object.entries(values.pluginSource)) {
-                    if (source && file.match(/\.(t|j)sx?$/)) {
+                    if (source && file.match(/\.(ts|tsx|js|jsx|json)$/)) {
                         try {
                             const prettySource = formatSource(file, source)
                             if (prettySource !== source) {
