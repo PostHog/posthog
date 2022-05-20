@@ -73,7 +73,9 @@ export const frontendAppsLogic = kea<frontendAppsLogicType>([
         },
         appConfigs: [
             {} as Record<string, FrontendAppConfig>,
-            { setAppConfigs: (state, { appConfigs }) => ({ ...state, ...appConfigs }) },
+            {
+                setAppConfigs: (state, { appConfigs }) => ({ ...state, ...appConfigs }),
+            },
         ],
     }),
     afterMount(({ actions }) => {

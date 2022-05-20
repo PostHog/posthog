@@ -2,7 +2,6 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Link } from 'lib/components/Link'
 import React, { useState } from 'react'
-import { sceneConfigurations } from 'scenes/scenes'
 import { PushpinOutlined } from '@ant-design/icons'
 import { ProjectSwitcherOverlay } from '~/layout/navigation/ProjectSwitcher'
 import {
@@ -22,13 +21,11 @@ import {
     IconTools,
     LiveIcon,
 } from 'lib/components/icons'
-import { LemonButton, LemonButtonProps, LemonButtonWithSideAction, SideAction } from 'lib/components/LemonButton'
 import { LemonDivider } from 'lib/components/LemonDivider'
 import { Lettermark } from 'lib/components/Lettermark/Lettermark'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { organizationLogic } from '~/scenes/organizationLogic'
-import { canInstallPlugins, canViewPlugins } from '~/scenes/plugins/access'
-import { sceneLogic } from '~/scenes/sceneLogic'
+import { canViewPlugins } from '~/scenes/plugins/access'
 import { Scene } from '~/scenes/sceneTypes'
 import { teamLogic } from '~/scenes/teamLogic'
 import { urls } from '~/scenes/urls'
@@ -38,87 +35,24 @@ import { navigationLogic } from '../navigationLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { groupsModel } from '~/models/groupsModel'
-import { LemonTag } from 'lib/components/LemonTag/LemonTag'
 import { CoffeeOutlined } from '@ant-design/icons'
 import { userLogic } from 'scenes/userLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { router } from 'kea-router'
-import { frontendAppsLogic } from 'scenes/apps/frontendAppsLogic'
-import { PluginSource } from 'scenes/plugins/source/PluginSource'
-
-interface PageButtonProps extends Pick<LemonButtonProps, 'icon' | 'onClick' | 'popup' | 'to'> {
-    /** Used for highlighting the active scene. `identifier` of type number means dashboard ID instead of scene. */
-    identifier: string | number
-    sideAction?: Omit<SideAction, 'type'> & { identifier?: string }
-    title?: React.ReactNode
-    highlight?: 'beta' | 'new'
-}
-
-function PageButton({ title, sideAction, identifier, highlight, ...buttonProps }: PageButtonProps): JSX.Element {
-    const { aliasedActiveScene, activeScene } = useValues(sceneLogic)
-    const { hideSideBarMobile } = useActions(navigationLogic)
-    const { lastDashboardId } = useValues(dashboardsModel)
-
-    const isActiveSide: boolean = sideAction?.identifier === aliasedActiveScene
-    const isActive: boolean =
-        isActiveSide ||
-        (typeof identifier === 'string'
-            ? identifier === aliasedActiveScene
-            : activeScene === Scene.Dashboard && identifier === lastDashboardId)
-
-    return sideAction ? (
-        <LemonButtonWithSideAction
-            fullWidth
-            type={isActive ? 'highlighted' : 'stealth'}
-            onClick={hideSideBarMobile}
-            sideAction={{
-                ...sideAction,
-                type: isActiveSide ? 'highlighted' : isActive ? undefined : 'stealth',
-                'data-attr': sideAction.identifier ? `menu-item-${sideAction.identifier.toLowerCase()}` : undefined,
-            }}
-            data-attr={`menu-item-${identifier.toString().toLowerCase()}`}
-            {...buttonProps}
-        >
-            {title || sceneConfigurations[identifier].name}
-        </LemonButtonWithSideAction>
-    ) : (
-        <LemonButton
-            fullWidth
-            type={isActive ? 'highlighted' : 'stealth'}
-            data-attr={`menu-item-${identifier.toString().toLowerCase()}`}
-            onClick={hideSideBarMobile}
-            {...buttonProps}
-        >
-            <span style={{ flexGrow: 1 }}>{title || sceneConfigurations[identifier].name}</span>
-            {highlight === 'beta' ? (
-                <LemonTag type="warning" style={{ marginLeft: 4, float: 'right' }}>
-                    Beta
-                </LemonTag>
-            ) : highlight === 'new' ? (
-                <LemonTag type="success" style={{ marginLeft: 4, float: 'right' }}>
-                    New
-                </LemonTag>
-            ) : null}
-        </LemonButton>
-    )
-}
+import { SideBarApps } from '~/layout/navigation/SideBar/SideBarApps'
+import { PageButton } from '~/layout/navigation/SideBar/PageButton'
 
 function Pages(): JSX.Element {
     const { currentOrganization } = useValues(organizationLogic)
-    const { hideSideBarMobile, toggleProjectSwitcher, hideProjectSwitcher, openAppSourceEditor, closeAppSourceEditor } =
-        useActions(navigationLogic)
-    const { isProjectSwitcherShown, appSourceEditor } = useValues(navigationLogic)
+    const { hideSideBarMobile, toggleProjectSwitcher, hideProjectSwitcher } = useActions(navigationLogic)
+    const { isProjectSwitcherShown } = useValues(navigationLogic)
     const { pinnedDashboards } = useValues(dashboardsModel)
     const { featureFlags } = useValues(featureFlagLogic)
     const { showGroupsOptions } = useValues(groupsModel)
     const { hasAvailableFeature } = useValues(userLogic)
     const { preflight } = useValues(preflightLogic)
     const { currentTeam } = useValues(teamLogic)
-    const { frontendApps } = useValues(frontendAppsLogic)
-    const { currentLocation } = useValues(router)
 
     const [arePinnedDashboardsShown, setArePinnedDashboardsShown] = useState(false)
-    const [openAppMenu, setOpenAppMenu] = useState<number | null>(null)
 
     return (
         <div className="Pages">
@@ -245,53 +179,7 @@ function Pages(): JSX.Element {
                                     to={urls.plugins()}
                                 />
                             )}
-                            {Object.values(frontendApps).map(({ id, pluginId, title }) => (
-                                <PageButton
-                                    key={id}
-                                    icon={<IconExtension />}
-                                    title={title || `App #${id}`}
-                                    identifier={
-                                        currentLocation.pathname === urls.frontendApp(id)
-                                            ? Scene.FrontendAppScene
-                                            : 'nope'
-                                    }
-                                    to={urls.frontendApp(id)}
-                                    sideAction={
-                                        canInstallPlugins(currentOrganization)
-                                            ? {
-                                                  identifier: 'app-menu',
-                                                  onClick: () => setOpenAppMenu((state) => (state === id ? null : id)),
-                                                  popup: {
-                                                      visible: openAppMenu === id,
-                                                      onClickOutside: () => setOpenAppMenu(null),
-                                                      onClickInside: () => {
-                                                          setOpenAppMenu(null)
-                                                          hideSideBarMobile()
-                                                      },
-                                                      overlay: (
-                                                          <LemonButton
-                                                              type="stealth"
-                                                              onClick={() => openAppSourceEditor(id, pluginId)}
-                                                              fullWidth
-                                                          >
-                                                              Edit Source
-                                                          </LemonButton>
-                                                      ),
-                                                  },
-                                              }
-                                            : undefined
-                                    }
-                                />
-                            ))}
-                            {appSourceEditor ? (
-                                <PluginSource
-                                    pluginConfigId={appSourceEditor.id}
-                                    pluginId={appSourceEditor.pluginId}
-                                    visible={!!appSourceEditor}
-                                    close={() => closeAppSourceEditor()}
-                                    placement="right"
-                                />
-                            ) : null}
+                            <SideBarApps />
                             <div className="SideBar__heading">Configuration</div>
                         </>
                     ) : (

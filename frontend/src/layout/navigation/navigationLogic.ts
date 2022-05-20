@@ -35,6 +35,7 @@ export const navigationLogic = kea<navigationLogicType<WarningType>>({
         hideProjectSwitcher: true,
         openAppSourceEditor: (id: number, pluginId: number) => ({ id, pluginId }),
         closeAppSourceEditor: true,
+        setOpenAppMenu: (id: number | null) => ({ id }),
     },
     reducers: {
         // Non-mobile base
@@ -89,6 +90,7 @@ export const navigationLogic = kea<navigationLogicType<WarningType>>({
                 closeAppSourceEditor: () => null,
             },
         ],
+        openAppMenu: [null as null | number, { setOpenAppMenu: (_, { id }) => id }],
     },
     windowValues: () => ({
         fullscreen: (window) => !!window.document.fullscreenElement,
