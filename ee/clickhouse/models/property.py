@@ -302,12 +302,7 @@ def parse_prop_clauses(
 
     if final:
         # remove the first operator
-        formatted_clauses = " ".join(final).replace(property_operator, "", 1)
-
-        if person_properties_mode == PersonPropertiesMode.DIRECT_ON_EVENTS:
-            formatted_clauses = f"person_id != '00000000-0000-0000-0000-000000000000' AND ({formatted_clauses})"
-
-        return formatted_clauses, params
+        return " ".join(final).replace(property_operator, "", 1), params
 
     return "", params
 
