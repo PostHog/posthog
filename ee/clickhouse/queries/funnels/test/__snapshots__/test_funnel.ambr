@@ -292,7 +292,7 @@
                           WHERE team_id = 2
                             AND event IN ['$pageview', 'user signed up']
                             AND timestamp >= toDateTime('2020-01-01 00:00:00')
-                            AND timestamp <= toDateTime('2020-07-01 23:59:59') ) events
+                            AND timestamp <= toDateTime('2020-07-01 00:00:00') ) events
                        WHERE (step_0 = 1
                               OR step_1 = 1
                               OR step_2 = 1) ))))
@@ -399,7 +399,7 @@
                           WHERE team_id = 2
                             AND event IN ['$pageview', 'user signed up']
                             AND timestamp >= toDateTime('2020-01-01 00:00:00')
-                            AND timestamp <= toDateTime('2020-07-01 23:59:59') ) events
+                            AND timestamp <= toDateTime('2020-07-01 00:00:00') ) events
                        WHERE (step_0 = 1
                               OR step_1 = 1
                               OR step_2 = 1) ))))
@@ -510,7 +510,7 @@
                           WHERE team_id = 2
                             AND event IN ['$pageview', 'user signed up']
                             AND timestamp >= toDateTime('2020-01-01 00:00:00')
-                            AND timestamp <= toDateTime('2020-07-01 23:59:59') ) events
+                            AND timestamp <= toDateTime('2020-07-01 00:00:00') ) events
                        WHERE (step_0 = 1
                               OR step_1 = 1
                               OR step_2 = 1) ))))
@@ -621,7 +621,7 @@
                           WHERE team_id = 2
                             AND event IN ['$pageview', 'user signed up']
                             AND timestamp >= toDateTime('2020-01-01 00:00:00')
-                            AND timestamp <= toDateTime('2020-07-01 23:59:59') ) events
+                            AND timestamp <= toDateTime('2020-07-01 00:00:00') ) events
                        WHERE (step_0 = 1
                               OR step_1 = 1
                               OR step_2 = 1) ))))
