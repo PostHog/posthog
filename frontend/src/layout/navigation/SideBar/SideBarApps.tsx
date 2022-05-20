@@ -11,12 +11,13 @@ import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { frontendAppsLogic } from 'scenes/apps/frontendAppsLogic'
 import { router } from 'kea-router'
 import { PageButton } from '~/layout/navigation/SideBar/PageButton'
+import { PluginInstallationType } from 'scenes/plugins/types'
 
 export function SideBarApps(): JSX.Element {
     const { currentOrganization } = useValues(organizationLogic)
     const { hideSideBarMobile, openAppSourceEditor, closeAppSourceEditor, setOpenAppMenu } = useActions(navigationLogic)
     const { appSourceEditor, openAppMenu } = useValues(navigationLogic)
-    const { frontendApps } = useValues(frontendAppsLogic)
+    const { frontendApps, appConfigs } = useValues(frontendAppsLogic)
     const { currentLocation } = useValues(router)
 
     return (
@@ -29,7 +30,8 @@ export function SideBarApps(): JSX.Element {
                     identifier={currentLocation.pathname === urls.frontendApp(id) ? Scene.FrontendAppScene : 'nope'}
                     to={urls.frontendApp(id)}
                     sideAction={
-                        canInstallPlugins(currentOrganization)
+                        canInstallPlugins(currentOrganization) &&
+                        appConfigs[id]?.pluginType === PluginInstallationType.Source
                             ? {
                                   identifier: 'app-menu',
                                   onClick: () => setOpenAppMenu(openAppMenu === id ? null : id),
@@ -46,7 +48,7 @@ export function SideBarApps(): JSX.Element {
                                               onClick={() => openAppSourceEditor(id, pluginId)}
                                               fullWidth
                                           >
-                                              Edit Source
+                                              Edit source code
                                           </LemonButton>
                                       ),
                                   },

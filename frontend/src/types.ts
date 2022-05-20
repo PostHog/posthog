@@ -867,6 +867,7 @@ export interface PluginType {
 export interface FrontendAppConfig {
     pluginId: number
     pluginConfigId: number
+    pluginType: PluginInstallationType | null
     name: string
     url: string
     config: Record<string, any>

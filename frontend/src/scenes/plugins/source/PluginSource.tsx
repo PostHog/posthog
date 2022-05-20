@@ -117,7 +117,7 @@ export function PluginSource({
                                                             onChange(createDefaultPluginSource(name)[currentFile])
                                                         }
                                                     >
-                                                        Add Example "{currentFile}"
+                                                        Add example "{currentFile}"
                                                     </LemonButton>
                                                 </div>
                                             ) : null}

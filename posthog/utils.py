@@ -315,7 +315,7 @@ def get_frontend_apps(team_id: int) -> Dict[int, Dict[str, Any]]:
     plugin_configs = (
         Plugin.objects.filter(pluginconfig__team_id=team_id, pluginconfig__enabled=True)
         .filter(pluginsourcefile__status=PluginSourceFile.Status.TRANSPILED, pluginsourcefile__filename="frontend.tsx")
-        .values("pluginconfig__id", "pluginconfig__config", "config_schema", "name", "id")
+        .values("pluginconfig__id", "pluginconfig__config", "config_schema", "id", "plugin_type", "name")
         .all()
     )
 
@@ -330,6 +330,7 @@ def get_frontend_apps(team_id: int) -> Dict[int, Dict[str, Any]]:
         frontend_apps[p["pluginconfig__id"]] = {
             "pluginConfigId": p["pluginconfig__id"],
             "pluginId": p["id"],
+            "pluginType": p["plugin_type"],
             "name": p["name"],
             "url": f"/app/{p['pluginconfig__id']}/",
             "config": config,
