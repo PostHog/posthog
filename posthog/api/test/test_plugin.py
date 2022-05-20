@@ -505,8 +505,7 @@ class TestPluginAPI(APIBaseTest):
     def test_create_plugin_frontend_source(self, mock_get, mock_reload):
         self.assertEqual(mock_reload.call_count, 0)
         response = self.client.post(
-            "/api/organizations/@current/plugins/",
-            {"plugin_type": "source", "name": "myplugin", "source": "", "source_frontend": "export const scene = {}",},
+            "/api/organizations/@current/plugins/", {"plugin_type": "source", "name": "myplugin",},
         )
         self.assertEqual(response.status_code, 201)
         id = response.json()["id"]
