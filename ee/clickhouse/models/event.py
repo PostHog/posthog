@@ -1,6 +1,6 @@
 import json
 import uuid
-from typing import Any, Dict, List, Optional, Tuple, Union, cast
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import pytz
 from dateutil.parser import isoparse
@@ -111,7 +111,7 @@ def bulk_create_events(events: List[Dict[str, Any]], person_mapping: Optional[Di
                 person_id = person.uuid
             except Person.DoesNotExist:
                 person_properties = {}
-                person_id = cast(uuid.UUID, "00000000-0000-0000-0000-000000000000")
+                person_id = uuid.uuid4()
 
         event = {
             **event,
@@ -143,7 +143,7 @@ def bulk_create_events(events: List[Dict[str, Any]], person_mapping: Optional[Di
             "distinct_id": str(event["distinct_id"]),
             "elements_chain": elements_chain,
             "created_at": timestamp,
-            "person_id": event["person_id"] if event.get("person_id") else "00000000-0000-0000-0000-000000000000",
+            "person_id": event["person_id"] if event.get("person_id") else str(uuid.uuid4()),
             "person_properties": json.dumps(event["person_properties"]) if event.get("person_properties") else "{}",
             "group0_properties": json.dumps(event["group0_properties"]) if event.get("group0_properties") else "{}",
             "group1_properties": json.dumps(event["group1_properties"]) if event.get("group1_properties") else "{}",

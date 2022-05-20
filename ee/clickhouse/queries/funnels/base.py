@@ -459,7 +459,9 @@ class ClickhouseFunnelBase(ABC):
             team_id=self._team.pk,
             property_group=entity.property_groups,
             prepend=str(index),
-            person_properties_mode=PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
+            person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS
+            if self._team.actor_on_events_querying_enabled
+            else PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
             person_id_joined_alias="aggregation_target",
         )
         self.params.update(prop_filter_params)
