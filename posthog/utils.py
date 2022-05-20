@@ -14,6 +14,7 @@ import time
 import uuid
 from enum import Enum
 from typing import (
+    TYPE_CHECKING,
     Any,
     Dict,
     Generator,
@@ -43,6 +44,10 @@ from sentry_sdk import configure_scope
 from posthog.constants import AvailableFeature
 from posthog.exceptions import RequestParsingError
 from posthog.redis import get_client
+
+if TYPE_CHECKING:
+    from django.contrib.auth.models import AbstractBaseUser, AnonymousUser
+
 
 DATERANGE_MAP = {
     "minute": datetime.timedelta(minutes=1),
@@ -396,32 +401,9 @@ def base64_decode(data):
     return data.decode("utf8", "surrogatepass").encode("utf-16", "surrogatepass")
 
 
-# Used by non-DRF endpoins from capture.py and decide.py (/decide, /batch, /capture, etc)
-def load_data_from_request(request):
-    data = None
-    if request.method == "POST":
-        if request.content_type in ["", "text/plain", "application/json"]:
-            data = request.body
-        else:
-            data = request.POST.get("data")
-    else:
-        data = request.GET.get("data")
-
+def decompress(data: Any, compression: str):
     if not data:
         return None
-
-    # add the data in sentry's scope in case there's an exception
-    with configure_scope() as scope:
-        scope.set_context("data", data)
-        scope.set_tag("origin", request.headers.get("origin", request.headers.get("remote_host", "unknown")))
-        scope.set_tag("referer", request.headers.get("referer", "unknown"))
-        # since version 1.20.0 posthog-js adds its version to the `ver` query parameter as a debug signal here
-        scope.set_tag("library.version", request.GET.get("ver", "unknown"))
-
-    compression = (
-        request.GET.get("compression") or request.POST.get("compression") or request.headers.get("content-encoding", "")
-    )
-    compression = compression.lower()
 
     if compression == "gzip" or compression == "gzip-js":
         if data == b"undefined":
@@ -461,10 +443,42 @@ def load_data_from_request(request):
         # but we just want it to return None
         data = json.loads(data, parse_constant=lambda x: None)
     except (json.JSONDecodeError, UnicodeDecodeError) as error_main:
-        raise RequestParsingError("Invalid JSON: %s" % (str(error_main)))
+        if compression == "":
+            try:
+                return decompress(data, "gzip")
+            except Exception as inner:
+                # re-trying with compression set didn't succeed, throw original error
+                raise RequestParsingError("Invalid JSON: %s" % (str(error_main))) from inner
+        else:
+            raise RequestParsingError("Invalid JSON: %s" % (str(error_main)))
 
     # TODO: data can also be an array, function assumes it's either None or a dictionary.
     return data
+
+
+# Used by non-DRF endpoints from capture.py and decide.py (/decide, /batch, /capture, etc)
+def load_data_from_request(request):
+    if request.method == "POST":
+        if request.content_type in ["", "text/plain", "application/json"]:
+            data = request.body
+        else:
+            data = request.POST.get("data")
+    else:
+        data = request.GET.get("data")
+
+    # add the data in sentry's scope in case there's an exception
+    with configure_scope() as scope:
+        scope.set_context("data", data)
+        scope.set_tag("origin", request.headers.get("origin", request.headers.get("remote_host", "unknown")))
+        scope.set_tag("referer", request.headers.get("referer", "unknown"))
+        # since version 1.20.0 posthog-js adds its version to the `ver` query parameter as a debug signal here
+        scope.set_tag("library.version", request.GET.get("ver", "unknown"))
+
+    compression = (
+        request.GET.get("compression") or request.POST.get("compression") or request.headers.get("content-encoding", "")
+    ).lower()
+
+    return decompress(data, compression)
 
 
 class SingletonDecorator:
@@ -589,7 +603,7 @@ def get_instance_realm() -> str:
         return "hosted-clickhouse"
 
 
-def get_can_create_org() -> bool:
+def get_can_create_org(user: Union["AbstractBaseUser", "AnonymousUser"]) -> bool:
     """Returns whether a new organization can be created in the current instance.
 
     Organizations can be created only in the following cases:
@@ -601,10 +615,10 @@ def get_can_create_org() -> bool:
     from posthog.models.organization import Organization
 
     if (
-        settings.MULTI_TENANCY
-        or settings.DEMO
+        settings.MULTI_TENANCY  # There's no limit of organizations on Cloud
+        or (settings.DEMO and user.is_anonymous)  # Demo users can have a single demo org, but not more
         or settings.E2E_TESTING
-        or not Organization.objects.filter(for_internal_metrics=False).exists()
+        or not Organization.objects.filter(for_internal_metrics=False).exists()  # Definitely can create an org if zero
     ):
         return True
 

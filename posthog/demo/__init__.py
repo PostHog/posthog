@@ -5,15 +5,14 @@ from rest_framework.request import Request
 from posthog.demo.app_data_generator import AppDataGenerator
 from posthog.demo.revenue_data_generator import RevenueDataGenerator
 from posthog.demo.web_data_generator import WebDataGenerator
-from posthog.models import Organization, Team, User
-from posthog.models.event_definition import EventDefinition
+from posthog.models import EventDefinition, Organization, Team, User
 from posthog.utils import render_template
 
 ORGANIZATION_NAME = "Hogflix"
 TEAM_NAME = "Hogflix Demo App"
 
 
-def demo(request: Request):
+def demo_route(request: Request):
     user = cast(User, request.user)
     organization = user.organization
 

@@ -159,13 +159,15 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
 
         instance = super().update(instance, validated_data)
 
-        tile_layouts = self.initial_data.pop("tile_layouts", [])
+        initial_data = dict(self.initial_data)
+
+        tile_layouts = initial_data.pop("tile_layouts", [])
         for tile_layout in tile_layouts:
             DashboardTile.objects.filter(dashboard__id=instance.id, insight__id=(tile_layout["id"])).update(
                 layouts=tile_layout["layouts"]
             )
 
-        colors = self.initial_data.pop("colors", [])
+        colors = initial_data.pop("colors", [])
         for color in colors:
             DashboardTile.objects.filter(dashboard__id=instance.id, insight__id=(color["id"])).update(
                 color=color["color"]
@@ -286,13 +288,16 @@ class SharedDashboardsViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSet
 
 @xframe_options_exempt
 def shared_dashboard(request: HttpRequest, share_token: str):
-    dashboard = get_object_or_404(Dashboard, is_shared=True, share_token=share_token)
+    dashboard = get_object_or_404(
+        Dashboard.objects.select_related("team__organization"), is_shared=True, share_token=share_token
+    )
     shared_dashboard_serialized = {
         "id": dashboard.id,
         "share_token": dashboard.share_token,
         "name": dashboard.name,
         "description": dashboard.description,
         "team_name": dashboard.team.name,
+        "available_features": dashboard.team.organization.available_features,
     }
 
     return render_template(
