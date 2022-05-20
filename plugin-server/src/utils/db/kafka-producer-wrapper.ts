@@ -70,6 +70,10 @@ export class KafkaProducerWrapper {
         }
     }
 
+    async rawSendMessage(kafkaMessage: ProducerRecord): Promise<void> {
+        await this.producer.send(kafkaMessage)
+    }
+
     public flush(append?: ProducerRecord): Promise<void> {
         if (this.currentBatch.length === 0) {
             return Promise.resolve()
