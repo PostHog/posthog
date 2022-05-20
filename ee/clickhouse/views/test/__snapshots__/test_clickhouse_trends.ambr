@@ -205,7 +205,7 @@
      WHERE team_id = 2
        AND event = '$pageview'
        AND timestamp >= toStartOfDay(toDateTime('2012-01-01 00:00:00'), 'UTC')
-       AND timestamp <= toDateTime('2012-01-14 23:59:59', 'UTC') )
+       AND timestamp <= toDateTime('2012-01-14 23:59:59') )
   GROUP BY actor_id
   LIMIT 200
   OFFSET 0
@@ -221,8 +221,8 @@
      FROM events e
      WHERE team_id = 2
        AND event = '$pageview'
-       AND timestamp >= toDateTime('2012-01-01 00:00:00', 'UTC')
-       AND timestamp <= toDateTime('2012-01-15 23:59:59', 'UTC')
+       AND timestamp >= toDateTime('2012-01-01 00:00:00')
+       AND timestamp <= toDateTime('2012-01-15 23:59:59')
      GROUP BY value
      ORDER BY count DESC
      LIMIT 25
@@ -278,7 +278,7 @@
                  WHERE e.team_id = 2
                    AND event = '$pageview'
                    AND timestamp >= toStartOfDay(toDateTime('2012-01-01 00:00:00'), 'UTC')
-                   AND timestamp <= toDateTime('2012-01-15 23:59:59', 'UTC')
+                   AND timestamp <= toDateTime('2012-01-15 23:59:59')
                    AND replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '') in (['val', 'notval']) )
               GROUP BY person_id,
                        breakdown_value) AS pdi
@@ -313,7 +313,8 @@
      WHERE team_id = 2
        AND event = '$pageview'
        AND timestamp >= toStartOfDay(toDateTime('2012-01-01 00:00:00'), 'UTC')
-       AND timestamp <= toDateTime('2012-01-14 23:59:59') )
+       AND timestamp <= toDateTime('2012-01-14 23:59:59')
+       AND (has(['val'], replaceRegexpAll(JSONExtractRaw(e.properties, 'key'), '^"|"$', ''))) )
   GROUP BY actor_id
   LIMIT 200
   OFFSET 0
@@ -549,7 +550,7 @@
                  FROM events e
                  WHERE team_id = 2
                    AND timestamp >= '2011-12-25 00:00:00'
-                   AND timestamp <= toDateTime('2012-01-15 23:59:59', 'UTC')
+                   AND timestamp <= toDateTime('2012-01-15 23:59:59')
                  GROUP BY timestamp) d
               CROSS JOIN
                 (SELECT toStartOfDay(toDateTime(timestamp), 'UTC') as timestamp,
@@ -573,13 +574,19 @@
                          AND (has(['some_val'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'key'), '^"|"$', ''))))) person ON person.id = pdi.person_id
                  WHERE e.team_id = 2
                    AND event = '$pageview'
-                   AND timestamp >= toStartOfDay(toDateTime('2012-01-01 00:00:00'), 'UTC')
+                   AND timestamp >= '2011-12-25 00:00:00'
                    AND timestamp <= toDateTime('2012-01-15 23:59:59')
-                   AND replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '') in (['val', 'notval']) )
-              GROUP BY person_id,
-                       breakdown_value) AS pdi
-           GROUP BY day_start,
-                    breakdown_value))
+                 GROUP BY timestamp,
+                          person_id,
+                          breakdown_value) e
+              WHERE e.timestamp <= d.timestamp
+                AND e.timestamp > d.timestamp - INTERVAL 7 DAY
+              GROUP BY d.timestamp,
+                       breakdown_value
+              ORDER BY d.timestamp)
+           WHERE 11111 = 11111
+             AND timestamp >= toStartOfDay(toDateTime('2012-01-01 00:00:00'), 'UTC')
+             AND timestamp <= toDateTime('2012-01-15 23:59:59') ))
      GROUP BY day_start,
               breakdown_value
      ORDER BY breakdown_value,
@@ -616,9 +623,9 @@
              AND (has(['some_val'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'key'), '^"|"$', ''))))) person ON person.id = pdi.person_id
      WHERE team_id = 2
        AND event = '$pageview'
-       AND timestamp >= toStartOfDay(toDateTime('2012-01-01 00:00:00'), 'UTC')
+       AND timestamp >= '2011-12-25 00:00:00'
        AND timestamp <= toDateTime('2012-01-14 23:59:59')
-       AND (has(['val'], replaceRegexpAll(JSONExtractRaw(e.properties, 'key'), '^"|"$', ''))) )
+       AND (((has(['val'], replaceRegexpAll(JSONExtractRaw(e.properties, 'key'), '^"|"$', ''))))) )
   GROUP BY actor_id
   LIMIT 200
   OFFSET 0
@@ -634,8 +641,8 @@
             day_start
      from
        (SELECT toUInt16(0) AS total,
-               toStartOfDay(toDateTime('2020-01-12 23:59:59') - toIntervalDay(number), 'UTC') AS day_start
-        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2020-01-01 00:00:00'), 'UTC'), toDateTime('2020-01-12 23:59:59'), 'UTC'))
+               toStartOfDay(toDateTime('2020-01-12 00:00:00') - toIntervalDay(number), 'UTC') AS day_start
+        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2020-01-01 00:00:00'), 'UTC'), toDateTime('2020-01-12 00:00:00'), 'UTC'))
         UNION ALL SELECT toUInt16(0) AS total,
                          toStartOfDay(toDateTime('2020-01-01 00:00:00'), 'UTC')
         UNION ALL SELECT count(DISTINCT $group_0) as data,
@@ -647,7 +654,7 @@
            WHERE team_id = 2
              AND event = '$pageview'
              AND timestamp >= toStartOfDay(toDateTime('2020-01-01 00:00:00'), 'UTC')
-             AND timestamp <= toDateTime('2020-01-12 23:59:59')
+             AND timestamp <= toDateTime('2020-01-12 00:00:00')
              AND (NOT has([''], "$group_0")) )
         GROUP BY date)
      group by day_start
