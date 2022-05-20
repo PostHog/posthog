@@ -14,7 +14,7 @@ import {
     IconArrowDropDown,
     IconSettings,
     IconCorporate,
-    IconPersonAdd,
+    IconPlus,
 } from 'lib/components/icons'
 import { Popup } from '../../../lib/components/Popup/Popup'
 import { Link } from '../../../lib/components/Link'
@@ -36,6 +36,7 @@ import { inviteLogic } from 'scenes/organization/Settings/inviteLogic'
 import { Tooltip } from 'lib/components/Tooltip'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
+import { ingestionLogic } from 'scenes/ingestion/ingestionLogic'
 
 function SitePopoverSection({ title, children }: { title?: string | JSX.Element; children: any }): JSX.Element {
     return (
@@ -99,14 +100,16 @@ function CurrentOrganization({ organization }: { organization: OrganizationBasic
 export function InviteMembersButton(): JSX.Element {
     const { closeSitePopover } = useActions(navigationLogic)
     const { showInviteModal } = useActions(inviteLogic)
+    const { onboardingSidebar } = useValues(ingestionLogic)
 
     return (
         <LemonButton
-            icon={<IconPersonAdd />}
+            icon={<IconPlus />}
             onClick={() => {
                 closeSitePopover()
                 showInviteModal()
             }}
+            type={onboardingSidebar ? 'primary' : 'default'}
             fullWidth
             data-attr="top-menu-invite-team-members"
         >

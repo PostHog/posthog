@@ -24,34 +24,37 @@ export function Sidebar(): JSX.Element {
                     <img src={posthogLogo} style={{ width: 157, height: 30 }} />
                 </div>
                 <div className="IngestionSidebar__steps">
-                    <b>
-                        <div
-                            className={`mb ${currentIndex === 0 && 'ingestion-current-nav-step'}`}
-                            onClick={() => setPlatform(null)}
-                        >
-                            <span>Get started</span>
-                        </div>
-                        <div
-                            className={`mb ${currentIndex === 1 && 'ingestion-current-nav-step'} ${
-                                !platform && 'nonclickable'
-                            }`}
-                            onClick={() => setVerify(false)}
-                        >
-                            <span>Connect your product</span>
-                        </div>
-                        <div
-                            className={`mb ${currentIndex === 2 && 'ingestion-current-nav-step'} ${
-                                !platform && 'nonclickable'
-                            }`}
-                            onClick={() => {
-                                if (platform) {
-                                    setVerify(true)
-                                }
-                            }}
-                        >
-                            <span>Listen for events</span>
-                        </div>
-                    </b>
+                    <LemonButton
+                        fullWidth
+                        className={`${currentIndex === 0 && 'ingestion-current-nav-step'}`}
+                        onClick={() => setPlatform(null)}
+                    >
+                        Get started
+                    </LemonButton>
+                    <LemonButton
+                        fullWidth
+                        className={`${currentIndex === 1 && 'ingestion-current-nav-step'}`}
+                        disabled={!platform}
+                        onClick={() => {
+                            if (platform && currentIndex !== 1) {
+                                setVerify(false)
+                            }
+                        }}
+                    >
+                        Connect your product
+                    </LemonButton>
+                    <LemonButton
+                        fullWidth
+                        className={`${currentIndex === 2 && 'ingestion-current-nav-step'}`}
+                        disabled={!platform}
+                        onClick={() => {
+                            if (platform) {
+                                setVerify(true)
+                            }
+                        }}
+                    >
+                        Listen for events
+                    </LemonButton>
                 </div>
                 <div className="sidebar-bottom">
                     <div className="popover mb">
