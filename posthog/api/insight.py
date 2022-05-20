@@ -76,9 +76,8 @@ from posthog.utils import (
 logger = structlog.get_logger(__name__)
 
 
-def choose_insight_name(insight):
-    name_for_logged_activity = insight.name if insight.name else insight.derived_name
-    return name_for_logged_activity or "(empty string)"
+def choose_insight_name(insight) -> Optional[str]:
+    return insight.name if insight.name else insight.derived_name
 
 
 class InsightBasicSerializer(serializers.ModelSerializer):
@@ -213,15 +212,18 @@ class InsightSerializer(TaggedItemSerializerMixin, InsightBasicSerializer):
         # Manual tag creation since this create method doesn't call super()
         self._attempt_set_tags(tags, insight)
 
-        log_activity(
-            organization_id=self.context["request"].user.current_organization_id,
-            team_id=team.id,
-            user=self.context["request"].user,
-            item_id=insight.id,
-            scope="Insight",
-            activity="created",
-            detail=Detail(name=(choose_insight_name(insight)), short_id=insight.short_id),
-        )
+        insight_name = choose_insight_name(insight)
+        # experiments creates insights with neither a name nor a derived name, don't log them
+        if insight_name:
+            log_activity(
+                organization_id=self.context["request"].user.current_organization_id,
+                team_id=team.id,
+                user=self.context["request"].user,
+                item_id=insight.id,
+                scope="Insight",
+                activity="created",
+                detail=Detail(name=insight_name, short_id=insight.short_id),
+            )
         return insight
 
     def update(self, instance: Insight, validated_data: Dict, **kwargs) -> Insight:
@@ -255,6 +257,8 @@ class InsightSerializer(TaggedItemSerializerMixin, InsightBasicSerializer):
 
         changes = changes_between("Insight", previous=before_update, current=updated_insight)
 
+        insight_name = choose_insight_name(updated_insight)
+        # experiments creates insights with neither a name nor a derived name, don't log them
         log_activity(
             organization_id=self.context["request"].user.current_organization_id,
             team_id=self.context["team_id"],
@@ -262,9 +266,7 @@ class InsightSerializer(TaggedItemSerializerMixin, InsightBasicSerializer):
             item_id=updated_insight.id,
             scope="Insight",
             activity="updated",
-            detail=Detail(
-                name=(choose_insight_name(updated_insight)), changes=changes, short_id=updated_insight.short_id
-            ),
+            detail=Detail(name=insight_name, changes=changes, short_id=updated_insight.short_id),
         )
 
         return updated_insight
@@ -664,6 +666,8 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, viewsets.Mo
 
         instance.delete()
 
+        insight_name = choose_insight_name(instance)
+        # experiments creates insights with neither a name nor a derived name, don't log them
         log_activity(
             organization_id=self.organization.id,
             team_id=self.team_id,
@@ -671,7 +675,7 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, viewsets.Mo
             item_id=instance_id,
             scope="Insight",
             activity="deleted",
-            detail=Detail(name=(choose_insight_name(instance)), short_id=instance_short_id),
+            detail=Detail(name=insight_name, short_id=instance_short_id),
         )
 
         return Response(status=status.HTTP_204_NO_CONTENT)
