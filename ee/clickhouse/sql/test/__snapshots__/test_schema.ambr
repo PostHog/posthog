@@ -488,7 +488,7 @@
       group4_properties VARCHAR
       
       
-  ) ENGINE = Kafka('kafka', 'clickhouse_events_json_test', 'group1', 'JSONEachRow')
+  ) ENGINE = Kafka('kafka:9092', 'clickhouse_events_json_test', 'group1', 'JSONEachRow')
   
       SETTINGS kafka_skip_broken_messages = 100
   
