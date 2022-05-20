@@ -4,10 +4,14 @@ import { Breadcrumb, FrontendApp, FrontendAppConfig } from '~/types'
 import type { frontendAppSceneLogicType } from './frontendAppSceneLogicType'
 import { subscriptions } from 'kea-subscriptions'
 import { objectsEqual } from 'lib/utils'
-import { FrontendAppSceneLogicProps } from 'scenes/apps/types'
+
+export interface FrontendAppSceneLogicProps {
+    /** Used as the logic's key */
+    id: number
+}
 
 /** Logic responsible for loading the injected frontend scene */
-export const frontendAppSceneLogic = kea<frontendAppSceneLogicType>([
+export const frontendAppSceneLogic = kea<frontendAppSceneLogicType<FrontendAppSceneLogicProps>>([
     path(['scenes', 'apps', 'frontendAppSceneLogic']),
     props({} as FrontendAppSceneLogicProps),
     key((props) => props.id),

@@ -6,7 +6,7 @@ import { FrontendApp, FrontendAppConfig } from '~/types'
 import { frontendAppRequire } from './frontendAppRequire'
 import { lemonToast } from 'lib/components/lemonToast'
 
-/** Load frontend apps when PostHog launches, data from `appContext.frontend_apps`. */
+/** Manages the loading and lifecycle of frontend apps. */
 export const frontendAppsLogic = kea<frontendAppsLogicType>([
     path(['scenes', 'frontendAppsLogic']),
     actions({
@@ -17,7 +17,7 @@ export const frontendAppsLogic = kea<frontendAppsLogicType>([
             attempt,
         }),
         unloadFrontendApp: (id: number) => ({ id }),
-        setAppConfigs: (appConfigs: Record<string, FrontendAppConfig>) => ({ appConfigs }),
+        updateAppConfigs: (appConfigs: Record<string, FrontendAppConfig>) => ({ appConfigs }),
     }),
     defaults({
         frontendApps: {} as Record<string, FrontendApp>,
@@ -25,6 +25,9 @@ export const frontendAppsLogic = kea<frontendAppsLogicType>([
     loaders(({ actions, values }) => ({
         frontendApps: {
             loadFrontendApp: async ({ id, pluginId, reload, attempt }) => {
+                if (!values.appConfigs[id]) {
+                    // TODO: load an app config
+                }
                 try {
                     const siteUrl = location.origin
                     const exports = await import(
@@ -74,14 +77,14 @@ export const frontendAppsLogic = kea<frontendAppsLogicType>([
         appConfigs: [
             {} as Record<string, FrontendAppConfig>,
             {
-                setAppConfigs: (state, { appConfigs }) => ({ ...state, ...appConfigs }),
+                updateAppConfigs: (state, { appConfigs }) => ({ ...state, ...appConfigs }),
             },
         ],
     }),
     afterMount(({ actions }) => {
         const appConfigs = getAppContext()?.frontend_apps || {}
         if (Object.keys(appConfigs).length > 0) {
-            actions.setAppConfigs(appConfigs)
+            actions.updateAppConfigs(appConfigs)
             for (const { pluginId, pluginConfigId } of Object.values(appConfigs)) {
                 actions.loadFrontendApp(pluginConfigId, pluginId)
             }
