@@ -132,7 +132,9 @@ def bulk_create_events(events: List[Dict[str, Any]], person_mapping: Optional[Di
                     }
 
                 except Group.DoesNotExist:
-                    continue
+                    raise Exception(
+                        f"Invalid group property $group_{group_type_index}::{value}. Ensure groups are created before events"
+                    )
 
         event = {
             "uuid": str(event["event_uuid"]) if event.get("event_uuid") else str(uuid.uuid4()),

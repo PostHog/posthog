@@ -23,7 +23,10 @@ class ClickhouseStickinessActors(ActorBaseQuery):
 
     def actor_query(self, limit_actors: Optional[bool] = True) -> Tuple[str, Dict]:
         events_query, event_params = StickinessEventsQuery(
-            entity=self.entity, filter=self._filter, team=self._team
+            entity=self.entity,
+            filter=self._filter,
+            team=self._team,
+            using_person_on_events=self._team.actor_on_events_querying_enabled,
         ).get_query()
 
         return (
