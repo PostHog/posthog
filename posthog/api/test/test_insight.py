@@ -685,6 +685,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
 
         self.assertEqual(response["result"][0]["count"], 2)
         self.assertEqual(response["result"][0]["action"]["name"], "$pageview")
+        self.assertEqual(response["timezone"], "UTC")
 
     def test_nonexistent_cohort_is_handled(self):
         response_nonexistent_property = self.client.get(
@@ -858,6 +859,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         self.assertEqual(len(response["result"]), 2)
         self.assertEqual(response["result"][0]["name"], "user signed up")
         self.assertEqual(response["result"][1]["name"], "user did things")
+        self.assertEqual(response["timezone"], "UTC")
 
     def test_insight_retention_basic(self):
         _create_person(team=self.team, distinct_ids=["person1"], properties={"email": "person1@test.com"})

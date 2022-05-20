@@ -8,8 +8,8 @@
      FROM events e
      WHERE team_id = 2
        AND event = '$pageview'
-       AND timestamp >= toDateTime('2020-01-01 00:00:00', 'UTC')
-       AND timestamp <= toDateTime('2020-01-06 23:59:59', 'UTC')
+       AND timestamp >= toDateTime('2020-01-01 00:00:00')
+       AND timestamp <= toDateTime('2020-01-06 23:59:59')
        AND (has(['control', 'test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature/a-b-test'), '^"|"$', '')))
      GROUP BY value
      ORDER BY count DESC
@@ -80,8 +80,8 @@
                        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     WHERE team_id = 2
                       AND event IN ['$pageleave', '$pageview']
-                      AND timestamp >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                      AND timestamp <= toDateTime('2020-01-06 23:59:59', 'UTC')
+                      AND timestamp >= toDateTime('2020-01-01 00:00:00')
+                      AND timestamp <= toDateTime('2020-01-06 23:59:59')
                       AND (has(['control', 'test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature/a-b-test'), '^"|"$', ''))) ) events
                  WHERE (step_0 = 1
                         OR step_1 = 1) ))
@@ -103,8 +103,8 @@
      FROM events e
      WHERE team_id = 2
        AND event = '$pageview'
-       AND timestamp >= toDateTime('2020-01-01 00:00:00', 'UTC')
-       AND timestamp <= toDateTime('2020-01-06 23:59:59', 'UTC')
+       AND timestamp >= toDateTime('2020-01-01 00:00:00')
+       AND timestamp <= toDateTime('2020-01-06 23:59:59')
        AND (has(['control', 'test_1', 'test_2', 'test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature/a-b-test'), '^"|"$', '')))
      GROUP BY value
      ORDER BY count DESC
@@ -175,8 +175,8 @@
                        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     WHERE team_id = 2
                       AND event IN ['$pageleave', '$pageview']
-                      AND timestamp >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                      AND timestamp <= toDateTime('2020-01-06 23:59:59', 'UTC')
+                      AND timestamp >= toDateTime('2020-01-01 00:00:00')
+                      AND timestamp <= toDateTime('2020-01-06 23:59:59')
                       AND (has(['control', 'test_1', 'test_2', 'test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature/a-b-test'), '^"|"$', ''))) ) events
                  WHERE (step_0 = 1
                         OR step_1 = 1) ))
@@ -198,8 +198,8 @@
      FROM events e
      WHERE team_id = 2
        AND event = '$pageview'
-       AND timestamp >= toDateTime('2020-01-01 00:00:00', 'UTC')
-       AND timestamp <= toDateTime('2020-01-06 23:59:59', 'UTC')
+       AND timestamp >= toDateTime('2020-01-01 00:00:00')
+       AND timestamp <= toDateTime('2020-01-06 23:59:59')
        AND (has(['control', 'test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature/a-b-test'), '^"|"$', '')))
      GROUP BY value
      ORDER BY count DESC
@@ -242,7 +242,7 @@
              AND event = '$pageview'
              AND (has(['control', 'test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature/a-b-test'), '^"|"$', '')))
              AND timestamp >= toStartOfDay(toDateTime('2020-01-01 00:00:00'), 'UTC')
-             AND timestamp <= toDateTime('2020-01-06 23:59:59', 'UTC')
+             AND timestamp <= toDateTime('2020-01-06 23:59:59')
              AND replaceRegexpAll(JSONExtractRaw(properties, '$feature/a-b-test'), '^"|"$', '') in (['test', 'control'])
            GROUP BY day_start,
                     breakdown_value))
@@ -264,8 +264,8 @@
      FROM events e
      WHERE team_id = 2
        AND event = '$feature_flag_called'
-       AND timestamp >= toDateTime('2020-01-01 00:00:00', 'UTC')
-       AND timestamp <= toDateTime('2020-01-06 23:59:59', 'UTC')
+       AND timestamp >= toDateTime('2020-01-01 00:00:00')
+       AND timestamp <= toDateTime('2020-01-06 23:59:59')
        AND (has(['control', 'test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature_flag_response'), '^"|"$', ''))
             AND has(['a-b-test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature_flag'), '^"|"$', '')))
      GROUP BY value
@@ -325,7 +325,7 @@
                    AND (has(['control', 'test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature_flag_response'), '^"|"$', ''))
                         AND has(['a-b-test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature_flag'), '^"|"$', '')))
                    AND timestamp >= toStartOfDay(toDateTime('2020-01-01 00:00:00'), 'UTC')
-                   AND timestamp <= toDateTime('2020-01-06 23:59:59', 'UTC')
+                   AND timestamp <= toDateTime('2020-01-06 23:59:59')
                    AND replaceRegexpAll(JSONExtractRaw(properties, '$feature_flag_response'), '^"|"$', '') in (['control', 'test']) )
               GROUP BY person_id,
                        breakdown_value) AS pdi
@@ -349,8 +349,8 @@
      FROM events e
      WHERE team_id = 2
        AND event = '$pageview1'
-       AND timestamp >= toDateTime('2020-01-01 00:00:00', 'UTC')
-       AND timestamp <= toDateTime('2020-01-06 23:59:59', 'UTC')
+       AND timestamp >= toDateTime('2020-01-01 00:00:00')
+       AND timestamp <= toDateTime('2020-01-06 23:59:59')
        AND (has(['control', 'test_1', 'test_2', 'test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature/a-b-test'), '^"|"$', '')))
      GROUP BY value
      ORDER BY count DESC
@@ -393,7 +393,7 @@
              AND event = '$pageview1'
              AND (has(['control', 'test_1', 'test_2', 'test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature/a-b-test'), '^"|"$', '')))
              AND timestamp >= toStartOfDay(toDateTime('2020-01-01 00:00:00'), 'UTC')
-             AND timestamp <= toDateTime('2020-01-06 23:59:59', 'UTC')
+             AND timestamp <= toDateTime('2020-01-06 23:59:59')
              AND replaceRegexpAll(JSONExtractRaw(properties, '$feature/a-b-test'), '^"|"$', '') in (['control', 'test_1', 'test_2'])
            GROUP BY day_start,
                     breakdown_value))
@@ -415,8 +415,8 @@
      FROM events e
      WHERE team_id = 2
        AND event = '$feature_flag_called'
-       AND timestamp >= toDateTime('2020-01-01 00:00:00', 'UTC')
-       AND timestamp <= toDateTime('2020-01-06 23:59:59', 'UTC')
+       AND timestamp >= toDateTime('2020-01-01 00:00:00')
+       AND timestamp <= toDateTime('2020-01-06 23:59:59')
        AND (has(['control', 'test_1', 'test_2', 'test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature_flag_response'), '^"|"$', ''))
             AND has(['a-b-test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature_flag'), '^"|"$', '')))
      GROUP BY value
