@@ -1,5 +1,6 @@
-import { CacheExtension, PluginEvent, Properties } from '@posthog/plugin-scaffold'
-import { Plugin, PluginMeta } from '@posthog/plugin-scaffold'
+import { PluginEvent, Properties } from '@posthog/plugin-scaffold'
+import { Plugin } from '@posthog/plugin-scaffold'
+import { defaultConfig } from 'config/config'
 import { DateTime } from 'luxon'
 import { Client } from 'pg'
 
@@ -57,7 +58,7 @@ export const clickhouseEventTimestampToDate = (timestamp: string): Date => {
 }
 
 export const fetchTimestampBoundariesForTeam = async (db: DB, teamId: number): Promise<TimestampBoundaries> => {
-    if (db.kafkaProducer) {
+    if (defaultConfig.KAFKA_ENABLED) {
         const clickhouseFetchTimestampsResult = await db.clickhouseQuery(`
             SELECT min(_timestamp) as min, max(_timestamp) as max
             FROM events
@@ -101,7 +102,7 @@ export const fetchEventsForInterval = async (
 ): Promise<HistoricalExportEvent[]> => {
     const timestampUpperBound = new Date(timestampLowerBound.getTime() + eventsTimeInterval)
 
-    if (db.kafkaProducer) {
+    if (defaultConfig.KAFKA_ENABLED) {
         const chTimestampLower = castTimestampToClickhouseFormat(
             DateTime.fromISO(timestampLowerBound.toISOString()),
             TimestampFormat.ClickHouseSecondPrecision

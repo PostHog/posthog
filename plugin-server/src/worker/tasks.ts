@@ -69,7 +69,7 @@ export const workerTasks: Record<string, TaskRunner> = {
         await teardownPlugins(hub)
     },
     flushKafkaMessages: async (hub) => {
-        await hub.kafkaProducer?.flush()
+        await hub.kafkaProducer.flush()
     },
     enqueueJob: async (hub, { job }: { job: EnqueuedJob }) => {
         await hub.jobQueueManager.enqueue(job)

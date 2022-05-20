@@ -48,7 +48,7 @@ export async function ingestEvent(hub: Hub, event: PluginEvent): Promise<IngestE
         status.info('🔔', e)
         Sentry.captureException(e, { extra: { event } })
 
-        if (hub.db.kafkaProducer) {
+        if (hub.KAFKA_ENABLED) {
             try {
                 const message = generateEventDeadLetterQueueMessage(event, e)
                 await hub.db.kafkaProducer.queueMessage(message)
