@@ -188,7 +188,7 @@ export class DB {
     ) {
         this.postgres = postgres
         this.redisPool = redisPool
-        defaultConfig.KAFKA_ENABLED = kafkaProducer
+        this.kafkaProducer = kafkaProducer
         this.clickhouse = clickhouse
         this.statsd = statsd
         this.postgresLogsWrapper = new PostgresLogsWrapper(this)
@@ -876,7 +876,7 @@ export class DB {
             if (client) {
                 kafkaMessages.push(message)
             } else {
-                await defaultConfig.KAFKA_ENABLED.queueMessage(message)
+                await this.kafkaProducer.queueMessage(message)
             }
         }
 
@@ -1394,7 +1394,7 @@ export class DB {
 
         if (defaultConfig.KAFKA_ENABLED) {
             try {
-                await defaultConfig.KAFKA_ENABLED.queueMessage({
+                await this.kafkaProducer.queueMessage({
                     topic: KAFKA_PLUGIN_LOG_ENTRIES,
                     messages: [{ key: parsedEntry.id, value: Buffer.from(JSON.stringify(parsedEntry)) }],
                 })
@@ -1831,7 +1831,7 @@ export class DB {
         version: number
     ): Promise<void> {
         if (defaultConfig.KAFKA_ENABLED) {
-            await defaultConfig.KAFKA_ENABLED.queueMessage({
+            await this.kafkaProducer.queueMessage({
                 topic: KAFKA_GROUPS,
                 messages: [
                     {
