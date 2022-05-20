@@ -6,10 +6,11 @@ from django.conf import settings
 from django.contrib.auth import login, password_validation
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
-from django.shortcuts import redirect, render
+from django.shortcuts import redirect
 from django.urls.base import reverse
 from django.utils import timezone
 from rest_framework import exceptions, generics, permissions, response, serializers, validators
+from rest_framework.authentication import SessionAuthentication
 from sentry_sdk import capture_exception
 from social_core.pipeline.partial import partial
 from social_django.strategy import DjangoStrategy
@@ -257,6 +258,26 @@ class SocialSignupSerializer(serializers.Serializer):
         request.session["organization_name"] = validated_data["organization_name"]
         request.session["email_opt_in"] = validated_data["email_opt_in"]
         request.session.set_expiry(3600)  # 1 hour to complete process
+        email = request.session.get("email")
+        user_name = request.session.get("user_name")
+
+        serializer = SignupSerializer(
+            data={
+                "organization_name": validated_data["organization_name"],
+                "email_opt_in": validated_data["email_opt_in"],
+                "first_name": user_name,
+                "email": email,
+                "password": None,
+            },
+            context={"request": request},
+        )
+
+        serializer.is_valid(raise_exception=True)
+        user = serializer.save()
+        logger.info(
+            f"social_create_user_signup", full_name_len=len(user_name), email_len=len(email), user=user.id,
+        )
+
         return {"continue_url": reverse("social:complete", args=[request.session["backend"]])}
 
     def to_representation(self, instance: Any) -> Any:
@@ -266,6 +287,9 @@ class SocialSignupSerializer(serializers.Serializer):
 class SocialSignupViewset(generics.CreateAPIView):
     serializer_class = SocialSignupSerializer
     permission_classes = (CanCreateOrg,)
+    authentication_classes = [
+        SessionAuthentication,
+    ]
 
 
 class TeamInviteSurrogate:
@@ -285,31 +309,6 @@ class TeamInviteSurrogate:
 class CompanyNameForm(forms.Form):
     companyName = forms.CharField(max_length=64)
     emailOptIn = forms.BooleanField(required=False)
-
-
-def finish_social_signup(request):
-    """
-    TODO: DEPRECATED in favor of posthog.api.signup.SocialSignupSerializer
-    """
-    if not get_can_create_org(request.user):
-        if request.session.get("email") and OrganizationDomain.objects.get_verified_for_email_address(
-            request.session.get("email")
-        ):
-            # There's a claimed and verified domain for the user's email address domain, but JTI provisioning is not enabled. To avoid confusion
-            # don't let the user create a new org (very likely they won't want this) and show an appropriate error response.
-            return redirect("/login?error_code=jit_not_enabled")
-        else:
-            return redirect("/login?error_code=no_new_organizations")
-
-    if request.method == "POST":
-        form = CompanyNameForm(request.POST)
-        if form.is_valid():
-            request.session["organization_name"] = form.cleaned_data["companyName"]
-            request.session["email_opt_in"] = bool(form.cleaned_data["emailOptIn"])
-            return redirect(reverse("social:complete", args=[request.session["backend"]]))
-    else:
-        form = CompanyNameForm()
-    return render(request, "signup_to_organization_company.html", {"user_name": request.session["user_name"]})
 
 
 def process_social_invite_signup(strategy: DjangoStrategy, invite_id: str, email: str, full_name: str) -> User:
@@ -423,27 +422,21 @@ def social_create_user(strategy: DjangoStrategy, details, backend, request, user
 
         if not user:
             logger.info(f"social_create_user_jit_failed", full_name_len=len(full_name), email_len=len(email))
+
+            if not get_can_create_org(request.user):
+                if request.session.get("email") and OrganizationDomain.objects.get_verified_for_email_address(
+                    request.session.get("email")
+                ):
+                    # There's a claimed and verified domain for the user's email address domain, but JIT provisioning is not enabled. To avoid confusion
+                    # don't let the user create a new org (very likely they won't want this) and show an appropriate error response.
+                    return redirect("/login?error_code=jit_not_enabled")
+                else:
+                    return redirect("/login?error_code=no_new_organizations")
+            strategy.session_set("email", email)
             organization_name = strategy.session_get("organization_name", None)
             email_opt_in = strategy.session_get("email_opt_in", None)
-            if not organization_name or email_opt_in is None:
-                strategy.session_set("email", email)
-                return redirect(finish_social_signup)
-
-            serializer = SignupSerializer(
-                data={
-                    "organization_name": organization_name,
-                    "email_opt_in": email_opt_in,
-                    "first_name": full_name,
-                    "email": email,
-                    "password": None,
-                },
-                context={"request": request},
-            )
-
-            serializer.is_valid(raise_exception=True)
-            user = serializer.save()
-            logger.info(
-                f"social_create_user_signup", full_name_len=len(full_name), email_len=len(email), user=user.id,
+            return redirect(
+                f"/organization/confirm-creation?organization_name={organization_name}&email_opt_in={email_opt_in}",
             )
 
     report_user_signed_up(

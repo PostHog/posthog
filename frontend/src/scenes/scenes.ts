@@ -142,6 +142,10 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     [Scene.OrganizationCreateFirst]: {
         name: 'Organization creation',
     },
+    [Scene.OrganizationCreationConfirm]: {
+        name: 'Confirm organization creation',
+        allowUnauthenticated: true,
+    },
     [Scene.OrganizationSettings]: {
         organizationBased: true,
     },
@@ -252,6 +256,7 @@ export const routes: Record<string, Scene> = {
     [urls.organizationBilling()]: Scene.Billing,
     [urls.billingSubscribed()]: Scene.BillingSubscribed,
     [urls.organizationCreateFirst()]: Scene.OrganizationCreateFirst,
+    [urls.organizationCreationConfirm()]: Scene.OrganizationCreationConfirm,
     [urls.instanceLicenses()]: Scene.Licenses,
     [urls.instanceStatus()]: Scene.SystemStatus,
     [urls.instanceSettings()]: Scene.SystemStatus,

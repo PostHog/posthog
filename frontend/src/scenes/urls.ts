@@ -53,6 +53,7 @@ export const urls = {
     projectSettings: () => '/project/settings',
     mySettings: () => '/me/settings',
     organizationSettings: () => '/organization/settings',
+    organizationCreationConfirm: () => '/organization/confirm-creation',
     organizationCreateFirst: () => '/organization/create',
     toolbarLaunch: () => '/toolbar',
     // Onboarding / setup routes
