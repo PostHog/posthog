@@ -83,6 +83,7 @@ class TrendsEventQuery(EnterpriseEventQuery):
 
         return query, self.params
 
+    # det
     def _determine_should_join_distinct_ids(self) -> None:
         if (
             self._entity.math == "dau" and not self._aggregate_users_by_distinct_id
