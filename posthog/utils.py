@@ -581,6 +581,18 @@ def get_plugin_server_job_queues() -> Optional[List[str]]:
     return None
 
 
+def is_object_storage_available() -> bool:
+    from posthog.storage import object_storage
+
+    try:
+        if settings.OBJECT_STORAGE_ENABLED:
+            return object_storage.health_check()
+        else:
+            return False
+    except BaseException:
+        return False
+
+
 def get_redis_info() -> Mapping[str, Any]:
     return get_client().info()
 

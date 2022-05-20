@@ -95,6 +95,12 @@ export function getDefaultConfig(): PluginsServerConfig {
         PERSON_INFO_CACHE_TTL: 5 * 60, // 5 min
         KAFKA_HEALTHCHECK_SECONDS: 20,
         HISTORICAL_EXPORTS_ENABLED: true,
+        OBJECT_STORAGE_ENABLED: false,
+        OBJECT_STORAGE_ENDPOINT: 'http://localhost:19000',
+        OBJECT_STORAGE_ACCESS_KEY_ID: 'object_storage_root_user',
+        OBJECT_STORAGE_SECRET_ACCESS_KEY: 'object_storage_root_password',
+        OBJECT_STORAGE_SESSION_RECORDING_FOLDER: 'session_recordings',
+        OBJECT_STORAGE_BUCKET: 'posthog',
     }
 }
 
@@ -169,6 +175,14 @@ export function getConfigHelp(): Record<keyof PluginsServerConfig, string> {
         CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS_TEAMS:
             '(advanced) a comma separated list of teams to disable clickhouse external schemas for',
         CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: '(advanced) topic to send events to for clickhouse ingestion',
+        OBJECT_STORAGE_ENABLED:
+            'Disables or enables the use of object storage. It will become mandatory to use object storage',
+        OBJECT_STORAGE_ENDPOINT: 'minio endpoint',
+        OBJECT_STORAGE_ACCESS_KEY_ID: 'access key for minio',
+        OBJECT_STORAGE_SECRET_ACCESS_KEY: 'secret key for minio',
+        OBJECT_STORAGE_SESSION_RECORDING_FOLDER:
+            'the top level folder for storing session recordings inside the storage bucket',
+        OBJECT_STORAGE_BUCKET: 'the object storage bucket name',
     }
 }
 
