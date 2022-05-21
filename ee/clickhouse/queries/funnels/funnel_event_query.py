@@ -137,6 +137,7 @@ class _FunnelEventQuery_PersonOnEvents(EnterpriseEventQuery):
             f"{self.EVENT_TABLE_ALIAS}.event as event",
             f"{self.EVENT_TABLE_ALIAS}.team_id as team_id",
             f"{self.EVENT_TABLE_ALIAS}.distinct_id as distinct_id",
+            f"{self.EVENT_TABLE_ALIAS}.person_id as person_id",  # TODO: handle person_id and aggregation_target together in filters
             f"{self.EVENT_TABLE_ALIAS}.timestamp as timestamp",
             (
                 f"{self.EVENT_TABLE_ALIAS}.elements_chain as elements_chain"
