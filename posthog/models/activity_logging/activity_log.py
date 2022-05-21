@@ -152,7 +152,7 @@ def log_activity(
     try:
         if activity == "updated" and (detail.changes is None or len(detail.changes) == 0):
             logger.warn(
-                "ignore_update_activity_no_changes",
+                "activity_log.ignore_update_activity_no_changes",
                 team_id=team_id,
                 organization_id=organization_id,
                 user_id=user.id,
@@ -171,7 +171,7 @@ def log_activity(
         )
     except Exception as e:
         logger.warn(
-            "failed to write activity log",
+            "activity_log.failed_to_write_to_activity_log",
             team=team_id,
             organization_id=organization_id,
             scope=scope,
