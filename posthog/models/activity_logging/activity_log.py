@@ -103,6 +103,12 @@ field_exclusions: Dict[Literal["FeatureFlag", "Person", "Insight"], List[str]] =
         "last_refresh",
         "saved",
         "is_sample",
+        "refresh_attempt",
+        "last_modified_by",
+        "short_id",
+        "created_by",
+        "insightviewed",
+        "dashboardtile",
     ],
 }
 
@@ -122,13 +128,19 @@ def changes_between(
         return changes
 
     if previous is not None:
-        fields = current._meta.fields if current is not None else []
+        fields = current._meta.get_fields() if current is not None else []
 
-        # TODO how to include tags in the fields assessed
         filtered_fields = [f.name for f in fields if f.name not in field_exclusions[model_type]]
         for field in filtered_fields:
             left = getattr(previous, field, None)
+            if isinstance(left, models.Manager):
+                left = [str(x) for x in left.all()]
             right = getattr(current, field, None)
+            if isinstance(right, models.Manager):
+                right = [str(x) for x in right.all()]
+
+            if field == "tagged_items":
+                field = "tags"  # or the UI needs to be coupled to this internal backend naming
 
             if left is None and right is not None:
                 changes.append(Change(type=model_type, field=field, action="created", after=right,))

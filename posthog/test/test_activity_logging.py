@@ -1,10 +1,22 @@
+import random
+import string
 import unittest
+from typing import List
 
 import pytest
 from dateutil import parser
 from django.db.utils import IntegrityError
 
-from posthog.models import FeatureFlag, Person, Team, User
+from posthog.models import (
+    Dashboard,
+    DashboardTile,
+    FeatureFlag,
+    Insight,
+    Person,
+    Tag,
+    Team,
+    User,
+)
 from posthog.models.activity_logging.activity_log import ActivityLog, Change, Detail, changes_between, log_activity
 from posthog.models.utils import UUIDT
 from posthog.test.base import BaseTest
@@ -90,11 +102,75 @@ class TestActivityLogModel(BaseTest):
 
             logged_warning = log.records[0].__dict__
             self.assertEqual(logged_warning["levelname"], "WARNING")
-            self.assertEqual(logged_warning["msg"]["event"], "failed to write activity log")
+            self.assertEqual(logged_warning["msg"]["event"], "activity_log.failed_to_write_to_activity_log")
             self.assertEqual(logged_warning["msg"]["scope"], "testing throwing exceptions on create")
             self.assertEqual(logged_warning["msg"]["team"], 1)
             self.assertEqual(logged_warning["msg"]["activity"], "does not explode")
             self.assertIsInstance(logged_warning["msg"]["exception"], ValueError)
+
+
+class TestChangesBetweenInsights(BaseTest):
+    def _an_insight_with(self, tagged_items: List[str], **kwargs) -> Insight:
+        insight = Insight.objects.create(
+            created_at=kwargs.get("created_at", parser.parse("12th April 2003")),
+            team=kwargs.get("team", self.team),
+            name=kwargs.get("name", "the name"),
+            derived_name=kwargs.get("derived_name", "the derived name"),
+            description=kwargs.get("description", "an insight description"),
+            filters=kwargs.get("filters", {}),
+            filters_hash=kwargs.get("filters_hash", "a hash string"),
+            order=kwargs.get("order", 0),
+            deleted=kwargs.get("deleted", False),
+            saved=kwargs.get("saved", True),
+            last_refresh=kwargs.get("last_refresh", parser.parse("12th April 2003")),
+            refreshing=kwargs.get("refreshing", False),
+            created_by=kwargs.get("user", self.user),
+            is_sample=kwargs.get("is_sample", False),
+            short_id=kwargs.get("short_id", random.choice(string.ascii_letters)),
+            favorited=kwargs.get("favorited", False),
+            refresh_attempt=kwargs.get("refresh_attempt", 0),
+            last_modified_at=kwargs.get("last_modified_at", parser.parse("12th April 2003")),
+            last_modified_by=kwargs.get("last_modified_by", self.user),
+        )
+
+        if tagged_items:
+            for provided_tag in tagged_items:
+                tag = Tag.objects.create(name=provided_tag, team_id=self.team.id)
+                insight.tagged_items.create(tag=tag)
+
+        return insight
+
+    def test_a_change_of_insight_dashboard_can_be_logged(self):
+        insight_before = self._an_insight_with(name="name", tagged_items=[])
+        insight_after = self._an_insight_with(name="name", tagged_items=[])
+        dashboard = Dashboard.objects.create(team=self.team)
+        DashboardTile.objects.create(insight=insight_after, dashboard=dashboard)
+
+        actual = changes_between(model_type="Insight", previous=insight_before, current=insight_after,)
+        expected = [
+            Change(
+                type="Insight",
+                action="changed",
+                field="dashboards",
+                before=[],
+                after=[f"Dashboard object ({dashboard.id})"],
+            )
+        ]
+
+        self.assertCountEqual(actual, expected)
+
+    def test_insight_change_can_be_logged(self):
+        actual = changes_between(
+            model_type="Insight",
+            previous=self._an_insight_with(name="name", tagged_items=[]),
+            current=self._an_insight_with(name="new name", tagged_items=["wat"]),
+        )
+        expected = [
+            Change(type="Insight", field="name", action="changed", before="name", after="new name",),
+            Change(type="Insight", field="tags", action="changed", before=[], after=["wat"]),
+        ]
+
+        self.assertCountEqual(actual, expected)
 
 
 class TestChangesBetweenFeatureFlags(unittest.TestCase):

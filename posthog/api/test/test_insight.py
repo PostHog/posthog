@@ -423,12 +423,14 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
             frozen_time.tick(delta=timedelta(minutes=10))
 
             response = self.client.patch(
-                f"/api/projects/{self.team.id}/insights/{insight_id}", {"name": "insight new name"},
+                f"/api/projects/{self.team.id}/insights/{insight_id}",
+                {"name": "insight new name", "tags": ["add", "these", "tags"]},
             )
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
             response_data = response.json()
             self.assertEqual(response_data["name"], "insight new name")
+            self.assertEqual(sorted(response_data["tags"]), sorted(["add", "these", "tags"]))
             self.assertEqual(response_data["created_by"]["distinct_id"], self.user.distinct_id)
             self.assertEqual(
                 response_data["effective_restriction_level"], Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT
@@ -456,6 +458,13 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                                     "field": "name",
                                     "before": "insight name",
                                     "after": "insight new name",
+                                },
+                                {
+                                    "type": "Insight",
+                                    "action": "changed",
+                                    "field": "tags",
+                                    "before": [],
+                                    "after": ["add", "these", "tags"],
                                 },
                             ],
                             "merge": None,

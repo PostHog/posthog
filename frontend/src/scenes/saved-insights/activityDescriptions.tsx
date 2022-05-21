@@ -6,6 +6,7 @@ import React from 'react'
 import { SentenceList } from 'scenes/feature-flags/activityDescriptions'
 import { BreakdownSummary, FiltersSummary, QuerySummary } from 'lib/components/InsightCard/InsightDetails'
 import '../../lib/components/InsightCard/InsightCard.scss'
+import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 
 const nameOrLinkToInsight = (item: ActivityLogItem): string | JSX.Element => {
     const name = item.detail.name || '(empty string)'
@@ -82,12 +83,29 @@ const insightActionsMapping: Record<keyof InsightModel, (change?: ActivityChange
         ]
     },
     tags: function onTags(change) {
-        // TODO how are tags presented as a change?
-        return [
-            <>
-                added the tags <pre>{JSON.stringify(change)}</pre>
-            </>,
-        ]
+        const tagsBefore = change?.before as string[]
+        const tagsAfter = change?.after as string[]
+        const addedTags = tagsAfter.filter((t) => tagsBefore.indexOf(t) === -1)
+        const removedTags = tagsBefore.filter((t) => tagsAfter.indexOf(t) === -1)
+
+        const changes: (string | JSX.Element | null)[] = []
+        if (addedTags.length) {
+            changes.push(
+                <>
+                    added the tags{' '}
+                    <ObjectTags tags={addedTags} saving={false} style={{ display: 'inline' }} staticOnly />
+                </>
+            )
+        }
+        if (removedTags.length) {
+            changes.push(
+                <>
+                    removed the tags{' '}
+                    <ObjectTags tags={removedTags} saving={false} style={{ display: 'inline' }} staticOnly />
+                </>
+            )
+        }
+        return changes
     },
     effective_restriction_level: function onRestrictionChange(change) {
         return [
