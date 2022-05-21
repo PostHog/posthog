@@ -1,8 +1,9 @@
 {% extends "email/base_transactional.html" %} {% load posthog_assets %} {% block section %}
+
 <p class="text-center">
-    <strong>{{ invite.created_by.first_name }}first_name</strong> ({{ invite.created_by.email }}) has invited you to
+    <strong>{{ invite.created_by.first_name }}</strong> ({{ invite.created_by.email }}) has invited you to
     join
-    <strong>{{invite.organization.name }} org_name_placeholder</strong> on PostHog.
+    <strong>{{invite.organization.name }}</strong> on PostHog.
     PostHog is a product analytics tool that will help you better understand your users.<br />
     Build the best product <i>together</i>.
 </p>
@@ -11,13 +12,18 @@
 </div>
 <div class="mt text-center dashed-border">
     <p>
-        Or paste this link into your browser:<br />
-        <a href="{{ invite }}">{{ invite }}invite_link_placehoolder</a>
+        Or paste this link into your browser:
     </p>
+    <a href="{{ invite }}" class="invite-link"><b>{{ invite }}</b></a>
 </div>
-<p class="text-center">Please note this invite will expire in <b>3 days</b>.</p>
-{% endblock %}{% load posthog_filters %} {% block heading %}<h1 class="invite-header"><strong>Li
-        {{ invite.created_by.first_name }}</strong> has invited you to
-    join
-    <strong>{{ invite.organization.name }} placeholder_org</strong> on PostHog
-</h1>{% endblock %}
+<p class="invite-bottom">This invitation will expire on {{ expiry_date }}.</p>
+<p class="text-center"><a target="_blank" href="https://posthog.com"><b>https://posthog.com</b></a></p>
+<div class="text-center">
+    <img src="{% absolute_asset_url 'email/invite-email-welcome.png' %}" />
+</div>
+{% endblock %}{% load posthog_filters %} {% block heading %}
+<h1 class="invite-header">
+    <strong>{{ invite.created_by.first_name }}</strong> has invited you to join
+    <strong>{{ invite.organization.name }}</strong> on PostHog
+</h1>
+{% endblock %}
