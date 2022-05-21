@@ -71,7 +71,7 @@ describe.skip('KafkaQueue', () => {
 
         await delayUntilEventIngested(() => hub.db.fetchEvents())
 
-        await hub.kafkaProducer?.flush()
+        await hub.kafkaProducer.flush()
         const events = await hub.db.fetchEvents()
 
         expect(events.length).toEqual(1)

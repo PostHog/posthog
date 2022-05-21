@@ -9,7 +9,7 @@ export function PluginsSearch(): JSX.Element {
     return (
         <Input.Search
             data-attr="plugins-search"
-            placeholder="Start typing to search for a plugin"
+            placeholder="Start typing to search for an app"
             autoFocus
             value={searchTerm || ''}
             onChange={(e) => setSearchTerm(e.target.value)}
