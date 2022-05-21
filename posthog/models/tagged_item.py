@@ -81,4 +81,4 @@ class TaggedItem(UUIDModel):
         return super(TaggedItem, self).save(*args, **kwargs)
 
     def __str__(self):
-        return self.tag
+        return str(self.tag)
