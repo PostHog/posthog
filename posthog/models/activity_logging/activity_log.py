@@ -149,10 +149,10 @@ def changes_between(
         for field in filtered_fields:
             left = getattr(previous, field, None)
             if isinstance(left, models.Manager):
-                left = [str(x) for x in left.all()]
+                left = sorted([str(x) for x in left.all()])
             right = getattr(current, field, None)
             if isinstance(right, models.Manager):
-                right = [str(x) for x in right.all()]
+                right = sorted([str(x) for x in right.all()])
 
             if field == "tagged_items":
                 field = "tags"  # or the UI needs to be coupled to this internal backend naming

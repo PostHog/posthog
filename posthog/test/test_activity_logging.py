@@ -273,13 +273,23 @@ class TestChangesBetweenFeatureFlags(unittest.TestCase):
         actual = changes_between(
             model_type="Person",
             previous=self._a_person_with(
-                id="before", uuid="before", distinct_ids="before", created_at="before", is_identified=True
+                id="before",
+                uuid="before",
+                distinct_ids="before",
+                created_at="before",
+                is_identified=True,
+                properties={"a": "b"},
             ),
             current=self._a_person_with(
-                id="after", uuid="after", distinct_ids="after", created_at="after", is_identified=False
+                id="after",
+                uuid="after",
+                distinct_ids="after",
+                created_at="after",
+                is_identified=False,
+                properties={"a": "c"},
             ),
         )
-        self.assertEqual([change.field for change in actual], ["team", "is_user"])
+        self.assertEqual([change.field for change in actual], ["properties"])
 
     @staticmethod
     def _a_feature_flag_with(**kwargs) -> FeatureFlag:

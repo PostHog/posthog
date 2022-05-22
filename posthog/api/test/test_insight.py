@@ -447,7 +447,6 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                     {
                         "user": {"first_name": "", "email": "user1@posthog.com"},
                         "activity": "updated",
-                        "created_at": "2012-01-14T03:31:34Z",
                         "scope": "Insight",
                         "item_id": str(insight_id),
                         "detail": {
@@ -455,30 +454,31 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                                 {
                                     "type": "Insight",
                                     "action": "changed",
-                                    "field": "name",
-                                    "before": "insight name",
-                                    "after": "insight new name",
+                                    "field": "tags",
+                                    "before": [],
+                                    "after": ["add", "tags", "these"],
                                 },
                                 {
                                     "type": "Insight",
                                     "action": "changed",
-                                    "field": "tags",
-                                    "before": [],
-                                    "after": ["add", "these", "tags"],
+                                    "field": "name",
+                                    "before": "insight name",
+                                    "after": "insight new name",
                                 },
                             ],
                             "merge": None,
                             "name": "insight new name",
                             "short_id": short_id,
                         },
+                        "created_at": "2012-01-14T03:31:34Z",
                     },
                     {
                         "user": {"first_name": "", "email": "user1@posthog.com"},
                         "activity": "created",
-                        "created_at": "2012-01-14T03:21:34Z",
                         "scope": "Insight",
                         "item_id": str(insight_id),
                         "detail": {"changes": None, "merge": None, "name": "insight name", "short_id": short_id},
+                        "created_at": "2012-01-14T03:21:34Z",
                     },
                 ],
             )
@@ -532,7 +532,6 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         self.assertEqual(response.json()["filters_hash"], original_filters_hash)
 
     @freeze_time("2012-01-14T03:21:34.000Z")
-    @skip("tags are displayed in order of insertion, in this test they are not being returned in a consistent order")
     def test_can_add_and_remove_tags(self):
         insight_id, response_data = self._create_insight(
             {
@@ -553,7 +552,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
             {"tags": ["2", "1", "3"]},
         )
 
-        self.assertEqual(add_tags_response.json()["tags"], ["2", "1", "3"])
+        self.assertEqual(sorted(add_tags_response.json()["tags"]), ["1", "2", "3"])
 
         remove_tags_response = self.client.patch(
             f"/api/projects/{self.team.id}/insights/{insight_id}", {"tags": ["3"]},
@@ -589,7 +588,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                                 "action": "changed",
                                 "field": "tags",
                                 "before": [],
-                                "after": ["2", "1", "3"],
+                                "after": ["1", "2", "3"],
                             }
                         ],
                         "merge": None,
@@ -605,7 +604,13 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                     "item_id": str(insight_id),
                     "detail": {
                         "changes": [
-                            {"type": "Insight", "action": "changed", "field": "tags", "before": [], "after": ["3"],}
+                            {
+                                "type": "Insight",
+                                "action": "changed",
+                                "field": "tags",
+                                "before": ["1", "2", "3"],
+                                "after": ["3"],
+                            }
                         ],
                         "merge": None,
                         "name": "a created dashboard",
@@ -1555,7 +1560,8 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         activity_response = self._get_insight_activity(insight_id)
 
         activity: List[Dict] = activity_response["results"]
+
         self.maxDiff = None
-        self.assertCountEqual(
+        self.assertEqual(
             activity, expected,
         )
