@@ -7,6 +7,7 @@ import { SentenceList } from 'scenes/feature-flags/activityDescriptions'
 import { BreakdownSummary, FiltersSummary, QuerySummary } from 'lib/components/InsightCard/InsightDetails'
 import '../../lib/components/InsightCard/InsightCard.scss'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
+import { pluralize } from 'lib/utils'
 
 const nameOrLinkToInsight = (item: ActivityLogItem): string | JSX.Element => {
     const name = item.detail.name || '(empty string)'
@@ -92,7 +93,7 @@ const insightActionsMapping: Record<keyof InsightModel, (change?: ActivityChange
         if (addedTags.length) {
             changes.push(
                 <>
-                    added the tags{' '}
+                    added the {pluralize(addedTags.length, 'tag', 'tags', false)}{' '}
                     <ObjectTags tags={addedTags} saving={false} style={{ display: 'inline' }} staticOnly />
                 </>
             )
@@ -100,7 +101,7 @@ const insightActionsMapping: Record<keyof InsightModel, (change?: ActivityChange
         if (removedTags.length) {
             changes.push(
                 <>
-                    removed the tags{' '}
+                    removed the pluralize(addedTags.length, 'tag', 'tags', false){' '}
                     <ObjectTags tags={removedTags} saving={false} style={{ display: 'inline' }} staticOnly />
                 </>
             )
