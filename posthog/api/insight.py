@@ -226,7 +226,7 @@ class InsightSerializer(TaggedItemSerializerMixin, InsightBasicSerializer):
 
     def update(self, instance: Insight, validated_data: Dict, **kwargs) -> Insight:
         try:
-            before_update = Insight.objects.prefetch_related("tagged_items").get(pk=instance.id)
+            before_update = Insight.objects.prefetch_related("tagged_items__tag").get(pk=instance.id)
         except Insight.DoesNotExist:
             before_update = None
 
