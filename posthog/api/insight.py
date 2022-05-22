@@ -259,15 +259,16 @@ class InsightSerializer(TaggedItemSerializerMixin, InsightBasicSerializer):
 
         insight_name = choose_insight_name(updated_insight)
         # experiments creates insights with neither a name nor a derived name, don't log them
-        log_activity(
-            organization_id=self.context["request"].user.current_organization_id,
-            team_id=self.context["team_id"],
-            user=self.context["request"].user,
-            item_id=updated_insight.id,
-            scope="Insight",
-            activity="updated",
-            detail=Detail(name=insight_name, changes=changes, short_id=updated_insight.short_id),
-        )
+        if insight_name:
+            log_activity(
+                organization_id=self.context["request"].user.current_organization_id,
+                team_id=self.context["team_id"],
+                user=self.context["request"].user,
+                item_id=updated_insight.id,
+                scope="Insight",
+                activity="updated",
+                detail=Detail(name=insight_name, changes=changes, short_id=updated_insight.short_id),
+            )
 
         return updated_insight
 
@@ -668,15 +669,16 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, viewsets.Mo
 
         insight_name = choose_insight_name(instance)
         # experiments creates insights with neither a name nor a derived name, don't log them
-        log_activity(
-            organization_id=self.organization.id,
-            team_id=self.team_id,
-            user=request.user,
-            item_id=instance_id,
-            scope="Insight",
-            activity="deleted",
-            detail=Detail(name=insight_name, short_id=instance_short_id),
-        )
+        if insight_name:
+            log_activity(
+                organization_id=self.organization.id,
+                team_id=self.team_id,
+                user=request.user,
+                item_id=instance_id,
+                scope="Insight",
+                activity="deleted",
+                detail=Detail(name=insight_name, short_id=instance_short_id),
+            )
 
         return Response(status=status.HTTP_204_NO_CONTENT)
 
