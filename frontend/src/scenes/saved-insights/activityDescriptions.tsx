@@ -101,7 +101,7 @@ const insightActionsMapping: Record<keyof InsightModel, (change?: ActivityChange
         if (removedTags.length) {
             changes.push(
                 <>
-                    removed the {pluralize(addedTags.length, 'tag', 'tags', false)}{' '}
+                    removed the {pluralize(removedTags.length, 'tag', 'tags', false)}{' '}
                     <ObjectTags tags={removedTags} saving={false} style={{ display: 'inline' }} staticOnly />
                 </>
             )
