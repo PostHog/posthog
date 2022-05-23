@@ -433,14 +433,15 @@ function VizComponentFallback(): JSX.Element {
     )
 }
 
-interface InsightVizProps extends Pick<InsightCardProps, 'insight' | 'loading' | 'apiErrored' | 'timedOut' | 'style'> {
+export interface InsightVizProps
+    extends Pick<InsightCardProps, 'insight' | 'loading' | 'apiErrored' | 'timedOut' | 'style'> {
     tooFewFunnelSteps?: boolean
     invalidFunnelExclusion?: boolean
     empty?: boolean
     setAreDetailsShown?: React.Dispatch<React.SetStateAction<boolean>>
 }
 
-function InsightViz({
+export function InsightViz({
     insight,
     loading,
     setAreDetailsShown,

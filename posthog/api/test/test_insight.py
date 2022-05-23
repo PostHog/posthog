@@ -362,6 +362,27 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
             ],
         )
 
+    @freeze_time("2012-01-14T03:21:34.000Z")
+    def test_create_insight_with_no_names_logs_no_activity(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/insights",
+            data={
+                "filters": {
+                    "events": [{"id": "$pageview"}],
+                    "properties": [{"key": "$browser", "value": "Mac OS X"}],
+                    "date_from": "-90d",
+                },
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        response_data = response.json()
+        self.assertEqual(response_data["name"], None)
+        self.assertEqual(response_data["derived_name"], None)
+
+        self.assert_insight_activity(
+            response_data["id"], [],
+        )
+
     def test_create_insight_items_on_a_dashboard(self):
         dashboard_id, _ = self._create_dashboard({})
 

@@ -38,20 +38,22 @@ describe('kafka health check', () => {
 
     // if kafka is up and running it should pass this healthcheck
     test('healthcheck passes under normal conditions', async () => {
-        const [kafkaHealthy, error] = await kafkaHealthcheck(hub!.kafkaProducer!.producer, consumer, statsd, 5000)
+        const [kafkaHealthy, error] = await kafkaHealthcheck(hub!.kafkaProducer, consumer, statsd, 5000)
         expect(kafkaHealthy).toEqual(true)
         expect(error).toEqual(null)
     })
 
     test('healthcheck fails if producer throws', async () => {
-        hub!.kafkaProducer!.producer.send = jest.fn(() => {
+        hub!.kafkaProducer.flush = jest.fn(() => {
             throw new Error('producer error')
         })
 
-        const [kafkaHealthy, error] = await kafkaHealthcheck(hub!.kafkaProducer!.producer, consumer, statsd, 5000)
+        const [kafkaHealthy, error] = await kafkaHealthcheck(hub!.kafkaProducer, consumer, statsd, 5000)
         expect(kafkaHealthy).toEqual(false)
         expect(error!.message).toEqual('producer error')
         expect(statsd.timing).not.toHaveBeenCalled()
+
+        jest.mocked(hub!.kafkaProducer.flush).mockReset()
     })
 
     test('healthcheck fails if consumer throws', async () => {
@@ -59,7 +61,7 @@ describe('kafka health check', () => {
             throw new Error('consumer error')
         })
 
-        const [kafkaHealthy, error] = await kafkaHealthcheck(hub!.kafkaProducer!.producer, consumer, statsd, 5000)
+        const [kafkaHealthy, error] = await kafkaHealthcheck(hub!.kafkaProducer, consumer, statsd, 5000)
         expect(kafkaHealthy).toEqual(false)
         expect(error!.message).toEqual('consumer error')
         expect(statsd.timing).not.toHaveBeenCalled()
@@ -73,7 +75,7 @@ describe('kafka health check', () => {
             on: jest.fn(),
         }
 
-        const [kafkaHealthy, error] = await kafkaHealthcheck(hub!.kafkaProducer!.producer, fakeConsumer, statsd, 0)
+        const [kafkaHealthy, error] = await kafkaHealthcheck(hub!.kafkaProducer, fakeConsumer, statsd, 0)
         expect(kafkaHealthy).toEqual(false)
         expect(error!.message).toEqual('Consumer did not start fetching messages in time.')
         expect(statsd.timing).not.toHaveBeenCalled()

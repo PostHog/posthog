@@ -7,8 +7,8 @@ export function CommunityPluginTag({ isCommunity }: { isCommunity?: boolean }): 
         <Tooltip
             title={
                 isCommunity
-                    ? 'This plugin was built by a community memeber, not the PostHog team.'
-                    : 'This plugin was built by the PostHog team.'
+                    ? 'This app was built by a community memeber, not the PostHog team.'
+                    : 'This app was built by the PostHog team.'
             }
         >
             <Tag color={isCommunity ? 'cyan' : 'geekblue'}>{isCommunity ? 'Community' : 'Official'}</Tag>

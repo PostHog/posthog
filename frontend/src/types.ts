@@ -22,6 +22,7 @@ import { ChartDataset, ChartType, InteractionItem } from 'chart.js'
 import { LogLevel } from 'rrweb'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { BehavioralFilterKey, BehavioralFilterType } from 'scenes/cohorts/CohortFilters/types'
+import { LogicWrapper } from 'kea'
 
 export type Optional<T, K extends string | number | symbol> = Omit<T, K> & { [K in keyof T]?: T[K] }
 
@@ -863,6 +864,27 @@ export interface PluginType {
     public_jobs?: Record<string, JobSpec>
 }
 
+/** Config passed to app component and logic as props. Sent in Django's app context */
+export interface FrontendAppConfig {
+    pluginId: number
+    pluginConfigId: number
+    pluginType: PluginInstallationType | null
+    name: string
+    url: string
+    config: Record<string, any>
+}
+
+/** Frontend app created after receiving a bundle via import('').getFrontendApp() */
+export interface FrontendApp {
+    id: number
+    pluginId: number
+    error?: any
+    title?: string
+    logic?: LogicWrapper
+    component?: (props: FrontendAppConfig) => JSX.Element
+    onInit?: (props: FrontendAppConfig) => void
+}
+
 export interface JobPayloadFieldOptions {
     type: 'string' | 'boolean' | 'json' | 'number' | 'date'
     required?: boolean
@@ -1287,7 +1309,7 @@ export interface ChartParams {
 // Shared between insightLogic, dashboardItemLogic, trendsLogic, funnelLogic, pathsLogic, retentionTableLogic
 export interface InsightLogicProps {
     /** currently persisted insight */
-    dashboardItemId?: InsightShortId | 'new' | null
+    dashboardItemId?: InsightShortId | 'new' | `new-${string}` | null
     /** id of the dashboard the insight is on (when the insight is being displayed on a dashboard) **/
     dashboardId?: DashboardType['id']
     /** cached insight */
@@ -1624,6 +1646,7 @@ export interface AppContext {
     default_event_name: string
     persisted_feature_flags?: string[]
     anonymous: boolean
+    frontend_apps?: Record<number, FrontendAppConfig>
     /** Whether the user was autoswitched to the current item's team. */
     switched_team: TeamType['id'] | null
 }

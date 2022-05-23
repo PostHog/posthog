@@ -13,8 +13,8 @@ export function LocalPlugin(): JSX.Element {
     return (
         <div style={{ marginTop: 16 }}>
             <Card>
-                <Title level={5}>Install Local Plugin</Title>
-                <Paragraph>To install a local plugin from this computer/server, give its full path below.</Paragraph>
+                <Title level={5}>Install Local App</Title>
+                <Paragraph>To install a local app from this computer/server, give its full path below.</Paragraph>
 
                 <Row style={{ width: '100%' }} gutter={16}>
                     <Col style={{ flex: 1 }}>

@@ -159,9 +159,9 @@ export interface Hub extends PluginsServerConfig {
     db: DB
     postgres: Pool
     redisPool: GenericPool<Redis>
-    clickhouse?: ClickHouse
-    kafka?: Kafka
-    kafkaProducer?: KafkaProducerWrapper
+    clickhouse: ClickHouse
+    kafka: Kafka
+    kafkaProducer: KafkaProducerWrapper
     objectStorage: ObjectStorage
     // metrics
     statsd?: StatsD
@@ -929,11 +929,6 @@ export enum OrganizationMembershipLevel {
     Member = 1,
     Admin = 8,
     Owner = 15,
-}
-
-export enum PluginServerMode {
-    Ingestion = 'INGESTION',
-    Runner = 'RUNNER',
 }
 
 export interface PreIngestionEvent {
