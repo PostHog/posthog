@@ -10,7 +10,7 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from freezegun import freeze_time
 from semantic_version import Version
 
-from posthog.models import Plugin, PluginAttachment, PluginConfig
+from posthog.models import Plugin, PluginAttachment, PluginConfig, PluginSourceFile
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.plugins.access import (
     can_configure_plugins,
@@ -501,6 +501,80 @@ class TestPluginAPI(APIBaseTest):
         )
         self.assertEqual(response.json(), {"plugin.json": '{"name":"my plugin"}'})
         self.assertEqual(mock_reload.call_count, 4)
+
+    def test_create_plugin_frontend_source(self, mock_get, mock_reload):
+        self.assertEqual(mock_reload.call_count, 0)
+        response = self.client.post(
+            "/api/organizations/@current/plugins/", {"plugin_type": "source", "name": "myplugin",},
+        )
+        self.assertEqual(response.status_code, 201)
+        id = response.json()["id"]
+        self.assertEqual(
+            response.json(),
+            {
+                "id": id,
+                "plugin_type": "source",
+                "name": "myplugin",
+                "description": None,
+                "url": None,
+                "config_schema": {},
+                "tag": None,
+                "latest_tag": None,
+                "is_global": False,
+                "organization_id": response.json()["organization_id"],
+                "organization_name": self.CONFIG_ORGANIZATION_NAME,
+                "capabilities": {},
+                "metrics": {},
+                "public_jobs": {},
+            },
+        )
+        self.assertEqual(Plugin.objects.count(), 1)
+        self.assertEqual(mock_reload.call_count, 1)
+
+        response = self.client.patch(
+            f"/api/organizations/@current/plugins/{id}/update_source", {"frontend.tsx": "export const scene = {}",},
+        )
+
+        self.assertEqual(Plugin.objects.count(), 1)
+        self.assertEqual(PluginSourceFile.objects.count(), 1)
+        self.assertEqual(mock_reload.call_count, 2)
+
+        plugin = Plugin.objects.get(pk=id)
+        plugin_config = PluginConfig.objects.create(plugin=plugin, team=self.team, enabled=True, order=1)
+
+        # no frontend, since no pluginserver transpiles the code
+        response = self.client.get(f"/api/plugin_config/{plugin_config.id}/frontend")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.content, b'export function getFrontendApp () { return {"transpiling": true} }')
+
+        # mock the plugin server's transpilation
+        plugin_source = PluginSourceFile.objects.get(plugin_id=id)
+        self.assertEqual(plugin_source.status, None)
+        self.assertEqual(plugin_source.transpiled, None)
+        plugin_source.status = PluginSourceFile.Status.TRANSPILED
+        plugin_source.transpiled = "'random transpiled frontend'"
+        plugin_source.save()
+
+        # Can get the transpiled frontend
+        response = self.client.get(f"/api/plugin_config/{plugin_config.id}/frontend")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.content, b"'random transpiled frontend'")
+
+        # Update the source frontend
+        self.client.patch(
+            f"/api/organizations/@current/plugins/{id}/update_source",
+            {"frontend.tsx": "export const scene = { name: 'new' }",},
+        )
+
+        # It will clear the transpiled frontend
+        plugin_source = PluginSourceFile.objects.get(plugin_id=id)
+        self.assertEqual(plugin_source.source, "export const scene = { name: 'new' }")
+        self.assertEqual(plugin_source.transpiled, None)
+
+        # And reply that it's transpiling
+        response = self.client.get(f"/api/plugin_config/{plugin_config.id}/frontend")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.content, b'export function getFrontendApp () { return {"transpiling": true} }')
 
     def test_plugin_repository(self, mock_get, mock_reload):
         response = self.client.get("/api/organizations/@current/plugins/repository/")

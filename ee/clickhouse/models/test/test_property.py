@@ -655,28 +655,40 @@ def test_parse_groups_persons_edge_case_with_single_filter(snapshot):
 
 
 TEST_BREAKDOWN_PROCESSING = [
-    ("$browser", "events", "prop", "replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^\"|\"$', '') AS prop"),
+    (
+        "$browser",
+        "events",
+        "prop",
+        "properties",
+        "replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^\"|\"$', '') AS prop",
+    ),
     (
         ["$browser"],
         "events",
         "value",
+        "properties",
         "array(replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^\"|\"$', '')) AS value",
     ),
     (
         ["$browser", "$browser_version"],
         "events",
         "prop",
+        "properties",
         "array(replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^\"|\"$', ''),replaceRegexpAll(JSONExtractRaw(properties, '$browser_version'), '^\"|\"$', '')) AS prop",
     ),
 ]
 
 
 @pytest.mark.django_db
-@pytest.mark.parametrize("breakdown, table, query_alias, expected", TEST_BREAKDOWN_PROCESSING)
+@pytest.mark.parametrize("breakdown, table, query_alias, column, expected", TEST_BREAKDOWN_PROCESSING)
 def test_breakdown_query_expression(
-    breakdown: Union[str, List[str]], table: TableWithProperties, query_alias: Literal["prop", "value"], expected: str,
+    breakdown: Union[str, List[str]],
+    table: TableWithProperties,
+    query_alias: Literal["prop", "value"],
+    column: str,
+    expected: str,
 ):
-    actual = get_single_or_multi_property_string_expr(breakdown, table, query_alias)
+    actual = get_single_or_multi_property_string_expr(breakdown, table, query_alias, column)
 
     assert actual == expected
 

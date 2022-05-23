@@ -3,7 +3,6 @@ from typing import Dict, List, Optional
 
 import lxml
 import toronado
-from constance import config
 from django.conf import settings
 from django.core import exceptions, mail
 from django.core.mail.backends.smtp import EmailBackend
@@ -14,6 +13,7 @@ from django.utils.module_loading import import_string
 from sentry_sdk import capture_exception
 
 from posthog.celery import app
+from posthog.models.instance_setting import get_instance_setting
 from posthog.models.messaging import MessagingRecord
 
 
@@ -35,7 +35,9 @@ def is_email_available(with_absolute_urls: bool = False) -> bool:
     Emails with absolute URLs can't be sent if SITE_URL is unset.
     """
     return (
-        config.EMAIL_ENABLED and bool(config.EMAIL_HOST) and (not with_absolute_urls or settings.SITE_URL is not None)
+        get_instance_setting("EMAIL_ENABLED")
+        and bool(get_instance_setting("EMAIL_HOST"))
+        and (not with_absolute_urls or settings.SITE_URL is not None)
     )
 
 
@@ -69,12 +71,12 @@ def _send_email(
                 continue
 
             records.append(record)
-            reply_to = reply_to or config.EMAIL_REPLY_TO
+            reply_to = reply_to or get_instance_setting("EMAIL_REPLY_TO")
 
             email_message = mail.EmailMultiAlternatives(
                 subject=subject,
                 body=txt_body,
-                from_email=config.EMAIL_DEFAULT_FROM,
+                from_email=get_instance_setting("EMAIL_DEFAULT_FROM"),
                 to=[dest["recipient"]],
                 headers=headers,
                 reply_to=[reply_to] if reply_to else None,
@@ -83,17 +85,16 @@ def _send_email(
             email_message.attach_alternative(html_body, "text/html")
             messages.append(email_message)
 
-        print(f"sending email {config.EMAIL_DEFAULT_FROM}")
         connection = None
         try:
             klass = import_string(settings.EMAIL_BACKEND) if settings.EMAIL_BACKEND else EmailBackend
             connection = klass(
-                host=config.EMAIL_HOST,
-                port=config.EMAIL_PORT,
-                username=config.EMAIL_HOST_USER,
-                password=config.EMAIL_HOST_PASSWORD,
-                use_tls=config.EMAIL_USE_TLS,
-                use_ssl=config.EMAIL_USE_SSL,
+                host=get_instance_setting("EMAIL_HOST"),
+                port=get_instance_setting("EMAIL_PORT"),
+                username=get_instance_setting("EMAIL_HOST_USER"),
+                password=get_instance_setting("EMAIL_HOST_PASSWORD"),
+                use_tls=get_instance_setting("EMAIL_USE_TLS"),
+                use_ssl=get_instance_setting("EMAIL_USE_SSL"),
             )
             connection.open()
             connection.send_messages(messages)

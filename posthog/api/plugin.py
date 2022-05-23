@@ -8,9 +8,11 @@ from django.core.exceptions import ObjectDoesNotExist
 from django.core.files.uploadedfile import UploadedFile
 from django.db import connection
 from django.db.models import Q
+from django.http import HttpResponse
+from django.utils.encoding import smart_str
 from django.utils.timezone import now
-from rest_framework import request, serializers, status, viewsets
-from rest_framework.decorators import action
+from rest_framework import renderers, request, serializers, status, viewsets
+from rest_framework.decorators import action, renderer_classes
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAuthenticated
 from rest_framework.response import Response
@@ -70,6 +72,13 @@ def _update_plugin_attachment(plugin_config: PluginConfig, key: str, file: Optio
 def _fix_formdata_config_json(request: request.Request, validated_data: dict):
     if not validated_data.get("config", None) and cast(dict, request.POST).get("config", None):
         validated_data["config"] = json.loads(request.POST["config"])
+
+
+class PlainRenderer(renderers.BaseRenderer):
+    format = "txt"
+
+    def render(self, data, accepted_media_type=None, renderer_context=None):
+        return smart_str(data, encoding=self.charset or "utf-8")
 
 
 class PluginsAccessLevelPermission(BasePermission):
@@ -228,8 +237,7 @@ class PluginViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
                 sources[key], created = PluginSourceFile.objects.update_or_create(
                     plugin=plugin, filename=key, defaults={"source": value}
                 )
-                continue
-            if sources[key].source != value:
+            elif sources[key].source != value:
                 performed_changes = True
                 if value is None:
                     sources[key].delete()
@@ -428,6 +436,28 @@ class PluginConfigViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             raise Exception(f"Failed to execute postgres sql={sql},\nparams={params},\nexception={str(e)}")
 
         return Response(status=200)
+
+    @action(methods=["GET"], detail=True)
+    @renderer_classes((PlainRenderer,))
+    def frontend(self, request: request.Request, **kwargs):
+        plugin_config = self.get_object()
+        plugin_source = PluginSourceFile.objects.filter(
+            plugin_id=plugin_config.plugin_id, filename="frontend.tsx"
+        ).first()
+        if plugin_source and plugin_source.status == PluginSourceFile.Status.TRANSPILED:
+            content = plugin_source.transpiled or ""
+            return HttpResponse(content, content_type="application/javascript; charset=UTF-8")
+
+        obj: Dict[str, Any] = {}
+        if not plugin_source:
+            obj = {"no_frontend": True}
+        elif plugin_source.status is None or plugin_source.status == PluginSourceFile.Status.LOCKED:
+            obj = {"transpiling": True}
+        else:
+            obj = {"error": plugin_source.error or "Error Compiling Plugin"}
+
+        content = f"export function getFrontendApp () {'{'} return {json.dumps(obj)} {'}'}"
+        return HttpResponse(content, content_type="application/javascript; charset=UTF-8")
 
 
 def _get_secret_fields_for_plugin(plugin: Plugin) -> Set[str]:

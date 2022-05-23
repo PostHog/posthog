@@ -77,8 +77,8 @@ export interface EventProcessingResult {
 export class EventsProcessor {
     pluginsServer: Hub
     db: DB
-    clickhouse: ClickHouse | undefined
-    kafkaProducer: KafkaProducerWrapper | undefined
+    clickhouse: ClickHouse
+    kafkaProducer: KafkaProducerWrapper
     celery: Client
     teamManager: TeamManager
     personManager: PersonManager
@@ -511,7 +511,7 @@ export class EventsProcessor {
             }
         })
 
-        if (this.kafkaProducer) {
+        if (this.pluginsServer.KAFKA_ENABLED) {
             await this.kafkaProducer.queueMessages(kafkaMessages)
         }
     }
@@ -635,7 +635,7 @@ export class EventsProcessor {
 
         let eventId: Event['id'] | undefined
 
-        if (this.kafkaProducer) {
+        if (this.pluginsServer.KAFKA_ENABLED) {
             const useExternalSchemas = this.clickhouseExternalSchemasEnabled(teamId)
             // proto ingestion is deprecated and we won't support new additions to the schema
             const message = useExternalSchemas
@@ -686,7 +686,7 @@ export class EventsProcessor {
     }
 
     async produceEventToBuffer(bufferEvent: PreIngestionEvent): Promise<void> {
-        if (this.kafkaProducer) {
+        if (this.pluginsServer.KAFKA_ENABLED) {
             const partitionKeyHash = crypto.createHash('sha256')
             partitionKeyHash.update(`${bufferEvent.teamId}:${bufferEvent.distinctId}`)
             const partitionKey = partitionKeyHash.digest('hex')
@@ -734,7 +734,7 @@ export class EventsProcessor {
             created_at: timestampString,
         }
 
-        if (this.kafkaProducer) {
+        if (this.pluginsServer.KAFKA_ENABLED) {
             await this.kafkaProducer.queueMessage({
                 topic: KAFKA_SESSION_RECORDING_EVENTS,
                 messages: [{ key: uuid, value: Buffer.from(JSON.stringify(data)) }],
