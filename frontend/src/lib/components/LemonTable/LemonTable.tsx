@@ -328,7 +328,7 @@ export function LemonTable<T extends Record<string, any>>({
                                 Array(loadingSkeletonRows)
                                     .fill(null)
                                     .map((_, rowIndex) => (
-                                        <tr key={`LemonTable-tr-${rowIndex}`}>
+                                        <tr key={`LemonTable-tr-${rowIndex} ph-no-capture`}>
                                             {columnGroups.flatMap((columnGroup, columnGroupIndex) =>
                                                 columnGroup.children.map((column, columnIndex) => (
                                                     <td

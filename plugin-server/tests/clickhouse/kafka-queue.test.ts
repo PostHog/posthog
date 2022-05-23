@@ -21,8 +21,6 @@ jest.mock('../../src/utils/status')
 jest.setTimeout(70000) // 60 sec timeout
 
 const extraServerConfig: Partial<PluginsServerConfig> = {
-    KAFKA_ENABLED: true,
-    KAFKA_HOSTS: process.env.KAFKA_HOSTS || 'kafka:9092',
     WORKER_CONCURRENCY: 1,
     KAFKA_CONSUMPTION_TOPIC: KAFKA_EVENTS_PLUGIN_INGESTION,
     LOG_LEVEL: LogLevel.Log,
@@ -73,7 +71,7 @@ describe.skip('KafkaQueue', () => {
 
         await delayUntilEventIngested(() => hub.db.fetchEvents())
 
-        await hub.kafkaProducer?.flush()
+        await hub.kafkaProducer.flush()
         const events = await hub.db.fetchEvents()
 
         expect(events.length).toEqual(1)

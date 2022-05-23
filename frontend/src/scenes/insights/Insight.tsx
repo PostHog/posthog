@@ -112,8 +112,9 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                             !canEditInsight
                                 ? {
                                       icon: <IconLock />,
-                                      tooltip:
-                                          "You don't have edit permissions in the dashboard this insight belongs to. Ask a dashboard collaborator with edit access to add you.",
+                                      tooltip: featureFlags[FEATURE_FLAGS.MULTI_DASHBOARD_INSIGHTS]
+                                          ? "You don't have edit permissions on any of the dashboards this insight belongs to. Ask a dashboard collaborator with edit access to add you."
+                                          : "You don't have edit permissions in the dashboard this insight belongs to. Ask a dashboard collaborator with edit access to add you.",
                                   }
                                 : undefined
                         }
@@ -126,7 +127,9 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                                 Cancel
                             </LemonButton>
                         )}
-                        {insightMode === ItemMode.View && insight.short_id && <SaveToDashboard insight={insight} />}
+                        {insightMode === ItemMode.View && insight.short_id && (
+                            <SaveToDashboard insight={insight} canEditInsight={canEditInsight} />
+                        )}
                         {insightMode === ItemMode.View ? (
                             canEditInsight && (
                                 <LemonButton

@@ -20,7 +20,7 @@
       group4_properties VARCHAR
       
       
-  ) ENGINE = Kafka('kafka', 'clickhouse_events_proto_test', 'group1', 'JSONEachRow')
+  ) ENGINE = Kafka('kafka:9092', 'clickhouse_events_proto_test', 'group1', 'JSONEachRow')
   
   '
 ---
@@ -82,6 +82,34 @@
       
   ) ENGINE = Kafka('test.kafka.broker:9092', 'events_dead_letter_queue_test', 'group1', 'JSONEachRow')
    SETTINGS kafka_skip_broken_messages=1000
+  '
+---
+# name: test_create_kafka_table_with_different_kafka_host[kafka_events_json]
+  '
+  
+  CREATE TABLE IF NOT EXISTS kafka_events_json ON CLUSTER 'posthog'
+  (
+      uuid UUID,
+      event VARCHAR,
+      properties VARCHAR,
+      timestamp DateTime64(6, 'UTC'),
+      team_id Int64,
+      distinct_id VARCHAR,
+      elements_chain VARCHAR,
+      created_at DateTime64(6, 'UTC'),
+      person_id UUID,
+      person_properties VARCHAR,
+      group0_properties VARCHAR,
+      group1_properties VARCHAR,
+      group2_properties VARCHAR,
+      group3_properties VARCHAR,
+      group4_properties VARCHAR
+      
+      
+  ) ENGINE = Kafka('test.kafka.broker:9092', 'clickhouse_events_json_test', 'group1', 'JSONEachRow')
+  
+      SETTINGS kafka_skip_broken_messages = 100
+  
   '
 ---
 # name: test_create_kafka_table_with_different_kafka_host[kafka_groups]
@@ -294,6 +322,33 @@
   
   '
 ---
+# name: test_create_table_query[events_json_mv]
+  '
+  
+  CREATE MATERIALIZED VIEW events_json_mv ON CLUSTER 'posthog'
+  TO posthog_test.events
+  AS SELECT
+  uuid,
+  event,
+  properties,
+  timestamp,
+  team_id,
+  distinct_id,
+  elements_chain,
+  created_at,
+  person_id,
+  person_properties,
+  group0_properties,
+  group1_properties,
+  group2_properties,
+  group3_properties,
+  group4_properties,
+  _timestamp,
+  _offset
+  FROM posthog_test.kafka_events_json
+  
+  '
+---
 # name: test_create_table_query[events_mv]
   '
   
@@ -375,7 +430,7 @@
       
   ) ENGINE = 
       Kafka () SETTINGS
-      kafka_broker_list = 'kafka',
+      kafka_broker_list = 'kafka:9092',
       kafka_topic_list = 'clickhouse_events_proto_test',
       kafka_group_name = 'group1',
       kafka_format = 'Protobuf',
@@ -407,8 +462,36 @@
       error VARCHAR,
       tags Array(VARCHAR)
       
-  ) ENGINE = Kafka('kafka', 'events_dead_letter_queue_test', 'group1', 'JSONEachRow')
+  ) ENGINE = Kafka('kafka:9092', 'events_dead_letter_queue_test', 'group1', 'JSONEachRow')
    SETTINGS kafka_skip_broken_messages=1000
+  '
+---
+# name: test_create_table_query[kafka_events_json]
+  '
+  
+  CREATE TABLE IF NOT EXISTS kafka_events_json ON CLUSTER 'posthog'
+  (
+      uuid UUID,
+      event VARCHAR,
+      properties VARCHAR,
+      timestamp DateTime64(6, 'UTC'),
+      team_id Int64,
+      distinct_id VARCHAR,
+      elements_chain VARCHAR,
+      created_at DateTime64(6, 'UTC'),
+      person_id UUID,
+      person_properties VARCHAR,
+      group0_properties VARCHAR,
+      group1_properties VARCHAR,
+      group2_properties VARCHAR,
+      group3_properties VARCHAR,
+      group4_properties VARCHAR
+      
+      
+  ) ENGINE = Kafka('kafka:9092', 'clickhouse_events_json_test', 'group1', 'JSONEachRow')
+  
+      SETTINGS kafka_skip_broken_messages = 100
+  
   '
 ---
 # name: test_create_table_query[kafka_groups]
@@ -422,7 +505,7 @@
       team_id Int64,
       group_properties VARCHAR
       
-  ) ENGINE = Kafka('kafka', 'clickhouse_groups_test', 'group1', 'JSONEachRow')
+  ) ENGINE = Kafka('kafka:9092', 'clickhouse_groups_test', 'group1', 'JSONEachRow')
   
   '
 ---
@@ -438,7 +521,7 @@
       is_identified Int8,
       is_deleted Int8 DEFAULT 0
       
-  ) ENGINE = Kafka('kafka', 'clickhouse_person_test', 'group1', 'JSONEachRow')
+  ) ENGINE = Kafka('kafka:9092', 'clickhouse_person_test', 'group1', 'JSONEachRow')
   
   '
 ---
@@ -453,7 +536,7 @@
       is_deleted Int8,
       version Int64 DEFAULT 1
       
-  ) ENGINE = Kafka('kafka', 'clickhouse_person_distinct_id_test', 'group1', 'JSONEachRow')
+  ) ENGINE = Kafka('kafka:9092', 'clickhouse_person_distinct_id_test', 'group1', 'JSONEachRow')
   
   '
 ---
@@ -467,7 +550,7 @@
       team_id Int64,
       _sign Nullable(Int8),
       is_deleted Nullable(Int8)
-  ) ENGINE = Kafka('kafka', 'clickhouse_person_unique_id_test', 'group1', 'JSONEachRow')
+  ) ENGINE = Kafka('kafka:9092', 'clickhouse_person_unique_id_test', 'group1', 'JSONEachRow')
   
   '
 ---
@@ -486,7 +569,7 @@
       message VARCHAR,
       instance_id UUID
       
-  ) ENGINE = Kafka('kafka', 'plugin_log_entries_test', 'group1', 'JSONEachRow')
+  ) ENGINE = Kafka('kafka:9092', 'plugin_log_entries_test', 'group1', 'JSONEachRow')
   
   '
 ---
@@ -505,7 +588,7 @@
       created_at DateTime64(6, 'UTC')
       
       
-  ) ENGINE = Kafka('kafka', 'clickhouse_session_recording_events_test', 'group1', 'JSONEachRow')
+  ) ENGINE = Kafka('kafka:9092', 'clickhouse_session_recording_events_test', 'group1', 'JSONEachRow')
   
   '
 ---
