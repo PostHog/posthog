@@ -5,7 +5,7 @@ import { Hub, WorkerMethods } from '../../../types'
 import { status } from '../../../utils/status'
 import { groupIntoBatches, sanitizeEvent } from '../../../utils/utils'
 import { KafkaQueue } from '../kafka-queue'
-import { eachBatch } from './utils'
+import { eachBatch } from './each-batch'
 
 export async function eachMessageIngestion(message: KafkaMessage, queue: KafkaQueue): Promise<void> {
     const { data: dataStr, ...rawEvent } = JSON.parse(message.value!.toString())
