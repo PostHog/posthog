@@ -105,7 +105,8 @@ export class KafkaQueue implements Queue {
         await this.pause(this.bufferTopic, partition)
     }
 
-    async pause(targetTopic: string, partition?: number): Promise<void> {
+    async pause(targetTopic?: string, partition?: number): Promise<void> {
+        targetTopic = targetTopic ?? this.ingestionTopic
         if (this.wasConsumerRan && !this.isPaused(targetTopic, partition)) {
             const pausePayload: ConsumerManagementPayload = { topic: targetTopic }
             let partitionInfo = ''
@@ -121,7 +122,8 @@ export class KafkaQueue implements Queue {
         return Promise.resolve()
     }
 
-    resume(targetTopic: string, partition?: number): void {
+    resume(targetTopic?: string, partition?: number): void {
+        targetTopic = targetTopic ?? this.ingestionTopic
         if (this.wasConsumerRan && this.isPaused(targetTopic, partition)) {
             const resumePayload: ConsumerManagementPayload = { topic: targetTopic }
             let partitionInfo = ''
@@ -135,7 +137,8 @@ export class KafkaQueue implements Queue {
         }
     }
 
-    isPaused(targetTopic: string, partition?: number): boolean {
+    isPaused(targetTopic?: string, partition?: number): boolean {
+        targetTopic = targetTopic ?? this.ingestionTopic
         // if we pass a partition, check that as well, else just return if the topic is paused
         return this.consumer
             .paused()
