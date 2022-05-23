@@ -228,6 +228,7 @@ export async function createHub(
     const pluginsApiKeyManager = new PluginsApiKeyManager(db)
     const rootAccessManager = new RootAccessManager(db)
     const promiseManager = new PromiseManager(serverConfig, statsd)
+    const siteUrlManager = new SiteUrlManager(db, serverConfig.SITE_URL)
     const actionManager = new ActionManager(db)
     await actionManager.prepare()
 
@@ -257,6 +258,7 @@ export async function createHub(
         pluginsApiKeyManager,
         rootAccessManager,
         promiseManager,
+        siteUrlManager,
         actionManager,
         actionMatcher: new ActionMatcher(db, actionManager, statsd),
         conversionBufferEnabledTeams,
@@ -265,8 +267,7 @@ export async function createHub(
     // :TODO: This is only used on worker threads, not main
     hub.eventsProcessor = new EventsProcessor(hub as Hub)
     hub.jobQueueManager = new JobQueueManager(hub as Hub)
-    hub.siteUrlManager = new SiteUrlManager(hub as Hub)
-    hub.hookCannon = new HookCommander(db, teamManager, organizationManager, hub.siteUrlManager!, statsd)
+    hub.hookCannon = new HookCommander(db, teamManager, organizationManager, siteUrlManager, statsd)
 
     if (serverConfig.CAPTURE_INTERNAL_METRICS) {
         hub.internalMetrics = new InternalMetrics(hub as Hub)

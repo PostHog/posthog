@@ -1685,11 +1685,11 @@ export class DB {
         return result
     }
 
-    public async fetchConstanceSetting<Type>(key: string): Promise<Type | null> {
+    public async fetchInstanceSetting<Type>(key: string): Promise<Type | null> {
         const result = await this.postgresQuery<{ raw_value: string }>(
-            `SELECT raw_value FROM posthog_constance WHERE key = $1`,
+            `SELECT raw_value FROM posthog_instancesetting WHERE key = $1`,
             [key],
-            'fetchConstanceSetting'
+            'fetchInstanceSetting'
         )
 
         if (result.rows.length > 0) {
@@ -1700,15 +1700,15 @@ export class DB {
         }
     }
 
-    public async upsertConstanceSetting(key: string, value: string | number | boolean): Promise<void> {
+    public async upsertInstanceSetting(key: string, value: string | number | boolean): Promise<void> {
         await this.postgresQuery(
             `
-                INSERT INTO posthog_grouptypemapping (key, raw_value)
+                INSERT INTO posthog_instancesetting (key, raw_value)
                 VALUES ($1, $2)
-                ON CONFLICT DO UPDATE SET raw_value = EXCLUDED.raw_value
+                ON CONFLICT (key) DO UPDATE SET raw_value = EXCLUDED.raw_value
             `,
             [key, JSON.stringify(value)],
-            'upsertConstanceSetting'
+            'upsertInstanceSetting'
         )
     }
 
