@@ -20,7 +20,6 @@ import {
     InsightErrorState,
     InsightTimeoutState,
 } from 'scenes/insights/EmptyStates'
-import { Loading } from 'lib/utils'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import clsx from 'clsx'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -32,6 +31,7 @@ import { Tooltip } from 'lib/components/Tooltip'
 import { LemonButton } from 'lib/components/LemonButton'
 import { IconExport } from 'lib/components/icons'
 import { FunnelStepsTable } from './InsightTabs/FunnelTab/FunnelStepsTable'
+import { Player } from '@lottiefiles/react-lottie-player'
 
 const VIEW_MAP = {
     [`${InsightType.TRENDS}`]: <TrendInsight view={InsightType.TRENDS} />,
@@ -75,12 +75,19 @@ export function InsightContainer(
         if (activeView !== loadedView || (insightLoading && !showTimeoutMessage)) {
             return (
                 <>
-                    {filters.display !== ChartDisplayType.ActionsTable &&
-                        filters.display !== ChartDisplayType.WorldMap && (
-                            /* Tables and world map don't need this padding, but graphs do for sizing */
-                            <div className="trends-insights-container" />
-                        )}
-                    <Loading />
+                    <Player
+                        autoplay
+                        loop
+                        src="https://assets4.lottiefiles.com/packages/lf20_c96ZBR.json"
+                        style={{ height: '300px', width: '300px' }}
+                    />
+                    <br />
+                    <br />
+                    {/*{filters.display !== ChartDisplayType.ActionsTable &&*/}
+                    {/*    filters.display !== ChartDisplayType.WorldMap && (*/}
+                    {/* Tables and world map don't need this padding, but graphs do for sizing */}
+                    {/*        <div className="trends-insights-container" />*/}
+                    {/*    )}*/}
                 </>
             )
         }

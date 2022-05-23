@@ -14,9 +14,9 @@ import { LemonButton } from 'lib/components/LemonButton'
 import { deleteWithUndo } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import './EmptyStates.scss'
-import { Spinner } from 'lib/components/Spinner/Spinner'
 import { urls } from 'scenes/urls'
 import { Link } from 'lib/components/Link'
+import { Player } from '@lottiefiles/react-lottie-player'
 
 export function InsightEmptyState(): JSX.Element {
     return (
@@ -78,7 +78,18 @@ export function InsightTimeoutState({ isLoading }: { isLoading: boolean }): JSX.
     return (
         <div className="insight-empty-state warning">
             <div className="empty-state-inner">
-                <div className="illustration-main">{isLoading ? <Spinner size="lg" /> : <IconErrorOutline />}</div>
+                <div className="illustration-main" style={{ height: 'auto' }}>
+                    {isLoading ? (
+                        <Player
+                            autoplay
+                            loop
+                            src="https://assets10.lottiefiles.com/packages/lf20_b9DWrP.json"
+                            style={{ height: '300px', width: '300px' }}
+                        />
+                    ) : (
+                        <IconErrorOutline />
+                    )}
+                </div>
                 <h2>{isLoading ? 'Looks like things are a little slow…' : 'Your query took too long to complete'}</h2>
                 {isLoading ? (
                     <>
