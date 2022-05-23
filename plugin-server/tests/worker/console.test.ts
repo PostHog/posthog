@@ -4,7 +4,7 @@ import { Hub, PluginLogEntryType } from '../../src/types'
 import { createHub } from '../../src/utils/db/hub'
 import { getPluginConfigRows } from '../../src/utils/db/sql'
 import { createConsole } from '../../src/worker/vm/extensions/console'
-import { delayUntilEventIngested,resetTestDatabaseClickhouse } from '../helpers/clickhouse'
+import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../helpers/clickhouse'
 import { resetTestDatabase } from '../helpers/sql'
 
 describe('console extension', () => {
