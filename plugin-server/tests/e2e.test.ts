@@ -153,7 +153,7 @@ describe('e2e', () => {
 
             await hub.kafkaProducer.flush()
             await delayUntilEventIngested(() => hub.db.fetchEvents())
-            await delayUntilEventIngested(() => hub.db.fetchPluginLogEntries())
+            await delayUntilEventIngested(getLogsSinceStart)
 
             await delay(2000)
 

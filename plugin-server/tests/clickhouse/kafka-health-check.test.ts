@@ -44,7 +44,7 @@ describe('kafka health check', () => {
     })
 
     test('healthcheck fails if producer throws', async () => {
-        hub!.kafkaProducer.rawSendMessage = jest.fn(() => {
+        hub!.kafkaProducer.flush = jest.fn(() => {
             throw new Error('producer error')
         })
 
@@ -52,6 +52,8 @@ describe('kafka health check', () => {
         expect(kafkaHealthy).toEqual(false)
         expect(error!.message).toEqual('producer error')
         expect(statsd.timing).not.toHaveBeenCalled()
+
+        jest.mocked(hub!.kafkaProducer.flush).mockReset()
     })
 
     test('healthcheck fails if consumer throws', async () => {

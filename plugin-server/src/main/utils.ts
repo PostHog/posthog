@@ -49,7 +49,7 @@ export async function kafkaHealthcheck(
 ): Promise<[boolean, Error | null]> {
     try {
         // :TRICKY: This _only_ checks producer works
-        await producer.rawSendMessage({
+        await producer.queueMessage({
             topic: KAFKA_HEALTHCHECK,
             messages: [
                 {
@@ -58,6 +58,7 @@ export async function kafkaHealthcheck(
                 },
             ],
         })
+        await producer.flush()
 
         let kafkaConsumerWorking = false
         let timer: Date | null = new Date()
