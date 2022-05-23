@@ -9,7 +9,6 @@ const preIngestionEvent: PreIngestionEvent = {
     eventUuid: 'uuid1',
     distinctId: 'my_id',
     ip: '127.0.0.1',
-    siteUrl: 'example.com',
     teamId: 2,
     timestamp: '2020-02-23T02:15:00Z',
     event: '$pageview',
@@ -51,12 +50,10 @@ describe('runAsyncHandlersStep()', () => {
         await runAsyncHandlersStep(runner, preIngestionEvent, testPerson, testElements)
 
         expect(runner.hub.actionMatcher.match).toHaveBeenCalled()
-        expect(runner.hub.hookCannon.findAndFireHooks).toHaveBeenCalledWith(
-            preIngestionEvent,
-            testPerson,
-            'example.com',
-            ['action1', 'action2']
-        )
+        expect(runner.hub.hookCannon.findAndFireHooks).toHaveBeenCalledWith(preIngestionEvent, testPerson, [
+            'action1',
+            'action2',
+        ])
     })
 
     it('calls onEvent and onAction plugin methods', async () => {
@@ -74,6 +71,16 @@ describe('runAsyncHandlersStep()', () => {
             convertToProcessedPluginEvent(preIngestionEvent)
         )
         expect(runOnSnapshot).not.toHaveBeenCalled()
+    })
+
+    it('still calls onEvent if actions lookup fails', async () => {
+        const error = new Error('Event matching failed')
+        jest.mocked(runner.hub.actionMatcher.match).mockRejectedValue(error)
+
+        await expect(runAsyncHandlersStep(runner, preIngestionEvent, testPerson, testElements)).rejects.toThrow(error)
+
+        expect(runOnEvent).toHaveBeenCalledWith(runner.hub, convertToProcessedPluginEvent(preIngestionEvent))
+        expect(runOnAction).not.toHaveBeenCalled()
     })
 
     describe('$snapshot events', () => {

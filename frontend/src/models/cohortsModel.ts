@@ -12,7 +12,7 @@ export const cohortsModel = kea<cohortsModelType>({
     actions: () => ({
         setPollTimeout: (pollTimeout: number | null) => ({ pollTimeout }),
         updateCohort: (cohort: CohortType) => ({ cohort }),
-        deleteCohort: (cohort: CohortType) => ({ cohort }),
+        deleteCohort: (cohort: Partial<CohortType>) => ({ cohort }),
         cohortCreated: (cohort: CohortType) => ({ cohort }),
         exportCohortPersons: (id: CohortType['id']) => ({ id }),
     }),

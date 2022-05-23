@@ -14,7 +14,6 @@ from posthog.email import is_email_available
 from posthog.models.async_migration import AsyncMigration, AsyncMigrationError, MigrationStatus
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.user import User
-from posthog.plugins.alert import AlertLevel, send_alert_to_plugins
 from posthog.utils import get_machine_id
 
 logger = structlog.get_logger(__name__)
@@ -95,12 +94,6 @@ def process_error(
             send_async_migration_errored_email.delay(
                 migration_key=migration_instance.name, time=now().isoformat(), error=error
             )
-
-        send_alert_to_plugins(
-            key="async_migration_errored",
-            description=f"Migration {migration_instance.name} failed with error {error}",
-            level=AlertLevel.P2,
-        )
 
     if (
         not rollback

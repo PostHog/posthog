@@ -17,6 +17,8 @@ export async function prepareEventStep(runner: EventPipelineRunner, event: Plugi
         site_url
     )
 
+    await runner.hub.siteUrlManager.updateIngestionSiteUrl(site_url)
+
     if (preIngestionEvent && preIngestionEvent.event !== '$snapshot') {
         return runner.nextStep('emitToBufferStep', preIngestionEvent)
     } else if (preIngestionEvent && preIngestionEvent.event === '$snapshot') {
