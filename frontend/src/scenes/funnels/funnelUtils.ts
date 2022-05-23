@@ -384,9 +384,9 @@ export function getIncompleteConversionWindowStartDate(
     return startDate.subtract(funnel_window_interval, funnel_window_interval_unit)
 }
 
-export function generateBaselineConversionUrl(url?: string): string | undefined {
+export function generateBaselineConversionUrl(url?: string): string {
     if (!url) {
-        return undefined
+        return ''
     }
     const parsed = combineUrl(url)
     return combineUrl(parsed.url, { funnel_step_breakdown: undefined }).url
