@@ -12,16 +12,8 @@ class FunnelEventQuery(EnterpriseEventQuery):
     _filter: Filter
 
     def get_query(self, entities=None, entity_name="events", skip_entity_filter=False) -> Tuple[str, Dict[str, Any]]:
-        _fields = [
-            f"{self.EVENT_TABLE_ALIAS}.event as event",
-            f"{self.EVENT_TABLE_ALIAS}.team_id as team_id",
-            f"{self.EVENT_TABLE_ALIAS}.distinct_id as distinct_id",
-            f"{self.EVENT_TABLE_ALIAS}.timestamp as timestamp",
-            (
-                f"{self.EVENT_TABLE_ALIAS}.elements_chain as elements_chain"
-                if self._column_optimizer.should_query_elements_chain_column
-                else ""
-            ),
+
+        aggregation_target = (
             "{} as aggregation_target".format(
                 get_aggregation_target_field(
                     self._filter.aggregation_group_type_index,
@@ -38,7 +30,20 @@ class FunnelEventQuery(EnterpriseEventQuery):
                     if self._aggregate_users_by_distinct_id
                     else f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id",
                 )
+            )
+        )
+
+        _fields = [
+            f"{self.EVENT_TABLE_ALIAS}.event as event",
+            f"{self.EVENT_TABLE_ALIAS}.team_id as team_id",
+            f"{self.EVENT_TABLE_ALIAS}.distinct_id as distinct_id",
+            f"{self.EVENT_TABLE_ALIAS}.timestamp as timestamp",
+            (
+                f"{self.EVENT_TABLE_ALIAS}.elements_chain as elements_chain"
+                if self._column_optimizer.should_query_elements_chain_column
+                else ""
             ),
+            aggregation_target,
         ]
 
         _fields += [f"{self.EVENT_TABLE_ALIAS}.{field} AS {field}" for field in self._extra_fields]
@@ -81,12 +86,18 @@ class FunnelEventQuery(EnterpriseEventQuery):
         date_query, date_params = self._get_date_filter()
         self.params.update(date_params)
 
-        prop_query, prop_params = self._get_prop_groups(
-            self._filter.property_groups,
-            person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS
-            if self._using_person_on_events
-            else PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
-        )
+        if self._using_person_on_events:
+            prop_query, prop_params = self._get_prop_groups(
+                self._filter.property_groups,
+                person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS,
+                person_id_joined_alias="aggregation_target",
+            )
+        else:
+            prop_query, prop_params = self._get_prop_groups(
+                self._filter.property_groups,
+                PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
+                person_id_joined_alias=f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id",
+            )
 
         self.params.update(prop_params)
 
@@ -117,12 +128,6 @@ class FunnelEventQuery(EnterpriseEventQuery):
         return query, self.params
 
     def _determine_should_join_distinct_ids(self) -> None:
-
-        if self._using_person_on_events:
-            self._should_join_distinct_ids = False
-            self._should_join_persons = False
-            return
-
         if (
             self._filter.aggregation_group_type_index is not None or self._aggregate_users_by_distinct_id
         ) and not self._column_optimizer.is_using_cohort_propertes:

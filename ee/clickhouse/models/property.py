@@ -161,7 +161,7 @@ def parse_prop_clauses(
                     final.append(f"{property_operator} {table_name}distinct_id IN ({person_id_query})")
                 elif person_properties_mode == PersonPropertiesMode.DIRECT_ON_EVENTS:
                     person_id_query, cohort_filter_params = format_cohort_subquery(
-                        cohort, idx, custom_match_field=f"person_id"
+                        cohort, idx, custom_match_field=f"{person_id_joined_alias}"
                     )
                     params = {**params, **cohort_filter_params}
                     final.append(f"{property_operator} {person_id_query}")

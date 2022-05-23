@@ -20,7 +20,8 @@ class StickinessEventsQuery(EnterpriseEventQuery):
     def get_query(self) -> Tuple[str, Dict[str, Any]]:
 
         prop_query, prop_params = self._get_prop_groups(
-            self._filter.property_groups.combine_property_group(PropertyOperatorType.AND, self._entity.property_groups)
+            self._filter.property_groups.combine_property_group(PropertyOperatorType.AND, self._entity.property_groups),
+            person_id_joined_alias=f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id",
         )
 
         self.params.update(prop_params)
