@@ -13,6 +13,7 @@ import { Field } from 'lib/forms/Field'
 import { PluginSourceTabs } from 'scenes/plugins/source/PluginSourceTabs'
 import { LemonButton } from 'lib/components/LemonButton'
 import { createDefaultPluginSource } from 'scenes/plugins/source/createDefaultPluginSource'
+import * as files from 'scenes/plugins/source/types/files.json'
 
 interface PluginSourceProps {
     pluginId: number
@@ -44,7 +45,13 @@ export function PluginSource({
         }
         monaco.languages.typescript.typescriptDefaults.setCompilerOptions({
             jsx: currentFile.endsWith('.tsx') ? 'react' : 'preserve',
+            esModuleInterop: true,
         })
+
+        for (const fileName in files) {
+            const fakePath = `file:///node_modules/@types/${fileName}`
+            monaco.languages.typescript.typescriptDefaults.addExtraLib(files[fileName], fakePath)
+        }
     }, [monaco, currentFile])
 
     if (!canGloballyManagePlugins(user?.organization)) {
