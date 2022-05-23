@@ -86,18 +86,13 @@ class FunnelEventQuery(EnterpriseEventQuery):
         date_query, date_params = self._get_date_filter()
         self.params.update(date_params)
 
-        if self._using_person_on_events:
-            prop_query, prop_params = self._get_prop_groups(
-                self._filter.property_groups,
-                person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS,
-                person_id_joined_alias="aggregation_target",
-            )
-        else:
-            prop_query, prop_params = self._get_prop_groups(
-                self._filter.property_groups,
-                PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
-                person_id_joined_alias=f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id",
-            )
+        prop_query, prop_params = self._get_prop_groups(
+            self._filter.property_groups,
+            person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS
+            if self._using_person_on_events
+            else PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
+            person_id_joined_alias=f"{self.DISTINCT_ID_TABLE_ALIAS if not self._using_person_on_events else ''}.person_id",
+        )
 
         self.params.update(prop_params)
 
