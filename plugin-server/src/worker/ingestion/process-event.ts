@@ -811,6 +811,8 @@ export class EventsProcessor {
             session_id,
         }
 
+        const storageWriteTimer = new Date()
+
         this.objectStorage.putObject(params, (err: any, resp: any) => {
             if (err) {
                 console.error(err)
@@ -819,6 +821,8 @@ export class EventsProcessor {
                 this.pluginsServer.statsd?.increment('session_data.storage_upload.success', tags)
             }
         })
+
+        this.pluginsServer.statsd?.timing('session_data.storage_upload.timing', storageWriteTimer, tags)
 
         const altered_data = { ...snapshot_data }
         delete altered_data.data
