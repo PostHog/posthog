@@ -25,17 +25,17 @@ describe('SiteUrlManager()', () => {
 
     describe('getSiteUrl()', () => {
         it('returns env.SITE_URL if set', async () => {
-            await hub.db.upsertInstanceSetting("INGESTION_SITE_URL", "http://posthog.com")
+            await hub.db.upsertInstanceSetting('INGESTION_SITE_URL', 'http://posthog.com')
 
-            const result = await siteUrlManager("http://example.com").getSiteUrl()
-            expect(result).toEqual("http://example.com")
+            const result = await siteUrlManager('http://example.com').getSiteUrl()
+            expect(result).toEqual('http://example.com')
         })
 
         it('returns INGESTION_SITE_URL if set', async () => {
-            await hub.db.upsertInstanceSetting("INGESTION_SITE_URL", "http://posthog.com")
+            await hub.db.upsertInstanceSetting('INGESTION_SITE_URL', 'http://posthog.com')
 
             const result = await siteUrlManager().getSiteUrl()
-            expect(result).toEqual("http://posthog.com")
+            expect(result).toEqual('http://posthog.com')
         })
 
         it('returns null if SITE_URL or INGESTION_SITE_URL not set', async () => {
@@ -43,25 +43,19 @@ describe('SiteUrlManager()', () => {
             expect(result).toEqual(null)
         })
 
-        it('handles parallel fetches without querying the db many times', async() => {
+        it('handles parallel fetches without querying the db many times', async () => {
             const mockPromise = createPromise<string>()
-            const fetchInstanceSettingSpy = jest.spyOn(hub.db, 'fetchInstanceSetting').mockImplementation(() => mockPromise.promise)
+            const fetchInstanceSettingSpy = jest
+                .spyOn(hub.db, 'fetchInstanceSetting')
+                .mockImplementation(() => mockPromise.promise)
 
             const manager = siteUrlManager()
-            const promises = [
-                manager.getSiteUrl(),
-                manager.getSiteUrl(),
-                manager.getSiteUrl(),
-            ]
+            const promises = [manager.getSiteUrl(), manager.getSiteUrl(), manager.getSiteUrl()]
 
-            mockPromise.resolve("http://example.com")
+            mockPromise.resolve('http://example.com')
             const results = await Promise.all(promises)
 
-            expect(results).toEqual([
-                "http://example.com",
-                "http://example.com",
-                "http://example.com",
-            ])
+            expect(results).toEqual(['http://example.com', 'http://example.com', 'http://example.com'])
             expect(fetchInstanceSettingSpy).toHaveBeenCalledTimes(1)
         })
     })
@@ -89,7 +83,7 @@ describe('SiteUrlManager()', () => {
             expect(hub.db.upsertInstanceSetting).not.toHaveBeenCalled()
         })
 
-        it('does nothing if new site url is not set', async() => {
+        it('does nothing if new site url is not set', async () => {
             const manager = siteUrlManager()
 
             await manager.updateIngestionSiteUrl('')
