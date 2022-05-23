@@ -21,13 +21,11 @@ def _handle_date_interval(filter: Filter) -> Filter:
     date_from = filter.date_from or timezone.now()
     data: Dict = {}
     if filter.interval == "month":
-        data.update(
-            {"date_to": (date_from + relativedelta(months=1) - timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S")}
-        )
+        data.update({"date_to": (date_from + relativedelta(months=1) - timedelta(days=1)).strftime("%Y-%m-%d")})
     elif filter.interval == "week":
-        data.update({"date_to": (date_from + relativedelta(weeks=1) - timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S")})
+        data.update({"date_to": (date_from + relativedelta(weeks=1) - timedelta(days=1)).strftime("%Y-%m-%d")})
     elif filter.interval == "day":
-        data.update({"date_to": date_from})
+        data.update({"date_to": (date_from).strftime("%Y-%m-%d 23:59:59")})
     elif filter.interval == "hour":
         data.update({"date_to": date_from + timedelta(hours=1)})
     return filter.with_data(data)
@@ -95,10 +93,11 @@ class ClickhouseTrendsActors(ActorBaseQuery):
             filter=self._filter,
             team=self._team,
             entity=self.entity,
-            should_join_distinct_ids=not self.is_aggregating_by_groups,
-            should_join_persons=not self.is_aggregating_by_groups,
+            should_join_distinct_ids=not self.is_aggregating_by_groups
+            and not self._team.actor_on_events_querying_enabled,
             extra_event_properties=["$window_id", "$session_id"] if self._filter.include_recordings else [],
             extra_fields=extra_fields,
+            using_person_on_events=self._team.actor_on_events_querying_enabled,
         ).get_query()
 
         matching_events_select_statement = (

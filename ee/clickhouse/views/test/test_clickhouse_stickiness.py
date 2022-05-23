@@ -34,9 +34,6 @@ def get_people_from_url_ok(client: Client, url: str):
 class TestClickhouseStickiness(ClickhouseTestMixin, stickiness_test_factory(ClickhouseStickiness, _create_event, _create_person, _create_action, get_earliest_timestamp)):  # type: ignore
     @snapshot_clickhouse_queries
     def test_filter_by_group_properties(self):
-        p1, p2, p3, p4 = self._create_multiple_people(
-            period=timedelta(weeks=1), event_properties=lambda i: {"$group_0": f"org:{i}", "$group_1": "instance:1"},
-        )
         create_group(
             team_id=self.team.pk, group_type_index=0, group_key=f"org:1", properties={"industry": "technology"}
         )
@@ -46,8 +43,14 @@ class TestClickhouseStickiness(ClickhouseTestMixin, stickiness_test_factory(Clic
         create_group(
             team_id=self.team.pk, group_type_index=0, group_key=f"org:3", properties={"industry": "technology"}
         )
+        create_group(team_id=self.team.pk, group_type_index=0, group_key=f"org:4", properties={})
         create_group(
             team_id=self.team.pk, group_type_index=1, group_key=f"company:1", properties={"industry": "technology"}
+        )
+        create_group(team_id=self.team.pk, group_type_index=1, group_key=f"instance:1", properties={})
+
+        p1, p2, p3, p4 = self._create_multiple_people(
+            period=timedelta(weeks=1), event_properties=lambda i: {"$group_0": f"org:{i}", "$group_1": "instance:1"},
         )
 
         with freeze_time("2020-02-15T13:01:01Z"):
@@ -79,10 +82,6 @@ class TestClickhouseStickiness(ClickhouseTestMixin, stickiness_test_factory(Clic
 
     @snapshot_clickhouse_queries
     def test_aggregate_by_groups(self):
-        self._create_multiple_people(
-            period=timedelta(weeks=1), event_properties=lambda i: {"$group_0": f"org:{i // 2}"},
-        )
-
         create_group(
             team_id=self.team.pk, group_type_index=0, group_key=f"org:0", properties={"industry": "technology"}
         )
@@ -91,6 +90,9 @@ class TestClickhouseStickiness(ClickhouseTestMixin, stickiness_test_factory(Clic
         )
         create_group(
             team_id=self.team.pk, group_type_index=0, group_key=f"org:2", properties={"industry": "technology"}
+        )
+        self._create_multiple_people(
+            period=timedelta(weeks=1), event_properties=lambda i: {"$group_0": f"org:{i // 2}"},
         )
 
         with freeze_time("2020-02-15T13:01:01Z"):
@@ -119,6 +121,7 @@ class TestClickhouseStickiness(ClickhouseTestMixin, stickiness_test_factory(Clic
         assert sorted([p["id"] for p in week2_actors]) == sorted([])
         assert sorted([p["id"] for p in week3_actors]) == sorted(["org:1"])
 
+    @snapshot_clickhouse_queries
     @patch("posthoganalytics.feature_enabled", return_value=True)
     def test_timezones(self, patch_feature_enabled):
         people = journeys_for(

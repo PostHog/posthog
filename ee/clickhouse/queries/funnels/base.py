@@ -3,7 +3,6 @@ import uuid
 from abc import ABC
 from typing import Any, Dict, List, Optional, Tuple, Union, cast
 
-from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 
 from ee.clickhouse.materialized_columns.columns import ColumnName
@@ -115,9 +114,6 @@ class ClickhouseFunnelBase(ABC):
         data: Dict[str, Any] = {}
         if not self._filter._date_from:
             data.update({"date_from": relative_date_parse("-7d")})
-
-        if not self._filter._date_to:
-            data.update({"date_to": timezone.now()})
 
         if self._filter.breakdown and not self._filter.breakdown_type:
             data.update({"breakdown_type": "event"})
@@ -605,11 +601,11 @@ class ClickhouseFunnelBase(ABC):
             self.params.update({"breakdown": self._filter.breakdown})
             if self._filter.breakdown_type == "person":
                 return get_single_or_multi_property_string_expr(
-                    self._filter.breakdown, table="person", query_alias="prop"
+                    self._filter.breakdown, table="person", query_alias="prop", column="person_props"
                 )
             elif self._filter.breakdown_type == "event":
                 return get_single_or_multi_property_string_expr(
-                    self._filter.breakdown, table="events", query_alias="prop"
+                    self._filter.breakdown, table="events", query_alias="prop", column="properties"
                 )
             elif self._filter.breakdown_type == "cohort":
                 return "value AS prop"

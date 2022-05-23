@@ -63,7 +63,7 @@ export async function loadPlugin(hub: Hub, pluginConfig: PluginConfig): Promise<
         const pluginFrontend = await getFile(frontendFilename)
         if (pluginFrontend) {
             if (await hub.db.getPluginTranspilationLock(plugin.id, frontendFilename)) {
-                status.info('🔌', `Transpiling plugin ${pluginDigest(plugin)}`)
+                status.info('🔌', `Transpiling ${pluginDigest(plugin)}`)
                 const transpilationStartTimer = new Date()
                 try {
                     const transpiled = transpileFrontend(pluginFrontend)

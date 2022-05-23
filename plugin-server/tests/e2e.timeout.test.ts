@@ -60,7 +60,7 @@ describe('e2e ingestion timeout', () => {
         await posthog.capture('custom event', { name: 'haha', uuid, randomProperty: 'lololo' })
         await delayUntilEventIngested(() => hub.db.fetchEvents())
 
-        await hub.kafkaProducer?.flush()
+        await hub.kafkaProducer.flush()
         const events = await hub.db.fetchEvents()
         await delay(1000)
 

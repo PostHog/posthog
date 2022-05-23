@@ -67,6 +67,10 @@
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.5px;
+    margin-top: 1rem;
+    &:first-of-type {
+        margin-top: 0;
+    }
 }
 
 .ProjectSwitcher__label {

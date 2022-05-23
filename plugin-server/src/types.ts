@@ -17,6 +17,7 @@ import { Job } from 'node-schedule'
 import { Pool } from 'pg'
 import { VM } from 'vm2'
 
+import { ObjectStorage } from './main/services/object_storage'
 import { DB } from './utils/db/db'
 import { KafkaProducerWrapper } from './utils/db/kafka-producer-wrapper'
 import { InternalMetrics } from './utils/internal-metrics'
@@ -26,6 +27,7 @@ import { ActionMatcher } from './worker/ingestion/action-matcher'
 import { HookCommander } from './worker/ingestion/hooks'
 import { OrganizationManager } from './worker/ingestion/organization-manager'
 import { EventsProcessor } from './worker/ingestion/process-event'
+import { SiteUrlManager } from './worker/ingestion/site-url-manager'
 import { TeamManager } from './worker/ingestion/team-manager'
 import { PluginsApiKeyManager } from './worker/vm/extensions/helpers/api-key-manager'
 import { RootAccessManager } from './worker/vm/extensions/helpers/root-acess-manager'
@@ -142,6 +144,12 @@ export interface PluginsServerConfig extends Record<string, any> {
     PERSON_INFO_CACHE_TTL: number
     KAFKA_HEALTHCHECK_SECONDS: number
     HISTORICAL_EXPORTS_ENABLED: boolean
+    OBJECT_STORAGE_ENABLED: boolean
+    OBJECT_STORAGE_ENDPOINT: string
+    OBJECT_STORAGE_ACCESS_KEY_ID: string
+    OBJECT_STORAGE_SECRET_ACCESS_KEY: string
+    OBJECT_STORAGE_SESSION_RECORDING_FOLDER: string
+    OBJECT_STORAGE_BUCKET: string
 }
 
 export interface Hub extends PluginsServerConfig {
@@ -152,9 +160,10 @@ export interface Hub extends PluginsServerConfig {
     db: DB
     postgres: Pool
     redisPool: GenericPool<Redis>
-    clickhouse?: ClickHouse
-    kafka?: Kafka
-    kafkaProducer?: KafkaProducerWrapper
+    clickhouse: ClickHouse
+    kafka: Kafka
+    kafkaProducer: KafkaProducerWrapper
+    objectStorage: ObjectStorage
     // metrics
     statsd?: StatsD
     internalMetrics?: InternalMetrics
@@ -179,6 +188,7 @@ export interface Hub extends PluginsServerConfig {
     hookCannon: HookCommander
     eventsProcessor: EventsProcessor
     jobQueueManager: JobQueueManager
+    siteUrlManager: SiteUrlManager
     // diagnostics
     lastActivity: number
     lastActivityType: string
@@ -386,12 +396,7 @@ export interface PluginTask {
 }
 
 export type WorkerMethods = {
-    onEvent: (event: ProcessedPluginEvent) => Promise<void>
-    onAction: (action: Action, event: ProcessedPluginEvent) => Promise<void>
-    onSnapshot: (event: ProcessedPluginEvent) => Promise<void>
-    processEvent: (event: PluginEvent) => Promise<PluginEvent | null>
-    ingestEvent: (event: PluginEvent) => Promise<IngestEventResponse>
-    ingestBufferEvent: (event: PreIngestionEvent) => Promise<IngestEventResponse>
+    runBufferEventPipeline: (event: PreIngestionEvent) => Promise<IngestEventResponse>
     runEventPipeline: (event: PluginEvent) => Promise<void>
 }
 
@@ -403,7 +408,6 @@ export type VMMethods = {
     onSnapshot?: (event: ProcessedPluginEvent) => Promise<void>
     exportEvents?: (events: PluginEvent[]) => Promise<void>
     processEvent?: (event: PluginEvent) => Promise<PluginEvent>
-    handleAlert?: (alert: Alert) => Promise<void>
 }
 
 export enum AlertLevel {
@@ -900,7 +904,7 @@ export interface EventPropertyType {
     team_id: number
 }
 
-export type PluginFunction = 'onEvent' | 'onAction' | 'processEvent' | 'onSnapshot' | 'pluginTask' | 'handleAlert'
+export type PluginFunction = 'onEvent' | 'onAction' | 'processEvent' | 'onSnapshot' | 'pluginTask'
 
 export enum CeleryTriggeredJobOperation {
     Start = 'start',
@@ -928,11 +932,6 @@ export enum OrganizationMembershipLevel {
     Owner = 15,
 }
 
-export enum PluginServerMode {
-    Ingestion = 'INGESTION',
-    Runner = 'RUNNER',
-}
-
 export interface PreIngestionEvent {
     eventUuid: string
     event: string
@@ -942,5 +941,4 @@ export interface PreIngestionEvent {
     properties: Properties
     timestamp: DateTime | string
     elementsList: Element[]
-    siteUrl: string
 }

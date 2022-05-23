@@ -3,7 +3,6 @@ from datetime import datetime, timedelta
 from typing import Literal, Optional, Tuple, Union
 
 from dateutil.relativedelta import relativedelta
-from django.db.models.query_utils import Q
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 
@@ -99,31 +98,6 @@ class RetentionDateDerivedMixin(PeriodMixin, TotalIntervalsMixin, DateMixin, Sel
     def period_increment(self) -> Union[timedelta, relativedelta]:
         _, t1 = RetentionDateDerivedMixin.determine_time_delta(self.total_intervals, self.period)
         return t1
-
-    def reference_date_filter_Q(self, field: str = "timestamp") -> Q:
-        date_from = self.date_from
-        date_to = self.date_from + self.period_increment
-        date_from = self.date_from
-        if self._date_from == "all":
-            return Q()
-        if not date_from:
-            date_from = timezone.now().replace(hour=0, minute=0, second=0, microsecond=0) - relativedelta(days=7)
-        filter = Q(**{f"{field}__gte": date_from})
-        if date_to:
-            filter &= Q(**{f"{field}__lte": date_to})
-        return filter
-
-    def recurring_date_filter_Q(self, field: str = "timestamp") -> Q:
-        date_from = self.date_from + self.selected_interval * self.period_increment
-        date_to = date_from + self.period_increment
-        if self._date_from == "all":
-            return Q()
-        if not date_from:
-            date_from = timezone.now().replace(hour=0, minute=0, second=0, microsecond=0) - relativedelta(days=7)
-        filter = Q(**{f"{field}__gte": date_from})
-        if date_to:
-            filter &= Q(**{f"{field}__lte": date_to})
-        return filter
 
     @staticmethod
     def determine_time_delta(
