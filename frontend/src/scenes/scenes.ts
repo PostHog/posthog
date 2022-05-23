@@ -148,7 +148,7 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     },
     [Scene.OrganizationCreationConfirm]: {
         name: 'Confirm organization creation',
-        allowUnauthenticated: true,
+        onlyUnauthenticated: true,
     },
     [Scene.OrganizationSettings]: {
         organizationBased: true,

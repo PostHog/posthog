@@ -10,7 +10,8 @@ from django.shortcuts import redirect
 from django.urls.base import reverse
 from django.utils import timezone
 from rest_framework import exceptions, generics, permissions, response, serializers, validators
-from rest_framework.authentication import SessionAuthentication
+
+# from rest_framework.authentication import SessionAuthentication
 from sentry_sdk import capture_exception
 from social_core.pipeline.partial import partial
 from social_django.strategy import DjangoStrategy
@@ -245,7 +246,7 @@ class SocialSignupSerializer(serializers.Serializer):
     """
 
     organization_name: serializers.Field = serializers.CharField(max_length=128)
-    email_opt_in: serializers.Field = serializers.BooleanField(default=True)
+    first_name: serializers.Field = serializers.CharField(max_length=128)
 
     def create(self, validated_data, **kwargs):
         request = self.context["request"]
@@ -255,17 +256,16 @@ class SocialSignupSerializer(serializers.Serializer):
                 "Inactive social login session. Go to /login and log in before continuing.",
             )
 
-        request.session["organization_name"] = validated_data["organization_name"]
-        request.session["email_opt_in"] = validated_data["email_opt_in"]
-        request.session.set_expiry(3600)  # 1 hour to complete process
         email = request.session.get("email")
-        user_name = request.session.get("user_name")
+        email_opt_in = request.session.get("email_opt_in")
+        organization_name = validated_data["organization_name"]
+        first_name = validated_data["first_name"]
 
         serializer = SignupSerializer(
             data={
-                "organization_name": validated_data["organization_name"],
-                "email_opt_in": validated_data["email_opt_in"],
-                "first_name": user_name,
+                "organization_name": organization_name,
+                "email_opt_in": email_opt_in,
+                "first_name": first_name,
                 "email": email,
                 "password": None,
             },
@@ -275,7 +275,7 @@ class SocialSignupSerializer(serializers.Serializer):
         serializer.is_valid(raise_exception=True)
         user = serializer.save()
         logger.info(
-            f"social_create_user_signup", full_name_len=len(user_name), email_len=len(email), user=user.id,
+            f"social_create_user_signup", full_name_len=len(first_name), email_len=len(email), user=user.id,
         )
 
         return {"continue_url": reverse("social:complete", args=[request.session["backend"]])}
@@ -287,9 +287,9 @@ class SocialSignupSerializer(serializers.Serializer):
 class SocialSignupViewset(generics.CreateAPIView):
     serializer_class = SocialSignupSerializer
     permission_classes = (CanCreateOrg,)
-    authentication_classes = [
-        SessionAuthentication,
-    ]
+    # authentication_classes = [
+    #     SessionAuthentication,
+    # ]
 
 
 class TeamInviteSurrogate:
@@ -434,9 +434,8 @@ def social_create_user(strategy: DjangoStrategy, details, backend, request, user
                     return redirect("/login?error_code=no_new_organizations")
             strategy.session_set("email", email)
             organization_name = strategy.session_get("organization_name", None)
-            email_opt_in = strategy.session_get("email_opt_in", None)
             return redirect(
-                f"/organization/confirm-creation?organization_name={organization_name}&email_opt_in={email_opt_in}",
+                f"/organization/confirm-creation?organization_name={organization_name}&full_name={full_name}&email={email}",
             )
 
     report_user_signed_up(

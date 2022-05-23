@@ -1,0 +1,37 @@
+@import '~/vars';
+
+.ConfirmOrganization {
+    min-height: 100vh;
+    align-items: center;
+    justify-content: center;
+    display: flex;
+    flex-direction: column;
+    padding: 2.5rem 1rem;
+
+    .ConfirmOrganization__title {
+        font-size: 28px;
+        font-weight: 800;
+        line-height: 34px;
+        letter-spacing: -0.02em;
+        margin-bottom: 0.5rem;
+    }
+
+    .ConfirmOrganization__container-box {
+        box-shadow: var(--shadow-elevation);
+        max-width: 480px;
+        background-color: var(--bg-light);
+        border-radius: $radius;
+        padding: 2.5rem;
+    }
+    .ConfirmOrganization__help-box {
+        display: flex;
+        flex-direction: row;
+        border: 2px dashed var(--border);
+        border-radius: $radius;
+        padding: $default_spacing;
+        margin-bottom: $default_spacing;
+        p {
+            margin-bottom: 0;
+        }
+    }
+}
