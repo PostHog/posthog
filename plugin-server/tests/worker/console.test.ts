@@ -4,7 +4,7 @@ import { Hub, PluginLogEntryType } from '../../src/types'
 import { createHub } from '../../src/utils/db/hub'
 import { getPluginConfigRows } from '../../src/utils/db/sql'
 import { createConsole } from '../../src/worker/vm/extensions/console'
-import { resetTestDatabaseClickhouse } from '../helpers/clickhouse'
+import { delayUntilEventIngested,resetTestDatabaseClickhouse } from '../helpers/clickhouse'
 import { resetTestDatabase } from '../helpers/sql'
 
 describe('console extension', () => {
@@ -31,6 +31,7 @@ describe('console extension', () => {
 
                 await (console[method]() as unknown as Promise<void>)
 
+                await delayUntilEventIngested(() => hub.db.fetchPluginLogEntries())
                 const pluginLogEntries = await hub.db.fetchPluginLogEntries()
 
                 expect(pluginLogEntries.length).toBe(1)
@@ -45,6 +46,7 @@ describe('console extension', () => {
 
                 await (console[method]('number =', 987) as unknown as Promise<void>)
 
+                await delayUntilEventIngested(() => hub.db.fetchPluginLogEntries())
                 const pluginLogEntries = await hub.db.fetchPluginLogEntries()
 
                 expect(pluginLogEntries.length).toBe(1)
@@ -59,6 +61,7 @@ describe('console extension', () => {
 
                 await (console[method](new Error('something')) as unknown as Promise<void>)
 
+                await delayUntilEventIngested(() => hub.db.fetchPluginLogEntries())
                 const pluginLogEntries = await hub.db.fetchPluginLogEntries()
 
                 expect(pluginLogEntries.length).toBe(1)
@@ -73,6 +76,7 @@ describe('console extension', () => {
 
                 await (console[method]({ 1: 'ein', 2: 'zwei' }) as unknown as Promise<void>)
 
+                await delayUntilEventIngested(() => hub.db.fetchPluginLogEntries())
                 const pluginLogEntries = await hub.db.fetchPluginLogEntries()
 
                 expect(pluginLogEntries.length).toBe(1)
@@ -87,6 +91,7 @@ describe('console extension', () => {
 
                 await (console[method]([99, 79]) as unknown as Promise<void>)
 
+                await delayUntilEventIngested(() => hub.db.fetchPluginLogEntries())
                 const pluginLogEntries = await hub.db.fetchPluginLogEntries()
 
                 expect(pluginLogEntries.length).toBe(1)
