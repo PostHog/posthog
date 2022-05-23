@@ -797,6 +797,11 @@ export class EventsProcessor {
             return snapshot_data
         }
 
+        if (team_id !== 2) {
+            // only try storing to s3 for posthog on cloud
+            return snapshot_data
+        }
+
         const dateKey = castTimestampOrNow(timestamp, TimestampFormat.DateOnly)
         const object_storage_path = `${OBJECT_STORAGE_SESSION_RECORDING_FOLDER}/${dateKey}/${session_id}/${snapshot_data.chunk_id}/${snapshot_data.chunk_index}`
         const params = { Bucket: OBJECT_STORAGE_BUCKET, Key: object_storage_path, Body: snapshot_data.data }
