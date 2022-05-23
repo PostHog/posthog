@@ -55,7 +55,7 @@ class ElementViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         )
         result = sync_execute(
             GET_ELEMENTS.format(date_from=date_from, date_to=date_to, query=prop_filters),
-            {"team_id": self.team.pk, "timezone": self.team.timezone_for_charts, **prop_filter_params, **date_params},
+            {"team_id": self.team.pk, "timezone": self.team.timezone, **prop_filter_params, **date_params},
         )
         return response.Response(
             [
