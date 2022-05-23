@@ -74,14 +74,17 @@ class RetentionEventsQuery(EnterpriseEventQuery):
             # `Breakdown` type
             breakdown_type = self._filter.breakdown_type
             table = "events"
+            column = "properties"
 
             if breakdown_type == "person":
                 table = "person"
+                column = "person_props"
 
             breakdown_values_expression = get_single_or_multi_property_string_expr(
                 breakdown=[breakdown["property"] for breakdown in self._filter.breakdowns],
                 table=cast(Union[Literal["events"], Literal["person"]], table),
                 query_alias=None,
+                column=column,
             )
 
             if self._event_query_type == RetentionQueryType.TARGET_FIRST_TIME:

@@ -8,7 +8,7 @@ from rest_framework import status
 
 from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.models import Element, ElementGroup, Organization
-from posthog.test.base import APIBaseTest, _create_event
+from posthog.test.base import APIBaseTest, _create_event, _create_person
 
 
 class TestElement(ClickhouseTestMixin, APIBaseTest):
@@ -47,6 +47,10 @@ class TestElement(ClickhouseTestMixin, APIBaseTest):
             Element(tag_name="a", href="https://posthog.com/about", text="click here", order=0,),
             Element(tag_name="div", href="https://posthog.com/about", text="click here", order=1,),
         ]
+
+        _create_person(
+            team=self.team, distinct_ids=["test"],
+        )
         _create_event(
             team=self.team,
             elements=elements,
@@ -80,8 +84,9 @@ class TestElement(ClickhouseTestMixin, APIBaseTest):
             elements=[Element(tag_name="img")],
         )
 
-        with self.assertNumQueries(4):
+        with self.assertNumQueries(6):
             # Django session, PostHog user, PostHog team, PostHog org membership
+            # then 2 for inserting person in test setup
             response = self.client.get("/api/element/stats/").json()
         self.assertEqual(response[0]["count"], 2)
         self.assertEqual(response[0]["elements"][0]["tag_name"], "a")

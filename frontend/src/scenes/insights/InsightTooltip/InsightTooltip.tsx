@@ -201,6 +201,7 @@ export function InsightTooltip({
                     columns={columns}
                     rowKey="id"
                     size="small"
+                    className="ph-no-capture"
                     uppercaseHeader={false}
                     rowRibbonColor={hideColorCol ? undefined : (datum: SeriesDatum) => datum.color || null}
                     showHeader={showHeader}
