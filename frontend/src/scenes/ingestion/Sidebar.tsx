@@ -20,8 +20,8 @@ export function Sidebar(): JSX.Element {
     return (
         <div className="IngestionSidebar">
             <div className="IngestionSidebar__content">
-                <div style={{ paddingLeft: 8 }}>
-                    <FriendlyLogo />
+                <div style={{ marginLeft: -4 }}>
+                    <FriendlyLogo style={{ fontSize: '1.125rem' }} />
                 </div>
                 <div className="IngestionSidebar__steps">
                     <LemonButton
@@ -59,7 +59,7 @@ export function Sidebar(): JSX.Element {
                 <div className="IngestionSidebar__bottom">
                     <InviteMembersButton />
                     <div className="IngestionSidebar__help">
-                        <LemonDivider thick dashed />
+                        <LemonDivider thick dashed style={{ color: 'var(--border)', opacity: 100 }} />
                         <a href={`https://posthog.com/slack${HELP_UTM_TAGS}`} rel="noopener" target="_blank">
                             <LemonButton
                                 icon={<IconQuestionAnswer style={{ color: 'var(--primary)' }} />}

@@ -101,7 +101,7 @@ function IngestionContainer({ children }: { children: React.ReactNode }): JSX.El
             <div className="bridge-page IngestionContainer">
                 {!onboardingSidebar && (
                     <div className="mb">
-                        <FriendlyLogo />
+                        <FriendlyLogo style={{ fontSize: '1.125rem' }} />
                     </div>
                 )}
                 {children}

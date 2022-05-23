@@ -109,6 +109,7 @@ export function InviteMembersButton(): JSX.Element {
                 closeSitePopover()
                 showInviteModal()
             }}
+            center={onboardingSidebar}
             type={onboardingSidebar ? 'primary' : 'default'}
             fullWidth
             data-attr="top-menu-invite-team-members"
