@@ -55,4 +55,6 @@ async function processOnActionAndWebhooks(
             })
         )
     }
+
+    await Promise.all(promises)
 }
