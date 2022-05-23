@@ -1,61 +1,104 @@
+import abc
+from typing import Optional
+
 import structlog
 from boto3 import client
 from botocore.client import Config
-
-logger = structlog.get_logger(__name__)
-
 from django.conf import settings
 
-s3_client = None
-
-
-# boto doing some magic and gets confused if this is hinted as BaseClient
-# noinspection PyMissingTypeHints
-def storage_client():
-    global s3_client
-    if settings.OBJECT_STORAGE_ENABLED and not s3_client:
-        s3_client = client(
-            "s3",
-            endpoint_url=settings.OBJECT_STORAGE_ENDPOINT,
-            aws_access_key_id=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
-            aws_secret_access_key=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
-            config=Config(signature_version="s3v4", connect_timeout=1, retries={"max_attempts": 1}),
-            region_name="us-east-1",
-        )
-
-    return s3_client
+logger = structlog.get_logger(__name__)
 
 
 class ObjectStorageError(Exception):
     pass
 
 
-def write(file_name: str, content: str):
-    s3_response = {}
-    try:
-        s3_response = storage_client().put_object(Bucket=OBJECT_STORAGE_BUCKET, Body=content, Key=file_name)
-    except Exception as e:
-        logger.error("object_storage.write_failed", file_name=file_name, error=e, s3_response=s3_response)
-        raise ObjectStorageError("write failed") from e
+class S3(metaclass=abc.ABCMeta):
+    """Just because the full S3 API is available doesn't mean we should use it all"""
+
+    @abc.abstractmethod
+    def head_bucket(self, bucket: str) -> bool:
+        pass
+
+    @abc.abstractmethod
+    def read(self, bucket: str, key: str) -> Optional[str]:
+        pass
+
+    @abc.abstractmethod
+    def write(self, bucket: str, key: str, content: str) -> None:
+        pass
 
 
-def read(file_name: str):
-    s3_response = {}
-    try:
-        s3_response = storage_client().get_object(Bucket=OBJECT_STORAGE_BUCKET, Key=file_name)
-        content = s3_response["Body"].read()
-        return content.decode("utf-8")
-    except Exception as e:
-        logger.error("object_storage.read_failed", file_name=file_name, error=e, s3_response=s3_response)
-        raise ObjectStorageError("read failed") from e
+class UnavailableStorage(S3):
+    def read(self, bucket: str, key: str) -> Optional[str]:
+        pass
+
+    def write(self, bucket: str, key: str, content: str) -> None:
+        pass
+
+    def head_bucket(self, bucket: str):
+        return False
+
+
+class ObjectStorage(S3):
+    def __init__(self, aws_client, bucket: str) -> None:
+        self.aws_client = aws_client
+
+    def head_bucket(self, bucket: str) -> bool:
+        try:
+            return bool(self.aws_client.head_bucket(bucket=bucket))
+        except Exception as e:
+            logger.warn("object_storage.health_check_failed", bucket=bucket, error=e)
+            return False
+
+    def read(self, bucket: str, key: str) -> Optional[str]:
+        s3_response = {}
+        try:
+            s3_response = self.aws_client.get_object(Bucket=bucket, Key=key)
+            content = s3_response["Body"].read()
+            return content.decode("utf-8")
+        except Exception as e:
+            logger.error("object_storage.read_failed", bucket=bucket, file_name=key, error=e, s3_response=s3_response)
+            raise ObjectStorageError("read failed") from e
+
+    def write(self, bucket: str, key: str, content: str) -> None:
+        s3_response = {}
+        try:
+            s3_response = self.aws_client.put_object(Bucket=bucket, Body=content, Key=key)
+        except Exception as e:
+            logger.error("object_storage.write_failed", bucket=bucket, file_name=key, error=e, s3_response=s3_response)
+            raise ObjectStorageError("write failed") from e
+
+
+s3_client: S3 = UnavailableStorage()
+
+
+def storage_client() -> S3:
+    global s3_client
+
+    if settings.OBJECT_STORAGE_ENABLED and isinstance(s3_client, UnavailableStorage):
+        s3_client = ObjectStorage(
+            client(
+                "s3",
+                endpoint_url=settings.OBJECT_STORAGE_ENDPOINT,
+                aws_access_key_id=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+                aws_secret_access_key=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+                config=Config(signature_version="s3v4", connect_timeout=1, retries={"max_attempts": 1}),
+                region_name="us-east-1",
+            ),
+            bucket=settings.OBJECT_STORAGE_BUCKET,
+        )
+
+    return s3_client
+
+
+def write(file_name: str, content: str) -> None:
+    return storage_client().write(bucket=settings.OBJECT_STORAGE_BUCKET, key=file_name, content=content)
+
+
+def read(file_name: str) -> Optional[str]:
+    return storage_client().read(bucket=settings.OBJECT_STORAGE_BUCKET, key=file_name)
 
 
 def health_check() -> bool:
-    # noinspection PyBroadException
-    try:
-        client = storage_client()
-        response = client.head_bucket(Bucket=settings.OBJECT_STORAGE_BUCKET) if client else False
-        return bool(response)
-    except Exception as e:
-        logger.warn("object_storage.health_check_failed", error=e)
-        return False
+    return storage_client().head_bucket(settings.OBJECT_STORAGE_BUCKET)
