@@ -1,4 +1,3 @@
-import { PluginEvent } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 import * as fetch from 'node-fetch'
 

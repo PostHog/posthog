@@ -25,7 +25,7 @@ export class ExportEventsBuffer {
         this.hub = hub
     }
 
-    public async add(object: any, points = 1): Promise<void> {
+    public async add(object: Record<string, any>, points = 1): Promise<void> {
         // flush existing if adding would make us go over the limit
         if (this.points && this.points + points > this.options.limit) {
             await this.flush()

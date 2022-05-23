@@ -33,8 +33,7 @@ describe('ingestion benchmarks', () => {
             team.id,
             now,
             now,
-            new UUIDT().toString(),
-            'http://example.com'
+            new UUIDT().toString()
         )
     }
 

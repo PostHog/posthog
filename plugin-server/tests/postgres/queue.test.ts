@@ -1,6 +1,5 @@
 import Piscina from '@posthog/piscina'
 
-import { CeleryQueue } from '../../src/main/ingestion-queues/celery-queue'
 import { ingestEvent } from '../../src/main/ingestion-queues/ingest-event'
 import { KafkaQueue } from '../../src/main/ingestion-queues/kafka-queue'
 import { startQueues } from '../../src/main/ingestion-queues/queue'

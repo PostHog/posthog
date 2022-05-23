@@ -19,7 +19,7 @@ export async function startPluginSchedules(
 
     // Import this just to trigger build on ts-node-dev
     // This is a total hack and needs to be fixed - seems to be bug with ts-node-dev
-    const _ = require('../../worker/worker')
+    require('../../worker/worker')
 
     let stopped = false
     let weHaveTheLock = false
