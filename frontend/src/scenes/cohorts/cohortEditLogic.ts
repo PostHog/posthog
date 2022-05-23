@@ -5,7 +5,6 @@ import { ENTITY_MATCH_TYPE, FEATURE_FLAGS, PROPERTY_MATCH_TYPE } from 'lib/const
 import {
     AnyCohortCriteriaType,
     AnyCohortGroupType,
-    Breadcrumb,
     CohortCriteriaGroupFilter,
     CohortGroupType,
     CohortType,
@@ -252,16 +251,6 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
         newCohortFiltersEnabled: [
             () => [featureFlagLogic.selectors.featureFlags],
             (featureFlags) => !!featureFlags[FEATURE_FLAGS.COHORT_FILTERS],
-        ],
-        breadcrumbs: [
-            (s) => [s.cohort],
-            (cohort): Breadcrumb[] => [
-                {
-                    name: 'Cohorts',
-                    path: urls.cohorts(),
-                },
-                ...(cohort ? [{ name: cohort.name || 'Untitled' }] : []),
-            ],
         ],
     }),
 

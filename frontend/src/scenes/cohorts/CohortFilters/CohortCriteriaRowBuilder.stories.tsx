@@ -8,7 +8,6 @@ import { taxonomicFilterMocksDecorator } from 'lib/components/TaxonomicFilter/__
 import { useMountedLogic } from 'kea'
 import { actionsModel } from '~/models/actionsModel'
 import { cohortsModel } from '~/models/cohortsModel'
-import { cohortLogic } from 'scenes/cohorts/cohortLogic'
 import { BehavioralFilterType } from 'scenes/cohorts/CohortFilters/types'
 import { BehavioralEventType } from '~/types'
 import { Form } from 'kea-forms'
@@ -23,7 +22,6 @@ export default {
 export function _CohortCriteriaRowBuilder(props: CohortCriteriaRowBuilderProps): JSX.Element {
     useMountedLogic(actionsModel)
     useMountedLogic(cohortsModel)
-    useMountedLogic(cohortLogic({ id: 1 }))
     useMountedLogic(cohortEditLogic({ id: 1 }))
     const [type, setType] = useState<BehavioralFilterType>(BehavioralEventType.PerformEvent)
 
