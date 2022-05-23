@@ -985,4 +985,6 @@ export const BEHAVIORAL_TYPE_TO_LABEL = {
     ...FIELD_VALUES[FieldOptionsType.PersonPropertyBehavioral].values,
     ...FIELD_VALUES[FieldOptionsType.CohortBehavioral].values,
     ...FIELD_VALUES[FieldOptionsType.LifecycleBehavioral].values,
+    ...SCALE_FIELD_VALUES[FieldOptionsType.EventBehavioral].values,
+    ...SCALE_FIELD_VALUES[FieldOptionsType.LifecycleBehavioral].values,
 }

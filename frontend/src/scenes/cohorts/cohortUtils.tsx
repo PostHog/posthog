@@ -1,3 +1,4 @@
+import React from 'react'
 import {
     AnyCohortCriteriaType,
     AnyCohortGroupType,
@@ -487,4 +488,18 @@ export function cleanCriteria(criteria: AnyCohortCriteriaType, shouldPurge: bool
         ...populatedCriteria,
         ...determineFilterType(populatedCriteria['type'], populatedCriteria['value'], populatedCriteria['negation']),
     }
+}
+
+export function criteriaToHumanSentence(criteria: AnyCohortCriteriaType): React.ReactNode {
+    const words: React.ReactNode[] = [BEHAVIORAL_TYPE_TO_LABEL[criteriaToBehavioralFilterType(criteria)].label]
+
+    const { fields } = ROWS[criteriaToBehavioralFilterType(criteria)]
+    fields.forEach(({ fieldKey, defaultValue }) => {
+        if (!!fieldKey) {
+            words.push(<pre>{criteria[fieldKey]}</pre>)
+        } else {
+            words.push(defaultValue)
+        }
+    })
+    return <>{words}</>
 }
