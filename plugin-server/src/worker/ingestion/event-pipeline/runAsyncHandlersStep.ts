@@ -10,7 +10,9 @@ export async function runAsyncHandlersStep(
     person: Person | undefined,
     elements: Element[] | undefined
 ): Promise<StepResult> {
-    await Promise.all([processOnEvent(runner, event), processOnActionAndWebhooks(runner, event, person, elements)])
+    if (runner.hub.capabilities.processAsyncHandlers) {
+        await Promise.all([processOnEvent(runner, event), processOnActionAndWebhooks(runner, event, person, elements)])
+    }
 
     return null
 }
