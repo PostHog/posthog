@@ -1,14 +1,14 @@
 import React from 'react'
-import posthogLogo from 'public/posthog-logo.png'
 import { ingestionLogic } from './ingestionLogic'
 import { useActions, useValues } from 'kea'
 import './IngestionWizard.scss'
-import { InviteMembersButton, SitePopover } from '~/layout/navigation/TopBar/SitePopover'
+import { InviteMembersButton } from '~/layout/navigation/TopBar/SitePopover'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { LemonButton } from 'lib/components/LemonButton'
 import { IconArticle, IconQuestionAnswer } from 'lib/components/icons'
 import { HelpType } from '~/types'
 import { LemonDivider } from 'lib/components/LemonDivider'
+import { FriendlyLogo } from '~/toolbar/assets/FriendlyLogo'
 
 const HELP_UTM_TAGS = '?utm_medium=in-product-onboarding&utm_campaign=help-button-sidebar'
 
@@ -21,7 +21,7 @@ export function Sidebar(): JSX.Element {
         <div className="IngestionSidebar">
             <div className="IngestionSidebar__content">
                 <div style={{ paddingLeft: 8 }}>
-                    <img src={posthogLogo} style={{ width: 157, height: 30 }} />
+                    <FriendlyLogo />
                 </div>
                 <div className="IngestionSidebar__steps">
                     <LemonButton
@@ -56,12 +56,9 @@ export function Sidebar(): JSX.Element {
                         Listen for events
                     </LemonButton>
                 </div>
-                <div className="sidebar-bottom">
-                    <div className="popover mb">
-                        <SitePopover />
-                    </div>
+                <div className="IngestionSidebar__bottom">
                     <InviteMembersButton />
-                    <div className="sidebar-help">
+                    <div className="IngestionSidebar__help">
                         <LemonDivider thick dashed />
                         <a href={`https://posthog.com/slack${HELP_UTM_TAGS}`} rel="noopener" target="_blank">
                             <LemonButton

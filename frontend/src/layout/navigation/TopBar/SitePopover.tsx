@@ -338,16 +338,7 @@ export function SitePopover(): JSX.Element {
                     <ProfilePicture name={user?.first_name} email={user?.email} size="md" />
                     {(!systemStatus || expired) && <IconExclamation className="SitePopover__danger" />}
                 </div>
-                {activeScene === Scene.Ingestion && (
-                    <div className="fw-700 ml" style={{ fontSize: 14 }}>
-                        {user?.first_name}
-                    </div>
-                )}
-                {activeScene === Scene.Ingestion ? (
-                    <IconSettings style={{ marginLeft: 'auto' }} />
-                ) : (
-                    <IconArrowDropDown />
-                )}
+                <IconArrowDropDown />
             </div>
         </Popup>
     )

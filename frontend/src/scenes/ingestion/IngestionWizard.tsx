@@ -12,11 +12,12 @@ import { PlatformPanel } from 'scenes/ingestion/panels/PlatformPanel'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { BookmarkletPanel } from './panels/BookmarkletPanel'
-import posthogLogo from 'public/posthog-logo.png'
 import { ThirdPartyPanel } from './panels/ThirdPartyPanel'
 import { Sidebar } from './Sidebar'
 import { InviteModal } from 'scenes/organization/Settings/InviteModal'
 import { inviteLogic } from 'scenes/organization/Settings/inviteLogic'
+import { FriendlyLogo } from '~/toolbar/assets/FriendlyLogo'
+import { SitePopover } from '~/layout/navigation/TopBar/SitePopover'
 
 export const scene: SceneExport = {
     component: IngestionWizard,
@@ -100,10 +101,13 @@ function IngestionContainer({ children }: { children: React.ReactNode }): JSX.El
             <div className="bridge-page IngestionContainer">
                 {!onboardingSidebar && (
                     <div className="mb">
-                        <img src={posthogLogo} style={{ width: 157, height: 30 }} />
+                        <FriendlyLogo />
                     </div>
                 )}
                 {children}
+            </div>
+            <div style={{ position: 'fixed', right: 0, marginRight: '1rem' }}>
+                <SitePopover />
             </div>
         </div>
     )

@@ -16,7 +16,7 @@ export function Navigation({ children }: { children: any }): JSX.Element {
 
     return (
         <Layout style={{ minHeight: '100vh' }}>
-            {!onboardingSidebar || (onboardingSidebar && activeScene !== Scene.Ingestion && <TopBar />)}
+            {(!onboardingSidebar || (onboardingSidebar && activeScene !== Scene.Ingestion)) && <TopBar />}
             <SideBar>
                 <Layout.Content className={!sceneConfig?.plain ? 'main-app-content' : undefined}>
                     {!sceneConfig?.plain && (
