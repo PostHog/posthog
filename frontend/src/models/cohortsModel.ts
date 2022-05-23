@@ -28,7 +28,7 @@ export const cohortsModel = kea<cohortsModelType>({
                 const response = await api.cohorts.list()
                 personsLogic.findMounted({ syncWithUrl: true })?.actions.loadCohorts() // To ensure sync on person page
                 return (
-                    response?.results.map((cohort) =>
+                    response?.results?.map((cohort) =>
                         processCohortOnSet(
                             cohort,
                             !!featureFlagLogic.findMounted()?.values.featureFlags[FEATURE_FLAGS.COHORT_FILTERS]
