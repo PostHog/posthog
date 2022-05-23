@@ -104,7 +104,19 @@ class PathEventQuery(EnterpriseEventQuery):
         return query, self.params
 
     def _determine_should_join_distinct_ids(self) -> None:
+
+        if self._using_person_on_events:
+            self._should_join_distinct_ids = False
+            self._should_join_persons = False
+            return
+
         self._should_join_distinct_ids = True
+
+    def _determine_should_join_persons(self) -> None:
+        EnterpriseEventQuery._determine_should_join_persons(self)
+        if self._using_person_on_events:
+            self._should_join_distinct_ids = False
+            self._should_join_persons = False
 
     def _get_grouping_fields(self) -> Tuple[List[str], Dict[str, Any]]:
         _fields = []
