@@ -86,9 +86,13 @@ Object {
   "isSamlConfigSubmitting": false,
   "isSamlConfigValid": true,
   "samlConfig": Object {},
+  "samlConfigAllErrors": Object {
+    "saml_acs_url": undefined,
+  },
   "samlConfigChanged": false,
   "samlConfigErrors": Object {},
   "samlConfigHasErrors": false,
+  "samlConfigManualErrors": Object {},
   "samlConfigTouched": false,
   "samlConfigTouches": Object {},
   "samlConfigValidationErrors": Object {

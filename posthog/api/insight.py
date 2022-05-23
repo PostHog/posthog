@@ -1,6 +1,6 @@
 import json
 from functools import lru_cache
-from typing import Any, Dict, Optional, Type
+from typing import Any, Dict, List, Optional, Type
 
 import structlog
 from django.db.models import Count, OuterRef, QuerySet, Subquery
@@ -47,9 +47,10 @@ from posthog.constants import (
 )
 from posthog.decorators import cached_function
 from posthog.helpers.multi_property_breakdown import protect_old_clients_from_multi_property_default
-from posthog.models import DashboardTile, Filter, Insight, Team
+from posthog.models import DashboardTile, Filter, Insight, Team, User
 from posthog.models.activity_logging.activity_log import (
     ActivityPage,
+    Change,
     Detail,
     changes_between,
     load_activity,
@@ -61,6 +62,7 @@ from posthog.models.filters import RetentionFilter
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.insight import InsightViewed, generate_insight_cache_key
+from posthog.models.utils import UUIDT
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.queries.util import get_earliest_timestamp
 from posthog.settings import SITE_URL
@@ -76,9 +78,33 @@ from posthog.utils import (
 logger = structlog.get_logger(__name__)
 
 
-def choose_insight_name(insight):
-    name_for_logged_activity = insight.name if insight.name else insight.derived_name
-    return name_for_logged_activity or "(empty string)"
+def log_insight_activity(
+    activity: str,
+    insight: Insight,
+    insight_id: int,
+    insight_short_id: str,
+    organization_id: UUIDT,
+    team_id: int,
+    user: User,
+    changes: Optional[List[Change]] = None,
+) -> None:
+    """
+    Insight id and short_id are passed separately as some activities (like delete) alter the Insight instance
+
+    The experiments feature creates insights without a name, this does not log those
+    """
+
+    insight_name: Optional[str] = insight.name if insight.name else insight.derived_name
+    if insight_name:
+        log_activity(
+            organization_id=organization_id,
+            team_id=team_id,
+            user=user,
+            item_id=insight_id,
+            scope="Insight",
+            activity=activity,
+            detail=Detail(name=insight_name, changes=changes, short_id=insight_short_id),
+        )
 
 
 class InsightBasicSerializer(serializers.ModelSerializer):
@@ -213,15 +239,16 @@ class InsightSerializer(TaggedItemSerializerMixin, InsightBasicSerializer):
         # Manual tag creation since this create method doesn't call super()
         self._attempt_set_tags(tags, insight)
 
-        log_activity(
+        log_insight_activity(
+            activity="created",
+            insight=insight,
+            insight_id=insight.id,
+            insight_short_id=insight.short_id,
             organization_id=self.context["request"].user.current_organization_id,
             team_id=team.id,
             user=self.context["request"].user,
-            item_id=insight.id,
-            scope="Insight",
-            activity="created",
-            detail=Detail(name=(choose_insight_name(insight)), short_id=insight.short_id),
         )
+
         return insight
 
     def update(self, instance: Insight, validated_data: Dict, **kwargs) -> Insight:
@@ -255,16 +282,15 @@ class InsightSerializer(TaggedItemSerializerMixin, InsightBasicSerializer):
 
         changes = changes_between("Insight", previous=before_update, current=updated_insight)
 
-        log_activity(
+        log_insight_activity(
+            activity="updated",
+            insight=updated_insight,
+            insight_id=updated_insight.id,
+            insight_short_id=updated_insight.short_id,
             organization_id=self.context["request"].user.current_organization_id,
             team_id=self.context["team_id"],
             user=self.context["request"].user,
-            item_id=updated_insight.id,
-            scope="Insight",
-            activity="updated",
-            detail=Detail(
-                name=(choose_insight_name(updated_insight)), changes=changes, short_id=updated_insight.short_id
-            ),
+            changes=changes,
         )
 
         return updated_insight
@@ -664,14 +690,14 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, viewsets.Mo
 
         instance.delete()
 
-        log_activity(
+        log_insight_activity(
+            activity="deleted",
+            insight=instance,
+            insight_id=instance_id,
+            insight_short_id=instance_short_id,
             organization_id=self.organization.id,
             team_id=self.team_id,
             user=request.user,
-            item_id=instance_id,
-            scope="Insight",
-            activity="deleted",
-            detail=Detail(name=(choose_insight_name(instance)), short_id=instance_short_id),
         )
 
         return Response(status=status.HTTP_204_NO_CONTENT)

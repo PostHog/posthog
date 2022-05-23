@@ -22,7 +22,7 @@ export function PluginsEmptyState(): JSX.Element {
                         subtitle={
                             <>
                                 {' '}
-                                <CaretRightOutlined /> {'Enabled plugins'}{' '}
+                                <CaretRightOutlined /> {'Enabled apps'}{' '}
                             </>
                         }
                         buttons={<Skeleton.Button style={{ width: 150 }} />}
@@ -31,13 +31,13 @@ export function PluginsEmptyState(): JSX.Element {
                 </>
             ) : (
                 <>
-                    <Subtitle subtitle="Installed plugins" />
+                    <Subtitle subtitle="Installed apps" />
                     <Row gutter={16} style={{ marginTop: 16 }}>
                         <Col span={24}>
-                            <Empty description={<span>You haven't installed any plugins yet</span>}>
+                            <Empty description={<span>You haven't installed any apps yet</span>}>
                                 {canGloballyManagePlugins(user?.organization) && (
                                     <Button type="default" onClick={() => setPluginTab(PluginTab.Repository)}>
-                                        Open the Plugin Repository
+                                        Open the App Repository
                                     </Button>
                                 )}
                             </Empty>

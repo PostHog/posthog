@@ -49,7 +49,7 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType>([
                         const activeLoadedScene = sceneLogic.selectors.activeLoadedScene(state, props)
                         return activeSceneLogic.selectors.breadcrumbs(
                             state,
-                            activeLoadedScene?.sceneParams?.params || props
+                            activeLoadedScene?.paramsToProps?.(activeLoadedScene?.sceneParams) || props
                         )
                     } else if (sceneConfig?.name) {
                         return [{ name: sceneConfig.name }]

@@ -145,7 +145,7 @@ export function PluginDrawer(): JSX.Element {
                                 canInstallPlugins(user?.organization, editingPlugin.organization_id) && (
                                     <Popconfirm
                                         placement="topLeft"
-                                        title="Are you sure you wish to uninstall this plugin completely?"
+                                        title="Are you sure you wish to uninstall this app completely?"
                                         onConfirm={() => uninstallPlugin(editingPlugin.name)}
                                         okText="Uninstall"
                                         cancelText="Cancel"
@@ -168,8 +168,8 @@ export function PluginDrawer(): JSX.Element {
                                     <Tooltip
                                         title={
                                             <>
-                                                This plugin can currently be used by other organizations in this
-                                                instance of PostHog. This action will <b>disable and hide it</b> for all
+                                                This app can currently be used by other organizations in this instance
+                                                of PostHog. This action will <b>disable and hide it</b> for all
                                                 organizations other than yours.
                                             </>
                                         }
@@ -187,8 +187,8 @@ export function PluginDrawer(): JSX.Element {
                                     <Tooltip
                                         title={
                                             <>
-                                                This action will mark this plugin as installed for{' '}
-                                                <b>all organizations</b> in this instance of PostHog.
+                                                This action will mark this app as installed for <b>all organizations</b>{' '}
+                                                in this instance of PostHog.
                                             </>
                                         }
                                     >
@@ -307,7 +307,7 @@ export function PluginDrawer(): JSX.Element {
                                 Configuration
                             </h3>
                             {getConfigSchemaArray(editingPlugin.config_schema).length === 0 ? (
-                                <div>This plugin is not configurable.</div>
+                                <div>This app is not configurable.</div>
                             ) : null}
                             {getConfigSchemaArray(editingPlugin.config_schema).map((fieldConfig, index) => (
                                 <React.Fragment key={fieldConfig.key || `__key__${index}`}>
@@ -365,8 +365,13 @@ export function PluginDrawer(): JSX.Element {
                     ) : null}
                 </Form>
             </Drawer>
-            {editingPlugin?.plugin_type === 'source' ? (
-                <PluginSource visible={editingSource} close={() => setEditingSource(false)} id={editingPlugin.id} />
+            {editingPlugin?.plugin_type === 'source' && editingPlugin.id ? (
+                <PluginSource
+                    visible={editingSource}
+                    close={() => setEditingSource(false)}
+                    pluginId={editingPlugin.id}
+                    pluginConfigId={editingPlugin.pluginConfig?.id}
+                />
             ) : null}
         </>
     )
