@@ -25,16 +25,16 @@ export function Sidebar(): JSX.Element {
                 </div>
                 <div className="IngestionSidebar__steps">
                     <LemonButton
-                        fullWidth
                         className={`${currentIndex === 0 && 'ingestion-current-nav-step'}`}
+                        style={{ background: 'none', paddingLeft: 0 }}
                         onClick={() => setPlatform(null)}
                     >
                         Get started
                     </LemonButton>
                     <LemonButton
-                        fullWidth
                         className={`${currentIndex === 1 && 'ingestion-current-nav-step'}`}
                         disabled={!platform}
+                        style={{ background: 'none', paddingLeft: 0 }}
                         onClick={() => {
                             if (platform && currentIndex !== 1) {
                                 setVerify(false)
@@ -44,9 +44,9 @@ export function Sidebar(): JSX.Element {
                         Connect your product
                     </LemonButton>
                     <LemonButton
-                        fullWidth
                         className={`${currentIndex === 2 && 'ingestion-current-nav-step'}`}
                         disabled={!platform}
+                        style={{ background: 'none', paddingLeft: 0 }}
                         onClick={() => {
                             if (platform) {
                                 setVerify(true)
@@ -65,7 +65,12 @@ export function Sidebar(): JSX.Element {
                                 icon={<IconQuestionAnswer style={{ color: 'var(--primary)' }} />}
                                 type="tertiary"
                                 fullWidth
-                                style={{ marginTop: '1.5em', color: 'var(--primary)' }}
+                                style={{
+                                    marginTop: '1.5em',
+                                    color: 'var(--primary)',
+                                    background: 'none',
+                                    paddingLeft: 0,
+                                }}
                                 onClick={() => {
                                     reportIngestionHelpClicked(HelpType.Slack)
                                 }}
@@ -81,7 +86,7 @@ export function Sidebar(): JSX.Element {
                             <LemonButton
                                 icon={<IconArticle style={{ color: 'var(--primary)' }} />}
                                 type="tertiary"
-                                style={{ color: 'var(--primary)' }}
+                                style={{ color: 'var(--primary)', background: 'none', paddingLeft: 0 }}
                                 fullWidth
                                 onClick={() => {
                                     reportIngestionHelpClicked(HelpType.Docs)
