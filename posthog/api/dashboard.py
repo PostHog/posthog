@@ -288,13 +288,16 @@ class SharedDashboardsViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSet
 
 @xframe_options_exempt
 def shared_dashboard(request: HttpRequest, share_token: str):
-    dashboard = get_object_or_404(Dashboard, is_shared=True, share_token=share_token)
+    dashboard = get_object_or_404(
+        Dashboard.objects.select_related("team__organization"), is_shared=True, share_token=share_token
+    )
     shared_dashboard_serialized = {
         "id": dashboard.id,
         "share_token": dashboard.share_token,
         "name": dashboard.name,
         "description": dashboard.description,
         "team_name": dashboard.team.name,
+        "available_features": dashboard.team.organization.available_features,
     }
 
     return render_template(

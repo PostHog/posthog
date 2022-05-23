@@ -13,10 +13,10 @@ export function SourcePlugin(): JSX.Element {
     return (
         <div style={{ marginTop: 16 }}>
             <Card>
-                <Title level={5}>Plugin Editor</Title>
+                <Title level={5}>App Editor</Title>
                 <Paragraph>
-                    Write your plugin directly in PostHog.{' '}
-                    <a href="https://posthog.com/docs/plugins/overview" target="_blank">
+                    Write your app directly in PostHog.{' '}
+                    <a href="https://posthog.com/docs/apps" target="_blank">
                         Read the documentation for more information!
                     </a>
                 </Paragraph>
@@ -26,7 +26,7 @@ export function SourcePlugin(): JSX.Element {
                             value={sourcePluginName}
                             disabled={loading}
                             onChange={(e) => setSourcePluginName(e.target.value)}
-                            placeholder={`For example: "Hourly Weather Sync Plugin"`}
+                            placeholder={`For example: "Hourly Weather Sync App"`}
                         />
                     </Col>
                     <Col>

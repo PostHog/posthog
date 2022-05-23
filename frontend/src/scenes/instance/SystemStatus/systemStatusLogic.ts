@@ -49,6 +49,7 @@ const EDITABLE_INSTANCE_SETTINGS = [
     'EMAIL_REPLY_TO',
     'AGGREGATE_BY_DISTINCT_IDS_TEAMS',
     'NEW_COHORT_QUERY_TEAMS',
+    'ENABLE_ACTOR_ON_EVENTS_TEAMS',
 ]
 
 export const systemStatusLogic = kea<systemStatusLogicType<ConfigMode, InstanceStatusTabName>>({
