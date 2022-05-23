@@ -674,6 +674,53 @@ class TestClickhouseFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFu
             self._get_actor_ids_at_step(filter, 2), [person1_stopped_after_two_signups.uuid],
         )
 
+    def test_funnel_with_actions_and_props(self):
+        sign_up_action = _create_action(
+            name="sign up",
+            team=self.team,
+            properties=[{"key": "email", "operator": "icontains", "value": ".com", "type": "person"}],
+        )
+
+        filters = {
+            "actions": [
+                {"id": sign_up_action.id, "math": "dau", "order": 0},
+                {"id": sign_up_action.id, "math": "wau", "order": 1},
+            ],
+            "insight": INSIGHT_FUNNELS,
+        }
+
+        filter = Filter(data=filters)
+        funnel = ClickhouseFunnel(filter, self.team)
+
+        # event
+        person1_stopped_after_two_signups = _create_person(
+            distinct_ids=["stopped_after_signup1"], team_id=self.team.pk, properties={"email": "fake@test.com"}
+        )
+        _create_event(team=self.team, event="sign up", distinct_id="stopped_after_signup1", properties={"key": "val"})
+        _create_event(team=self.team, event="sign up", distinct_id="stopped_after_signup1", properties={"key": "val"})
+
+        person2_stopped_after_signup = _create_person(
+            distinct_ids=["stopped_after_signup2"], team_id=self.team.pk, properties={"email": "fake@test.com"}
+        )
+        _create_event(team=self.team, event="sign up", distinct_id="stopped_after_signup2", properties={"key": "val"})
+
+        result = funnel.run()
+
+        self.assertEqual(result[0]["name"], "sign up")
+        self.assertEqual(result[0]["count"], 2)
+
+        self.assertEqual(result[1]["count"], 1)
+
+        # check ordering of people in first step
+        self.assertCountEqual(
+            self._get_actor_ids_at_step(filter, 1),
+            [person1_stopped_after_two_signups.uuid, person2_stopped_after_signup.uuid],
+        )
+
+        self.assertCountEqual(
+            self._get_actor_ids_at_step(filter, 2), [person1_stopped_after_two_signups.uuid],
+        )
+
     @test_with_materialized_columns(["key"])
     @skip("Flaky funnel test")
     def test_funnel_with_actions_and_events(self):

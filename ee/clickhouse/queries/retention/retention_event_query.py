@@ -131,7 +131,9 @@ class RetentionEventsQuery(EnterpriseEventQuery):
         date_query, date_params = self._get_date_filter()
         self.params.update(date_params)
 
-        prop_query, prop_params = self._get_prop_groups(self._filter.property_groups)
+        prop_query, prop_params = self._get_prop_groups(
+            self._filter.property_groups, person_id_joined_alias=f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id"
+        )
 
         self.params.update(prop_params)
 
@@ -184,7 +186,11 @@ class RetentionEventsQuery(EnterpriseEventQuery):
         if entity.type == TREND_FILTER_TYPE_ACTIONS:
             action = Action.objects.get(pk=entity.id)
             action_query, params = format_action_filter(
-                team_id=self._team_id, action=action, prepend=prepend, use_loop=False
+                team_id=self._team_id,
+                action=action,
+                prepend=prepend,
+                use_loop=False,
+                person_id_joined_alias=f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id",
             )
             condition = action_query
         elif entity.type == TREND_FILTER_TYPE_EVENTS:

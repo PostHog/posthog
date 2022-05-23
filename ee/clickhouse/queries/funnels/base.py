@@ -439,8 +439,15 @@ class ClickhouseFunnelBase(ABC):
             for action_step in action.steps.all():
                 if entity_name not in self.params[entity_name]:
                     self.params[entity_name].append(action_step.event)
+
             action_query, action_params = format_action_filter(
-                team_id=self._team.pk, action=action, prepend=f"{entity_name}_{step_prefix}step_{index}"
+                team_id=self._team.pk,
+                action=action,
+                prepend=f"{entity_name}_{step_prefix}step_{index}",
+                person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS
+                if self._team.actor_on_events_querying_enabled
+                else PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
+                person_id_joined_alias="aggregation_target",
             )
             if action_query == "":
                 return ""
@@ -607,7 +614,7 @@ class ClickhouseFunnelBase(ABC):
                 if self._team.actor_on_events_querying_enabled:
                     return get_single_or_multi_property_string_expr(
                         self._filter.breakdown,
-                        table="person",
+                        table="events",
                         query_alias="prop",
                         column="person_properties",
                         allow_denormalized_props=False,
@@ -629,7 +636,7 @@ class ClickhouseFunnelBase(ABC):
                 if self._team.actor_on_events_querying_enabled:
                     properties_field = f"group{self._filter.breakdown_group_type_index}_properties"
                     expression, _ = get_property_string_expr(
-                        table="groups",
+                        table="events",
                         property_name=self._filter.breakdown,
                         var="%(breakdown)s",
                         column=properties_field,

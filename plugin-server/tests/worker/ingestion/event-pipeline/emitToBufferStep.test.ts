@@ -12,7 +12,6 @@ const preIngestionEvent: PreIngestionEvent = {
     eventUuid: 'uuid1',
     distinctId: 'my_id',
     ip: '127.0.0.1',
-    siteUrl: 'example.com',
     teamId: 2,
     timestamp: '2020-02-23T02:15:00Z',
     event: '$pageview',

@@ -57,6 +57,7 @@ class TrendsEventQuery(EnterpriseEventQuery):
             person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS
             if self._using_person_on_events
             else PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
+            person_id_joined_alias=f"{self.DISTINCT_ID_TABLE_ALIAS if not self._using_person_on_events else self.EVENT_TABLE_ALIAS}.person_id",
         )
 
         self.params.update(prop_params)

@@ -304,7 +304,7 @@ jobs:
             - name: Start stack with Docker Compose
               run: |
                   docker-compose -f deploy/docker-compose.dev.yml down
-                  docker-compose -f deploy/docker-compose.dev.yml up -d db clickhouse zookeeper kafka redis &
+                  docker-compose -f deploy/docker-compose.dev.yml up -d db clickhouse zookeeper kafka redis object_storage &
 
             - name: Set up Python 3.8.12
               uses: actions/setup-python@v2
@@ -342,11 +342,6 @@ jobs:
               uses: actions/checkout@v2
               with:
                   path: 'deploy/'
-
-            # just while object_storage isn't in master
-            - name: Start stack with object_storage
-              run: |
-                  docker-compose -f deploy/docker-compose.dev.yml up -d object_storage
 
             - name: Install requirements.txt dependencies with pip at current branch
               run: |

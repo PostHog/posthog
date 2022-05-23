@@ -13,12 +13,13 @@ import { ConnectionOptions } from 'tls'
 import { defaultConfig } from '../../config/config'
 import { JobQueueManager } from '../../main/job-queues/job-queue-manager'
 import { connectObjectStorage, ObjectStorage } from '../../main/services/object_storage'
-import { Hub, KafkaSecurityProtocol, PluginId, PluginServerCapabilities, PluginsServerConfig } from '../../types'
+import { Hub, KafkaSecurityProtocol, PluginServerCapabilities, PluginsServerConfig } from '../../types'
 import { ActionManager } from '../../worker/ingestion/action-manager'
 import { ActionMatcher } from '../../worker/ingestion/action-matcher'
 import { HookCommander } from '../../worker/ingestion/hooks'
 import { OrganizationManager } from '../../worker/ingestion/organization-manager'
 import { EventsProcessor } from '../../worker/ingestion/process-event'
+import { SiteUrlManager } from '../../worker/ingestion/site-url-manager'
 import { TeamManager } from '../../worker/ingestion/team-manager'
 import { InternalMetrics } from '../internal-metrics'
 import { killProcess } from '../kill'
@@ -31,6 +32,19 @@ import { DB } from './db'
 import { KafkaProducerWrapper } from './kafka-producer-wrapper'
 
 const { version } = require('../../../package.json')
+
+// `node-postgres` would return dates as plain JS Date objects, which would use the local timezone.
+// This converts all date fields to a proper luxon UTC DateTime and then casts them to a string
+// Unfortunately this must be done on a global object before initializing the `Pool`
+pgTypes.setTypeParser(1083 /* types.TypeId.TIME */, (timeStr) =>
+    timeStr ? DateTime.fromSQL(timeStr, { zone: 'utc' }).toISO() : null
+)
+pgTypes.setTypeParser(1114 /* types.TypeId.TIMESTAMP */, (timeStr) =>
+    timeStr ? DateTime.fromSQL(timeStr, { zone: 'utc' }).toISO() : null
+)
+pgTypes.setTypeParser(1184 /* types.TypeId.TIMESTAMPTZ */, (timeStr) =>
+    timeStr ? DateTime.fromSQL(timeStr, { zone: 'utc' }).toISO() : null
+)
 
 export async function createHub(
     config: Partial<PluginsServerConfig> = {},
@@ -57,7 +71,7 @@ export async function createHub(
     )
 
     if (serverConfig.STATSD_HOST) {
-        status.info('🤔', `StatsD`)
+        status.info('🤔', `Connecting to StatsD...`)
         statsd = new StatsD({
             port: serverConfig.STATSD_PORT,
             host: serverConfig.STATSD_HOST,
@@ -95,7 +109,7 @@ export async function createHub(
                 `Sending metrics to StatsD at ${serverConfig.STATSD_HOST}:${serverConfig.STATSD_PORT}, prefix: "${serverConfig.STATSD_PREFIX}"`
             )
         }
-        status.info('👍', `StatsD`)
+        status.info('👍', `StatsD ready`)
     }
 
     let kafkaSsl: ConnectionOptions | boolean | undefined
@@ -131,66 +145,47 @@ export async function createHub(
         }
     }
 
-    let clickhouse: ClickHouse | undefined
-    let kafka: Kafka | undefined
-    let kafkaProducer: KafkaProducerWrapper | undefined
+    status.info('🤔', `Connecting to ClickHouse...`)
+    const clickhouse = new ClickHouse({
+        host: serverConfig.CLICKHOUSE_HOST,
+        port: serverConfig.CLICKHOUSE_SECURE ? 8443 : 8123,
+        protocol: serverConfig.CLICKHOUSE_SECURE ? 'https:' : 'http:',
+        user: serverConfig.CLICKHOUSE_USER,
+        password: serverConfig.CLICKHOUSE_PASSWORD || undefined,
+        dataObjects: true,
+        queryOptions: {
+            database: serverConfig.CLICKHOUSE_DATABASE,
+            output_format_json_quote_64bit_integers: false,
+        },
+        ca: serverConfig.CLICKHOUSE_CA
+            ? fs.readFileSync(path.join(serverConfig.BASE_DIR, serverConfig.CLICKHOUSE_CA)).toString()
+            : undefined,
+        rejectUnauthorized: serverConfig.CLICKHOUSE_CA ? false : undefined,
+    })
+    await clickhouse.querying('SELECT 1') // test that the connection works
+    status.info('👍', `ClickHouse ready`)
 
-    if (serverConfig.KAFKA_ENABLED) {
-        status.info('🤔', `ClickHouse`)
-        clickhouse = new ClickHouse({
-            host: serverConfig.CLICKHOUSE_HOST,
-            port: serverConfig.CLICKHOUSE_SECURE ? 8443 : 8123,
-            protocol: serverConfig.CLICKHOUSE_SECURE ? 'https:' : 'http:',
-            user: serverConfig.CLICKHOUSE_USER,
-            password: serverConfig.CLICKHOUSE_PASSWORD || undefined,
-            dataObjects: true,
-            queryOptions: {
-                database: serverConfig.CLICKHOUSE_DATABASE,
-                output_format_json_quote_64bit_integers: false,
-            },
-            ca: serverConfig.CLICKHOUSE_CA
-                ? fs.readFileSync(path.join(serverConfig.BASE_DIR, serverConfig.CLICKHOUSE_CA)).toString()
-                : undefined,
-            rejectUnauthorized: serverConfig.CLICKHOUSE_CA ? false : undefined,
-        })
-        await clickhouse.querying('SELECT 1') // test that the connection works
-        status.info('👍', `ClickHouse`)
+    status.info('🤔', `Connecting to Kafka...`)
+    const kafka = new Kafka({
+        clientId: `plugin-server-v${version}-${instanceId}`,
+        brokers: serverConfig.KAFKA_HOSTS.split(','),
+        logLevel: logLevel.WARN,
+        ssl: kafkaSsl,
+        sasl: kafkaSasl,
+        connectionTimeout: 3000, // default: 1000
+        authenticationTimeout: 3000, // default: 1000
+    })
+    const producer = kafka.producer({ retry: { retries: 10, initialRetryTime: 1000, maxRetryTime: 30 } })
+    await producer.connect()
 
-        status.info('🤔', `Kafka`)
-        kafka = new Kafka({
-            clientId: `plugin-server-v${version}-${instanceId}`,
-            brokers: serverConfig.KAFKA_HOSTS.split(','),
-            logLevel: logLevel.WARN,
-            ssl: kafkaSsl,
-            sasl: kafkaSasl,
-            connectionTimeout: 3000, // default: 1000
-            authenticationTimeout: 3000, // default: 1000
-        })
-        const producer = kafka.producer({ retry: { retries: 10, initialRetryTime: 1000, maxRetryTime: 30 } })
-        await producer?.connect()
+    const kafkaProducer = new KafkaProducerWrapper(producer, statsd, serverConfig)
+    status.info('👍', `Kafka ready`)
 
-        kafkaProducer = new KafkaProducerWrapper(producer, statsd, serverConfig)
-        status.info('👍', `Kafka`)
-    }
-
-    // `node-postgres` will return dates as plain JS Date objects, which will use the local timezone.
-    // This converts all date fields to a proper luxon UTC DateTime and then casts them to a string
-    // Unfortunately this must be done on a global object before initializing the `Pool`
-    pgTypes.setTypeParser(1083 /* types.TypeId.TIME */, (timeStr) =>
-        timeStr ? DateTime.fromSQL(timeStr, { zone: 'utc' }).toISO() : null
-    )
-    pgTypes.setTypeParser(1114 /* types.TypeId.TIMESTAMP */, (timeStr) =>
-        timeStr ? DateTime.fromSQL(timeStr, { zone: 'utc' }).toISO() : null
-    )
-    pgTypes.setTypeParser(1184 /* types.TypeId.TIMESTAMPTZ */, (timeStr) =>
-        timeStr ? DateTime.fromSQL(timeStr, { zone: 'utc' }).toISO() : null
-    )
-
-    status.info('🤔', `Postgresql`)
+    status.info('🤔', `Connecting to Postgresql...`)
     const postgres = createPostgresPool(serverConfig)
-    status.info('👍', `Postgresql`)
+    status.info('👍', `Postgresql ready`)
 
-    status.info('🤔', `Redis`)
+    status.info('🤔', `Connecting to Redis...`)
     const redisPool = createPool<Redis.Redis>(
         {
             create: () => createRedis(serverConfig),
@@ -204,18 +199,18 @@ export async function createHub(
             autostart: true,
         }
     )
-    status.info('👍', `Redis`)
+    status.info('👍', `Redis ready`)
 
-    status.info('🤔', `Storage`)
+    status.info('🤔', `Connecting to object storage...`)
     const objectStorage: ObjectStorage = connectObjectStorage(serverConfig)
     try {
         if (serverConfig.OBJECT_STORAGE_ENABLED && (await objectStorage.healthCheck())) {
-            status.info('👍', `storage 🪣`)
+            status.info('👍', 'Object storage ready')
         } else {
-            status.info('🪣', `storage not in use`)
+            status.info('🪣', 'Object storage not in use')
         }
     } catch (e) {
-        status.warn('🪣', `storage failed healthcheck: ${e}`)
+        status.warn('🪣', `Object storage failed healthcheck: ${e}`)
     }
 
     const db = new DB(
@@ -224,6 +219,7 @@ export async function createHub(
         kafkaProducer,
         clickhouse,
         statsd,
+        serverConfig.KAFKA_ENABLED,
         serverConfig.PERSON_INFO_CACHE_TTL,
         new Set(serverConfig.PERSON_INFO_TO_REDIS_TEAMS.split(',').filter(String).map(Number))
     )
@@ -232,10 +228,11 @@ export async function createHub(
     const pluginsApiKeyManager = new PluginsApiKeyManager(db)
     const rootAccessManager = new RootAccessManager(db)
     const promiseManager = new PromiseManager(serverConfig, statsd)
+    const siteUrlManager = new SiteUrlManager(db, serverConfig.SITE_URL)
     const actionManager = new ActionManager(db)
     await actionManager.prepare()
 
-    const hub: Omit<Hub, 'eventsProcessor'> = {
+    const hub: Partial<Hub> = {
         ...serverConfig,
         instanceId,
         capabilities,
@@ -261,15 +258,16 @@ export async function createHub(
         pluginsApiKeyManager,
         rootAccessManager,
         promiseManager,
+        siteUrlManager,
         actionManager,
         actionMatcher: new ActionMatcher(db, actionManager, statsd),
-        hookCannon: new HookCommander(db, teamManager, organizationManager, statsd),
         conversionBufferEnabledTeams,
     }
 
     // :TODO: This is only used on worker threads, not main
     hub.eventsProcessor = new EventsProcessor(hub as Hub)
     hub.jobQueueManager = new JobQueueManager(hub as Hub)
+    hub.hookCannon = new HookCommander(db, teamManager, organizationManager, siteUrlManager, statsd)
 
     if (serverConfig.CAPTURE_INTERNAL_METRICS) {
         hub.internalMetrics = new InternalMetrics(hub as Hub)
@@ -295,16 +293,12 @@ export async function createHub(
         }
 
         hub.mmdbUpdateJob?.cancel()
-        await hub.db.postgresLogsWrapper.flushLogs()
+        await hub.db?.postgresLogsWrapper.flushLogs()
         await hub.jobQueueManager?.disconnectProducer()
-        if (kafkaProducer) {
-            clearInterval(kafkaProducer.flushInterval)
-            await kafkaProducer.flush()
-            await kafkaProducer.producer.disconnect()
-        }
+        await kafkaProducer.disconnect()
         await redisPool.drain()
         await redisPool.clear()
-        await hub.postgres.end()
+        await hub.postgres?.end()
     }
 
     return [hub as Hub, closeHub]

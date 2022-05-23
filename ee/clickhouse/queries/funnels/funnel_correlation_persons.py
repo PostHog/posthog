@@ -78,7 +78,9 @@ class _FunnelEventsCorrelationActors(ActorBaseQuery):
         event_query = FunnelEventQuery(self._filter, self._team)
         event_query.EVENT_TABLE_ALIAS = "events"
 
-        prop_query, prop_params = event_query._get_prop_groups(prop_filters)
+        prop_query, prop_params = event_query._get_prop_groups(
+            prop_filters, person_id_joined_alias=f"{event_query.DISTINCT_ID_TABLE_ALIAS}.person_id"
+        )
 
         conversion_filter = (
             f'AND actors.steps {"=" if self._filter.correlation_persons_converted else "<>"} target_step'
