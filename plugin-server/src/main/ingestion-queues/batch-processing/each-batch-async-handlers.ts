@@ -1,11 +1,12 @@
 import { EachBatchPayload, KafkaMessage } from 'kafkajs'
-import { runInstrumentedFunction } from 'main/utils'
 
+import { runInstrumentedFunction } from '../../utils'
 import { KafkaQueue } from '../kafka-queue'
 import { eachBatch } from './each-batch'
 
 export async function eachMessageAsyncHandlers(message: KafkaMessage, queue: KafkaQueue): Promise<void> {
     const event = JSON.parse(message.value!.toString())
+
     await runInstrumentedFunction({
         server: queue.pluginsServer,
         event: event,
