@@ -2,13 +2,13 @@ import re
 from datetime import timedelta
 from typing import Dict, List, Literal, Union
 
-from constance import config
 from django.utils.timezone import now
 
 from ee.clickhouse.materialized_columns.util import cache_for
 from ee.clickhouse.replication.utils import clickhouse_is_replicated
 from ee.clickhouse.sql.clickhouse import trim_quotes_expr
 from posthog.client import sync_execute
+from posthog.models.instance_setting import get_instance_setting
 from posthog.models.property import PropertyName, TableWithProperties
 from posthog.models.utils import generate_random_short_suffix
 from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE, TEST
@@ -32,7 +32,7 @@ def get_materialized_columns(table: TablesWithMaterializedColumns) -> Dict[Prope
     """,
         {"database": CLICKHOUSE_DATABASE, "table": table},
     )
-    if rows and getattr(config, "MATERIALIZED_COLUMNS_ENABLED"):
+    if rows and get_instance_setting("MATERIALIZED_COLUMNS_ENABLED"):
         return {extract_property(comment): column_name for comment, column_name in rows}
     else:
         return {}

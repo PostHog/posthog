@@ -14,6 +14,7 @@ import {
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
 import { IconHandClick } from 'lib/components/icons'
+import { shortTimeZone } from 'lib/utils'
 import { humanFriendlyNumber } from 'lib/utils'
 
 export function ClickToInspectActors({
@@ -40,6 +41,7 @@ export function ClickToInspectActors({
 
 export function InsightTooltip({
     date,
+    timezone = 'UTC',
     seriesData = [],
     altTitle,
     altRightTitle,
@@ -66,8 +68,18 @@ export function InsightTooltip({
     const itemizeEntitiesAsColumns =
         forceEntitiesAsColumns ||
         (seriesData?.length > 1 && (seriesData?.[0]?.breakdown_value || seriesData?.[0]?.compare_label))
-    const title =
-        getTooltipTitle(seriesData, altTitle, date) ?? getFormattedDate(date, seriesData?.[0]?.filter?.interval)
+    const title = (function () {
+        const tooltipTitle = getTooltipTitle(seriesData, altTitle, date)
+        if (tooltipTitle) {
+            return tooltipTitle
+        }
+        return (
+            <>
+                {getFormattedDate(date, seriesData?.[0]?.filter?.interval)}
+                {shortTimeZone(timezone)}
+            </>
+        )
+    })()
     const rightTitle = getTooltipTitle(seriesData, altRightTitle, date) ?? null
 
     const renderTable = (): JSX.Element => {
@@ -189,6 +201,7 @@ export function InsightTooltip({
                     columns={columns}
                     rowKey="id"
                     size="small"
+                    className="ph-no-capture"
                     uppercaseHeader={false}
                     rowRibbonColor={hideColorCol ? undefined : (datum: SeriesDatum) => datum.color || null}
                     showHeader={showHeader}

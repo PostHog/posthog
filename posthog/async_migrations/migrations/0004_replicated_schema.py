@@ -5,7 +5,6 @@ from typing import Dict, List, Optional, cast
 
 import structlog
 from clickhouse_driver.errors import ServerException
-from constance import config
 from django.conf import settings
 from django.utils.timezone import now
 
@@ -18,6 +17,7 @@ from posthog.async_migrations.definition import (
 )
 from posthog.client import sync_execute
 from posthog.errors import lookup_error_code
+from posthog.models.instance_setting import set_instance_setting
 from posthog.utils import flatten
 
 logger = structlog.get_logger(__name__)
@@ -130,14 +130,14 @@ class Migration(AsyncMigrationDefinition):
         return [
             AsyncMigrationOperationSQL(sql="SYSTEM STOP MERGES", rollback="SYSTEM START MERGES"),
             AsyncMigrationOperation(
-                fn=lambda _: setattr(config, "COMPUTE_MATERIALIZED_COLUMNS_ENABLED", False),
-                rollback_fn=lambda _: setattr(config, "COMPUTE_MATERIALIZED_COLUMNS_ENABLED", True),
+                fn=lambda _: set_instance_setting("COMPUTE_MATERIALIZED_COLUMNS_ENABLED", False),
+                rollback_fn=lambda _: set_instance_setting("COMPUTE_MATERIALIZED_COLUMNS_ENABLED", True),
             ),
             *TABLE_MIGRATION_OPERATIONS,
             *RE_ENABLE_INGESTION_OPERATIONS,
             AsyncMigrationOperation(
-                fn=lambda _: setattr(config, "COMPUTE_MATERIALIZED_COLUMNS_ENABLED", False),
-                rollback_fn=lambda _: setattr(config, "COMPUTE_MATERIALIZED_COLUMNS_ENABLED", True),
+                fn=lambda _: set_instance_setting("COMPUTE_MATERIALIZED_COLUMNS_ENABLED", False),
+                rollback_fn=lambda _: set_instance_setting("COMPUTE_MATERIALIZED_COLUMNS_ENABLED", True),
             ),
             AsyncMigrationOperationSQL(sql="SYSTEM START MERGES", rollback="SYSTEM STOP MERGES",),
         ]

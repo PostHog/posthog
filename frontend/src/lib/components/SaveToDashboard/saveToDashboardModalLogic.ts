@@ -25,13 +25,13 @@ export const saveToDashboardModalLogic = kea<saveToDashboardModalLogicType<SaveT
         return insight.short_id
     },
     connect: (props: SaveToDashboardModalLogicProps) => ({
-        logic: [
-            newDashboardLogic,
-            dashboardsModel,
+        logic: [newDashboardLogic, dashboardsModel, prompt({ key: `saveToDashboardModalLogic-new-dashboard` })],
+        actions: [
+            insightLogic({ dashboardItemId: props.insight.short_id }),
+            ['updateInsight', 'updateInsightSuccess', 'updateInsightFailure'],
             eventUsageLogic,
-            prompt({ key: `saveToDashboardModalLogic-new-dashboard` }),
+            ['reportSavedInsightToDashboard', 'reportRemovedInsightFromDashboard', 'reportCreatedDashboardFromModal'],
         ],
-        actions: [insightLogic({ dashboardItemId: props.insight.short_id }), ['updateInsight']],
     }),
     actions: {
         addNewDashboard: true,
@@ -47,6 +47,15 @@ export const saveToDashboardModalLogic = kea<saveToDashboardModalLogicType<SaveT
         _dashboardId: [null as null | number, { setDashboardId: (_, { id }) => id }],
         searchQuery: ['', { setSearchQuery: (_, { query }) => query }],
         scrollIndex: [-1 as number, { setScrollIndex: (_, { index }) => index }],
+        dashboardWithActiveAPICall: [
+            null as number | null,
+            {
+                addToDashboard: (_, { dashboardId }) => dashboardId,
+                removeFromDashboard: (_, { dashboardId }) => dashboardId,
+                updateInsightSuccess: () => null,
+                updateInsightFailure: () => null,
+            },
+        ],
     },
 
     selectors: {
@@ -108,7 +117,7 @@ export const saveToDashboardModalLogic = kea<saveToDashboardModalLogicType<SaveT
         },
 
         [dashboardsModel.actionTypes.addDashboardSuccess]: async ({ dashboard }) => {
-            eventUsageLogic.actions.reportCreatedDashboardFromModal()
+            actions.reportCreatedDashboardFromModal()
             actions.setDashboardId(dashboard.id)
             actions.addToDashboard(props.insight, dashboard.id)
             actions.setScrollIndex(values.orderedDashboards.findIndex((d) => d.id === dashboard.id))
@@ -116,7 +125,7 @@ export const saveToDashboardModalLogic = kea<saveToDashboardModalLogicType<SaveT
 
         addToDashboard: async ({ insight, dashboardId }) => {
             actions.updateInsight({ ...insight, dashboards: [...(insight.dashboards || []), dashboardId] }, () => {
-                eventUsageLogic.actions.reportSavedInsightToDashboard()
+                actions.reportSavedInsightToDashboard()
                 lemonToast.success('Insight added to dashboard', {
                     button: {
                         label: 'View dashboard',
@@ -132,7 +141,7 @@ export const saveToDashboardModalLogic = kea<saveToDashboardModalLogicType<SaveT
                     dashboards: (insight.dashboards || []).filter((d) => d !== dashboardId),
                 },
                 () => {
-                    eventUsageLogic.actions.reportRemovedInsightFromDashboard()
+                    actions.reportRemovedInsightFromDashboard()
                     lemonToast.success('Insight removed from dashboard')
                 }
             )

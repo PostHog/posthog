@@ -29,10 +29,6 @@ export function createPosthog(server: Hub, pluginConfig: PluginConfig): DummyPos
     if (server.KAFKA_ENABLED) {
         // Sending event to our Kafka>ClickHouse pipeline
         sendEvent = async (data) => {
-            if (!server.kafkaProducer) {
-                throw new Error('kafkaProducer not configured!')
-            }
-
             const partitionKeyHash = crypto.createHash('sha256')
             partitionKeyHash.update(`${data.team_id}:${data.distinct_id}`)
             const partitionKey = partitionKeyHash.digest('hex')
