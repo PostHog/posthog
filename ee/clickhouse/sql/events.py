@@ -245,13 +245,12 @@ SELECT
     team_id,
     distinct_id,
     elements_chain,
-    created_at,
-    toDate(timestamp)
+    created_at
 FROM
     events
 where team_id = %(team_id)s
 {conditions}
-ORDER BY toDate(timestamp) {order}, timestamp {order} {limit}
+ORDER BY timestamp {order} {limit}
 """
 
 SELECT_EVENT_BY_TEAM_AND_CONDITIONS_FILTERS_SQL = """
@@ -263,14 +262,13 @@ SELECT
     team_id,
     distinct_id,
     elements_chain,
-    created_at,
-    toDate(timestamp)
+    created_at
 FROM events
 WHERE
 team_id = %(team_id)s
 {conditions}
 {filters}
-ORDER BY toDate(timestamp) {order}, timestamp {order} {limit}
+ORDER BY timestamp {order} {limit}
 """
 
 SELECT_ONE_EVENT_SQL = """
