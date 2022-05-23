@@ -39,8 +39,6 @@ INSTALLED_APPS = [
     "social_django",
     "django_filters",
     "axes",
-    "constance",
-    "constance.backends.database",
     "drf_spectacular",
 ]
 

@@ -21,6 +21,7 @@ from posthog.constants import (
     FunnelOrderType,
     FunnelVizType,
 )
+from posthog.models.team import TIMEZONES
 
 
 class GenericInsightsSerializer(serializers.Serializer):
@@ -118,6 +119,7 @@ class ResultsMixin(serializers.Serializer):
         help_text="Whether the result is cached. To force a refresh, pass ?refresh=true"
     )
     last_refresh = serializers.DateTimeField(help_text="If the result is cached, when it was last refreshed.")
+    timezone = serializers.ChoiceField(choices=TIMEZONES, default="UTC", help_text="Timezone the chart is displayed in")
 
 
 class TrendResultSerializer(serializers.Serializer):

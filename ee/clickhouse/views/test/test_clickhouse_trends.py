@@ -17,7 +17,7 @@ from posthog.api.test.test_cohort import create_cohort_ok
 from posthog.api.test.test_event_definition import create_organization, create_team, create_user
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.team import Team
-from posthog.test.base import APIBaseTest, test_with_materialized_columns
+from posthog.test.base import APIBaseTest, _create_person, test_with_materialized_columns
 
 
 @pytest.mark.django_db
@@ -98,6 +98,7 @@ def test_includes_only_intervals_within_range(client: Client):
             "is_cached": False,
             "last_refresh": "2021-09-20T16:00:00Z",
             "next": None,
+            "timezone": "UTC",
             "result": [
                 {
                     "action": ANY,
@@ -170,6 +171,7 @@ def test_can_specify_number_of_smoothing_intervals(client: Client):
             "is_cached": False,
             "last_refresh": "2021-09-20T16:00:00Z",
             "next": None,
+            "timezone": "UTC",
             "result": [
                 {
                     "action": ANY,
@@ -211,6 +213,7 @@ def test_can_specify_number_of_smoothing_intervals(client: Client):
             "is_cached": False,
             "last_refresh": "2021-09-20T16:00:00Z",
             "next": None,
+            "timezone": "UTC",
             "result": [
                 {
                     "action": ANY,
@@ -252,6 +255,7 @@ def test_can_specify_number_of_smoothing_intervals(client: Client):
             "is_cached": False,
             "last_refresh": "2021-09-20T16:00:00Z",
             "next": None,
+            "timezone": "UTC",
             "result": [
                 {
                     "action": {
@@ -334,6 +338,7 @@ def test_smoothing_intervals_copes_with_null_values(client: Client):
             "is_cached": False,
             "last_refresh": "2021-09-20T16:00:00Z",
             "next": None,
+            "timezone": "UTC",
             "result": [
                 {
                     "action": ANY,
@@ -375,6 +380,7 @@ def test_smoothing_intervals_copes_with_null_values(client: Client):
             "is_cached": False,
             "last_refresh": "2021-09-20T16:00:00Z",
             "next": None,
+            "timezone": "UTC",
             "result": [
                 {
                     "action": ANY,
@@ -613,6 +619,10 @@ class ClickhouseTestTrends(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest):
     @snapshot_clickhouse_queries
     def test_insight_trends_cumulative(self):
 
+        _create_person(team_id=self.team.pk, distinct_ids=["p1"], properties={"key": "some_val"})
+        _create_person(team_id=self.team.pk, distinct_ids=["p2"], properties={"key": "some_val"})
+        _create_person(team_id=self.team.pk, distinct_ids=["p3"], properties={"key": "some_val"})
+
         events_by_person = {
             "p1": [
                 {"event": "$pageview", "timestamp": datetime(2012, 1, 13, 3), "properties": {"key": "val"}},
@@ -715,6 +725,39 @@ class ClickhouseTestTrends(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest):
         assert data_response["$pageview - val"]["2012-01-14"].label == "14-Jan-2012"
 
         assert sorted([p["id"] for p in person_response]) == sorted(
+            [str(created_people["p1"].uuid), str(created_people["p3"].uuid)]
+        )
+
+        # breakdown wau
+        with freeze_time("2012-01-15T04:01:34.000Z"):
+            request = TrendsRequestBreakdown(
+                date_from="-14d",
+                display="ActionsLineGraphCumulative",
+                breakdown="key",
+                breakdown_type="event",
+                events=[
+                    {
+                        "id": "$pageview",
+                        "math": "weekly_active",
+                        "name": "$pageview",
+                        "custom_name": None,
+                        "type": "events",
+                        "order": 0,
+                        "properties": [{"type": "person", "key": "key", "value": "some_val"}],
+                        "math_property": None,
+                    }
+                ],
+                properties=[{"type": "person", "key": "key", "value": "some_val"}],
+            )
+            data_response = get_trends_time_series_ok(self.client, request, self.team)
+            people = get_people_from_url_ok(self.client, data_response["$pageview - val"]["2012-01-14"].person_url)
+
+        assert data_response["$pageview - val"]["2012-01-13"].value == 1
+        assert data_response["$pageview - val"]["2012-01-13"].breakdown_value == "val"
+        assert data_response["$pageview - val"]["2012-01-14"].value == 3
+        assert data_response["$pageview - val"]["2012-01-14"].label == "14-Jan-2012"
+
+        assert sorted([p["id"] for p in people]) == sorted(
             [str(created_people["p1"].uuid), str(created_people["p3"].uuid)]
         )
 

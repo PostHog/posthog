@@ -20,7 +20,7 @@ import { createHub } from '../../src/utils/db/hub'
 import { hashElements } from '../../src/utils/db/utils'
 import { posthog } from '../../src/utils/posthog'
 import { UUIDT } from '../../src/utils/utils'
-import { ingestEvent } from '../../src/worker/ingestion/ingest-event'
+import { EventPipelineRunner } from '../../src/worker/ingestion/event-pipeline/runner'
 import { EventsProcessor } from '../../src/worker/ingestion/process-event'
 import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../helpers/clickhouse'
 import { resetKafka } from '../helpers/kafka'
@@ -175,7 +175,7 @@ afterEach(async () => {
 })
 
 const capture = async (hub: Hub, eventName: string, properties: any = {}) => {
-    await ingestEvent(hub, {
+    const event = {
         event: eventName,
         distinct_id: properties.distinct_id ?? state.currentDistinctId,
         properties: properties,
@@ -185,7 +185,9 @@ const capture = async (hub: Hub, eventName: string, properties: any = {}) => {
         site_url: 'https://posthog.com',
         team_id: team.id,
         uuid: new UUIDT().toString(),
-    })
+    }
+    const runner = new EventPipelineRunner(hub, event)
+    await runner.runEventPipeline(event)
     await delayUntilEventIngested(() => hub.db.fetchEvents(), ++mockClientEventCounter)
 }
 
