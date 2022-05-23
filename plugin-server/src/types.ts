@@ -943,3 +943,5 @@ export interface PreIngestionEvent {
     timestamp: DateTime | string
     elementsList: Element[]
 }
+
+export type IngestionEvent = Omit<PreIngestionEvent, 'elementsList'>
