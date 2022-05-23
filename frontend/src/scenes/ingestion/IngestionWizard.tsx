@@ -106,9 +106,11 @@ function IngestionContainer({ children }: { children: React.ReactNode }): JSX.El
                 )}
                 {children}
             </div>
-            <div style={{ position: 'fixed', right: 0, marginRight: '1rem' }}>
-                <SitePopover />
-            </div>
+            {onboardingSidebar && (
+                <div style={{ position: 'fixed', right: 0, marginRight: '1rem' }}>
+                    <SitePopover />
+                </div>
+            )}
         </div>
     )
 }
