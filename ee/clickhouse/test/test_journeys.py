@@ -9,7 +9,7 @@ from django.utils import timezone
 from ee.clickhouse.sql.events import EVENTS_DATA_TABLE
 from posthog.client import sync_execute
 from posthog.models import Person, PersonDistinctId, Team
-from posthog.test.base import flush_persons_and_events
+from posthog.test.base import _create_event, flush_persons_and_events
 
 
 def journeys_for(
@@ -37,6 +37,9 @@ def journeys_for(
     And clarifies the preconditions of the test
     """
 
+    def _create_event_from_args(**event):
+        return {**event}
+
     flush_persons_and_events()
     people = {}
     events_to_create = []
@@ -53,7 +56,7 @@ def journeys_for(
                 event["timestamp"] = datetime.now()
 
             events_to_create.append(
-                _create_event(
+                _create_event_from_args(
                     team=team,
                     distinct_id=distinct_id,
                     event=event["event"],
@@ -69,12 +72,12 @@ def journeys_for(
                 )
             )
 
-    _create_all_events(events_to_create)
+    _create_all_events_raw(events_to_create)
 
     return people
 
 
-def _create_all_events(all_events: List[Dict]):
+def _create_all_events_raw(all_events: List[Dict]):
     parsed = ""
     for event in all_events:
         data: Dict[str, Any] = {
@@ -102,6 +105,11 @@ def _create_all_events(all_events: List[Dict]):
     )
 
 
+def create_all_events(all_events: List[dict]):
+    for event in all_events:
+        _create_event(**event)
+
+
 # We collect all events per test into an array and batch create the events to reduce creation time
 @dataclasses.dataclass
 class InMemoryEvent:
@@ -117,10 +125,6 @@ class InMemoryEvent:
     group2_properties: Dict
     group3_properties: Dict
     group4_properties: Dict
-
-
-def _create_event(**event):
-    return {**event}
 
 
 def update_or_create_person(distinct_ids: List[str], team_id: int, **kwargs):

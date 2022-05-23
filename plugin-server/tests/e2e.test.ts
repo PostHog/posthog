@@ -66,9 +66,6 @@ export async function onAction(action, event) {
     testConsole.log('onAction', action, event)
 }
 
-export async function handleAlert(alert) {
-    testConsole.log('handleAlert', alert)
-}
 
 export async function runEveryMinute() {}
 `
@@ -194,42 +191,6 @@ describe('e2e', () => {
                     distinct_id: 'plugin-id-60',
                     team_id: 2,
                     event: 'onAction event',
-                })
-            )
-        })
-    })
-
-    describe('handleAlert', () => {
-        const awaitHandleAlertLogs = async () =>
-            await new Promise((resolve) => {
-                resolve(testConsole.read().filter((log) => log[0] === 'handleAlert'))
-            })
-
-        test('handleAlert receives alert correctly', async () => {
-            const alert = {
-                id: 'some id',
-                key: 'alert name',
-                description: 'alert description',
-                level: AlertLevel.P0,
-                trigger_location: Service.PluginServer,
-            }
-
-            await redis.publish('plugins-alert', JSON.stringify(alert))
-
-            await delayUntilEventIngested(awaitHandleAlertLogs, 1)
-
-            const log = testConsole.read().filter((log) => log[0] === 'handleAlert')[0]
-
-            const [logName, loggedAlert] = log
-
-            expect(logName).toEqual('handleAlert')
-            expect(loggedAlert).toEqual(
-                expect.objectContaining({
-                    id: 'some id',
-                    key: 'alert name',
-                    description: 'alert description',
-                    level: AlertLevel.P0,
-                    trigger_location: Service.PluginServer,
                 })
             )
         })
