@@ -2449,6 +2449,36 @@ test('set and set_once on the same key', async () => {
     expect(person.properties).toEqual({ a_prop: 'test-set' })
 })
 
+test('$unset person property', async () => {
+    await createPerson(hub, team, ['distinct_id1'], { a: 1, b: 2, c: 3 })
+
+    await processEvent(
+        'distinct_id1',
+        '',
+        '',
+        {
+            event: 'some_event',
+            properties: {
+                token: team.api_token,
+                distinct_id: 'distinct_id1',
+                $unset: ['a', 'c'],
+            },
+        } as any as PluginEvent,
+        team.id,
+        now,
+        now,
+        new UUIDT().toString()
+    )
+    expect((await hub.db.fetchEvents()).length).toBe(1)
+
+    const [event] = await hub.db.fetchEvents()
+    expect(event.properties['$unset']).toEqual(['a', 'c'])
+
+    const [person] = await hub.db.fetchPersons()
+    expect(await hub.db.fetchDistinctIdValues(person)).toEqual(['distinct_id1'])
+    expect(person.properties).toEqual({ b: 2 })
+})
+
 describe('ingestion in any order', () => {
     const ts0: DateTime = now
     const ts1: DateTime = now.plus({ minutes: 1 })
