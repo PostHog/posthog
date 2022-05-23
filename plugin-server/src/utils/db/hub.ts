@@ -175,7 +175,7 @@ export async function createHub(
         authenticationTimeout: 3000, // default: 1000
     })
     const producer = kafka.producer({ retry: { retries: 10, initialRetryTime: 1000, maxRetryTime: 30 } })
-    await producer?.connect()
+    await producer.connect()
 
     const kafkaProducer = new KafkaProducerWrapper(producer, statsd, serverConfig)
     status.info('👍', `Kafka ready`)
@@ -292,11 +292,7 @@ export async function createHub(
         hub.mmdbUpdateJob?.cancel()
         await hub.db.postgresLogsWrapper.flushLogs()
         await hub.jobQueueManager?.disconnectProducer()
-        if (kafkaProducer) {
-            clearInterval(kafkaProducer.flushInterval)
-            await kafkaProducer.flush()
-            await kafkaProducer.producer.disconnect()
-        }
+        await kafkaProducer.disconnect()
         await redisPool.drain()
         await redisPool.clear()
         await hub.postgres.end()
