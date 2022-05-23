@@ -494,11 +494,13 @@ export function criteriaToHumanSentence(criteria: AnyCohortCriteriaType): React.
     const words: React.ReactNode[] = [BEHAVIORAL_TYPE_TO_LABEL[criteriaToBehavioralFilterType(criteria)].label]
 
     const { fields } = ROWS[criteriaToBehavioralFilterType(criteria)]
-    fields.forEach(({ fieldKey, defaultValue }) => {
-        if (!!fieldKey) {
-            words.push(<pre>{criteria[fieldKey]}</pre>)
-        } else {
-            words.push(defaultValue)
+    fields.forEach(({ fieldKey, defaultValue, hide }) => {
+        if (!hide) {
+            if (!!fieldKey) {
+                words.push(<pre>{criteria[fieldKey]}</pre>)
+            } else {
+                words.push(defaultValue)
+            }
         }
     })
     return <>{words}</>
