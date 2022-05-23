@@ -14,6 +14,7 @@ import time
 import uuid
 from enum import Enum
 from typing import (
+    TYPE_CHECKING,
     Any,
     Dict,
     Generator,
@@ -43,6 +44,10 @@ from sentry_sdk import configure_scope
 from posthog.constants import AvailableFeature
 from posthog.exceptions import RequestParsingError
 from posthog.redis import get_client
+
+if TYPE_CHECKING:
+    from django.contrib.auth.models import AbstractBaseUser, AnonymousUser
+
 
 DATERANGE_MAP = {
     "minute": datetime.timedelta(minutes=1),
@@ -268,6 +273,7 @@ def render_template(template_name: str, request: HttpRequest, context: Dict = {}
             if team:
                 team_serialized = TeamSerializer(team, context={"request": request}, many=False)
                 posthog_app_context["current_team"] = team_serialized.data
+                posthog_app_context["frontend_apps"] = get_frontend_apps(team.pk)
 
     context["posthog_app_context"] = json.dumps(posthog_app_context, default=json_uuid_convert)
 
@@ -301,6 +307,36 @@ def get_default_event_name():
     elif EventDefinition.objects.filter(name="$screen").exists():
         return "$screen"
     return "$pageview"
+
+
+def get_frontend_apps(team_id: int) -> Dict[int, Dict[str, Any]]:
+    from posthog.models import Plugin, PluginSourceFile
+
+    plugin_configs = (
+        Plugin.objects.filter(pluginconfig__team_id=team_id, pluginconfig__enabled=True)
+        .filter(pluginsourcefile__status=PluginSourceFile.Status.TRANSPILED, pluginsourcefile__filename="frontend.tsx")
+        .values("pluginconfig__id", "pluginconfig__config", "config_schema", "id", "plugin_type", "name")
+        .all()
+    )
+
+    frontend_apps = {}
+    for p in plugin_configs:
+        config = p["pluginconfig__config"] or {}
+        config_schema = p["config_schema"] or {}
+        secret_fields = set([field["key"] for field in config_schema if "secret" in field and field["secret"]])
+        for key in secret_fields:
+            if key in config:
+                config[key] = "** SECRET FIELD **"
+        frontend_apps[p["pluginconfig__id"]] = {
+            "pluginConfigId": p["pluginconfig__id"],
+            "pluginId": p["id"],
+            "pluginType": p["plugin_type"],
+            "name": p["name"],
+            "url": f"/app/{p['pluginconfig__id']}/",
+            "config": config,
+        }
+
+    return frontend_apps
 
 
 def json_uuid_convert(o):
@@ -576,6 +612,18 @@ def get_plugin_server_job_queues() -> Optional[List[str]]:
     return None
 
 
+def is_object_storage_available() -> bool:
+    from posthog.storage import object_storage
+
+    try:
+        if settings.OBJECT_STORAGE_ENABLED:
+            return object_storage.health_check()
+        else:
+            return False
+    except BaseException:
+        return False
+
+
 def get_redis_info() -> Mapping[str, Any]:
     return get_client().info()
 
@@ -598,7 +646,7 @@ def get_instance_realm() -> str:
         return "hosted-clickhouse"
 
 
-def get_can_create_org() -> bool:
+def get_can_create_org(user: Union["AbstractBaseUser", "AnonymousUser"]) -> bool:
     """Returns whether a new organization can be created in the current instance.
 
     Organizations can be created only in the following cases:
@@ -610,10 +658,10 @@ def get_can_create_org() -> bool:
     from posthog.models.organization import Organization
 
     if (
-        settings.MULTI_TENANCY
-        or settings.DEMO
+        settings.MULTI_TENANCY  # There's no limit of organizations on Cloud
+        or (settings.DEMO and user.is_anonymous)  # Demo users can have a single demo org, but not more
         or settings.E2E_TESTING
-        or not Organization.objects.filter(for_internal_metrics=False).exists()
+        or not Organization.objects.filter(for_internal_metrics=False).exists()  # Definitely can create an org if zero
     ):
         return True
 
@@ -868,10 +916,12 @@ class DataclassJSONEncoder(json.JSONEncoder):
         return super().default(o)
 
 
-def encode_value_as_param(value: Union[str, list, dict]) -> str:
+def encode_value_as_param(value: Union[str, list, dict, datetime.datetime]) -> str:
     if isinstance(value, (list, dict, tuple)):
         return json.dumps(value, cls=DataclassJSONEncoder)
     elif isinstance(value, Enum):
         return value.value
+    elif isinstance(value, datetime.datetime):
+        return value.isoformat()
     else:
         return value

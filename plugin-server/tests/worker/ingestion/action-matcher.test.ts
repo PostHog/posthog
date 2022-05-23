@@ -81,7 +81,6 @@ describe('ActionMatcher', () => {
             eventUuid: 'uuid1',
             distinctId: 'my_id',
             ip: '127.0.0.1',
-            siteUrl: url,
             teamId: 2,
             timestamp: new Date().toISOString(),
             event: '$pageview',

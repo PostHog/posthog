@@ -108,15 +108,15 @@ export function EnabledPluginSection(): JSX.Element {
         <Tooltip
             title={
                 enabledPlugins.length <= 1 ? (
-                    'At least two plugins need to be enabled for reordering.'
+                    'At least two apps need to be enabled for reordering.'
                 ) : (
                     <>
                         {!!searchTerm ? (
-                            'Editing the order of plugins is disabled when searching.'
+                            'Editing the order of apps is disabled when searching.'
                         ) : (
                             <>
-                                Order matters because event processing with plugins works like a pipe: the event is
-                                processed by every enabled plugin <b>in sequence</b>.
+                                Order matters because event processing with apps works like a pipe: the event is
+                                processed by every enabled app <b>in sequence</b>.
                             </>
                         )}
                     </>
@@ -167,7 +167,7 @@ export function EnabledPluginSection(): JSX.Element {
                 subtitle={
                     <>
                         {sectionsOpen.includes(PluginSection.Enabled) ? <CaretDownOutlined /> : <CaretRightOutlined />}
-                        {` Enabled plugins (${filteredEnabledPlugins.length})`}
+                        {` Enabled apps (${filteredEnabledPlugins.length})`}
                         {rearranging && sectionsOpen.includes(PluginSection.Enabled) && (
                             <Tag color="red" style={{ fontWeight: 'normal', marginLeft: 10 }}>
                                 Reordering in progress
@@ -184,7 +184,7 @@ export function EnabledPluginSection(): JSX.Element {
         return (
             <>
                 <EnabledPluginsHeader />
-                {sectionsOpen.includes(PluginSection.Enabled) && <p style={{ margin: 10 }}>No plugins enabled.</p>}
+                {sectionsOpen.includes(PluginSection.Enabled) && <p style={{ margin: 10 }}>No apps enabled.</p>}
             </>
         )
     }
@@ -195,7 +195,7 @@ export function EnabledPluginSection(): JSX.Element {
             {sectionsOpen.includes(PluginSection.Enabled) && (
                 <>
                     {sortableEnabledPlugins.length === 0 && unsortableEnabledPlugins.length === 0 && (
-                        <p style={{ margin: 10 }}>No plugins match your search.</p>
+                        <p style={{ margin: 10 }}>No apps match your search.</p>
                     )}
                     {canRearrange || rearranging ? (
                         <>

@@ -10,11 +10,10 @@ import { delay, UUIDT } from '../../src/utils/utils'
 import { makePiscina } from '../../src/worker/piscina'
 import { createPosthog, DummyPostHog } from '../../src/worker/vm/extensions/posthog'
 import { writeToFile } from '../../src/worker/vm/extensions/test-utils'
-import { resetTestDatabaseClickhouse } from '../helpers/clickhouse'
+import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../helpers/clickhouse'
 import { resetKafka } from '../helpers/kafka'
 import { pluginConfig39 } from '../helpers/plugins'
 import { resetTestDatabase } from '../helpers/sql'
-import { delayUntilEventIngested } from '../shared/process-event'
 
 const { console: testConsole } = writeToFile
 
@@ -22,8 +21,6 @@ jest.mock('../../src/utils/status')
 jest.setTimeout(70000) // 60 sec timeout
 
 const extraServerConfig: Partial<PluginsServerConfig> = {
-    KAFKA_ENABLED: true,
-    KAFKA_HOSTS: process.env.KAFKA_HOSTS || 'kafka:9092',
     WORKER_CONCURRENCY: 1,
     KAFKA_CONSUMPTION_TOPIC: KAFKA_EVENTS_PLUGIN_INGESTION,
     LOG_LEVEL: LogLevel.Log,
@@ -74,7 +71,7 @@ describe.skip('KafkaQueue', () => {
 
         await delayUntilEventIngested(() => hub.db.fetchEvents())
 
-        await hub.kafkaProducer?.flush()
+        await hub.kafkaProducer.flush()
         const events = await hub.db.fetchEvents()
 
         expect(events.length).toEqual(1)

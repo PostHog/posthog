@@ -38,7 +38,12 @@ class TestEventQuery(ClickhouseTestMixin, APIBaseTest):
     def _run_query(self, filter: Filter, entity=None):
         entity = entity or filter.entities[0]
 
-        query, params = TrendsEventQuery(filter=filter, entity=entity, team=self.team).get_query()
+        query, params = TrendsEventQuery(
+            filter=filter,
+            entity=entity,
+            team=self.team,
+            using_person_on_events=self.team.actor_on_events_querying_enabled,
+        ).get_query()
 
         result = sync_execute(query, params)
 

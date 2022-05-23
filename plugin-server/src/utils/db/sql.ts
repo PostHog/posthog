@@ -24,13 +24,23 @@ function pluginConfigsInForceQuery(specificField?: keyof PluginConfig): string {
 }
 
 export async function getPluginRows(hub: Hub): Promise<Plugin[]> {
-    const { rows: pluginRows }: { rows: Plugin[] } = await hub.db.postgresQuery(
-        `SELECT posthog_plugin.* FROM posthog_plugin
-            WHERE id IN (${pluginConfigsInForceQuery('plugin_id')} GROUP BY posthog_pluginconfig.plugin_id)`,
+    const { rows }: { rows: Plugin[] } = await hub.db.postgresQuery(
+        `SELECT
+            posthog_plugin.*,
+            psf__index_ts.source as source__index_ts,
+            psf__frontend_tsx.source as source__frontend_tsx
+        FROM posthog_plugin
+        LEFT JOIN posthog_pluginsourcefile psf__index_ts
+            ON (psf__index_ts.plugin_id = posthog_plugin.id AND psf__index_ts.filename = 'index.ts')
+        LEFT JOIN posthog_pluginsourcefile psf__frontend_tsx
+            ON (psf__frontend_tsx.plugin_id = posthog_plugin.id AND psf__frontend_tsx.filename = 'frontend.tsx')
+        WHERE posthog_plugin.id IN (${pluginConfigsInForceQuery('plugin_id')}
+        GROUP BY posthog_pluginconfig.plugin_id)`,
         undefined,
         'getPluginRows'
     )
-    return pluginRows
+
+    return rows
 }
 
 export async function getPluginAttachmentRows(hub: Hub): Promise<PluginAttachmentDB[]> {

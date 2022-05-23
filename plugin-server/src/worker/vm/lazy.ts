@@ -69,10 +69,6 @@ export class LazyPluginVM {
         return await this.getVmMethod('processEvent')
     }
 
-    public async getHandleAlert(): Promise<PluginConfigVMResponse['methods']['handleAlert'] | null> {
-        return await this.getVmMethod('handleAlert')
-    }
-
     public async getTeardownPlugin(): Promise<PluginConfigVMResponse['methods']['teardownPlugin'] | null> {
         // if we never ran `setupPlugin`, there's no reason to run `teardownPlugin` - it's essentially "tore down" already
         if (!this.ready) {

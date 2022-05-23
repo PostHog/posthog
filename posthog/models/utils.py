@@ -1,9 +1,9 @@
-import random
 import secrets
 import string
 import uuid
 from collections import defaultdict, namedtuple
 from enum import Enum, auto
+from random import Random, choice
 from time import time
 from typing import Any, Callable, Dict, Optional, Set, Type, TypeVar
 
@@ -22,6 +22,7 @@ class PersonPropertiesMode(Enum):
     USING_PERSON_PROPERTIES_COLUMN = auto()
     # Used for generating query on Person table
     DIRECT = auto()
+    DIRECT_ON_EVENTS = auto()
 
 
 class UUIDT(uuid.UUID):
@@ -46,7 +47,13 @@ class UUIDT(uuid.UUID):
 
     current_series_per_ms: Dict[int, int] = defaultdict(int)
 
-    def __init__(self, unix_time_ms: Optional[int] = None, uuid_str: Optional[str] = None) -> None:
+    def __init__(
+        self,
+        unix_time_ms: Optional[int] = None,
+        uuid_str: Optional[str] = None,
+        *,
+        seeded_random: Optional[Random] = None,
+    ) -> None:
         if uuid_str and self.is_valid_uuid(uuid_str):
             super().__init__(uuid_str)
             return
@@ -55,10 +62,13 @@ class UUIDT(uuid.UUID):
             unix_time_ms = int(time() * 1000)
         time_component = unix_time_ms.to_bytes(6, "big", signed=False)  # 48 bits for time, WILL FAIL in 10 895 CE
         series_component = self.get_series(unix_time_ms).to_bytes(2, "big", signed=False)  # 16 bits for series
-        random_component = secrets.token_bytes(8)  # 64 bits for random gibberish
-        bytes = time_component + series_component + random_component
-        assert len(bytes) == 16
-        super().__init__(bytes=bytes)
+        if seeded_random is not None:
+            random_component = bytes(seeded_random.getrandbits(8) for _ in range(8))  # 64 bits for random gibberish
+        else:
+            random_component = secrets.token_bytes(8)  # 64 bits for random gibberish
+        input_bytes = time_component + series_component + random_component
+        assert len(input_bytes) == 16
+        super().__init__(bytes=input_bytes)
 
     @classmethod
     def get_series(cls, unix_time_ms: int) -> int:
@@ -164,7 +174,7 @@ class LowercaseSlugField(models.SlugField):
 
 def generate_random_short_suffix():
     """Return a 4 letter suffix made up random ASCII letters, useful for disambiguation of duplicates."""
-    return "".join(random.choice(string.ascii_letters) for _ in range(4))
+    return "".join(choice(string.ascii_letters) for _ in range(4))
 
 
 def create_with_slug(create_func: Callable[..., T], default_slug: str = "", *args, **kwargs) -> T:

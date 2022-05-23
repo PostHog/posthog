@@ -9,6 +9,7 @@
     "initiated": true,
     "cloud": false,
     "demo": false,
+    "object_storage": true,
     "realm": "hosted-clickhouse",
     "available_social_auth_providers": {
         "github": false,

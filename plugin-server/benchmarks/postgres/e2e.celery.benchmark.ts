@@ -6,9 +6,9 @@ import { Hub, LogLevel, PluginsServerConfig, Queue } from '../../src/types'
 import { delay, UUIDT } from '../../src/utils/utils'
 import { makePiscina } from '../../src/worker/piscina'
 import { createPosthog, DummyPostHog } from '../../src/worker/vm/extensions/posthog'
+import { delayUntilEventIngested } from '../../tests/helpers/clickhouse'
 import { pluginConfig39 } from '../../tests/helpers/plugins'
 import { resetTestDatabase } from '../../tests/helpers/sql'
-import { delayUntilEventIngested } from '../../tests/shared/process-event'
 
 jest.setTimeout(600000) // 10min timeout
 

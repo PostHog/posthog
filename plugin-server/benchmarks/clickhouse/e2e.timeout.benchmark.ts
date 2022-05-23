@@ -6,17 +6,14 @@ import { ClickHouseEvent, Hub, LogLevel, PluginsServerConfig, Queue } from '../.
 import { delay, UUIDT } from '../../src/utils/utils'
 import { makePiscina } from '../../src/worker/piscina'
 import { createPosthog, DummyPostHog } from '../../src/worker/vm/extensions/posthog'
-import { resetTestDatabaseClickhouse } from '../../tests/helpers/clickhouse'
+import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../../tests/helpers/clickhouse'
 import { resetKafka } from '../../tests/helpers/kafka'
 import { pluginConfig39 } from '../../tests/helpers/plugins'
 import { resetTestDatabase } from '../../tests/helpers/sql'
-import { delayUntilEventIngested } from '../../tests/shared/process-event'
 
 jest.setTimeout(600000) // 10min timeout
 
 const extraServerConfig: Partial<PluginsServerConfig> = {
-    KAFKA_ENABLED: true,
-    KAFKA_HOSTS: process.env.KAFKA_HOSTS || 'kafka:9092',
     WORKER_CONCURRENCY: 4,
     TASK_TIMEOUT: 5,
     KAFKA_CONSUMPTION_TOPIC: KAFKA_EVENTS_PLUGIN_INGESTION,

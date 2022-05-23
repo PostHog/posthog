@@ -16,8 +16,7 @@ import { UUIDT } from '../../src/utils/utils'
 import { KAFKA_EVENTS_DEAD_LETTER_QUEUE } from './../../src/config/kafka-topics'
 
 /** Clear the kafka queue */
-export async function resetKafka(extraServerConfig: Partial<PluginsServerConfig>, delayMs = 2000): Promise<void> {
-    console.log('Resetting Kafka!')
+export async function resetKafka(extraServerConfig?: Partial<PluginsServerConfig>): Promise<void> {
     const config = { ...overrideWithEnv(defaultConfig, process.env), ...extraServerConfig }
     const kafka = new Kafka({
         clientId: `plugin-server-test-${new UUIDT()}`,

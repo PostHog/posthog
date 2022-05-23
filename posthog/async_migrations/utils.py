@@ -3,7 +3,6 @@ from typing import Optional
 
 import posthoganalytics
 import structlog
-from constance import config
 from django.conf import settings
 from django.db import transaction
 from django.utils.timezone import now
@@ -13,8 +12,8 @@ from posthog.async_migrations.setup import DEPENDENCY_TO_ASYNC_MIGRATION
 from posthog.celery import app
 from posthog.email import is_email_available
 from posthog.models.async_migration import AsyncMigration, AsyncMigrationError, MigrationStatus
+from posthog.models.instance_setting import get_instance_setting
 from posthog.models.user import User
-from posthog.plugins.alert import AlertLevel, send_alert_to_plugins
 from posthog.utils import get_machine_id
 
 logger = structlog.get_logger(__name__)
@@ -96,16 +95,10 @@ def process_error(
                 migration_key=migration_instance.name, time=now().isoformat(), error=error
             )
 
-        send_alert_to_plugins(
-            key="async_migration_errored",
-            description=f"Migration {migration_instance.name} failed with error {error}",
-            level=AlertLevel.P2,
-        )
-
     if (
         not rollback
         or status == MigrationStatus.FailedAtStartup
-        or getattr(config, "ASYNC_MIGRATIONS_DISABLE_AUTO_ROLLBACK")
+        or get_instance_setting("ASYNC_MIGRATIONS_DISABLE_AUTO_ROLLBACK")
     ):
         return
 
@@ -171,7 +164,7 @@ def complete_migration(migration_instance: AsyncMigration, email: bool = True):
                 migration_key=migration_instance.name, time=finished_at.isoformat()
             )
 
-    if getattr(config, "AUTO_START_ASYNC_MIGRATIONS"):
+    if get_instance_setting("AUTO_START_ASYNC_MIGRATIONS"):
         next_migration = DEPENDENCY_TO_ASYNC_MIGRATION.get(migration_instance.name)
         if next_migration:
             from posthog.async_migrations.runner import run_next_migration
@@ -235,4 +228,4 @@ def update_async_migration(
 
 
 def async_migrations_emails_enabled():
-    return is_email_available() and not getattr(config, "ASYNC_MIGRATIONS_OPT_OUT_EMAILS")
+    return is_email_available() and not get_instance_setting("ASYNC_MIGRATIONS_OPT_OUT_EMAILS")
