@@ -8,7 +8,7 @@ export async function eachBatch(
     { batch, resolveOffset, heartbeat, commitOffsetsIfNecessary, isRunning, isStale }: EachBatchPayload,
     queue: KafkaQueue,
     eachMessage: (message: KafkaMessage, queue: KafkaQueue) => Promise<void>,
-    key = 'ingestion'
+    key: string
 ): Promise<void> {
     const batchStartTimer = new Date()
     const loggingKey = `each_batch_${key}`

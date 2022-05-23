@@ -46,7 +46,7 @@ export async function eachBatchBuffer(
     // if consumerSleep > 0 it means we didn't process at least one message
     if (consumerSleepMs > 0) {
         // pause the consumer for this partition until we can process all unprocessed messages from this batch
-        await queue.sleep(consumerSleepMs, batch.partition)
+        await queue.bufferSleep(consumerSleepMs, batch.partition)
 
         // we throw an error to prevent the non-processed message offsets from being committed
         // from the kafkajs docs:

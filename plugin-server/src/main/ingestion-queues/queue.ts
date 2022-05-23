@@ -3,7 +3,6 @@ import { PluginEvent, ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 
 import { Hub, PreIngestionEvent, Queue, WorkerMethods } from '../../types'
 import { status } from '../../utils/status'
-import { Action } from './../../types'
 import { KafkaQueue } from './kafka-queue'
 
 interface Queues {
@@ -30,6 +29,11 @@ export async function startQueues(
             server.lastActivity = new Date().valueOf()
             server.lastActivityType = 'runBufferEventPipeline'
             return piscina.run({ task: 'runBufferEventPipeline', args: { event } })
+        },
+        runAsyncHandlersEventPipeline: (event: ProcessedPluginEvent) => {
+            server.lastActivity = new Date().valueOf()
+            server.lastActivityType = 'runAsyncHandlersEventPipeline'
+            return piscina.run({ task: 'runAsyncHandlersEventPipeline', args: { event } })
         },
         runEventPipeline: (event: PluginEvent) => {
             server.lastActivity = new Date().valueOf()

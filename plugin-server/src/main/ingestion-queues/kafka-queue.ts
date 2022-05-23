@@ -7,8 +7,8 @@ import { status } from '../../utils/status'
 import { groupIntoBatches, killGracefully, sanitizeEvent } from '../../utils/utils'
 import { runInstrumentedFunction } from '../utils'
 import { KAFKA_BUFFER, KAFKA_EVENTS_JSON } from './../../config/kafka-topics'
-import { eachBatchBuffer } from './batch-processing/buffer'
-import { eachBatchIngestion, ingestEvent } from './batch-processing/ingest-event'
+import { eachBatchBuffer } from './batch-processing/each-batch-buffer'
+import { eachBatchIngestion, ingestEvent } from './batch-processing/each-batch-ingestion'
 
 type ConsumerManagementPayload = {
     topic: string
@@ -41,8 +41,6 @@ export class KafkaQueue implements Queue {
         this.asyncHandlersTopic = KAFKA_EVENTS_JSON
         this.eachBatch = {
             [this.ingestionTopic]: eachBatchIngestion,
-            [this.bufferTopic]: eachBatchBuffer,
-            // [this.asyncHandlersTopic]: eachBatchAsyncHandlers
         }
     }
 
@@ -96,7 +94,18 @@ export class KafkaQueue implements Queue {
         return await startPromise
     }
 
-    async pause(targetTopic: string = this.pluginsServer.KAFKA_CONSUMPTION_TOPIC!, partition?: number): Promise<void> {
+    async bufferSleep(sleepMs: number, partition: number): Promise<void> {
+        this.sleepTimeout = setTimeout(() => {
+            if (this.sleepTimeout) {
+                clearTimeout(this.sleepTimeout)
+            }
+            this.resume(this.bufferTopic, partition)
+        }, sleepMs)
+
+        await this.pause(this.bufferTopic, partition)
+    }
+
+    async pause(targetTopic: string, partition?: number): Promise<void> {
         if (this.wasConsumerRan && !this.isPaused(targetTopic, partition)) {
             const pausePayload: ConsumerManagementPayload = { topic: targetTopic }
             let partitionInfo = ''
@@ -112,18 +121,7 @@ export class KafkaQueue implements Queue {
         return Promise.resolve()
     }
 
-    async sleep(sleepMs: number, partition: number, topic = this.bufferTopic): Promise<void> {
-        this.sleepTimeout = setTimeout(() => {
-            if (this.sleepTimeout) {
-                clearTimeout(this.sleepTimeout)
-            }
-            this.resume(topic, partition)
-        }, sleepMs)
-
-        await this.pause(topic, partition)
-    }
-
-    resume(targetTopic: string = this.ingestionTopic, partition?: number): void {
+    resume(targetTopic: string, partition?: number): void {
         if (this.wasConsumerRan && this.isPaused(targetTopic, partition)) {
             const resumePayload: ConsumerManagementPayload = { topic: targetTopic }
             let partitionInfo = ''
@@ -137,7 +135,7 @@ export class KafkaQueue implements Queue {
         }
     }
 
-    isPaused(targetTopic: string = this.ingestionTopic, partition?: number): boolean {
+    isPaused(targetTopic: string, partition?: number): boolean {
         // if we pass a partition, check that as well, else just return if the topic is paused
         return this.consumer
             .paused()
