@@ -46,13 +46,11 @@ describe('vm tests', () => {
     let closeHub: () => Promise<void>
 
     beforeEach(async () => {
-        jest.mocked(KafkaProducerWrapper).mockClear()
         ;[hub, closeHub] = await createHub()
     })
 
     afterEach(async () => {
         await closeHub()
-        jest.clearAllMocks()
     })
 
     test('empty plugins', async () => {
