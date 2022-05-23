@@ -80,7 +80,7 @@ const TEST_CONFIG: Partial<PluginsServerConfig> = {
     KAFKA_CONSUMPTION_TOPIC: KAFKA_EVENTS_PLUGIN_INGESTION,
 }
 
-let testCounter = 0
+const testCounter = 0
 let processEventCounter = 0
 let mockClientEventCounter = 0
 let team: Team
@@ -155,12 +155,9 @@ beforeEach(async () => {
 
     // Always start with an anonymous state
     state = { currentDistinctId: 'anonymous_id' }
-
-    console.log(`About to start test ${++testCounter}: ${expect.getState().currentTestName}`)
 })
 
 afterEach(async () => {
-    console.log(`Finished test ${testCounter}`)
     await hub.redisPool.release(redis)
     await closeHub?.()
 })
