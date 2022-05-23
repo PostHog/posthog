@@ -100,7 +100,7 @@ describe('eachBatchX', () => {
     })
 
     describe('eachBatchIngestion', () => {
-        it('calls runAsyncHandlersEventPipeline', async () => {
+        it('calls runEventPipeline', async () => {
             batch.batch.messages = [{ value: JSON.stringify(captureEndpointEvent) }]
             await eachBatchIngestion(batch, queue)
 
