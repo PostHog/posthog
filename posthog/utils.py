@@ -273,6 +273,7 @@ def render_template(template_name: str, request: HttpRequest, context: Dict = {}
             if team:
                 team_serialized = TeamSerializer(team, context={"request": request}, many=False)
                 posthog_app_context["current_team"] = team_serialized.data
+                posthog_app_context["frontend_apps"] = get_frontend_apps(team.pk)
 
     context["posthog_app_context"] = json.dumps(posthog_app_context, default=json_uuid_convert)
 
@@ -306,6 +307,36 @@ def get_default_event_name():
     elif EventDefinition.objects.filter(name="$screen").exists():
         return "$screen"
     return "$pageview"
+
+
+def get_frontend_apps(team_id: int) -> Dict[int, Dict[str, Any]]:
+    from posthog.models import Plugin, PluginSourceFile
+
+    plugin_configs = (
+        Plugin.objects.filter(pluginconfig__team_id=team_id, pluginconfig__enabled=True)
+        .filter(pluginsourcefile__status=PluginSourceFile.Status.TRANSPILED, pluginsourcefile__filename="frontend.tsx")
+        .values("pluginconfig__id", "pluginconfig__config", "config_schema", "id", "plugin_type", "name")
+        .all()
+    )
+
+    frontend_apps = {}
+    for p in plugin_configs:
+        config = p["pluginconfig__config"] or {}
+        config_schema = p["config_schema"] or {}
+        secret_fields = set([field["key"] for field in config_schema if "secret" in field and field["secret"]])
+        for key in secret_fields:
+            if key in config:
+                config[key] = "** SECRET FIELD **"
+        frontend_apps[p["pluginconfig__id"]] = {
+            "pluginConfigId": p["pluginconfig__id"],
+            "pluginId": p["id"],
+            "pluginType": p["plugin_type"],
+            "name": p["name"],
+            "url": f"/app/{p['pluginconfig__id']}/",
+            "config": config,
+        }
+
+    return frontend_apps
 
 
 def json_uuid_convert(o):
@@ -579,6 +610,18 @@ def get_plugin_server_job_queues() -> Optional[List[str]]:
         qs = cache_key_value.decode("utf-8").replace('"', "")
         return qs.split(",")
     return None
+
+
+def is_object_storage_available() -> bool:
+    from posthog.storage import object_storage
+
+    try:
+        if settings.OBJECT_STORAGE_ENABLED:
+            return object_storage.health_check()
+        else:
+            return False
+    except BaseException:
+        return False
 
 
 def get_redis_info() -> Mapping[str, Any]:
@@ -873,10 +916,12 @@ class DataclassJSONEncoder(json.JSONEncoder):
         return super().default(o)
 
 
-def encode_value_as_param(value: Union[str, list, dict]) -> str:
+def encode_value_as_param(value: Union[str, list, dict, datetime.datetime]) -> str:
     if isinstance(value, (list, dict, tuple)):
         return json.dumps(value, cls=DataclassJSONEncoder)
     elif isinstance(value, Enum):
         return value.value
+    elif isinstance(value, datetime.datetime):
+        return value.isoformat()
     else:
         return value

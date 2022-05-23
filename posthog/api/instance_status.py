@@ -1,5 +1,6 @@
 from typing import Any, Dict, List, Union
 
+from django.conf import settings
 from django.db import connection
 from rest_framework import viewsets
 from rest_framework.decorators import action
@@ -11,6 +12,7 @@ from posthog.async_migrations.status import async_migrations_ok
 from posthog.gitsha import GIT_SHA
 from posthog.internal_metrics.team import get_internal_metrics_dashboards
 from posthog.permissions import OrganizationAdminAnyPermissions, SingleTenancyOrAdmin
+from posthog.storage import object_storage
 from posthog.utils import (
     dict_from_cursor_fetchall,
     get_helm_info_env,
@@ -128,6 +130,14 @@ class InstanceStatusViewSet(viewsets.ViewSet):
                 metrics.append(
                     {"metric": "Redis metrics", "value": f"Redis connected but then failed to return metrics: {e}"}
                 )
+
+        metrics.append(
+            {"key": "object_storage", "metric": "Object Storage enabled", "value": settings.OBJECT_STORAGE_ENABLED}
+        )
+        if settings.OBJECT_STORAGE_ENABLED:
+            metrics.append(
+                {"key": "object_storage", "metric": "Object Storage healthy", "value": object_storage.health_check()}
+            )
 
         return Response({"results": {"overview": metrics, "internal_metrics": get_internal_metrics_dashboards()}})
 
