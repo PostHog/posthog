@@ -4,6 +4,7 @@ import { Hub, PluginLogEntryType } from '../../src/types'
 import { createHub } from '../../src/utils/db/hub'
 import { getPluginConfigRows } from '../../src/utils/db/sql'
 import { createConsole } from '../../src/worker/vm/extensions/console'
+import { resetTestDatabaseClickhouse } from '../helpers/clickhouse'
 import { resetTestDatabase } from '../helpers/sql'
 
 describe('console extension', () => {
@@ -11,8 +12,9 @@ describe('console extension', () => {
     let closeHub: () => Promise<void>
 
     beforeEach(async () => {
-        ;[hub, closeHub] = await createHub({ KAFKA_ENABLED: false })
         await resetTestDatabase()
+        await resetTestDatabaseClickhouse()
+        ;[hub, closeHub] = await createHub()
     })
 
     afterEach(async () => {
