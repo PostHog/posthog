@@ -7,6 +7,7 @@ import { Action, Hook, Person, PreIngestionEvent } from '../../types'
 import { CachedPersonData, DB } from '../../utils/db/db'
 import { stringify } from '../../utils/utils'
 import { OrganizationManager } from './organization-manager'
+import { SiteUrlManager } from './site-url-manager'
 import { TeamManager } from './team-manager'
 
 export enum WebhookType {
@@ -160,19 +161,26 @@ export class HookCommander {
     db: DB
     teamManager: TeamManager
     organizationManager: OrganizationManager
+    siteUrlManager: SiteUrlManager
     statsd: StatsD | undefined
 
-    constructor(db: DB, teamManager: TeamManager, organizationManager: OrganizationManager, statsd?: StatsD) {
+    constructor(
+        db: DB,
+        teamManager: TeamManager,
+        organizationManager: OrganizationManager,
+        siteUrlManager: SiteUrlManager,
+        statsd?: StatsD
+    ) {
         this.db = db
         this.teamManager = teamManager
         this.organizationManager = organizationManager
+        this.siteUrlManager = siteUrlManager
         this.statsd = statsd
     }
 
     public async findAndFireHooks(
         event: PreIngestionEvent,
         person: CachedPersonData | Person | undefined,
-        siteUrl: string,
         actionMatches: Action[]
     ): Promise<void> {
         if (!actionMatches.length) {
@@ -191,7 +199,7 @@ export class HookCommander {
         if (webhookUrl) {
             const webhookRequests = actionMatches
                 .filter((action) => action.post_to_slack)
-                .map((action) => this.postWebhook(webhookUrl, action, event, person, siteUrl))
+                .map((action) => this.postWebhook(webhookUrl, action, event, person))
             await Promise.all(webhookRequests).catch((error) => captureException(error))
         }
 
@@ -219,11 +227,11 @@ export class HookCommander {
         webhookUrl: string,
         action: Action,
         event: PreIngestionEvent,
-        person: CachedPersonData | Person | undefined,
-        siteUrl: string
+        person: CachedPersonData | Person | undefined
     ): Promise<void> {
         const webhookType = determineWebhookType(webhookUrl)
-        const [messageText, messageMarkdown] = getFormattedMessage(action, event, person, siteUrl, webhookType)
+        const siteUrl = await this.siteUrlManager.getSiteUrl()
+        const [messageText, messageMarkdown] = getFormattedMessage(action, event, person, siteUrl || '', webhookType)
         let message: Record<string, any>
         if (webhookType === WebhookType.Slack) {
             message = {

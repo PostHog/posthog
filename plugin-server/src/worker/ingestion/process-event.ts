@@ -175,8 +175,7 @@ export class EventsProcessor {
                             properties['$snapshot_data'],
                             properties,
                             personUuid,
-                            ip,
-                            siteUrl
+                            ip
                         )
                         this.pluginsServer.statsd?.timing('kafka_queue.single_save.snapshot', singleSaveTimer, {
                             team_id: teamId.toString(),
@@ -583,7 +582,6 @@ export class EventsProcessor {
             timestamp,
             elementsList,
             teamId: team.id,
-            siteUrl,
         }
     }
 
@@ -719,8 +717,7 @@ export class EventsProcessor {
         snapshot_data: Record<any, any>,
         properties: Properties,
         personUuid: string,
-        ip: string | null,
-        siteUrl: string
+        ip: string | null
     ): Promise<PreIngestionEvent> {
         const timestampString = castTimestampOrNow(
             timestamp,
@@ -779,7 +776,6 @@ export class EventsProcessor {
             timestamp: timestampString,
             elementsList: [],
             teamId: team_id,
-            siteUrl,
         }
     }
 
