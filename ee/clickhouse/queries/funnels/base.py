@@ -440,7 +440,13 @@ class ClickhouseFunnelBase(ABC):
                 if entity_name not in self.params[entity_name]:
                     self.params[entity_name].append(action_step.event)
             action_query, action_params = format_action_filter(
-                team_id=self._team.pk, action=action, prepend=f"{entity_name}_{step_prefix}step_{index}"
+                team_id=self._team.pk,
+                action=action,
+                prepend=f"{entity_name}_{step_prefix}step_{index}",
+                person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS
+                if self._team.actor_on_events_querying_enabled
+                else PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
+                person_id_joined_alias="aggregation_target",
             )
             if action_query == "":
                 return ""
