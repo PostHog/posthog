@@ -12,6 +12,10 @@ import { useValues } from 'kea'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { criteriaToHumanSentence, isCohortCriteriaGroup } from 'scenes/cohorts/cohortUtils'
+import { pluralize } from 'lib/utils'
+
+const MAX_CRITERIA_GROUPS = 2
+const MAX_CRITERIA = 2
 
 export function CohortPopupInfo({ cohort }: { cohort: CohortType }): JSX.Element | null {
     const { featureFlags } = useValues(featureFlagLogic)
@@ -22,7 +26,7 @@ export function CohortPopupInfo({ cohort }: { cohort: CohortType }): JSX.Element
     return !!featureFlags[FEATURE_FLAGS.COHORT_FILTERS] && cohort.filters?.properties ? (
         <>
             {(cohort.filters.properties?.values?.length || 0 > 0) && <DefinitionPopup.HorizontalLine />}
-            {cohort.filters.properties.values.map(
+            {cohort.filters.properties.values.slice(0, MAX_CRITERIA_GROUPS).map(
                 (cohortGroup, cohortGroupIndex) =>
                     isCohortCriteriaGroup(cohortGroup) && (
                         <DefinitionPopup.Section key={cohortGroupIndex}>
@@ -32,21 +36,39 @@ export function CohortPopupInfo({ cohort }: { cohort: CohortType }): JSX.Element
                                 } criteria`}
                                 value={
                                     <ul>
-                                        {cohortGroup.values.map((criteria, criteriaIndex) => (
+                                        {cohortGroup.values.slice(0, MAX_CRITERIA).map((criteria, criteriaIndex) => (
                                             <li key={criteriaIndex}>
                                                 <span>
                                                     {criteriaToHumanSentence(criteria as AnyCohortCriteriaType)}
                                                 </span>
                                             </li>
                                         ))}
+                                        {cohortGroup.values.length > MAX_CRITERIA && (
+                                            <li>
+                                                <span>{cohortGroup.values.length - MAX_CRITERIA} more criteria</span>
+                                            </li>
+                                        )}
                                     </ul>
                                 }
                             />
-                            {cohortGroupIndex < cohort.filters.properties.values.length - 1 && (
+                            {cohortGroupIndex <
+                                Math.min(cohort.filters.properties.values.length, MAX_CRITERIA_GROUPS) - 1 && (
                                 <DefinitionPopup.HorizontalLine style={{ marginTop: 4, marginBottom: 12 }}>
                                     {cohort.filters.properties.type}
                                 </DefinitionPopup.HorizontalLine>
                             )}
+                            {cohort.filters.properties.values.length > MAX_CRITERIA_GROUPS &&
+                                cohortGroupIndex === MAX_CRITERIA_GROUPS - 1 && (
+                                    <DefinitionPopup.HorizontalLine style={{ marginTop: 4, marginBottom: 12 }}>
+                                        {cohort.filters.properties.values.length - MAX_CRITERIA_GROUPS} more criteria{' '}
+                                        {pluralize(
+                                            cohort.filters.properties.values.length - MAX_CRITERIA_GROUPS,
+                                            'group',
+                                            'groups',
+                                            false
+                                        )}
+                                    </DefinitionPopup.HorizontalLine>
+                                )}
                         </DefinitionPopup.Section>
                     )
             )}
