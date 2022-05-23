@@ -8,6 +8,7 @@ import { AvailableFeature } from '~/types'
 import { router } from 'kea-router'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { UPGRADE_LINK } from 'lib/constants'
+
 interface PayCardProps {
     title: string
     caption: string
