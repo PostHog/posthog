@@ -3,7 +3,7 @@ import { EachBatchPayload, KafkaMessage } from 'kafkajs'
 
 import { Hub, WorkerMethods } from '../../../types'
 import { status } from '../../../utils/status'
-import { groupIntoBatches, sanitizeEvent } from '../../../utils/utils'
+import { sanitizeEvent } from '../../../utils/utils'
 import { KafkaQueue } from '../kafka-queue'
 import { eachBatch } from './each-batch'
 
