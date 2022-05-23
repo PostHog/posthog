@@ -63,7 +63,6 @@ services:
         command: ./bin/docker-worker-celery --with-scheduler
         restart: on-failure
         environment:
-            SKIP_SERVICE_VERSION_REQUIREMENTS: 1 # TODO: remove this after the release of 1.36.0
             SENTRY_DSN: $SENTRY_DSN
             SITE_URL: https://$DOMAIN
             DISABLE_SECURE_SSL_REDIRECT: 'true'
