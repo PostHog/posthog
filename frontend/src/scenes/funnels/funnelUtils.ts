@@ -17,6 +17,7 @@ import {
     FunnelConversionWindow,
 } from '~/types'
 import { dayjs } from 'lib/dayjs'
+import { combineUrl } from 'kea-router'
 
 const PERCENTAGE_DISPLAY_PRECISION = 1 // Number of decimals to show in percentages
 
@@ -381,4 +382,12 @@ export function getIncompleteConversionWindowStartDate(
 ): dayjs.Dayjs {
     const { funnel_window_interval, funnel_window_interval_unit } = window
     return startDate.subtract(funnel_window_interval, funnel_window_interval_unit)
+}
+
+export function generateBaselineConversionUrl(url?: string): string {
+    if (!url) {
+        return ''
+    }
+    const parsed = combineUrl(url)
+    return combineUrl(parsed.url, { funnel_step_breakdown: undefined }).url
 }

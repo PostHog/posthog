@@ -30,7 +30,13 @@
     border-radius: var(--radius);
 
     .ant-select-selector {
-        height: 100%;
+        height: 100% !important;
         border: none !important;
+
+        .ant-select-selection-search,
+        .ant-select-selection-placeholder {
+            display: flex;
+            align-items: center;
+        }
     }
 }
