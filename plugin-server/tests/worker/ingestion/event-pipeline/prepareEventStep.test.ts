@@ -68,7 +68,6 @@ describe('prepareEventStep()', () => {
                 properties: {
                     $ip: '127.0.0.1',
                 },
-                siteUrl: 'http://localhost',
                 teamId: 2,
                 timestamp: expect.any(DateTime),
             },
@@ -90,7 +89,6 @@ describe('prepareEventStep()', () => {
                 properties: {
                     $ip: '127.0.0.1',
                 },
-                siteUrl: 'http://localhost',
                 teamId: 2,
                 timestamp: '2020-02-23 02:15:00.000',
             },

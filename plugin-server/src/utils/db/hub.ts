@@ -19,6 +19,7 @@ import { ActionMatcher } from '../../worker/ingestion/action-matcher'
 import { HookCommander } from '../../worker/ingestion/hooks'
 import { OrganizationManager } from '../../worker/ingestion/organization-manager'
 import { EventsProcessor } from '../../worker/ingestion/process-event'
+import { SiteUrlManager } from '../../worker/ingestion/site-url-manager'
 import { TeamManager } from '../../worker/ingestion/team-manager'
 import { InternalMetrics } from '../internal-metrics'
 import { killProcess } from '../kill'
@@ -227,10 +228,11 @@ export async function createHub(
     const pluginsApiKeyManager = new PluginsApiKeyManager(db)
     const rootAccessManager = new RootAccessManager(db)
     const promiseManager = new PromiseManager(serverConfig, statsd)
+    const siteUrlManager = new SiteUrlManager(db, serverConfig.SITE_URL)
     const actionManager = new ActionManager(db)
     await actionManager.prepare()
 
-    const hub: Omit<Hub, 'eventsProcessor'> = {
+    const hub: Partial<Hub> = {
         ...serverConfig,
         instanceId,
         capabilities,
@@ -256,15 +258,16 @@ export async function createHub(
         pluginsApiKeyManager,
         rootAccessManager,
         promiseManager,
+        siteUrlManager,
         actionManager,
         actionMatcher: new ActionMatcher(db, actionManager, statsd),
-        hookCannon: new HookCommander(db, teamManager, organizationManager, statsd),
         conversionBufferEnabledTeams,
     }
 
     // :TODO: This is only used on worker threads, not main
     hub.eventsProcessor = new EventsProcessor(hub as Hub)
     hub.jobQueueManager = new JobQueueManager(hub as Hub)
+    hub.hookCannon = new HookCommander(db, teamManager, organizationManager, siteUrlManager, statsd)
 
     if (serverConfig.CAPTURE_INTERNAL_METRICS) {
         hub.internalMetrics = new InternalMetrics(hub as Hub)
@@ -290,12 +293,12 @@ export async function createHub(
         }
 
         hub.mmdbUpdateJob?.cancel()
-        await hub.db.postgresLogsWrapper.flushLogs()
+        await hub.db?.postgresLogsWrapper.flushLogs()
         await hub.jobQueueManager?.disconnectProducer()
         await kafkaProducer.disconnect()
         await redisPool.drain()
         await redisPool.clear()
-        await hub.postgres.end()
+        await hub.postgres?.end()
     }
 
     return [hub as Hub, closeHub]
