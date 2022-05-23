@@ -1059,10 +1059,10 @@ export function sortedKeys(object: Record<string, any>): Record<string, any> {
 
 export const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('')
 
-export function endWithPunctation(text?: string | null): string {
+export function endWithPunctation(text?: string | null): string | null {
     let trimmedText = text?.trim()
     if (!trimmedText) {
-        return ''
+        return null
     }
     if (!/[.!?]$/.test(trimmedText)) {
         trimmedText += '.'
