@@ -108,7 +108,6 @@ describe('queue', () => {
 
             expect(queues).toEqual({
                 ingestion: expect.any(KafkaQueue),
-                auxiliary: null,
             })
         })
 
@@ -119,7 +118,6 @@ describe('queue', () => {
 
             expect(queues).toEqual({
                 ingestion: null,
-                auxiliary: null,
             })
         })
     })
