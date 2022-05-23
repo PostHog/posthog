@@ -130,6 +130,12 @@ class FunnelEventQuery(EnterpriseEventQuery):
         else:
             self._should_join_distinct_ids = True
 
+    def _determine_should_join_persons(self) -> None:
+        EnterpriseEventQuery._determine_should_join_persons(self)
+        if self._using_person_on_events:
+            self._should_join_distinct_ids = False
+            self._should_join_persons = False
+
     def _get_entity_query(self, entities=None, entity_name="events") -> Tuple[str, Dict[str, Any]]:
         events = set()
         entities_to_use = entities or self._filter.entities
