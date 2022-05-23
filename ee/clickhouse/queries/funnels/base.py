@@ -613,7 +613,7 @@ class ClickhouseFunnelBase(ABC):
                 if self._team.actor_on_events_querying_enabled:
                     return get_single_or_multi_property_string_expr(
                         self._filter.breakdown,
-                        table="person",
+                        table="events",
                         query_alias="prop",
                         column="person_properties",
                         allow_denormalized_props=False,
@@ -635,7 +635,7 @@ class ClickhouseFunnelBase(ABC):
                 if self._team.actor_on_events_querying_enabled:
                     properties_field = f"group{self._filter.breakdown_group_type_index}_properties"
                     expression, _ = get_property_string_expr(
-                        table="groups",
+                        table="events",
                         property_name=self._filter.breakdown,
                         var="%(breakdown)s",
                         column=properties_field,
