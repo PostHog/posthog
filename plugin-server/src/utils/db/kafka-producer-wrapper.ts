@@ -103,6 +103,7 @@ export class KafkaProducerWrapper {
 
     public async disconnect(): Promise<void> {
         clearInterval(this.flushInterval)
+        await this.flush()
         await this.producer.disconnect()
     }
 

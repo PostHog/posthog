@@ -292,7 +292,6 @@ export async function createHub(
         hub.mmdbUpdateJob?.cancel()
         await hub.db.postgresLogsWrapper.flushLogs()
         await hub.jobQueueManager?.disconnectProducer()
-        await kafkaProducer.flush()
         await kafkaProducer.disconnect()
         await redisPool.drain()
         await redisPool.clear()

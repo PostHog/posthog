@@ -31,7 +31,7 @@ export async function resetTestDatabaseClickhouse(extraServerConfig?: Partial<Pl
 }
 
 export async function delayUntilEventIngested(
-    fetchEvents: () => Promise<Record<string, any>[] | number>,
+    fetchEvents: () => Promise<any[] | number>,
     minCount = 1,
     delayMs = 100,
     maxDelayCount = 100
