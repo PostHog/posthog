@@ -14,8 +14,8 @@ import {
 import { status } from '../../utils/status'
 import { sanitizeEvent, UUIDT } from '../../utils/utils'
 import { Action } from './../../types'
+import { ingestEvent } from './batch-processing/ingest-event'
 import { CeleryQueue } from './celery-queue'
-import { ingestEvent } from './ingest-event'
 import { KafkaQueue } from './kafka-queue'
 
 interface Queues {
