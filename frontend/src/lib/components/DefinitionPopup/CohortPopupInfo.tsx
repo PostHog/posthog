@@ -19,38 +19,37 @@ export function CohortPopupInfo({ cohort }: { cohort: CohortType }): JSX.Element
     if (!cohort) {
         return null
     }
-    return !!featureFlags[FEATURE_FLAGS.COHORT_FILTERS] ? (
+    return !!featureFlags[FEATURE_FLAGS.COHORT_FILTERS] && cohort.filters?.properties ? (
         <>
-            {(cohort.filters?.properties?.values?.length || 0 > 0) && <DefinitionPopup.HorizontalLine />}
-            {cohort.filters?.properties &&
-                cohort.filters.properties.values.map(
-                    (cohortGroup, cohortGroupIndex) =>
-                        isCohortCriteriaGroup(cohortGroup) && (
-                            <DefinitionPopup.Section key={cohortGroupIndex}>
-                                <DefinitionPopup.Card
-                                    title={`Match persons against ${
-                                        cohortGroup.type === FilterLogicalOperator.Or ? 'any' : 'all'
-                                    } criteria`}
-                                    value={
-                                        <ul>
-                                            {cohortGroup.values.map((criteria, criteriaIndex) => (
-                                                <li key={criteriaIndex}>
-                                                    <span>
-                                                        {criteriaToHumanSentence(criteria as AnyCohortCriteriaType)}
-                                                    </span>
-                                                </li>
-                                            ))}
-                                        </ul>
-                                    }
-                                />
-                                {cohortGroupIndex < cohort.filters.properties.values.length - 1 && (
-                                    <DefinitionPopup.HorizontalLine style={{ marginTop: 4, marginBottom: 12 }}>
-                                        {cohort.filters.properties.type}
-                                    </DefinitionPopup.HorizontalLine>
-                                )}
-                            </DefinitionPopup.Section>
-                        )
-                )}
+            {(cohort.filters.properties?.values?.length || 0 > 0) && <DefinitionPopup.HorizontalLine />}
+            {cohort.filters.properties.values.map(
+                (cohortGroup, cohortGroupIndex) =>
+                    isCohortCriteriaGroup(cohortGroup) && (
+                        <DefinitionPopup.Section key={cohortGroupIndex}>
+                            <DefinitionPopup.Card
+                                title={`Match persons against ${
+                                    cohortGroup.type === FilterLogicalOperator.Or ? 'any' : 'all'
+                                } criteria`}
+                                value={
+                                    <ul>
+                                        {cohortGroup.values.map((criteria, criteriaIndex) => (
+                                            <li key={criteriaIndex}>
+                                                <span>
+                                                    {criteriaToHumanSentence(criteria as AnyCohortCriteriaType)}
+                                                </span>
+                                            </li>
+                                        ))}
+                                    </ul>
+                                }
+                            />
+                            {cohortGroupIndex < cohort.filters.properties.values.length - 1 && (
+                                <DefinitionPopup.HorizontalLine style={{ marginTop: 4, marginBottom: 12 }}>
+                                    {cohort.filters.properties.type}
+                                </DefinitionPopup.HorizontalLine>
+                            )}
+                        </DefinitionPopup.Section>
+                    )
+            )}
         </>
     ) : (
         <>
