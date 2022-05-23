@@ -267,7 +267,7 @@ jobs:
               with:
                   # The arguments for the `git add` command (see the paragraph below for more info)
                   # Default: '.'
-                  add: 'ee/clickhouse'
+                  add: '["ee/clickhouse", "posthog/api/test/__snapshots__", "posthog/test/__snapshots__"]'
 
                   default_author: github_actions
 

@@ -1,11 +1,11 @@
 import * as fetch from 'node-fetch'
 
+import { Hub } from '../../src/types'
 import { createHub } from '../../src/utils/db/hub'
 import { pluginDigest } from '../../src/utils/utils'
 import { LazyPluginVM } from '../../src/worker/vm/lazy'
 import { plugin60, pluginConfig39 } from '../helpers/plugins'
 import { resetTestDatabase } from '../helpers/sql'
-import { Hub } from './../../src/types'
 
 describe('VMs are extra lazy 💤', () => {
     let hub: Hub

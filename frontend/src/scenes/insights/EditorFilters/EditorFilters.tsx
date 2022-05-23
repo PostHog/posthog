@@ -32,6 +32,7 @@ import { insightLogic } from '../insightLogic'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { EFPathsAdvancedPaywall } from './EFPathsAdvancedPaywall'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 export interface EditorFiltersProps {
     insightProps: InsightLogicProps
@@ -44,6 +45,7 @@ export function EditorFilters({ insightProps }: EditorFiltersProps): JSX.Element
 
     const logic = insightLogic(insightProps)
     const { filters, insight, filterPropertiesCount } = useValues(logic)
+    const { preflight } = useValues(preflightLogic)
 
     const { advancedOptionsUsedCount } = useValues(funnelLogic(insightProps))
 
@@ -213,15 +215,17 @@ export function EditorFilters({ insightProps }: EditorFiltersProps): JSX.Element
                       }
                     : null,
                 isPaths &&
-                    (!hasPathsAdvanced
+                    (hasPathsAdvanced
                         ? {
                               key: 'paths-advanced',
                               component: EFPathsAdvanced,
                           }
-                        : {
+                        : !preflight?.instance_preferences?.disable_paid_fs
+                        ? {
                               key: 'paths-paywall',
                               component: EFPathsAdvancedPaywall,
-                          }),
+                          }
+                        : undefined),
                 isFunnels && {
                     key: 'funnels-advanced',
                     component: EFFunnelsAdvanced,
