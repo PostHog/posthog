@@ -182,7 +182,6 @@ export function createPluginConfigVM(
                 onAction: __asyncFunctionGuard(__bindMeta('onAction'), 'onAction'),
                 onSnapshot: __asyncFunctionGuard(__bindMeta('onSnapshot'), 'onSnapshot'),
                 processEvent: __asyncFunctionGuard(__bindMeta('processEvent'), 'processEvent'),
-                handleAlert: __asyncFunctionGuard(__bindMeta('handleAlert'), 'handleAlert'),
             };
 
             const __tasks = {
