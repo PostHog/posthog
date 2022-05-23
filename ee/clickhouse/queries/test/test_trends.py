@@ -1,7 +1,6 @@
 from datetime import datetime
 from unittest.mock import patch
 
-from constance.test import override_config
 from django.utils import timezone
 from freezegun import freeze_time
 from rest_framework.exceptions import ValidationError
@@ -146,11 +145,6 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
             }
         )
         response = ClickhouseTrends().run(filter, self.team,)
-
-        with override_config(ENABLE_ACTOR_ON_EVENTS_TEAMS=f"{self.team.pk}"):
-            new_response = ClickhouseTrends().run(filter, self.team)
-
-        self.assertEqual(response, new_response)
 
         self.assertEqual(len(response), 2)
         self.assertEqual(response[0]["breakdown_value"], "finance")
