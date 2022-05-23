@@ -3,7 +3,7 @@ import { StatsD } from 'hot-shots'
 import fetch from 'node-fetch'
 import { format } from 'util'
 
-import { Action, Hook, Person, PreIngestionEvent } from '../../types'
+import { Action, Hook, IngestionEvent, Person } from '../../types'
 import { CachedPersonData, DB } from '../../utils/db/db'
 import { stringify } from '../../utils/utils'
 import { OrganizationManager } from './organization-manager'
@@ -28,7 +28,7 @@ export function determineWebhookType(url: string): WebhookType {
 }
 
 export function getUserDetails(
-    event: PreIngestionEvent,
+    event: IngestionEvent,
     person: CachedPersonData | Person | undefined,
     siteUrl: string,
     webhookType: WebhookType
@@ -73,7 +73,7 @@ export function getTokens(messageFormat: string): [string[], string] {
 
 export function getValueOfToken(
     action: Action,
-    event: PreIngestionEvent,
+    event: IngestionEvent,
     person: CachedPersonData | Person | undefined,
     siteUrl: string,
     webhookType: WebhookType,
@@ -125,7 +125,7 @@ export function getValueOfToken(
 
 export function getFormattedMessage(
     action: Action,
-    event: PreIngestionEvent,
+    event: IngestionEvent,
     person: CachedPersonData | Person | undefined,
     siteUrl: string,
     webhookType: WebhookType
@@ -179,7 +179,7 @@ export class HookCommander {
     }
 
     public async findAndFireHooks(
-        event: PreIngestionEvent,
+        event: IngestionEvent,
         person: CachedPersonData | Person | undefined,
         actionMatches: Action[]
     ): Promise<void> {
@@ -226,7 +226,7 @@ export class HookCommander {
     private async postWebhook(
         webhookUrl: string,
         action: Action,
-        event: PreIngestionEvent,
+        event: IngestionEvent,
         person: CachedPersonData | Person | undefined
     ): Promise<void> {
         const webhookType = determineWebhookType(webhookUrl)
@@ -256,7 +256,7 @@ export class HookCommander {
 
     public async postRestHook(
         hook: Hook,
-        event: PreIngestionEvent,
+        event: IngestionEvent,
         person: CachedPersonData | Person | undefined
     ): Promise<void> {
         let sendablePerson: Record<string, any> = {}
