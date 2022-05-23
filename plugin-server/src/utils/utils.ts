@@ -327,6 +327,8 @@ export function castTimestampToClickhouseFormat(
             return timestamp.toFormat('yyyy-MM-dd HH:mm:ss.u')
         case TimestampFormat.ISO:
             return timestamp.toUTC().toISO()
+        case TimestampFormat.DateOnly:
+            return timestamp.toFormat('yyyy-MM-dd')
         default:
             throw new Error(`Unrecognized timestamp format ${timestampFormat}!`)
     }

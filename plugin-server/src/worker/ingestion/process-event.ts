@@ -7,8 +7,10 @@ import { ProducerRecord } from 'kafkajs'
 import { DateTime, Duration } from 'luxon'
 import { DatabaseError } from 'pg'
 
+import { defaultConfig } from '../../config/config'
 import { Event as EventProto, IEvent } from '../../config/idl/protos'
 import { KAFKA_EVENTS, KAFKA_SESSION_RECORDING_EVENTS } from '../../config/kafka-topics'
+import { ObjectStorage } from '../../main/services/object_storage'
 import {
     Element,
     Event,
@@ -41,6 +43,8 @@ import { PersonManager } from './person-manager'
 import { upsertGroup } from './properties-updater'
 import { TeamManager } from './team-manager'
 import { parseDate } from './utils'
+
+const { OBJECT_STORAGE_SESSION_RECORDING_FOLDER, OBJECT_STORAGE_BUCKET, OBJECT_STORAGE_ENABLED } = defaultConfig
 
 const MAX_FAILED_PERSON_MERGE_ATTEMPTS = 3
 
@@ -84,6 +88,7 @@ export class EventsProcessor {
     personManager: PersonManager
     groupTypeManager: GroupTypeManager
     clickhouseExternalSchemasDisabledTeams: Set<number>
+    objectStorage: ObjectStorage
 
     constructor(pluginsServer: Hub) {
         this.pluginsServer = pluginsServer
@@ -97,6 +102,7 @@ export class EventsProcessor {
         this.clickhouseExternalSchemasDisabledTeams = new Set(
             pluginsServer.CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS_TEAMS.split(',').filter(String).map(Number)
         )
+        this.objectStorage = pluginsServer.objectStorage
     }
 
     public async processEvent(
@@ -723,13 +729,20 @@ export class EventsProcessor {
 
         await this.createPersonIfDistinctIdIsNew(team_id, distinct_id, timestamp, personUuid.toString())
 
+        const processed_snapshot_data = this.tryStoreSessionRecordingToObjectStorage(
+            timestamp,
+            session_id,
+            snapshot_data,
+            team_id
+        )
+
         const data: SessionRecordingEvent = {
             uuid,
             team_id: team_id,
             distinct_id: distinct_id,
             session_id: session_id,
             window_id: window_id,
-            snapshot_data: JSON.stringify(snapshot_data),
+            snapshot_data: JSON.stringify(processed_snapshot_data),
             timestamp: timestampString,
             created_at: timestampString,
         }
@@ -768,6 +781,45 @@ export class EventsProcessor {
             teamId: team_id,
             siteUrl,
         }
+    }
+
+    private tryStoreSessionRecordingToObjectStorage(
+        timestamp: DateTime,
+        session_id: string,
+        snapshot_data: Record<any, any>,
+        team_id: number
+    ): Record<any, any> {
+        // As we don't want to store the session recording payload in ClickHouse,
+        // let's intercept the event, parse the metadata and store the data in
+        // our object storage system.
+
+        if (!this.objectStorage.isEnabled) {
+            return snapshot_data
+        }
+
+        const dateKey = castTimestampOrNow(timestamp, TimestampFormat.DateOnly)
+        const object_storage_path = `${OBJECT_STORAGE_SESSION_RECORDING_FOLDER}/${dateKey}/${session_id}/${snapshot_data.chunk_id}/${snapshot_data.chunk_index}`
+        const params = { Bucket: OBJECT_STORAGE_BUCKET, Key: object_storage_path, Body: snapshot_data.data }
+
+        const tags = {
+            team_id: team_id.toString(),
+            session_id,
+        }
+
+        this.objectStorage.putObject(params, (err: any, resp: any) => {
+            if (err) {
+                console.error(err)
+                this.pluginsServer.statsd?.increment('session_data.storage_upload.error', tags)
+            } else {
+                this.pluginsServer.statsd?.increment('session_data.storage_upload.success', tags)
+            }
+        })
+
+        const altered_data = { ...snapshot_data }
+        delete altered_data.data
+        altered_data['object_storage_path'] = object_storage_path
+
+        return altered_data
     }
 
     private async createPersonIfDistinctIdIsNew(

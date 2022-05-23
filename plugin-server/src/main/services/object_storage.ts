@@ -6,11 +6,15 @@ const aws = require('aws-sdk')
 let S3: typeof aws.S3 | null = null
 
 export interface ObjectStorage {
+    isEnabled: boolean
+    putObject: (params: { Bucket: string; Body: any; Key: string }, cb: (err: any, resp: any) => void) => void
     healthCheck: () => Promise<boolean>
 }
 
 export const connectObjectStorage = (serverConfig: Partial<PluginsServerConfig>): ObjectStorage => {
-    let storage = {
+    let storage: ObjectStorage = {
+        isEnabled: false,
+        putObject: () => ({}),
         healthCheck: async () => {
             return Promise.resolve(false)
         },
@@ -35,6 +39,8 @@ export const connectObjectStorage = (serverConfig: Partial<PluginsServerConfig>)
         }
 
         storage = {
+            isEnabled: !!OBJECT_STORAGE_ENABLED,
+            putObject: OBJECT_STORAGE_ENABLED ? (params, callback) => S3.putObject(params, callback) : () => ({}),
             healthCheck: async () => {
                 if (!OBJECT_STORAGE_BUCKET) {
                     status.error('😢', 'No object storage bucket configured')

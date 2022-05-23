@@ -70,7 +70,7 @@ import {
     UUID,
     UUIDT,
 } from '../utils'
-import { OrganizationPluginsAccessLevel, PluginLogLevel } from './../../types'
+import { OrganizationPluginsAccessLevel } from './../../types'
 import { KafkaProducerWrapper } from './kafka-producer-wrapper'
 import { PostgresLogsWrapper } from './postgres-logs-wrapper'
 import {
@@ -1220,10 +1220,19 @@ export class DB {
 
     // SessionRecordingEvent
 
-    public async fetchSessionRecordingEvents(): Promise<PostgresSessionRecordingEvent[] | SessionRecordingEvent[]> {
+    /* Either gets all session recording events since the database was last reset
+     * or, if a sessionId is provided, gets all session recording events for that sessionId
+     * @param sessionId
+     */
+    public async fetchSessionRecordingEvents(
+        sessionId?: string | undefined
+    ): Promise<PostgresSessionRecordingEvent[] | SessionRecordingEvent[]> {
+        const predicate = !!sessionId ? ` where session_id = '${sessionId}'` : ''
+
         if (this.KAFKA_ENABLED) {
             const events = (
-                (await this.clickhouseQuery(`SELECT * FROM session_recording_events`)).data as SessionRecordingEvent[]
+                (await this.clickhouseQuery(`SELECT * FROM session_recording_events${predicate}`))
+                    .data as SessionRecordingEvent[]
             ).map((event) => {
                 return {
                     ...event,
@@ -1233,7 +1242,7 @@ export class DB {
             return events
         } else {
             const result = await this.postgresQuery(
-                'SELECT * FROM posthog_sessionrecordingevent',
+                'SELECT * FROM posthog_sessionrecordingevent${predicate}',
                 undefined,
                 'fetchAllSessionRecordingEvents'
             )

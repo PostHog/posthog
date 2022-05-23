@@ -241,6 +241,7 @@ export async function createHub(
         kafka,
         kafkaProducer,
         statsd,
+        objectStorage,
 
         plugins: new Map(),
         pluginConfigs: new Map(),

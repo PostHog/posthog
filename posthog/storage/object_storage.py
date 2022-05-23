@@ -30,6 +30,30 @@ def storage_client():
     return s3_client
 
 
+class ObjectStorageError(Exception):
+    pass
+
+
+def write(file_name: str, content: str):
+    s3_response = {}
+    try:
+        s3_response = storage_client().put_object(Bucket=OBJECT_STORAGE_BUCKET, Body=content, Key=file_name)
+    except Exception as e:
+        logger.error("object_storage.write_failed", file_name=file_name, error=e, s3_response=s3_response)
+        raise ObjectStorageError("write failed") from e
+
+
+def read(file_name: str):
+    s3_response = {}
+    try:
+        s3_response = storage_client().get_object(Bucket=OBJECT_STORAGE_BUCKET, Key=file_name)
+        content = s3_response["Body"].read()
+        return content.decode("utf-8")
+    except Exception as e:
+        logger.error("object_storage.read_failed", file_name=file_name, error=e, s3_response=s3_response)
+        raise ObjectStorageError("read failed") from e
+
+
 def health_check() -> bool:
     # noinspection PyBroadException
     try:

@@ -3379,15 +3379,15 @@ atob@^2.1.2:
   resolved "https://registry.yarnpkg.com/atob/-/atob-2.1.2.tgz#6d9517eb9e030d2436666651e86bd9f6f13533c9"
   integrity sha512-Wm6ukoaOGJi/73p/cl2GvLjTI5JM1k/O14isD73YML8StrH/7/lRFgmg8nICZgD3bZZvjwCGxtMOD3wWNAu8cg==
 
-aws-sdk@^2.927.0:
-  version "2.927.0"
-  resolved "https://registry.yarnpkg.com/aws-sdk/-/aws-sdk-2.927.0.tgz#8545b30094eb52d16dc6b24b1c7f19bea565b261"
-  integrity sha512-S1dbpq26bQNYBQPHAsZBt0/L/e0FAWFdjjQoU3zdaVIXa08eA9d/oRI3kEs568ErJgBjwWU1CUUlr1byBxKjUQ==
+aws-sdk@^2.1140.0:
+  version "2.1140.0"
+  resolved "https://registry.yarnpkg.com/aws-sdk/-/aws-sdk-2.1140.0.tgz#7f19b821aac87dc6edf4d5ce256d496106779dfe"
+  integrity sha512-cNdq56UQrUzXmCgwo0/J5GGLmfHn+Vp38qgcK/Xd86Sch8P9v2o8tNv7J82mYU98YY2vO007BMxRylA4Sd8PkQ==
   dependencies:
     buffer "4.9.2"
     events "1.1.1"
     ieee754 "1.1.13"
-    jmespath "0.15.0"
+    jmespath "0.16.0"
     querystring "0.2.0"
     sax "1.2.1"
     url "0.10.3"
@@ -6466,10 +6466,10 @@ jest@^27.5.0:
     import-local "^3.0.2"
     jest-cli "^27.5.1"
 
-jmespath@0.15.0:
-  version "0.15.0"
-  resolved "https://registry.yarnpkg.com/jmespath/-/jmespath-0.15.0.tgz#a3f222a9aae9f966f5d27c796510e28091764217"
-  integrity sha1-o/Iiqarp+Wb10nx5ZRDigJF2Qhc=
+jmespath@0.16.0:
+  version "0.16.0"
+  resolved "https://registry.yarnpkg.com/jmespath/-/jmespath-0.16.0.tgz#b15b0a85dfd4d930d43e69ed605943c802785076"
+  integrity sha512-9FzQjJ7MATs1tSpnco1K6ayiYE3figslrXA72G2HQ/n76RzvYlofyi5QM+iX4YRs/pu3yzxlVQSST23+dMDknw==
 
 js-sha3@0.8.0:
   version "0.8.0"

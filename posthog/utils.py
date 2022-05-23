@@ -48,6 +48,9 @@ from posthog.redis import get_client
 if TYPE_CHECKING:
     from django.contrib.auth.models import AbstractBaseUser, AnonymousUser
 
+import structlog
+
+logger = structlog.get_logger(__name__)
 
 DATERANGE_MAP = {
     "minute": datetime.timedelta(minutes=1),
@@ -620,7 +623,8 @@ def is_object_storage_available() -> bool:
             return object_storage.health_check()
         else:
             return False
-    except BaseException:
+    except BaseException as ex:
+        logger.warn("object_storage.is_unavailable", error=ex)
         return False
 
 

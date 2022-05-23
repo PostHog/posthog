@@ -89,6 +89,7 @@ let closeHub: () => Promise<void>
 let redis: IORedis.Redis
 let eventsProcessor: EventsProcessor
 let now = DateTime.utc()
+const sessionId = `abcf-efg-${now.toISO()}`
 
 async function createTestHub(additionalProps?: Record<string, any>): Promise<[Hub, () => Promise<void>]> {
     const [hub, closeHub] = await createHub({
@@ -1164,7 +1165,7 @@ it('snapshot event not stored if session recording disabled', async () => {
         '',
         {
             event: '$snapshot',
-            properties: { $session_id: 'abcf-efg', $snapshot_data: { timestamp: 123 } },
+            properties: { $session_id: sessionId, $snapshot_data: { timestamp: 123 } },
         } as any as PluginEvent,
         team.id,
         now,
@@ -1187,7 +1188,7 @@ test('snapshot event stored as session_recording_event', async () => {
         '',
         {
             event: '$snapshot',
-            properties: { $session_id: 'abcf-efg', $snapshot_data: { timestamp: 123 } },
+            properties: { $session_id: sessionId, $snapshot_data: { timestamp: 123 } },
         } as any as PluginEvent,
         team.id,
         now,
@@ -1195,18 +1196,24 @@ test('snapshot event stored as session_recording_event', async () => {
         new UUIDT().toString(),
         'http://example.com'
     )
-    await delayUntilEventIngested(() => hub.db.fetchSessionRecordingEvents())
+    await delayUntilEventIngested(() => hub.db.fetchSessionRecordingEvents(sessionId))
 
     const events = await hub.db.fetchEvents()
     expect(events.length).toEqual(0)
 
-    const sessionRecordingEvents = await hub.db.fetchSessionRecordingEvents()
+    const sessionRecordingEvents = await hub.db.fetchSessionRecordingEvents(sessionId)
     expect(sessionRecordingEvents.length).toBe(1)
 
     const [event] = sessionRecordingEvents
-    expect(event.session_id).toEqual('abcf-efg')
+    expect(event.session_id).toEqual(sessionId)
     expect(event.distinct_id).toEqual('some-id')
-    expect(event.snapshot_data).toEqual({ timestamp: 123 })
+    const expectedFolderDate = now.toFormat('yyyy-MM-dd')
+    expect(event.snapshot_data).toEqual({
+        chunk_id: 'chunk_id',
+        chunk_index: 'chunk_index',
+        object_storage_path: `session_recordings/${expectedFolderDate}/${event.session_id}/chunk_id/chunk_index`,
+        timestamp: 123,
+    })
 })
 
 test('$snapshot event creates new person if needed', async () => {
@@ -1215,7 +1222,7 @@ test('$snapshot event creates new person if needed', async () => {
         '',
         {
             event: '$snapshot',
-            properties: { $session_id: 'abcf-efg', $snapshot_data: { timestamp: 123 } },
+            properties: { $session_id: sessionId, $snapshot_data: { timestamp: 123 } },
         } as any as PluginEvent,
         team.id,
         now,
