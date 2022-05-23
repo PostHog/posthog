@@ -36,7 +36,9 @@ class ClickhouseStickiness:
         return response
 
     def stickiness(self, entity: Entity, filter: StickinessFilter, team: Team) -> Dict[str, Any]:
-        events_query, event_params = StickinessEventsQuery(entity, filter, team).get_query()
+        events_query, event_params = StickinessEventsQuery(
+            entity, filter, team, using_person_on_events=team.actor_on_events_querying_enabled
+        ).get_query()
 
         query = f"""
         SELECT countDistinct(aggregation_target), num_intervals FROM ({events_query})
