@@ -797,8 +797,11 @@ export class EventsProcessor {
             return snapshot_data
         }
 
-        if (team_id !== 2) {
-            // only try storing to s3 for posthog on cloud
+        const teamIsOnSessionRecordingToS3AllowList =
+            this.objectStorage.sessionRecordingAllowList === 'all' ||
+            this.objectStorage.sessionRecordingAllowList.includes(team_id)
+
+        if (!teamIsOnSessionRecordingToS3AllowList) {
             return snapshot_data
         }
 

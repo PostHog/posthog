@@ -8,6 +8,7 @@ let S3: typeof aws.S3 | null = null
 export interface ObjectStorage {
     isEnabled: boolean
     putObject: (params: { Bucket: string; Body: any; Key: string }, cb: (err: any, resp: any) => void) => void
+    sessionRecordingAllowList: 'all' | number[]
     healthCheck: () => Promise<boolean>
 }
 
@@ -15,6 +16,7 @@ export const connectObjectStorage = (serverConfig: Partial<PluginsServerConfig>)
     let storage: ObjectStorage = {
         isEnabled: false,
         putObject: () => ({}),
+        sessionRecordingAllowList: [],
         healthCheck: async () => {
             return Promise.resolve(false)
         },
@@ -41,6 +43,7 @@ export const connectObjectStorage = (serverConfig: Partial<PluginsServerConfig>)
         storage = {
             isEnabled: !!OBJECT_STORAGE_ENABLED,
             putObject: OBJECT_STORAGE_ENABLED ? (params, callback) => S3.putObject(params, callback) : () => ({}),
+            sessionRecordingAllowList: serverConfig.OBJECT_STORAGE_TEAM_ALLOW_LIST || [],
             healthCheck: async () => {
                 if (!OBJECT_STORAGE_BUCKET) {
                     status.error('😢', 'No object storage bucket configured')
