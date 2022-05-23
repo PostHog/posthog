@@ -2,11 +2,11 @@ import { PluginEvent } from '@posthog/plugin-scaffold'
 import * as Sentry from '@sentry/node'
 import { Consumer, EachBatchPayload, Kafka, KafkaMessage } from 'kafkajs'
 
-import { PluginServerMode } from '../../types'
 import { Hub, Queue, WorkerMethods } from '../../types'
 import { status } from '../../utils/status'
 import { groupIntoBatches, killGracefully, sanitizeEvent } from '../../utils/utils'
 import { runInstrumentedFunction } from '../utils'
+import { KAFKA_BUFFER } from './../../config/kafka-topics'
 import { ingestEvent } from './ingest-event'
 
 class DelayProcessing extends Error {}
@@ -21,21 +21,12 @@ export class KafkaQueue implements Queue {
     private consumer: Consumer
     private wasConsumerRan: boolean
     private workerMethods: WorkerMethods
-    private pluginServerMode: PluginServerMode
     private sleepTimeout: NodeJS.Timeout | null
 
-    constructor(
-        pluginsServer: Hub,
-        workerMethods: WorkerMethods,
-        pluginServerMode: PluginServerMode = PluginServerMode.Ingestion
-    ) {
+    constructor(pluginsServer: Hub, workerMethods: WorkerMethods) {
         this.pluginsServer = pluginsServer
         this.kafka = pluginsServer.kafka!
-        this.pluginServerMode = pluginServerMode
-        this.consumer = KafkaQueue.buildConsumer(
-            this.kafka,
-            pluginServerMode === PluginServerMode.Runner ? 'runner-consumer' : undefined
-        )
+        this.consumer = KafkaQueue.buildConsumer(this.kafka)
         this.wasConsumerRan = false
         this.workerMethods = workerMethods
         this.sleepTimeout = null
@@ -164,10 +155,8 @@ export class KafkaQueue implements Queue {
             this.consumer.on(this.consumer.events.CRASH, ({ payload: { error } }) => reject(error))
             status.info('⏬', `Connecting Kafka consumer to ${this.pluginsServer.KAFKA_HOSTS}...`)
             this.wasConsumerRan = true
-            const ingestionTopic =
-                this.pluginServerMode === PluginServerMode.Ingestion
-                    ? this.pluginsServer.KAFKA_CONSUMPTION_TOPIC!
-                    : this.pluginsServer.KAFKA_RUNNER_TOPIC!
+
+            const ingestionTopic = this.pluginsServer.KAFKA_CONSUMPTION_TOPIC!
 
             await this.consumer.subscribe({
                 topic: ingestionTopic,
@@ -184,7 +173,8 @@ export class KafkaQueue implements Queue {
                     try {
                         if (batchTopic === ingestionTopic) {
                             await this.eachBatchIngestion(payload)
-                        } else {
+                        } else if (batchTopic === KAFKA_BUFFER) {
+                            // currently this never runs - it depends on us subscribing to the buffer topic
                             await this.eachBatchBuffer(payload)
                         }
                     } catch (error) {
