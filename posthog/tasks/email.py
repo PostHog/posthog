@@ -1,4 +1,4 @@
-from datetime import timedelta
+from datetime import timedelta, timezone
 import uuid
 
 import structlog
@@ -7,6 +7,7 @@ from django.conf import settings
 from posthog.celery import app
 from posthog.email import EmailMessage
 from posthog.models import Organization, OrganizationInvite, User
+from posthog.models.team import Team
 
 logger = structlog.get_logger(__name__)
 
@@ -92,3 +93,51 @@ def send_async_migration_errored_email(migration_key: str, time: str, error: str
     )
 
     send_message_to_all_staff_users(message)
+
+
+@app.task(max_retries=1)
+def send_first_ingestion_reminder_emails() -> None:
+    # ORG DOES NOT HAVE EVENT INGESTED AND IT WAS CREATED IN THE LAST 24 HOURS 
+
+    # list of org ids created in the last 24 hours
+    orgs = Organization.objects.filter(created_at__gte=timezone.now() - timezone.timedelta(days=1)).values_list('id', flat=True)
+
+    # list of teams that did not ingest events AND were in orgs that were created in the past 24 hours
+    teams = Team.objects.filter(organization_id__in=orgs, ingested_event=False).values_list('id', flat=True)
+
+    # unique users in those teams ? should I check if the user account was created also 24 hours ago?
+    users_to_email = User.objects.filter(current_team_id__in=teams)
+
+    campaign_key: str = f"first_ingestion_reminder_"
+
+    for user in users_to_email:
+        message = EmailMessage(
+            campaign_key=campaign_key,
+            subject=f"Ingestion reminder?", # TODO
+            template_name="first_ingestion_reminder",
+        )
+
+        message.add_recipient(user.email)
+        message.send()
+
+@app.task(max_retries=1)
+def send_final_ingestion_reminder_emails() -> None:
+    # list of ids from orgs created exactly on the day of 96 hours ago 
+
+    orgs = Organization.objects.filter(created_at__date=(timezone.now() - timezone.timedelta(days=5)).date()).values_list('id', flat=True)
+    teams = Team.objects.filter(organization_id__in=orgs, ingested_event=False).values_list('id', flat=True)
+    # (datetime.now()-datetime.timedelta(days=38)
+
+    users = User.objects.filter(date_joined__date=(timezone.now() - timezone.timedelta(days=4).date()), current_team_id__in=teams)
+
+    campaign_key: str = f"final_ingestion_reminder_"
+
+    for user in users:
+        message = EmailMessage(
+            campaign_key=campaign_key,
+            subject=f"???", # TODO
+            template_name="final_ingestion_reminder",
+        )
+
+        message.add_recipient(user.email)
+        message.send()
