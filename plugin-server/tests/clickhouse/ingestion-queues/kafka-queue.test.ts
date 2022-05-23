@@ -1,12 +1,10 @@
 import Piscina from '@posthog/piscina'
 
-import { ONE_HOUR } from '../../../src/config/constants'
 import { KAFKA_EVENTS_PLUGIN_INGESTION } from '../../../src/config/kafka-topics'
 import { ServerInstance, startPluginsServer } from '../../../src/main/pluginsServer'
 import { LogLevel, PluginsServerConfig } from '../../../src/types'
 import { Hub } from '../../../src/types'
-import { Client } from '../../../src/utils/celery/client'
-import { delay, UUIDT } from '../../../src/utils/utils'
+import { UUIDT } from '../../../src/utils/utils'
 import { makePiscina } from '../../../src/worker/piscina'
 import { createPosthog, DummyPostHog } from '../../../src/worker/vm/extensions/posthog'
 import { writeToFile } from '../../../src/worker/vm/extensions/test-utils'
@@ -17,7 +15,7 @@ import { resetTestDatabase } from '../../helpers/sql'
 
 const { console: testConsole } = writeToFile
 
-jest.mock('../../src/utils/status')
+jest.mock('../../../src/utils/status')
 jest.setTimeout(70000) // 60 sec timeout
 
 const extraServerConfig: Partial<PluginsServerConfig> = {
