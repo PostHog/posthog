@@ -85,7 +85,7 @@ class FunnelEventQuery(EnterpriseEventQuery):
             self._filter.property_groups,
             person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS
             if self._using_person_on_events
-            else PersonPropertiesMode.Using,
+            else PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
         )
 
         self.params.update(prop_params)
