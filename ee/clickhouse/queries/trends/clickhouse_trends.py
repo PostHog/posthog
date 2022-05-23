@@ -22,7 +22,9 @@ from posthog.queries.base import handle_compare
 class ClickhouseTrends(ClickhouseTrendsTotalVolume, ClickhouseLifecycle, ClickhouseTrendsFormula):
     def _get_sql_for_entity(self, filter: Filter, entity: Entity, team: Team) -> Tuple[str, Dict, Callable]:
         if filter.breakdown:
-            sql, params, parse_function = ClickhouseTrendsBreakdown(entity, filter, team).get_query()
+            sql, params, parse_function = ClickhouseTrendsBreakdown(
+                entity, filter, team, using_person_on_events=team.actor_on_events_querying_enabled
+            ).get_query()
         elif filter.shown_as == TRENDS_LIFECYCLE:
             sql, params, parse_function = self._format_lifecycle_query(entity, filter, team)
         else:

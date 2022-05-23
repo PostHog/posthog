@@ -796,7 +796,7 @@ interface InsightIconProps {
     style: CSSProperties
 }
 function InsightIcon({
-    background = 'currentcolor',
+    background = 'var(--muted-alt)',
     noBackground = false,
     children,
     style,

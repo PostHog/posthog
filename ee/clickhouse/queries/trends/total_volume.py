@@ -37,6 +37,7 @@ class ClickhouseTrendsTotalVolume:
             if join_condition != ""
             or (entity.math in [WEEKLY_ACTIVE, MONTHLY_ACTIVE] and not team.aggregate_users_by_distinct_id)
             else False,
+            using_person_on_events=team.actor_on_events_querying_enabled,
         )
         event_query, event_query_params = trend_event_query.get_query()
 
