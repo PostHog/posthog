@@ -245,7 +245,8 @@ SELECT
     team_id,
     distinct_id,
     elements_chain,
-    created_at
+    created_at,
+    toDate(timestamp)
 FROM
     events
 where team_id = %(team_id)s
@@ -262,7 +263,8 @@ SELECT
     team_id,
     distinct_id,
     elements_chain,
-    created_at
+    created_at,
+    toDate(timestamp)
 FROM events
 WHERE
 team_id = %(team_id)s
