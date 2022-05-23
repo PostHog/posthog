@@ -108,6 +108,7 @@ CONSTANCE_CONFIG = {
         "Used to disable emails from async migrations service",
         bool,
     ),
+    "INGESTION_SITE_URL": (None, "Used in ingestion pipeline to determine sites url", str),
 }
 
 SETTINGS_ALLOWING_API_OVERRIDE = (
