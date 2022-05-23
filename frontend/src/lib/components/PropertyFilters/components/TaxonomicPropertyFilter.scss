@@ -2,9 +2,10 @@
     width: 100%;
 
     &.in-dropdown {
+        width: 900px;
         min-width: 300px;
+        max-width: 95%;
         background: white;
-        max-width: calc(100vw - 25px);
     }
 
     .taxonomic-filter-row {
