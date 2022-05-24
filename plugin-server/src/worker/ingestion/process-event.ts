@@ -21,7 +21,6 @@ import {
     Team,
     TimestampFormat,
 } from '../../types'
-import { Client } from '../../utils/celery/client'
 import { DB, GroupIdentifier } from '../../utils/db/db'
 import { KafkaProducerWrapper } from '../../utils/db/kafka-producer-wrapper'
 import {
@@ -79,7 +78,6 @@ export class EventsProcessor {
     db: DB
     clickhouse: ClickHouse
     kafkaProducer: KafkaProducerWrapper
-    celery: Client
     teamManager: TeamManager
     personManager: PersonManager
     groupTypeManager: GroupTypeManager
@@ -90,7 +88,6 @@ export class EventsProcessor {
         this.db = pluginsServer.db
         this.clickhouse = pluginsServer.clickhouse
         this.kafkaProducer = pluginsServer.kafkaProducer
-        this.celery = new Client(pluginsServer.db, pluginsServer.CELERY_DEFAULT_QUEUE)
         this.teamManager = pluginsServer.teamManager
         this.personManager = new PersonManager(pluginsServer)
         this.groupTypeManager = new GroupTypeManager(pluginsServer.db, this.teamManager, pluginsServer.SITE_URL)
