@@ -8,6 +8,8 @@ import { EventPipelineRunner } from '../../../../src/worker/ingestion/event-pipe
 import { commonUserId } from '../../../helpers/plugins'
 import { insertRow, resetTestDatabase } from '../../../helpers/sql'
 
+jest.mock('../../../src/utils/status')
+
 describe('Event Pipeline integration test', () => {
     let hub: Hub
     let closeServer: () => Promise<void>
