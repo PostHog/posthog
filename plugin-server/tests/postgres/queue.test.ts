@@ -1,7 +1,7 @@
 import Piscina from '@posthog/piscina'
 
+import { ingestEvent } from '../../src/main/ingestion-queues/batch-processing/each-batch-ingestion'
 import { CeleryQueue } from '../../src/main/ingestion-queues/celery-queue'
-import { ingestEvent } from '../../src/main/ingestion-queues/ingest-event'
 import { KafkaQueue } from '../../src/main/ingestion-queues/kafka-queue'
 import { startQueues } from '../../src/main/ingestion-queues/queue'
 import { Hub, LogLevel } from '../../src/types'
@@ -12,7 +12,7 @@ import { delay } from '../../src/utils/utils'
 jest.setTimeout(60000) // 60 sec timeout
 jest.mock('../../src/main/ingestion-queues/kafka-queue')
 jest.mock('../../src/utils/status')
-jest.mock('../../src/main/ingestion-queues/ingest-event')
+jest.mock('../../src/main/ingestion-queues/batch-processing/each-batch-ingestion')
 
 function advanceOneTick() {
     return new Promise((resolve) => process.nextTick(resolve))

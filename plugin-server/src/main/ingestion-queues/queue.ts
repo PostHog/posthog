@@ -14,8 +14,8 @@ import {
 import { status } from '../../utils/status'
 import { sanitizeEvent, UUIDT } from '../../utils/utils'
 import { Action } from './../../types'
+import { ingestEvent } from './batch-processing/each-batch-ingestion'
 import { CeleryQueue } from './celery-queue'
-import { ingestEvent } from './ingest-event'
 import { KafkaQueue } from './kafka-queue'
 
 interface Queues {
@@ -43,6 +43,11 @@ export async function startQueues(
             server.lastActivity = new Date().valueOf()
             server.lastActivityType = 'runBufferEventPipeline'
             return piscina.run({ task: 'runBufferEventPipeline', args: { event } })
+        },
+        runAsyncHandlersEventPipeline: (event: ProcessedPluginEvent) => {
+            server.lastActivity = new Date().valueOf()
+            server.lastActivityType = 'runAsyncHandlersEventPipeline'
+            return piscina.run({ task: 'runAsyncHandlersEventPipeline', args: { event } })
         },
         runEventPipeline: (event: PluginEvent) => {
             server.lastActivity = new Date().valueOf()
