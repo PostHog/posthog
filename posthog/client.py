@@ -158,7 +158,7 @@ def sync_execute(query, args=None, settings=None, with_column_types=False, flush
             result = client.execute(
                 prepared_sql,
                 params=prepared_args,
-                settings={"optimize_move_to_prewhere": 0 ** (settings or {}),},
+                settings={"optimize_move_to_prewhere": 0, **(settings or {}),},
                 with_column_types=with_column_types,
             )
         except Exception as err:
