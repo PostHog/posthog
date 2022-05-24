@@ -191,7 +191,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>({
                     return { ...commands, [command.key]: command }
                 },
                 deregisterCommand: (commands, { commandKey }) => {
-                    const { [commandKey]: _, ...cleanedCommands } = commands // eslint-disable-line
+                    const { [commandKey]: _discard, ...cleanedCommands } = commands
                     return cleanedCommands
                 },
             },
@@ -219,9 +219,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>({
                 }
             }
             // Capture command execution, without useless data
-            // eslint-disable-next-line @typescript-eslint/no-unused-vars
             const { icon, index, ...cleanedResult }: Record<string, any> = result
-            // eslint-disable-next-line @typescript-eslint/no-unused-vars
             const { resolver, ...cleanedCommand } = cleanedResult.source
             cleanedResult.source = cleanedCommand
             cleanedResult.isMobile = isMobile()

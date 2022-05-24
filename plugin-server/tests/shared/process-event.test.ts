@@ -1749,8 +1749,6 @@ describe('when handling $identify', () => {
         // completing before continuing with the first identify.
         const originalCreatePerson = hub.db.createPerson.bind(hub.db)
         const createPersonMock = jest.fn(async (...args) => {
-            // eslint-disable-next-line
-            // @ts-ignore
             const result = await originalCreatePerson(...args)
 
             if (createPersonMock.mock.calls.length === 1) {

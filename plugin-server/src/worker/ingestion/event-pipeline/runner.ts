@@ -122,7 +122,7 @@ export class EventPipelineRunner {
         })
         try {
             // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-            // @ts-ignore
+            // @ts-expect-error
             return EVENT_PIPELINE_STEPS[name](this, ...args)
         } finally {
             clearTimeout(timeout)

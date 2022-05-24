@@ -114,6 +114,7 @@
         "babel-eslint": "^10.1.0",
         "eslint": "^7.28.0",
         "eslint-config-prettier": "^8.3.0",
+        "eslint-plugin-eslint-comments": "^3.2.0",
         "eslint-plugin-import": "^2.23.4",
         "eslint-plugin-node": "^11.1.0",
         "eslint-plugin-prettier": "^4.0.0",

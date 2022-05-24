@@ -100,8 +100,7 @@ export const frontendAppsLogic = kea<frontendAppsLogicType>([
     reducers({
         frontendApps: {
             unloadFrontendApp: (frontendApps, { id }) => {
-                // eslint-disable-next-line
-                const { [id]: _removed, ...rest } = frontendApps
+                const { [id]: _discard, ...rest } = frontendApps
                 return rest
             },
         },
