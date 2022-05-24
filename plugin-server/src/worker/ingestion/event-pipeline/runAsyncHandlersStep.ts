@@ -7,11 +7,13 @@ import { EventPipelineRunner, StepResult } from './runner'
 export async function runAsyncHandlersStep(
     runner: EventPipelineRunner,
     event: IngestionEvent,
-    person: Person | undefined,
-    elements: Element[] | undefined
+    person: Person | undefined
 ): Promise<StepResult> {
     if (runner.hub.capabilities.processAsyncHandlers) {
-        await Promise.all([processOnEvent(runner, event), processOnActionAndWebhooks(runner, event, person, elements)])
+        await Promise.all([
+            processOnEvent(runner, event),
+            processOnActionAndWebhooks(runner, event, person, event.elementsList),
+        ])
     }
 
     return null
