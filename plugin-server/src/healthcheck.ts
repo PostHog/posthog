@@ -29,7 +29,7 @@ const storageHealthcheck = async (): Promise<boolean> => {
 
     const storage = connectObjectStorage(defaultConfig)
     try {
-        const storageHealthy = await storage.healthCheck()
+        const storageHealthy = await storage.healthcheck()
         if (storageHealthy) {
             status.info('💚', `object storage is healthy`)
             return true

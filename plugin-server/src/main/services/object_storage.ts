@@ -6,7 +6,7 @@ const aws = require('aws-sdk')
 let S3: typeof aws.S3 | null = null
 
 export interface ObjectStorage {
-    healthCheck: () => Promise<boolean>
+    healthcheck: () => Promise<boolean>
 }
 
 // Object Storage added without any uses to flush out deployment concerns.
