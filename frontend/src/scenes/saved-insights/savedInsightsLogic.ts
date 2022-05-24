@@ -73,7 +73,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>({
                 const { filters } = values
                 const params = values.paramsFromFilters
                 const response = await api.get(
-                    `api/projects/${teamLogic.values.currentTeamId}/insights/?${toParams(params)}`
+                    `api/projects/${teamLogic.values.currentTeamId}/insights/?${toParams({ ...params, basic: true })}`
                 )
 
                 if (filters.search && String(filters.search).match(/^[0-9]+$/)) {
@@ -234,7 +234,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>({
             insightsModel.actions.renameInsight(insight)
         },
         duplicateInsight: async ({ insight }) => {
-            await api.create(`api/projects/${values.currentTeamId}/insights`, insight)
+            await api.create(`api/projects/${teamLogic.values.currentTeamId}/insights`, insight)
             actions.loadInsights()
         },
         setDates: () => {

@@ -107,10 +107,12 @@ def log_insight_activity(
         )
 
 
-class InsightBasicSerializer(serializers.ModelSerializer):
+class InsightBasicSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
     """
     Simplified serializer to speed response times when loading large amounts of objects.
     """
+
+    created_by = UserBasicSerializer(read_only=True)
 
     class Meta:
         model = Insight
@@ -124,7 +126,11 @@ class InsightBasicSerializer(serializers.ModelSerializer):
             "last_refresh",
             "refreshing",
             "saved",
+            "tags",
             "updated_at",
+            "created_by",
+            "created_at",
+            "last_modified_at",
         ]
         read_only_fields = ("short_id", "updated_at", "last_refresh", "refreshing")
 
@@ -137,7 +143,7 @@ class InsightBasicSerializer(serializers.ModelSerializer):
         return representation
 
 
-class InsightSerializer(TaggedItemSerializerMixin, InsightBasicSerializer):
+class InsightSerializer(InsightBasicSerializer):
     result = serializers.SerializerMethodField()
     last_refresh = serializers.SerializerMethodField(
         read_only=True,
