@@ -1,4 +1,5 @@
-@import '../../vars';
+@import '../../styles/vars';
+@import '../../styles/mixins';
 
 $editor_panel_width: min(28rem, 50%);
 

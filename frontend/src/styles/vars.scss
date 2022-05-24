@@ -82,40 +82,6 @@ $purple_700: #7c4286;
 $purple_500: #c278cf;
 $purple_300: #dcb1e3;
 
-// Additional style configurations
-%mixin-base-bordered-card {
-    border-radius: var(--radius);
-    box-shadow: none;
-    border: 1px solid var(--border);
-}
-
-%mixin-gradient-overlay {
-    content: '';
-    width: 100%;
-    height: 3rem;
-    background: linear-gradient(to top, #fff, transparent);
-    position: absolute;
-    pointer-events: none;
-    bottom: 0;
-}
-
-%mixin-gradient-overlay-right {
-    content: '';
-    width: 3rem;
-    height: 100%;
-    background: linear-gradient(to left, #fff, transparent);
-    position: absolute;
-    pointer-events: none;
-    bottom: 0;
-}
-
-.text-ellipsis {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    max-width: calc(100% - 8px);
-}
-
 // Breakpoints (from AntD)
 $sm: 576px;
 $md: 768px;
