@@ -115,7 +115,7 @@ describe('EventPipelineRunner', () => {
 
         describe('early exits from pipeline', () => {
             beforeEach(() => {
-                mocked(prepareEventStep).mockResolvedValue(null)
+                jest.mocked(prepareEventStep).mockResolvedValue(null)
             })
 
             it('stops processing after step', async () => {

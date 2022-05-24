@@ -23,7 +23,6 @@ import {
     Team,
     TimestampFormat,
 } from '../../types'
-import { Client } from '../../utils/celery/client'
 import { DB, GroupIdentifier } from '../../utils/db/db'
 import { KafkaProducerWrapper } from '../../utils/db/kafka-producer-wrapper'
 import {
@@ -81,7 +80,6 @@ export class EventsProcessor {
     db: DB
     clickhouse: ClickHouse
     kafkaProducer: KafkaProducerWrapper
-    celery: Client
     teamManager: TeamManager
     personManager: PersonManager
     groupTypeManager: GroupTypeManager
@@ -93,7 +91,6 @@ export class EventsProcessor {
         this.db = pluginsServer.db
         this.clickhouse = pluginsServer.clickhouse
         this.kafkaProducer = pluginsServer.kafkaProducer
-        this.celery = new Client(pluginsServer.db, pluginsServer.CELERY_DEFAULT_QUEUE)
         this.teamManager = pluginsServer.teamManager
         this.personManager = new PersonManager(pluginsServer)
         this.groupTypeManager = new GroupTypeManager(pluginsServer.db, this.teamManager, pluginsServer.SITE_URL)
@@ -110,8 +107,7 @@ export class EventsProcessor {
         teamId: number,
         now: DateTime,
         sentAt: DateTime | null,
-        eventUuid: string,
-        siteUrl: string
+        eventUuid: string
     ): Promise<PreIngestionEvent | null> {
         if (!UUID.validateString(eventUuid, false)) {
             throw new Error(`Not a valid UUID: "${eventUuid}"`)
@@ -194,8 +190,7 @@ export class EventsProcessor {
                         data['event'],
                         distinctId,
                         properties,
-                        ts,
-                        siteUrl
+                        ts
                     )
                     this.pluginsServer.statsd?.timing('kafka_queue.single_save.standard', singleSaveTimer, {
                         team_id: teamId.toString(),
@@ -243,8 +238,7 @@ export class EventsProcessor {
         teamId: number,
         distinctId: string,
         properties: Properties,
-        propertiesOnce: Properties,
-        timestamp: DateTime
+        propertiesOnce: Properties
     ): Promise<void> {
         await this.updatePersonPropertiesDeprecated(teamId, distinctId, properties, propertiesOnce)
     }
@@ -527,8 +521,7 @@ export class EventsProcessor {
         event: string,
         distinctId: string,
         properties: Properties,
-        timestamp: DateTime,
-        siteUrl: string
+        timestamp: DateTime
     ): Promise<PreIngestionEvent> {
         event = sanitizeEventName(event)
         const elements: Record<string, any>[] | undefined = properties['$elements']
@@ -566,8 +559,7 @@ export class EventsProcessor {
                 team.id,
                 distinctId,
                 properties['$set'] || {},
-                properties['$set_once'] || {},
-                timestamp
+                properties['$set_once'] || {}
             )
         }
 
@@ -750,9 +742,7 @@ export class EventsProcessor {
                 messages: [{ key: uuid, value: Buffer.from(JSON.stringify(data)) }],
             })
         } else {
-            const {
-                rows: [eventCreated],
-            } = await this.db.postgresQuery(
+            await this.db.postgresQuery(
                 'INSERT INTO posthog_sessionrecordingevent (created_at, team_id, distinct_id, session_id, window_id, timestamp, snapshot_data) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *',
                 [
                     data.created_at,

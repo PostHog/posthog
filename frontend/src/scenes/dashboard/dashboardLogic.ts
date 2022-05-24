@@ -20,7 +20,7 @@ import {
     InsightShortId,
     InsightType,
 } from '~/types'
-import { dashboardLogicType } from './dashboardLogicType'
+import type { dashboardLogicType } from './dashboardLogicType'
 import { Layout, Layouts } from 'react-grid-layout'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { teamLogic } from '../teamLogic'
@@ -47,7 +47,7 @@ export interface DashboardLogicProps {
 
 export const AUTO_REFRESH_INITIAL_INTERVAL_SECONDS = 300
 
-export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
+export const dashboardLogic = kea<dashboardLogicType>({
     path: ['scenes', 'dashboard', 'dashboardLogic'],
     connect: () => ({
         values: [teamLogic, ['currentTeamId'], featureFlagLogic, ['featureFlags']],

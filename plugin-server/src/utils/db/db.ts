@@ -45,7 +45,6 @@ import {
     PluginLogEntrySource,
     PluginLogEntryType,
     PluginSourceFileStatus,
-    PluginsServerConfig,
     PostgresSessionRecordingEvent,
     PropertiesLastOperation,
     PropertiesLastUpdatedAt,
