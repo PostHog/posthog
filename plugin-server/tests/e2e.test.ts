@@ -226,6 +226,7 @@ describe('e2e', () => {
                 .filter((log) => log[0] === 'exported historical event').length
             expect(exportedEventsCountBeforeJob).toEqual(0)
 
+            // eslint-disable-next-line @typescript-eslint/no-unused-vars
             const kwargs = {
                 pluginConfigTeam: 2,
                 pluginConfigId: 39,
@@ -273,6 +274,7 @@ describe('e2e', () => {
                 .filter((log) => log[0] === 'exported historical event').length
             expect(exportedEventsCountBeforeJob).toEqual(0)
 
+            // eslint-disable-next-line @typescript-eslint/no-unused-vars
             const kwargs = {
                 pluginConfigTeam: 2,
                 pluginConfigId: 39,
@@ -321,6 +323,7 @@ describe('e2e', () => {
             const historicalEvents = await hub.db.fetchEvents()
             expect(historicalEvents.length).toBe(1)
 
+            // eslint-disable-next-line @typescript-eslint/no-unused-vars
             const kwargs = {
                 pluginConfigTeam: 2,
                 pluginConfigId: 39,
@@ -331,7 +334,6 @@ describe('e2e', () => {
                     dateTo: new Date().toISOString(),
                 },
             }
-            const args = Object.values(kwargs)
 
             // TODO: trigger job via graphile here
 

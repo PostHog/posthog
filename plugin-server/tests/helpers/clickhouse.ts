@@ -37,9 +37,10 @@ export async function delayUntilEventIngested<T extends any[] | number>(
     maxDelayCount = 100
 ): Promise<T> {
     const timer = performance.now()
+    let data: T
     let dataLength = 0
     for (let i = 0; i < maxDelayCount; i++) {
-        const data = await fetchData()
+        data = await fetchData()
         dataLength = typeof data === 'number' ? data : data.length
         if (determineNodeEnv() === NodeEnv.Development) {
             console.log(
@@ -53,9 +54,5 @@ export async function delayUntilEventIngested<T extends any[] | number>(
         }
         await delay(delayMs)
     }
-    throw new Error(
-        `Waited ${maxDelayCount * delayMs} ms for ${minLength} entr${
-            minLength !== 1 ? 'ies' : 'y'
-        } to be ingested, but found ${dataLength}`
-    )
+    return data
 }
