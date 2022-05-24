@@ -54,10 +54,13 @@ const featureFlagActionsMapping: Record<keyof FeatureFlagType, (change?: Activit
                         if (properties?.length > 0) {
                             groupChanges.push(
                                 <>
-                                    <div>
+                                    <span>
                                         <strong>{rollout_percentage ?? 100}%</strong> of
-                                    </div>
-                                    <PropertyFiltersDisplay filters={properties} />
+                                    </span>
+                                    <PropertyFiltersDisplay
+                                        filters={properties}
+                                        style={{ display: 'inline-block', marginLeft: '0.3rem' }}
+                                    />
                                 </>
                             )
                         } else {
