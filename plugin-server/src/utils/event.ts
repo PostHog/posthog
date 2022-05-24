@@ -1,8 +1,8 @@
 import { ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 
-import { PreIngestionEvent } from '../types'
+import { ClickHouseEvent, IngestionEvent } from '../types'
 
-export function convertToProcessedPluginEvent(event: PreIngestionEvent): ProcessedPluginEvent {
+export function convertToProcessedPluginEvent(event: IngestionEvent): ProcessedPluginEvent {
     const timestamp = typeof event.timestamp === 'string' ? event.timestamp : event.timestamp.toUTC().toISO()
 
     return {
@@ -15,5 +15,17 @@ export function convertToProcessedPluginEvent(event: PreIngestionEvent): Process
         $set: event.properties.$set,
         $set_once: event.properties.$set_once,
         uuid: event.eventUuid,
+    }
+}
+
+export function convertToIngestionEvent(event: ClickHouseEvent): IngestionEvent {
+    return {
+        eventUuid: event.uuid,
+        event: event.event!,
+        ip: event.properties['$ip'],
+        teamId: event.team_id,
+        distinctId: event.distinct_id,
+        properties: event.properties,
+        timestamp: event.timestamp,
     }
 }

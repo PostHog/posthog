@@ -1,3 +1,4 @@
+import { ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 import { PluginEvent } from '@posthog/plugin-scaffold/src/types'
 
 import { Action, Alert, EnqueuedJob, Hub, PluginTaskType, PreIngestionEvent, Team } from '../types'
@@ -32,6 +33,10 @@ export const workerTasks: Record<string, TaskRunner> = {
     runBufferEventPipeline: async (hub, args: { event: PreIngestionEvent }) => {
         const runner = new EventPipelineRunner(hub, convertToProcessedPluginEvent(args.event))
         return await runner.runBufferEventPipeline(args.event)
+    },
+    runAsyncHandlersEventPipeline: async (hub, args: { event: ProcessedPluginEvent }) => {
+        await Promise.resolve()
+        return
     },
     reloadPlugins: async (hub) => {
         await setupPlugins(hub)
