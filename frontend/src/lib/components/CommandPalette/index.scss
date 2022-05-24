@@ -1,7 +1,7 @@
 @import '~/vars';
 
 .palette__overlay {
-    z-index: $z_command_palette;
+    z-index: var(--z-command-palette);
     position: fixed;
     top: 0;
     left: 0;

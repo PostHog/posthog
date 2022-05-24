@@ -14,7 +14,7 @@
         background: $sky;
 
         .the-mountains {
-            z-index: $z_city_background_image;
+            z-index: var(--z-city-background-image);
             position: absolute;
             left: 0;
             right: 0;
@@ -26,7 +26,7 @@
     }
     .main-logo {
         padding: 2rem;
-        z-index: $z_city_background_content;
+        z-index: var(--z-city-background-content);
         position: relative;
         img {
             height: 28px;

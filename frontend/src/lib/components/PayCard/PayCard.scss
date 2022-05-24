@@ -19,6 +19,6 @@
         top: 16px;
         right: 16px;
         color: var(--text-muted);
-        z-index: $z_raised;
+        z-index: var(--z-raised);
     }
 }

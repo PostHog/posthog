@@ -71,7 +71,7 @@
         .close-button {
             color: var(--text-muted) !important;
             cursor: pointer;
-            z-index: $z_raised;
+            z-index: var(--z-raised);
         }
 
         .feedback-button {

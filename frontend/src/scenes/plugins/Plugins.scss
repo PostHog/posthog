@@ -81,7 +81,7 @@
 }
 
 .plugins-popconfirm {
-    z-index: $z_plugins-popconfirm;
+    z-index: var(--z-plugins-popconfirm);
 }
 
 .plugin-job-json-editor {

@@ -106,7 +106,7 @@
             }
 
             .showcase-content {
-                z-index: $z_city_background_content;
+                z-index: var(--z-city-background-content);
                 color: var(--text-light);
                 height: calc(100% - 100px);
                 width: 100%;

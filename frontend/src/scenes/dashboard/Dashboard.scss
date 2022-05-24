@@ -81,7 +81,7 @@
             top: 16px;
             left: 50%;
             transform: translateX(-50%);
-            z-index: $z_content_overlay;
+            z-index: var(--z-content-overlay);
         }
     }
 }

@@ -11,7 +11,7 @@
     right: 16px;
     width: calc(100% - 32px);
     max-width: 360px;
-    z-index: $z_nps_overlay;
+    z-index: var(--z-nps-overlay);
     font-size: 0.85rem;
     text-align: center;
     transition: transform 1s ease-in-out;
