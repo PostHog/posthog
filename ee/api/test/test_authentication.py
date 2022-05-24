@@ -461,7 +461,7 @@ YotAcSbU3p5bzd11wpyebYHB"""
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
     @freeze_time("2021-08-25T22:09:14.252Z")
-    def test_cannot_signup_with_saml_if_jti_provisioning_is_disabled(self):
+    def test_cannot_signup_with_saml_if_jit_provisioning_is_disabled(self):
         self.organization_domain.jit_provisioning_enabled = False
         self.organization_domain.save()
 

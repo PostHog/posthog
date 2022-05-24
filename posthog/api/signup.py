@@ -418,9 +418,7 @@ def social_create_user(strategy: DjangoStrategy, details, backend, request, user
             logger.info(f"social_create_user_jit_failed", full_name_len=len(full_name), email_len=len(email))
 
             if not get_can_create_org(request.user):
-                if request.session.get("email") and OrganizationDomain.objects.get_verified_for_email_address(
-                    request.session.get("email")
-                ):
+                if email and OrganizationDomain.objects.get_verified_for_email_address(email):
                     # There's a claimed and verified domain for the user's email address domain, but JIT provisioning is not enabled. To avoid confusion
                     # don't let the user create a new org (very likely they won't want this) and show an appropriate error response.
                     return redirect("/login?error_code=jit_not_enabled")
