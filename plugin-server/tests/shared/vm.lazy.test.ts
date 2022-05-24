@@ -22,7 +22,10 @@ describe('LazyPluginVM', () => {
         queuePluginLogEntry: jest.fn(),
     }
 
-    const mockServer: any = { db }
+    const mockServer: any = {
+        db,
+        capabilities: { ingestion: true, pluginScheduledTasks: true, processJobs: true, processAsyncHandlers: true },
+    }
 
     const createVM = () => {
         const lazyVm = new LazyPluginVM(mockServer, mockConfig as any)

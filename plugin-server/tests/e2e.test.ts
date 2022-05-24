@@ -226,15 +226,6 @@ describe('e2e', () => {
                 .filter((log) => log[0] === 'exported historical event').length
             expect(exportedEventsCountBeforeJob).toEqual(0)
 
-            // eslint-disable-next-line @typescript-eslint/no-unused-vars
-            const kwargs = {
-                pluginConfigTeam: 2,
-                pluginConfigId: 39,
-                type: 'Export historical events',
-                jobOp: 'start',
-                payload: {},
-            }
-
             // TODO: trigger job via graphile here
 
             await delayUntilEventIngested(awaitHistoricalEventLogs as any, 4, 1000, 50)
@@ -274,18 +265,6 @@ describe('e2e', () => {
                 .filter((log) => log[0] === 'exported historical event').length
             expect(exportedEventsCountBeforeJob).toEqual(0)
 
-            // eslint-disable-next-line @typescript-eslint/no-unused-vars
-            const kwargs = {
-                pluginConfigTeam: 2,
-                pluginConfigId: 39,
-                type: 'Export historical events',
-                jobOp: 'start',
-                payload: {
-                    dateFrom: new Date(Date.now() - ONE_HOUR).toISOString(),
-                    dateTo: new Date().toISOString(),
-                },
-            }
-
             // TODO: trigger job via graphile here
 
             await delayUntilEventIngested(awaitHistoricalEventLogs as any, 4, 1000)
@@ -322,18 +301,6 @@ describe('e2e', () => {
 
             const historicalEvents = await hub.db.fetchEvents()
             expect(historicalEvents.length).toBe(1)
-
-            // eslint-disable-next-line @typescript-eslint/no-unused-vars
-            const kwargs = {
-                pluginConfigTeam: 2,
-                pluginConfigId: 39,
-                type: 'Export historical events',
-                jobOp: 'start',
-                payload: {
-                    dateFrom: new Date(Date.now() - ONE_HOUR).toISOString(),
-                    dateTo: new Date().toISOString(),
-                },
-            }
 
             // TODO: trigger job via graphile here
 
