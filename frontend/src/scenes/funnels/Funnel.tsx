@@ -1,14 +1,14 @@
 import './Funnel.scss'
-import { useValues } from 'kea'
+import { BindLogic, useValues } from 'kea'
 import React from 'react'
 import { ChartParams, FunnelVizType } from '~/types'
-import { FunnelBarGraph } from './FunnelBarGraph'
 import { FunnelHistogram } from './FunnelHistogram'
 import { funnelLogic } from './funnelLogic'
 import { FunnelLineGraph } from 'scenes/funnels/FunnelLineGraph'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { FunnelBarChart } from './FunnelBarChart'
 
-export function Funnel(props: ChartParams): JSX.Element | null {
+export function Funnel(props: ChartParams): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     const { filters } = useValues(funnelLogic(insightProps))
     const { funnel_viz_type } = filters
@@ -22,5 +22,9 @@ export function Funnel(props: ChartParams): JSX.Element | null {
         return <FunnelHistogram />
     }
 
-    return <FunnelBarGraph {...props} />
+    return (
+        <BindLogic logic={funnelLogic} props={insightProps}>
+            <FunnelBarChart {...props} />
+        </BindLogic>
+    )
 }
