@@ -60,7 +60,7 @@ describe('capabilities', () => {
         })
     })
 
-    describe('shouldSetupPluginInServer', () => {
+    describe('shouldSetupPluginInServer()', () => {
         describe('no capabilities', () => {
             it('returns false if the server has no capabilities', () => {
                 const shouldSetupPlugin = shouldSetupPluginInServer(
