@@ -74,7 +74,7 @@ const featureFlagActionsMapping: Record<keyof FeatureFlagType, (change?: Activit
                                         </span>
                                         <PropertyFiltersDisplay
                                             filters={properties}
-                                            style={{ display: 'inline-block', marginLeft: '0.3rem' }}
+                                            style={{ display: 'inline-block', marginLeft: '0.3rem', marginBottom: 0 }}
                                         />
                                     </>
                                 )
