@@ -183,30 +183,32 @@ export function PersonsModal({
                                         : setFirstLoadedActors(firstLoadedPeople)
                                 }
                             />
-                            {!!people.crossDataset?.length && people.seriesId !== undefined && (
-                                <div className="data-point-selector">
-                                    <Select value={people.seriesId} onChange={(_id) => switchToDataPoint(_id)}>
-                                        {people.crossDataset.map((dataPoint) => (
-                                            <Select.Option
-                                                value={dataPoint.id}
-                                                key={`${dataPoint.action?.id}${dataPoint.breakdown_value}`}
-                                            >
-                                                <InsightLabel
-                                                    seriesColor={getSeriesColor(dataPoint.id)}
-                                                    action={dataPoint.action}
-                                                    breakdownValue={
-                                                        dataPoint.breakdown_value === ''
-                                                            ? 'None'
-                                                            : dataPoint.breakdown_value?.toString()
-                                                    }
-                                                    showCountedByTag={showCountedByTag}
-                                                    hasMultipleSeries={hasMultipleSeries}
-                                                />
-                                            </Select.Option>
-                                        ))}
-                                    </Select>
-                                </div>
-                            )}
+                            {featureFlags[FEATURE_FLAGS.MULTI_POINT_PERSON_MODAL] &&
+                                !!people.crossDataset?.length &&
+                                people.seriesId !== undefined && (
+                                    <div className="data-point-selector">
+                                        <Select value={people.seriesId} onChange={(_id) => switchToDataPoint(_id)}>
+                                            {people.crossDataset.map((dataPoint) => (
+                                                <Select.Option
+                                                    value={dataPoint.id}
+                                                    key={`${dataPoint.action?.id}${dataPoint.breakdown_value}`}
+                                                >
+                                                    <InsightLabel
+                                                        seriesColor={getSeriesColor(dataPoint.id)}
+                                                        action={dataPoint.action}
+                                                        breakdownValue={
+                                                            dataPoint.breakdown_value === ''
+                                                                ? 'None'
+                                                                : dataPoint.breakdown_value?.toString()
+                                                        }
+                                                        showCountedByTag={showCountedByTag}
+                                                        hasMultipleSeries={hasMultipleSeries}
+                                                    />
+                                                </Select.Option>
+                                            ))}
+                                        </Select>
+                                    </div>
+                                )}
                             <div className="user-count-subheader">
                                 <IconPersonFilled style={{ fontSize: '1.125rem', marginRight: '0.5rem' }} />
                                 <span>
