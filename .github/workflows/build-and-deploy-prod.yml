@@ -51,7 +51,6 @@ jobs:
                   docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG -f prod.web.Dockerfile .
                   docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
                   echo "::set-output name=image::$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
-                  echo "::set-output name=image_tag::$IMAGE_TAG"
 
             - name: Extract and push the static assets to AWS S3
               run: |
@@ -179,7 +178,7 @@ jobs:
                   event_type: deploy_app_version
                   message: |
                       {
-                        "image_tag": "${{ steps.build-image.outputs.image_tag }}",
+                        "image_tag": "${{ github.sha }}",
                       }
 
     slack:
