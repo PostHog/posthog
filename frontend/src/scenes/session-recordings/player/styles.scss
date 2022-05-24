@@ -18,7 +18,7 @@
         flex-wrap: wrap;
         flex-direction: row;
         flex: 1;
-        background-color: $bg_light;
+        background-color: var(--bg-light);
         height: calc(100% - 40px - 2 * #{$recording_spacing});
 
         @media (max-width: $md) {
@@ -67,16 +67,16 @@
 
     .player-controller {
         padding: $recording_spacing;
-        background-color: $bg_light;
+        background-color: var(--bg-light);
     }
 
     .rrweb-player {
         height: 100%;
         width: 100%;
         overflow: hidden;
-        border: 1px solid $border;
-        border-radius: $radius;
-        background-color: $bg_depth;
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        background-color: var(--bg-depth);
         box-shadow: 0 4px 4px 0 rgba(0, 0, 0, 0.25);
 
         position: relative;
@@ -114,7 +114,7 @@
                 height: 100%;
                 width: 100%;
 
-                background-color: $bg_overlay;
+                background-color: var(--bg-overlay);
                 opacity: 0.2;
 
                 font-size: 40px;
@@ -150,9 +150,9 @@
     .rrweb-controller {
         display: flex;
         width: 100%;
-        background-color: $bg_light;
-        border-radius: $radius;
-        border: 1px solid $border;
+        background-color: var(--bg-light);
+        border-radius: var(--radius);
+        border: 1px solid var(--border);
         padding: 0 1rem;
         flex-direction: row;
         align-items: center;

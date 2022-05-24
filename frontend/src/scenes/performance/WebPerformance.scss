@@ -30,7 +30,7 @@
     }
 
     tr.current-event {
-        background-color: $mark_color;
+        background-color: var(--mark-color);
     }
 
     .chart-title {

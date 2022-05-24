@@ -30,11 +30,11 @@
         box-shadow: var(--shadow-elevation);
         max-width: 480px;
         background-color: var(--bg-light);
-        border-radius: $radius;
+        border-radius: var(--radius);
         padding: 40px;
 
         .Preflight__checks-container {
-            border-radius: $radius;
+            border-radius: var(--radius);
             border: 1px solid var(--border);
 
             .Preflight__check-summary {

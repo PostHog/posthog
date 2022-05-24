@@ -1,8 +1,8 @@
 @import '~/vars';
 
 .compact-list {
-    border-radius: $radius;
-    border: 1px solid $border;
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
     height: calc(19.5rem + 1px);
     box-sizing: content-box;
     display: flex;

@@ -4,7 +4,7 @@
     background-color: var(--radius-light);
     border-radius: var(--radius);
     padding: 0.5rem 0.75rem;
-    color: $primary_alt;
+    color: var(--primary-alt);
     font-weight: 500;
     display: flex;
     align-items: center;
@@ -22,12 +22,12 @@
 
     &.warning {
         background-color: rgba($warning, 0.09);
-        color: $warning;
+        color: var(--warning);
     }
 
     &.error {
         background-color: rgba($danger, 0.09);
-        color: $danger;
+        color: var(--danger);
     }
 
     p {

@@ -1,11 +1,11 @@
 @import '~/vars';
 
 .nps-prompt {
-    background-color: $bg_menu;
-    border-radius: $radius;
+    background-color: var(--bg-menu);
+    border-radius: var(--radius);
     padding: 1rem;
     padding-top: 6px;
-    color: $text_light;
+    color: var(--text-light);
     position: fixed;
     bottom: 16px;
     right: 16px;
@@ -52,13 +52,13 @@
             width: 12px;
             height: 12px;
             border-radius: 50%;
-            background-color: $border;
+            background-color: var(--border);
             margin-right: 0.5rem;
             &:last-of-type {
                 margin-right: 0;
             }
             &.completed {
-                background-color: $success;
+                background-color: var(--success);
             }
         }
     }
@@ -79,19 +79,19 @@
     }
 
     .ant-btn:not(.ant-btn-link) {
-        background-color: $bg_depth;
+        background-color: var(--bg-depth);
         border: 1px solid #000;
-        color: $text_light;
+        color: var(--text-light);
     }
 
     textarea {
-        color: $text_light;
-        background-color: $bg_depth;
+        color: var(--text-light);
+        background-color: var(--bg-depth);
         border-color: #000;
     }
 
     .ant-btn-link span {
-        color: $text_light;
+        color: var(--text-light);
         text-decoration: underline !important;
     }
 }

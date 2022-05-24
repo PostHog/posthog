@@ -2,13 +2,13 @@
 
 .property-group-filters {
     .property-group {
-        background-color: $bg_side;
+        background-color: var(--bg-side);
         padding: 0.5rem;
         border-radius: 4px;
     }
 
     .property-group-and-or-separator {
-        color: $primary_alt;
+        color: var(--primary-alt);
         padding: 0.5rem 0px;
         font-size: 12px;
         font-weight: 600;
@@ -20,7 +20,7 @@
             top: 0;
             width: 2px;
             height: 100%;
-            background-color: $border_light;
+            background-color: var(--border-light);
             content: ' ';
         }
 
@@ -61,11 +61,11 @@
         align-items: center;
         border-radius: 4px;
         background-color: $light-grey;
-        color: $primary_alt;
+        color: var(--primary-alt);
         font-size: 12px;
 
         &.selected {
-            background-color: $primary;
+            background-color: var(--primary);
             color: white;
         }
     }

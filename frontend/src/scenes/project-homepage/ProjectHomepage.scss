@@ -46,7 +46,7 @@
     }
 
     .empty-state-container {
-        background-color: $bg_side;
+        background-color: var(--bg-side);
         width: 100%;
         justify-content: center;
         align-items: center;
@@ -63,7 +63,7 @@
     align-items: center;
     justify-content: center;
     margin-bottom: 0.25rem;
-    color: $text_default;
+    color: var(--text-default);
     font-weight: 400; // Overrides font-weight from LemonButton
     &:last-child {
         margin-bottom: 0;
@@ -84,7 +84,7 @@
             }
 
             &.link-text {
-                color: $primary;
+                color: var(--primary);
             }
         }
     }

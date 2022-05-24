@@ -1,9 +1,9 @@
 @import '~/vars';
 .merge-split-person {
     .activity-header {
-        background-color: $bg_mid;
-        border-top: 1px solid $border;
-        border-bottom: 1px solid $border;
+        background-color: var(--bg-mid);
+        border-top: 1px solid var(--border);
+        border-bottom: 1px solid var(--border);
         margin-left: -24px;
         margin-right: -24px;
         padding: 8px 0;
@@ -30,9 +30,9 @@
 
     // TODO: consider moving this style globally
     code {
-        background-color: $bg_mid;
+        background-color: var(--bg-mid);
         color: $primary-alt;
         padding: 4px 8px;
-        border-radius: $radius;
+        border-radius: var(--radius);
     }
 }

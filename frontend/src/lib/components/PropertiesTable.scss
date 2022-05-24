@@ -47,7 +47,7 @@
 
     .editable {
         text-decoration: underline dotted;
-        text-decoration-color: $primary;
+        text-decoration-color: var(--primary);
         cursor: pointer;
     }
 }

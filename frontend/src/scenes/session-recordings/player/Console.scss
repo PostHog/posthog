@@ -8,12 +8,12 @@
 
 .console-log {
     flex: 1;
-    border: 1px solid $border;
-    border-radius: $radius;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
 }
 
 .log-line {
-    border-bottom: 1px solid $border;
+    border-bottom: 1px solid var(--border);
     font-size: 12px;
     cursor: pointer;
     padding: 0.25rem 0.5rem;
@@ -53,8 +53,8 @@
 }
 
 .console-feedback-container {
-    border: 1px solid $border;
-    border-radius: $radius;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
     padding: 1rem;
     margin-top: 1rem;
 }

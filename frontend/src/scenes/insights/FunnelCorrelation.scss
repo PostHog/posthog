@@ -6,7 +6,7 @@
     .skew-warning {
         margin-top: 1rem;
         line-height: 2em;
-        border: 1px solid $warning;
+        border: 1px solid var(--warning);
 
         .ant-card-body {
             padding: 0.5rem 1rem;
@@ -16,7 +16,7 @@
             font-size: 1.1em;
             display: flex;
             align-items: center;
-            border-bottom: 1px solid $border;
+            border-bottom: 1px solid var(--border);
             padding: 0.5rem 1rem;
             margin-left: -1rem;
             margin-right: -1rem;
@@ -25,14 +25,14 @@
             .close-button {
                 position: absolute;
                 right: 16px;
-                color: $text_muted !important;
+                color: var(--text-muted) !important;
                 cursor: pointer;
             }
         }
 
         b {
             padding-bottom: 0.5rem;
-            font-weight: $medium;
+            font-weight: var(--font-medium);
         }
     }
 
@@ -47,7 +47,7 @@
             padding: 0;
             margin: 0;
             font-weight: bold;
-            color: $text_muted_alt;
+            color: var(--text-muted-alt);
         }
 
         .emoji-button {
@@ -69,7 +69,7 @@
         }
 
         .close-button {
-            color: $text_muted !important;
+            color: var(--text-muted) !important;
             cursor: pointer;
             z-index: $z_raised;
         }

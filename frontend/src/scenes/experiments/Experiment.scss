@@ -2,7 +2,7 @@
 
 .experiment-form {
     .metrics-selection {
-        border-top: 1px solid $border;
+        border-top: 1px solid var(--border);
         padding-top: 1rem;
 
         width: 100%;
@@ -10,7 +10,7 @@
 
     .person-selection {
         width: 100%;
-        border-top: 1px solid $border;
+        border-top: 1px solid var(--border);
         padding-top: 1rem;
         align-items: center;
         justify-content: space-between;
@@ -21,9 +21,9 @@
         background-color: #fff;
 
         .ant-card-head {
-            border-bottom: 1px solid $border;
+            border-bottom: 1px solid var(--border);
             min-height: unset;
-            background-color: $bg_light;
+            background-color: var(--bg-light);
             padding-left: 1rem;
             padding-right: 1rem;
 
@@ -85,7 +85,7 @@
 
     .experiment-preview {
         margin-bottom: 1rem;
-        border-bottom: 1px solid $border;
+        border-bottom: 1px solid var(--border);
 
         .mde-slider {
             .ant-slider-handle {
@@ -122,7 +122,7 @@
             padding: 0 0.5rem;
             background: #ffffff;
             border-width: 1px;
-            border-color: $border;
+            border-color: var(--border);
             border-top-style: solid;
             border-left-style: solid;
             border-right-style: solid;
@@ -156,7 +156,7 @@
     .secondary-metrics {
         margin-top: 1rem;
         padding-top: 1rem;
-        border-top: 1px solid $border;
+        border-top: 1px solid var(--border);
         margin-bottom: 1rem;
     }
 
@@ -172,12 +172,12 @@
 .view-experiment {
     .draft-header {
         margin-bottom: 1rem;
-        border-bottom: 1px solid $border;
+        border-bottom: 1px solid var(--border);
     }
 
     .exp-description {
         font-style: italic;
-        color: $text_muted;
+        color: var(--text-muted);
     }
 
     .participants {
@@ -262,15 +262,15 @@
         justify-content: center;
         align-items: center;
         margin-top: $default_spacing;
-        background-color: $bg_side;
-        border: 1px solid $border;
+        background-color: var(--bg-side);
+        border: 1px solid var(--border);
         width: 100%;
         min-height: 320px;
         font-size: 24px;
     }
 
     .end-experiment-btn {
-        background: $success;
+        background: var(--success);
         color: white;
         &:hover {
             color: black;
@@ -282,14 +282,14 @@
     height: 24px;
     width: 24px;
     text-align: center;
-    background-color: $bg_side;
-    color: $primary_alt;
+    background-color: var(--bg-side);
+    color: var(--primary-alt);
     font-weight: 700;
     margin-right: 0.5rem;
 }
 
 .experiment-preview-row {
-    border-bottom: 1px solid $border;
+    border-bottom: 1px solid var(--border);
     padding-bottom: $default_spacing;
     margin-bottom: $default_spacing;
     &:last-child {
@@ -300,7 +300,7 @@
 }
 
 .metric-name {
-    border: 1px solid $border;
+    border: 1px solid var(--border);
     border-radius: 4px;
     padding: 8px 8px 8px 16px;
     margin-left: 0.5rem;
@@ -317,7 +317,7 @@
     }
 
     .ant-card-head-title {
-        border-bottom: 1px solid $border;
+        border-bottom: 1px solid var(--border);
     }
     .exp-workflow-step {
         margin-bottom: 0.5rem;

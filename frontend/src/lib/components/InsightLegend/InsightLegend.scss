@@ -13,9 +13,9 @@
 
 .insight-legend-menu {
     box-shadow: none !important;
-    border: 1px solid $border;
-    background-color: $bg_light;
-    border-radius: $radius;
+    border: 1px solid var(--border);
+    background-color: var(--bg-light);
+    border-radius: var(--radius);
     max-width: 300px;
     width: 100%;
     max-height: 100%;

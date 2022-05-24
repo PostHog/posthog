@@ -1,22 +1,22 @@
 @import '~/vars';
 
 .bridge-page {
-    background-color: $bg_bridge;
+    background-color: var(--bg-bridge);
 
     // General styles; overrides
     a {
-        font-weight: $medium;
+        font-weight: var(--font-medium);
     }
 
     .ant-form-item-has-error {
         input[type='password'],
         input[type='text'] {
-            border-color: $danger_bridge !important;
+            border-color: var(--danger-bridge) !important;
         }
     }
 
     .ant-form-item-explain-error {
-        color: $danger_bridge;
+        color: var(--danger-bridge);
         padding-top: 0.5rem;
         padding-bottom: 0.5rem;
     }
@@ -24,7 +24,7 @@
     .btn-bridge {
         background-color: #000;
         color: white;
-        font-weight: $medium;
+        font-weight: var(--font-medium);
         padding-top: 0.7rem;
         padding-bottom: 0.7rem;
         font-size: 1.1em;
@@ -59,7 +59,7 @@
             max-width: 400px; // 320px + 80px padding
             padding: 1rem 2.5rem 1.75rem;
             background-color: white;
-            border-radius: $radius;
+            border-radius: var(--radius);
         }
     }
 

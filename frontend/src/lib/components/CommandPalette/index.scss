@@ -21,9 +21,9 @@
     width: 36rem;
     max-width: 100%;
     max-height: 60%;
-    color: $text_light;
-    border-radius: $radius;
-    background-color: $bg_menu;
+    color: var(--text-light);
+    border-radius: var(--radius);
+    background-color: var(--bg-menu);
     overflow: hidden;
 
     @media (max-width: 500px) {
@@ -106,7 +106,7 @@
 .palette__result--executable {
     cursor: pointer;
     &::after {
-        background: $primary;
+        background: var(--primary);
     }
 }
 

@@ -20,13 +20,13 @@
             margin-top: 1rem;
 
             .fh-icon {
-                color: $text_muted_alt;
+                color: var(--text-muted-alt);
                 margin-right: 8px;
                 font-size: 1.6em;
             }
 
             h4 {
-                color: $text_muted_alt;
+                color: var(--text-muted-alt);
                 margin-bottom: 0;
                 font-size: 1.2em;
             }

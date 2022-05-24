@@ -6,7 +6,7 @@
     width: 100%;
 
     .caption {
-        color: $text_muted;
+        color: var(--text-muted);
         font-size: 0.75rem;
         line-height: 1rem;
         padding-bottom: 16px;
@@ -17,7 +17,7 @@
     display: flex;
     flex-direction: row;
     height: 25px;
-    border-bottom: 1px solid $border;
+    border-bottom: 1px solid var(--border);
 
     .ast-tab {
         flex: 1;
@@ -50,8 +50,8 @@
         }
 
         &.active {
-            background-color: $primary !important;
-            color: $text_light;
+            background-color: var(--primary) !important;
+            color: var(--text-light);
         }
     }
 }

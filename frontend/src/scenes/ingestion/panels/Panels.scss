@@ -2,7 +2,7 @@
 
 .welcome-panel {
     max-width: 480px;
-    border-radius: $radius;
+    border-radius: var(--radius);
     padding: 40px;
     padding-bottom: 1rem;
     background-color: white;
@@ -10,7 +10,7 @@
 }
 
 .bookmarklet-warning {
-    border: 2px dashed $border;
+    border: 2px dashed var(--border);
     padding: 8px;
 
     p {
@@ -21,7 +21,7 @@
         display: flex;
         align-items: center;
         justify-content: center;
-        border-right: 2px dashed $border;
+        border-right: 2px dashed var(--border);
     }
 }
 
@@ -37,7 +37,7 @@
 
 .panel-header {
     font-size: 14px;
-    color: $text_muted_alt;
+    color: var(--text-muted-alt);
 }
 
 .ingestion-card-container {
@@ -45,7 +45,7 @@
     margin-bottom: 40px;
     box-shadow: var(--shadow-elevation);
     max-width: 65vw;
-    border-radius: $radius;
+    border-radius: var(--radius);
     display: flex;
     flex-direction: column;
     background-color: white;

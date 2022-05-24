@@ -16,9 +16,9 @@
 }
 
 .retention-success {
-    border-radius: $radius;
+    border-radius: var(--radius);
     background-color: lighten($primary, 20%);
 }
 .retention-dropped {
-    background-color: $bg_mid;
+    background-color: var(--bg-mid);
 }

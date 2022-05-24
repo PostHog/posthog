@@ -6,10 +6,10 @@
 }
 
 .cohort-recalculating {
-    background-color: $bg_mid;
+    background-color: var(--bg-mid);
     padding: 0.5rem 1rem;
     margin-top: 1rem;
-    border-radius: $radius;
+    border-radius: var(--radius);
     .ant-spin-spinning {
         margin-right: 0.375rem;
     }

@@ -8,7 +8,7 @@
             margin-left: 6px;
         }
         &.suggestion {
-            color: $text_muted_alt;
+            color: var(--text-muted-alt);
         }
         &.authorized {
             color: var(--success);

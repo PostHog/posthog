@@ -7,16 +7,16 @@
     }
     .correlation-table-wrapper {
         table {
-            border-radius: $radius;
-            border: 1px solid $border;
+            border-radius: var(--radius);
+            border: 1px solid var(--border);
             border-collapse: separate;
             border-spacing: 0px;
             margin: 0 auto;
 
             td {
                 padding: 0.5rem 1rem;
-                border-left: 1px solid $border;
-                border-top: 1px solid $border;
+                border-left: 1px solid var(--border);
+                border-top: 1px solid var(--border);
                 text-align: center;
 
                 .percentage {
@@ -29,7 +29,7 @@
             }
 
             .table-title {
-                color: $text_muted_alt;
+                color: var(--text-muted-alt);
                 td {
                     border-top: none;
                 }
@@ -38,9 +38,9 @@
             thead,
             .horizontal-header {
                 font-weight: bold;
-                background-color: $antd_table_background_dark;
+                background-color: var(--antd-table-background-dark);
                 text-transform: uppercase;
-                color: $text_muted;
+                color: var(--text-muted);
             }
 
             tbody {

@@ -134,7 +134,7 @@
                 }
             }
             .ant-select-arrow {
-                color: $text_default;
+                color: var(--text-default);
                 font-size: 14px;
             }
         }

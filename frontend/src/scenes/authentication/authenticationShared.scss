@@ -45,14 +45,14 @@
         max-width: 382px; // 350px + 32px padding
         padding: 1rem;
         background-color: white;
-        border-radius: $radius;
+        border-radius: var(--radius);
     }
 }
 
 .ant-alert-error {
     .ant-alert-message {
         font-weight: bold;
-        color: $danger;
+        color: var(--danger);
     }
 }
 

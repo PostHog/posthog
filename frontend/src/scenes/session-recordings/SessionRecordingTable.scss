@@ -10,17 +10,17 @@
     .filter-container {
         max-width: 700px;
         padding: 1rem;
-        border: $border solid 1px;
+        border: var(--border) solid 1px;
         flex: 1;
-        border-radius: $radius;
+        border-radius: var(--radius);
     }
     .filter-section {
         padding-bottom: 1rem;
     }
     .session-recording-action-property-filter {
         margin: 0 0 0 68px;
-        background-color: $antd_table_background_dark;
-        border: $border solid 1px;
+        background-color: var(--antd-table-background-dark);
+        border: var(--border) solid 1px;
         border-top-width: 0;
         padding: 0.25rem 1rem;
     }
@@ -42,25 +42,25 @@
     .entity-filter-row {
         width: 100%;
         padding: 1rem;
-        border: $border solid 1px;
+        border: var(--border) solid 1px;
         margin-top: $default_spacing;
-        border-radius: $radius;
+        border-radius: var(--radius);
     }
     .play-button-container {
         display: flex;
         justify-content: flex-end;
         .play-button {
             .anticon-play-circle {
-                color: $primary;
+                color: var(--primary);
             }
             &.viewed {
                 .anticon-play-circle {
-                    color: $text-muted;
+                    color: var(--text-muted);
                 }
             }
         }
     }
     .info-icon {
-        color: $primary;
+        color: var(--primary);
     }
 }

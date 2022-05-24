@@ -28,7 +28,7 @@
             text-align: center;
             display: flex;
             padding: 0 10%;
-            font-weight: $medium;
+            font-weight: var(--font-medium);
             opacity: 0.75;
 
             span {

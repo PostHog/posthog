@@ -2,14 +2,14 @@
 
 .dropdown-selector {
     padding: 0.5rem;
-    border: 1px solid $border_light;
-    border-radius: $radius;
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius);
     display: flex;
     align-items: center;
     cursor: pointer;
 
     &.disabled {
-        color: $text_muted;
+        color: var(--text-muted);
         cursor: not-allowed;
     }
 
@@ -22,6 +22,6 @@
         align-items: center;
         padding-left: 4px;
         font-size: 1.2em;
-        color: $text_muted_alt;
+        color: var(--text-muted);
     }
 }

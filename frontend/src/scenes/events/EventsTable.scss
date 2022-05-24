@@ -7,7 +7,7 @@
         &:hover,
         &:focus,
         &.visible {
-            border: 1px solid $primary;
+            border: 1px solid var(--primary);
         }
     }
     .event-row-new {

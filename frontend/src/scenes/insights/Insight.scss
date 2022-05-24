@@ -1,7 +1,5 @@
 @import '~/vars';
 
-$funnel_canvas_background: #fff;
-
 $editor_panel_width: min(28rem, 50%);
 
 .insights-page {
@@ -51,7 +49,7 @@ $editor_panel_width: min(28rem, 50%);
         border: 0;
         border-bottom: 2px solid transparent;
         &.active {
-            border-bottom: 2px solid $primary;
+            border-bottom: 2px solid var(--primary);
         }
     }
 
@@ -75,17 +73,17 @@ $editor_panel_width: min(28rem, 50%);
         }
         // TODO: Remove deprecated style if we fully remove or actively support again
         .deprecated {
-            color: $text_muted;
+            color: var(--text-muted);
             .hotkey {
                 margin-bottom: 0;
                 background-color: rgba($border, 0.1) !important;
-                border-color: $border !important;
-                color: $text_muted;
+                border-color: var(--border) !important;
+                color: var(--text-muted);
             }
         }
         &.ant-tabs-tab-active {
             .deprecated {
-                color: $primary;
+                color: var(--primary);
             }
         }
     }
@@ -160,9 +158,9 @@ $editor_panel_width: min(28rem, 50%);
         margin-bottom: 1rem;
 
         .ant-card-head {
-            border-bottom: 1px solid $border;
+            border-bottom: 1px solid var(--border);
             min-height: unset;
-            background-color: $bg_light;
+            background-color: var(--bg-light);
             padding-left: 1rem;
             padding-right: 1rem;
 
@@ -244,7 +242,7 @@ $editor_panel_width: min(28rem, 50%);
 
     .advanced-options-dropdown {
         font-size: 1.4em;
-        color: $primary_alt;
+        color: var(--primary-alt);
         &.expanded {
             transform: rotateX(180deg);
         }
@@ -262,7 +260,7 @@ $editor_panel_width: min(28rem, 50%);
         background-color: transparent;
         border: 0;
         input::placeholder {
-            color: $text_default;
+            color: var(--text-default);
         }
     }
 
@@ -294,7 +292,7 @@ $editor_panel_width: min(28rem, 50%);
 
 .funnel-insights-container {
     padding: 24px;
-    background-color: $funnel_canvas_background;
+    background-color: var(--funnel-canvas-background);
     border-radius: 0 0 var(--radius) var(--radius);
 
     &.no-padding {

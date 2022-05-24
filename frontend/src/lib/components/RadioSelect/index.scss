@@ -23,17 +23,17 @@ $color-transition: color $transition_params;
         &:hover {
             font-weight: bold;
             .graphic {
-                background-color: $border;
+                background-color: var(--border);
             }
         }
 
         &.active {
-            color: $primary;
+            color: var(--primary);
             font-weight: bold;
             .graphic {
                 background-color: rgba($primary, 0.1);
                 svg {
-                    color: $primary;
+                    color: var(--primary);
                 }
             }
         }
@@ -41,8 +41,8 @@ $color-transition: color $transition_params;
         .graphic {
             width: 64px;
             height: 64px;
-            background-color: $border_light;
-            border-radius: $radius;
+            background-color: var(--border-light);
+            border-radius: var(--radius);
             display: flex;
             align-items: center;
             justify-content: center;

@@ -3,10 +3,10 @@
 .player-events-container {
     display: flex;
     flex-direction: column;
-    background-color: $bg_light;
+    background-color: var(--bg-light);
     height: 100%;
-    border: 1px solid $border;
-    border-radius: $radius;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
     padding: $recording_spacing;
 
     @media (max-width: $md) {
@@ -38,7 +38,7 @@
             right: 0;
             height: 0;
             background-color: $recording_hover_event;
-            border-radius: $radius;
+            border-radius: var(--radius);
             z-index: 0;
         }
 
@@ -66,7 +66,7 @@
             .left {
                 cursor: pointer;
                 flex: 1;
-                background-color: $primary;
+                background-color: var(--primary);
 
                 &:hover {
                     background-color: lighten($primary, 10%);
@@ -99,7 +99,7 @@
         .event-list-item {
             padding: $recording_spacing;
             cursor: pointer;
-            border-radius: $radius;
+            border-radius: var(--radius);
 
             &:hover,
             &.current-event {
@@ -109,7 +109,7 @@
 
                         svg {
                             path {
-                                fill: $bg_light;
+                                fill: var(--bg-light);
                             }
                         }
                     }
@@ -133,8 +133,8 @@
                     justify-content: center;
                     align-items: center;
                     transition: background-color 100ms;
-                    background-color: $bg_mid;
-                    border-radius: $radius;
+                    background-color: var(--bg-mid);
+                    border-radius: var(--radius);
                     height: 44px;
                     width: 44px;
 
@@ -144,7 +144,7 @@
 
                         path {
                             transition: fill 100ms;
-                            fill: $bg_depth;
+                            fill: var(--bg-depth);
                         }
                     }
                 }
@@ -157,11 +157,11 @@
                 min-width: 0;
 
                 &.out-of-band-event {
-                    color: $text_muted;
+                    color: var(--text-muted);
                 }
 
                 .out-of-band-event-tooltip {
-                    color: $text_default;
+                    color: var(--text-default);
                 }
 
                 .event-item-content-top-row {
@@ -193,7 +193,7 @@
                             padding: 1px 2px;
                             top: -1px;
                             left: -2px;
-                            border-radius: $radius;
+                            border-radius: var(--radius);
                         }
                     }
                 }
