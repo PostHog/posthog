@@ -1227,7 +1227,7 @@ export class DB {
     public async fetchSessionRecordingEvents(
         sessionId?: string | undefined
     ): Promise<PostgresSessionRecordingEvent[] | SessionRecordingEvent[]> {
-        const predicate = !!sessionId ? ` where session_id = '${sessionId}'` : ''
+        const predicate = !!sessionId ? ` WHERE session_id = '${sessionId}'` : ''
 
         if (this.KAFKA_ENABLED) {
             const events = (
