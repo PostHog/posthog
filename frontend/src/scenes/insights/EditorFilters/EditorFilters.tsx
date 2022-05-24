@@ -32,7 +32,7 @@ import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { EFPathsAdvancedPaywall } from './EFPathsAdvancedPaywall'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { EFInsightTypeHorizontal } from './EditorFiltersInsightType'
+import { EFInsightTypeHorizontal } from './EFInsightType'
 
 export interface EditorFiltersProps {
     insightProps: InsightLogicProps
