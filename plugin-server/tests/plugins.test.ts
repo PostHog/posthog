@@ -80,7 +80,6 @@ describe('plugins', () => {
         const vm = await pluginConfig.vm!.resolveInternalVm
         expect(Object.keys(vm!.methods).sort()).toEqual([
             'exportEvents',
-            'handleAlert',
             'onAction',
             'onEvent',
             'onSnapshot',
@@ -121,7 +120,7 @@ describe('plugins', () => {
         getPluginConfigRows.mockReturnValueOnce([pluginConfig39, { ...pluginConfig39, id: 40, team_id: 1 }])
 
         await setupPlugins(hub)
-        const { plugins, pluginConfigs } = hub
+        const { pluginConfigs } = hub
 
         expect(getPluginRows).toHaveBeenCalled()
         expect(getPluginAttachmentRows).toHaveBeenCalled()

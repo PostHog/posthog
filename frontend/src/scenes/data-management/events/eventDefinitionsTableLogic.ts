@@ -1,13 +1,13 @@
 import { kea } from 'kea'
 import { AnyPropertyFilter, EventDefinition, PropertyDefinition } from '~/types'
-import { eventDefinitionsTableLogicType } from './eventDefinitionsTableLogicType'
+import type { eventDefinitionsTableLogicType } from './eventDefinitionsTableLogicType'
 import api, { PaginatedResponse } from 'lib/api'
 import { keyMappingKeys } from 'lib/components/PropertyKeyInfo'
 import { combineUrl, router } from 'kea-router'
 import { convertPropertyGroupToProperties, objectsEqual } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
-interface EventDefinitionsPaginatedResponse extends PaginatedResponse<EventDefinition> {
+export interface EventDefinitionsPaginatedResponse extends PaginatedResponse<EventDefinition> {
     current?: string
     count?: number
     page?: number
@@ -19,7 +19,7 @@ export interface PropertyDefinitionsPaginatedResponse extends PaginatedResponse<
     page?: number
 }
 
-interface Filters {
+export interface Filters {
     event: string
     properties: AnyPropertyFilter[]
 }
@@ -68,14 +68,7 @@ export interface EventDefinitionsTableLogicProps {
     key: string
 }
 
-export const eventDefinitionsTableLogic = kea<
-    eventDefinitionsTableLogicType<
-        EventDefinitionsPaginatedResponse,
-        EventDefinitionsTableLogicProps,
-        Filters,
-        PropertyDefinitionsPaginatedResponse
-    >
->({
+export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>({
     path: (key) => ['scenes', 'data-management', 'events', 'eventDefinitionsTableLogic', key],
     props: {} as EventDefinitionsTableLogicProps,
     key: (props) => props.key || 'scene',

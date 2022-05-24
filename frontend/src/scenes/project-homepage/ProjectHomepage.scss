@@ -65,7 +65,9 @@
     margin-bottom: $default_spacing/4;
     color: $text_default;
     font-weight: 400; // Overrides font-weight from LemonButton
-
+    &:last-child {
+        margin-bottom: 0;
+    }
     .row-text-container {
         flex: 1;
         margin: 0 $default_spacing/2;

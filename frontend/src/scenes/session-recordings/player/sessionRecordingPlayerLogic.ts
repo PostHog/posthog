@@ -1,5 +1,5 @@
 import { kea } from 'kea'
-import { sessionRecordingPlayerLogicType } from './sessionRecordingPlayerLogicType'
+import type { sessionRecordingPlayerLogicType } from './sessionRecordingPlayerLogicType'
 import { Replayer } from 'rrweb'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { PlayerPosition, RecordingSegment, SessionPlayerState } from '~/types'
@@ -14,12 +14,12 @@ import {
 
 export const PLAYBACK_SPEEDS = [0.5, 1, 2, 4, 8, 16]
 
-interface Player {
+export interface Player {
     replayer: Replayer
     windowId: string
 }
 
-export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType<Player>>({
+export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>({
     path: ['scenes', 'session-recordings', 'player', 'sessionRecordingPlayerLogic'],
     connect: {
         logic: [eventUsageLogic],

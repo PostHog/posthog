@@ -13,6 +13,7 @@ export * from 'lib/components/LemonTextArea/LemonTextArea'
 export * from 'lib/components/lemonToast'
 
 export * from 'lib/components/AdHocInsight/AdHocInsight'
+export * from 'lib/components/Link'
 
 import api_ from 'lib/api'
 export const api = api_

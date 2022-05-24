@@ -4,9 +4,8 @@ import IORedis from 'ioredis'
 import { ONE_HOUR } from '../src/config/constants'
 import { KAFKA_EVENTS_PLUGIN_INGESTION } from '../src/config/kafka-topics'
 import { startPluginsServer } from '../src/main/pluginsServer'
-import { AlertLevel, LogLevel, PluginsServerConfig, Service } from '../src/types'
+import { LogLevel, PluginsServerConfig } from '../src/types'
 import { Hub } from '../src/types'
-import { Client } from '../src/utils/celery/client'
 import { delay, UUIDT } from '../src/utils/utils'
 import { makePiscina } from '../src/worker/piscina'
 import { createPosthog, DummyPostHog } from '../src/worker/vm/extensions/posthog'
@@ -66,9 +65,6 @@ export async function onAction(action, event) {
     testConsole.log('onAction', action, event)
 }
 
-export async function handleAlert(alert) {
-    testConsole.log('handleAlert', alert)
-}
 
 export async function runEveryMinute() {}
 `
@@ -173,7 +169,7 @@ describe('e2e', () => {
         test('onAction receives the action and event', async () => {
             await posthog.capture('onAction event', { foo: 'bar' })
 
-            await delayUntilEventIngested(awaitOnActionLogs, 1)
+            await delayUntilEventIngested(awaitOnActionLogs as any, 1)
 
             const log = testConsole.read().filter((log) => log[0] === 'onAction')[0]
 
@@ -194,42 +190,6 @@ describe('e2e', () => {
                     distinct_id: 'plugin-id-60',
                     team_id: 2,
                     event: 'onAction event',
-                })
-            )
-        })
-    })
-
-    describe('handleAlert', () => {
-        const awaitHandleAlertLogs = async () =>
-            await new Promise((resolve) => {
-                resolve(testConsole.read().filter((log) => log[0] === 'handleAlert'))
-            })
-
-        test('handleAlert receives alert correctly', async () => {
-            const alert = {
-                id: 'some id',
-                key: 'alert name',
-                description: 'alert description',
-                level: AlertLevel.P0,
-                trigger_location: Service.PluginServer,
-            }
-
-            await redis.publish('plugins-alert', JSON.stringify(alert))
-
-            await delayUntilEventIngested(awaitHandleAlertLogs, 1)
-
-            const log = testConsole.read().filter((log) => log[0] === 'handleAlert')[0]
-
-            const [logName, loggedAlert] = log
-
-            expect(logName).toEqual('handleAlert')
-            expect(loggedAlert).toEqual(
-                expect.objectContaining({
-                    id: 'some id',
-                    key: 'alert name',
-                    description: 'alert description',
-                    level: AlertLevel.P0,
-                    trigger_location: Service.PluginServer,
                 })
             )
         })
@@ -275,12 +235,10 @@ describe('e2e', () => {
                 jobOp: 'start',
                 payload: {},
             }
-            const args = Object.values(kwargs)
 
-            const client = new Client(hub.db, hub.PLUGINS_CELERY_QUEUE)
-            client.sendTask('posthog.tasks.plugins.plugin_job', args, {})
+            // TODO: trigger job via graphile here
 
-            await delayUntilEventIngested(awaitHistoricalEventLogs, 4, 1000, 50)
+            await delayUntilEventIngested(awaitHistoricalEventLogs as any, 4, 1000, 50)
 
             const exportLogs = testConsole.read().filter((log) => log[0] === 'exported historical event')
             const exportedEventsCountAfterJob = exportLogs.length
@@ -327,14 +285,10 @@ describe('e2e', () => {
                     dateTo: new Date().toISOString(),
                 },
             }
-            let args = Object.values(kwargs)
 
-            const client = new Client(hub.db, hub.PLUGINS_CELERY_QUEUE)
+            // TODO: trigger job via graphile here
 
-            args = Object.values(kwargs)
-            client.sendTask('posthog.tasks.plugins.plugin_job', args, {})
-
-            await delayUntilEventIngested(awaitHistoricalEventLogs, 4, 1000)
+            await delayUntilEventIngested(awaitHistoricalEventLogs as any, 4, 1000)
 
             const exportLogs = testConsole.read().filter((log) => log[0] === 'exported historical event')
             const exportedEventsCountAfterJob = exportLogs.length
@@ -381,10 +335,7 @@ describe('e2e', () => {
             }
             const args = Object.values(kwargs)
 
-            const client = new Client(hub.db, hub.PLUGINS_CELERY_QUEUE)
-            client.sendTask('posthog.tasks.plugins.plugin_job', args, {})
-
-            await delayUntilEventIngested(awaitHistoricalEventLogs, 1, 1000)
+            // TODO: trigger job via graphile here
 
             const exportLogs = testConsole.read().filter((log) => log[0] === 'exported historical event')
             const exportedEventsCountAfterJob = exportLogs.length

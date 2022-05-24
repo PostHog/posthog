@@ -2,7 +2,7 @@ import { kea } from 'kea'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { prompt } from 'lib/logic/prompt'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { saveToDashboardModalLogicType } from './saveToDashboardModalLogicType'
+import type { saveToDashboardModalLogicType } from './saveToDashboardModalLogicType'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 import { DashboardType, InsightModel, InsightType } from '~/types'
 import Fuse from 'fuse.js'
@@ -11,11 +11,11 @@ import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
-interface SaveToDashboardModalLogicProps {
+export interface SaveToDashboardModalLogicProps {
     insight: Partial<InsightModel>
     fromDashboard?: number
 }
-export const saveToDashboardModalLogic = kea<saveToDashboardModalLogicType<SaveToDashboardModalLogicProps>>({
+export const saveToDashboardModalLogic = kea<saveToDashboardModalLogicType>({
     path: ['lib', 'components', 'SaveToDashboard', 'saveToDashboardModalLogic'],
     props: {} as SaveToDashboardModalLogicProps,
     key: ({ insight }) => {

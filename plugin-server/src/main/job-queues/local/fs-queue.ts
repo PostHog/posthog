@@ -1,4 +1,4 @@
-import { EnqueuedJob, JobQueue, OnJobCallback } from '../../../types'
+import { EnqueuedJob, OnJobCallback } from '../../../types'
 import Timeout = NodeJS.Timeout
 import * as fs from 'fs'
 import * as path from 'path'

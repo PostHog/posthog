@@ -1,4 +1,4 @@
-import { afterMount, connect, kea, path, selectors } from 'kea'
+import { afterMount, BuiltLogic, connect, kea, path, selectors } from 'kea'
 
 import { projectHomepageLogicType } from './projectHomepageLogicType'
 import { teamLogic } from 'scenes/teamLogic'
@@ -7,6 +7,7 @@ import { DashboardPlacement, InsightModel, PersonType } from '~/types'
 import api from 'lib/api'
 import { subscriptions } from 'kea-subscriptions'
 import { loaders } from 'kea-loaders'
+import { dashboardLogicType } from 'scenes/dashboard/dashboardLogicType'
 
 export const projectHomepageLogic = kea<projectHomepageLogicType>([
     path(['scenes', 'project-homepage', 'projectHomepageLogic']),
@@ -18,7 +19,7 @@ export const projectHomepageLogic = kea<projectHomepageLogicType>([
         primaryDashboardId: [() => [teamLogic.selectors.currentTeam], (currentTeam) => currentTeam?.primary_dashboard],
         dashboardLogic: [
             (s) => [s.primaryDashboardId],
-            (primaryDashboardId): ReturnType<typeof dashboardLogic.build> | null =>
+            (primaryDashboardId): BuiltLogic<dashboardLogicType> =>
                 dashboardLogic({
                     id: primaryDashboardId ?? undefined,
                     placement: DashboardPlacement.ProjectHomepage,

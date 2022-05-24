@@ -1,5 +1,3 @@
-import Piscina from '@posthog/piscina'
-
 import { KAFKA_EVENTS_PLUGIN_INGESTION } from '../src/config/kafka-topics'
 import { startPluginsServer } from '../src/main/pluginsServer'
 import { Hub, LogLevel, PluginsServerConfig } from '../src/types'
@@ -24,7 +22,6 @@ describe('e2e ingestion timeout', () => {
     let hub: Hub
     let stopServer: () => Promise<void>
     let posthog: DummyPostHog
-    let piscina: Piscina
 
     beforeAll(async () => {
         await resetKafka(extraServerConfig)
@@ -45,7 +42,6 @@ describe('e2e ingestion timeout', () => {
         await resetTestDatabaseClickhouse(extraServerConfig)
         const startResponse = await startPluginsServer(extraServerConfig, makePiscina)
         hub = startResponse.hub
-        piscina = startResponse.piscina
         stopServer = startResponse.stop
         posthog = createPosthog(hub, pluginConfig39)
     })

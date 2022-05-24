@@ -35,7 +35,7 @@ export interface DefinitionPopupLogicProps {
     openDetailInNewTab?: boolean
 }
 
-export const definitionPopupLogic = kea<definitionPopupLogicType<DefinitionPopupLogicProps, DefinitionPopupState>>({
+export const definitionPopupLogic = kea<definitionPopupLogicType>({
     props: {} as DefinitionPopupLogicProps,
     connect: {
         values: [userLogic, ['hasAvailableFeature']],

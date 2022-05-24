@@ -13,7 +13,7 @@ export interface UserDetailsFormType {
     first_name: string
 }
 
-export const userLogic = kea<userLogicType<UserDetailsFormType>>([
+export const userLogic = kea<userLogicType>([
     path(['scenes', 'userLogic']),
     connect({
         values: [preflightLogic, ['preflight']],

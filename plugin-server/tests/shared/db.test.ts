@@ -75,7 +75,6 @@ describe('DB', () => {
 
     describe('createPerson', () => {
         let team: Team
-        let person: Person
         const uuid = new UUIDT().toString()
         const distinctId = 'distinct_id1'
 

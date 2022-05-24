@@ -14,6 +14,7 @@ from posthog.models import Entity
 from posthog.models.action.util import Action, format_action_filter
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.team import Team
+from posthog.models.utils import PersonPropertiesMode
 from posthog.queries.util import format_ch_timestamp, get_trunc_func_ch
 
 
@@ -28,10 +29,14 @@ class RetentionEventsQuery(EnterpriseEventQuery):
         event_query_type: RetentionQueryType,
         team: Team,
         aggregate_users_by_distinct_id: Optional[bool] = None,
+        using_person_on_events: bool = False,
     ):
         self._event_query_type = event_query_type
         super().__init__(
-            filter=filter, team=team, override_aggregate_users_by_distinct_id=aggregate_users_by_distinct_id
+            filter=filter,
+            team=team,
+            override_aggregate_users_by_distinct_id=aggregate_users_by_distinct_id,
+            using_person_on_events=using_person_on_events,
         )
 
         self._trunc_func = get_trunc_func_ch(self._filter.period)
@@ -60,7 +65,7 @@ class RetentionEventsQuery(EnterpriseEventQuery):
                     get_aggregation_target_field(
                         self._filter.aggregation_group_type_index,
                         self.EVENT_TABLE_ALIAS,
-                        f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id",
+                        f"{self.DISTINCT_ID_TABLE_ALIAS if not self._using_person_on_events else self.EVENT_TABLE_ALIAS}.person_id",
                     )
                 )
             ]
@@ -77,8 +82,8 @@ class RetentionEventsQuery(EnterpriseEventQuery):
             column = "properties"
 
             if breakdown_type == "person":
-                table = "person"
-                column = "person_props"
+                table = "person" if not self._using_person_on_events else "events"
+                column = "person_props" if not self._using_person_on_events else "person_properties"
 
             breakdown_values_expression = get_single_or_multi_property_string_expr(
                 breakdown=[breakdown["property"] for breakdown in self._filter.breakdowns],
@@ -131,7 +136,12 @@ class RetentionEventsQuery(EnterpriseEventQuery):
         date_query, date_params = self._get_date_filter()
         self.params.update(date_params)
 
-        prop_query, prop_params = self._get_prop_groups(self._filter.property_groups)
+        prop_query, prop_params = self._get_prop_groups(
+            self._filter.property_groups,
+            person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS
+            if self._using_person_on_events
+            else PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
+        )
 
         self.params.update(prop_params)
 
@@ -179,12 +189,24 @@ class RetentionEventsQuery(EnterpriseEventQuery):
         else:
             self._should_join_distinct_ids = True
 
+    def _determine_should_join_persons(self) -> None:
+        EnterpriseEventQuery._determine_should_join_persons(self)
+        if self._using_person_on_events:
+            self._should_join_distinct_ids = False
+            self._should_join_persons = False
+
     def _get_entity_query(self, entity: Entity):
         prepend = self._event_query_type
         if entity.type == TREND_FILTER_TYPE_ACTIONS:
             action = Action.objects.get(pk=entity.id)
             action_query, params = format_action_filter(
-                team_id=self._team_id, action=action, prepend=prepend, use_loop=False
+                team_id=self._team_id,
+                action=action,
+                prepend=prepend,
+                use_loop=False,
+                person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS
+                if self._using_person_on_events
+                else PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
             )
             condition = action_query
         elif entity.type == TREND_FILTER_TYPE_EVENTS:

@@ -1,4 +1,4 @@
-import { columnConfiguratorLogicType } from './columnConfiguratorLogicType'
+import type { columnConfiguratorLogicType } from './columnConfiguratorLogicType'
 import { tableConfigLogic } from 'lib/components/ResizableTable/tableConfigLogic'
 import { kea } from 'kea'
 
@@ -6,7 +6,7 @@ export interface ColumnConfiguratorLogicProps {
     selectedColumns: string[] // the columns the table is currently displaying
 }
 
-export const columnConfiguratorLogic = kea<columnConfiguratorLogicType<ColumnConfiguratorLogicProps>>({
+export const columnConfiguratorLogic = kea<columnConfiguratorLogicType>({
     path: ['lib', 'components', 'ResizableTable', 'columnConfiguratorLogic'],
     props: { selectedColumns: [] } as ColumnConfiguratorLogicProps,
     connect: [tableConfigLogic],
