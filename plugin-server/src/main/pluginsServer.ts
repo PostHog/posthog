@@ -274,8 +274,10 @@ export async function startPluginsServer(
             }
         }
 
-        // start http server used for the healthcheck
-        httpServer = createHttpServer(hub!, serverInstance as ServerInstance, serverConfig)
+        if (hub.capabilities.http) {
+            // start http server used for the healthcheck
+            httpServer = createHttpServer(hub!, serverInstance as ServerInstance, serverConfig)
+        }
 
         hub.statsd?.timing('total_setup_time', timer)
         status.info('🚀', 'All systems go')
