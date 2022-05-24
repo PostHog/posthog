@@ -1353,7 +1353,7 @@ export class DB {
         return hash
     }
 
-    // PluginLogEntry (stored in ClickHouse table `plugin_log_entries`)
+    // PluginLogEntry (NOTE: not a Django model anymore, stored in ClickHouse table `plugin_log_entries`)
 
     public async fetchPluginLogEntries(): Promise<PluginLogEntry[]> {
         const queryResult = await this.clickhouseQuery(`SELECT * FROM plugin_log_entries`)
@@ -1394,7 +1394,6 @@ export class DB {
             })
         } catch (e) {
             captureException(e)
-            console.error(parsedEntry)
             console.error(e)
         }
     }
