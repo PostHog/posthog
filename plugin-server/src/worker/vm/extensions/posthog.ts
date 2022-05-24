@@ -50,6 +50,7 @@ export function createPosthog(server: Hub, pluginConfig: PluginConfig): DummyPos
                     },
                 ],
             })
+            await server.kafkaProducer.flush()
             server.statsd?.increment('vm_posthog_extension_capture_called')
         }
     }
