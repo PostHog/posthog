@@ -29,7 +29,7 @@ export class KafkaQueue {
     constructor(pluginsServer: Hub, workerMethods: WorkerMethods) {
         this.pluginsServer = pluginsServer
         this.kafka = pluginsServer.kafka!
-        this.consumer = KafkaQueue.buildConsumer(this.kafka)
+        this.consumer = KafkaQueue.buildConsumer(this.kafka, this.consumerGroupId())
         this.wasConsumerRan = false
         this.workerMethods = workerMethods
         this.sleepTimeout = null
@@ -50,9 +50,21 @@ export class KafkaQueue {
             topics.push(this.ingestionTopic)
         } else if (this.pluginsServer.capabilities.processAsyncHandlers) {
             topics.push(this.eventsTopic)
+        } else {
+            throw Error('No topics to consume, KafkaQueue should not be started')
         }
 
         return { topics }
+    }
+
+    consumerGroupId(): string {
+        if (this.pluginsServer.capabilities.ingestion) {
+            return 'clickhouse-ingestion'
+        } else if (this.pluginsServer.capabilities.processAsyncHandlers) {
+            return 'clickhouse-plugin-server-async'
+        } else {
+            throw Error('No topics to consume, KafkaQueue should not be started')
+        }
     }
 
     async start(): Promise<void> {
@@ -164,10 +176,10 @@ export class KafkaQueue {
         } catch {}
     }
 
-    private static buildConsumer(kafka: Kafka, groupId?: string): Consumer {
+    private static buildConsumer(kafka: Kafka, groupId: string): Consumer {
         const consumer = kafka.consumer({
             // NOTE: This should never clash with the group ID specified for the kafka engine posthog/ee/clickhouse/sql/clickhouse.py
-            groupId: groupId ?? 'clickhouse-ingestion',
+            groupId,
             readUncommitted: false,
         })
         const { GROUP_JOIN, CRASH, CONNECT, DISCONNECT } = consumer.events

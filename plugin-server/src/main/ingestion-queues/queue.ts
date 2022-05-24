@@ -55,7 +55,7 @@ export async function startQueues(
 }
 
 async function startQueueKafka(server: Hub, workerMethods: WorkerMethods): Promise<KafkaQueue | null> {
-    if (!server.capabilities.ingestion) {
+    if (!server.capabilities.ingestion && !server.capabilities.processAsyncHandlers) {
         return null
     }
 
