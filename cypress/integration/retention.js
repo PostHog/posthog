@@ -14,7 +14,9 @@ describe('Retention', () => {
         // tests for new property group filters
         // cy.get('[data-attr=insight-retention-add-filter-group]').click()
         // cy.get('[data-attr=property-select-toggle-0]').click()
-        cy.get('[data-attr=new-prop-filter-insight-retention]').click()
+
+        cy.get('[data-attr=trends-filters-add-filter-group]').click()
+        cy.get('[data-attr=property-select-toggle-0]').click()
         cy.get('[data-attr=taxonomic-filter-searchfield]').click()
         cy.get('[data-attr=taxonomic-filter-searchfield]').type('is_demo')
         cy.get('[data-attr=taxonomic-tab-person_properties]').click()
