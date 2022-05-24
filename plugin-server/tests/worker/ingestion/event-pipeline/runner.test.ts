@@ -179,6 +179,8 @@ describe('EventPipelineRunner', () => {
 
     describe('runBufferEventPipeline()', () => {
         it('runs remaining steps', async () => {
+            jest.mocked(hub.db.fetchPerson).mockResolvedValue('testPerson')
+
             await runner.runBufferEventPipeline(preIngestionEvent)
 
             expect(runner.steps).toEqual(['createEventStep', 'runAsyncHandlersStep'])
@@ -188,6 +190,8 @@ describe('EventPipelineRunner', () => {
 
     describe('runAsyncHandlersEventPipeline()', () => {
         it('runs remaining steps', async () => {
+            jest.mocked(hub.db.fetchPerson).mockResolvedValue('testPerson')
+
             await runner.runAsyncHandlersEventPipeline(preIngestionEvent)
 
             expect(runner.steps).toEqual(['runAsyncHandlersStep'])
