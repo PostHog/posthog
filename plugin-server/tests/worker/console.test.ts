@@ -8,6 +8,8 @@ import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../helpers
 import { resetKafka } from '../helpers/kafka'
 import { resetTestDatabase } from '../helpers/sql'
 
+jest.setTimeout(60000) // 60 sec timeout
+
 describe('console extension', () => {
     let hub: Hub
     let closeHub: () => Promise<void>
@@ -17,9 +19,9 @@ describe('console extension', () => {
     })
 
     beforeEach(async () => {
+        ;[hub, closeHub] = await createHub()
         await resetTestDatabase()
         await resetTestDatabaseClickhouse()
-        ;[hub, closeHub] = await createHub()
     })
 
     afterEach(async () => {
