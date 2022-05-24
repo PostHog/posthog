@@ -46,8 +46,8 @@ class ClickhouseFunnel(ClickhouseFunnelBase):
         inner_timestamps, outer_timestamps = self._get_timestamp_selects()
 
         return f"""
-            SELECT aggregation_target, steps {self._get_step_time_avgs(max_steps, inner_query=True)} {self._get_step_time_median(max_steps, inner_query=True)} {self._get_matching_event_arrays(max_steps)} {breakdown_clause} {outer_timestamps} FROM (
-                SELECT aggregation_target, steps, max(steps) over (PARTITION BY aggregation_target {breakdown_clause}) as max_steps {self._get_step_time_names(max_steps)} {self._get_matching_events(max_steps)} {breakdown_clause} {inner_timestamps} FROM (
+            SELECT aggregation_target, steps {self._get_step_time_avgs(max_steps, inner_query=True)} {self._get_step_time_median(max_steps, inner_query=True)} {self._get_matching_event_arrays(max_steps)} {breakdown_clause} {outer_timestamps} {self._get_person_and_group_properties_aggregate()} FROM (
+                SELECT aggregation_target, steps, max(steps) over (PARTITION BY aggregation_target {breakdown_clause}) as max_steps {self._get_step_time_names(max_steps)} {self._get_matching_events(max_steps)} {breakdown_clause} {inner_timestamps} {self._get_person_and_group_properties()} FROM (
                         {steps_per_person_query}
                 )
             ) GROUP BY aggregation_target, steps {breakdown_clause}
@@ -142,7 +142,7 @@ class ClickhouseFunnel(ClickhouseFunnelBase):
         exclusion_clause = self._get_exclusion_condition()
 
         return f"""
-        SELECT *, {self._get_sorting_condition(max_steps, max_steps)} AS steps {exclusion_clause} {self._get_step_times(max_steps)}{self._get_matching_events(max_steps)} {breakdown_query} FROM (
+        SELECT *, {self._get_sorting_condition(max_steps, max_steps)} AS steps {exclusion_clause} {self._get_step_times(max_steps)}{self._get_matching_events(max_steps)} {breakdown_query} {self._get_person_and_group_properties()} FROM (
             {formatted_query}
         ) WHERE step_0 = 1
         {'AND exclusion = 0' if exclusion_clause else ''}
@@ -187,9 +187,8 @@ class ClickhouseFunnel(ClickhouseFunnelBase):
         return ", ".join(cols)
 
     def build_step_subquery(
-        self, level_index: int, max_steps: int, event_names_alias: str = "events", extra_fields: List[str] = []
+        self, level_index: int, max_steps: int, event_names_alias: str = "events",
     ):
-        parsed_extra_fields = f", {', '.join(extra_fields)}" if extra_fields else ""
 
         if level_index >= max_steps:
             return f"""
@@ -198,8 +197,8 @@ class ClickhouseFunnel(ClickhouseFunnelBase):
             timestamp,
             {self._get_partition_cols(1, max_steps)}
             {self._get_breakdown_prop(group_remaining=True)}
-            {parsed_extra_fields}
-            FROM ({self._get_inner_event_query(entity_name=event_names_alias, extra_fields=extra_fields)})
+            {self._get_person_and_group_properties()}
+            FROM ({self._get_inner_event_query(entity_name=event_names_alias)})
             """
         else:
             return f"""
@@ -208,14 +207,14 @@ class ClickhouseFunnel(ClickhouseFunnelBase):
             timestamp,
             {self._get_partition_cols(level_index, max_steps)}
             {self._get_breakdown_prop()}
-            {parsed_extra_fields}
+            {self._get_person_and_group_properties()}
             FROM (
                 SELECT
                 aggregation_target,
                 timestamp,
                 {self.get_comparison_cols(level_index, max_steps)}
                 {self._get_breakdown_prop()}
-                {parsed_extra_fields}
+                {self._get_person_and_group_properties()}
                 FROM ({self.build_step_subquery(level_index + 1, max_steps)})
             )
             """
