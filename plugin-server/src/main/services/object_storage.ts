@@ -48,7 +48,7 @@ export const connectObjectStorage = (serverConfig: Partial<PluginsServerConfig>)
                         }).promise()
                         return true
                     } catch (error) {
-                        status.error('💣', 'could not access bucket:', error)
+                        status.error('💣', 'Could not access bucket:', error)
                         return false
                     }
                 },
