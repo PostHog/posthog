@@ -168,7 +168,8 @@ export async function startPluginsServer(
         // use one extra Redis connection for pub-sub
         pubSub = new PubSub(hub, {
             [hub.PLUGINS_RELOAD_PUBSUB_CHANNEL]: async () => {
-                // wait for 30 seconds before reloading plugins to reduce joint load from "rage" config updates
+                // KLUDGE:  wait for 30 seconds before reloading plugins to reduce joint load from "rage" config updates
+                // we should be smarter about reloads using some breakpoint-like mechanism
                 if (determineNodeEnv() === NodeEnv.Production) {
                     await delay(30 * 1000)
                 }
@@ -177,10 +178,14 @@ export async function startPluginsServer(
                 await piscina?.broadcastTask({ task: 'reloadPlugins' })
                 await pluginScheduleControl?.reloadSchedule()
             },
-            'reload-action': async (message) =>
-                await piscina?.broadcastTask({ task: 'reloadAction', args: JSON.parse(message) }),
-            'drop-action': async (message) =>
-                await piscina?.broadcastTask({ task: 'dropAction', args: JSON.parse(message) }),
+            ...(hub.capabilities.processAsyncHandlers
+                ? {
+                      'reload-action': async (message) =>
+                          await piscina?.broadcastTask({ task: 'reloadAction', args: JSON.parse(message) }),
+                      'drop-action': async (message) =>
+                          await piscina?.broadcastTask({ task: 'dropAction', args: JSON.parse(message) }),
+                  }
+                : {}),
         })
 
         await pubSub.start()

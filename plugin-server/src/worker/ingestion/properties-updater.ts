@@ -1,19 +1,15 @@
 import { Properties } from '@posthog/plugin-scaffold'
-import { KafkaMessage, ProducerRecord } from 'kafkajs'
 import { DateTime } from 'luxon'
-import { PoolClient, QueryResult } from 'pg'
 
 import {
     Group,
     GroupTypeIndex,
-    Person,
     PropertiesLastOperation,
     PropertiesLastUpdatedAt,
     PropertyUpdateOperation,
     TeamId,
 } from '../../types'
 import { DB } from '../../utils/db/db'
-import { generateKafkaPersonUpdateMessage } from '../../utils/db/utils'
 import { RaceConditionError } from '../../utils/utils'
 
 interface PropertiesUpdate {
@@ -128,7 +124,7 @@ export function shouldUpdateProperty(
 export function calculateUpdateSingleProperty(
     result: PropertiesUpdate,
     key: string,
-    value: any,
+    value: any, // eslint-disable-line @typescript-eslint/explicit-module-boundary-types
     operation: PropertyUpdateOperation,
     timestamp: DateTime,
     currentPropertiesLastOperation: PropertiesLastOperation,

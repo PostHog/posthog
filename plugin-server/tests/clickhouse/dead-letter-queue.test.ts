@@ -1,6 +1,6 @@
 import { PluginEvent } from '@posthog/plugin-scaffold/src/types'
 
-import { Hub, LogLevel, PluginsServerConfig } from '../../src/types'
+import { Hub, LogLevel } from '../../src/types'
 import { createHub } from '../../src/utils/db/hub'
 import { UUIDT } from '../../src/utils/utils'
 import { generateEventDeadLetterQueueMessage } from '../../src/worker/ingestion/utils'
@@ -18,7 +18,7 @@ jest.mock('../../src/worker/ingestion/utils', () => {
 })
 
 class MockEventsProcessor {
-    public async processEvent(...args: any[]) {
+    public async processEvent() {
         await new Promise<void>((resolve) => resolve())
         throw new Error('database unavailable')
     }

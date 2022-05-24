@@ -63,7 +63,7 @@ export async function kafkaHealthcheck(
         let kafkaConsumerWorking = false
         let timer: Date | null = new Date()
         const waitForConsumerConnected = new Promise<void>((resolve) => {
-            consumer.on(consumer.events.FETCH_START, (...args) => {
+            consumer.on(consumer.events.FETCH_START, () => {
                 if (timer) {
                     statsd?.timing('kafka_healthcheck_consumer_latency', timer)
                     timer = null
