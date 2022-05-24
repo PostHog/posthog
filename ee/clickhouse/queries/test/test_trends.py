@@ -1601,20 +1601,19 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
         journeys_for(events_by_person=journey, team=self.team)
 
         with freeze_time("2020-01-04T13:01:01Z"):
-            with self.settings(SHELL_PLUS_PRINT_SQL=True):
-                event_response = ClickhouseTrends().run(
-                    Filter(
-                        data={
-                            "date_from": "-14d",
-                            "events": [{"id": "watched movie", "name": "watched movie", "type": "events", "order": 0}],
-                            "properties": [
-                                {"key": "email", "type": "event", "value": "posthog.com", "operator": "not_icontains"},
-                                {"key": "name", "type": "event", "value": "posthog.com", "operator": "not_icontains"},
-                                {"key": "name", "type": "person", "value": "posthog.com", "operator": "not_icontains"},
-                            ],
-                        }
-                    ),
-                    self.team,
-                )
+            event_response = ClickhouseTrends().run(
+                Filter(
+                    data={
+                        "date_from": "-14d",
+                        "events": [{"id": "watched movie", "name": "watched movie", "type": "events", "order": 0}],
+                        "properties": [
+                            {"key": "email", "type": "event", "value": "posthog.com", "operator": "not_icontains"},
+                            {"key": "name", "type": "event", "value": "posthog.com", "operator": "not_icontains"},
+                            {"key": "name", "type": "person", "value": "posthog.com", "operator": "not_icontains"},
+                        ],
+                    }
+                ),
+                self.team,
+            )
 
         self.assertEqual(event_response[0]["count"], 4)
