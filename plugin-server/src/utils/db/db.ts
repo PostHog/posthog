@@ -45,7 +45,6 @@ import {
     PluginLogEntrySource,
     PluginLogEntryType,
     PluginSourceFileStatus,
-    PluginsServerConfig,
     PostgresSessionRecordingEvent,
     PropertiesLastOperation,
     PropertiesLastUpdatedAt,
@@ -70,7 +69,7 @@ import {
     UUID,
     UUIDT,
 } from '../utils'
-import { OrganizationPluginsAccessLevel, PluginLogLevel } from './../../types'
+import { OrganizationPluginsAccessLevel } from './../../types'
 import { KafkaProducerWrapper } from './kafka-producer-wrapper'
 import {
     chainToElements,

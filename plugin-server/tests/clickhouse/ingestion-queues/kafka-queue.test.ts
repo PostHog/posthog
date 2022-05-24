@@ -1,5 +1,3 @@
-import Piscina from '@posthog/piscina'
-
 import { KAFKA_EVENTS_PLUGIN_INGESTION } from '../../../src/config/kafka-topics'
 import { ServerInstance, startPluginsServer } from '../../../src/main/pluginsServer'
 import { LogLevel, PluginsServerConfig } from '../../../src/types'
@@ -31,7 +29,6 @@ describe.skip('KafkaQueue', () => {
     let hub: Hub
     let stopServer: () => Promise<void>
     let posthog: DummyPostHog
-    let piscina: Piscina
     let pluginServer: ServerInstance
 
     beforeAll(async () => {

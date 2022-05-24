@@ -69,7 +69,6 @@ export interface PluginsServerConfig extends Record<string, any> {
     WORKER_CONCURRENCY: number
     TASKS_PER_WORKER: number
     TASK_TIMEOUT: number
-    CELERY_DEFAULT_QUEUE: string
     DATABASE_URL: string | null
     POSTHOG_DB_NAME: string | null
     POSTHOG_DB_USER: string
@@ -95,7 +94,6 @@ export interface PluginsServerConfig extends Record<string, any> {
     KAFKA_PRODUCER_MAX_QUEUE_SIZE: number
     KAFKA_MAX_MESSAGE_BATCH_SIZE: number
     KAFKA_FLUSH_FREQUENCY_MS: number
-    PLUGINS_CELERY_QUEUE: string
     REDIS_URL: string
     POSTHOG_REDIS_PASSWORD: string
     POSTHOG_REDIS_HOST: string
@@ -907,10 +905,6 @@ export interface EventPropertyType {
 }
 
 export type PluginFunction = 'onEvent' | 'onAction' | 'processEvent' | 'onSnapshot' | 'pluginTask'
-
-export enum CeleryTriggeredJobOperation {
-    Start = 'start',
-}
 
 export type GroupTypeToColumnIndex = Record<string, GroupTypeIndex>
 

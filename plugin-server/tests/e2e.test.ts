@@ -4,9 +4,8 @@ import IORedis from 'ioredis'
 import { ONE_HOUR } from '../src/config/constants'
 import { KAFKA_EVENTS_PLUGIN_INGESTION } from '../src/config/kafka-topics'
 import { startPluginsServer } from '../src/main/pluginsServer'
-import { AlertLevel, LogLevel, PluginsServerConfig, Service } from '../src/types'
+import { LogLevel, PluginsServerConfig } from '../src/types'
 import { Hub } from '../src/types'
-import { Client } from '../src/utils/celery/client'
 import { delay, UUIDT } from '../src/utils/utils'
 import { makePiscina } from '../src/worker/piscina'
 import { createPosthog, DummyPostHog } from '../src/worker/vm/extensions/posthog'
@@ -168,7 +167,7 @@ describe('e2e', () => {
         test('onAction receives the action and event', async () => {
             await posthog.capture('onAction event', { foo: 'bar' })
 
-            await delayUntilEventIngested(awaitOnActionLogs, 1)
+            await delayUntilEventIngested(awaitOnActionLogs as any, 1)
 
             const log = testConsole.read().filter((log) => log[0] === 'onAction')[0]
 
@@ -234,12 +233,10 @@ describe('e2e', () => {
                 jobOp: 'start',
                 payload: {},
             }
-            const args = Object.values(kwargs)
 
-            const client = new Client(hub.db, hub.PLUGINS_CELERY_QUEUE)
-            client.sendTask('posthog.tasks.plugins.plugin_job', args, {})
+            // TODO: trigger job via graphile here
 
-            await delayUntilEventIngested(awaitHistoricalEventLogs, 4, 1000, 50)
+            await delayUntilEventIngested(awaitHistoricalEventLogs as any, 4, 1000, 50)
 
             const exportLogs = testConsole.read().filter((log) => log[0] === 'exported historical event')
             const exportedEventsCountAfterJob = exportLogs.length
@@ -286,14 +283,10 @@ describe('e2e', () => {
                     dateTo: new Date().toISOString(),
                 },
             }
-            let args = Object.values(kwargs)
 
-            const client = new Client(hub.db, hub.PLUGINS_CELERY_QUEUE)
+            // TODO: trigger job via graphile here
 
-            args = Object.values(kwargs)
-            client.sendTask('posthog.tasks.plugins.plugin_job', args, {})
-
-            await delayUntilEventIngested(awaitHistoricalEventLogs, 4, 1000)
+            await delayUntilEventIngested(awaitHistoricalEventLogs as any, 4, 1000)
 
             const exportLogs = testConsole.read().filter((log) => log[0] === 'exported historical event')
             const exportedEventsCountAfterJob = exportLogs.length
@@ -340,10 +333,7 @@ describe('e2e', () => {
             }
             const args = Object.values(kwargs)
 
-            const client = new Client(hub.db, hub.PLUGINS_CELERY_QUEUE)
-            client.sendTask('posthog.tasks.plugins.plugin_job', args, {})
-
-            await delayUntilEventIngested(awaitHistoricalEventLogs, 1, 1000)
+            // TODO: trigger job via graphile here
 
             const exportLogs = testConsole.read().filter((log) => log[0] === 'exported historical event')
             const exportedEventsCountAfterJob = exportLogs.length
