@@ -1,10 +1,11 @@
 import * as Sentry from '@sentry/node'
-import { Consumer, EachBatchPayload, Kafka } from 'kafkajs'
+import { Consumer, ConsumerSubscribeTopics, EachBatchPayload, Kafka } from 'kafkajs'
 
 import { Hub, WorkerMethods } from '../../types'
 import { status } from '../../utils/status'
 import { killGracefully } from '../../utils/utils'
 import { KAFKA_BUFFER, KAFKA_EVENTS_JSON } from './../../config/kafka-topics'
+import { eachBatchAsyncHandlers } from './batch-processing/each-batch-async-handlers'
 import { eachBatchIngestion } from './batch-processing/each-batch-ingestion'
 
 type ConsumerManagementPayload = {
@@ -22,7 +23,7 @@ export class KafkaQueue {
     private sleepTimeout: NodeJS.Timeout | null
     private ingestionTopic: string
     private bufferTopic: string
-    private asyncHandlersTopic: string
+    private eventsTopic: string
     private eachBatch: Record<string, EachBatchFunction>
 
     constructor(pluginsServer: Hub, workerMethods: WorkerMethods) {
@@ -35,10 +36,23 @@ export class KafkaQueue {
 
         this.ingestionTopic = this.pluginsServer.KAFKA_CONSUMPTION_TOPIC!
         this.bufferTopic = KAFKA_BUFFER
-        this.asyncHandlersTopic = KAFKA_EVENTS_JSON
+        this.eventsTopic = KAFKA_EVENTS_JSON
         this.eachBatch = {
             [this.ingestionTopic]: eachBatchIngestion,
+            [this.eventsTopic]: eachBatchAsyncHandlers,
         }
+    }
+
+    topics(): ConsumerSubscribeTopics {
+        const topics = []
+
+        if (this.pluginsServer.capabilities.ingestion) {
+            topics.push(this.ingestionTopic)
+        } else if (this.pluginsServer.capabilities.processAsyncHandlers) {
+            topics.push(this.eventsTopic)
+        }
+
+        return { topics }
     }
 
     async start(): Promise<void> {
@@ -50,9 +64,7 @@ export class KafkaQueue {
             status.info('⏬', `Connecting Kafka consumer to ${this.pluginsServer.KAFKA_HOSTS}...`)
             this.wasConsumerRan = true
 
-            for (const topic of Object.keys(this.eachBatch)) {
-                await this.consumer.subscribe({ topic })
-            }
+            await this.consumer.subscribe(this.topics())
 
             // KafkaJS batching: https://kafka.js.org/docs/consuming#a-name-each-batch-a-eachbatch
             await this.consumer.run({
