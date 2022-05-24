@@ -170,6 +170,9 @@ jobs:
             - name: Trigger PostHog Cloud deployment
               uses: mvasigh/dispatch-action@main
               with:
+                  # TODO: find a way to avoid using a personal access token. An
+                  # option: push something to SQS (using WebIdentity) -> lambda
+                  # function to trigger the workflow via webhook
                   token: ${{ secrets.POSTHOG_CLOUD_ACCESS_TOKEN }}
                   repo: posthog-cloud-infra
                   owner: PostHog
