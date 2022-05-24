@@ -23,8 +23,8 @@ class ClickhouseFunnelStrict(ClickhouseFunnelBase):
         inner_timestamps, outer_timestamps = self._get_timestamp_selects()
 
         return f"""
-            SELECT aggregation_target, steps {self._get_step_time_avgs(max_steps, inner_query=True)} {self._get_step_time_median(max_steps, inner_query=True)} {breakdown_clause} {outer_timestamps} {self._get_matching_event_arrays(max_steps)} FROM (
-                SELECT aggregation_target, steps, max(steps) over (PARTITION BY aggregation_target {breakdown_clause}) as max_steps {self._get_step_time_names(max_steps)} {breakdown_clause} {inner_timestamps} {self._get_matching_events(max_steps)} FROM (
+            SELECT aggregation_target, steps {self._get_step_time_avgs(max_steps, inner_query=True)} {self._get_step_time_median(max_steps, inner_query=True)} {breakdown_clause} {outer_timestamps} {self._get_matching_event_arrays(max_steps)} {self._get_person_and_group_properties_aggregate()} FROM (
+                SELECT aggregation_target, steps, max(steps) over (PARTITION BY aggregation_target {breakdown_clause}) as max_steps {self._get_step_time_names(max_steps)} {breakdown_clause} {inner_timestamps} {self._get_matching_events(max_steps)} {self._get_person_and_group_properties()} FROM (
                         {steps_per_person_query}
                 )
             ) GROUP BY aggregation_target, steps {breakdown_clause}
@@ -44,11 +44,12 @@ class ClickhouseFunnelStrict(ClickhouseFunnelBase):
             timestamp,
             {partition_select}
             {breakdown_clause}
+            {self._get_person_and_group_properties()}
             FROM ({self._get_inner_event_query(skip_entity_filter=True, skip_step_filter=True)})
         """
 
         formatted_query = f"""
-            SELECT *, {sorting_condition} AS steps {self._get_step_times(max_steps)}{self._get_matching_events(max_steps)} FROM (
+            SELECT *, {sorting_condition} AS steps {self._get_step_times(max_steps)}{self._get_matching_events(max_steps)} {self._get_person_and_group_properties()} FROM (
                     {inner_query}
                 ) WHERE step_0 = 1"""
 
