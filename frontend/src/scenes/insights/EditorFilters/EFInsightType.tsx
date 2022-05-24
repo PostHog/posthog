@@ -14,30 +14,34 @@ export function EFInsightTypeHorizontal(): JSX.Element {
 
     return (
         <div className="EFInsightType">
-            {Object.entries(INSIGHT_TYPES_METADATA).map(([key, meta]) => (
-                <LemonButton
-                    key={key}
-                    type={insight.filters?.insight === key ? 'highlighted' : 'stealth'}
-                    onClick={() => setActiveView(key as InsightType)}
-                >
-                    <span
-                        className={clsx('EFInsightType-button-content', {
-                            'EFInsightType-button-content--selected': insight.filters?.insight === key,
-                        })}
+            {Object.entries(INSIGHT_TYPES_METADATA).map(([key, meta]) => {
+                const selected = insight.filters?.insight === key
+
+                return (
+                    <LemonButton
+                        key={key}
+                        type={selected ? 'highlighted' : 'stealth'}
+                        onClick={() => setActiveView(key as InsightType)}
                     >
-                        <meta.icon color="var(--primary-alt)" noBackground />
-                        <CSSTransition
-                            in={insight.filters?.insight === key}
-                            timeout={200}
-                            classNames="EFInsightType-button-content-text-"
-                            mountOnEnter
-                            unmountOnExit
+                        <span
+                            className={clsx('EFInsightType-button-content', {
+                                'EFInsightType-button-content--selected': selected,
+                            })}
                         >
-                            <span className="EFInsightType-button-content-text">{meta.name}</span>
-                        </CSSTransition>
-                    </span>
-                </LemonButton>
-            ))}
+                            <meta.icon color="var(--primary-alt)" noBackground />
+                            <CSSTransition
+                                in={selected}
+                                timeout={200}
+                                classNames="EFInsightType-button-content-text-"
+                                mountOnEnter
+                                unmountOnExit
+                            >
+                                <span className="EFInsightType-button-content-text">{meta.name}</span>
+                            </CSSTransition>
+                        </span>
+                    </LemonButton>
+                )
+            })}
         </div>
     )
 }
