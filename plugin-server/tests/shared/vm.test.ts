@@ -60,7 +60,6 @@ describe('vm tests', () => {
         expect(Object.keys(vm).sort()).toEqual(['methods', 'tasks', 'vm', 'vmResponseVariable'])
         expect(Object.keys(vm.methods).sort()).toEqual([
             'exportEvents',
-            'handleAlert',
             'onAction',
             'onEvent',
             'onSnapshot',

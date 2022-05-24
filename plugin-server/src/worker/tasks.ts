@@ -3,16 +3,13 @@ import { PluginEvent } from '@posthog/plugin-scaffold/src/types'
 import { Action, Alert, EnqueuedJob, Hub, PluginTaskType, PreIngestionEvent, Team } from '../types'
 import { convertToProcessedPluginEvent } from '../utils/event'
 import { EventPipelineRunner } from './ingestion/event-pipeline/runner'
-import { runHandleAlert, runPluginTask, runProcessEvent } from './plugins/run'
+import { runPluginTask, runProcessEvent } from './plugins/run'
 import { loadSchedule, setupPlugins } from './plugins/setup'
 import { teardownPlugins } from './plugins/teardown'
 
 type TaskRunner = (hub: Hub, args: any) => Promise<any> | any
 
 export const workerTasks: Record<string, TaskRunner> = {
-    handleAlert: async (hub, args: { alert: Alert }) => {
-        return runHandleAlert(hub, args.alert)
-    },
     runJob: (hub, { job }: { job: EnqueuedJob }) => {
         return runPluginTask(hub, job.type, PluginTaskType.Job, job.pluginConfigId, job.payload)
     },

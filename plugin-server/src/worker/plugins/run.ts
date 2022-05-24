@@ -176,33 +176,6 @@ export async function runPluginTask(
     return response
 }
 
-export async function runHandleAlert(server: Hub, alert: Alert): Promise<void> {
-    const rootAcessTeamIds = await server.rootAccessManager.getRootAccessTeams()
-    const pluginsToRun = getPluginsForTeams(server, rootAcessTeamIds)
-
-    await Promise.all(
-        pluginsToRun.map(async (pluginConfig) => {
-            const handleAlert = await pluginConfig.vm?.getHandleAlert()
-            if (handleAlert) {
-                const timer = new Date()
-                try {
-                    await handleAlert(alert)
-                } catch (error) {
-                    await processError(server, pluginConfig, error)
-                    server.statsd?.increment(`plugin.handle_alert.ERROR`, {
-                        plugin: pluginConfig.plugin?.name ?? '?',
-                        teamId: pluginConfig.team_id.toString(),
-                    })
-                }
-                server.statsd?.timing(`plugin.handle_alert`, timer, {
-                    plugin: pluginConfig.plugin?.name ?? '?',
-                    teamId: pluginConfig.team_id.toString(),
-                })
-            }
-        })
-    )
-}
-
 function getPluginsForTeam(server: Hub, teamId: number): PluginConfig[] {
     return server.pluginConfigsPerTeam.get(teamId) || []
 }

@@ -298,7 +298,7 @@ export const eventUsageLogic = kea<
         reportTimezoneComponentViewed: (
             component: 'label' | 'indicator',
             project_timezone?: string,
-            device_timezone?: string
+            device_timezone?: string | null
         ) => ({ component, project_timezone, device_timezone }),
         reportTestAccountFiltersUpdated: (filters: Record<string, any>[]) => ({ filters }),
         reportProjectHomeItemClicked: (
