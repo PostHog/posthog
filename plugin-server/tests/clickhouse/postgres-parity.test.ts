@@ -12,10 +12,8 @@ import {
 } from '../../src/types'
 import { castTimestampOrNow, UUIDT } from '../../src/utils/utils'
 import { makePiscina } from '../../src/worker/piscina'
-import { createPosthog, DummyPostHog } from '../../src/worker/vm/extensions/posthog'
 import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../helpers/clickhouse'
 import { resetKafka } from '../helpers/kafka'
-import { pluginConfig39 } from '../helpers/plugins'
 import { getFirstTeam, resetTestDatabase } from '../helpers/sql'
 
 jest.mock('../../src/utils/status')
@@ -29,7 +27,6 @@ const extraServerConfig: Partial<PluginsServerConfig> = {
 describe('postgres parity', () => {
     let hub: Hub
     let stopServer: () => Promise<void>
-    let posthog: DummyPostHog
     let team: Team
 
     beforeAll(async () => {
@@ -48,7 +45,6 @@ describe('postgres parity', () => {
         const startResponse = await startPluginsServer(extraServerConfig, makePiscina)
         hub = startResponse.hub
         stopServer = startResponse.stop
-        posthog = createPosthog(hub, pluginConfig39)
         team = await getFirstTeam(hub)
     })
 

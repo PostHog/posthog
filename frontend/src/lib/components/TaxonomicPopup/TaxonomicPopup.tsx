@@ -79,7 +79,7 @@ export function TaxonomicPopup({
                         {value ? renderValue?.(value) ?? String(value) : <em>{placeholder}</em>}
                     </span>
                     <div style={{ flexGrow: 1 }} />
-                    <DownOutlined style={{ fontSize: 10 }} />
+                    <DownOutlined style={{ marginLeft: '8px', fontSize: 10 }} />
                 </Button>
             )}
         </Popup>
