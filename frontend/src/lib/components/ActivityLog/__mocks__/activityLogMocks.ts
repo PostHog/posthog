@@ -75,12 +75,19 @@ export const featureFlagsActivityResponseJson: ActivityLogItem[] = [
                     before: {
                         groups: [
                             {
-                                properties: [{ key: 'id', type: 'cohort', value: 98, operator: null }],
+                                properties: [
+                                    {
+                                        key: 'id',
+                                        type: 'cohort',
+                                        value: 98,
+                                        operator: null,
+                                    },
+                                ],
                                 rollout_percentage: null,
                             },
                             {
-                                properties: [{ key: 'id', type: 'cohort', value: 411, operator: null }],
-                                rollout_percentage: 50,
+                                properties: [],
+                                rollout_percentage: 30,
                             },
                         ],
                         multivariate: null,
@@ -88,12 +95,15 @@ export const featureFlagsActivityResponseJson: ActivityLogItem[] = [
                     after: {
                         groups: [
                             {
-                                properties: [{ key: 'id', type: 'cohort', value: 98, operator: null }],
+                                properties: [
+                                    {
+                                        key: 'id',
+                                        type: 'cohort',
+                                        value: 98,
+                                        operator: null,
+                                    },
+                                ],
                                 rollout_percentage: null,
-                            },
-                            {
-                                properties: [{ key: 'id', type: 'cohort', value: 411, operator: null }],
-                                rollout_percentage: 100,
                             },
                         ],
                         multivariate: null,
