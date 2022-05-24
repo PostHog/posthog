@@ -13,7 +13,7 @@ export interface ObjectStorage {
 // see https://github.com/PostHog/posthog/pull/9901
 export const connectObjectStorage = (serverConfig: Partial<PluginsServerConfig>): ObjectStorage => {
     let storage = {
-        healthCheck: async () => {
+        healthcheck: async () => {
             return Promise.resolve(true) // healthy if object storage isn't configured
         },
     }
