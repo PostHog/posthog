@@ -9,4 +9,5 @@ PERSISTED_FEATURE_FLAGS = get_list(os.getenv("PERSISTED_FEATURE_FLAGS", "")) + [
     "insight-legends",
     "experiments-secondary-metrics",
     "lemon-funnel-viz",
+    "multi-dashboard-insights",
 ]
