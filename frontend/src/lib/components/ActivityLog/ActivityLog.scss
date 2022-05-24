@@ -1,5 +1,3 @@
-@import '~/vars.scss';
-
 .activity-log {
     .empty {
         text-align: center;
@@ -54,7 +52,7 @@
             margin-left: 0.5rem;
 
             .highlighted-activity {
-                background-color: $yellow_50;
+                background-color: var(--depr-yellow-50);
                 display: inline;
             }
 

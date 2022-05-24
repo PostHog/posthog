@@ -1,5 +1,3 @@
-@import '~/vars';
-
 $transition_params: 0.3s ease-out;
 $color-transition: color $transition_params;
 
@@ -48,7 +46,7 @@ $color-transition: color $transition_params;
             justify-content: center;
             transition: background-color $transition_params;
             svg {
-                color: $purple_300;
+                color: var(--depr-purple-300);
                 font-size: 32px;
                 transition: $color-transition;
             }

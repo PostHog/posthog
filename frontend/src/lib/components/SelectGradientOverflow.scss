@@ -1,5 +1,3 @@
-@import '~/vars';
-
 .ant-select-dropdown {
     .scrollable-above::after {
         @extend %mixin-gradient-overlay;

@@ -175,9 +175,12 @@ Font weights: only `normal` (400), `var(--font-medium)` (500) or `bold` (700) sh
     --depr-rgba-primary_alt-0-09: rgba($primary_alt, 0.09);
     --depr-rgba-warning-0-09: rgba($warning, 0.09);
     --depr-rgba-danger-0-09: rgba($danger, 0.09);
+    --depr-rgba-danger-0-1: rgba($danger, 0.1);
     --depr-rgba-primary-0-25: rgba($primary, 0.25);
     --depr-rgba-primary_alt-0-25: rgba($primary_alt, 0.25);
     --depr-darken-bg_menu-10: darken($bg_menu, 10%);
+    --depr-yellow-50: #{$yellow_50};
+    --depr-purple-300: #{$purple_300};
 }
 
 // Text styles

@@ -1,5 +1,3 @@
-@import '~/vars';
-
 .profile-package {
     display: inline-flex;
     align-items: center;
@@ -19,7 +17,7 @@
     width: 32px;
     height: 32px;
     line-height: 32px;
-    background-color: $purple_300;
+    background-color: var(--depr-purple-300);
     color: #5f1903;
     display: flex;
     align-items: center;
