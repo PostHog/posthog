@@ -200,6 +200,7 @@ export interface PluginServerCapabilities {
     ingestion?: boolean
     pluginScheduledTasks?: boolean
     processJobs?: boolean
+    processAsyncHandlers?: boolean
 }
 
 export interface Pausable {
@@ -397,6 +398,7 @@ export interface PluginTask {
 
 export type WorkerMethods = {
     runBufferEventPipeline: (event: PreIngestionEvent) => Promise<IngestEventResponse>
+    runAsyncHandlersEventPipeline: (event: ProcessedPluginEvent) => Promise<void>
     runEventPipeline: (event: PluginEvent) => Promise<void>
 }
 
@@ -942,3 +944,5 @@ export interface PreIngestionEvent {
     timestamp: DateTime | string
     elementsList: Element[]
 }
+
+export type IngestionEvent = Omit<PreIngestionEvent, 'elementsList'>
