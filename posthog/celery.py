@@ -66,8 +66,9 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
 
     sender.add_periodic_task(crontab(day_of_week="fri", hour=0, minute=0), clean_stale_partials.s())
 
-    sender.add_periodic_task(crontab(hour=0, minute=0), send_first_ingestion_reminder_emails.s())
-    sender.add_periodic_task(crontab(hour=0, minute=0), send_final_ingestion_reminder_emails.s())
+    # Send the emails at 3PM UTC every day
+    sender.add_periodic_task(crontab(hour=15, minute=0), send_first_ingestion_reminder_emails.s())
+    sender.add_periodic_task(crontab(hour=15, minute=0), send_final_ingestion_reminder_emails.s())
 
     # delete old plugin logs every 4 hours
     sender.add_periodic_task(crontab(minute=0, hour="*/4"), delete_old_plugin_logs.s())
@@ -378,14 +379,18 @@ def calculate_billing_daily_usage():
     else:
         compute_daily_usage_for_organizations()
 
+
 @app.task(ignore_result=True)
 def send_first_ingestion_reminder_emails():
     from posthog.tasks.email import send_first_ingestion_reminder_emails
+
     send_first_ingestion_reminder_emails()
+
 
 @app.task(ignore_result=True)
 def send_final_ingestion_reminder_emails():
     from posthog.tasks.email import send_final_ingestion_reminder_emails
+
     send_final_ingestion_reminder_emails()
 
 

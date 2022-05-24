@@ -1,11 +1,11 @@
-from datetime import timedelta, timezone
 import uuid
+from datetime import timedelta, timezone
 
 import structlog
 from django.conf import settings
 
 from posthog.celery import app
-from posthog.email import EmailMessage
+from posthog.email import EmailMessage, is_email_available
 from posthog.models import Organization, OrganizationInvite, User
 from posthog.models.team import Team
 
@@ -29,7 +29,10 @@ def send_invite(invite_id: str) -> None:
         campaign_key=campaign_key,
         subject=f"{invite.created_by.first_name} invited you to join {invite.organization.name} on PostHog",
         template_name="invite",
-        template_context={"invite": invite, "expiry_date": (invite.created_at + timedelta(days=3)).strftime("%b %d %Y")},
+        template_context={
+            "invite": invite,
+            "expiry_date": (invite.created_at + timedelta(days=3)).strftime("%b %d %Y"),
+        },
         reply_to=invite.created_by.email if invite.created_by and invite.created_by.email else "",
     )
     message.add_recipient(email=invite.target_email)
@@ -95,48 +98,61 @@ def send_async_migration_errored_email(migration_key: str, time: str, error: str
     send_message_to_all_staff_users(message)
 
 
+def get_org_users_with_no_ingested_events(org_created_from, org_created_to):
+    # Get all users for organization that haven't ingested any events
+    users = []
+    recently_created_organization = Organization.object.filter(
+        created_at__gte=org_created_from, created_at__lte=org_created_to,
+    )
+
+    for organization in recently_created_organization:
+        orgs_teams = Team.objects.filter(organization=organization)
+        have_ingested = orgs_teams.filter(ingested_event=True).exists()
+        if not have_ingested:
+            users.extend(organization.members.all())
+    return users
+
+
 @app.task(max_retries=1)
 def send_first_ingestion_reminder_emails() -> None:
-    # ORG DOES NOT HAVE EVENT INGESTED AND IT WAS CREATED IN THE LAST 24 HOURS 
-
-    # list of org ids created in the last 24 hours
-    orgs = Organization.objects.filter(created_at__gte=timezone.now() - timezone.timedelta(days=1)).values_list('id', flat=True)
-
-    # list of teams that did not ingest events AND were in orgs that were created in the past 24 hours
-    teams = Team.objects.filter(organization_id__in=orgs, ingested_event=False).values_list('id', flat=True)
-
-    # unique users in those teams ? should I check if the user account was created also 24 hours ago?
-    users_to_email = User.objects.filter(current_team_id__in=teams)
-
-    campaign_key: str = f"first_ingestion_reminder_"
-
-    for user in users_to_email:
-        message = EmailMessage(
-            campaign_key=campaign_key,
-            subject=f"Ingestion reminder?", # TODO
-            template_name="first_ingestion_reminder",
+    if is_email_available():
+        users_to_email = get_org_users_with_no_ingested_events(
+            timezone.now() - timezone.timedelta(days=2), timezone.now() - timezone.timedelta(days=1)
         )
 
-        message.add_recipient(user.email)
-        message.send()
+        campaign_key: str = f"first_ingestion_reminder_"
+
+        for user in users_to_email:
+            message = EmailMessage(
+                campaign_key=campaign_key,
+                subject=f"Ingestion reminder?",
+                template_name="first_ingestion_reminder",
+                template_context={"first_name": user.first_name},
+            )
+
+            message.add_recipient(user.email)
+            message.send()
+
 
 @app.task(max_retries=1)
 def send_final_ingestion_reminder_emails() -> None:
-    # list of ids from orgs created exactly on the day of 96 hours ago 
+    # list of ids from orgs created exactly on the day of 96 hours ago
 
-    orgs = Organization.objects.filter(created_at__date=(timezone.now() - timezone.timedelta(days=5)).date()).values_list('id', flat=True)
-    teams = Team.objects.filter(organization_id__in=orgs, ingested_event=False).values_list('id', flat=True)
+    orgs = Organization.objects.filter(
+        created_at__date=(timezone.now() - timezone.timedelta(days=5)).date()
+    ).values_list("id", flat=True)
+    teams = Team.objects.filter(organization_id__in=orgs, ingested_event=False).values_list("id", flat=True)
     # (datetime.now()-datetime.timedelta(days=38)
 
-    users = User.objects.filter(date_joined__date=(timezone.now() - timezone.timedelta(days=4).date()), current_team_id__in=teams)
+    users = User.objects.filter(
+        date_joined__date=(timezone.now() - timezone.timedelta(days=4).date()), current_team_id__in=teams
+    )
 
     campaign_key: str = f"final_ingestion_reminder_"
 
     for user in users:
         message = EmailMessage(
-            campaign_key=campaign_key,
-            subject=f"???", # TODO
-            template_name="final_ingestion_reminder",
+            campaign_key=campaign_key, subject=f"???", template_name="final_ingestion_reminder",  # TODO
         )
 
         message.add_recipient(user.email)

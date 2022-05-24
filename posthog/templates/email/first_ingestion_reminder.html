@@ -1,5 +1,5 @@
 {% extends "email/base_transactional.html" %} {% load posthog_assets %} {% block section %}
-<h3>Welcome, {{ user.first_name}}!</h3>
+<h3>Welcome, {{ first_name }}!</h3>
 <div>
     <p>
         We can't wait for you to try everything PostHog offers, from funnel analysis and feature flags to session
@@ -7,23 +7,20 @@
     </p>
     <ul>
         <li class="mb">
-            <strong>If you're an engineer:</strong> Integrate PostHog using
-            <a><b>client libraries</b></a>, <a><strong>server libraries</strong></a>, or a <a><strong>third-party
-                    platform</strong></a>. It’s easy. Our docs will
-            show you how!
+            <strong>If you're an engineer:</strong> Integrate PostHog using <a><b>client libraries</b></a
+            >, <a><strong>server libraries</strong></a
+            >, or a <a><strong>third-party platform</strong></a
+            >. It’s easy. Our docs will show you how!
         </li>
         <li class="mb">
-            <strong>If you're <i>not</i> an engineer:</strong> <a><strong>Invite a colleague with code
-                    access</strong></a> so they can
-            set it up
-            for you. PostHog
-            works best with friends anyway.
+            <strong>If you're <i>not</i> an engineer:</strong>
+            <a><strong>Invite a colleague with code access</strong></a> so they can set it up for you. PostHog works
+            best with friends anyway.
         </li>
         <li class="mb">
-            <strong>If you just want to play around:</strong> <a target="_blank" href="https://demo.posthog.com/"><b>Try
-                    our demo
-                    environment</b></a> to get hands-on with some sample data straight away. All the fun, none of the
-            installation.
+            <strong>If you just want to play around:</strong>
+            <a target="_blank" href="https://demo.posthog.com/"><b>Try our demo environment</b></a> to get hands-on with
+            some sample data straight away. All the fun, none of the installation.
         </li>
     </ul>
 
@@ -32,9 +29,11 @@
         The PostHog Team
     </p>
 </div>
-<div class="text-center"><a href="https://posthog.com" target="_blank"><button class="action-btn">Send some
-            events!</button></a></div>
-<div class="mt text-center">Need help? <a href="https://posthog.com/support" target="_blank"><b>Visit support</b></a> or
+<div class="text-center">
+    <a href="https://posthog.com" target="_blank"><button class="action-btn">Send some events!</button></a>
+</div>
+<div class="mt text-center">
+    Need help? <a href="https://posthog.com/support" target="_blank"><b>Visit support</b></a> or
     <a><b>read our documentation</b></a>
 </div>
 {% endblock %}
