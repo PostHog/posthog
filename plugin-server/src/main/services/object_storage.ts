@@ -12,7 +12,7 @@ export interface ObjectStorage {
 export const connectObjectStorage = (serverConfig: Partial<PluginsServerConfig>): ObjectStorage => {
     let storage = {
         healthCheck: async () => {
-            return Promise.resolve(false)
+            return Promise.resolve(true) // healthy if object storage isn't configured
         },
     }
     try {
@@ -32,27 +32,29 @@ export const connectObjectStorage = (serverConfig: Partial<PluginsServerConfig>)
                 s3ForcePathStyle: true, // needed with minio?
                 signatureVersion: 'v4',
             })
-        }
 
-        storage = {
-            healthCheck: async () => {
-                if (!OBJECT_STORAGE_BUCKET) {
-                    status.error('😢', 'No object storage bucket configured')
-                    return false
-                }
+            storage = {
+                healthCheck: async () => {
+                    if (!OBJECT_STORAGE_BUCKET) {
+                        status.error('😢', 'No object storage bucket configured')
+                        return false
+                    }
 
-                try {
-                    await S3.headBucket({
-                        Bucket: OBJECT_STORAGE_BUCKET,
-                    }).promise()
-                    return true
-                } catch (error) {
-                    return false
-                }
-            },
+                    try {
+                        await S3.headBucket({
+                            Bucket: OBJECT_STORAGE_BUCKET,
+                        }).promise()
+                        return true
+                    } catch (error) {
+                        status.error('💣', 'could not access bucket:', error)
+                        return false
+                    }
+                },
+            }
         }
     } catch (e) {
-        status.warn('😢', `could not initialise storage: ${e}`)
+        // only warn here... object storage is not mandatory until after #9901 at the earliest
+        status.warn('😢', 'could not initialise storage:', e)
     }
 
     return storage
