@@ -13,7 +13,9 @@ s3_client = None
 # noinspection PyMissingTypeHints
 def storage_client():
     global s3_client
-    if settings.OBJECT_STORAGE_ENABLED and not s3_client:
+    if not settings.OBJECT_STORAGE_ENABLED:
+        s3_client = None
+    elif not s3_client:
         s3_client = client(
             "s3",
             endpoint_url=settings.OBJECT_STORAGE_ENDPOINT,
