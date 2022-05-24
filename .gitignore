@@ -28,6 +28,8 @@ yarn-error.log
 .yalc
 yalc.lock
 cypress/screenshots/
+cypress/downloads/
+cypress/**/*.diff.png
 docker-compose.prod.yml
 .python-version
 *.isorted

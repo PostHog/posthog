@@ -1,3 +1,24 @@
+const path = require('path')
+const fs = require('fs')
+const pixelmatch = require('pixelmatch')
+const PNG = require('pngjs').PNG
+
+const downloadDirectory = path.join(__dirname, '..', 'downloads')
+
+const checkFileDownloaded = async (filename, timeout, delayMs = 10) => {
+    const start = Date.now()
+    const fullFileName = `${downloadDirectory}/${filename}`
+
+    while (Date.now() - start < timeout) {
+        await new Promise((res) => setTimeout(res, delayMs))
+
+        if (fs.existsSync(fullFileName)) {
+            return fullFileName
+        }
+    }
+    return
+}
+
 const webpackPreprocessor = require('@cypress/webpack-preprocessor')
 
 const { createEntry } = require('../../webpack.config')
@@ -21,6 +42,37 @@ module.exports = (on, config) => {
             launchOptions.args.push('--window-size=1280,720')
             return launchOptions
         }
+    })
+
+    on('task', {
+        compareToReferenceImage({ source, reference, diffThreshold = 100, ms = 10000 }) {
+            return checkFileDownloaded(source, ms).then((fileExists) => {
+                if (!fileExists) {
+                    return undefined
+                }
+
+                const imgSrc = PNG.sync.read(fs.readFileSync(`${downloadDirectory}/${source}`))
+                const imgRef = PNG.sync.read(fs.readFileSync(path.join(__dirname, reference)))
+                const { width, height } = imgSrc
+                const imgDiff = new PNG({ width, height })
+
+                const numDiffPixels = pixelmatch(imgSrc.data, imgRef.data, imgDiff.data, width, height, {
+                    threshold: 0.1,
+                })
+
+                const imgDiffFilename = path.join(__dirname, reference + '.diff.png')
+
+                fs.writeFileSync(imgDiffFilename, PNG.sync.write(imgDiff))
+
+                if (numDiffPixels > diffThreshold) {
+                    throw new Error(
+                        `Reference image is off by ${numDiffPixels} pixels. See ${imgDiffFilename} for more info`
+                    )
+                }
+
+                return true
+            })
+        },
     })
 
     return config

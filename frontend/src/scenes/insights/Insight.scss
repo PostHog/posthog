@@ -240,6 +240,7 @@ $editor_panel_width: min(28rem, 50%);
         display: flex;
         flex-wrap: nowrap;
         justify-content: flex-end;
+        align-items: center;
     }
 
     .advanced-options-dropdown {

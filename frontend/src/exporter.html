@@ -1,11 +1,11 @@
 <!doctype html>
 <html>
   <head>
+    <meta name="robots" content="noindex">
     <script>
-      window.__SHARED_DASHBOARD__ = {{shared_dashboard_serialized|safe}}
+      window.__EXPORT_DATA__ = {{export_data|safe}}
     </script>
     {% include "head.html" %}
-    <%= htmlWebpackPlugin.tags.headTags %><%/* This adds the main.css file! */%>
   </head>
   <body>
     <script>

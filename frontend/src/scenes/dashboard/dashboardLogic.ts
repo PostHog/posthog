@@ -337,7 +337,7 @@ export const dashboardLogic = kea<dashboardLogicType>({
         ],
     }),
     selectors: () => ({
-        placement: [() => [(_, props) => props.placement], (placement) => placement],
+        placement: [() => [(_, props) => props.placement], (placement) => placement ?? DashboardPlacement.Dashboard],
         items: [(s) => [s.allItems], (allItems) => allItems?.items?.filter((i) => !i.deleted)],
         itemsLoading: [
             (s) => [s.allItemsLoading, s.refreshStatus],

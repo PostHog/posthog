@@ -306,6 +306,11 @@ code.code {
 
 // Spacing & layout
 
+.ma {
+    // Margin all
+    margin: $default_spacing;
+}
+
 .mb {
     margin-bottom: $default_spacing;
 }
