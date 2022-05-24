@@ -34,6 +34,9 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
     filters = serializers.DictField(source="get_filters", required=False)
     is_simple_flag = serializers.SerializerMethodField()
     rollout_percentage = serializers.SerializerMethodField()
+    name = serializers.CharField(
+        help_text="contains the description for the flag (field name `name` is kept for backwards-compatibility)"
+    )
 
     class Meta:
         model = FeatureFlag
