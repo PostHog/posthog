@@ -398,6 +398,7 @@ export interface PluginTask {
 
 export type WorkerMethods = {
     runBufferEventPipeline: (event: PreIngestionEvent) => Promise<IngestEventResponse>
+    runAsyncHandlersEventPipeline: (event: ProcessedPluginEvent) => Promise<void>
     runEventPipeline: (event: PluginEvent) => Promise<void>
 }
 
@@ -409,7 +410,6 @@ export type VMMethods = {
     onSnapshot?: (event: ProcessedPluginEvent) => Promise<void>
     exportEvents?: (events: PluginEvent[]) => Promise<void>
     processEvent?: (event: PluginEvent) => Promise<PluginEvent>
-    handleAlert?: (alert: Alert) => Promise<void>
 }
 
 export enum AlertLevel {
@@ -906,7 +906,7 @@ export interface EventPropertyType {
     team_id: number
 }
 
-export type PluginFunction = 'onEvent' | 'onAction' | 'processEvent' | 'onSnapshot' | 'pluginTask' | 'handleAlert'
+export type PluginFunction = 'onEvent' | 'onAction' | 'processEvent' | 'onSnapshot' | 'pluginTask'
 
 export enum CeleryTriggeredJobOperation {
     Start = 'start',
@@ -944,3 +944,5 @@ export interface PreIngestionEvent {
     timestamp: DateTime | string
     elementsList: Element[]
 }
+
+export type IngestionEvent = Omit<PreIngestionEvent, 'elementsList'>

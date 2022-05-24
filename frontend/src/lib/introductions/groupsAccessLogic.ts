@@ -4,7 +4,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { groupsAccessLogicType } from './groupsAccessLogicType'
+import type { groupsAccessLogicType } from './groupsAccessLogicType'
 export enum GroupsAccessStatus {
     AlreadyUsing,
     HasAccess,
@@ -13,7 +13,7 @@ export enum GroupsAccessStatus {
     Hidden,
 }
 
-export const groupsAccessLogic = kea<groupsAccessLogicType<GroupsAccessStatus>>({
+export const groupsAccessLogic = kea<groupsAccessLogicType>({
     path: ['lib', 'introductions', 'groupsAccessLogic'],
     connect: {
         values: [

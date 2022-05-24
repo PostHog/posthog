@@ -1,7 +1,7 @@
 import { kea } from 'kea'
 import { router } from 'kea-router'
 import api from 'lib/api'
-import { personsLogicType } from './personsLogicType'
+import type { personsLogicType } from './personsLogicType'
 import { AnyPropertyFilter, Breadcrumb, CohortType, PersonsTabType, PersonType } from '~/types'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { urls } from 'scenes/urls'
@@ -11,7 +11,7 @@ import { asDisplay } from 'scenes/persons/PersonHeader'
 import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { lemonToast } from 'lib/components/lemonToast'
 
-interface PersonPaginatedResponse {
+export interface PersonPaginatedResponse {
     next: string | null
     previous: string | null
     results: PersonType[]
@@ -29,7 +29,7 @@ export interface PersonLogicProps {
     urlId?: string
 }
 
-export const personsLogic = kea<personsLogicType<PersonFilters, PersonLogicProps, PersonPaginatedResponse>>({
+export const personsLogic = kea<personsLogicType>({
     props: {} as PersonLogicProps,
     key: (props) => {
         if (!props.cohort && !props.syncWithUrl) {

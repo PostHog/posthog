@@ -12,13 +12,15 @@ import { LemonButton } from 'lib/components/LemonButton'
 import { IconCopy, IconDelete, IconPlusMini } from 'lib/components/icons'
 import { LemonDivider } from 'lib/components/LemonDivider'
 import { AlertMessage } from 'lib/components/AlertMessage'
-import { useActions, useValues, BindLogic } from 'kea'
-import { cohortLogic } from 'scenes/cohorts/cohortLogic'
+import { useActions, useValues } from 'kea'
 import { CohortCriteriaRowBuilder } from 'scenes/cohorts/CohortFilters/CohortCriteriaRowBuilder'
+import { cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
+import { CohortLogicProps } from 'scenes/cohorts/cohortLogic'
 
-export function CohortCriteriaGroups(): JSX.Element {
-    const { cohort, id } = useValues(cohortLogic)
-    const { setInnerGroupType, duplicateFilter, removeFilter, addFilter } = useActions(cohortLogic)
+export function CohortCriteriaGroups(logicProps: CohortLogicProps): JSX.Element {
+    const logic = cohortEditLogic(logicProps)
+    const { cohort } = useValues(logic)
+    const { setInnerGroupType, duplicateFilter, removeFilter, addFilter } = useActions(logic)
 
     return (
         <>
@@ -79,16 +81,15 @@ export function CohortCriteriaGroups(): JSX.Element {
                                 {group.values.map((criteria, criteriaIndex) => {
                                     return isCohortCriteriaGroup(criteria) ? null : (
                                         <Group key={criteriaIndex} name={['values', criteriaIndex]}>
-                                            <BindLogic logic={cohortLogic} props={{ id }}>
-                                                <CohortCriteriaRowBuilder
-                                                    groupIndex={groupIndex}
-                                                    index={criteriaIndex}
-                                                    logicalOperator={group.type}
-                                                    criteria={criteria}
-                                                    type={criteriaToBehavioralFilterType(criteria)}
-                                                    hideDeleteIcon={group.values.length <= 1}
-                                                />
-                                            </BindLogic>
+                                            <CohortCriteriaRowBuilder
+                                                id={logicProps.id}
+                                                groupIndex={groupIndex}
+                                                index={criteriaIndex}
+                                                logicalOperator={group.type}
+                                                criteria={criteria}
+                                                type={criteriaToBehavioralFilterType(criteria)}
+                                                hideDeleteIcon={group.values.length <= 1}
+                                            />
                                             {criteriaIndex === group.values.length - 1 && (
                                                 <Row>
                                                     <LemonButton

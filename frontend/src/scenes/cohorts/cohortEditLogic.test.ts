@@ -1,5 +1,5 @@
 import { initKeaTests } from '~/test/init'
-import { cohortLogic, CohortLogicProps } from 'scenes/cohorts/cohortLogic'
+import { CohortLogicProps } from 'scenes/cohorts/cohortLogic'
 import { expectLogic, partial } from 'kea-test-utils'
 import { useMocks } from '~/mocks/jest'
 import { mockCohort } from '~/test/mocks'
@@ -21,9 +21,10 @@ import { BehavioralFilterKey } from 'scenes/cohorts/CohortFilters/types'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { CRITERIA_VALIDATIONS, NEW_CRITERIA, ROWS } from 'scenes/cohorts/CohortFilters/constants'
+import { cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
 
-describe('cohortLogic', () => {
-    let logic: ReturnType<typeof cohortLogic.build>
+describe('cohortEditLogic', () => {
+    let logic: ReturnType<typeof cohortEditLogic.build>
 
     async function initCohortLogic(props: CohortLogicProps = { id: 'new' }): Promise<void> {
         await expectLogic(teamLogic).toFinishAllListeners()
@@ -34,7 +35,7 @@ describe('cohortLogic', () => {
         jest.spyOn(api, 'get')
         jest.spyOn(api, 'update')
         api.get.mockClear()
-        logic = cohortLogic(props)
+        logic = cohortEditLogic(props)
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
     }

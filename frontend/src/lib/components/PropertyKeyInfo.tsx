@@ -654,7 +654,12 @@ export function PropertyKeyInfo({
             {!disableIcon && !!data && <span className="property-key-info-logo" />}
             <Typography.Text
                 ellipsis={ellipsis}
-                style={{ color: 'inherit', maxWidth: 400, ...style }}
+                style={{
+                    color: 'inherit',
+                    maxWidth: 400,
+                    display: 'inline', // NOTE: This important and stops the whole thing from only showing "..."
+                    ...style,
+                }}
                 title={baseValue}
                 className={className}
             >

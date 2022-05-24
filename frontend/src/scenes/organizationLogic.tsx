@@ -1,6 +1,6 @@
 import { kea } from 'kea'
 import api from 'lib/api'
-import { organizationLogicType } from './organizationLogicType'
+import type { organizationLogicType } from './organizationLogicType'
 import { AvailableFeature, OrganizationType } from '~/types'
 import { userLogic } from './userLogic'
 import { getAppContext } from '../lib/utils/getAppContext'
@@ -10,7 +10,7 @@ import { lemonToast } from 'lib/components/lemonToast'
 
 export type OrganizationUpdatePayload = Partial<Pick<OrganizationType, 'name' | 'is_member_join_email_enabled'>>
 
-export const organizationLogic = kea<organizationLogicType<OrganizationUpdatePayload>>({
+export const organizationLogic = kea<organizationLogicType>({
     path: ['scenes', 'organizationLogic'],
     actions: {
         deleteOrganization: (organization: OrganizationType) => ({ organization }),

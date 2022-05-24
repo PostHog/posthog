@@ -1,9 +1,11 @@
-#!/bin/bash
+#!/usr/bin/env bash
+
 set -e
 
-# Seed a secret
-export POSTHOG_SECRET=$(head -c 28 /dev/urandom | sha224sum -b | head -c 56)
-export POSTHOG_APP_TAG='latest-release'
+export POSTHOG_APP_TAG="${POSTHOG_APP_TAG:-latest}" # TODO: move this back to `latest-release` after `1.36.0`
+
+POSTHOG_SECRET=$(head -c 28 /dev/urandom | sha224sum -b | head -c 56)
+export POSTHOG_SECRET
 
 # Talk to the user
 echo "Welcome to the single instance PostHog installer 🦔"
@@ -12,7 +14,7 @@ echo "⚠️  You really need 4gb or more of memory to run this stack ⚠️"
 echo ""
 while true; do
     echo "Should we setup a TLS certificate for you using Let's Encrypt?"
-    echo "Select no if you are using this internally and PostHog will not be reachable from the internet. y/n" 
+    echo "Select no if you are using this internally and PostHog will not be reachable from the internet. y/n"
     read -p "" yn
     case $yn in
         [Yy]* ) export USE_SELF_SIGNED_CERT=0; break ;;
@@ -31,7 +33,7 @@ echo ""
 echo "Do you have a Sentry DSN you would like for debugging should something go wrong?"
 echo "If you do enter it now, otherwise just hit enter to continue"
 read -r SENTRY_DSN
-export SENTRY_DSN="${SENTRY_DSN:-'https://public@sentry.example.com/1'}" $SENTRY_DSN
+export SENTRY_DSN="${SENTRY_DSN:-'https://public@sentry.example.com/1'}"
 echo ""
 echo "We will need sudo access so the next question is for you to give us superuser access"
 echo "Please enter your sudo password now:"
@@ -99,16 +101,16 @@ import socket
 import time
 
 def loop():
-    print("Waiting for ClickHouse and Postgres to be ready") 
-    try: 
+    print("Waiting for ClickHouse and Postgres to be ready")
+    try:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             s.connect(('clickhouse', 9000))
-        print("Clickhouse is ready") 
+        print("Clickhouse is ready")
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             s.connect(('db', 5432))
-        print("Postgres is ready") 
+        print("Postgres is ready")
     except ConnectionRefusedError as e:
-        time.sleep(5) 
+        time.sleep(5)
         loop()
 
 loop()
@@ -153,7 +155,7 @@ sudo -E docker-compose -f docker-compose.yml up -d
 echo "We will need to wait ~5-10 minutes for things to settle down, migrations to finish, and TLS certs to be issued"
 echo ""
 echo "⏳ Waiting for PostHog web to boot (this will take a few minutes)"
-bash -c 'while [[ "$(curl -s -o /dev/null -w ''%{http_code}'' localhost:8000/_health)" != "200" ]]; do sleep 5; done' 
+bash -c 'while [[ "$(curl -s -o /dev/null -w ''%{http_code}'' localhost:8000/_health)" != "200" ]]; do sleep 5; done'
 echo "⌛️ PostHog looks up!"
 echo ""
 echo "🎉🎉🎉  Done! 🎉🎉🎉"

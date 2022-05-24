@@ -1,6 +1,6 @@
 import { kea } from 'kea'
 import { PropertyOperator, RecordingDurationFilter } from '~/types'
-import { durationFilterLogicType } from './durationFilterLogicType'
+import type { durationFilterLogicType } from './durationFilterLogicType'
 
 export enum TimeUnit {
     SECONDS = 'seconds',
@@ -16,7 +16,7 @@ export interface DurationFilterProps {
 
 const TIME_MULTIPLIERS = { seconds: 1, minutes: 60, hours: 3600 }
 
-export const durationFilterLogic = kea<durationFilterLogicType<DurationFilterProps, TimeUnit>>({
+export const durationFilterLogic = kea<durationFilterLogicType>({
     path: (key) => ['scenes', 'session-recordings', 'DurationFilterLogic', key],
     key: (props) => props.pageKey || 'global',
     props: {} as DurationFilterProps,
