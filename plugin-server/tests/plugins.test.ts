@@ -1,6 +1,6 @@
 import { PluginEvent } from '@posthog/plugin-scaffold/src/types'
 
-import { Hub, LogLevel, PluginTaskType } from '../src/types'
+import { Hub, LogLevel } from '../src/types'
 import { processError } from '../src/utils/db/error'
 import { createHub } from '../src/utils/db/hub'
 import { delay, IllegalOperationError } from '../src/utils/utils'
