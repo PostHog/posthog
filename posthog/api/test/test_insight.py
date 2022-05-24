@@ -279,7 +279,11 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                 "last_refresh",
                 "refreshing",
                 "saved",
+                "tags",
                 "updated_at",
+                "created_by",
+                "created_at",
+                "last_modified_at",
             ],
         )
 

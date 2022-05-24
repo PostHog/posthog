@@ -1,11 +1,9 @@
 import { PluginEvent } from '@posthog/plugin-scaffold/src/types'
 import fetch from 'node-fetch'
-import { MockedFunction } from 'ts-jest/dist/utils/testing'
 
 import { Hook, Hub } from '../../../../src/types'
 import { createHub } from '../../../../src/utils/db/hub'
 import { UUIDT } from '../../../../src/utils/utils'
-import { ActionMatcher } from '../../../../src/worker/ingestion/action-matcher'
 import { EventPipelineRunner } from '../../../../src/worker/ingestion/event-pipeline/runner'
 import { commonUserId } from '../../../helpers/plugins'
 import { insertRow, resetTestDatabase } from '../../../helpers/sql'
@@ -13,14 +11,12 @@ import { insertRow, resetTestDatabase } from '../../../helpers/sql'
 describe('Event Pipeline integration test', () => {
     let hub: Hub
     let closeServer: () => Promise<void>
-    let actionMatcher: ActionMatcher
 
     const ingestEvent = (event: PluginEvent) => new EventPipelineRunner(hub, event).runEventPipeline(event)
 
     beforeEach(async () => {
         await resetTestDatabase()
         ;[hub, closeServer] = await createHub()
-        actionMatcher = hub.actionMatcher
     })
 
     afterEach(async () => {
@@ -116,8 +112,8 @@ describe('Event Pipeline integration test', () => {
 
         // Using a more verbose way instead of toHaveBeenCalledWith because we need to parse request body
         // and use expect.any for a few payload properties, which wouldn't be possible in a simpler way
-        expect((fetch as MockedFunction<typeof fetch>).mock.calls[0][0]).toBe('https://rest-hooks.example.com/')
-        const secondArg = (fetch as MockedFunction<typeof fetch>).mock.calls[0][1]
+        expect(jest.mocked(fetch).mock.calls[0][0]).toBe('https://rest-hooks.example.com/')
+        const secondArg = jest.mocked(fetch).mock.calls[0][1]
         expect(JSON.parse(secondArg!.body as unknown as string)).toStrictEqual(expectedPayload)
         expect(JSON.parse(secondArg!.body as unknown as string)).toStrictEqual(expectedPayload)
         expect(secondArg!.headers).toStrictEqual({ 'Content-Type': 'application/json' })

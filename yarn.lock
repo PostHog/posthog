@@ -11436,10 +11436,10 @@ kea-test-utils@^0.2.2:
   dependencies:
     kea-waitfor "^0.2.1"
 
-kea-typegen@^3.0.0:
-  version "3.0.0"
-  resolved "https://registry.yarnpkg.com/kea-typegen/-/kea-typegen-3.0.0.tgz#da461a6e5cd41c2442a5590d381b97687a2ee559"
-  integrity sha512-6FOijspc2S+E/2TTCyV6tScd8A/veiDsd0HwTQ+sp+lRB2Tn3gewK9ggK6rXNIUM6u5JzyuZrJPBn5MTUfIY5w==
+kea-typegen@^3.1.0:
+  version "3.1.0"
+  resolved "https://registry.yarnpkg.com/kea-typegen/-/kea-typegen-3.1.0.tgz#b9087ff06fb9f6c7814f608797110bbd4f281130"
+  integrity sha512-yD+xOnZrPOIqeua3fHfNdtmhKdc7+AiFIjqUalF2KJeLJld01Xx8fYBc7UUehLGk9uJU5UF6h7fp2/6hqWOKVQ==
   dependencies:
     "@wessberg/ts-clone-node" "0.3.19"
     prettier "^2.5.1"

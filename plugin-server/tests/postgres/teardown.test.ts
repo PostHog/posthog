@@ -71,7 +71,7 @@ describe('teardown', () => {
                 throw new Error('This Happened In The Teardown Palace')
             }
         `)
-        const { piscina, stop } = await startPluginsServer(
+        const { stop } = await startPluginsServer(
             {
                 WORKER_CONCURRENCY: 2,
                 LOG_LEVEL: LogLevel.Log,
