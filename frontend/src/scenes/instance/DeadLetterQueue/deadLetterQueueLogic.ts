@@ -21,14 +21,14 @@ export const deadLetterQueueLogic = kea<deadLetterQueueLogicType>([
     path(['scenes', 'instance', 'DeadLetterQueue', 'deadLetterQueueLogic']),
 
     actions({
-        setActiveTab: (tabKey: string) => ({ tabKey }),
+        setActiveTab: (tabKey: DeadLetterQueueTab) => ({ tabKey }),
         loadMoreRows: (key: string) => ({ key }),
         addRowsToMetric: (key: string, rows: string[][][]) => ({ key, rows }),
     }),
 
     reducers({
         activeTab: [
-            DeadLetterQueueTab.Metrics,
+            DeadLetterQueueTab.Metrics as DeadLetterQueueTab,
             {
                 setActiveTab: (_, { tabKey }) => tabKey,
             },

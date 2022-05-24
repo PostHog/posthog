@@ -146,7 +146,7 @@ export const systemStatusLogic = kea<systemStatusLogicType>({
         ],
         instanceConfigMode: [
             // Determines whether the Instance Configuration table on "Configuration" tab is on edit or view mode
-            ConfigMode.View,
+            ConfigMode.View as ConfigMode,
             {
                 setInstanceConfigMode: (_, { mode }) => mode,
             },

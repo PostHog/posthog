@@ -20,7 +20,7 @@ export const billingSubscribedLogic = kea<billingSubscribedLogicType>({
     },
     reducers: {
         status: [
-            SubscriptionStatus.Failed,
+            SubscriptionStatus.Failed as SubscriptionStatus,
             {
                 setStatus: (_, { status }) => status,
             },

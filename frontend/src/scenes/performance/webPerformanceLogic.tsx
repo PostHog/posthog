@@ -309,7 +309,7 @@ export const webPerformanceLogic = kea<webPerformanceLogicType>({
             },
         ],
         currentEvent: [null as EventType | null, { setEventToDisplay: (_, { eventToDisplay }) => eventToDisplay }],
-        currentPage: [WebPerformancePage.TABLE, { setCurrentPage: (_, { page }) => page }],
+        currentPage: [WebPerformancePage.TABLE as WebPerformancePage, { setCurrentPage: (_, { page }) => page }],
     },
     loaders: {
         event: {

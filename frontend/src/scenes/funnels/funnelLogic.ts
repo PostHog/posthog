@@ -195,7 +195,10 @@ export const funnelLogic = kea<funnelLogicType>({
         }),
         hideTooltip: true,
     }),
-
+    defaults: {
+        // This is a hack to get `FunnelCorrelationResultsType` imported in `funnelLogicType.ts`
+        __ignore: null as FunnelCorrelationResultsType | null,
+    },
     loaders: ({ values }) => ({
         people: [
             [] as any[],

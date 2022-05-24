@@ -21,7 +21,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>({
         updateFlag: (flag: FeatureFlagType) => ({ flag }),
         deleteFlag: (id: number) => ({ id }),
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
-        setActiveTab: (tabKey: string) => ({ tabKey }),
+        setActiveTab: (tabKey: FeatureFlagsTabs) => ({ tabKey }),
     },
     loaders: ({ values }) => ({
         featureFlags: {
@@ -76,7 +76,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>({
             deleteFlag: (state, { id }) => state.filter((flag) => flag.id !== id),
         },
         activeTab: [
-            FeatureFlagsTabs.OVERVIEW,
+            FeatureFlagsTabs.OVERVIEW as FeatureFlagsTabs,
             {
                 setActiveTab: (state, { tabKey }) =>
                     Object.values<string>(FeatureFlagsTabs).includes(tabKey) ? tabKey : state,

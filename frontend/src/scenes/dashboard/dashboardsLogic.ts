@@ -22,7 +22,7 @@ export const dashboardsLogic = kea<dashboardsLogicType>({
             setSearchTerm: (_, { searchTerm }) => searchTerm,
         },
         currentTab: [
-            DashboardsTab.All,
+            DashboardsTab.All as DashboardsTab,
             {
                 setCurrentTab: (_, { tab }) => tab,
             },

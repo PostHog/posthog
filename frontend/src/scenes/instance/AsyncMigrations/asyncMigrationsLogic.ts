@@ -73,7 +73,7 @@ export const asyncMigrationsLogic = kea<asyncMigrationsLogicType>({
     },
 
     reducers: {
-        activeTab: [AsyncMigrationsTab.Management, { setActiveTab: (_, { tab }) => tab }],
+        activeTab: [AsyncMigrationsTab.Management as AsyncMigrationsTab, { setActiveTab: (_, { tab }) => tab }],
         asyncMigrationErrors: [
             {} as Record<number, AsyncMigrationError[]>,
             {
