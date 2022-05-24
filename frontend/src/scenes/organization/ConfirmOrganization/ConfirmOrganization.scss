@@ -8,6 +8,16 @@
     flex-direction: column;
     padding: 2.5rem 1rem;
 
+    .LemonRow--disabled {
+        border: none;
+        background-color: var(--bg-side);
+        color: var(--text-default);
+        opacity: 1;
+        .LemonInput__input:disabled {
+            opacity: 1;
+        }
+    }
+
     .ConfirmOrganization__title {
         font-size: 28px;
         font-weight: 800;

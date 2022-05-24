@@ -27,13 +27,24 @@ export function ConfirmOrganization(): JSX.Element {
                 <p className="ConfirmOrganization__title">Create a new organization</p>
                 <div className="ConfirmOrganization__help-box">
                     <div>
-                        <IconHelpOutline width={'1.5rem'} height={'1.5rem'} style={{ color: 'var(--warning)' }} />
+                        <IconHelpOutline
+                            className="mt-05"
+                            width={'1.5rem'}
+                            height={'1.5rem'}
+                            style={{ color: 'var(--warning)' }}
+                        />
                     </div>
                     <div style={{ flex: 1 }} className="ml">
                         <p>
-                            <strong>Are you sure you want to create a new organization?</strong> If you’re trying to
-                            join an existing organization, you should not create a new one. When in doubt, double check
-                            with your colleagues to ensure you’re joining the right PostHog organization and instance.
+                            <strong>
+                                If you’re trying to join an existing organization, you should not create a new one.
+                            </strong>{' '}
+                            Some reasons that you may accidentally end up here are:
+                            <ul style={{ paddingInlineStart: '1rem', marginBottom: 0, marginBlockEnd: 0 }}>
+                                <li>You're logging in with the wrong email address</li>
+                                <li>Your PostHog account is at a different URL</li>
+                                <li>You need an invitation from a colleague</li>
+                            </ul>
                         </p>
                     </div>
                 </div>
@@ -47,7 +58,11 @@ export function ConfirmOrganization(): JSX.Element {
                         <LemonInput className="ph-ignore-input" placeholder="Jane Doe" />
                     </Field>
 
-                    <Field name="organization_name" label="Organization name">
+                    <Field
+                        name="organization_name"
+                        label="Organization name"
+                        help="You can always rename your organization later"
+                    >
                         <LemonInput className="ph-ignore-input" placeholder="Hogflix Movies" />
                     </Field>
 
@@ -63,7 +78,7 @@ export function ConfirmOrganization(): JSX.Element {
                     </LemonButton>
                 </VerticalForm>
 
-                <div className="text-center terms-and-conditions-text">
+                <div className="text-center terms-and-conditions-text mt text-muted">
                     By creating an account, you agree to our{' '}
                     <a href={`https://posthog.com/terms`} target="_blank" rel="noopener">
                         Terms of Service
@@ -74,8 +89,18 @@ export function ConfirmOrganization(): JSX.Element {
                     </a>
                     .
                 </div>
-                <LemonDivider thick dashed />
-                <p>Have questions? Visit support or read our documentation</p>
+                <LemonDivider thick dashed style={{ marginTop: 24, marginBottom: 24 }} />
+                <div className="text-center terms-and-conditions-text mt text-muted">
+                    Have questions?{' '}
+                    <a href={`https://posthog.com/support`} target="_blank" rel="noopener">
+                        Visit support
+                    </a>{' '}
+                    or{' '}
+                    <a href={`https://posthog.com/docs`} target="_blank" rel="noopener">
+                        read our documentation
+                    </a>
+                    .
+                </div>
             </div>
         </div>
     )
