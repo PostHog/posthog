@@ -258,18 +258,11 @@ class SocialSignupSerializer(serializers.Serializer):
             )
 
         email = request.session.get("email")
-        email_opt_in = request.session.get("email_opt_in")
         organization_name = validated_data["organization_name"]
         first_name = validated_data["first_name"]
 
         serializer = SignupSerializer(
-            data={
-                "organization_name": organization_name,
-                "email_opt_in": email_opt_in,
-                "first_name": first_name,
-                "email": email,
-                "password": None,
-            },
+            data={"organization_name": organization_name, "first_name": first_name, "email": email, "password": None,},
             context={"request": request},
         )
 
@@ -434,13 +427,15 @@ def social_create_user(strategy: DjangoStrategy, details, backend, request, user
                 else:
                     return redirect("/login?error_code=no_new_organizations")
             strategy.session_set("email", email)
-            organization_name_for_url = urlencode(strategy.session_get("organization_name", ""))
-            full_name_for_url = urlencode(full_name) or ""
-            email_for_url = urlencode(email) or ""
+            organization_name = strategy.session_get("organization_name")
+            query_params = {
+                "organization_name": organization_name or "",
+                "first_name": full_name or "",
+                "email": email or "",
+            }
+            query_params_string = urlencode(query_params)
 
-            return redirect(
-                f"/organization/confirm-creation?organization_name={organization_name_for_url}&first_name={full_name_for_url}&email={email_for_url}",
-            )
+            return redirect(f"/organization/confirm-creation{query_params_string}",)
 
     report_user_signed_up(
         user,
