@@ -130,7 +130,7 @@
             }
             &.ant-select-open {
                 .ant-select-arrow {
-                    color: rgba($text_default, 0.4);
+                    color: var(--depr-rgba-text-default-0-4);
                 }
             }
             .ant-select-arrow {

@@ -85,7 +85,7 @@
 }
 
 .palette__result--focused {
-    background: darken($bg_menu, 10%);
+    background: var(--depr-darken-bg_menu-10);
     &::before,
     &::after {
         content: '';

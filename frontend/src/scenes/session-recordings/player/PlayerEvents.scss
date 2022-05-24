@@ -69,7 +69,7 @@
                 background-color: var(--primary);
 
                 &:hover {
-                    background-color: lighten($primary, 10%);
+                    background-color: var(--depr-lighten-primary-10);
                 }
 
                 span.anticon {
@@ -80,10 +80,10 @@
             .right {
                 cursor: pointer;
                 width: calc(35px + var(--recording-spacing) / 4);
-                background-color: lighten($primary, 5%);
+                background-color: var(--depr-lighten-primary-5);
 
                 &:hover {
-                    background-color: lighten($primary, 15%);
+                    background-color: var(--depr-lighten-primary-15);
                 }
 
                 span.anticon {

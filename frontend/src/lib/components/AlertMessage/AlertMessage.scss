@@ -17,16 +17,16 @@
     }
 
     &.info {
-        background-color: rgba($primary_alt, 0.09);
+        background-color: var(--depr-rgba-primary_alt-0-09);
     }
 
     &.warning {
-        background-color: rgba($warning, 0.09);
+        background-color: var(--depr-rgba-warning-0-09);
         color: var(--warning);
     }
 
     &.error {
-        background-color: rgba($danger, 0.09);
+        background-color: var(--depr-rgba-danger-0-09);
         color: var(--danger);
     }
 

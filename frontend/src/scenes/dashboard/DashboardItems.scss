@@ -93,8 +93,8 @@
         color: var(--primary);
 
         &:hover {
-            border-color: darken($primary, 30%);
-            color: darken($primary, 30%);
+            border-color: var(--depr-darken-primary-30);
+            color: var(--depr-darken-primary-30);
         }
     }
 }

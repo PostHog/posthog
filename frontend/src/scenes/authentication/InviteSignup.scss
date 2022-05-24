@@ -87,7 +87,7 @@
             content: '';
         }
         &:hover {
-            color: darken($text_light, 20%);
+            color: var(--depr-darken-text-light-20);
         }
     }
 

@@ -51,7 +51,7 @@
         &.delete {
             padding: 0;
             width: unset;
-            color: rgba($danger, 0.6);
+            color: var(--depr-rgba-danger-0-6);
         }
     }
 }

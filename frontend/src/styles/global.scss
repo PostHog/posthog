@@ -158,6 +158,26 @@ Font weights: only `normal` (400), `var(--font-medium)` (500) or `bold` (700) sh
     --toastify-toast-width: 26rem;
     --toastify-toast-min-height: 3.5rem;
     --toastify-toast-max-height: 16rem;
+
+    // Deprecated color transforms from SCSS var heydays
+    --depr-lighten-danger-40: lighten($danger, 40%);
+    --depr-darken-text-light-20: darken($text_light, 20%);
+    --depr-rgba-text-default-0-4: rgba($text_default, 0.4);
+    --depr-rgba-primary-alt-0-3: rgba($primary_alt, 0.3);
+    --depr-rgba-danger-0-6: rgba($danger, 0.6);
+    --depr-rgba-border-0-1: rgba($border, 0.1);
+    --depr-rgba-border-0-2: rgba($border, 0.2);
+    --depr-darken-primary-30: darken($primary, 30%);
+    --depr-lighten-primary-20: lighten($primary, 20%);
+    --depr-lighten-primary-10: lighten($primary, 10%);
+    --depr-lighten-primary-5: lighten($primary, 5%);
+    --depr-lighten-primary-15: lighten($primary, 15%);
+    --depr-rgba-primary_alt-0-09: rgba($primary_alt, 0.09);
+    --depr-rgba-warning-0-09: rgba($warning, 0.09);
+    --depr-rgba-danger-0-09: rgba($danger, 0.09);
+    --depr-rgba-primary-0-25: rgba($primary, 0.25);
+    --depr-rgba-primary_alt-0-25: rgba($primary_alt, 0.25);
+    --depr-darken-bg_menu-10: darken($bg_menu, 10%);
 }
 
 // Text styles

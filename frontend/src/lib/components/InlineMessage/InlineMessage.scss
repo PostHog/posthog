@@ -10,7 +10,7 @@
     color: var(--primary-alt);
 
     &.danger {
-        background-color: rgba($danger, 0.09);
+        background-color: var(--depr-rgba-danger-0-09);
         color: var(--danger);
     }
 

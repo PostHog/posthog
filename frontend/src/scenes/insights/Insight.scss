@@ -76,7 +76,7 @@ $editor_panel_width: min(28rem, 50%);
             color: var(--text-muted);
             .hotkey {
                 margin-bottom: 0;
-                background-color: rgba($border, 0.1) !important;
+                background-color: var(--depr-rgba-border-0-1) !important;
                 border-color: var(--border) !important;
                 color: var(--text-muted);
             }
@@ -95,7 +95,7 @@ $editor_panel_width: min(28rem, 50%);
         }
         .deprecated {
             .hotkey {
-                background-color: rgba($border, 0.2) !important;
+                background-color: var(--depr-rgba-border-0-2) !important;
             }
         }
     }

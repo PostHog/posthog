@@ -22,7 +22,7 @@
         text-align: center;
     }
     .event-row-is-exception {
-        background-color: lighten($danger, 40%);
+        background-color: var(--depr-lighten-danger-40);
     }
     td {
         max-width: 20rem;
