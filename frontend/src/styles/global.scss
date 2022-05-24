@@ -7,7 +7,7 @@ Font weights: only `normal` (400), `var(--font-medium)` (500) or `bold` (700) sh
 */
 
 // Global components
-@import 'react-toastify/dist/ReactToastify';
+@import '../../../node_modules/react-toastify/dist/ReactToastify';
 @import 'breakpoints';
 @import 'fonts';
 
