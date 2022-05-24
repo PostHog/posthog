@@ -2,7 +2,7 @@ import React from 'react'
 import { kea, useActions } from 'kea'
 import { Tabs } from 'antd'
 import { urls } from 'scenes/urls'
-import { eventsTabsLogicType } from './DataManagementPageTabsType'
+import type { eventsTabsLogicType } from './DataManagementPageTabsType'
 import { Tooltip } from 'lib/components/Tooltip'
 import { IconInfo } from 'lib/components/icons'
 import { TitleWithIcon } from 'lib/components/TitleWithIcon'
@@ -19,7 +19,7 @@ const tabUrls: Record<DataManagementTab, string> = {
     [DataManagementTab.Actions]: urls.actions(),
 }
 
-const eventsTabsLogic = kea<eventsTabsLogicType<DataManagementTab>>({
+const eventsTabsLogic = kea<eventsTabsLogicType>({
     path: ['scenes', 'events', 'eventsTabsLogic'],
     actions: {
         setTab: (tab: DataManagementTab) => ({ tab }),

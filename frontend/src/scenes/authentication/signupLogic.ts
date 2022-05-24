@@ -1,8 +1,8 @@
 import { kea } from 'kea'
 import api from 'lib/api'
-import { signupLogicType } from './signupLogicType'
+import type { signupLogicType } from './signupLogicType'
 
-interface AccountResponse {
+export interface AccountResponse {
     success: boolean
     redirect_url?: string
     errorCode?: string
@@ -10,7 +10,7 @@ interface AccountResponse {
     errorAttribute?: string
 }
 
-export const signupLogic = kea<signupLogicType<AccountResponse>>({
+export const signupLogic = kea<signupLogicType>({
     path: ['scenes', 'authentication', 'signupLogic'],
     actions: {
         setInitialEmail: (email: string) => ({ email }),

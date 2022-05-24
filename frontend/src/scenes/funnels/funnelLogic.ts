@@ -4,7 +4,7 @@ import api from 'lib/api'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { autoCaptureEventToDescription, average, sum } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { funnelLogicType } from './funnelLogicType'
+import type { funnelLogicType } from './funnelLogicType'
 import {
     AvailableFeature,
     BinCountValue,
@@ -96,12 +96,12 @@ export const DEFAULT_EXCLUDED_PERSON_PROPERTIES = [
     '$initial_geoip_subdivision_name',
 ]
 
-type openPersonsModelProps = {
+export type openPersonsModelProps = {
     step: FunnelStep
     converted: boolean
 }
 
-export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
+export const funnelLogic = kea<funnelLogicType>({
     path: (key) => ['scenes', 'funnels', 'funnelLogic', key],
     props: {} as InsightLogicProps,
     key: keyForInsightLogicProps('insight_funnel'),
@@ -195,7 +195,10 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
         }),
         hideTooltip: true,
     }),
-
+    defaults: {
+        // This is a hack to get `FunnelCorrelationResultsType` imported in `funnelLogicType.ts`
+        __ignore: null as FunnelCorrelationResultsType | null,
+    },
     loaders: ({ values }) => ({
         people: [
             [] as any[],

@@ -16,7 +16,7 @@ import { FunnelLayout } from 'lib/constants'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 
-import { secondaryMetricsLogicType } from './secondaryMetricsLogicType'
+import type { secondaryMetricsLogicType } from './secondaryMetricsLogicType'
 import { dayjs } from 'lib/dayjs'
 
 const DEFAULT_DURATION = 14
@@ -42,7 +42,7 @@ export interface SecondaryMetricsProps {
     initialMetrics: SecondaryExperimentMetric[]
 }
 
-export const secondaryMetricsLogic = kea<secondaryMetricsLogicType<SecondaryMetricsProps>>({
+export const secondaryMetricsLogic = kea<secondaryMetricsLogicType>({
     props: {} as SecondaryMetricsProps,
     path: ['scenes', 'experiment', 'secondaryMetricsLogic'],
     connect: { values: [teamLogic, ['currentTeamId']] },

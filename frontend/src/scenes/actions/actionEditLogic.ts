@@ -2,17 +2,18 @@ import { actions, afterMount, kea, key, path, props, reducers } from 'kea'
 import api from 'lib/api'
 import { uuid } from 'lib/utils'
 import { actionsModel } from '~/models/actionsModel'
-import { actionEditLogicType } from './actionEditLogicType'
+import type { actionEditLogicType } from './actionEditLogicType'
 import { ActionType } from '~/types'
 import { lemonToast } from 'lib/components/lemonToast'
 import { duplicateActionErrorToast } from 'scenes/actions/ActionEdit'
 import { loaders } from 'kea-loaders'
 import { forms } from 'kea-forms'
 
-type NewActionType = Partial<ActionType> & Pick<ActionType, 'name' | 'post_to_slack' | 'slack_message_format' | 'steps'>
-type ActionEditType = ActionType | NewActionType
+export type NewActionType = Partial<ActionType> &
+    Pick<ActionType, 'name' | 'post_to_slack' | 'slack_message_format' | 'steps'>
+export type ActionEditType = ActionType | NewActionType
 
-interface SetActionProps {
+export interface SetActionProps {
     merge?: boolean
 }
 
@@ -23,7 +24,7 @@ export interface ActionEditLogicProps {
     onSave: (action: ActionType) => void
 }
 
-export const actionEditLogic = kea<actionEditLogicType<ActionEditLogicProps, ActionEditType, SetActionProps>>([
+export const actionEditLogic = kea<actionEditLogicType>([
     path(['scenes', 'actions', 'actionEditLogic']),
     props({} as ActionEditLogicProps),
     key((props) => props.id || 'new'),

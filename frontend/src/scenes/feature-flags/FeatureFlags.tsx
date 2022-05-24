@@ -1,6 +1,6 @@
 import React from 'react'
 import { useActions, useValues } from 'kea'
-import { featureFlagsLogic } from './featureFlagsLogic'
+import { featureFlagsLogic, FeatureFlagsTabs } from './featureFlagsLogic'
 import { Input, Tabs } from 'antd'
 import { Link } from 'lib/components/Link'
 import { copyToClipboard, deleteWithUndo } from 'lib/utils'
@@ -182,7 +182,7 @@ export function FeatureFlags(): JSX.Element {
                 }
             />
 
-            <Tabs activeKey={activeTab} destroyInactiveTabPane onChange={(t) => setActiveTab(t)}>
+            <Tabs activeKey={activeTab} destroyInactiveTabPane onChange={(t) => setActiveTab(t as FeatureFlagsTabs)}>
                 <Tabs.TabPane tab="Overview" key="overview">
                     <OverViewTab />
                 </Tabs.TabPane>

@@ -3,7 +3,7 @@ import { router } from 'kea-router'
 import api from 'lib/api'
 import { objectDiffShallow, objectsEqual, toParams } from 'lib/utils'
 import { InsightModel, LayoutView, SavedInsightsTabs } from '~/types'
-import { savedInsightsLogicType } from './savedInsightsLogicType'
+import type { savedInsightsLogicType } from './savedInsightsLogicType'
 import { dayjs } from 'lib/dayjs'
 import { insightsModel } from '~/models/insightsModel'
 import { teamLogic } from '../teamLogic'
@@ -50,7 +50,7 @@ function cleanFilters(values: Partial<SavedInsightFilters>): SavedInsightFilters
     }
 }
 
-export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult, SavedInsightFilters>>({
+export const savedInsightsLogic = kea<savedInsightsLogicType>({
     path: ['scenes', 'saved-insights', 'savedInsightsLogic'],
     connect: {
         values: [teamLogic, ['currentTeamId']],

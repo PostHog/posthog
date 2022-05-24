@@ -1,14 +1,14 @@
 import { kea } from 'kea'
 import api from 'lib/api'
 import { PropertyDefinition, PropertyFilterValue, SelectOption } from '~/types'
-import { propertyDefinitionsModelType } from './propertyDefinitionsModelType'
+import type { propertyDefinitionsModelType } from './propertyDefinitionsModelType'
 import { dayjs } from 'lib/dayjs'
 
-interface PropertySelectOption extends SelectOption {
+export interface PropertySelectOption extends SelectOption {
     is_numerical?: boolean
 }
 
-interface PropertyDefinitionStorage {
+export interface PropertyDefinitionStorage {
     count: number
     next: null | string
     results: PropertyDefinition[]
@@ -27,14 +27,12 @@ const normaliseToArray = (
     }
 }
 
-type FormatForDisplayFunction = (
+export type FormatForDisplayFunction = (
     propertyName: string | undefined,
     valueToFormat: PropertyFilterValue | undefined
 ) => string | string[] | null
 
-export const propertyDefinitionsModel = kea<
-    propertyDefinitionsModelType<FormatForDisplayFunction, PropertyDefinitionStorage, PropertySelectOption>
->({
+export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>({
     path: ['models', 'propertyDefinitionsModel'],
     actions: () => ({
         loadPropertyDefinitions: (initial = false) => ({ initial }),

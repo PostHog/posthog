@@ -4,15 +4,15 @@ import { dayjs, now } from 'lib/dayjs'
 import { deleteWithUndo, determineDifferenceType, groupBy, toParams } from '~/lib/utils'
 import { annotationsModel } from '~/models/annotationsModel'
 import { getNextKey } from './utils'
-import { annotationsLogicType } from './annotationsLogicType'
+import type { annotationsLogicType } from './annotationsLogicType'
 import { AnnotationScope, AnnotationType } from '~/types'
 import { teamLogic } from 'scenes/teamLogic'
 
-interface AnnotationsLogicProps {
+export interface AnnotationsLogicProps {
     insightNumericId?: number
 }
 
-export const annotationsLogic = kea<annotationsLogicType<AnnotationsLogicProps>>({
+export const annotationsLogic = kea<annotationsLogicType>({
     path: (key) => ['lib', 'components', 'Annotations', 'annotationsLogic', key],
     props: {} as AnnotationsLogicProps,
     key: (props) => String(props.insightNumericId || 'default'),

@@ -6,7 +6,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 import { navigationLogic } from '../navigationLogic'
 
-import { announcementLogicType } from './announcementLogicType'
+import type { announcementLogicType } from './announcementLogicType'
 
 export enum AnnouncementType {
     Demo = 'Demo',
@@ -19,7 +19,7 @@ export enum AnnouncementType {
 const ShowNewFeatureAnnouncement = false
 const ShowAttentionRequiredBanner = false
 
-export const announcementLogic = kea<announcementLogicType<AnnouncementType>>({
+export const announcementLogic = kea<announcementLogicType>({
     path: ['layout', 'navigation', 'TopBar', 'announcementLogic'],
     connect: {
         values: [
@@ -104,7 +104,7 @@ export const announcementLogic = kea<announcementLogicType<AnnouncementType>>({
             (featureFlags): string | null => {
                 const flagValue = featureFlags[FEATURE_FLAGS.CLOUD_ANNOUNCEMENT]
                 return !!flagValue && typeof flagValue === 'string'
-                    ? featureFlags[FEATURE_FLAGS.CLOUD_ANNOUNCEMENT].replaceAll('_', ' ')
+                    ? String(featureFlags[FEATURE_FLAGS.CLOUD_ANNOUNCEMENT]).replaceAll('_', ' ')
                     : null
             },
         ],
