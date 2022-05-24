@@ -428,10 +428,7 @@ def social_create_user(strategy: DjangoStrategy, details, backend, request, user
             }
             query_params_string = urlencode(query_params)
             logger.info(
-                "social_create_user_confirm_organization",
-                full_name_len=len(full_name),
-                email_len=len(email),
-                user=user.id,
+                "social_create_user_confirm_organization", full_name_len=len(full_name), email_len=len(email),
             )
 
             return redirect(f"/organization/confirm-creation?{query_params_string}",)
