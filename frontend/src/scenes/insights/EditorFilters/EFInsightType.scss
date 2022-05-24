@@ -1,43 +1,5 @@
 @import '~/vars';
 
-.insights-filter-group {
-    border-radius: var(--radius);
-    overflow: hidden;
-    background-color: #fff;
-    border: 1px solid var(--bg-mid);
-
-    .insights-filter-group-title {
-        padding: 0.5em;
-        background: var(--bg-mid);
-        font-weight: 600;
-        display: flex;
-        justify-content: space-between;
-    }
-
-    .insights-filter-group-content {
-        padding: 1em;
-
-        > * + * {
-            margin-top: $default_spacing;
-        }
-    }
-
-    .insights-filter-group-count {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        color: var(--white);
-        background: var(--primary);
-        border: 2px solid var(--bg-light);
-        width: 16px;
-        height: 16px;
-        font-size: 10px;
-        border-radius: 100%;
-        box-sizing: content-box;
-        margin-left: $default_spacing / 2;
-    }
-}
-
 .EFInsightType {
     display: flex;
     justify-content: space-between;
@@ -45,8 +7,6 @@
     overflow: hidden;
 
     .LemonButton {
-        // padding: 0.25rem 0.5rem;
-
         .EFInsightType-button-content {
             display: flex;
             align-items: center;
@@ -83,11 +43,5 @@
                 transition: max-width 200ms;
             }
         }
-
-        // &.LemonButton--highlighted {
-        //     .EFInsightType-button-content {
-        //         width: auto;
-        //     }
-        // }
     }
 }

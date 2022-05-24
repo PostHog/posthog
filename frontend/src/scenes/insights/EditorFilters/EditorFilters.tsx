@@ -7,7 +7,6 @@ import {
     InsightLogicProps,
     InsightType,
 } from '~/types'
-import { EFInsightType } from 'scenes/insights/EditorFilters/EFInsightType'
 import { EFTrendsSteps } from 'scenes/insights/EditorFilters/EFTrendsSteps'
 import { EFTrendsGlobalFilters } from 'scenes/insights/EditorFilters/EFTrendsGlobalFilters'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -33,6 +32,7 @@ import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { EFPathsAdvancedPaywall } from './EFPathsAdvancedPaywall'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { EFInsightTypeHorizontal } from './EditorFiltersInsightType'
 
 export interface EditorFiltersProps {
     insightProps: InsightLogicProps
@@ -76,7 +76,7 @@ export function EditorFilters({ insightProps }: EditorFiltersProps): JSX.Element
                 {
                     key: 'insight',
                     label: 'Type',
-                    component: EFInsightType,
+                    component: EFInsightTypeHorizontal,
                 },
                 isRetention && {
                     key: 'retention-summary',
