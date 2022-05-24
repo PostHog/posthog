@@ -44,8 +44,21 @@ export function PluginSource({
         }
         monaco.languages.typescript.typescriptDefaults.setCompilerOptions({
             jsx: currentFile.endsWith('.tsx') ? 'react' : 'preserve',
+            esModuleInterop: true,
         })
     }, [monaco, currentFile])
+
+    useEffect(() => {
+        if (!monaco) {
+            return
+        }
+        import('./types/packages.json').then((files) => {
+            for (const fileName in files) {
+                const fakePath = `file:///node_modules/@types/${fileName}`
+                monaco?.languages.typescript.typescriptDefaults.addExtraLib(files[fileName], fakePath)
+            }
+        })
+    }, [monaco])
 
     if (!canGloballyManagePlugins(user?.organization)) {
         return null

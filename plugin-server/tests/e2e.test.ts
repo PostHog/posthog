@@ -4,9 +4,8 @@ import IORedis from 'ioredis'
 import { ONE_HOUR } from '../src/config/constants'
 import { KAFKA_EVENTS_PLUGIN_INGESTION } from '../src/config/kafka-topics'
 import { startPluginsServer } from '../src/main/pluginsServer'
-import { AlertLevel, LogLevel, PluginsServerConfig, Service } from '../src/types'
+import { LogLevel, PluginsServerConfig } from '../src/types'
 import { Hub } from '../src/types'
-import { Client } from '../src/utils/celery/client'
 import { delay, UUIDT } from '../src/utils/utils'
 import { makePiscina } from '../src/worker/piscina'
 import { createPosthog, DummyPostHog } from '../src/worker/vm/extensions/posthog'
@@ -170,7 +169,7 @@ describe('e2e', () => {
         test('onAction receives the action and event', async () => {
             await posthog.capture('onAction event', { foo: 'bar' })
 
-            await delayUntilEventIngested(awaitOnActionLogs, 1)
+            await delayUntilEventIngested(awaitOnActionLogs as any, 1)
 
             const log = testConsole.read().filter((log) => log[0] === 'onAction')[0]
 
@@ -229,19 +228,9 @@ describe('e2e', () => {
                 .filter((log) => log[0] === 'exported historical event').length
             expect(exportedEventsCountBeforeJob).toEqual(0)
 
-            const kwargs = {
-                pluginConfigTeam: 2,
-                pluginConfigId: 39,
-                type: 'Export historical events',
-                jobOp: 'start',
-                payload: {},
-            }
-            const args = Object.values(kwargs)
+            // TODO: trigger job via graphile here
 
-            const client = new Client(hub.db, hub.PLUGINS_CELERY_QUEUE)
-            client.sendTask('posthog.tasks.plugins.plugin_job', args, {})
-
-            await delayUntilEventIngested(awaitHistoricalEventLogs, 4, 1000, 50)
+            await delayUntilEventIngested(awaitHistoricalEventLogs as any, 4, 1000, 50)
 
             const exportLogs = testConsole.read().filter((log) => log[0] === 'exported historical event')
             const exportedEventsCountAfterJob = exportLogs.length
@@ -278,24 +267,9 @@ describe('e2e', () => {
                 .filter((log) => log[0] === 'exported historical event').length
             expect(exportedEventsCountBeforeJob).toEqual(0)
 
-            const kwargs = {
-                pluginConfigTeam: 2,
-                pluginConfigId: 39,
-                type: 'Export historical events',
-                jobOp: 'start',
-                payload: {
-                    dateFrom: new Date(Date.now() - ONE_HOUR).toISOString(),
-                    dateTo: new Date().toISOString(),
-                },
-            }
-            let args = Object.values(kwargs)
+            // TODO: trigger job via graphile here
 
-            const client = new Client(hub.db, hub.PLUGINS_CELERY_QUEUE)
-
-            args = Object.values(kwargs)
-            client.sendTask('posthog.tasks.plugins.plugin_job', args, {})
-
-            await delayUntilEventIngested(awaitHistoricalEventLogs, 4, 1000)
+            await delayUntilEventIngested(awaitHistoricalEventLogs as any, 4, 1000)
 
             const exportLogs = testConsole.read().filter((log) => log[0] === 'exported historical event')
             const exportedEventsCountAfterJob = exportLogs.length
@@ -330,22 +304,7 @@ describe('e2e', () => {
             const historicalEvents = await hub.db.fetchEvents()
             expect(historicalEvents.length).toBe(1)
 
-            const kwargs = {
-                pluginConfigTeam: 2,
-                pluginConfigId: 39,
-                type: 'Export historical events',
-                jobOp: 'start',
-                payload: {
-                    dateFrom: new Date(Date.now() - ONE_HOUR).toISOString(),
-                    dateTo: new Date().toISOString(),
-                },
-            }
-            const args = Object.values(kwargs)
-
-            const client = new Client(hub.db, hub.PLUGINS_CELERY_QUEUE)
-            client.sendTask('posthog.tasks.plugins.plugin_job', args, {})
-
-            await delayUntilEventIngested(awaitHistoricalEventLogs, 1, 1000)
+            // TODO: trigger job via graphile here
 
             const exportLogs = testConsole.read().filter((log) => log[0] === 'exported historical event')
             const exportedEventsCountAfterJob = exportLogs.length

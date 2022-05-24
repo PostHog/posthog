@@ -1,4 +1,4 @@
-import { EnqueuedJob, JobQueue, OnJobCallback, PluginsServerConfig } from '../../types'
+import { EnqueuedJob, JobQueue, OnJobCallback } from '../../types'
 
 export class JobQueueBase implements JobQueue {
     started: boolean
@@ -22,7 +22,7 @@ export class JobQueueBase implements JobQueue {
     }
 
     enqueue(retry: EnqueuedJob): void
-    // eslint-disable-next-line @typescript-eslint/require-await
+    // eslint-disable-next-line @typescript-eslint/require-await, @typescript-eslint/no-unused-vars
     async enqueue(retry: EnqueuedJob): Promise<void> {
         throw new Error('enqueue() not implemented for job queue!')
     }

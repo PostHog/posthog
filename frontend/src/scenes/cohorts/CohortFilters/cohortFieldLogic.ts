@@ -20,7 +20,7 @@ export interface CohortFieldLogicProps {
     fieldOptionGroupTypes?: FieldOptionsType[]
 }
 
-export const cohortFieldLogic = kea<cohortFieldLogicType<CohortFieldLogicProps>>([
+export const cohortFieldLogic = kea<cohortFieldLogicType>([
     path(['scenes', 'cohorts', 'CohortFilters', 'cohortFieldLogic']),
     key((props) => `${props.cohortFilterLogicKey}`),
     props({} as CohortFieldLogicProps),
