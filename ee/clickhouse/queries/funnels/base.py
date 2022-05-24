@@ -447,7 +447,7 @@ class ClickhouseFunnelBase(ABC):
                 person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS
                 if self._team.actor_on_events_querying_enabled
                 else PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
-                person_id_joined_alias="aggregation_target",
+                person_id_joined_alias="person_id",
             )
             if action_query == "":
                 return ""
@@ -470,7 +470,7 @@ class ClickhouseFunnelBase(ABC):
             person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS
             if self._team.actor_on_events_querying_enabled
             else PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
-            person_id_joined_alias="aggregation_target",
+            person_id_joined_alias="person_id",
         )
         self.params.update(prop_filter_params)
         return prop_filters
