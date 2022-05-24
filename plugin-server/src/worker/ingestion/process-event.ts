@@ -10,7 +10,8 @@ import { DatabaseError } from 'pg'
 import { defaultConfig } from '../../config/config'
 import { Event as EventProto, IEvent } from '../../config/idl/protos'
 import { KAFKA_EVENTS, KAFKA_SESSION_RECORDING_EVENTS } from '../../config/kafka-topics'
-import { ObjectStorage } from '../../main/services/object_storage'
+import { KAFKA_BUFFER } from '../../config/kafka-topics'
+import { ObjectStorage } from '../../main/services/objectStorage'
 import {
     Element,
     Event,
@@ -36,7 +37,6 @@ import {
 } from '../../utils/db/utils'
 import { status } from '../../utils/status'
 import { castTimestampOrNow, UUID, UUIDT } from '../../utils/utils'
-import { KAFKA_BUFFER } from './../../config/kafka-topics'
 import { GroupTypeManager } from './group-type-manager'
 import { addGroupProperties } from './groups'
 import { PersonManager } from './person-manager'
@@ -44,7 +44,7 @@ import { upsertGroup } from './properties-updater'
 import { TeamManager } from './team-manager'
 import { parseDate } from './utils'
 
-const { OBJECT_STORAGE_SESSION_RECORDING_FOLDER, OBJECT_STORAGE_BUCKET, OBJECT_STORAGE_ENABLED } = defaultConfig
+const { OBJECT_STORAGE_SESSION_RECORDING_FOLDER, OBJECT_STORAGE_BUCKET } = defaultConfig
 
 const MAX_FAILED_PERSON_MERGE_ATTEMPTS = 3
 
@@ -726,12 +726,7 @@ export class EventsProcessor {
 
         await this.createPersonIfDistinctIdIsNew(team_id, distinct_id, timestamp, personUuid.toString())
 
-        const processed_snapshot_data = this.tryStoreSessionRecordingToObjectStorage(
-            timestamp,
-            session_id,
-            snapshot_data,
-            team_id
-        )
+        const processed_snapshot_data = this.storeSessionRecording(timestamp, session_id, snapshot_data, team_id)
 
         const data: SessionRecordingEvent = {
             uuid,
@@ -779,12 +774,12 @@ export class EventsProcessor {
         }
     }
 
-    private tryStoreSessionRecordingToObjectStorage(
+    private async storeSessionRecording(
         timestamp: DateTime,
         session_id: string,
         snapshot_data: Record<any, any>,
         team_id: number
-    ): Record<any, any> {
+    ): Promise<Record<any, any>> {
         // As we don't want to store the session recording payload in ClickHouse,
         // let's intercept the event, parse the metadata and store the data in
         // our object storage system.
@@ -812,16 +807,14 @@ export class EventsProcessor {
 
         const storageWriteTimer = new Date()
 
-        this.objectStorage.putObject(params, (err: any, resp: any) => {
-            if (err) {
-                console.error(err)
-                this.pluginsServer.statsd?.increment('session_data.storage_upload.error', tags)
-            } else {
-                this.pluginsServer.statsd?.increment('session_data.storage_upload.success', tags)
-            }
-        })
-
-        this.pluginsServer.statsd?.timing('session_data.storage_upload.timing', storageWriteTimer, tags)
+        try {
+            await this.objectStorage.putObject(params)
+            this.pluginsServer.statsd?.increment('session_data.storage_upload.success', tags)
+        } catch (err) {
+            this.pluginsServer.statsd?.increment('session_data.storage_upload.error', tags)
+        } finally {
+            this.pluginsServer.statsd?.timing('session_data.storage_upload.timing', storageWriteTimer, tags)
+        }
 
         const altered_data = { ...snapshot_data }
         delete altered_data.data
