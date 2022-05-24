@@ -10,6 +10,7 @@ import * as path from 'path'
 import { types as pgTypes } from 'pg'
 import { ConnectionOptions } from 'tls'
 
+import { getPluginServerCapabilities } from '../../capabilities'
 import { defaultConfig } from '../../config/config'
 import { JobQueueManager } from '../../main/job-queues/job-queue-manager'
 import { connectObjectStorage, ObjectStorage } from '../../main/services/object_storage'
@@ -58,7 +59,7 @@ export async function createHub(
         ...config,
     }
     if (capabilities === null) {
-        capabilities = { ingestion: true, pluginScheduledTasks: true, processJobs: true, processAsyncHandlers: true }
+        capabilities = getPluginServerCapabilities(serverConfig)
     }
     const instanceId = new UUIDT()
 
