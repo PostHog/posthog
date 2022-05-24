@@ -9,14 +9,14 @@ import {
     FusedDashboardCollaboratorType,
     UserBasicType,
 } from '~/types'
-import { dashboardCollaboratorsLogicType } from './dashboardCollaboratorsLogicType'
+import type { dashboardCollaboratorsLogicType } from './dashboardCollaboratorsLogicType'
 import { dashboardLogic } from './dashboardLogic'
 
 export interface DashboardCollaboratorsLogicProps {
     dashboardId: DashboardType['id']
 }
 
-export const dashboardCollaboratorsLogic = kea<dashboardCollaboratorsLogicType<DashboardCollaboratorsLogicProps>>({
+export const dashboardCollaboratorsLogic = kea<dashboardCollaboratorsLogicType>({
     path: (key) => ['scenes', 'dashboard', 'dashboardCollaboratorsLogic', key],
     props: {} as DashboardCollaboratorsLogicProps,
     key: (props) => props.dashboardId,

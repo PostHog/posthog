@@ -3,12 +3,12 @@ import api from 'lib/api'
 import { PreflightStatus, Realm } from '~/types'
 import posthog from 'posthog-js'
 import { getAppContext } from 'lib/utils/getAppContext'
-import { preflightLogicType } from './preflightLogicType'
+import type { preflightLogicType } from './preflightLogicType'
 import { urls } from 'scenes/urls'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import { loaders } from 'kea-loaders'
 
-type PreflightMode = 'experimentation' | 'live'
+export type PreflightMode = 'experimentation' | 'live'
 
 export type PreflightCheckStatus = 'validated' | 'error' | 'warning' | 'optional'
 
@@ -19,7 +19,7 @@ export interface PreflightItemInterface {
     id: string
 }
 
-interface PreflightCheckSummary {
+export interface PreflightCheckSummary {
     summaryString: string
     summaryStatus: PreflightCheckStatus
 }
@@ -30,9 +30,7 @@ export interface EnvironmentConfigOption {
     value: string
 }
 
-export const preflightLogic = kea<
-    preflightLogicType<EnvironmentConfigOption, PreflightCheckSummary, PreflightItemInterface, PreflightMode>
->([
+export const preflightLogic = kea<preflightLogicType>([
     path(['scenes', 'PreflightCheck', 'preflightLogic']),
     loaders({
         preflight: [

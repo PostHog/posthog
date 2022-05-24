@@ -1,6 +1,6 @@
 import { kea } from 'kea'
 import api from 'lib/api'
-import { actionLogicType } from './actionLogicType'
+import type { actionLogicType } from './actionLogicType'
 import { ActionType, Breadcrumb } from '~/types'
 import { urls } from 'scenes/urls'
 
@@ -8,7 +8,7 @@ export interface ActionLogicProps {
     id?: ActionType['id']
 }
 
-export const actionLogic = kea<actionLogicType<ActionLogicProps>>({
+export const actionLogic = kea<actionLogicType>({
     props: {} as ActionLogicProps,
     key: (props) => props.id || 'new',
     path: (key) => ['scenes', 'actions', 'actionLogic', key],

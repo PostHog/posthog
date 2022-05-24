@@ -11,7 +11,7 @@ import {
     SessionRecordingId,
     SessionRecordingsResponse,
 } from '~/types'
-import { sessionRecordingsTableLogicType } from './sessionRecordingsTableLogicType'
+import type { sessionRecordingsTableLogicType } from './sessionRecordingsTableLogicType'
 import { router } from 'kea-router'
 import { eventUsageLogic, RecordingWatchedSource } from 'lib/utils/eventUsageLogic'
 import equal from 'fast-deep-equal'
@@ -56,7 +56,7 @@ export const DEFAULT_ENTITY_FILTERS = {
     ],
 }
 
-export const sessionRecordingsTableLogic = kea<sessionRecordingsTableLogicType<PersonUUID>>({
+export const sessionRecordingsTableLogic = kea<sessionRecordingsTableLogicType>({
     path: (key) => ['scenes', 'session-recordings', 'sessionRecordingsTableLogic', key],
     key: (props) => props.key || props.personUUID || 'global',
     props: {} as {

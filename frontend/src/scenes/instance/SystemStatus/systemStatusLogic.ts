@@ -1,6 +1,6 @@
 import api from 'lib/api'
 import { kea } from 'kea'
-import { systemStatusLogicType } from './systemStatusLogicType'
+import type { systemStatusLogicType } from './systemStatusLogicType'
 import { userLogic } from 'scenes/userLogic'
 import {
     SystemStatus,
@@ -52,7 +52,7 @@ const EDITABLE_INSTANCE_SETTINGS = [
     'ENABLE_ACTOR_ON_EVENTS_TEAMS',
 ]
 
-export const systemStatusLogic = kea<systemStatusLogicType<ConfigMode, InstanceStatusTabName>>({
+export const systemStatusLogic = kea<systemStatusLogicType>({
     path: ['scenes', 'instance', 'SystemStatus', 'systemStatusLogic'],
     actions: {
         setTab: (tab: InstanceStatusTabName) => ({ tab }),

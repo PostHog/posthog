@@ -1,7 +1,7 @@
 import { kea } from 'kea'
 import Fuse from 'fuse.js'
 import { dashboardsModel } from '~/models/dashboardsModel'
-import { dashboardsLogicType } from './dashboardsLogicType'
+import type { dashboardsLogicType } from './dashboardsLogicType'
 import { DashboardType } from '~/types'
 import { uniqueBy } from 'lib/utils'
 
@@ -11,7 +11,7 @@ export enum DashboardsTab {
     Shared = 'shared',
 }
 
-export const dashboardsLogic = kea<dashboardsLogicType<DashboardsTab>>({
+export const dashboardsLogic = kea<dashboardsLogicType>({
     path: ['scenes', 'dashboard', 'dashboardsLogic'],
     actions: {
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),

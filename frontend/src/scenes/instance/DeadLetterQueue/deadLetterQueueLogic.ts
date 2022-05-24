@@ -3,7 +3,7 @@ import api from 'lib/api'
 import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
 import { userLogic } from 'scenes/userLogic'
 
-import { deadLetterQueueLogicType } from './deadLetterQueueLogicType'
+import type { deadLetterQueueLogicType } from './deadLetterQueueLogicType'
 import { loaders } from 'kea-loaders'
 export type TabName = 'overview' | 'internal_metrics'
 
@@ -17,7 +17,7 @@ export interface DeadLetterQueueMetricRow extends SystemStatusRow {
     key: string
 }
 
-export const deadLetterQueueLogic = kea<deadLetterQueueLogicType<DeadLetterQueueMetricRow>>([
+export const deadLetterQueueLogic = kea<deadLetterQueueLogicType>([
     path(['scenes', 'instance', 'DeadLetterQueue', 'deadLetterQueueLogic']),
 
     actions({

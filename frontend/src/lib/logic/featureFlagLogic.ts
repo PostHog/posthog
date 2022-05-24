@@ -1,10 +1,5 @@
-/*
-    This module allows us to **use** feature flags in PostHog.
-
-    Use this instead of `window.posthog.isFeatureEnabled('feature')`
-*/
 import { kea } from 'kea'
-import { featureFlagLogicType } from './featureFlagLogicType'
+import type { featureFlagLogicType } from './featureFlagLogicType'
 import posthog from 'posthog-js'
 import { getAppContext } from 'lib/utils/getAppContext'
 import { AppContext } from '~/types'
@@ -69,7 +64,7 @@ function spyOnFeatureFlags(featureFlags: FeatureFlagsSet): FeatureFlagsSet {
     }
 }
 
-export const featureFlagLogic = kea<featureFlagLogicType<FeatureFlagsSet>>({
+export const featureFlagLogic = kea<featureFlagLogicType>({
     path: ['lib', 'logic', 'featureFlagLogic'],
     actions: {
         setFeatureFlags: (flags: string[], variants: Record<string, string | boolean>) => ({ flags, variants }),
