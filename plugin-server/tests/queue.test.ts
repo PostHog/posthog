@@ -8,7 +8,7 @@ import { createHub } from '../src/utils/db/hub'
 jest.setTimeout(60000) // 60 sec timeout
 jest.mock('../src/main/ingestion-queues/kafka-queue')
 jest.mock('../src/utils/status')
-jest.mock('../../src/main/ingestion-queues/batch-processing/each-batch-ingestion')
+jest.mock('../src/main/ingestion-queues/batch-processing/each-batch-ingestion')
 
 describe('queue', () => {
     describe('capabilities', () => {
