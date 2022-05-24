@@ -19,9 +19,16 @@ export const confirmOrganizationLogic = kea<confirmOrganizationLogicType<Confirm
         setEmail: (email: string) => ({
             email,
         }),
+        setShowNewOrgWarning: (show: boolean) => ({ show }),
     }),
 
     reducers({
+        showNewOrgWarning: [
+            false,
+            {
+                setShowNewOrgWarning: (_, { show }) => show,
+            },
+        ],
         email: [
             '',
             {

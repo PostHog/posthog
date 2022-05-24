@@ -6,11 +6,12 @@ import { LemonButton } from 'lib/components/LemonButton'
 import { LemonInput } from 'lib/components/LemonInput/LemonInput'
 import { WelcomeLogo } from 'scenes/authentication/WelcomeLogo'
 import { LemonDivider } from 'lib/components/LemonDivider'
-import { IconHelpOutline } from 'lib/components/icons'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { confirmOrganizationLogic } from './confirmOrganizationLogic'
 import { Field } from 'lib/forms/Field'
 import { VerticalForm } from 'lib/forms/VerticalForm'
+import { AnimatedCollapsible } from 'lib/components/AnimatedCollapsible'
+import { urls } from 'scenes/urls'
 
 export const scene: SceneExport = {
     component: ConfirmOrganization,
@@ -18,34 +19,45 @@ export const scene: SceneExport = {
 }
 
 export function ConfirmOrganization(): JSX.Element {
-    const { isConfirmOrganizationSubmitting, email } = useValues(confirmOrganizationLogic)
+    const { isConfirmOrganizationSubmitting, email, showNewOrgWarning } = useValues(confirmOrganizationLogic)
+    const { setShowNewOrgWarning } = useActions(confirmOrganizationLogic)
+    console.log(showNewOrgWarning)
 
     return (
         <div className="bridge-page ConfirmOrganization">
             <WelcomeLogo view="org-creation-confirmation" />
             <div className="ConfirmOrganization__container-box">
-                <p className="ConfirmOrganization__title">Create a new organization</p>
+                <p className="ConfirmOrganization__title text-center">Create a new organization</p>
                 <div className="ConfirmOrganization__help-box">
-                    <div>
-                        <IconHelpOutline
-                            className="mt-05"
-                            width={'1.5rem'}
-                            height={'1.5rem'}
-                            style={{ color: 'var(--warning)' }}
-                        />
-                    </div>
-                    <div style={{ flex: 1 }} className="ml">
+                    <div style={{ flex: 1 }}>
                         <p>
                             <strong>
-                                If you’re trying to join an existing organization, you should not create a new one.
-                            </strong>{' '}
-                            Some reasons that you may accidentally end up here are:
-                            <ul style={{ paddingInlineStart: '1rem', marginBottom: 0, marginBlockEnd: 0 }}>
-                                <li>You're logging in with the wrong email address</li>
-                                <li>Your PostHog account is at a different URL</li>
-                                <li>You need an invitation from a colleague</li>
-                            </ul>
+                                Trying to join an existing organization?{' '}
+                                {!showNewOrgWarning && (
+                                    <a
+                                        onClick={() => {
+                                            setShowNewOrgWarning(true)
+                                        }}
+                                    >
+                                        Read more
+                                    </a>
+                                )}
+                            </strong>
                         </p>
+                        <AnimatedCollapsible collapsed={!showNewOrgWarning}>
+                            <div>
+                                <div style={{ height: '0.5rem' }} />
+                                <p>
+                                    If you're trying to join an existing organization, you should not create a new one.
+                                    Some reasons that you may accidentally end up here are:
+                                    <ul style={{ paddingInlineStart: '1rem', marginBottom: 0, marginBlockEnd: 0 }}>
+                                        <li>You're logging in with the wrong email address</li>
+                                        <li>Your PostHog account is at a different URL</li>
+                                        <li>You need an invitation from a colleague</li>
+                                    </ul>
+                                </p>
+                            </div>
+                        </AnimatedCollapsible>
                     </div>
                 </div>
 
@@ -75,6 +87,18 @@ export function ConfirmOrganization(): JSX.Element {
                         loading={isConfirmOrganizationSubmitting}
                     >
                         Create organization
+                    </LemonButton>
+
+                    <LemonButton
+                        className="mt"
+                        fullWidth
+                        center
+                        size="large"
+                        type="secondary"
+                        loading={isConfirmOrganizationSubmitting}
+                        to={urls.signup()}
+                    >
+                        Cancel
                     </LemonButton>
                 </VerticalForm>
 

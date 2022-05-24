@@ -9,7 +9,6 @@
     padding: 2.5rem 1rem;
 
     .LemonRow--disabled {
-        border: none;
         background-color: var(--bg-side);
         color: var(--text-default);
         opacity: 1;
@@ -36,7 +35,7 @@
     .ConfirmOrganization__help-box {
         display: flex;
         flex-direction: row;
-        border: 2px dashed var(--border);
+        background-color: var(--bg-side);
         border-radius: $radius;
         padding: $default_spacing;
         margin-bottom: $default_spacing;
