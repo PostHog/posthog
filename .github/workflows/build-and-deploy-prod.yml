@@ -178,7 +178,7 @@ jobs:
                   event_type: deploy_app_version
                   message: |
                       {
-                        "image_tag": "${{ github.sha }}",
+                        "image_tag": "${{ github.sha }}"
                       }
 
     slack:
