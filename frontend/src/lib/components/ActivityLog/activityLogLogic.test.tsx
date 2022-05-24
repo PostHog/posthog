@@ -276,6 +276,48 @@ describe('the activity log logic', () => {
                 `/api/projects/${MOCK_TEAM_ID}/feature_flags/7/activity/`
             )
 
+            it('can handle soft deletion change', async () => {
+                await featureFlagsTestSetup('test flag', 'updated', [
+                    {
+                        type: 'FeatureFlag',
+                        action: 'changed',
+                        field: 'deleted',
+                        after: 'true',
+                    },
+                ])
+
+                const actual = logic.values.humanizedActivity
+                expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent('deleted test flag')
+            })
+
+            it('can handle soft enabling flag', async () => {
+                await featureFlagsTestSetup('test flag', 'updated', [
+                    {
+                        type: 'FeatureFlag',
+                        action: 'changed',
+                        field: 'active',
+                        after: 'true',
+                    },
+                ])
+
+                const actual = logic.values.humanizedActivity
+                expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent('enabled test flag')
+            })
+
+            it('can handle soft disabling flag', async () => {
+                await featureFlagsTestSetup('test flag', 'updated', [
+                    {
+                        type: 'FeatureFlag',
+                        action: 'changed',
+                        field: 'active',
+                        after: 'false',
+                    },
+                ])
+
+                const actual = logic.values.humanizedActivity
+                expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent('disabled test flag')
+            })
+
             it('can handle rollout percentage change', async () => {
                 await featureFlagsTestSetup('test flag', 'updated', [
                     {
