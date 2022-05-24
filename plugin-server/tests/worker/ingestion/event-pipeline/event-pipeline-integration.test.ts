@@ -98,7 +98,6 @@ describe('Event Pipeline integration test', () => {
                 teamId: 2,
                 distinctId: 'abc',
                 ip: null,
-                siteUrl: 'https://example.com',
                 elementsList: [],
                 person: {
                     id: expect.any(Number),
