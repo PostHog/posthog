@@ -1,7 +1,7 @@
 @import '~/vars';
 
 .funnel-correlation-table {
-    margin-top: $default_spacing;
+    margin-top: 1rem;
     border: 1px solid $border;
     border-radius: $radius;
 
@@ -35,8 +35,8 @@
             text-transform: uppercase;
 
             color: $text_default;
-            margin-left: $default_spacing;
-            margin-top: $default_spacing/2;
+            margin-left: 1rem;
+            margin-top: 0.5rem;
         }
 
         .table-options {
@@ -72,7 +72,7 @@
     }
 
     .nested-properties-table {
-        margin: $default_spacing;
+        margin: 1rem;
         border: 1px solid $border;
         border-radius: $radius;
         thead th {
@@ -82,7 +82,7 @@
 
     .nested-properties-loading {
         text-align: center;
-        padding: $default_spacing * 2 0;
+        padding: 2rem 0;
 
         h3 {
             font-size: 1rem;

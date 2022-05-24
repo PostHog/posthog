@@ -207,7 +207,7 @@ body strong {
     font-weight: bold;
 
     &.highlighted {
-        padding: $default_spacing $default_spacing $default_spacing $default_spacing / 2;
+        padding: $default_spacing $default_spacing $default_spacing 0.5rem;
     }
 }
 
@@ -315,27 +315,27 @@ code.code {
 }
 
 .mb-2 {
-    margin-bottom: $default_spacing * 2;
+    margin-bottom: 2rem;
 }
 
 .mt-2 {
-    margin-top: $default_spacing * 2;
+    margin-top: 2rem;
 }
 
 .mb-05 {
-    margin-bottom: $default_spacing * 0.5;
+    margin-bottom: 0.5rem;
 }
 
 .mb-025 {
-    margin-bottom: $default_spacing * 0.25;
+    margin-bottom: 0.25rem;
 }
 
 .mt-05 {
-    margin-top: $default_spacing * 0.5;
+    margin-top: 0.5rem;
 }
 
 .mt-025 {
-    margin-top: $default_spacing * 0.25;
+    margin-top: 0.25rem;
 }
 
 .mb-0 {
@@ -351,23 +351,23 @@ code.code {
 }
 
 .ml-2 {
-    margin-left: $default_spacing * 2;
+    margin-left: 2rem;
 }
 
 .mr-05 {
-    margin-right: $default_spacing * 0.5;
+    margin-right: 0.5rem;
 }
 
 .mr-025 {
-    margin-right: $default_spacing * 0.25;
+    margin-right: 0.25rem;
 }
 
 .ml-05 {
-    margin-left: $default_spacing * 0.5;
+    margin-left: 0.5rem;
 }
 
 .ml-025 {
-    margin-left: $default_spacing * 0.25;
+    margin-left: 0.25rem;
 }
 
 .mx-0 {
@@ -390,7 +390,7 @@ code.code {
 }
 
 .pb-05 {
-    padding-bottom: $default_spacing * 0.5;
+    padding-bottom: 0.5rem;
 }
 
 .pt {

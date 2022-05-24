@@ -2,7 +2,7 @@
 @import './bridgePagesShared';
 
 .bridge-page.signup {
-    padding: 0 $default_spacing;
+    padding: 0 1rem;
 
     // bridgePagesShared overrides
     .auth-main-content {
@@ -16,13 +16,13 @@
 
         .divider {
             border-bottom: 2px dashed var(--border);
-            margin-bottom: $default_spacing * 1.5;
-            padding-top: $default_spacing/2;
+            margin-bottom: 1.5rem;
+            padding-top: 0.5rem;
         }
     }
 
     footer {
-        margin-bottom: $default_spacing * 2;
+        margin-bottom: 2rem;
 
         .footer-inner {
             text-align: center;
@@ -33,7 +33,7 @@
 
             span {
                 flex-grow: 1;
-                margin-right: $default_spacing * 2;
+                margin-right: 2rem;
 
                 &:last-of-type {
                     margin-right: 0;

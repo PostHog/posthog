@@ -9,14 +9,14 @@
     }
 
     .support-footer {
-        margin-top: $default_spacing * 1.5;
-        padding-top: $default_spacing * 1.5;
+        margin-top: 1.5rem;
+        padding-top: 1.5rem;
         border-top: 1.5px dashed $border;
         text-align: center;
     }
 
     .title-icon {
-        padding-top: $default_spacing;
+        padding-top: 1rem;
         font-size: 2rem;
     }
 }

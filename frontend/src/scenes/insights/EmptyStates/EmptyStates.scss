@@ -5,8 +5,8 @@
     flex-direction: column;
     justify-content: center;
     align-items: center;
-    padding-top: $default_spacing * 2;
-    padding-bottom: $default_spacing * 2;
+    padding-top: 2rem;
+    padding-bottom: 2rem;
     color: $text_muted;
     padding: 1rem;
     font-size: 1.1em;
@@ -76,7 +76,7 @@
         }
 
         ol {
-            margin-top: $default_spacing / 2;
+            margin-top: 0.5rem;
         }
     }
 }

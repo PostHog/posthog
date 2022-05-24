@@ -28,20 +28,20 @@
         display: flex;
 
         .top-list {
-            margin-bottom: $default_spacing * 1.5;
+            margin-bottom: 1.5rem;
             width: 33%;
         }
 
         .spacer {
-            width: $default_spacing;
+            width: 1rem;
         }
     }
 
     .top-list-container-vertical {
-        margin-bottom: $default_spacing * 1.5;
+        margin-bottom: 1.5rem;
 
         .spacer {
-            height: $default_spacing;
+            height: 1rem;
         }
     }
 
@@ -50,7 +50,7 @@
         width: 100%;
         justify-content: center;
         align-items: center;
-        padding: $default_spacing * 4;
+        padding: 4rem;
         display: flex;
         flex-direction: column;
     }
@@ -62,7 +62,7 @@
     width: 100%;
     align-items: center;
     justify-content: center;
-    margin-bottom: $default_spacing/4;
+    margin-bottom: 0.25rem;
     color: $text_default;
     font-weight: 400; // Overrides font-weight from LemonButton
     &:last-child {
@@ -70,7 +70,7 @@
     }
     .row-text-container {
         flex: 1;
-        margin: 0 $default_spacing/2;
+        margin: 0 0.5rem;
         overflow: hidden;
 
         p {

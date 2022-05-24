@@ -11,7 +11,7 @@
     .inner {
         text-align: center;
         max-width: 400px;
-        padding: 0 $default_spacing;
+        padding: 0 1rem;
         color: $text_light;
         h1 {
             color: $text_light;
@@ -25,11 +25,11 @@
         height: 100%;
         .inner {
             .error-message {
-                margin-top: $default_spacing * 2;
+                margin-top: 2rem;
             }
 
             .actions {
-                margin-top: $default_spacing * 2;
+                margin-top: 2rem;
             }
         }
     }
@@ -43,7 +43,7 @@
 
         .inner {
             > div {
-                margin-bottom: $default_spacing;
+                margin-bottom: 1rem;
 
                 &:last-of-type {
                     margin-bottom: 0;
@@ -115,7 +115,7 @@
                 align-items: center;
                 justify-content: center;
                 text-align: center;
-                padding: 0 $default_spacing * 2;
+                padding: 0 2rem;
                 position: relative;
 
                 h1,
@@ -144,16 +144,16 @@
             display: flex;
             justify-content: center;
             align-items: center;
-            padding-top: $default_spacing * 2;
+            padding-top: 2rem;
 
             .rhs-inner {
                 width: 100%;
                 max-width: 382px; // 350px + 32px padding
-                padding: 0 $default_spacing;
+                padding: 0 1rem;
             }
 
             .password-login {
-                margin-top: $default_spacing * 2;
+                margin-top: 2rem;
             }
         }
 
@@ -173,7 +173,7 @@
 
                 .mobile-continue {
                     display: block !important;
-                    padding-top: $default_spacing;
+                    padding-top: 1rem;
                 }
             }
 
@@ -184,7 +184,7 @@
                 .top-helper {
                     text-align: left;
                     margin-right: 0;
-                    padding: 0 $default_spacing;
+                    padding: 0 1rem;
                     color: $text_muted;
                     b {
                         font-weight: normal;

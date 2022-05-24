@@ -16,7 +16,7 @@
     border-bottom: 1px solid $border;
     font-size: 12px;
     cursor: pointer;
-    padding: $default_spacing/4 $default_spacing/2;
+    padding: 0.25rem 0.5rem;
     width: 100%;
 
     .log-text {
@@ -26,7 +26,7 @@
 
     .trace-string {
         float: right;
-        margin-left: $default_spacing/4;
+        margin-left: 0.25rem;
 
         a {
             text-decoration: underline;
@@ -49,12 +49,12 @@
 
 .more-logs-available {
     text-align: center;
-    margin: $default_spacing/2;
+    margin: 0.5rem;
 }
 
 .console-feedback-container {
     border: 1px solid $border;
     border-radius: $radius;
-    padding: $default_spacing;
-    margin-top: $default_spacing;
+    padding: 1rem;
+    margin-top: 1rem;
 }

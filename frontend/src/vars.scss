@@ -151,7 +151,7 @@ $radius: 4px;
 $opacity_disabled: 0.6;
 
 // Recordings
-$recording_spacing: $default_spacing * 2 / 3;
+$recording_spacing: calc(2rem / 3);
 
 .text-ellipsis {
     overflow: hidden;

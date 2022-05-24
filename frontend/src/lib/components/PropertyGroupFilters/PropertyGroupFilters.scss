@@ -3,13 +3,13 @@
 .property-group-filters {
     .property-group {
         background-color: $bg_side;
-        padding: $default_spacing / 2;
+        padding: 0.5rem;
         border-radius: 4px;
     }
 
     .property-group-and-or-separator {
         color: $primary_alt;
-        padding: $default_spacing / 2 0px;
+        padding: 0.5rem 0px;
         font-size: 12px;
         font-weight: 600;
         position: relative;
@@ -29,7 +29,7 @@
             display: inline-block;
             z-index: 1;
             background-color: var(--bg-light);
-            padding: $default_spacing / 4;
+            padding: 0.25rem;
             width: 35px;
             text-align: center;
         }
@@ -48,8 +48,8 @@
 }
 
 .and-or-filter-select {
-    padding-top: $default_spacing / 2;
-    padding-bottom: $default_spacing / 2;
+    padding-top: 0.5rem;
+    padding-bottom: 0.5rem;
 
     .condition-text {
         font-weight: 700;
@@ -72,9 +72,9 @@
 
     .condition-option {
         background-color: white;
-        padding: $default_spacing / 2;
-        margin-left: $default_spacing / 2;
-        margin-right: $default_spacing / 2;
+        padding: 0.5rem;
+        margin-left: 0.5rem;
+        margin-right: 0.5rem;
         border-radius: 4px;
     }
 

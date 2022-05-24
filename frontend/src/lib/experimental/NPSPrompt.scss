@@ -3,7 +3,7 @@
 .nps-prompt {
     background-color: $bg_menu;
     border-radius: $radius;
-    padding: $default_spacing;
+    padding: 1rem;
     padding-top: 6px;
     color: $text_light;
     position: fixed;
@@ -24,7 +24,7 @@
     .prompt-title {
         font-size: 1rem;
         font-weight: bold;
-        margin-bottom: $default_spacing;
+        margin-bottom: 1rem;
         max-width: 90%;
         margin-left: auto;
         margin-right: auto;
@@ -41,7 +41,7 @@
     .nps-header {
         display: flex;
         align-items: center;
-        margin-bottom: $default_spacing / 2;
+        margin-bottom: 0.5rem;
     }
 
     .nps-progress {
@@ -53,7 +53,7 @@
             height: 12px;
             border-radius: 50%;
             background-color: $border;
-            margin-right: $default_spacing / 2;
+            margin-right: 0.5rem;
             &:last-of-type {
                 margin-right: 0;
             }
@@ -65,17 +65,17 @@
 
     .question {
         text-align: left;
-        padding-bottom: $default_spacing / 2;
+        padding-bottom: 0.5rem;
     }
 
     .action-buttons {
         .ant-btn {
-            margin-bottom: $default_spacing / 2;
+            margin-bottom: 0.5rem;
             width: 100%;
         }
         width: 200px;
         margin: 0 auto;
-        padding-top: $default_spacing / 2;
+        padding-top: 0.5rem;
     }
 
     .ant-btn:not(.ant-btn-link) {

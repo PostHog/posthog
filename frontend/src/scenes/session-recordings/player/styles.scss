@@ -138,13 +138,13 @@
     .rrweb-timestamp {
         white-space: nowrap;
         font-size: 14px;
-        margin-right: $default_spacing;
+        margin-right: 1rem;
     }
 
     .rrweb-progress {
         width: 100%;
         cursor: pointer;
-        margin-right: $default_spacing;
+        margin-right: 1rem;
     }
 
     .rrweb-controller {
@@ -153,7 +153,7 @@
         background-color: $bg_light;
         border-radius: $radius;
         border: 1px solid $border;
-        padding: 0 $default_spacing;
+        padding: 0 1rem;
         flex-direction: row;
         align-items: center;
         justify-content: space-around;
@@ -166,7 +166,7 @@
         }
 
         .rrweb-controller-icon {
-            margin-right: $default_spacing;
+            margin-right: 1rem;
             cursor: pointer;
             display: flex;
             justify-content: center;
@@ -195,7 +195,7 @@
 
     .rrweb-speed-toggle {
         cursor: pointer;
-        margin-right: $default_spacing;
+        margin-right: 1rem;
     }
 
     .rrweb-inactivity-toggle {
@@ -218,7 +218,7 @@
     }
 
     .ant-drawer-close {
-        padding: $default_spacing;
+        padding: 1rem;
     }
 }
 

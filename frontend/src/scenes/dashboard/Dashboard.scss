@@ -34,7 +34,7 @@
             height: 200px;
             width: 200px;
             max-width: 100%;
-            margin-top: $default_spacing;
+            margin-top: 1rem;
 
             @media (max-width: 992px) {
                 height: 140px;
@@ -44,7 +44,7 @@
 
         .bar-chart {
             display: flex;
-            margin-top: $default_spacing;
+            margin-top: 1rem;
             align-items: flex-end;
             .bar-el {
                 width: 12.5%;
@@ -61,7 +61,7 @@
         }
 
         .fade-out-graphs {
-            margin-top: $default_spacing;
+            margin-top: 1rem;
             height: 150px;
             overflow: hidden;
             position: relative;
@@ -99,7 +99,7 @@
     .dashboard-select {
         flex: 1;
         @extend .text-ellipsis;
-        padding-right: $default_spacing * 2;
+        padding-right: 2rem;
 
         .ant-select-single {
             max-width: 100%;
@@ -157,7 +157,7 @@
     @media (max-width: 768px) {
         flex-direction: column;
         .dashboard-meta {
-            padding-top: $default_spacing;
+            padding-top: 1rem;
             justify-content: flex-end;
         }
     }

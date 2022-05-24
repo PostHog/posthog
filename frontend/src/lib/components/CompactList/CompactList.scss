@@ -23,7 +23,7 @@
     }
 
     .spacer-container {
-        padding: 0 $default_spacing;
+        padding: 0 1rem;
     }
 
     .scrollable-list {
@@ -34,7 +34,7 @@
 
         .skeleton-container {
             width: 100%;
-            padding: 0 $default_spacing/2;
+            padding: 0 0.5rem;
         }
     }
 }

@@ -14,14 +14,14 @@
             margin: 0 auto;
 
             td {
-                padding: $default_spacing / 2 $default_spacing;
+                padding: 0.5rem 1rem;
                 border-left: 1px solid $border;
                 border-top: 1px solid $border;
                 text-align: center;
 
                 .percentage {
                     font-weight: bold;
-                    padding-bottom: $default_spacing / 4;
+                    padding-bottom: 0.25rem;
                 }
                 &:first-child {
                     border-left: none;

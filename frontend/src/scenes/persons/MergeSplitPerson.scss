@@ -9,7 +9,7 @@
         padding: 8px 0;
         display: flex;
         justify-content: center;
-        margin-bottom: $default_spacing;
+        margin-bottom: 1rem;
     }
 
     .ant-modal-header {
@@ -25,7 +25,7 @@
     }
 
     .ant-col {
-        margin-right: $default_spacing;
+        margin-right: 1rem;
     }
 
     // TODO: consider moving this style globally

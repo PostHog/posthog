@@ -2,10 +2,10 @@
 
 .pay-card {
     box-shadow: var(--shadow-elevation);
-    padding: $default_spacing;
+    padding: 1rem;
     border-radius: $radius;
     border: 1px solid $warning;
-    margin-top: $default_spacing;
+    margin-top: 1rem;
     cursor: pointer;
     position: relative;
     background: $bg_light;
