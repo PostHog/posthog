@@ -5,7 +5,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { CloseOutlined, ArrowLeftOutlined } from '@ant-design/icons'
 import React from 'react'
 import './NPSPrompt.scss'
-import { npsLogicType } from './NPSPromptType'
+import type { npsLogicType } from './NPSPromptType'
 import posthog from 'posthog-js'
 import nps from './nps.svg'
 import { userLogic } from 'scenes/userLogic'
@@ -15,15 +15,15 @@ const NPS_APPEAR_TIMEOUT = 10000
 const NPS_HIDE_TIMEOUT = 3500
 const NPS_LOCALSTORAGE_KEY = 'experimental-nps-v8'
 
-type Step = 0 | 1 | 2 | 3
+export type Step = 0 | 1 | 2 | 3
 
-interface NPSPayload {
+export interface NPSPayload {
     score?: 1 | 3 | 5 // 1 = not disappointed; 3 = somewhat disappointed; 5 = very disappointed
     feedback_score?: string
     feedback_persona?: string
 }
 
-const npsLogic = kea<npsLogicType<NPSPayload, Step>>({
+const npsLogic = kea<npsLogicType>({
     path: ['lib', 'experimental', 'NPSPrompt'],
     selectors: {
         featureFlagEnabled: [

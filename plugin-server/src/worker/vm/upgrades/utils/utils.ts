@@ -3,7 +3,6 @@ import { Plugin } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 import { Client } from 'pg'
 
-import { defaultConfig } from '../../../../config/config'
 import { ClickHouseEvent, Element, Event, TimestampFormat } from '../../../../types'
 import { DB } from '../../../../utils/db/db'
 import { chainToElements, transformPostgresElementsToEventPayloadFormat } from '../../../../utils/db/utils'

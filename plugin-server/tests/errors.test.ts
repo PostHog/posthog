@@ -2,7 +2,8 @@ import { startPluginsServer } from '../src/main/pluginsServer'
 import { Hub, LogLevel, PluginsServerConfig } from '../src/types'
 import { makePiscina } from '../src/worker/piscina'
 import { createPosthog, DummyPostHog } from '../src/worker/vm/extensions/posthog'
-import { delayUntilEventIngested } from './helpers/clickhouse'
+import { delayUntilEventIngested, resetTestDatabaseClickhouse } from './helpers/clickhouse'
+import { resetKafka } from './helpers/kafka'
 import { pluginConfig39 } from './helpers/plugins'
 import { getErrorForPluginConfig, resetTestDatabase } from './helpers/sql'
 
@@ -10,10 +11,7 @@ jest.setTimeout(60000) // 60 sec timeout
 
 const extraServerConfig: Partial<PluginsServerConfig> = {
     WORKER_CONCURRENCY: 2,
-    PLUGINS_CELERY_QUEUE: 'test-plugins-celery-queue-errors',
-    CELERY_DEFAULT_QUEUE: 'test-celery-default-queue-errors',
     LOG_LEVEL: LogLevel.Log,
-    KAFKA_ENABLED: false,
 }
 
 describe('error do not take down ingestion', () => {
@@ -21,8 +19,13 @@ describe('error do not take down ingestion', () => {
     let stopServer: () => Promise<void>
     let posthog: DummyPostHog
 
+    beforeAll(async () => {
+        await resetKafka()
+    })
+
     beforeEach(async () => {
-        await resetTestDatabase(`
+        await resetTestDatabase(
+            `
             export async function processEvent (event, { jobs }) {
                 if (event.properties.crash === 'throw') {
                     throw new Error('error thrown in plugin')
@@ -33,16 +36,14 @@ describe('error do not take down ingestion', () => {
                 }
                 return event
             }
-        `)
+        `,
+            extraServerConfig
+        )
+        await resetTestDatabaseClickhouse(extraServerConfig)
         const startResponse = await startPluginsServer(extraServerConfig, makePiscina)
         hub = startResponse.hub
         stopServer = startResponse.stop
         posthog = createPosthog(hub, pluginConfig39)
-
-        const redis = await hub.redisPool.acquire()
-        await redis.del(hub.PLUGINS_CELERY_QUEUE)
-        await redis.del(hub.CELERY_DEFAULT_QUEUE)
-        await hub.redisPool.release(redis)
     })
 
     afterEach(async () => {

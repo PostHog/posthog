@@ -61,7 +61,6 @@ export async function startPluginsServer(
     let hub: Hub | undefined
     let piscina: Piscina | undefined
     let queue: Queue | undefined | null // ingestion queue
-    let redisQueueForPluginJobs: Queue | undefined | null
     let healthCheckConsumer: Consumer | undefined
     let jobQueueConsumer: JobQueueConsumerControl | undefined
     let closeHub: () => Promise<void> | undefined
@@ -87,7 +86,6 @@ export async function startPluginsServer(
         lastActivityCheck && clearInterval(lastActivityCheck)
         cancelAllScheduledJobs()
         await queue?.stop()
-        await redisQueueForPluginJobs?.stop()
         await pubSub?.stop()
         await jobQueueConsumer?.stop()
         await pluginScheduleControl?.stopSchedule()
@@ -160,23 +158,18 @@ export async function startPluginsServer(
 
         const queues = await startQueues(hub, piscina)
 
-        // `queue` refers to the ingestion queue. With Celery ingestion, we only
-        // have one queue for plugin jobs and ingestion. With Kafka ingestion, we
-        // use Kafka for events but still start Redis for plugin jobs.
-        // Thus, if Kafka is disabled, we don't need to call anything on
-        // redisQueueForPluginJobs, as that will also be the ingestion queue.
+        // `queue` refers to the ingestion queue.
         queue = queues.ingestion
-        redisQueueForPluginJobs = config.KAFKA_ENABLED ? queues.auxiliary : null
         piscina.on('drain', () => {
             void queue?.resume()
-            void redisQueueForPluginJobs?.resume()
             void jobQueueConsumer?.resume()
         })
 
         // use one extra Redis connection for pub-sub
         pubSub = new PubSub(hub, {
             [hub.PLUGINS_RELOAD_PUBSUB_CHANNEL]: async () => {
-                // wait for 30 seconds before reloading plugins to reduce joint load from "rage" config updates
+                // KLUDGE:  wait for 30 seconds before reloading plugins to reduce joint load from "rage" config updates
+                // we should be smarter about reloads using some breakpoint-like mechanism
                 if (determineNodeEnv() === NodeEnv.Production) {
                     await delay(30 * 1000)
                 }
@@ -185,10 +178,14 @@ export async function startPluginsServer(
                 await piscina?.broadcastTask({ task: 'reloadPlugins' })
                 await pluginScheduleControl?.reloadSchedule()
             },
-            'reload-action': async (message) =>
-                await piscina?.broadcastTask({ task: 'reloadAction', args: JSON.parse(message) }),
-            'drop-action': async (message) =>
-                await piscina?.broadcastTask({ task: 'dropAction', args: JSON.parse(message) }),
+            ...(hub.capabilities.processAsyncHandlers
+                ? {
+                      'reload-action': async (message) =>
+                          await piscina?.broadcastTask({ task: 'reloadAction', args: JSON.parse(message) }),
+                      'drop-action': async (message) =>
+                          await piscina?.broadcastTask({ task: 'dropAction', args: JSON.parse(message) }),
+                  }
+                : {}),
         })
 
         await pubSub.start()

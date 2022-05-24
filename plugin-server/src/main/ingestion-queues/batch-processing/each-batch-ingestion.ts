@@ -1,7 +1,26 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
+import { EachBatchPayload, KafkaMessage } from 'kafkajs'
 
-import { Hub, WorkerMethods } from '../../types'
-import { status } from '../../utils/status'
+import { Hub, WorkerMethods } from '../../../types'
+import { status } from '../../../utils/status'
+import { sanitizeEvent } from '../../../utils/utils'
+import { KafkaQueue } from '../kafka-queue'
+import { eachBatch } from './each-batch'
+
+export async function eachMessageIngestion(message: KafkaMessage, queue: KafkaQueue): Promise<void> {
+    const { data: dataStr, ...rawEvent } = JSON.parse(message.value!.toString())
+    const combinedEvent = { ...rawEvent, ...JSON.parse(dataStr) }
+    const event: PluginEvent = sanitizeEvent({
+        ...combinedEvent,
+        site_url: combinedEvent.site_url || null,
+        ip: combinedEvent.ip || null,
+    })
+    await ingestEvent(queue.pluginsServer, queue.workerMethods, event)
+}
+
+export async function eachBatchIngestion(payload: EachBatchPayload, queue: KafkaQueue): Promise<void> {
+    await eachBatch(payload, queue, eachMessageIngestion, 'ingestion')
+}
 
 export async function ingestEvent(
     server: Hub,
