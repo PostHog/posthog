@@ -8,48 +8,64 @@ Font weights: only `normal` (400), `var(--font-medium)` (500) or `bold` (700) sh
 
 // Global components
 @import 'react-toastify/dist/ReactToastify';
-@import 'vars';
+@import 'breakpoints';
 @import 'fonts';
+
+// These vars are modified via SCSS for legacy reasons (e.g. darken/lighten), so keeping as SCSS vars for now.
+$primary: #5375ff;
+$primary_alt: #35416b;
+$primary_bg_hover: rgba($primary, 0.1);
+$primary_bg_active: rgba($primary, 0.2);
+$warning: #f7a501;
+$danger: #f96132;
+$text_default: #2d2d2d;
+$text_light: rgba(255, 255, 255, 0.88);
+$bg_menu: #2c3035;
+$border: rgba(0, 0, 0, 0.15);
+$lifecycle_new: #99c5ff;
+$lifecycle_returning: #71b96b;
+$lifecycle_resurrecting: #c277cf;
+$lifecycle_dormant: #f86234;
 
 :root {
     --primary: #{$primary};
     --primary-alt: #{$primary_alt};
-    --primary-hover: #{$primary_hover};
-    --primary-active: #{$primary_active};
+    --primary-hover: #839af8;
+    --primary-active: #3d57d9;
     --primary-bg-hover: #{$primary_bg_hover};
     --primary-bg-active: #{$primary_bg_active};
-    --success: #{$success};
+    --success: #77b96c;
     --danger: #{$danger};
-    --danger-hover: #{$danger_hover};
-    --danger-active: #{$danger_active};
-    --danger-bridge: #{$danger_bridge};
+    --danger-hover: #fa754c;
+    --danger-active: #f9430b;
+    --danger-bridge: #df4313;
     --warning: #{$warning};
-    --warning-hover: #{$warning_hover};
-    --warning-active: #{$warning_active};
-    --brand-blue: #{$brand_blue};
-    --brand-blue-active: #{$brand_blue_active};
-    --brand-yellow: #{$brand_yellow};
-    --brand-red: #{$brand_red};
+    --warning-hover: #f3ba3e;
+    --warning-active: #e69900;
+    --brand-blue: #1d4aff;
+    --brand-blue-active: #2148e4;
+    --brand-yellow: #f9bd2b;
+    --brand-red: #f54e00;
     --bg-menu: #{$bg_menu};
-    --bg-mid: #{$bg_mid};
-    --bg-side: #{$bg_side};
-    --bg-depth: #{$bg_depth};
-    --bg-navy: #{$bg_navy};
-    --bg-charcoal: #{$bg_charcoal};
-    --bg-bridge: #{$bg_bridge};
-    --bg-shaded: #{$bg_shaded};
-    --bg-light: #{$bg_light};
-    --bg-overlay: #{$bg_overlay};
+    --bg-mid: #f2f2f2;
+    --bg-side: #fafaf9;
+    --bg-depth: #0f0f0f;
+    --bg-navy: #35416b;
+    --bg-charcoal: #2d2d2d;
+    --bg-bridge: #ebece8;
+    --bg-shaded: rgba(0, 0, 0, 0.05);
+    --bg-light: #ffffff;
+    --bg-overlay: #333333;
     --text-default: #{$text_default};
-    --text-muted: #{$text_muted};
     --text-light: #{$text_light};
-    --muted: #{$text_muted};
-    --muted-alt: #{$text_muted_alt};
-    --mark-color: #{$mark_color};
-    --border-light: #{$border_light};
+    --muted: rgba(0, 0, 0, 0.5);
+    --muted-alt: #747ea1;
+    --text-muted: var(--muted);
+    --mark-color: #fdedc9;
+    --border-light: rgba(0, 0, 0, 0.08);
     --border: #{$border};
-    --border-dark: #{$border_dark};
-    --border-active: #{$border_active};
+    --border-dark: rgba(0, 0, 0, 0.24);
+    --border-active: rgba(0, 0, 0, 0.36);
     --radius: 4px;
     --shadow-elevation: 0px 16px 16px -16px rgba(0, 0, 0, 0.35);
     --opacity-disabled: 0.6;
@@ -58,13 +74,16 @@ Font weights: only `normal` (400), `var(--font-medium)` (500) or `bold` (700) sh
     --light-grey: #f2f2f2;
     --error-red: #bf411a;
     // LEGACY data colors (e.g. insight series). Note: colors.ts relies on these values being hexadecimal
-    --blue: #{$blue_500};
-    --blue-light: #{$blue_300};
-    --purple: #{$purple_500};
-    --indigo: #{$purple_700};
-    --purple-light: #{$purple_300};
+    --blue: #597dce;
+    --blue-light: #8da9e7;
+    --blue-lightest: #b8cefds;
+    --purple: #c278cf;
+    --indigo: #7c4286;
+    --purple-light: #dcb1e3;
     --salmon: #ff906e;
     --yellow: #ffc035;
+    --yellow-light: #fbdd99;
+    --yellow-lightest: #fdedc9;
     --green: var(--success);
     --cyan: #17a2b8;
     --pink: #e83e8c;
@@ -179,8 +198,6 @@ Font weights: only `normal` (400), `var(--font-medium)` (500) or `bold` (700) sh
     --depr-rgba-primary-0-25: rgba($primary, 0.25);
     --depr-rgba-primary_alt-0-25: rgba($primary_alt, 0.25);
     --depr-darken-bg_menu-10: darken($bg_menu, 10%);
-    --depr-yellow-50: #{$yellow_50};
-    --depr-purple-300: #{$purple_300};
 }
 
 // Text styles
@@ -596,7 +613,7 @@ input::-ms-clear {
 
 @keyframes highlight {
     0% {
-        background-color: $yellow_50;
+        background-color: var(--yellow-lightest);
     }
     100% {
         background-color: initial;
@@ -976,7 +993,7 @@ input::-ms-clear {
     }
 
     &.and {
-        background-color: $yellow_100;
+        background-color: var(--yellow-light);
         color: var(--primary-alt);
     }
 
@@ -994,7 +1011,7 @@ input::-ms-clear {
     padding: 2px 6px;
 
     &.tag-light-blue {
-        background-color: $blue_100;
+        background-color: var(--blue-lightest);
     }
 }
 
