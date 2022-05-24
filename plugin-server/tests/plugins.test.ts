@@ -214,7 +214,7 @@ describe('plugins', () => {
         const pluginConfig = pluginConfigs.get(39)!
         pluginConfig.vm!.totalInitAttemptsCounter = 20 // prevent more retries
         await delay(4000) // processError is called at end of retries
-        expect(await pluginConfig.vm!.getTasks(PluginTaskType.Schedule)).toEqual({})
+        expect(await pluginConfig.vm!.getScheduledTasks()).toEqual({})
 
         const event = { event: '$test', properties: {}, team_id: 2 } as PluginEvent
         const returnedEvent = await runProcessEvent(hub, { ...event })
@@ -241,7 +241,7 @@ describe('plugins', () => {
         const pluginConfig = pluginConfigs.get(39)!
         pluginConfig.vm!.totalInitAttemptsCounter = 20 // prevent more retries
         await delay(4000) // processError is called at end of retries
-        expect(await pluginConfig.vm!.getTasks(PluginTaskType.Schedule)).toEqual({})
+        expect(await pluginConfig.vm!.getScheduledTasks()).toEqual({})
 
         const event = { event: '$test', properties: {}, team_id: 2 } as PluginEvent
         const returnedEvent = await runProcessEvent(hub, { ...event })
@@ -310,7 +310,7 @@ describe('plugins', () => {
         await setupPlugins(hub)
         const { pluginConfigs } = hub
 
-        expect(await pluginConfigs.get(39)!.vm!.getTasks(PluginTaskType.Schedule)).toEqual({})
+        expect(await pluginConfigs.get(39)!.vm!.getScheduledTasks()).toEqual({})
 
         const event = { event: '$test', properties: {}, team_id: 2 } as PluginEvent
         const returnedEvent = await runProcessEvent(hub, { ...event })
@@ -344,7 +344,7 @@ describe('plugins', () => {
         await setupPlugins(hub)
         const { pluginConfigs } = hub
 
-        expect(await pluginConfigs.get(39)!.vm!.getTasks(PluginTaskType.Schedule)).toEqual({})
+        expect(await pluginConfigs.get(39)!.vm!.getScheduledTasks()).toEqual({})
 
         const event = { event: '$test', properties: {}, team_id: 2 } as PluginEvent
         const returnedEvent = await runProcessEvent(hub, { ...event })
@@ -378,7 +378,7 @@ describe('plugins', () => {
         await setupPlugins(hub)
         const { pluginConfigs } = hub
 
-        expect(await pluginConfigs.get(39)!.vm!.getTasks(PluginTaskType.Schedule)).toEqual({})
+        expect(await pluginConfigs.get(39)!.vm!.getScheduledTasks()).toEqual({})
 
         const event = { event: '$test', properties: {}, team_id: 2 } as PluginEvent
         const returnedEvent = await runProcessEvent(hub, { ...event })
@@ -417,7 +417,7 @@ describe('plugins', () => {
             `Could not load "plugin.json" for plugin test-maxmind-plugin ID ${plugin60.id} (organization ID ${commonOrganizationId})`
         )
 
-        expect(await pluginConfigs.get(39)!.vm!.getTasks(PluginTaskType.Schedule)).toEqual({})
+        expect(await pluginConfigs.get(39)!.vm!.getScheduledTasks()).toEqual({})
     })
 
     test('local plugin with broken plugin.json does not do much', async () => {
@@ -441,7 +441,7 @@ describe('plugins', () => {
             pluginConfigs.get(39)!,
             expect.stringContaining('Could not load "plugin.json" for plugin ')
         )
-        expect(await pluginConfigs.get(39)!.vm!.getTasks(PluginTaskType.Schedule)).toEqual({})
+        expect(await pluginConfigs.get(39)!.vm!.getScheduledTasks()).toEqual({})
 
         unlink()
     })
@@ -464,7 +464,7 @@ describe('plugins', () => {
             pluginConfigs.get(39)!,
             `Plugin plugin test-maxmind-plugin ID ${plugin60.id} (organization ID ${commonOrganizationId} - global) is not a local, remote or source plugin. Can not load.`
         )
-        expect(await pluginConfigs.get(39)!.vm!.getTasks(PluginTaskType.Schedule)).toEqual({})
+        expect(await pluginConfigs.get(39)!.vm!.getScheduledTasks()).toEqual({})
     })
 
     test("plugin with broken archive doesn't load", async () => {
@@ -485,7 +485,7 @@ describe('plugins', () => {
             pluginConfigs.get(39)!,
             Error('Could not read archive as .zip or .tgz')
         )
-        expect(await pluginConfigs.get(39)!.vm!.getTasks(PluginTaskType.Schedule)).toEqual({})
+        expect(await pluginConfigs.get(39)!.vm!.getScheduledTasks()).toEqual({})
     })
 
     test('plugin config order', async () => {
@@ -837,7 +837,7 @@ exports.scene = scene;; return exports; }`)
     })
 
     describe('loadSchedule()', () => {
-        const mockConfig = (tasks: any) => ({ vm: { getTasks: () => Promise.resolve(tasks) } })
+        const mockConfig = (tasks: any) => ({ vm: { getScheduledTasks: () => Promise.resolve(tasks) } })
 
         const hub = {
             pluginConfigs: new Map(

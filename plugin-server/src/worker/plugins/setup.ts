@@ -129,7 +129,7 @@ export async function loadSchedule(server: Hub): Promise<void> {
     let count = 0
 
     for (const [id, pluginConfig] of server.pluginConfigs) {
-        const tasks = (await pluginConfig.vm?.getTasks(PluginTaskType.Schedule)) ?? {}
+        const tasks = (await pluginConfig.vm?.getScheduledTasks()) ?? {}
         for (const [taskName, task] of Object.entries(tasks)) {
             if (task && taskName in pluginSchedule) {
                 pluginSchedule[taskName].push(id)
