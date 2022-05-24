@@ -70,35 +70,26 @@ class ObjectStorage(S3):
             raise ObjectStorageError("write failed") from e
 
 
-s3_client: S3 = UnavailableStorage()
-
-
-def storage_client() -> S3:
-    global s3_client
-
-    if settings.OBJECT_STORAGE_ENABLED and isinstance(s3_client, UnavailableStorage):
-        s3_client = ObjectStorage(
-            client(
-                "s3",
-                endpoint_url=settings.OBJECT_STORAGE_ENDPOINT,
-                aws_access_key_id=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
-                aws_secret_access_key=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
-                config=Config(signature_version="s3v4", connect_timeout=1, retries={"max_attempts": 1}),
-                region_name="us-east-1",
-            ),
-            bucket=settings.OBJECT_STORAGE_BUCKET,
-        )
-
-    return s3_client
+s3_client: S3 = ObjectStorage(
+    client(
+        "s3",
+        endpoint_url=settings.OBJECT_STORAGE_ENDPOINT,
+        aws_access_key_id=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+        aws_secret_access_key=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+        config=Config(signature_version="s3v4", connect_timeout=1, retries={"max_attempts": 1}),
+        region_name="us-east-1",
+    ),
+    bucket=settings.OBJECT_STORAGE_BUCKET,
+) if settings.OBJECT_STORAGE_ENABLED else UnavailableStorage()
 
 
 def write(file_name: str, content: str) -> None:
-    return storage_client().write(bucket=settings.OBJECT_STORAGE_BUCKET, key=file_name, content=content)
+    return s3_client.write(bucket=settings.OBJECT_STORAGE_BUCKET, key=file_name, content=content)
 
 
 def read(file_name: str) -> Optional[str]:
-    return storage_client().read(bucket=settings.OBJECT_STORAGE_BUCKET, key=file_name)
+    return s3_client.read(bucket=settings.OBJECT_STORAGE_BUCKET, key=file_name)
 
 
 def health_check() -> bool:
-    return storage_client().head_bucket(settings.OBJECT_STORAGE_BUCKET)
+    return s3_client.head_bucket(settings.OBJECT_STORAGE_BUCKET)
