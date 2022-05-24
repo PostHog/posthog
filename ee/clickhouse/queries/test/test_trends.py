@@ -1568,37 +1568,9 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
         # While we're waiting to upgrade to a newer version, a workaround is to set `optimize_move_to_prewhere = 0`
         # Only happens in the materialized version
 
-        journey = {
-            "person1": [
-                {
-                    "event": "watched movie",
-                    "timestamp": datetime(2020, 1, 1, 12),
-                    "properties": {"email": "posthog.com"},
-                },
-            ],
-            "person2": [
-                {
-                    "event": "watched movie",
-                    "timestamp": datetime(2020, 1, 1, 12),
-                    "properties": {"email": "neil@posthog.com"},
-                },
-                {
-                    "event": "watched movie",
-                    "timestamp": datetime(2020, 1, 2, 12),
-                    "properties": {"email": "2@posthug"},
-                },
-            ],
-            "person3": [
-                {"event": "watched movie", "timestamp": datetime(2020, 1, 1, 12), "properties": {"order": "1"},},
-                {"event": "watched movie", "timestamp": datetime(2020, 1, 2, 12), "properties": {"order": "2"},},
-                {"event": "watched movie", "timestamp": datetime(2020, 1, 3, 12), "properties": {"order": "2"},},
-            ],
-            "person4": [
-                {"event": "watched movie", "timestamp": datetime(2020, 1, 5, 12), "properties": {"order": "1"},},
-            ],
-        }
-
-        journeys_for(events_by_person=journey, team=self.team)
+        # The requirements to end up in this case is
+        # 1. Having a JOIN
+        # 2. Having multiple properties that filter on the same value
 
         with freeze_time("2020-01-04T13:01:01Z"):
             event_response = ClickhouseTrends().run(
@@ -1615,5 +1587,3 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
                 ),
                 self.team,
             )
-
-        self.assertEqual(event_response[0]["count"], 4)
