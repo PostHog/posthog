@@ -27,11 +27,7 @@ export function ConfirmOrganization(): JSX.Element {
                 <p className="ConfirmOrganization__title">Create a new organization</p>
                 <div className="ConfirmOrganization__help-box">
                     <div>
-                        <IconHelpOutline
-                            width={'1.5rem'}
-                            height={'1.5rem'}
-                            style={{ color: 'var(--warning)' }}
-                         />
+                        <IconHelpOutline width={'1.5rem'} height={'1.5rem'} style={{ color: 'var(--warning)' }} />
                     </div>
                     <div style={{ flex: 1 }} className="ml">
                         <p>
@@ -47,7 +43,7 @@ export function ConfirmOrganization(): JSX.Element {
                         <LemonInput className="ph-ignore-input" value={email} disabled />
                     </Field>
 
-                    <Field name="user_name" label="Your name">
+                    <Field name="first_name" label="Your name">
                         <LemonInput className="ph-ignore-input" placeholder="Jane Doe" />
                     </Field>
 

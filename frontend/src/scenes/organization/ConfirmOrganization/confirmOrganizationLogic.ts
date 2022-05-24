@@ -9,7 +9,7 @@ import { lemonToast } from 'lib/components/lemonToast'
 
 interface ConfirmOrganizationFormValues {
     organization_name?: string
-    user_name?: string
+    first_name?: string
 }
 
 export const confirmOrganizationLogic = kea<confirmOrganizationLogicType<ConfirmOrganizationFormValues>>([
@@ -33,13 +33,12 @@ export const confirmOrganizationLogic = kea<confirmOrganizationLogicType<Confirm
     forms(() => ({
         confirmOrganization: {
             defaults: {} as ConfirmOrganizationFormValues,
-            errors: ({ organization_name, user_name }) => ({
-                user_name: !user_name ? 'Please enter your name' : undefined,
+            errors: ({ organization_name, first_name }) => ({
+                first_name: !first_name ? 'Please enter your name' : undefined,
                 organization_name: !organization_name ? 'Please enter your organization name' : undefined,
             }),
 
             submit: async (formValues) => {
-                console.log('submit2', formValues)
                 try {
                     const response = await api.create('api/social_signup/', {
                         ...formValues,
@@ -53,9 +52,8 @@ export const confirmOrganizationLogic = kea<confirmOrganizationLogicType<Confirm
     })),
 
     urlToAction(({ actions }) => ({
-        '/organization/confirm-creation': (_, { email, organization_name, user_name }) => {
-            console.log('confirm-creation', email, organization_name, user_name)
-            actions.setConfirmOrganizationValues({ organization_name, user_name })
+        '/organization/confirm-creation': (_, { email, organization_name, first_name }) => {
+            actions.setConfirmOrganizationValues({ organization_name, first_name })
             actions.setEmail(email)
         },
     })),

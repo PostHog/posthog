@@ -1,4 +1,5 @@
 from typing import Any, Dict, Optional, Union, cast
+from urllib.parse import urlencode
 
 import structlog
 from django import forms
@@ -433,9 +434,12 @@ def social_create_user(strategy: DjangoStrategy, details, backend, request, user
                 else:
                     return redirect("/login?error_code=no_new_organizations")
             strategy.session_set("email", email)
-            organization_name = strategy.session_get("organization_name", None)
+            organization_name_for_url = urlencode(strategy.session_get("organization_name", ""))
+            full_name_for_url = urlencode(full_name) or ""
+            email_for_url = urlencode(email) or ""
+
             return redirect(
-                f"/organization/confirm-creation?organization_name={organization_name}&full_name={full_name}&email={email}",
+                f"/organization/confirm-creation?organization_name={organization_name_for_url}&first_name={full_name_for_url}&email={email_for_url}",
             )
 
     report_user_signed_up(
