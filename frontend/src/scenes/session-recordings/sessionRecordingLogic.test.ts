@@ -258,8 +258,8 @@ describe('sessionRecordingLogic', () => {
                 .toDispatchActions(['loadRecordingMeta', 'loadRecordingMetaSuccess', 'loadEvents'])
                 .toMatchValues({
                     eventsApiParams: {
-                        after: '2021-12-09T19:35:59+00:00',
-                        before: '2021-12-09T20:23:24+00:00',
+                        after: '2021-12-09T19:35:59Z',
+                        before: '2021-12-09T20:23:24Z',
                         person_id: 1,
                         orderBy: ['timestamp'],
                     },
