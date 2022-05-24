@@ -68,7 +68,8 @@ class FunnelEventQuery(EnterpriseEventQuery):
             if self._column_optimizer.person_columns_to_query:
                 _fields += [f"{self.EVENT_TABLE_ALIAS}.person_properties AS person_properties"]
         else:
-            _fields += [f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id as person_id"]
+            if self._should_join_distinct_ids:
+                _fields += [f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id as person_id"]
             _fields.extend(
                 f"groups_{group_index}.group_properties_{group_index} as group_properties_{group_index}"
                 for group_index in self._column_optimizer.group_types_to_query
