@@ -17,7 +17,6 @@ import { Job } from 'node-schedule'
 import { Pool } from 'pg'
 import { VM } from 'vm2'
 
-import { ObjectStorage } from './main/services/object_storage'
 import { DB } from './utils/db/db'
 import { KafkaProducerWrapper } from './utils/db/kafka-producer-wrapper'
 import { InternalMetrics } from './utils/internal-metrics'
@@ -163,7 +162,6 @@ export interface Hub extends PluginsServerConfig {
     clickhouse: ClickHouse
     kafka: Kafka
     kafkaProducer: KafkaProducerWrapper
-    objectStorage: ObjectStorage
     // metrics
     statsd?: StatsD
     internalMetrics?: InternalMetrics
