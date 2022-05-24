@@ -55,6 +55,7 @@ export async function startPluginsServer(
         ...config,
     }
 
+    status.updatePrompt(serverConfig.PLUGIN_SERVER_MODE)
     status.info('ℹ️', `${serverConfig.WORKER_CONCURRENCY} workers, ${serverConfig.TASKS_PER_WORKER} tasks per worker`)
 
     let pubSub: PubSub | undefined

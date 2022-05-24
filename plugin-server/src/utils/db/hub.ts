@@ -61,6 +61,7 @@ export async function createHub(
     if (capabilities === null) {
         capabilities = getPluginServerCapabilities(serverConfig)
     }
+    status.updatePrompt(serverConfig.PLUGIN_SERVER_MODE)
     const instanceId = new UUIDT()
 
     let statsd: StatsD | undefined
