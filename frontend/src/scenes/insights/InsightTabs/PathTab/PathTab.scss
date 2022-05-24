@@ -34,7 +34,7 @@
 .path-filters {
     .ant-collapse > .ant-collapse-item > .ant-collapse-header {
         padding-left: 0;
-        color: $primary-alt;
+        color: var(--primary-alt);
         font-weight: 600;
     }
 

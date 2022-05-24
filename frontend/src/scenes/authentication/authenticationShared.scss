@@ -11,7 +11,7 @@
         bottom: 0;
         left: 0;
         width: 100%;
-        background: $sky;
+        background: linear-gradient(180deg, #373088 0%, #d05783 60.94%, #ffb269 100%);
 
         .the-mountains {
             z-index: var(--z-city-background-image);

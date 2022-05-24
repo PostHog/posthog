@@ -68,8 +68,8 @@ $editor_panel_width: min(28rem, 50%);
     .ant-tabs-tab {
         .hotkey {
             margin-bottom: 0;
-            background-color: rgba($primary, 0.1) !important;
-            border-color: rgba($primary, 0.1) !important;
+            background-color: var(--primary-bg-hover) !important;
+            border-color: var(--primary-bg-hover) !important;
         }
         // TODO: Remove deprecated style if we fully remove or actively support again
         .deprecated {
@@ -91,7 +91,7 @@ $editor_panel_width: min(28rem, 50%);
     .ant-tabs-tab:not(.ant-tabs-tab-active):hover {
         // TODO: If we remove deprecated tabs, remove the :not selector below
         .hotkey {
-            background-color: rgba($primary, 0.2) !important;
+            background-color: var(--primary-bg-active) !important;
         }
         .deprecated {
             .hotkey {

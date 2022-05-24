@@ -2,7 +2,7 @@
 
 .starry-background {
     height: 100%;
-    background: $night_sky;
+    background: linear-gradient(180deg, #200c39 0%, #373088 75%, #4a3587 100%);
 
     .stars {
         z-index: var(--z-city-background-image);

@@ -65,25 +65,6 @@ $funnel_axis: $border_dark;
 $funnel_axis_label: $text_muted;
 $antd_table_background_dark: #fafafa;
 
-// Session Recording
-$recording_player_container_bg: #797973;
-$recording_buffer_bg: #faaf8c;
-$recording_hover_event: rgba($primary, 0.1);
-$recording_hover_event_mid: rgba($primary, 0.2);
-$recording_hover_event_dark: $primary;
-$recording_current_event: #eef2ff;
-$recording_current_event_dark: #35416b;
-$recording_failure_event: #fee9e2;
-$recording_failure_event_dark: #cd3000;
-$recording_highlight_event: #fdedc9;
-$recording_highlight_event_dark: #946508;
-
-// Taxonomy
-$taxonomy_icon_muted: #747ea1;
-
-// Error state
-$error_red: #bf411a;
-
 // Blue Swatch
 $blue_700: #35416b;
 $blue_500: #597dce;
@@ -100,21 +81,6 @@ $yellow_50: #fdedc9;
 $purple_700: #7c4286;
 $purple_500: #c278cf;
 $purple_300: #dcb1e3;
-
-// High-contrast colors
-$hc_navy: #35416b; // paired with $hc_light_lilac or $hc_yellow
-$hc_light_lilac: #ead1ee; // paired with $hc_navy
-$hc_yellow: #fbd577;
-
-// Gradients - DEPRECATED
-$sky: linear-gradient(180deg, #373088 0%, #d05783 60.94%, #ffb269 100%);
-$dusk_sky: linear-gradient(180deg, #20305a 0%, #373088 33.85%, #d05783 100%);
-$night_sky: linear-gradient(180deg, #200c39 0%, #373088 75%, #4a3587 100%);
-$space: linear-gradient(180deg, #0a092a 0%, #271955 100%);
-
-// From chris' figma designs
-$dark-grey: #d9d9d9;
-$light-grey: #f2f2f2;
 
 // Additional style configurations
 %mixin-base-bordered-card {
@@ -143,22 +109,12 @@ $light-grey: #f2f2f2;
     bottom: 0;
 }
 
-$default_spacing: 1rem;
-$radius: 4px;
-$opacity_disabled: 0.6;
-
-// Recordings
-$recording_spacing: calc(2rem / 3);
-
 .text-ellipsis {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
     max-width: calc(100% - 8px);
 }
-
-// Shadows
-$shadow_elevation: 0px 16px 16px -16px rgba(0, 0, 0, 0.35);
 
 // Breakpoints (from AntD)
 $sm: 576px;

@@ -50,10 +50,13 @@ Font weights: only `normal` (400), `var(--font-medium)` (500) or `bold` (700) sh
     --border: #{$border};
     --border-dark: #{$border_dark};
     --border-active: #{$border_active};
-    --radius: #{$radius};
-    --shadow-elevation: #{$shadow_elevation};
-    --opacity-disabled: #{$opacity_disabled};
+    --radius: 4px;
+    --shadow-elevation: 0px 16px 16px -16px rgba(0, 0, 0, 0.35);
+    --opacity-disabled: 0.6;
     --font-medium: 500;
+    --dark-grey: #d9d9d9;
+    --light-grey: #f2f2f2;
+    --error-red: #bf411a;
     // LEGACY data colors (e.g. insight series). Note: colors.ts relies on these values being hexadecimal
     --blue: #{$blue_500};
     --blue-light: #{$blue_300};
@@ -107,6 +110,20 @@ Font weights: only `normal` (400), `var(--font-medium)` (500) or `bold` (700) sh
     --funnel-axis-label: var(--text-muted);
     --funnel-canvas-background: #ffffff;
     --antd-table-background-dark: #fafafa;
+    // Session Recording
+    --recording-spacing: calc(2rem / 3);
+    --recording-player-container-bg: #797973;
+    --recording-buffer-bg: #faaf8c;
+    --recording-hover-event: var(--primary-bg-hover);
+    --recording-hover-event-mid: var(--primary-bg-active);
+    --recording-hover-event-dark: var(--primary);
+    --recording-current-event: #eef2ff;
+    --recording-current-event-dark: #35416b;
+    --recording-failure-event: #fee9e2;
+    --recording-failure-event-dark: #cd3000;
+    --recording-highlight-event: #fdedc9;
+    --recording-highlight-event-dark: #946508;
+
     // Z-indexes, synced with vars.ts
     --z-nps-overlay: 5200;
     --z-bottom-notice: 5100;
@@ -131,7 +148,7 @@ Font weights: only `normal` (400), `var(--font-medium)` (500) or `bold` (700) sh
     --z-city-background-image: 0;
 
     // Taxonomy
-    --taxonomy-icon-muted: #{$taxonomy_icon_muted};
+    --taxonomy-icon-muted: #747ea1;
     // Toasts
     --toastify-color-info: var(--primary);
     --toastify-color-success: var(--success);
@@ -196,7 +213,7 @@ body strong {
     min-height: 2.5rem;
     gap: 0.5rem 1rem;
     margin: 1.25rem 0 0.25rem;
-    @media screen and (min-width: $md) {
+    @media screen and (min-width: var(--md)) {
         flex-wrap: nowrap;
     }
     .ant-form-item {
@@ -240,7 +257,7 @@ body strong {
     font-weight: bold;
 
     &.highlighted {
-        padding: $default_spacing $default_spacing $default_spacing 0.5rem;
+        padding: 1rem 1rem 1rem 0.5rem;
     }
 }
 
@@ -340,11 +357,11 @@ code.code {
 // Spacing & layout
 
 .mb {
-    margin-bottom: $default_spacing;
+    margin-bottom: 1rem;
 }
 
 .mt {
-    margin-top: $default_spacing;
+    margin-top: 1rem;
 }
 
 .mb-2 {
@@ -376,11 +393,11 @@ code.code {
 }
 
 .mr {
-    margin-right: $default_spacing;
+    margin-right: 1rem;
 }
 
 .ml {
-    margin-left: $default_spacing;
+    margin-left: 1rem;
 }
 
 .ml-2 {
@@ -415,11 +432,11 @@ code.code {
 
 .pa {
     // Padding all
-    padding: $default_spacing;
+    padding: 1rem;
 }
 
 .pb {
-    padding-bottom: $default_spacing;
+    padding-bottom: 1rem;
 }
 
 .pb-05 {
@@ -427,15 +444,15 @@ code.code {
 }
 
 .pt {
-    padding-top: $default_spacing;
+    padding-top: 1rem;
 }
 
 .pr {
-    padding-right: $default_spacing;
+    padding-right: 1rem;
 }
 
 .pl {
-    padding-left: $default_spacing;
+    padding-left: 1rem;
 }
 
 .space-y-05 {
@@ -681,7 +698,7 @@ input::-ms-clear {
 // Form & input styles
 
 .input-set {
-    padding-bottom: $default_spacing;
+    padding-bottom: 1rem;
     color: var(--text-default);
 
     label {
@@ -815,7 +832,7 @@ input::-ms-clear {
 // Bottom notice (DEBUG=1 mode)
 
 #bottom-notice {
-    z-index: var(--z-bottom_notice);
+    z-index: var(--z-bottom-notice);
     display: flex !important;
     flex-direction: row;
     position: fixed;
@@ -925,7 +942,7 @@ input::-ms-clear {
 
     &.or-light-grey {
         font-family: Inter;
-        background-color: $light-grey;
+        background-color: var(--light-grey);
         text-align: center;
         max-width: 50px;
     }

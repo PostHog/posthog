@@ -1,5 +1,3 @@
-@import '~/vars';
-
 $slider-height: 16px;
 $thumb_size: 15px;
 $tick_size: 9px;
@@ -48,7 +46,7 @@ $tick_hover_size: 5px;
         .buffer-bar {
             z-index: 2;
             transition: width 200ms;
-            background-color: $recording_buffer_bg;
+            background-color: var(--recording-buffer-bg);
             position: absolute;
             height: 2px;
             top: ($slider-height - 2px) / 2;
@@ -102,7 +100,7 @@ $tick_hover_size: 5px;
                 position: absolute;
                 width: 1px;
                 height: 21px;
-                background-color: $recording_player_container_bg;
+                background-color: var(--recording-player-container-bg);
                 right: floor($tick_hover_size / 2);
             }
 
@@ -130,7 +128,7 @@ $tick_hover_size: 5px;
                 border-radius: 50%;
                 right: -1 * floor($tick_size / 2) + floor($tick_hover_size / 2);
                 top: -1 * floor($tick_size / 2);
-                border: 0.5px solid $recording_player_container_bg;
+                border: 0.5px solid var(--recording-player-container-bg);
                 background-color: var(--bg-light);
                 transform-origin: center;
                 transition: transform 200ms;

@@ -75,7 +75,7 @@
 
     .Preflight__cannot-continue {
         background-color: var(--bg-side);
-        border: 2px solid $light-grey;
+        border: 2px solid var(--light-grey);
         display: flex;
         align-items: center;
         justify-content: center;

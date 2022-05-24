@@ -129,11 +129,11 @@
 
             .ant-form-item-explain-error {
                 margin-top: 0.5rem;
-                color: $error_red;
+                color: var(--error-red);
             }
 
             .ant-form-item-label {
-                padding: 0px;
+                padding: 0;
             }
         }
 
@@ -222,7 +222,7 @@
         width: 100%;
         background: rgba(83, 117, 255, 0.1);
         border-radius: 4px;
-        margin-bottom: $default_spacing;
+        margin-bottom: 1rem;
     }
 
     .feature-flag-mods {
@@ -230,7 +230,7 @@
         width: 100%;
         background: #f6ebf8;
         border-radius: 4px;
-        margin-bottom: $default_spacing;
+        margin-bottom: 1rem;
     }
 
     .ant-collapse-content-box {
@@ -261,7 +261,7 @@
         display: flex;
         justify-content: center;
         align-items: center;
-        margin-top: $default_spacing;
+        margin-top: 1rem;
         background-color: var(--bg-side);
         border: 1px solid var(--border);
         width: 100%;
@@ -290,8 +290,8 @@
 
 .experiment-preview-row {
     border-bottom: 1px solid var(--border);
-    padding-bottom: $default_spacing;
-    margin-bottom: $default_spacing;
+    padding-bottom: 1rem;
+    margin-bottom: 1rem;
     &:last-child {
         border-bottom: none;
         padding-bottom: 0;
@@ -309,10 +309,10 @@
 
 .experiment-implementation-details,
 .experiment-workflow {
-    border-color: $dark-grey;
+    border-color: var(--dark-grey);
     .ant-card-head {
-        padding-left: $default_spacing;
-        padding-right: $default_spacing;
+        padding-left: 1rem;
+        padding-right: 1rem;
         border: none;
     }
 

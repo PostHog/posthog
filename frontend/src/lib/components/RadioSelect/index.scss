@@ -31,7 +31,7 @@ $color-transition: color $transition_params;
             color: var(--primary);
             font-weight: bold;
             .graphic {
-                background-color: rgba($primary, 0.1);
+                background-color: var(--primary-bg-hover);
                 svg {
                     color: var(--primary);
                 }

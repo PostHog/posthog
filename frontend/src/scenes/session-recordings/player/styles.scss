@@ -19,12 +19,12 @@
         flex-direction: row;
         flex: 1;
         background-color: var(--bg-light);
-        height: calc(100% - 40px - 2 * #{$recording_spacing});
+        height: calc(100% - 40px - 2 * var(--recording-spacing));
 
         @media (max-width: $md) {
             flex: unset;
             // Subtract controller and top navbar heights + padding
-            height: calc(100vh - 2 * 40px - 2 * #{$recording_spacing});
+            height: calc(100vh - 2 * 40px - 2 * var(--recording-spacing));
         }
 
         .player-container {
@@ -32,7 +32,7 @@
             flex: 1;
             min-width: 1px;
             position: relative;
-            padding: $recording_spacing $recording_spacing 0 $recording_spacing;
+            padding: var(--recording-spacing) var(--recording-spacing) 0 var(--recording-spacing);
 
             @media (max-width: $md) {
                 width: 100%;
@@ -43,10 +43,10 @@
             display: flex;
             flex-direction: column;
             width: 350px;
-            padding: $recording_spacing $recording_spacing 0 0;
+            padding: var(--recording-spacing) var(--recording-spacing) 0 0;
 
             .player-meta {
-                margin-bottom: $recording_spacing;
+                margin-bottom: var(--recording-spacing);
             }
 
             .player-events {
@@ -62,11 +62,11 @@
         width: 100%;
         min-width: unset;
         max-width: unset;
-        padding: 0 $recording_spacing $recording_spacing $recording_spacing;
+        padding: 0 var(--recording-spacing) var(--recording-spacing) var(--recording-spacing);
     }
 
     .player-controller {
-        padding: $recording_spacing;
+        padding: var(--recording-spacing);
         background-color: var(--bg-light);
     }
 
@@ -207,7 +207,7 @@
 
         .inactivity-label {
             font-size: 14px;
-            margin-right: $recording_spacing;
+            margin-right: var(--recording-spacing);
         }
     }
 }
