@@ -206,7 +206,7 @@ export async function createHub(
 
     status.info('🤔', `Connecting to object storage...`)
     try {
-        const objectStorage: ObjectStorage = connectObjectStorage(serverConfig)
+        connectObjectStorage(serverConfig)
         status.info('👍', 'Object storage ready')
     } catch (e) {
         status.warn('🪣', `Object storage could not be created: ${e}`)
