@@ -1,9 +1,10 @@
 import { ActivityChange, ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
 import { Link } from 'lib/components/Link'
 import { urls } from 'scenes/urls'
-import { FeatureFlagFilters, FeatureFlagType } from '~/types'
+import { FeatureFlagFilters, FeatureFlagGroupType, FeatureFlagType } from '~/types'
 import React from 'react'
 import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/PropertyFiltersDisplay'
+import { pluralize } from 'lib/utils'
 
 const nameOrLinkToFlag = (item: ActivityLogItem): string | JSX.Element => {
     const name = item.detail.name || '(empty string)'
@@ -56,7 +57,8 @@ const featureFlagActionsMapping: Record<keyof FeatureFlagType, (change?: Activit
                     // there are no rollout groups or all are at 0%
                     changes.push(<>changed the filter conditions to apply to no users</>)
                 } else {
-                    const groupChanges: (string | JSX.Element | null)[] = []
+                    const groupAdditions: (string | JSX.Element | null)[] = []
+                    const groupRemovals: (string | JSX.Element | null)[] = []
 
                     filtersAfter.groups
                         .filter((groupAfter, index) => {
@@ -64,32 +66,60 @@ const featureFlagActionsMapping: Record<keyof FeatureFlagType, (change?: Activit
                             // only keep changes with no "before" state, or those where before and after are different
                             return !groupBefore || JSON.stringify(groupBefore) !== JSON.stringify(groupAfter)
                         })
-                        .forEach((groupAfter) => {
+                        .forEach((groupAfter: FeatureFlagGroupType) => {
                             const { properties, rollout_percentage = null } = groupAfter
+
                             if (properties?.length > 0) {
-                                groupChanges.push(
+                                groupAdditions.push(
                                     <>
                                         <span>
                                             <strong>{rollout_percentage ?? 100}%</strong> of
                                         </span>
                                         <PropertyFiltersDisplay
                                             filters={properties}
-                                            style={{ display: 'inline-block', marginLeft: '0.3rem', marginBottom: 0 }}
+                                            style={{
+                                                display: 'inline-block',
+                                                marginLeft: '0.3rem',
+                                                marginBottom: 0,
+                                            }}
                                         />
                                     </>
                                 )
                             } else {
-                                groupChanges.push(
+                                groupAdditions.push(
                                     <>
                                         <strong>{rollout_percentage ?? 100}%</strong> of <strong>all users</strong>
                                     </>
                                 )
                             }
                         })
-                    if (groupChanges.length) {
+
+                    if (groupAdditions.length) {
                         changes.push(
-                            <SentenceList listParts={groupChanges} prefix="changed the filter conditions to apply to" />
+                            <SentenceList
+                                listParts={groupAdditions}
+                                prefix="changed the filter conditions to apply to"
+                            />
                         )
+                    }
+
+                    const removedGroups = (filtersBefore?.groups || []).filter((_, index) => {
+                        const groupAfter = filtersAfter?.groups?.[index]
+                        // only keep changes with no "after" state, they've been removed
+                        return !groupAfter
+                    })
+
+                    if (removedGroups.length) {
+                        groupRemovals.push(
+                            <>
+                                <strong>removed </strong>{' '}
+                                {pluralize(removedGroups.length, 'release condition', 'release conditions')}
+                            </>
+                        )
+                    }
+
+                    if (groupRemovals.length) {
+                        changes.push(<SentenceList listParts={groupRemovals} />)
                     }
                 }
             }
@@ -157,9 +187,11 @@ export function flagActivityDescriber(logItem: ActivityLogItem): string | JSX.El
                 continue // feature flag updates have to have a "field" to be described
             }
 
-            const nextChange = featureFlagActionsMapping[change.field](change)
-            changes.descriptions = changes.descriptions.concat(nextChange.descriptions)
-            changes.bareName = nextChange.bareName
+            const nextChange: ChangeDescriptions | null = featureFlagActionsMapping[change.field](change)
+            if (nextChange?.descriptions) {
+                changes.descriptions = changes.descriptions.concat(nextChange?.descriptions)
+                changes.bareName = nextChange?.bareName
+            }
         }
 
         if (changes.descriptions.length) {
