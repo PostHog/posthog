@@ -7,7 +7,6 @@ import { ProducerRecord } from 'kafkajs'
 import { DateTime, Duration } from 'luxon'
 import { DatabaseError } from 'pg'
 
-import { defaultConfig } from '../../config/config'
 import { Event as EventProto, IEvent } from '../../config/idl/protos'
 import { KAFKA_EVENTS, KAFKA_SESSION_RECORDING_EVENTS } from '../../config/kafka-topics'
 import { KAFKA_BUFFER } from '../../config/kafka-topics'
@@ -41,10 +40,9 @@ import { GroupTypeManager } from './group-type-manager'
 import { addGroupProperties } from './groups'
 import { PersonManager } from './person-manager'
 import { upsertGroup } from './properties-updater'
+import { processSnapshotData } from './session-recordings'
 import { TeamManager } from './team-manager'
 import { parseDate } from './utils'
-
-const { OBJECT_STORAGE_SESSION_RECORDING_FOLDER, OBJECT_STORAGE_BUCKET } = defaultConfig
 
 const MAX_FAILED_PERSON_MERGE_ATTEMPTS = 3
 
@@ -726,7 +724,14 @@ export class EventsProcessor {
 
         await this.createPersonIfDistinctIdIsNew(team_id, distinct_id, timestamp, personUuid.toString())
 
-        const processed_snapshot_data = this.storeSessionRecording(timestamp, session_id, snapshot_data, team_id)
+        const processed_snapshot_data = await processSnapshotData(
+            timestamp,
+            session_id,
+            snapshot_data,
+            team_id,
+            this.objectStorage,
+            this.pluginsServer.statsd
+        )
 
         const data: SessionRecordingEvent = {
             uuid,
@@ -734,7 +739,7 @@ export class EventsProcessor {
             distinct_id: distinct_id,
             session_id: session_id,
             window_id: window_id,
-            snapshot_data: JSON.stringify(processed_snapshot_data),
+            snapshot_data: processed_snapshot_data,
             timestamp: timestampString,
             created_at: timestampString,
         }
@@ -772,55 +777,6 @@ export class EventsProcessor {
             elementsList: [],
             teamId: team_id,
         }
-    }
-
-    private async storeSessionRecording(
-        timestamp: DateTime,
-        session_id: string,
-        snapshot_data: Record<any, any>,
-        team_id: number
-    ): Promise<Record<any, any>> {
-        // As we don't want to store the session recording payload in ClickHouse,
-        // let's intercept the event, parse the metadata and store the data in
-        // our object storage system.
-
-        if (!this.objectStorage.isEnabled) {
-            return snapshot_data
-        }
-
-        const teamIsOnSessionRecordingToS3AllowList =
-            this.objectStorage.sessionRecordingAllowList === 'all' ||
-            this.objectStorage.sessionRecordingAllowList.includes(team_id)
-
-        if (!teamIsOnSessionRecordingToS3AllowList) {
-            return snapshot_data
-        }
-
-        const dateKey = castTimestampOrNow(timestamp, TimestampFormat.DateOnly)
-        const object_storage_path = `${OBJECT_STORAGE_SESSION_RECORDING_FOLDER}/${dateKey}/${session_id}/${snapshot_data.chunk_id}/${snapshot_data.chunk_index}`
-        const params = { Bucket: OBJECT_STORAGE_BUCKET, Key: object_storage_path, Body: snapshot_data.data }
-
-        const tags = {
-            team_id: team_id.toString(),
-            session_id,
-        }
-
-        const storageWriteTimer = new Date()
-
-        try {
-            await this.objectStorage.putObject(params)
-            this.pluginsServer.statsd?.increment('session_data.storage_upload.success', tags)
-        } catch (err) {
-            this.pluginsServer.statsd?.increment('session_data.storage_upload.error', tags)
-        } finally {
-            this.pluginsServer.statsd?.timing('session_data.storage_upload.timing', storageWriteTimer, tags)
-        }
-
-        const altered_data = { ...snapshot_data }
-        delete altered_data.data
-        altered_data['object_storage_path'] = object_storage_path
-
-        return altered_data
     }
 
     private async createPersonIfDistinctIdIsNew(

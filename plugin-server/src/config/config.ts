@@ -101,7 +101,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         OBJECT_STORAGE_SECRET_ACCESS_KEY: 'object_storage_root_password',
         OBJECT_STORAGE_SESSION_RECORDING_FOLDER: 'session_recordings',
         OBJECT_STORAGE_BUCKET: 'posthog',
-        OBJECT_STORAGE_TEAM_ALLOW_LIST: [],
+        OBJECT_STORAGE_SESSION_RECORDING_ENABLED_TEAMS: '',
     }
 }
 
@@ -184,8 +184,8 @@ export function getConfigHelp(): Record<keyof PluginsServerConfig, string> {
         OBJECT_STORAGE_SESSION_RECORDING_FOLDER:
             'the top level folder for storing session recordings inside the storage bucket',
         OBJECT_STORAGE_BUCKET: 'the object storage bucket name',
-        OBJECT_STORAGE_SESSION_RECORDING_TEAM_ALLOW_LIST:
-            "a list of team ids (or the string 'all') determining which teams can store session recordings in object storage",
+        OBJECT_STORAGE_SESSION_RECORDING_ENABLED_TEAMS:
+            'a list of team ids determining which teams can store session recordings in object storage',
     }
 }
 

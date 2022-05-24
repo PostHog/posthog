@@ -150,7 +150,7 @@ export interface PluginsServerConfig extends Record<string, any> {
     OBJECT_STORAGE_SECRET_ACCESS_KEY: string
     OBJECT_STORAGE_SESSION_RECORDING_FOLDER: string
     OBJECT_STORAGE_BUCKET: string
-    OBJECT_STORAGE_TEAM_ALLOW_LIST: 'all' | number[]
+    OBJECT_STORAGE_SESSION_RECORDING_ENABLED_TEAMS: string
 }
 
 export interface Hub extends PluginsServerConfig {
