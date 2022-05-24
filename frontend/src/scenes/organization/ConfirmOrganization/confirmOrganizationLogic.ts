@@ -12,7 +12,7 @@ interface ConfirmOrganizationFormValues {
     first_name?: string
 }
 
-export const confirmOrganizationLogic = kea<confirmOrganizationLogicType<ConfirmOrganizationFormValues>>([
+export const confirmOrganizationLogic = kea<confirmOrganizationLogicType>([
     path(['scenes', 'organization', 'confirmOrganizationLogic']),
 
     actions({
