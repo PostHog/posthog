@@ -104,7 +104,7 @@ export const announcementLogic = kea<announcementLogicType>({
             (featureFlags): string | null => {
                 const flagValue = featureFlags[FEATURE_FLAGS.CLOUD_ANNOUNCEMENT]
                 return !!flagValue && typeof flagValue === 'string'
-                    ? String(featureFlags[FEATURE_FLAGS.CLOUD_ANNOUNCEMENT]).replaceAll('_', ' ')
+                    ? String(featureFlags[FEATURE_FLAGS.CLOUD_ANNOUNCEMENT]).replace(/_/g, ' ')
                     : null
             },
         ],
