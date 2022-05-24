@@ -185,4 +185,13 @@ describe('EventPipelineRunner', () => {
             expect(runner.stepsWithArgs).toMatchSnapshot()
         })
     })
+
+    describe('runAsyncHandlersEventPipeline()', () => {
+        it('runs remaining steps', async () => {
+            await runner.runAsyncHandlersEventPipeline(preIngestionEvent)
+
+            expect(runner.steps).toEqual(['runAsyncHandlersStep'])
+            expect(runner.stepsWithArgs).toMatchSnapshot()
+        })
+    })
 })
