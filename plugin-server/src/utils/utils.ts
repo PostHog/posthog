@@ -520,7 +520,7 @@ export function pluginConfigIdFromStack(
     // This matches `pluginConfigIdentifier` from worker/vm/vm.ts
     // For example: "at __asyncGuard__PluginConfig_39_3af03d... (vm.js:11..."
     const regexp = /at __[a-zA-Z0-9]+__PluginConfig_([0-9]+)_([0-9a-f]+) \(vm\.js\:/
-    const [_, id, hash] =
+    const [, id, hash] =
         stack
             .split('\n')
             .map((l) => l.match(regexp))

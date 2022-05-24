@@ -2,7 +2,6 @@ import { Consumer } from 'kafkajs'
 
 import { KAFKA_HEALTHCHECK } from '../../src/config/kafka-topics'
 import { kafkaHealthcheck, setupKafkaHealthcheckConsumer } from '../../src/main/utils'
-import { PluginsServerConfig } from '../../src/types'
 import { Hub } from '../../src/types'
 import { createHub } from '../../src/utils/db/hub'
 import { resetKafka } from '../helpers/kafka'

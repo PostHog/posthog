@@ -1,4 +1,3 @@
-import { PluginsServerConfig } from '../../src/types'
 import { delay } from '../../src/utils/utils'
 import { PromiseManager } from '../../src/worker/vm/promise-manager'
 import { Hub } from './../../src/types'

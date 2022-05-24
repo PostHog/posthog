@@ -13,8 +13,7 @@ export async function prepareEventStep(runner: EventPipelineRunner, event: Plugi
         team_id,
         DateTime.fromISO(now),
         sent_at ? DateTime.fromISO(sent_at) : null,
-        uuid!, // it will throw if it's undefined,
-        site_url
+        uuid! // it will throw if it's undefined,
     )
 
     await runner.hub.siteUrlManager.updateIngestionSiteUrl(site_url)
