@@ -36,7 +36,7 @@ export const connectObjectStorage = (serverConfig: Partial<PluginsServerConfig>)
             })
 
             storage = {
-                healthCheck: async () => {
+                healthcheck: async () => {
                     if (!OBJECT_STORAGE_BUCKET) {
                         status.error('😢', 'No object storage bucket configured')
                         return false
