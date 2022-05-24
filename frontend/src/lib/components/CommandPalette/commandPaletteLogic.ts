@@ -1,6 +1,6 @@
 import { kea } from 'kea'
 import { router } from 'kea-router'
-import { commandPaletteLogicType } from './commandPaletteLogicType'
+import type { commandPaletteLogicType } from './commandPaletteLogicType'
 import Fuse from 'fuse.js'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { Parser } from 'expr-eval'
@@ -112,16 +112,7 @@ function resolveCommand(source: Command | CommandFlow, argument?: string, prefix
     return resultsWithCommand
 }
 
-export const commandPaletteLogic = kea<
-    commandPaletteLogicType<
-        Command,
-        CommandFlow,
-        CommandRegistrations,
-        CommandResult,
-        CommandResultDisplayable,
-        RegExpCommandPairs
-    >
->({
+export const commandPaletteLogic = kea<commandPaletteLogicType>({
     path: ['lib', 'components', 'CommandPalette', 'commandPaletteLogic'],
     connect: {
         actions: [personalAPIKeysLogic, ['createKey']],

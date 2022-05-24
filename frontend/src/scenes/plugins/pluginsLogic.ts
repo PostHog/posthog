@@ -1,7 +1,7 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { urlToAction } from 'kea-router'
-import { pluginsLogicType } from './pluginsLogicType'
+import type { pluginsLogicType } from './pluginsLogicType'
 import api from 'lib/api'
 import { PersonalAPIKeyType, PluginConfigType, PluginType } from '~/types'
 import {
@@ -20,7 +20,7 @@ import { teamLogic } from '../teamLogic'
 import { createDefaultPluginSource } from 'scenes/plugins/source/createDefaultPluginSource'
 import { frontendAppsLogic } from 'scenes/apps/frontendAppsLogic'
 
-type PluginForm = FormInstance
+export type PluginForm = FormInstance
 
 export enum PluginSection {
     Upgrade = 'upgrade',
@@ -63,7 +63,7 @@ async function loadPaginatedResults(
     return results
 }
 
-export const pluginsLogic = kea<pluginsLogicType<PluginForm, PluginSection, PluginSelectionType>>([
+export const pluginsLogic = kea<pluginsLogicType>([
     path(['scenes', 'plugins', 'pluginsLogic']),
     connect(frontendAppsLogic),
     actions({

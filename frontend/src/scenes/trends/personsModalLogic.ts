@@ -13,7 +13,7 @@ import {
     GraphDataset,
     ChartDisplayType,
 } from '~/types'
-import { personsModalLogicType } from './personsModalLogicType'
+import type { personsModalLogicType } from './personsModalLogicType'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { TrendActors } from 'scenes/trends/types'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
@@ -122,7 +122,7 @@ export interface LoadPeopleFromUrlProps {
     seriesId?: number
 }
 
-export const personsModalLogic = kea<personsModalLogicType<LoadPeopleFromUrlProps, PersonsModalParams>>({
+export const personsModalLogic = kea<personsModalLogicType>({
     path: ['scenes', 'trends', 'personsModalLogic'],
     actions: () => ({
         setSearchTerm: (term: string) => ({ term }),

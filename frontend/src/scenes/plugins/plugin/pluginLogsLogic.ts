@@ -2,7 +2,7 @@ import { kea } from 'kea'
 import api from '~/lib/api'
 import { PluginLogEntry, PluginLogEntryType } from '~/types'
 import { teamLogic } from '../../teamLogic'
-import { pluginLogsLogicType } from './pluginLogsLogicType'
+import type { pluginLogsLogicType } from './pluginLogsLogicType'
 import { CheckboxValueType } from 'antd/lib/checkbox/Group'
 
 export interface PluginLogsProps {
@@ -11,7 +11,7 @@ export interface PluginLogsProps {
 
 export const LOGS_PORTION_LIMIT = 50
 
-export const pluginLogsLogic = kea<pluginLogsLogicType<PluginLogsProps>>({
+export const pluginLogsLogic = kea<pluginLogsLogicType>({
     props: {} as PluginLogsProps,
     key: ({ pluginConfigId }: PluginLogsProps) => pluginConfigId,
     path: (key) => ['scenes', 'plugins', 'plugin', 'pluginLogsLogic', key],

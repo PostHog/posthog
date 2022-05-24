@@ -183,7 +183,7 @@
         "husky": "^7.0.4",
         "jest": "^26.6.3",
         "kea-test-utils": "^0.2.2",
-        "kea-typegen": "^3.0.0",
+        "kea-typegen": "^3.1.0",
         "less": "^3.12.2",
         "less-loader": "^7.0.2",
         "lint-staged": "~10.2.13",

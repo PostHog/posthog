@@ -24,7 +24,7 @@ import {
     SignificanceCode,
     SecondaryMetricResult,
 } from '~/types'
-import { experimentLogicType } from './experimentLogicType'
+import type { experimentLogicType } from './experimentLogicType'
 import { router } from 'kea-router'
 import { experimentsLogic } from './experimentsLogic'
 import { FunnelLayout } from 'lib/constants'
@@ -43,7 +43,7 @@ export interface ExperimentLogicProps {
     experimentId?: Experiment['id']
 }
 
-export const experimentLogic = kea<experimentLogicType<ExperimentLogicProps>>({
+export const experimentLogic = kea<experimentLogicType>({
     props: {} as ExperimentLogicProps,
     key: (props) => props.experimentId || 'new',
     path: (key) => ['scenes', 'experiment', 'experimentLogic', key],

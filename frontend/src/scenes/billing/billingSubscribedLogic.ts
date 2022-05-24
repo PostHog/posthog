@@ -1,14 +1,14 @@
 import { kea } from 'kea'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { billingLogic } from './billingLogic'
-import { billingSubscribedLogicType } from './billingSubscribedLogicType'
+import type { billingSubscribedLogicType } from './billingSubscribedLogicType'
 
 export enum SubscriptionStatus {
     Success = 'success',
     Failed = 'failed',
 }
 
-export const billingSubscribedLogic = kea<billingSubscribedLogicType<SubscriptionStatus>>({
+export const billingSubscribedLogic = kea<billingSubscribedLogicType>({
     path: ['scenes', 'billing', 'billingSubscribedLogic'],
     connect: {
         actions: [sceneLogic, ['setScene']],
@@ -20,7 +20,7 @@ export const billingSubscribedLogic = kea<billingSubscribedLogicType<Subscriptio
     },
     reducers: {
         status: [
-            SubscriptionStatus.Failed,
+            SubscriptionStatus.Failed as SubscriptionStatus,
             {
                 setStatus: (_, { status }) => status,
             },

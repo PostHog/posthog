@@ -23,7 +23,7 @@ const defaultFormValues: NewDashboardForm = {
     restrictionLevel: DashboardRestrictionLevel.EveryoneInProjectCanEdit,
 }
 
-export const newDashboardLogic = kea<newDashboardLogicType<NewDashboardForm>>([
+export const newDashboardLogic = kea<newDashboardLogicType>([
     path(['scenes', 'dashboard', 'newDashboardLogic']),
     connect(dashboardsModel),
     actions({

@@ -12,7 +12,7 @@ export interface KafkaMessage {
     value: Record<string, any> | string
 }
 
-export const kafkaInspectorLogic = kea<kafkaInspectorLogicType<KafkaMessage>>([
+export const kafkaInspectorLogic = kea<kafkaInspectorLogicType>([
     path(['scenes', 'instance', 'SystemStatus', 'kafkaInspectorLogic']),
     actions({
         fetchKafkaMessage: (topic: string, partition: number, offset: number) => ({ topic, partition, offset }),
