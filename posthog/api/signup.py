@@ -11,8 +11,6 @@ from django.shortcuts import redirect
 from django.urls.base import reverse
 from django.utils import timezone
 from rest_framework import exceptions, generics, permissions, response, serializers, validators
-
-# from rest_framework.authentication import SessionAuthentication
 from sentry_sdk import capture_exception
 from social_core.pipeline.partial import partial
 from social_django.strategy import DjangoStrategy
