@@ -1,4 +1,3 @@
-import * as Sentry from '@sentry/node'
 import { StatsD, Tags } from 'hot-shots'
 
 export async function instrumentQuery<T>(

@@ -2,7 +2,7 @@ import * as Sentry from '@sentry/node'
 import { makeWorkerUtils, run, Runner, WorkerUtils } from 'graphile-worker'
 import { Pool } from 'pg'
 
-import { EnqueuedJob, JobQueue, OnJobCallback, PluginsServerConfig } from '../../../types'
+import { EnqueuedJob, PluginsServerConfig } from '../../../types'
 import { status } from '../../../utils/status'
 import { createPostgresPool } from '../../../utils/utils'
 import { JobQueueBase } from '../job-queue-base'

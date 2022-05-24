@@ -1,14 +1,11 @@
-import { PluginEvent } from '@posthog/plugin-scaffold'
 import * as Sentry from '@sentry/node'
-import { Consumer, EachBatchPayload, Kafka, KafkaMessage } from 'kafkajs'
+import { Consumer, EachBatchPayload, Kafka } from 'kafkajs'
 
 import { Hub, Queue, WorkerMethods } from '../../types'
 import { status } from '../../utils/status'
-import { groupIntoBatches, killGracefully, sanitizeEvent } from '../../utils/utils'
-import { runInstrumentedFunction } from '../utils'
+import { killGracefully } from '../../utils/utils'
 import { KAFKA_BUFFER, KAFKA_EVENTS_JSON } from './../../config/kafka-topics'
-import { eachBatchBuffer } from './batch-processing/each-batch-buffer'
-import { eachBatchIngestion, ingestEvent } from './batch-processing/each-batch-ingestion'
+import { eachBatchIngestion } from './batch-processing/each-batch-ingestion'
 
 type ConsumerManagementPayload = {
     topic: string

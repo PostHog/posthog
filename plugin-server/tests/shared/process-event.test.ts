@@ -114,16 +114,7 @@ async function processEvent(
     sentAt: DateTime | null,
     eventUuid: string
 ): Promise<PreIngestionEvent | null> {
-    const response = await eventsProcessor.processEvent(
-        distinctId,
-        ip,
-        data,
-        teamId,
-        now,
-        sentAt,
-        eventUuid,
-        'http://example.com'
-    )
+    const response = await eventsProcessor.processEvent(distinctId, ip, data, teamId, now, sentAt, eventUuid)
     if (response) {
         await eventsProcessor.createEvent(response)
     }
@@ -1169,8 +1160,7 @@ it('snapshot event not stored if session recording disabled', async () => {
         team.id,
         now,
         now,
-        new UUIDT().toString(),
-        'http://example.com'
+        new UUIDT().toString()
     )
     await delayUntilEventIngested(() => hub.db.fetchSessionRecordingEvents())
 
@@ -1192,8 +1182,7 @@ test('snapshot event stored as session_recording_event', async () => {
         team.id,
         now,
         now,
-        new UUIDT().toString(),
-        'http://example.com'
+        new UUIDT().toString()
     )
     await delayUntilEventIngested(() => hub.db.fetchSessionRecordingEvents())
 
@@ -1220,8 +1209,7 @@ test('$snapshot event creates new person if needed', async () => {
         team.id,
         now,
         now,
-        new UUIDT().toString(),
-        'http://example.com'
+        new UUIDT().toString()
     )
     await delayUntilEventIngested(() => hub.db.fetchPersons())
 
