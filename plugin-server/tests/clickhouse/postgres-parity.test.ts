@@ -365,8 +365,10 @@ describe('postgres parity', () => {
         // :TODO: Update version
         const clickHouseDistinctIdValuesMoved = await hub.db.fetchDistinctIdValues(anotherPerson, Database.ClickHouse)
         const postgresDistinctIdValuesMoved = await hub.db.fetchDistinctIdValues(anotherPerson, Database.Postgres)
-        const newClickHouseDistinctIdValues = await delayUntilEventIngested(() =>
-            hub.db.fetchDistinctIds(anotherPerson, Database.ClickHouse, 'person_distinct_id2')
+        const newClickHouseDistinctIdValues = await hub.db.fetchDistinctIds(
+            anotherPerson,
+            Database.ClickHouse,
+            'person_distinct_id2'
         )
 
         expect(postgresDistinctIdValuesMoved).toEqual(expect.arrayContaining(['distinct1', 'another_distinct_id']))
