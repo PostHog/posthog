@@ -41,7 +41,7 @@ export function EmailUnavailableMessage(): JSX.Element {
 function InviteRow({ index, isDeletable }: { index: number; isDeletable: boolean }): JSX.Element {
     const name = PLACEHOLDER_NAMES[index % PLACEHOLDER_NAMES.length]
 
-    const { invitesToSend, invites } = useValues(inviteLogic)
+    const { invitesToSend } = useValues(inviteLogic)
     const { updateInviteAtIndex, inviteTeamMembers, deleteInviteAtIndex } = useActions(inviteLogic)
     const { preflight } = useValues(preflightLogic)
     const { onboardingSidebar } = useValues(ingestionLogic)
@@ -72,8 +72,7 @@ function InviteRow({ index, isDeletable }: { index: number; isDeletable: boolean
                 />
             </Col>
             {!preflight?.email_service_unavailable && <Col xs={isDeletable ? 11 : 12}>
-
-                {true ? (
+                {onboardingSidebar && !preflight?.email_service_available ? (
                     <LemonButton type="secondary" onClick={() => { inviteTeamMembers() }}>Submit</LemonButton>
                 ) :
                     <Input
@@ -110,6 +109,7 @@ export function InviteModal({ visible, onClose }: { visible: boolean; onClose: (
     const { appendInviteRow, resetInviteRows, inviteTeamMembers, deleteInvite } = useActions(inviteLogic)
     // const { onboardingSidebar } = useValues(ingestionLogic)
     const onboardingSidebar = true
+    preflight.email_service_available = true
 
     const areInvitesCreatable = invitesToSend.length + 1 < MAX_INVITES_AT_ONCE
     const areInvitesDeletable = invitesToSend.length > 1
@@ -158,7 +158,7 @@ export function InviteModal({ visible, onClose }: { visible: boolean; onClose: (
                     </Col>
                 </Row>
 
-                {invites.map((invite: OrganizationInviteType) => {
+                {onboardingSidebar && invites.map((invite: OrganizationInviteType) => {
                     return (
                         <Row gutter={16} align="middle" className="mb">
                             <Col xs={11}><div style={{ border: '1px solid var(--border)', borderRadius: 4, padding: '4px 11px' }}>{invite.target_email}</div></Col>
@@ -166,9 +166,12 @@ export function InviteModal({ visible, onClose }: { visible: boolean; onClose: (
                                 {invite.is_expired ? (
                                     <b>Expired! Delete and recreate</b>
                                 ) : (
-                                    <CopyToClipboardInline data-attr="invite-link" description="invite link" style={{ color: 'var(--primary)', background: 'var(--bg-side)', borderRadius: 4, padding: '4px 11px' }}>
-                                        {new URL(`/signup/${invite.id}`, document.baseURI).href}
-                                    </CopyToClipboardInline>
+                                    <>
+                                        {preflight?.email_service_available ? <div style={{ border: '1px solid var(--border)', borderRadius: 4, padding: '4px 11px' }}>{invite.first_name || ''}</div> :
+                                            <CopyToClipboardInline data-attr="invite-link" description="invite link" style={{ color: 'var(--primary)', background: 'var(--bg-side)', borderRadius: 4, padding: '4px 11px' }}>
+                                                {new URL(`/signup/${invite.id}`, document.baseURI).href}
+                                            </CopyToClipboardInline>}
+                                    </>
                                 )}
                             </Col>
                             <LemonButton
