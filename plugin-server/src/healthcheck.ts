@@ -38,7 +38,7 @@ const storageHealthcheck = async (): Promise<boolean> => {
             return false
         }
     } catch (error) {
-        status.error('💥', 'An unexpected error occurred:', error)
+        status.error('💥', 'Object Storage healthcheck: an unexpected error occurred:', error)
         return false
     }
 }
