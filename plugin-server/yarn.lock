@@ -6673,10 +6673,10 @@ jws@^4.0.0:
     jwa "^2.0.0"
     safe-buffer "^5.0.1"
 
-kafkajs@^1.15.0:
-  version "1.15.0"
-  resolved "https://registry.yarnpkg.com/kafkajs/-/kafkajs-1.15.0.tgz#a5ada0d933edca2149177393562be6fb0875ec3a"
-  integrity sha512-yjPyEnQCkPxAuQLIJnY5dI+xnmmgXmhuOQ1GVxClG5KTOV/rJcW1qA3UfvyEJKTp/RTSqQnUR3HJsKFvHyTpNg==
+kafkajs@^2.0.0:
+  version "2.0.0"
+  resolved "https://registry.yarnpkg.com/kafkajs/-/kafkajs-2.0.0.tgz#04f468bacc4ccb850529e2293886db6b7c41c08a"
+  integrity sha512-NdDhoEJcCBx7XTqXDbolkk5UJ4Rt4XefZ1SdP2NmFF5J39+WRh1gLdqhcQfnP8bn6sw08llfjyrg2bOhONBzZQ==
 
 kind-of@^3.0.2, kind-of@^3.0.3, kind-of@^3.2.0:
   version "3.2.2"

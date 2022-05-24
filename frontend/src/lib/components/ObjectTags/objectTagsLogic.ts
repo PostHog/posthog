@@ -1,5 +1,5 @@
 import { kea } from 'kea'
-import { objectTagsLogicType } from './objectTagsLogicType'
+import type { objectTagsLogicType } from './objectTagsLogicType'
 import { lemonToast } from '../lemonToast'
 
 export interface ObjectTagsLogicProps {
@@ -13,7 +13,7 @@ function cleanTag(tag?: string): string {
     return (tag ?? '').trim().toLowerCase()
 }
 
-export const objectTagsLogic = kea<objectTagsLogicType<ObjectTagsLogicProps>>({
+export const objectTagsLogic = kea<objectTagsLogicType>({
     path: (key) => ['lib', 'components', 'ObjectTags', 'objectTagsLogic', key],
     props: {} as ObjectTagsLogicProps,
     key: (props) => props.id,

@@ -28,7 +28,7 @@
         "experimentalDecorators": true, // Enables experimental support for ES decorators
         "noFallthroughCasesInSwitch": true, // Report errors for fallthrough cases in switch statement
         "suppressImplicitAnyIndexErrors": true, // Index objects by number
-        "lib": ["dom", "es2019"]
+        "lib": ["dom", "es2021"]
     },
     "include": ["frontend/**/*", ".storybook/**/*"],
     "exclude": ["node_modules/**/*", "staticfiles/**/*", "frontend/dist/**/*", "plugin-server/**/*"],

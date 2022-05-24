@@ -9,7 +9,11 @@ export function formatSource(filename: string, source: string): string {
         filepath: filename,
         parser: 'typescript',
         plugins: [parserTypeScript],
+        // coped from .prettierrc
         semi: false,
+        trailingComma: 'es5',
+        singleQuote: true,
         tabWidth: 4,
+        printWidth: 120,
     })
 }
