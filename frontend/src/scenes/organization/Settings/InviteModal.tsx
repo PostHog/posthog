@@ -1,5 +1,4 @@
-import { Alert, Col, Input, Row } from 'antd'
-import Modal from 'antd/lib/modal/Modal'
+import { Alert, Col, Input, Row, Modal } from 'antd'
 import { useActions, useValues } from 'kea'
 import React from 'react'
 import { userLogic } from 'scenes/userLogic'
@@ -7,13 +6,15 @@ import './InviteModal.scss'
 import { isEmail, pluralize } from 'lib/utils'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { inviteLogic } from './inviteLogic'
-import { IconDelete, IconOpenInNew, IconPlus } from 'lib/components/icons'
+import { IconClose, IconDelete, IconOpenInNew, IconPlus } from 'lib/components/icons'
 import { LemonButton } from 'lib/components/LemonButton'
 import { AlertMessage } from 'lib/components/AlertMessage'
 import { LemonModal } from 'lib/components/LemonModal'
 import { ingestionLogic } from 'scenes/ingestion/ingestionLogic'
 import { LemonDivider } from 'lib/components/LemonDivider'
 import { LemonTextArea } from '~/packages/apps-common'
+import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
+import { OrganizationInviteType } from '~/types'
 
 /** Shuffled placeholder names */
 const PLACEHOLDER_NAMES: string[] = [...Array(10).fill('Jane'), ...Array(10).fill('John'), 'Sonic'].sort(
@@ -40,8 +41,10 @@ export function EmailUnavailableMessage(): JSX.Element {
 function InviteRow({ index, isDeletable }: { index: number; isDeletable: boolean }): JSX.Element {
     const name = PLACEHOLDER_NAMES[index % PLACEHOLDER_NAMES.length]
 
-    const { invitesToSend } = useValues(inviteLogic)
+    const { invitesToSend, invites } = useValues(inviteLogic)
     const { updateInviteAtIndex, inviteTeamMembers, deleteInviteAtIndex } = useActions(inviteLogic)
+    const { preflight } = useValues(preflightLogic)
+    const { onboardingSidebar } = useValues(ingestionLogic)
 
     return (
         <Row gutter={16} className="invite-row" align="middle">
@@ -68,19 +71,24 @@ function InviteRow({ index, isDeletable }: { index: number; isDeletable: boolean
                     data-attr="invite-email-input"
                 />
             </Col>
-            <Col xs={isDeletable ? 11 : 12}>
-                <Input
-                    placeholder={name}
-                    onChange={(e) => {
-                        updateInviteAtIndex({ first_name: e.target.value }, index)
-                    }}
-                    onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
-                            inviteTeamMembers()
-                        }
-                    }}
-                />
-            </Col>
+            {!preflight?.email_service_unavailable && <Col xs={isDeletable ? 11 : 12}>
+
+                {true ? (
+                    <LemonButton type="secondary" onClick={() => { inviteTeamMembers() }}>Submit</LemonButton>
+                ) :
+                    <Input
+                        placeholder={name}
+                        onChange={(e) => {
+                            updateInviteAtIndex({ first_name: e.target.value }, index)
+                        }}
+                        onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                                inviteTeamMembers()
+                            }
+                        }}
+                    />}
+
+            </Col>}
             {isDeletable && (
                 <Col xs={2}>
                     <LemonButton
@@ -98,8 +106,8 @@ function InviteRow({ index, isDeletable }: { index: number; isDeletable: boolean
 export function InviteModal({ visible, onClose }: { visible: boolean; onClose: () => void }): JSX.Element {
     const { user } = useValues(userLogic)
     const { preflight } = useValues(preflightLogic)
-    const { invitesToSend, canSubmit, invitedTeamMembersInternalLoading: loading } = useValues(inviteLogic)
-    const { appendInviteRow, resetInviteRows, inviteTeamMembers } = useActions(inviteLogic)
+    const { invitesToSend, canSubmit, invitedTeamMembersInternalLoading: loading, invites } = useValues(inviteLogic)
+    const { appendInviteRow, resetInviteRows, inviteTeamMembers, deleteInvite } = useActions(inviteLogic)
     // const { onboardingSidebar } = useValues(ingestionLogic)
     const onboardingSidebar = true
 
@@ -145,16 +153,52 @@ export function InviteModal({ visible, onClose }: { visible: boolean; onClose: (
                     </Col>
                     <Col xs={areInvitesDeletable ? 11 : 12}>
                         <b>
-                            Name (optional)
+                            {preflight?.email_service_available ? 'Name (optional)' : 'Share link'}
                         </b>
                     </Col>
                 </Row>
+
+                {invites.map((invite: OrganizationInviteType) => {
+                    return (
+                        <Row gutter={16} align="middle" className="mb">
+                            <Col xs={11}><div style={{ border: '1px solid var(--border)', borderRadius: 4, padding: '4px 11px' }}>{invite.target_email}</div></Col>
+                            <Col xs={11}>
+                                {invite.is_expired ? (
+                                    <b>Expired! Delete and recreate</b>
+                                ) : (
+                                    <CopyToClipboardInline data-attr="invite-link" description="invite link" style={{ color: 'var(--primary)', background: 'var(--bg-side)', borderRadius: 4, padding: '4px 11px' }}>
+                                        {new URL(`/signup/${invite.id}`, document.baseURI).href}
+                                    </CopyToClipboardInline>
+                                )}
+                            </Col>
+                            <LemonButton
+                                title="Cancel the invite"
+                                data-attr="invite-delete"
+                                icon={<IconClose />}
+                                status="danger"
+                                onClick={() => {
+                                    invite.is_expired
+                                        ? deleteInvite(invite)
+                                        : Modal.confirm({
+                                            title: `Do you want to cancel the invite for ${invite.target_email}?`,
+                                            okText: 'Yes, cancel invite',
+                                            okType: 'danger',
+                                            onOk() {
+                                                deleteInvite(invite)
+                                            },
+                                            cancelText: 'No, keep invite',
+                                        })
+                                }}
+                            />
+                        </Row>
+                    )
+                })}
 
                 {invitesToSend.map((_, index) => (
                     <InviteRow index={index} key={index.toString()} isDeletable={areInvitesDeletable} />
                 ))}
 
-                <div className="mt">
+                <div className="mt mb">
                     {areInvitesCreatable && (
                         <LemonButton type="secondary" icon={<IconPlus style={{ color: 'var(--primary)' }} />} onClick={appendInviteRow} fullWidth center>
                             Add email address
@@ -163,18 +207,22 @@ export function InviteModal({ visible, onClose }: { visible: boolean; onClose: (
                 </div>
 
             </div>
-            <div className="mb mt">
+            {onboardingSidebar && preflight?.email_service_available && <div className="mb">
                 <div><b>Message</b> (optional)</div>
                 <LemonTextArea />
-            </div>
+            </div>}
             <LemonDivider thick dashed />
             <div className="mt">
-                <LemonButton onClick={inviteTeamMembers} className="mb-05" type="primary" fullWidth center disabled={!validInvitesCount}>{validInvitesCount ? `Invite ${pluralize(validInvitesCount, 'user')}` : 'Invite users'}</LemonButton>
-                <LemonButton
-                    onClick={() => {
-                        resetInviteRows()
-                        onClose()
-                    }} type="secondary" fullWidth center>Cancel</LemonButton>
+                {preflight?.email_service_available ?
+                    <>
+                        <LemonButton onClick={inviteTeamMembers} className="mb-05" type="primary" fullWidth center disabled={!validInvitesCount}>{validInvitesCount ? `Invite ${pluralize(validInvitesCount, 'user')}` : 'Invite users'}</LemonButton>
+                        <LemonButton
+                            onClick={() => {
+                                resetInviteRows()
+                                onClose()
+                            }} type="secondary" fullWidth center>Cancel</LemonButton>
+                    </> : <LemonButton fullWidth center type="primary" onClick={onClose}>Done</LemonButton>
+                }
             </div>
 
             {/* {!preflight?.email_service_available && <EmailUnavailableMessage />} */}
