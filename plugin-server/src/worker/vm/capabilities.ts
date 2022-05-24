@@ -45,9 +45,8 @@ function shouldSetupPlugin(serverCapability: keyof PluginServerCapabilities, plu
         return (pluginCapabilities.jobs || []).length > 0
     }
     if (serverCapability === 'processAsyncHandlers') {
-        // KLUDGE: handleAlert is currently here but should be yeeted
         return pluginCapabilities.methods?.some((method) =>
-            ['onAction', 'onSnapshot', 'onEvent', 'exportEvents', 'handleAlert'].includes(method)
+            ['onAction', 'onSnapshot', 'onEvent', 'exportEvents'].includes(method)
         )
     }
 
