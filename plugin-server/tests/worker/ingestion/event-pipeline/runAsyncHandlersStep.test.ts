@@ -30,6 +30,9 @@ describe('runAsyncHandlersStep()', () => {
         runner = {
             nextStep: (...args: any[]) => args,
             hub: {
+                capabilities: {
+                    processAsyncHandlers: true,
+                },
                 actionMatcher: {
                     match: jest.fn().mockResolvedValue(['action1', 'action2']),
                 },
@@ -80,6 +83,17 @@ describe('runAsyncHandlersStep()', () => {
         await expect(runAsyncHandlersStep(runner, preIngestionEvent, testPerson, testElements)).rejects.toThrow(error)
 
         expect(runOnEvent).toHaveBeenCalledWith(runner.hub, convertToProcessedPluginEvent(preIngestionEvent))
+        expect(runOnAction).not.toHaveBeenCalled()
+    })
+
+    it('stops processing if not capabilities.processAsyncHandlers', async () => {
+        runner.hub.capabilities.processAsyncHandlers = false
+
+        const result = await runAsyncHandlersStep(runner, preIngestionEvent, testPerson, testElements)
+
+        expect(result).toEqual(null)
+        expect(runOnSnapshot).not.toHaveBeenCalled()
+        expect(runOnEvent).not.toHaveBeenCalled()
         expect(runOnAction).not.toHaveBeenCalled()
     })
 

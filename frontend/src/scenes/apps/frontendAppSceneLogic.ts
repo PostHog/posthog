@@ -11,7 +11,7 @@ export interface FrontendAppSceneLogicProps {
 }
 
 /** Logic responsible for loading the injected frontend scene */
-export const frontendAppSceneLogic = kea<frontendAppSceneLogicType<FrontendAppSceneLogicProps>>([
+export const frontendAppSceneLogic = kea<frontendAppSceneLogicType>([
     path(['scenes', 'apps', 'frontendAppSceneLogic']),
     props({} as FrontendAppSceneLogicProps),
     key((props) => props.id),
