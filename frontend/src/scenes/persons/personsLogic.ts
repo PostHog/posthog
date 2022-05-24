@@ -48,6 +48,7 @@ export const personsLogic = kea<personsLogicType>({
         loadPersons: (url: string | null = '') => ({ url }),
         setListFilters: (payload: PersonFilters) => ({ payload }),
         editProperty: (key: string, newValue?: string | number | boolean | null) => ({ key, newValue }),
+        deleteProperty: (key: string) => ({ key }),
         navigateToCohort: (cohort: CohortType) => ({ cohort }),
         navigateToTab: (tab: PersonsTabType) => ({ tab }),
         setSplitMergeModalShown: (shown: boolean) => ({ shown }),
@@ -171,15 +172,10 @@ export const personsLogic = kea<personsLogicType>({
                 if (!Object.keys(person.properties).includes(key)) {
                     person.properties = { [key]: parsedValue, ...person.properties } // To add property at the top (if new)
                     action = 'added'
-                } else if (parsedValue === undefined) {
-                    delete person.properties[key]
-                    action = 'removed'
                 } else {
                     person.properties[key] = parsedValue
                     action = 'updated'
                 }
-
-                console.log({ person })
 
                 actions.setPerson({ ...person }) // To update the UI immediately while the request is being processed
                 // :KLUDGE: Person properties are updated asynchronosly in the plugin server - the response won't reflect
@@ -192,6 +188,21 @@ export const personsLogic = kea<personsLogicType>({
                     oldPropertyType,
                     newPropertyType
                 )
+            }
+        },
+        deleteProperty: async ({ key }) => {
+            const person = values.person
+
+            if (person) {
+                const updatedProperties = { ...person.properties }
+                delete updatedProperties[key]
+
+                actions.setPerson({ ...person, properties: updatedProperties })
+                await api.create(`api/person/${person.id}/delete_property`, { $unset: [key] })
+
+                // :TODO: Toast!
+
+                eventUsageLogic.actions.reportPersonPropertyUpdated('removed', 1, undefined, undefined)
             }
         },
         navigateToCohort: ({ cohort }) => {

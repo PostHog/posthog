@@ -501,6 +501,37 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
         return response.Response({"success": True}, status=201)
 
+    @action(methods=["POST"], detail=True)
+    def delete_property(self, request: request.Request, pk=None, **kwargs) -> response.Response:
+        person: Person = Person.objects.get(pk=pk, team_id=self.team_id)
+
+        capture_internal(
+            distinct_id=person.distinct_ids[0],
+            ip=None,
+            site_url=None,
+            team_id=self.team_id,
+            now=datetime.now(),
+            sent_at=None,
+            event={
+                "event": "$delete_person_property",
+                "properties": {"$unset": [request.data["$unset"]]},
+                "distinct_id": person.distinct_ids[0],
+                "timestamp": datetime.now().isoformat(),
+            },
+        )
+
+        log_activity(
+            organization_id=self.organization.id,
+            team_id=self.team.id,
+            user=request.user,  # type: ignore
+            item_id=person.id,
+            scope="Person",
+            activity="delete_property",
+            detail=Detail(changes=[Change(type="Person", action="changed")]),
+        )
+
+        return response.Response({"success": True}, status=201)
+
     @action(methods=["GET"], detail=False)
     def lifecycle(self, request: request.Request) -> response.Response:
 
