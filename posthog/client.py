@@ -152,8 +152,14 @@ def sync_execute(query, args=None, settings=None, with_column_types=False, flush
         timeout_task = QUERY_TIMEOUT_THREAD.schedule(_notify_of_slow_query_failure, tags)
 
         try:
+            # Optimize_move_to_prewhere setting is set because of this regression test
+            # test_ilike_regression_with_current_clickhouse_version
+            # https://github.com/PostHog/posthog/blob/master/ee/clickhouse/queries/test/test_trends.py#L1566
             result = client.execute(
-                prepared_sql, params=prepared_args, settings=settings, with_column_types=with_column_types
+                prepared_sql,
+                params=prepared_args,
+                settings={**(settings or {}), "optimize_move_to_prewhere": 0},
+                with_column_types=with_column_types,
             )
         except Exception as err:
             err = wrap_query_error(err)

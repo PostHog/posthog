@@ -1561,3 +1561,60 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
             self.team,
         )
         self.assertEqual(response[0]["data"], [1.0])
+
+    @test_with_materialized_columns(event_properties=["email", "name"], person_properties=["email", "name"])
+    def test_ilike_regression_with_current_clickhouse_version(self):
+        # CH upgrade to 22.3 has this problem: https://github.com/ClickHouse/ClickHouse/issues/36279
+        # While we're waiting to upgrade to a newer version, a workaround is to set `optimize_move_to_prewhere = 0`
+        # Only happens in the materialized version
+
+        journey = {
+            "person1": [
+                {
+                    "event": "watched movie",
+                    "timestamp": datetime(2020, 1, 1, 12),
+                    "properties": {"email": "posthog.com"},
+                },
+            ],
+            "person2": [
+                {
+                    "event": "watched movie",
+                    "timestamp": datetime(2020, 1, 1, 12),
+                    "properties": {"email": "neil@posthog.com"},
+                },
+                {
+                    "event": "watched movie",
+                    "timestamp": datetime(2020, 1, 2, 12),
+                    "properties": {"email": "2@posthug"},
+                },
+            ],
+            "person3": [
+                {"event": "watched movie", "timestamp": datetime(2020, 1, 1, 12), "properties": {"order": "1"},},
+                {"event": "watched movie", "timestamp": datetime(2020, 1, 2, 12), "properties": {"order": "2"},},
+                {"event": "watched movie", "timestamp": datetime(2020, 1, 3, 12), "properties": {"order": "2"},},
+            ],
+            "person4": [
+                {"event": "watched movie", "timestamp": datetime(2020, 1, 5, 12), "properties": {"order": "1"},},
+            ],
+        }
+
+        journeys_for(events_by_person=journey, team=self.team)
+
+        with freeze_time("2020-01-04T13:01:01Z"):
+            with self.settings(SHELL_PLUS_PRINT_SQL=True):
+                event_response = ClickhouseTrends().run(
+                    Filter(
+                        data={
+                            "date_from": "-14d",
+                            "events": [{"id": "watched movie", "name": "watched movie", "type": "events", "order": 0}],
+                            "properties": [
+                                {"key": "email", "type": "event", "value": "posthog.com", "operator": "not_icontains"},
+                                {"key": "name", "type": "event", "value": "posthog.com", "operator": "not_icontains"},
+                                {"key": "name", "type": "person", "value": "posthog.com", "operator": "not_icontains"},
+                            ],
+                        }
+                    ),
+                    self.team,
+                )
+
+        self.assertEqual(event_response[0]["count"], 4)
