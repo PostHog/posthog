@@ -281,9 +281,6 @@ class SocialSignupSerializer(serializers.Serializer):
 class SocialSignupViewset(generics.CreateAPIView):
     serializer_class = SocialSignupSerializer
     permission_classes = (CanCreateOrg,)
-    # authentication_classes = [
-    #     SessionAuthentication,
-    # ]
 
 
 class TeamInviteSurrogate:
@@ -433,7 +430,7 @@ def social_create_user(strategy: DjangoStrategy, details, backend, request, user
             }
             query_params_string = urlencode(query_params)
 
-            return redirect(f"/organization/confirm-creation{query_params_string}",)
+            return redirect(f"/organization/confirm-creation?{query_params_string}",)
 
     report_user_signed_up(
         user,
