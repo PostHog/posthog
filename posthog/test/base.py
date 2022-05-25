@@ -7,8 +7,10 @@ from typing import Any, Dict, List, Optional
 import pytest
 import sqlparse
 from django.apps import apps
+from django.core.signals import request_finished, request_started
 from django.db import connection
 from django.db.migrations.executor import MigrationExecutor
+from django.db.models.signals import pre_save
 from django.test import TestCase, TransactionTestCase
 from django.test.utils import CaptureQueriesContext
 from django.utils.timezone import now
@@ -94,6 +96,10 @@ class ErrorResponsesMixin:
         }
 
 
+def fail_on_save(*args, **kwargs):
+    raise Exception("Failing on person save")
+
+
 class TestMixin:
     CONFIG_ORGANIZATION_NAME: str = "Test"
     CONFIG_EMAIL: Optional[str] = "user1@posthog.com"
@@ -122,6 +128,15 @@ class TestMixin:
     def setUp(self):
         if not self.CLASS_DATA_LEVEL_SETUP:
             _setup_test_data(self)
+
+        request_started.connect(self.disable_person_updates)
+        request_finished.connect(self.enable_person_updates)
+
+    def disable_person_updates(self, *args, **kwargs):
+        pre_save.connect(fail_on_save, Person)
+
+    def enable_person_updates(self, *args, **kwargs):
+        pre_save.disconnect(fail_on_save, Person)
 
     def tearDown(self):
         if len(persons_cache_tests) > 0:
