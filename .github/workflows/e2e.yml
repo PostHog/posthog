@@ -151,6 +151,12 @@ jobs:
                   name: screenshots
                   path: cypress/screenshots
               if: ${{ failure() }}
+            - name: Archive test downloads
+              uses: actions/upload-artifact@v1
+              with:
+                  name: downloads
+                  path: cypress/downloads
+              if: ${{ failure() }}
             - name: Archive test videos
               uses: actions/upload-artifact@v1
               with:
