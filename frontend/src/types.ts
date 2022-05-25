@@ -732,6 +732,7 @@ export interface BillingType {
     current_usage: number | null
     subscription_url: string
     current_bill_amount: number | null
+    current_bill_usage: number | null
     should_display_current_bill: boolean
     billing_limit: number | null
     billing_limit_exceeded: boolean | null
