@@ -198,9 +198,7 @@ export const personsLogic = kea<personsLogicType>({
                 delete updatedProperties[key]
 
                 actions.setPerson({ ...person, properties: updatedProperties })
-                await api.create(`api/person/${person.id}/delete_property`, { $unset: [key] })
-
-                // :TODO: Toast!
+                await api.create(`api/person/${person.id}/delete_property`, { $unset: key })
 
                 eventUsageLogic.actions.reportPersonPropertyUpdated('removed', 1, undefined, undefined)
             }

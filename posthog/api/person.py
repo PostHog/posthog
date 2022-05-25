@@ -514,7 +514,7 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             sent_at=None,
             event={
                 "event": "$delete_person_property",
-                "properties": {"$unset": request.data["$unset"]},
+                "properties": {"$unset": [request.data["$unset"]]},
                 "distinct_id": person.distinct_ids[0],
                 "timestamp": datetime.now().isoformat(),
             },

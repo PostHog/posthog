@@ -506,7 +506,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
             immediate=True,
         )
 
-        self.client.post(f"/api/person/{person.id}/delete_property", {"$unset": ["foo", "bar"]})
+        self.client.post(f"/api/person/{person.id}/delete_property", {"$unset": "foo"})
 
         mock_capture.assert_called_once_with(
             distinct_id="some_distinct_id",
@@ -518,7 +518,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
             event={
                 "event": "$delete_person_property",
                 "distinct_id": "some_distinct_id",
-                "properties": {"$unset": ["foo", "bar"]},
+                "properties": {"$unset": ["foo"]},
                 "timestamp": mock.ANY,
             },
         )
