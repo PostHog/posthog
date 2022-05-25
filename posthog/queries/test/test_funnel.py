@@ -128,8 +128,6 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             self._signup_event(distinct_id="wrong_order")
             self._movie_event(distinct_id="wrong_order")
 
-            self._signup_event(distinct_id="a_user_that_got_deleted_or_doesnt_exist")
-
             result = funnel.run()
             self.assertEqual(result[0]["name"], "user signed up")
             self.assertEqual(result[0]["count"], 4)
