@@ -1,12 +1,12 @@
 import Piscina from '@posthog/piscina'
 import { PluginEvent, ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 
-import { Hub, PreIngestionEvent, Queue, WorkerMethods } from '../../types'
+import { Hub, PreIngestionEvent, WorkerMethods } from '../../types'
 import { status } from '../../utils/status'
 import { KafkaQueue } from './kafka-queue'
 
 interface Queues {
-    ingestion: Queue | null
+    ingestion: KafkaQueue | null
 }
 
 export function pauseQueueIfWorkerFull(
@@ -54,12 +54,12 @@ export async function startQueues(
     }
 }
 
-async function startQueueKafka(server: Hub, workerMethods: WorkerMethods): Promise<Queue | null> {
+async function startQueueKafka(server: Hub, workerMethods: WorkerMethods): Promise<KafkaQueue | null> {
     if (!server.capabilities.ingestion) {
         return null
     }
 
-    const kafkaQueue: Queue = new KafkaQueue(server, workerMethods)
+    const kafkaQueue = new KafkaQueue(server, workerMethods)
     await kafkaQueue.start()
 
     return kafkaQueue

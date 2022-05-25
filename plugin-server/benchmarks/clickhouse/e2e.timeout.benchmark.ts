@@ -1,8 +1,9 @@
 import { performance } from 'perf_hooks'
 
 import { KAFKA_EVENTS_PLUGIN_INGESTION } from '../../src/config/kafka-topics'
+import { KafkaQueue } from '../../src/main/ingestion-queues/kafka-queue'
 import { startPluginsServer } from '../../src/main/pluginsServer'
-import { ClickHouseEvent, Hub, LogLevel, PluginsServerConfig, Queue } from '../../src/types'
+import { ClickHouseEvent, Hub, LogLevel, PluginsServerConfig } from '../../src/types'
 import { delay, UUIDT } from '../../src/utils/utils'
 import { makePiscina } from '../../src/worker/piscina'
 import { createPosthog, DummyPostHog } from '../../src/worker/vm/extensions/posthog'
@@ -22,7 +23,7 @@ const extraServerConfig: Partial<PluginsServerConfig> = {
 }
 
 describe('e2e kafka processing timeout benchmark', () => {
-    let queue: Queue
+    let queue: KafkaQueue
     let hub: Hub
     let stopServer: () => Promise<void>
     let posthog: DummyPostHog
@@ -60,14 +61,14 @@ describe('e2e kafka processing timeout benchmark', () => {
             const uuid = new UUIDT().toString()
             await posthog.capture('custom event', { name: 'haha', uuid, randomProperty: 'lololo' })
         }
-        await queue.pause()
+        await queue.pause(hub.KAFKA_CONSUMPTION_TOPIC)
         for (let i = 0; i < count; i++) {
             await createEvent()
         }
 
         // hope that 5sec is enough to load kafka with all the events (posthog.capture can't be awaited)
         await delay(5000)
-        await queue.resume()
+        queue.resume(hub.KAFKA_CONSUMPTION_TOPIC)
 
         console.log('Starting timer')
         const startTime = performance.now()

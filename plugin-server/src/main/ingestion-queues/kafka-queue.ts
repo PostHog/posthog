@@ -1,7 +1,7 @@
 import * as Sentry from '@sentry/node'
 import { Consumer, EachBatchPayload, Kafka } from 'kafkajs'
 
-import { Hub, Queue, WorkerMethods } from '../../types'
+import { Hub, WorkerMethods } from '../../types'
 import { status } from '../../utils/status'
 import { killGracefully } from '../../utils/utils'
 import { KAFKA_BUFFER, KAFKA_EVENTS_JSON } from './../../config/kafka-topics'
@@ -13,7 +13,7 @@ type ConsumerManagementPayload = {
 }
 
 type EachBatchFunction = (payload: EachBatchPayload, queue: KafkaQueue) => Promise<void>
-export class KafkaQueue implements Queue {
+export class KafkaQueue {
     public pluginsServer: Hub
     public workerMethods: WorkerMethods
     private kafka: Kafka
@@ -102,8 +102,7 @@ export class KafkaQueue implements Queue {
         await this.pause(this.bufferTopic, partition)
     }
 
-    async pause(targetTopic?: string, partition?: number): Promise<void> {
-        targetTopic = targetTopic ?? this.ingestionTopic
+    async pause(targetTopic: string, partition?: number): Promise<void> {
         if (this.wasConsumerRan && !this.isPaused(targetTopic, partition)) {
             const pausePayload: ConsumerManagementPayload = { topic: targetTopic }
             let partitionInfo = ''
@@ -119,8 +118,7 @@ export class KafkaQueue implements Queue {
         return Promise.resolve()
     }
 
-    resume(targetTopic?: string, partition?: number): void {
-        targetTopic = targetTopic ?? this.ingestionTopic
+    resume(targetTopic: string, partition?: number): void {
         if (this.wasConsumerRan && this.isPaused(targetTopic, partition)) {
             const resumePayload: ConsumerManagementPayload = { topic: targetTopic }
             let partitionInfo = ''
@@ -134,8 +132,7 @@ export class KafkaQueue implements Queue {
         }
     }
 
-    isPaused(targetTopic?: string, partition?: number): boolean {
-        targetTopic = targetTopic ?? this.ingestionTopic
+    isPaused(targetTopic: string, partition?: number): boolean {
         // if we pass a partition, check that as well, else just return if the topic is paused
         return this.consumer
             .paused()
