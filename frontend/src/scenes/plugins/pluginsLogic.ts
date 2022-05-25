@@ -139,7 +139,7 @@ export const pluginsLogic = kea<pluginsLogicType>([
                     }
                     await api.delete(`api/organizations/@current/plugins/${editingPlugin.id}`)
                     capturePluginEvent(`plugin uninstalled`, editingPlugin)
-                    const { [editingPlugin.id]: _discard, ...rest } = plugins // eslint-disable-line
+                    const { [editingPlugin.id]: _discard, ...rest } = plugins
                     return rest
                 },
                 updatePlugin: async ({ id }) => {

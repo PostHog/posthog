@@ -103,7 +103,7 @@ function ColumnConfigurator({ immutableColumns, defaultColumns }: TableConfigPro
             bodyStyle={{ padding: '16px 16px 0 16px' }}
             className="column-configurator-modal"
             okButtonProps={{
-                // @ts-ignore
+                // @ts-expect-error
                 'data-attr': 'items-selector-confirm',
             }}
             okText="Save"
