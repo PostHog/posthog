@@ -6,7 +6,6 @@ import { JobQueueManager } from '../../src/main/job-queues/job-queue-manager'
 import { Hub } from '../../src/types'
 import { PluginConfig, PluginConfigVMResponse } from '../../src/types'
 import { createHub } from '../../src/utils/db/hub'
-import { KafkaProducerWrapper } from '../../src/utils/db/kafka-producer-wrapper'
 import { delay } from '../../src/utils/utils'
 import { MAXIMUM_RETRIES } from '../../src/worker/vm/upgrades/export-events'
 import { createPluginConfigVM } from '../../src/worker/vm/vm'
@@ -60,7 +59,6 @@ describe('vm tests', () => {
         expect(Object.keys(vm).sort()).toEqual(['methods', 'tasks', 'vm', 'vmResponseVariable'])
         expect(Object.keys(vm.methods).sort()).toEqual([
             'exportEvents',
-            'handleAlert',
             'onAction',
             'onEvent',
             'onSnapshot',

@@ -69,7 +69,6 @@ export interface PluginsServerConfig extends Record<string, any> {
     WORKER_CONCURRENCY: number
     TASKS_PER_WORKER: number
     TASK_TIMEOUT: number
-    CELERY_DEFAULT_QUEUE: string
     DATABASE_URL: string | null
     POSTHOG_DB_NAME: string | null
     POSTHOG_DB_USER: string
@@ -95,7 +94,6 @@ export interface PluginsServerConfig extends Record<string, any> {
     KAFKA_PRODUCER_MAX_QUEUE_SIZE: number
     KAFKA_MAX_MESSAGE_BATCH_SIZE: number
     KAFKA_FLUSH_FREQUENCY_MS: number
-    PLUGINS_CELERY_QUEUE: string
     REDIS_URL: string
     POSTHOG_REDIS_PASSWORD: string
     POSTHOG_REDIS_HOST: string
@@ -150,6 +148,7 @@ export interface PluginsServerConfig extends Record<string, any> {
     OBJECT_STORAGE_SECRET_ACCESS_KEY: string
     OBJECT_STORAGE_SESSION_RECORDING_FOLDER: string
     OBJECT_STORAGE_BUCKET: string
+    PLUGIN_SERVER_MODE: 'ingestion' | 'async' | null
 }
 
 export interface Hub extends PluginsServerConfig {
@@ -200,17 +199,8 @@ export interface PluginServerCapabilities {
     ingestion?: boolean
     pluginScheduledTasks?: boolean
     processJobs?: boolean
-}
-
-export interface Pausable {
-    pause: () => Promise<void> | void
-    resume: () => Promise<void> | void
-    isPaused: () => boolean
-}
-
-export interface Queue extends Pausable {
-    start: () => Promise<void> | void
-    stop: () => Promise<void> | void
+    processAsyncHandlers?: boolean
+    http?: boolean
 }
 
 export type OnJobCallback = (queue: EnqueuedJob[]) => Promise<void> | void
@@ -397,6 +387,7 @@ export interface PluginTask {
 
 export type WorkerMethods = {
     runBufferEventPipeline: (event: PreIngestionEvent) => Promise<IngestEventResponse>
+    runAsyncHandlersEventPipeline: (event: IngestionEvent) => Promise<void>
     runEventPipeline: (event: PluginEvent) => Promise<void>
 }
 
@@ -408,7 +399,6 @@ export type VMMethods = {
     onSnapshot?: (event: ProcessedPluginEvent) => Promise<void>
     exportEvents?: (events: PluginEvent[]) => Promise<void>
     processEvent?: (event: PluginEvent) => Promise<PluginEvent>
-    handleAlert?: (alert: Alert) => Promise<void>
 }
 
 export enum AlertLevel {
@@ -905,11 +895,7 @@ export interface EventPropertyType {
     team_id: number
 }
 
-export type PluginFunction = 'onEvent' | 'onAction' | 'processEvent' | 'onSnapshot' | 'pluginTask' | 'handleAlert'
-
-export enum CeleryTriggeredJobOperation {
-    Start = 'start',
-}
+export type PluginFunction = 'onEvent' | 'onAction' | 'processEvent' | 'onSnapshot' | 'pluginTask'
 
 export type GroupTypeToColumnIndex = Record<string, GroupTypeIndex>
 
@@ -943,3 +929,5 @@ export interface PreIngestionEvent {
     timestamp: DateTime | string
     elementsList: Element[]
 }
+
+export type IngestionEvent = PreIngestionEvent

@@ -10,10 +10,12 @@ import clsx from 'clsx'
 import { Field as KeaField } from 'kea-forms'
 import { AlertMessage } from 'lib/components/AlertMessage'
 import { useActions } from 'kea'
-import { cohortLogic } from 'scenes/cohorts/cohortLogic'
 import { cleanCriteria } from 'scenes/cohorts/cohortUtils'
+import { cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
+import { CohortLogicProps } from 'scenes/cohorts/cohortLogic'
 
 export interface CohortCriteriaRowBuilderProps {
+    id: CohortLogicProps['id']
     criteria: AnyCohortCriteriaType
     type: BehavioralFilterType
     groupIndex: number
@@ -24,6 +26,7 @@ export interface CohortCriteriaRowBuilderProps {
 }
 
 export function CohortCriteriaRowBuilder({
+    id,
     type,
     groupIndex,
     index,
@@ -32,7 +35,7 @@ export function CohortCriteriaRowBuilder({
     hideDeleteIcon = false,
     onChangeType,
 }: CohortCriteriaRowBuilderProps): JSX.Element {
-    const { setCriteria, duplicateFilter, removeFilter } = useActions(cohortLogic)
+    const { setCriteria, duplicateFilter, removeFilter } = useActions(cohortEditLogic({ id }))
     const rowShape = ROWS[type]
 
     const renderFieldComponent = (_field: Field, i: number): JSX.Element => {

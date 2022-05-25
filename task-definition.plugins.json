@@ -107,6 +107,10 @@
                 {
                     "name": "PERSON_INFO_TO_REDIS_TEAMS",
                     "value": "7964"
+                },
+                {
+                    "name": "OBJECT_STORAGE_ENABLED",
+                    "value": "True"
                 }
             ],
             "secrets": [
@@ -161,6 +165,14 @@
                 {
                     "name": "STATSD_HOST",
                     "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:STATSD_HOST::"
+                },
+                {
+                    "name": "OBJECT_STORAGE_ENDPOINT",
+                    "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:OBJECT_STORAGE_ENDPOINT::"
+                },
+                {
+                    "name": "OBJECT_STORAGE_BUCKET",
+                    "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:OBJECT_STORAGE_BUCKET::"
                 }
             ],
             "entryPoint": ["./bin/plugin-server", "--no-restart-loop"],

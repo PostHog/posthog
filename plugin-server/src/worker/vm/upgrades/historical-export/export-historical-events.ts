@@ -2,7 +2,6 @@ import { PluginEvent, PluginMeta, RetryError } from '@posthog/plugin-scaffold'
 
 import {
     Hub,
-    MetricMathOperations,
     PluginConfig,
     PluginConfigVMInternalResponse,
     PluginLogEntrySource,
@@ -319,10 +318,10 @@ export function addHistoricalEventsExportCapability(
         const progress = progressDenominator === 0 ? 20 : Math.round(progressNumerator / progressDenominator) * 20
 
         const progressBarCompleted = Array.from({ length: progress })
-            .map((_) => '■')
+            .map(() => '■')
             .join('')
         const progressBarRemaining = Array.from({ length: 20 - progress })
-            .map((_) => '□')
+            .map(() => '□')
             .join('')
         createLog(`Export progress: ${progressBarCompleted}${progressBarRemaining}`)
     }

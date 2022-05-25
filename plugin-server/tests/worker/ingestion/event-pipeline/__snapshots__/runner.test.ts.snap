@@ -1,5 +1,26 @@
 // Jest Snapshot v1, https://goo.gl/fbAQLP
 
+exports[`EventPipelineRunner runAsyncHandlersEventPipeline() runs remaining steps 1`] = `
+Array [
+  Array [
+    "runAsyncHandlersStep",
+    Array [
+      Object {
+        "distinctId": "my_id",
+        "elementsList": Array [],
+        "event": "$pageview",
+        "eventUuid": "uuid1",
+        "ip": "127.0.0.1",
+        "properties": Object {},
+        "teamId": 2,
+        "timestamp": "2020-02-23T02:15:00Z",
+      },
+      "testPerson",
+    ],
+  ],
+]
+`;
+
 exports[`EventPipelineRunner runBufferEventPipeline() runs remaining steps 1`] = `
 Array [
   Array [
@@ -15,7 +36,7 @@ Array [
         "teamId": 2,
         "timestamp": "2020-02-23T02:15:00Z",
       },
-      undefined,
+      "testPerson",
     ],
   ],
   Array [

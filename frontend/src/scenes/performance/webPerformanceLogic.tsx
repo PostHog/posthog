@@ -1,6 +1,6 @@
 import { kea } from 'kea'
 import { Breadcrumb, EventType, MatchedRecording } from '~/types'
-import { webPerformanceLogicType } from './webPerformanceLogicType'
+import type { webPerformanceLogicType } from './webPerformanceLogicType'
 import { urls } from 'scenes/urls'
 import { router } from 'kea-router'
 import api from 'lib/api'
@@ -282,7 +282,7 @@ function forWaterfallDisplay(pageViewEvent: EventType): EventPerformanceData {
     }
 }
 
-export const webPerformanceLogic = kea<webPerformanceLogicType<EventPerformanceData, WebPerformancePage>>({
+export const webPerformanceLogic = kea<webPerformanceLogicType>({
     path: ['scenes', 'performance'],
     actions: {
         setEventToDisplay: (eventToDisplay: EventType) => ({
@@ -309,7 +309,7 @@ export const webPerformanceLogic = kea<webPerformanceLogicType<EventPerformanceD
             },
         ],
         currentEvent: [null as EventType | null, { setEventToDisplay: (_, { eventToDisplay }) => eventToDisplay }],
-        currentPage: [WebPerformancePage.TABLE, { setCurrentPage: (_, { page }) => page }],
+        currentPage: [WebPerformancePage.TABLE as WebPerformancePage, { setCurrentPage: (_, { page }) => page }],
     },
     loaders: {
         event: {

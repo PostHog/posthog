@@ -119,7 +119,8 @@ class ClickhouseTrendsBreakdown:
                 team_id=self.team_id,
                 action=action,
                 table_name="e",
-                person_id_joined_alias=f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id",
+                person_properties_mode=self._person_properties_mode,
+                person_id_joined_alias=f"{self.DISTINCT_ID_TABLE_ALIAS if not self.using_person_on_events else 'e'}.person_id",
             )
 
         self.params = {
@@ -130,7 +131,7 @@ class ClickhouseTrendsBreakdown:
             "event": self.entity.id,
             "key": self.filter.breakdown,
             **date_params,
-            "timezone": self.team.timezone_for_charts,
+            "timezone": self.team.timezone,
         }
 
         breakdown_filter_params = {

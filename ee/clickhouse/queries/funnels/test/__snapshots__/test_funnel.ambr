@@ -33,7 +33,7 @@
                 (SELECT aggregation_target,
                         timestamp,
                         if(event = 'user signed up'
-                           AND (aggregation_target IN
+                           AND (person_id IN
                                   (select id
                                    from
                                      (SELECT *
@@ -55,7 +55,8 @@
                            e.team_id as team_id,
                            e.distinct_id as distinct_id,
                            e.timestamp as timestamp,
-                           pdi.person_id as aggregation_target
+                           pdi.person_id as aggregation_target,
+                           pdi.person_id as person_id
                     FROM events e
                     INNER JOIN
                       (SELECT distinct_id,
@@ -147,7 +148,7 @@
                 (SELECT aggregation_target,
                         timestamp,
                         if(event = 'user signed up'
-                           AND (aggregation_target IN
+                           AND (person_id IN
                                   (SELECT person_id
                                    FROM cohortpeople
                                    WHERE team_id = 2
@@ -162,7 +163,8 @@
                            e.team_id as team_id,
                            e.distinct_id as distinct_id,
                            e.timestamp as timestamp,
-                           pdi.person_id as aggregation_target
+                           pdi.person_id as aggregation_target,
+                           pdi.person_id as person_id
                     FROM events e
                     INNER JOIN
                       (SELECT distinct_id,
@@ -270,7 +272,8 @@
                                  e.distinct_id as distinct_id,
                                  e.timestamp as timestamp,
                                  pdi.person_id as aggregation_target,
-                                 e."properties" as "properties"
+                                 e."properties" as "properties",
+                                 pdi.person_id as person_id
                           FROM events e
                           INNER JOIN
                             (SELECT distinct_id,
@@ -377,7 +380,8 @@
                                  e.distinct_id as distinct_id,
                                  e.timestamp as timestamp,
                                  pdi.person_id as aggregation_target,
-                                 e."properties" as "properties"
+                                 e."properties" as "properties",
+                                 pdi.person_id as person_id
                           FROM events e
                           INNER JOIN
                             (SELECT distinct_id,
@@ -488,7 +492,8 @@
                                  e.distinct_id as distinct_id,
                                  e.timestamp as timestamp,
                                  pdi.person_id as aggregation_target,
-                                 e."properties" as "properties"
+                                 e."properties" as "properties",
+                                 pdi.person_id as person_id
                           FROM events e
                           INNER JOIN
                             (SELECT distinct_id,
@@ -599,7 +604,8 @@
                                  e.distinct_id as distinct_id,
                                  e.timestamp as timestamp,
                                  pdi.person_id as aggregation_target,
-                                 e."properties" as "properties"
+                                 e."properties" as "properties",
+                                 pdi.person_id as person_id
                           FROM events e
                           INNER JOIN
                             (SELECT distinct_id,
@@ -670,7 +676,7 @@
                 (SELECT aggregation_target,
                         timestamp,
                         if(event = 'user signed up'
-                           AND (aggregation_target IN
+                           AND (person_id IN
                                   (SELECT person_id
                                    FROM person_static_cohort
                                    WHERE cohort_id = 2
@@ -683,7 +689,8 @@
                            e.team_id as team_id,
                            e.distinct_id as distinct_id,
                            e.timestamp as timestamp,
-                           pdi.person_id as aggregation_target
+                           pdi.person_id as aggregation_target,
+                           pdi.person_id as person_id
                     FROM events e
                     INNER JOIN
                       (SELECT distinct_id,
@@ -753,7 +760,8 @@
                            e.team_id as team_id,
                            e.distinct_id as distinct_id,
                            e.timestamp as timestamp,
-                           pdi.person_id as aggregation_target
+                           pdi.person_id as aggregation_target,
+                           pdi.person_id as person_id
                     FROM events e
                     INNER JOIN
                       (SELECT distinct_id,
@@ -1033,6 +1041,7 @@
                                  e.distinct_id as distinct_id,
                                  e.timestamp as timestamp,
                                  pdi.person_id as aggregation_target,
+                                 pdi.person_id as person_id,
                                  groups_0.group_properties_0 as group_properties_0
                           FROM events e
                           INNER JOIN
@@ -1173,6 +1182,7 @@
                                  e.distinct_id as distinct_id,
                                  e.timestamp as timestamp,
                                  pdi.person_id as aggregation_target,
+                                 pdi.person_id as person_id,
                                  groups_0.group_properties_0 as group_properties_0
                           FROM events e
                           INNER JOIN
@@ -1317,6 +1327,7 @@
                                  e.distinct_id as distinct_id,
                                  e.timestamp as timestamp,
                                  pdi.person_id as aggregation_target,
+                                 pdi.person_id as person_id,
                                  groups_0.group_properties_0 as group_properties_0
                           FROM events e
                           INNER JOIN
@@ -1461,6 +1472,7 @@
                                  e.distinct_id as distinct_id,
                                  e.timestamp as timestamp,
                                  pdi.person_id as aggregation_target,
+                                 pdi.person_id as person_id,
                                  groups_0.group_properties_0 as group_properties_0
                           FROM events e
                           INNER JOIN
@@ -1605,6 +1617,7 @@
                                  e.distinct_id as distinct_id,
                                  e.timestamp as timestamp,
                                  pdi.person_id as aggregation_target,
+                                 pdi.person_id as person_id,
                                  groups_0.group_properties_0 as group_properties_0
                           FROM events e
                           INNER JOIN

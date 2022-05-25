@@ -115,7 +115,7 @@ describe('EventPipelineRunner', () => {
 
         describe('early exits from pipeline', () => {
             beforeEach(() => {
-                mocked(prepareEventStep).mockResolvedValue(null)
+                jest.mocked(prepareEventStep).mockResolvedValue(null)
             })
 
             it('stops processing after step', async () => {
@@ -179,9 +179,22 @@ describe('EventPipelineRunner', () => {
 
     describe('runBufferEventPipeline()', () => {
         it('runs remaining steps', async () => {
+            jest.mocked(hub.db.fetchPerson).mockResolvedValue('testPerson')
+
             await runner.runBufferEventPipeline(preIngestionEvent)
 
             expect(runner.steps).toEqual(['createEventStep', 'runAsyncHandlersStep'])
+            expect(runner.stepsWithArgs).toMatchSnapshot()
+        })
+    })
+
+    describe('runAsyncHandlersEventPipeline()', () => {
+        it('runs remaining steps', async () => {
+            jest.mocked(hub.db.fetchPerson).mockResolvedValue('testPerson')
+
+            await runner.runAsyncHandlersEventPipeline(preIngestionEvent)
+
+            expect(runner.steps).toEqual(['runAsyncHandlersStep'])
             expect(runner.stepsWithArgs).toMatchSnapshot()
         })
     })
