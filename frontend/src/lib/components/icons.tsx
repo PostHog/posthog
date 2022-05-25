@@ -1341,7 +1341,8 @@ export function EventStackGearIcon({ width = 24, height = 24, ...props }: React.
     )
 }
 
-export function LiveIcon({ width = 24, height = 24, ...props }: React.SVGProps<SVGSVGElement>): JSX.Element {
+/** Material Design Sensors icon. */
+export function IconLive({ width = 24, height = 24, ...props }: React.SVGProps<SVGSVGElement>): JSX.Element {
     return (
         <svg
             width={width}

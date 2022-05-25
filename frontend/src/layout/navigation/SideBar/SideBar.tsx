@@ -18,7 +18,7 @@ import {
     IconRecording,
     IconSettings,
     IconTools,
-    LiveIcon,
+    IconLive,
 } from 'lib/components/icons'
 import { LemonDivider } from 'lib/components/LemonDivider'
 import { Lettermark } from 'lib/components/Lettermark/Lettermark'
@@ -157,7 +157,7 @@ function Pages(): JSX.Element {
                         <LemonDivider />
                     )}
 
-                    <PageButton icon={<LiveIcon />} identifier={Scene.Events} to={urls.events()} />
+                    <PageButton icon={<IconLive />} identifier={Scene.Events} to={urls.events()} />
                     <PageButton
                         icon={<EventStackGearIcon />}
                         identifier={Scene.DataManagement}
