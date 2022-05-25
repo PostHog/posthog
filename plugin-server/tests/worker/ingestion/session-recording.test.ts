@@ -47,7 +47,7 @@ describe('session recordings', () => {
 
     it('returns stringified data when put object fails', async () => {
         const objectStorage: ObjectStorage = {
-            healthCheck: () => Promise.resolve(true),
+            healthcheck: () => Promise.resolve(true),
             isEnabled: true,
             putObject: () => {
                 throw new Error('force an error')
@@ -68,7 +68,7 @@ describe('session recordings', () => {
 
     it('returns altered data when it can store session data in object storage', async () => {
         const objectStorage: ObjectStorage = {
-            healthCheck: () => Promise.resolve(true),
+            healthcheck: () => Promise.resolve(true),
             isEnabled: true,
             putObject: () => Promise.resolve(),
             sessionRecordingAllowList: [4],
@@ -82,7 +82,7 @@ describe('session recordings', () => {
                 data: 'tomato',
                 chunk_id: 1,
                 chunk_index: 1,
-                object_storage_path: 'session_recordings/2022-05-24/123456/1/1',
+                object_storage_path: `session_recordings/${DateTime.now().toFormat('yyyy-MM-dd')}/123456/1/1`,
             })
         )
         expect(statsdTiming).toHaveBeenCalledTimes(1)
