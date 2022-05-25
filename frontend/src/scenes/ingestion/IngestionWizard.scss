@@ -60,13 +60,18 @@
     font-weight: 500;
     color: var(--primary);
     margin-top: 1rem;
-    padding-bottom: 1.5rem;
+    padding-bottom: 4rem;
 }
 
 .IngestionSidebar__steps {
     color: var(--muted-alt);
     font-size: 14px;
     margin-top: 1.5rem;
+
+    .LemonButton {
+        font-weight: 600;
+        margin-bottom: 0.5rem;
+    }
 }
 
 .IngestionSidebar {

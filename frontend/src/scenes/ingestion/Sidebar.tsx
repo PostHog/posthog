@@ -36,7 +36,7 @@ export function Sidebar(): JSX.Element {
                     </LemonButton>
                     <LemonButton
                         active={currentIndex === 2}
-                        disabled={!platform}
+                        disabled={currentIndex !== 2}
                         onClick={() => {
                             if (platform) {
                                 setVerify(true)
