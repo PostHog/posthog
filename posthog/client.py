@@ -50,6 +50,12 @@ QUERY_TIMEOUT_THREAD = get_timer_thread("posthog.client", SLOW_QUERY_THRESHOLD_M
 _request_information: Optional[Dict] = None
 
 
+# Optimize_move_to_prewhere setting is set because of this regression test
+# test_ilike_regression_with_current_clickhouse_version
+# https://github.com/PostHog/posthog/blob/master/ee/clickhouse/queries/test/test_trends.py#L1566
+settings_override = {"optimize_move_to_prewhere": 0}
+
+
 def default_client():
     """
     Return a bare bones client for use in places where we are only interested in general ClickHouse state
@@ -151,10 +157,7 @@ def sync_execute(query, args=None, settings=None, with_column_types=False, flush
 
         timeout_task = QUERY_TIMEOUT_THREAD.schedule(_notify_of_slow_query_failure, tags)
 
-        # Optimize_move_to_prewhere setting is set because of this regression test
-        # test_ilike_regression_with_current_clickhouse_version
-        # https://github.com/PostHog/posthog/blob/master/ee/clickhouse/queries/test/test_trends.py#L1566
-        settings = {"optimize_move_to_prewhere": 0, **(settings or {})}
+        settings = {**settings_override, **(settings or {})}
 
         try:
             result = client.execute(
