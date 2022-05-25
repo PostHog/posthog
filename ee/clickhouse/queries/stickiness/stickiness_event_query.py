@@ -6,6 +6,7 @@ from posthog.constants import TREND_FILTER_TYPE_ACTIONS, PropertyOperatorType
 from posthog.models import Entity
 from posthog.models.action.util import format_action_filter
 from posthog.models.filters.stickiness_filter import StickinessFilter
+from posthog.models.utils import PersonPropertiesMode
 from posthog.queries.util import get_trunc_func_ch
 
 
@@ -20,7 +21,11 @@ class StickinessEventsQuery(EnterpriseEventQuery):
     def get_query(self) -> Tuple[str, Dict[str, Any]]:
 
         prop_query, prop_params = self._get_prop_groups(
-            self._filter.property_groups.combine_property_group(PropertyOperatorType.AND, self._entity.property_groups)
+            self._filter.property_groups.combine_property_group(PropertyOperatorType.AND, self._entity.property_groups),
+            person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS
+            if self._using_person_on_events
+            else PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
+            person_id_joined_alias=f"{self.DISTINCT_ID_TABLE_ALIAS if not self._using_person_on_events else self.EVENT_TABLE_ALIAS}.person_id",
         )
 
         self.params.update(prop_params)
@@ -57,13 +62,28 @@ class StickinessEventsQuery(EnterpriseEventQuery):
     def _determine_should_join_distinct_ids(self) -> None:
         self._should_join_distinct_ids = True
 
+    def _determine_should_join_persons(self) -> None:
+        EnterpriseEventQuery._determine_should_join_persons(self)
+        if self._using_person_on_events:
+            self._should_join_distinct_ids = False
+            self._should_join_persons = False
+
     def aggregation_target(self):
         return get_aggregation_target_field(
-            self._entity.math_group_type_index, self.EVENT_TABLE_ALIAS, f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id"
+            self._entity.math_group_type_index,
+            self.EVENT_TABLE_ALIAS,
+            f"{self.DISTINCT_ID_TABLE_ALIAS if not self._using_person_on_events else self.EVENT_TABLE_ALIAS}.person_id",
         )
 
     def get_actions_query(self) -> Tuple[str, Dict[str, Any]]:
         if self._entity.type == TREND_FILTER_TYPE_ACTIONS:
-            return format_action_filter(team_id=self._team_id, action=self._entity.get_action())
+            return format_action_filter(
+                team_id=self._team_id,
+                action=self._entity.get_action(),
+                person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS
+                if self._using_person_on_events
+                else PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
+                person_id_joined_alias=f"{self.DISTINCT_ID_TABLE_ALIAS if not self._using_person_on_events else self.EVENT_TABLE_ALIAS}.person_id",
+            )
         else:
             return "event = %(event)s", {"event": self._entity.id}

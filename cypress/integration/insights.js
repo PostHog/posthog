@@ -12,7 +12,8 @@ describe('Insights', () => {
         cy.get('[data-attr-insight-type="TRENDS"').click()
 
         // apply filter
-        cy.get('[data-attr=new-prop-filter-trends-filters]').click()
+        cy.get('[data-attr=trends-filters-add-filter-group]').click()
+        cy.get('[data-attr=property-select-toggle-0]').click()
         cy.get('[data-attr=taxonomic-filter-searchfield]').click()
         cy.get('[data-attr=expand-list-event_properties]').click()
         cy.get('[data-attr=prop-filter-event_properties-1]').click({ force: true })

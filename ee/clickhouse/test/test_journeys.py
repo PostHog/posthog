@@ -8,8 +8,8 @@ from django.utils import timezone
 
 from ee.clickhouse.sql.events import EVENTS_DATA_TABLE
 from posthog.client import sync_execute
-from posthog.models import Person, PersonDistinctId, Team
-from posthog.test.base import flush_persons_and_events
+from posthog.models import Group, Person, PersonDistinctId, Team
+from posthog.test.base import _create_event, flush_persons_and_events
 
 
 def journeys_for(
@@ -37,6 +37,9 @@ def journeys_for(
     And clarifies the preconditions of the test
     """
 
+    def _create_event_from_args(**event):
+        return {**event}
+
     flush_persons_and_events()
     people = {}
     events_to_create = []
@@ -49,11 +52,27 @@ def journeys_for(
             )
 
         for event in events:
+
+            # Populate group properties as well
+            group_props = {}
+            for property_key, value in (event.get("properties") or {}).items():
+                if property_key.startswith("$group_"):
+                    group_type_index = property_key[-1]
+                    try:
+                        group = Group.objects.get(team_id=team.pk, group_type_index=group_type_index, group_key=value)
+                        group_property_key = f"group{group_type_index}_properties"
+                        group_props = {
+                            group_property_key: {**group.group_properties, **event.get(group_property_key, {})},
+                        }
+
+                    except Group.DoesNotExist:
+                        continue
+
             if "timestamp" not in event:
                 event["timestamp"] = datetime.now()
 
             events_to_create.append(
-                _create_event(
+                _create_event_from_args(
                     team=team,
                     distinct_id=distinct_id,
                     event=event["event"],
@@ -61,26 +80,26 @@ def journeys_for(
                     properties=event.get("properties", {}),
                     person_id=people[distinct_id].uuid,
                     person_properties=people[distinct_id].properties or {},
-                    group0_properties=event.get("group0_properties", {}),
-                    group1_properties=event.get("group1_properties", {}),
-                    group2_properties=event.get("group2_properties", {}),
-                    group3_properties=event.get("group3_properties", {}),
-                    group4_properties=event.get("group4_properties", {}),
+                    group0_properties=event.get("group0_properties", {}) or group_props.get("group0_properties", {}),
+                    group1_properties=event.get("group1_properties", {}) or group_props.get("group1_properties", {}),
+                    group2_properties=event.get("group2_properties", {}) or group_props.get("group2_properties", {}),
+                    group3_properties=event.get("group3_properties", {}) or group_props.get("group3_properties", {}),
+                    group4_properties=event.get("group4_properties", {}) or group_props.get("group4_properties", {}),
                 )
             )
 
-    _create_all_events(events_to_create)
+    _create_all_events_raw(events_to_create)
 
     return people
 
 
-def _create_all_events(all_events: List[Dict]):
+def _create_all_events_raw(all_events: List[Dict]):
     parsed = ""
     for event in all_events:
         data: Dict[str, Any] = {
             "properties": {},
             "timestamp": timezone.now().strftime("%Y-%m-%d %H:%M:%S.%f"),
-            "person_id": "00000000-0000-0000-0000-000000000000",
+            "person_id": str(uuid4()),
             "person_properties": {},
             "group0_properties": {},
             "group1_properties": {},
@@ -102,6 +121,11 @@ def _create_all_events(all_events: List[Dict]):
     )
 
 
+def create_all_events(all_events: List[dict]):
+    for event in all_events:
+        _create_event(**event)
+
+
 # We collect all events per test into an array and batch create the events to reduce creation time
 @dataclasses.dataclass
 class InMemoryEvent:
@@ -117,10 +141,6 @@ class InMemoryEvent:
     group2_properties: Dict
     group3_properties: Dict
     group4_properties: Dict
-
-
-def _create_event(**event):
-    return {**event}
 
 
 def update_or_create_person(distinct_ids: List[str], team_id: int, **kwargs):

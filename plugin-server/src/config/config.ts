@@ -13,7 +13,6 @@ export function getDefaultConfig(): PluginsServerConfig {
     const coreCount = os.cpus().length
 
     return {
-        CELERY_DEFAULT_QUEUE: 'celery',
         DATABASE_URL: isTestEnv
             ? 'postgres://posthog:posthog@localhost:5432/test_posthog'
             : isDevEnv
@@ -44,7 +43,6 @@ export function getDefaultConfig(): PluginsServerConfig {
         KAFKA_PRODUCER_MAX_QUEUE_SIZE: isTestEnv ? 0 : 1000,
         KAFKA_MAX_MESSAGE_BATCH_SIZE: 900_000,
         KAFKA_FLUSH_FREQUENCY_MS: isTestEnv ? 5 : 500,
-        PLUGINS_CELERY_QUEUE: 'posthog-plugins',
         REDIS_URL: 'redis://127.0.0.1',
         POSTHOG_REDIS_PASSWORD: '',
         POSTHOG_REDIS_HOST: '',
@@ -101,13 +99,12 @@ export function getDefaultConfig(): PluginsServerConfig {
         OBJECT_STORAGE_SECRET_ACCESS_KEY: 'object_storage_root_password',
         OBJECT_STORAGE_SESSION_RECORDING_FOLDER: 'session_recordings',
         OBJECT_STORAGE_BUCKET: 'posthog',
+        PLUGIN_SERVER_MODE: null,
     }
 }
 
 export function getConfigHelp(): Record<keyof PluginsServerConfig, string> {
     return {
-        CELERY_DEFAULT_QUEUE: 'Celery outgoing queue',
-        PLUGINS_CELERY_QUEUE: 'Celery incoming queue',
         DATABASE_URL: 'Postgres database URL',
         CLICKHOUSE_HOST: 'ClickHouse host',
         CLICKHOUSE_DATABASE: 'ClickHouse database',
@@ -175,6 +172,7 @@ export function getConfigHelp(): Record<keyof PluginsServerConfig, string> {
         CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS_TEAMS:
             '(advanced) a comma separated list of teams to disable clickhouse external schemas for',
         CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: '(advanced) topic to send events to for clickhouse ingestion',
+        PLUGIN_SERVER_MODE: '(advanced) plugin server mode',
         OBJECT_STORAGE_ENABLED:
             'Disables or enables the use of object storage. It will become mandatory to use object storage',
         OBJECT_STORAGE_ENDPOINT: 'minio endpoint',
@@ -210,6 +208,10 @@ export function overrideWithEnv(
                 newConfig[key] = env[key]
             }
         }
+    }
+
+    if (!['ingestion', 'async', null].includes(newConfig.PLUGIN_SERVER_MODE)) {
+        throw Error(`Invalid PLUGIN_SERVER_MODE ${newConfig.PLUGIN_SERVER_MODE}`)
     }
     return newConfig
 }

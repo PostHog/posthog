@@ -110,10 +110,8 @@ class ClickhouseFunnelTrends(ClickhouseFunnelBase):
             _date_from = self._filter.date_from
 
         breakdown_clause = self._get_breakdown_prop()
-        formatted_date_from = format_ch_timestamp(_date_from, convert_to_timezone=self._team.timezone_for_charts)
-        formatted_date_to = format_ch_timestamp(
-            self._filter.date_to, convert_to_timezone=self._team.timezone_for_charts
-        )
+        formatted_date_from = format_ch_timestamp(_date_from, convert_to_timezone=self._team.timezone)
+        formatted_date_to = format_ch_timestamp(self._filter.date_to, convert_to_timezone=self._team.timezone)
 
         self.params.update(
             {

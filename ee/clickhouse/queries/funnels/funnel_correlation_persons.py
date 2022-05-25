@@ -81,6 +81,7 @@ class _FunnelEventsCorrelationActors(ActorBaseQuery):
             person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS
             if self._team.actor_on_events_querying_enabled
             else PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
+            person_id_joined_alias=f"{event_query.DISTINCT_ID_TABLE_ALIAS if not self._team.actor_on_events_querying_enabled else event_query.EVENT_TABLE_ALIAS}.person_id",
         )
 
         conversion_filter = (

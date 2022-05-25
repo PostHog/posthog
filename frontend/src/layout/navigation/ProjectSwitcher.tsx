@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import './ProjectSwitcher.scss'
 import { router } from 'kea-router'
 import { IconPlus, IconSettings } from 'lib/components/icons'
 import { LemonButton, LemonButtonWithSideAction } from 'lib/components/LemonButton'

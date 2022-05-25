@@ -13,7 +13,7 @@ import { LemonCheckbox } from 'lib/components/LemonCheckbox'
 import { Lettermark, LettermarkColor } from 'lib/components/Lettermark/Lettermark'
 import { LemonRow } from 'lib/components/LemonRow'
 import { humanFriendlyDuration, humanFriendlyNumber, percentage } from 'lib/utils'
-import { ValueInspectorButton } from 'scenes/funnels/FunnelBarGraph'
+import { ValueInspectorButton } from 'scenes/funnels/ValueInspectorButton'
 import { getSeriesColor } from 'lib/colors'
 import { IconFlag } from 'lib/components/icons'
 

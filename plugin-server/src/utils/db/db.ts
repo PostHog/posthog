@@ -44,8 +44,8 @@ import {
     PluginLogEntry,
     PluginLogEntrySource,
     PluginLogEntryType,
+    PluginLogLevel,
     PluginSourceFileStatus,
-    PluginsServerConfig,
     PostgresSessionRecordingEvent,
     PropertiesLastOperation,
     PropertiesLastUpdatedAt,
@@ -70,7 +70,7 @@ import {
     UUID,
     UUIDT,
 } from '../utils'
-import { OrganizationPluginsAccessLevel, PluginLogLevel } from './../../types'
+import { OrganizationPluginsAccessLevel } from './../../types'
 import { KafkaProducerWrapper } from './kafka-producer-wrapper'
 import { PostgresLogsWrapper } from './postgres-logs-wrapper'
 import {
@@ -1374,7 +1374,7 @@ export class DB {
 
         const logLevel = pluginConfig.plugin?.log_level
 
-        if (!shouldStoreLog(logLevel || 0, source, type)) {
+        if (!shouldStoreLog(logLevel || PluginLogLevel.Full, source, type)) {
             return
         }
 
@@ -1683,6 +1683,33 @@ export class DB {
         }
 
         return result
+    }
+
+    public async fetchInstanceSetting<Type>(key: string): Promise<Type | null> {
+        const result = await this.postgresQuery<{ raw_value: string }>(
+            `SELECT raw_value FROM posthog_instancesetting WHERE key = $1`,
+            [key],
+            'fetchInstanceSetting'
+        )
+
+        if (result.rows.length > 0) {
+            const value = JSON.parse(result.rows[0].raw_value)
+            return value
+        } else {
+            return null
+        }
+    }
+
+    public async upsertInstanceSetting(key: string, value: string | number | boolean): Promise<void> {
+        await this.postgresQuery(
+            `
+                INSERT INTO posthog_instancesetting (key, raw_value)
+                VALUES ($1, $2)
+                ON CONFLICT (key) DO UPDATE SET raw_value = EXCLUDED.raw_value
+            `,
+            [key, JSON.stringify(value)],
+            'upsertInstanceSetting'
+        )
     }
 
     public async insertGroupType(

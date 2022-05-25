@@ -97,7 +97,6 @@ export const FEATURE_FLAGS = {
     FUNNELS_CUE_OPT_OUT: 'funnels-cue-opt-out-7301', // owner: @neilkakkar
     RETENTION_BREAKDOWN: 'retention-breakdown', // owner: @hazzadous
     INSIGHT_LEGENDS: 'insight-legends', // owner: @alexkim205
-    MULTI_POINT_PERSON_MODAL: '7590-multi-point-person-modal', // owner: @alexkim205
     RECORDINGS_IN_INSIGHTS: 'recordings-in-insights', // owner: @rcmarron
     WEB_PERFORMANCE: 'hackathon-apm', //owner: @pauldambra
     NEW_INSIGHT_COHORTS: '7569-insight-cohorts', // owner: @EDsCODE
@@ -106,14 +105,12 @@ export const FEATURE_FLAGS = {
     EXPERIMENTS_SECONDARY_METRICS: 'experiments-secondary-metrics', // owner: @neilkakkar
     DASHBOARD_PERMISSIONS: 'dashboard-permissions', // owner: @Twixes
     SESSION_CONSOLE: 'session-recording-console', // owner: @timgl
-    AND_OR_FILTERING: 'and-or-filtering', // owner: @edscode
     SMOOTHING_INTERVAL: 'smoothing-interval', // owner: @timgl
     TUNE_RECORDING_SNAPSHOT_LIMIT: 'tune-recording-snapshot-limit', // owner: @rcmarron
     BILLING_LIMIT: 'billing-limit', // owner: @timgl
     UNIVERSAL_SEARCH: 'universal-search', // owner: @neilkakkar
     HOMEPAGE_LISTS_EXPERIMENT: 'homepage-lists-experiment', // owner: @rcmarron
     AUTO_REFRESH_DASHBOARDS: 'auto-refresh-dashboards', // owner: @rcmarron
-    LEMON_FUNNEL_VIZ: 'lemon-funnel-viz', // owner: @Twixes
     KAFKA_INSPECTOR: 'kafka-inspector', // owner: @yakkomajuri
     ONBOARDING_1: 'onboarding-1', // owner: @liyiy
     INSIGHT_EDITOR_PANELS: '8929-insight-editor-panels', // owner: @mariusandra
