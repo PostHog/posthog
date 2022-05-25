@@ -43,11 +43,6 @@ TEST_DATA = {
 def reset_tables():
     sync_execute("TRUNCATE TABLE events_dead_letter_queue")
 
-    # We can't truncate a table using Kafka engine but reading from it will delete all the rows
-    # Note: ClickHouse version >= 21.12 do not allow direct select for Kafka/RabbitMQ/FileLog engine tables.
-    #       We can pass `stream_like_engine_allow_direct_select` to override this behavior.
-    sync_execute("SELECT * FROM kafka_events_dead_letter_queue", settings={"stream_like_engine_allow_direct_select": 1})
-
 
 class TestDeadLetterQueue(ClickhouseTestMixin, BaseTest):
     def setUp(self):
