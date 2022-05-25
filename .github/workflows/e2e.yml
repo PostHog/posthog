@@ -146,26 +146,26 @@ jobs:
                   install-command: echo "no"
                   spec: ${{ matrix.specs }}
             - name: Archive test screenshots
-              uses: actions/upload-artifact@v1
+              uses: actions/upload-artifact@v3
               with:
                   name: screenshots
                   path: cypress/screenshots
               if: ${{ failure() }}
             - name: Archive test downloads
-              uses: actions/upload-artifact@v1
+              uses: actions/upload-artifact@v3
               with:
                   name: downloads
                   path: cypress/downloads
               if: ${{ failure() }}
             - name: Archive test videos
-              uses: actions/upload-artifact@v1
+              uses: actions/upload-artifact@v3
               with:
                   name: videos
                   path: cypress/videos
               if: ${{ failure() }}
             - name: Show logs on failure
               # use artefact here, as I think the output will be too large for display in an action
-              uses: actions/upload-artifact@v1
+              uses: actions/upload-artifact@v3
               with:
                   name: logs
                   path: /tmp/logs
