@@ -53,7 +53,10 @@ INSTANCE_PREFERENCES = {
 
 SITE_URL: str = os.getenv("SITE_URL", "http://localhost:8000").rstrip("/")
 
-JS_URL: str = os.getenv("JS_URL", "").rstrip("/")
+if DEBUG:
+    JS_URL = os.getenv("JS_URL", "http://localhost:8234").rstrip("/")
+else:
+    JS_URL = os.getenv("JS_URL", "").rstrip("/")
 
 DISABLE_MMDB = get_from_env(
     "DISABLE_MMDB", TEST, type_cast=str_to_bool
