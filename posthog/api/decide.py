@@ -59,8 +59,8 @@ def decide_editor_params(request: HttpRequest) -> Tuple[Dict[str, Any], bool]:
         if request.user.toolbar_mode != "disabled":
             editor_params["toolbarVersion"] = "toolbar"
 
-        if settings.JS_URL:
-            editor_params["jsURL"] = settings.JS_URL
+        if settings.get_js_url(request):
+            editor_params["jsURL"] = settings.get_js_url(request)
 
         response["editorParams"] = editor_params
         return response, not request.user.temporary_token

@@ -244,7 +244,7 @@ def render_template(template_name: str, request: HttpRequest, context: Dict = {}
         context["js_posthog_host"] = "'https://app.posthog.com'"
 
     context["js_capture_internal_metrics"] = settings.CAPTURE_INTERNAL_METRICS
-    context["js_url"] = settings.JS_URL
+    context["js_url"] = settings.get_js_url(request)
 
     posthog_app_context: Dict[str, Any] = {
         "persisted_feature_flags": settings.PERSISTED_FEATURE_FLAGS,
@@ -840,6 +840,8 @@ def get_available_timezones_with_offsets() -> Dict[str, float]:
 def should_refresh(request: Request) -> bool:
     query_param = request.query_params.get("refresh")
     data_value = request.data.get("refresh")
+
+    print("REFRESHING", query_param, data_value)
     return (query_param is not None and (query_param == "" or query_param.lower() == "true")) or data_value is True
 
 

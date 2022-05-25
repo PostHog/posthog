@@ -214,8 +214,8 @@ def redirect_to_site(request):
         "dataAttributes": team.data_attributes,
     }
 
-    if settings.JS_URL:
-        params["jsURL"] = settings.JS_URL
+    if settings.get_js_url(request):
+        params["jsURL"] = settings.get_js_url(request)
 
     if not settings.TEST and not os.environ.get("OPT_OUT_CAPTURE"):
         params["instrument"] = True

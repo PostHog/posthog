@@ -14,6 +14,8 @@ https://docs.djangoproject.com/en/2.2/ref/settings/
 import os
 from typing import Dict, List
 
+from django.http import HttpRequest
+
 # :TRICKY: Imported before anything else to support overloads
 from posthog.settings.overrides import *
 
@@ -53,10 +55,12 @@ INSTANCE_PREFERENCES = {
 
 SITE_URL: str = os.getenv("SITE_URL", "http://localhost:8000").rstrip("/")
 
-if DEBUG:
-    JS_URL = os.getenv("JS_URL", "http://localhost:8234").rstrip("/")
-else:
-    JS_URL = os.getenv("JS_URL", "")
+def get_js_url(request: HttpRequest) -> str:
+    if DEBUG:
+        os.getenv("JS_URL", f"http://{request.get_host()}:8234").rstrip("/")
+    else:
+        return os.getenv("JS_URL", "")
+
 
 DISABLE_MMDB = get_from_env(
     "DISABLE_MMDB", TEST, type_cast=str_to_bool
