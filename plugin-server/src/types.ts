@@ -202,17 +202,6 @@ export interface PluginServerCapabilities {
     processAsyncHandlers?: boolean
 }
 
-export interface Pausable {
-    pause: () => Promise<void> | void
-    resume: () => Promise<void> | void
-    isPaused: () => boolean
-}
-
-export interface Queue extends Pausable {
-    start: () => Promise<void> | void
-    stop: () => Promise<void> | void
-}
-
 export type OnJobCallback = (queue: EnqueuedJob[]) => Promise<void> | void
 export interface EnqueuedJob {
     type: string
