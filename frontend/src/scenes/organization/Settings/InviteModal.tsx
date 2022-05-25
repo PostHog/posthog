@@ -44,11 +44,13 @@ function InviteRow({ index, isDeletable }: { index: number; isDeletable: boolean
     const { invitesToSend } = useValues(inviteLogic)
     const { updateInviteAtIndex, inviteTeamMembers, deleteInviteAtIndex } = useActions(inviteLogic)
     const { preflight } = useValues(preflightLogic)
-    const { onboardingSidebar } = useValues(ingestionLogic)
+    // const { onboardingSidebar } = useValues(ingestionLogic)
+
+    const onboardingSidebar = true
 
     return (
         <Row gutter={16} className="invite-row" align="middle">
-            <Col xs={isDeletable ? 11 : 12}>
+            <Col xs={isDeletable || onboardingSidebar ? 11 : 12}>
                 <Input
                     placeholder={`${name.toLowerCase()}@posthog.com`}
                     type="email"
@@ -71,7 +73,7 @@ function InviteRow({ index, isDeletable }: { index: number; isDeletable: boolean
                     data-attr="invite-email-input"
                 />
             </Col>
-            {!preflight?.email_service_unavailable && <Col xs={isDeletable ? 11 : 12}>
+            {!preflight?.email_service_unavailable && <Col xs={(isDeletable || onboardingSidebar) ? 11 : 12}>
                 {onboardingSidebar && !preflight?.email_service_available ? (
                     <LemonButton type="secondary" onClick={() => { inviteTeamMembers() }}>Submit</LemonButton>
                 ) :
@@ -109,7 +111,7 @@ export function InviteModal({ visible, onClose }: { visible: boolean; onClose: (
     const { appendInviteRow, resetInviteRows, inviteTeamMembers, deleteInvite } = useActions(inviteLogic)
     // const { onboardingSidebar } = useValues(ingestionLogic)
     const onboardingSidebar = true
-    preflight.email_service_available = true
+    preflight.email_service_available = false
 
     const areInvitesCreatable = invitesToSend.length + 1 < MAX_INVITES_AT_ONCE
     const areInvitesDeletable = invitesToSend.length > 1
@@ -148,36 +150,40 @@ export function InviteModal({ visible, onClose }: { visible: boolean; onClose: (
             )}
             <div className="bulk-invite-modal">
                 <Row gutter={16}>
-                    <Col xs={areInvitesDeletable ? 11 : 12}>
+                    <Col xs={areInvitesDeletable || onboardingSidebar ? 11 : 12}>
                         <b>Email address</b>
                     </Col>
-                    <Col xs={areInvitesDeletable ? 11 : 12}>
+                    <Col xs={areInvitesDeletable || onboardingSidebar ? 11 : 12}>
                         <b>
                             {preflight?.email_service_available ? 'Name (optional)' : 'Share link'}
                         </b>
                     </Col>
                 </Row>
 
-                {onboardingSidebar && invites.map((invite: OrganizationInviteType) => {
+                {/* {onboardingSidebar && invites.map((invite: OrganizationInviteType) => {
                     return (
                         <Row gutter={16} align="middle" className="mb">
-                            <Col xs={11}><div style={{ border: '1px solid var(--border)', borderRadius: 4, padding: '4px 11px' }}>{invite.target_email}</div></Col>
+                            <Col xs={11}>
+                                <Input disabled style={{ backgroundColor: 'white' }} defaultValue={invite.target_email} />
+                            </Col>
                             <Col xs={11}>
                                 {invite.is_expired ? (
                                     <b>Expired! Delete and recreate</b>
                                 ) : (
                                     <>
-                                        {preflight?.email_service_available ? <div style={{ border: '1px solid var(--border)', borderRadius: 4, padding: '4px 11px' }}>{invite.first_name || ''}</div> :
+                                        {true ?
+                                            <Input disabled style={{ backgroundColor: 'white' }} defaultValue={invite.first_name} /> :
                                             <CopyToClipboardInline data-attr="invite-link" description="invite link" style={{ color: 'var(--primary)', background: 'var(--bg-side)', borderRadius: 4, padding: '4px 11px' }}>
                                                 {new URL(`/signup/${invite.id}`, document.baseURI).href}
-                                            </CopyToClipboardInline>}
+                                            </CopyToClipboardInline>
+                                        }
                                     </>
                                 )}
                             </Col>
                             <LemonButton
                                 title="Cancel the invite"
                                 data-attr="invite-delete"
-                                icon={<IconClose />}
+                                icon={<IconDelete />}
                                 status="danger"
                                 onClick={() => {
                                     invite.is_expired
@@ -195,7 +201,7 @@ export function InviteModal({ visible, onClose }: { visible: boolean; onClose: (
                             />
                         </Row>
                     )
-                })}
+                })} */}
 
                 {invitesToSend.map((_, index) => (
                     <InviteRow index={index} key={index.toString()} isDeletable={areInvitesDeletable} />
