@@ -155,7 +155,7 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                     ? {
                           filters: {
                               properties: {
-                                  values: filters.properties.values.map(validateGroup),
+                                  values: is_static ? undefined : filters.properties.values.map(validateGroup),
                               },
                           },
                       }
