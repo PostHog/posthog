@@ -53,4 +53,12 @@
             }
         }
     }
+
+    &.InsightLegendMenu--readonly {
+        .LemonCheckbox--checked {
+            svg path {
+                stroke: none;
+            }
+        }
+    }
 }

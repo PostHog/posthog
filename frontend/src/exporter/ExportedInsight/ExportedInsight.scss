@@ -31,7 +31,11 @@
         .InsightViz {
             position: relative;
             min-height: 50vw;
-            display: block;
+            display: flex;
+
+            > * {
+                flex: 1;
+            }
         }
     }
 }

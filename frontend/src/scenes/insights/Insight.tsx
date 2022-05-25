@@ -140,9 +140,11 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                                 overlay={
                                     <>
                                         {usingExportFeature && insight.short_id && (
-                                            <ExportButton insightShortId={insight.short_id} fullWidth />
+                                            <>
+                                                <ExportButton insightShortId={insight.short_id} fullWidth />
+                                                <LemonDivider />
+                                            </>
                                         )}
-                                        <LemonDivider />
                                         <LemonButton
                                             type="stealth"
                                             onClick={() => duplicateInsight(insight as InsightModel, true)}

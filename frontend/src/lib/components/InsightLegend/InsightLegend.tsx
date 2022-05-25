@@ -15,7 +15,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import clsx from 'clsx'
 
 export interface InsightLegendProps {
-    interactive?: boolean
+    readOnly?: boolean
     horizontal?: boolean
 }
 
@@ -44,7 +44,7 @@ export function InsightLegendButton(): JSX.Element | null {
     )
 }
 
-export function InsightLegend({ horizontal }: InsightLegendProps): JSX.Element {
+export function InsightLegend({ horizontal, readOnly = false }: InsightLegendProps): JSX.Element {
     const { insightProps, filters } = useValues(insightLogic)
     const logic = trendsLogic(insightProps)
     const { indexedResults, hiddenLegendKeys } = useValues(logic)
@@ -54,6 +54,7 @@ export function InsightLegend({ horizontal }: InsightLegendProps): JSX.Element {
         <div
             className={clsx('InsightLegendMenu', {
                 'InsightLegendMenu--horizontal': horizontal,
+                'InsightLegendMenu--readonly': readOnly,
             })}
         >
             <div className="InsightLegendMenu-scroll">
