@@ -131,10 +131,6 @@
                 {
                     "name": "CALCULATE_X_COHORTS_PARALLEL",
                     "value": "5"
-                },
-                {
-                    "name": "OBJECT_STORAGE_ENABLED",
-                    "value": "True"
                 }
             ],
             "secrets": [
@@ -261,14 +257,6 @@
                 {
                     "name": "HUBSPOT_API_KEY",
                     "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:HUBSPOT_API_KEY::"
-                },
-                {
-                    "name": "OBJECT_STORAGE_ENDPOINT",
-                    "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:OBJECT_STORAGE_ENDPOINT::"
-                },
-                {
-                    "name": "OBJECT_STORAGE_BUCKET",
-                    "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:OBJECT_STORAGE_BUCKET::"
                 }
             ],
             "entryPoint": ["sh", "-c"],
