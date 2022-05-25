@@ -68,7 +68,7 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
 
     # Send the emails at 3PM UTC every day
     sender.add_periodic_task(crontab(hour=15, minute=0), send_first_ingestion_reminder_emails.s())
-    sender.add_periodic_task(crontab(hour=15, minute=0), send_final_ingestion_reminder_emails.s())
+    sender.add_periodic_task(crontab(hour=15, minute=0), send_second_ingestion_reminder_emails.s())
 
     # delete old plugin logs every 4 hours
     sender.add_periodic_task(crontab(minute=0, hour="*/4"), delete_old_plugin_logs.s())
@@ -388,10 +388,10 @@ def send_first_ingestion_reminder_emails():
 
 
 @app.task(ignore_result=True)
-def send_final_ingestion_reminder_emails():
-    from posthog.tasks.email import send_final_ingestion_reminder_emails
+def send_second_ingestion_reminder_emails():
+    from posthog.tasks.email import send_second_ingestion_reminder_emails
 
-    send_final_ingestion_reminder_emails()
+    send_second_ingestion_reminder_emails()
 
 
 @app.task(ignore_result=True)

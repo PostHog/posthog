@@ -98,7 +98,7 @@ def send_async_migration_errored_email(migration_key: str, time: str, error: str
     send_message_to_all_staff_users(message)
 
 
-def get_org_users_with_no_ingested_events(org_created_from, org_created_to):
+def get_users_for_orgs_with_no_ingested_events(org_created_from, org_created_to):
     # Get all users for organization that haven't ingested any events
     users = []
     recently_created_organization = Organization.object.filter(
@@ -116,8 +116,10 @@ def get_org_users_with_no_ingested_events(org_created_from, org_created_to):
 @app.task(max_retries=1)
 def send_first_ingestion_reminder_emails() -> None:
     if is_email_available():
-        users_to_email = get_org_users_with_no_ingested_events(
-            timezone.now() - timezone.timedelta(days=2), timezone.now() - timezone.timedelta(days=1)
+        one_day_ago = timezone.now() - timezone.timedelta(days=1)
+        two_days_ago = timezone.now() - timezone.timedelta(days=2)
+        users_to_email = get_users_for_orgs_with_no_ingested_events(
+            org_created_from=two_days_ago, org_created_to=one_day_ago
         )
 
         campaign_key: str = f"first_ingestion_reminder_"
@@ -135,25 +137,20 @@ def send_first_ingestion_reminder_emails() -> None:
 
 
 @app.task(max_retries=1)
-def send_final_ingestion_reminder_emails() -> None:
-    # list of ids from orgs created exactly on the day of 96 hours ago
-
-    orgs = Organization.objects.filter(
-        created_at__date=(timezone.now() - timezone.timedelta(days=5)).date()
-    ).values_list("id", flat=True)
-    teams = Team.objects.filter(organization_id__in=orgs, ingested_event=False).values_list("id", flat=True)
-    # (datetime.now()-datetime.timedelta(days=38)
-
-    users = User.objects.filter(
-        date_joined__date=(timezone.now() - timezone.timedelta(days=4).date()), current_team_id__in=teams
-    )
-
-    campaign_key: str = f"final_ingestion_reminder_"
-
-    for user in users:
-        message = EmailMessage(
-            campaign_key=campaign_key, subject=f"???", template_name="final_ingestion_reminder",  # TODO
+def send_second_ingestion_reminder_emails() -> None:
+    if is_email_available():
+        four_days_ago = timezone.now() - timezone.timedelta(days=4)
+        five_days_ago = timezone.now() - timezone.timedelta(days=5)
+        users_to_email = get_users_for_orgs_with_no_ingested_events(
+            org_created_from=five_days_ago, org_created_to=four_days_ago
         )
 
-        message.add_recipient(user.email)
-        message.send()
+        campaign_key: str = f"final_ingestion_reminder_"
+
+        for user in users_to_email:
+            message = EmailMessage(
+                campaign_key=campaign_key, subject=f"???", template_name="final_ingestion_reminder",  # TODO
+            )
+
+            message.add_recipient(user.email)
+            message.send()
