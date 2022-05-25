@@ -24,6 +24,7 @@ from posthog.event_usage import report_user_updated
 from posthog.models import Team, User
 from posthog.models.organization import Organization
 from posthog.tasks import user_identify
+from posthog.utils import get_js_url
 
 
 class UserSerializer(serializers.ModelSerializer):
@@ -214,8 +215,8 @@ def redirect_to_site(request):
         "dataAttributes": team.data_attributes,
     }
 
-    if settings.get_js_url(request):
-        params["jsURL"] = settings.get_js_url(request)
+    if get_js_url(request):
+        params["jsURL"] = get_js_url(request)
 
     if not settings.TEST and not os.environ.get("OPT_OUT_CAPTURE"):
         params["instrument"] = True

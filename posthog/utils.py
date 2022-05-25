@@ -214,6 +214,12 @@ def get_git_commit() -> Optional[str]:
         return None
 
 
+def get_js_url(request: HttpRequest) -> str:
+    if settings.DEBUG and not settings.JS_URL:
+        return f"http://{request.get_host().split(':')[0]}:8234"
+    return settings.JS_URL
+
+
 def render_template(template_name: str, request: HttpRequest, context: Dict = {}) -> HttpResponse:
     from loginas.utils import is_impersonated_session
 
@@ -244,7 +250,7 @@ def render_template(template_name: str, request: HttpRequest, context: Dict = {}
         context["js_posthog_host"] = "'https://app.posthog.com'"
 
     context["js_capture_internal_metrics"] = settings.CAPTURE_INTERNAL_METRICS
-    context["js_url"] = settings.get_js_url(request)
+    context["js_url"] = get_js_url(request)
 
     posthog_app_context: Dict[str, Any] = {
         "persisted_feature_flags": settings.PERSISTED_FEATURE_FLAGS,

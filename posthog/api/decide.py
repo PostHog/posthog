@@ -3,7 +3,6 @@ import secrets
 from typing import Any, Dict, Optional, Tuple
 from urllib.parse import urlparse
 
-from django.conf import settings
 from django.http import HttpRequest, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from rest_framework import status
@@ -14,7 +13,7 @@ from posthog.api.utils import get_token
 from posthog.exceptions import RequestParsingError, generate_exception_response
 from posthog.models import Team, User
 from posthog.models.feature_flag import get_overridden_feature_flags
-from posthog.utils import cors_response, load_data_from_request
+from posthog.utils import cors_response, get_js_url, load_data_from_request
 
 from .utils import get_project_id
 
@@ -59,8 +58,8 @@ def decide_editor_params(request: HttpRequest) -> Tuple[Dict[str, Any], bool]:
         if request.user.toolbar_mode != "disabled":
             editor_params["toolbarVersion"] = "toolbar"
 
-        if settings.get_js_url(request):
-            editor_params["jsURL"] = settings.get_js_url(request)
+        if get_js_url(request):
+            editor_params["jsURL"] = get_js_url(request)
 
         response["editorParams"] = editor_params
         return response, not request.user.temporary_token
