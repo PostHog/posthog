@@ -2,7 +2,6 @@ import http from 'http'
 
 import { startPluginsServer } from '../src/main/pluginsServer'
 import { HTTP_SERVER_PORT } from '../src/main/services/http-server'
-import { LogLevel } from '../src/types'
 import { makePiscina } from '../src/worker/piscina'
 import { resetTestDatabase } from './helpers/sql'
 

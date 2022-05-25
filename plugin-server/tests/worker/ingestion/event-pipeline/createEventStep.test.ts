@@ -15,7 +15,6 @@ const preIngestionEvent: PreIngestionEvent = {
 }
 
 const testPerson: any = { id: 'testid' }
-const testElements: any = ['element1', 'element2']
 
 describe('createEventStep()', () => {
     let runner: any

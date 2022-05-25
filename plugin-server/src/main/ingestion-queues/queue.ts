@@ -1,5 +1,5 @@
 import Piscina from '@posthog/piscina'
-import { PluginEvent, ProcessedPluginEvent } from '@posthog/plugin-scaffold'
+import { PluginEvent } from '@posthog/plugin-scaffold'
 
 import { Hub, IngestionEvent, PreIngestionEvent, WorkerMethods } from '../../types'
 import { status } from '../../utils/status'
