@@ -3,7 +3,6 @@ import { useValues, useActions } from 'kea'
 import { pathsLogic } from 'scenes/paths/pathsLogic'
 import { Button, Checkbox, Col, Row, Select } from 'antd'
 import { InfoCircleOutlined, BarChartOutlined } from '@ant-design/icons'
-import { TestAccountFilter } from '../../TestAccountFilter'
 import { PathType, FunnelPathType, AvailableFeature, PropertyGroupFilter } from '~/types'
 import './PathTab.scss'
 import useBreakpoint from 'antd/lib/grid/hooks/useBreakpoint'
@@ -14,8 +13,6 @@ import { CloseButton } from 'lib/components/CloseButton'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { Tooltip } from 'lib/components/Tooltip'
 import { combineUrl, encodeParams, router } from 'kea-router'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { userLogic } from 'scenes/userLogic'
 import { PayCard } from 'lib/components/PayCard/PayCard'
@@ -23,15 +20,12 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { groupsModel } from '~/models/groupsModel'
 import { PathAdvanded } from './PathAdvanced'
 import { PropertyGroupFilters } from 'lib/components/PropertyGroupFilters/PropertyGroupFilters'
-import { convertPropertiesToPropertyGroup, convertPropertyGroupToProperties } from 'lib/utils'
-import { GlobalFiltersTitle } from 'scenes/insights/common'
-import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
+import { convertPropertiesToPropertyGroup } from 'lib/utils'
 
 export function PathTab(): JSX.Element {
     const { insightProps, allEventNames } = useValues(insightLogic)
     const { filter, wildcards } = useValues(pathsLogic(insightProps))
     const { setFilter, updateExclusions } = useActions(pathsLogic(insightProps))
-    const { featureFlags } = useValues(featureFlagLogic)
 
     const { preflight } = useValues(preflightLogic)
     const { user } = useValues(userLogic)
@@ -400,43 +394,23 @@ export function PathTab(): JSX.Element {
                     </Col>
                 </Col>
                 <Col span={12} style={{ marginTop: isSmallScreen ? '2rem' : 0, paddingLeft: 32 }}>
-                    {featureFlags[FEATURE_FLAGS.AND_OR_FILTERING] && filter.properties ? (
-                        <PropertyGroupFilters
-                            value={convertPropertiesToPropertyGroup(filter.properties)}
-                            onChange={(properties: PropertyGroupFilter) => {
-                                setFilter({ properties })
-                            }}
-                            taxonomicGroupTypes={[
-                                TaxonomicFilterGroupType.EventProperties,
-                                TaxonomicFilterGroupType.PersonProperties,
-                                ...groupsTaxonomicTypes,
-                                TaxonomicFilterGroupType.Cohorts,
-                                TaxonomicFilterGroupType.Elements,
-                            ]}
-                            pageKey="insight-path"
-                            eventNames={allEventNames}
-                            filters={filter}
-                            setTestFilters={(testFilters) => setFilter(testFilters)}
-                        />
-                    ) : (
-                        <>
-                            <GlobalFiltersTitle title={'Filters'} unit="actions/events" />
-                            <PropertyFilters
-                                propertyFilters={convertPropertyGroupToProperties(filter.properties)}
-                                onChange={(properties) => setFilter({ properties })}
-                                pageKey="insight-path"
-                                taxonomicGroupTypes={[
-                                    TaxonomicFilterGroupType.EventProperties,
-                                    TaxonomicFilterGroupType.PersonProperties,
-                                    ...groupsTaxonomicTypes,
-                                    TaxonomicFilterGroupType.Cohorts,
-                                    TaxonomicFilterGroupType.Elements,
-                                ]}
-                                eventNames={allEventNames}
-                            />
-                            <TestAccountFilter filters={filter} onChange={setFilter} />
-                        </>
-                    )}
+                    <PropertyGroupFilters
+                        value={convertPropertiesToPropertyGroup(filter.properties)}
+                        onChange={(properties: PropertyGroupFilter) => {
+                            setFilter({ properties })
+                        }}
+                        taxonomicGroupTypes={[
+                            TaxonomicFilterGroupType.EventProperties,
+                            TaxonomicFilterGroupType.PersonProperties,
+                            ...groupsTaxonomicTypes,
+                            TaxonomicFilterGroupType.Cohorts,
+                            TaxonomicFilterGroupType.Elements,
+                        ]}
+                        pageKey="insight-path"
+                        eventNames={allEventNames}
+                        filters={filter}
+                        setTestFilters={(testFilters) => setFilter(testFilters)}
+                    />
                     {hasAdvancedPaths && (
                         <>
                             <hr />
