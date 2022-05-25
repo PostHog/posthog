@@ -162,25 +162,23 @@ export function processCohortOnSet(cohort: CohortType, isNewCohortFilterEnabled:
         ...cohort,
         ...(isNewCohortFilterEnabled
             ? {
-                  filters: {
-                      /* Populate value_property with value and overwrite value with corresponding behavioral filter type */
-                      properties: applyAllNestedCriteria(cohort, (criteriaList) =>
-                          criteriaList.map((c) =>
-                              c.type &&
-                              [BehavioralFilterKey.Cohort, BehavioralFilterKey.Person].includes(c.type) &&
-                              !('value_property' in c)
-                                  ? {
-                                        ...c,
-                                        value_property: c.value,
-                                        value:
-                                            c.type === BehavioralFilterKey.Cohort
-                                                ? BehavioralCohortType.InCohort
-                                                : BehavioralEventType.HaveProperty,
-                                    }
-                                  : c
-                          )
-                      ).filters.properties,
-                  },
+                  /* Populate value_property with value and overwrite value with corresponding behavioral filter type */
+                  filters: applyAllNestedCriteria(cohort, (criteriaList) =>
+                      criteriaList.map((c) =>
+                          c.type &&
+                          [BehavioralFilterKey.Cohort, BehavioralFilterKey.Person].includes(c.type) &&
+                          !('value_property' in c)
+                              ? {
+                                    ...c,
+                                    value_property: c.value,
+                                    value:
+                                        c.type === BehavioralFilterKey.Cohort
+                                            ? BehavioralCohortType.InCohort
+                                            : BehavioralEventType.HaveProperty,
+                                }
+                              : c
+                      )
+                  ).filters,
               }
             : {
                   groups:
