@@ -3,7 +3,7 @@ import { PluginAttachment } from '@posthog/plugin-scaffold'
 import { Hub, Plugin, PluginConfig, PluginConfigId, PluginId, StatelessVmMap, TeamId } from '../../types'
 import { getPluginAttachmentRows, getPluginConfigRows, getPluginRows } from '../../utils/db/sql'
 import { status } from '../../utils/status'
-import { LazyPluginVM } from '../vm/lazy'
+import { LazyPluginVM } from '../vm/lazy-vm/lazy'
 import { loadPlugin } from './loadPlugin'
 import { teardownPlugins } from './teardown'
 

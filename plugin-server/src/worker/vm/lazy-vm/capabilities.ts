@@ -1,5 +1,5 @@
-import { PluginCapabilities, PluginConfigVMResponse, VMMethods } from '../../types'
-import { PluginServerCapabilities } from './../../types'
+import { PluginCapabilities, PluginConfigVMResponse, VMMethods } from '../../../types'
+import { PluginServerCapabilities } from '../../../types'
 
 export function getVMPluginCapabilities(vm: PluginConfigVMResponse): PluginCapabilities {
     const capabilities: Required<PluginCapabilities> = { scheduled_tasks: [], jobs: [], methods: [] }

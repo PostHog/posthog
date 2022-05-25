@@ -31,7 +31,7 @@ import { SiteUrlManager } from './worker/ingestion/site-url-manager'
 import { TeamManager } from './worker/ingestion/team-manager'
 import { PluginsApiKeyManager } from './worker/vm/extensions/helpers/api-key-manager'
 import { RootAccessManager } from './worker/vm/extensions/helpers/root-acess-manager'
-import { LazyPluginVM } from './worker/vm/lazy'
+import { LazyPluginVM } from './worker/vm/lazy-vm/lazy'
 import { PromiseManager } from './worker/vm/promise-manager'
 
 export enum LogLevel {
