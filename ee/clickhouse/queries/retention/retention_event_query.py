@@ -234,10 +234,10 @@ class RetentionEventsQuery(EnterpriseEventQuery):
             end_date = end_date.replace(hour=0, minute=0, second=0, microsecond=0)
         params = {
             f"{self._event_query_type}_start_date": format_ch_timestamp(
-                start_date, convert_to_timezone=self._team.timezone_for_charts
+                start_date, convert_to_timezone=self._team.timezone
             ),
             f"{self._event_query_type}_end_date": format_ch_timestamp(
-                end_date, convert_to_timezone=self._team.timezone_for_charts
+                end_date, convert_to_timezone=self._team.timezone
             ),
         }
         return query, params

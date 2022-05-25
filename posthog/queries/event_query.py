@@ -55,7 +55,7 @@ class EventQuery(metaclass=ABCMeta):
         self._extra_event_properties = extra_event_properties
         self._column_optimizer = ColumnOptimizer(self._filter, self._team_id)
         self._extra_person_fields = extra_person_fields
-        self.params: Dict[str, Any] = {"team_id": self._team_id, "timezone": team.timezone_for_charts}
+        self.params: Dict[str, Any] = {"team_id": self._team_id, "timezone": team.timezone}
 
         self._should_join_distinct_ids = should_join_distinct_ids
         self._should_join_persons = should_join_persons
