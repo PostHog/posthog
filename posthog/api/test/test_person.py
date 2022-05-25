@@ -471,6 +471,58 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(people[2].distinct_ids, ["3"])
         self.assertTrue(response.json()["success"])
 
+    @mock.patch("posthog.api.person.capture_internal")
+    def test_update_person_properties(self, mock_capture) -> None:
+        person = _create_person(
+            team=self.team,
+            distinct_ids=["some_distinct_id"],
+            properties={"$browser": "whatever", "$os": "Mac OS X"},
+            immediate=True,
+        )
+
+        self.client.patch(f"/api/person/{person.id}", {"properties": {"foo": "bar"}})
+
+        mock_capture.assert_called_once_with(
+            distinct_id="some_distinct_id",
+            ip=None,
+            site_url=None,
+            team_id=self.team.id,
+            now=mock.ANY,
+            sent_at=None,
+            event={
+                "event": "$set",
+                "properties": {"$set": {"foo": "bar"}},
+                "distinct_id": "some_distinct_id",
+                "timestamp": mock.ANY,
+            },
+        )
+
+    @mock.patch("posthog.api.person.capture_internal")
+    def test_delete_person_properties(self, mock_capture) -> None:
+        person = _create_person(
+            team=self.team,
+            distinct_ids=["some_distinct_id"],
+            properties={"$browser": "whatever", "$os": "Mac OS X"},
+            immediate=True,
+        )
+
+        self.client.post(f"/api/person/{person.id}/delete_property", {"$unset": ["foo", "bar"]})
+
+        mock_capture.assert_called_once_with(
+            distinct_id="some_distinct_id",
+            ip=None,
+            site_url=None,
+            team_id=self.team.id,
+            now=mock.ANY,
+            sent_at=None,
+            event={
+                "event": "$delete_person_property",
+                "distinct_id": "some_distinct_id",
+                "properties": {"$unset": ["foo", "bar"]},
+                "timestamp": mock.ANY,
+            },
+        )
+
     def test_return_non_anonymous_name(self) -> None:
         _create_person(
             team=self.team,
