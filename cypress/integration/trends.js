@@ -62,7 +62,9 @@ describe('Trends', () => {
         cy.get('[data-attr=trend-element-subject-0]').click()
         cy.get('.taxonomic-infinite-list').find('.property-key-info').contains('Pageview').click()
         cy.get('[data-attr=trend-element-subject-0]').should('have.text', 'Pageview')
-        cy.get('[data-attr=new-prop-filter-trends-filters]').click()
+
+        cy.get('[data-attr=trends-filters-add-filter-group]').click()
+        cy.get('[data-attr=property-select-toggle-0]').click()
         cy.get('[data-attr=taxonomic-filter-searchfield]').click()
         cy.get('[data-attr="expand-list-event_properties"]').click()
         cy.get('.taxonomic-list-row').first().click({ force: true })
@@ -124,7 +126,8 @@ describe('Trends', () => {
 
     it('Save to dashboard', () => {
         // apply random filter
-        cy.get('[data-attr=new-prop-filter-trends-filters]').click()
+        cy.get('[data-attr=trends-filters-add-filter-group]').click()
+        cy.get('[data-attr=property-select-toggle-0]').click()
         cy.get('[data-attr=taxonomic-filter-searchfield]').click()
         cy.get('[data-attr="expand-list-event_properties"]').click()
         cy.get('.taxonomic-list-row').first().click({ force: true })

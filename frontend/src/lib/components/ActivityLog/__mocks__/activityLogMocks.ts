@@ -3,16 +3,62 @@ import { InsightShortId } from '~/types'
 
 export const featureFlagsActivityResponseJson: ActivityLogItem[] = [
     {
-        user: { first_name: 'Paul', email: 'paul@posthog.com' },
-        activity: 'created',
-        scope: ActivityScope.FEATURE_FLAG,
-        item_id: '1825',
-        detail: {
-            merge: null,
-            changes: [],
-            name: 'an_incredible_feature_flag',
+        user: {
+            first_name: 'Neil',
+            email: 'neil@posthog.com',
         },
-        created_at: '2022-03-21T16:01:54.776439Z',
+        activity: 'updated',
+        scope: ActivityScope.FEATURE_FLAG,
+        item_id: '2348',
+        detail: {
+            changes: [
+                {
+                    type: 'FeatureFlag',
+                    action: 'changed',
+                    field: 'filters',
+                    before: {
+                        groups: [
+                            {
+                                properties: [
+                                    {
+                                        key: 'id',
+                                        type: 'cohort',
+                                        value: 98,
+                                        operator: null,
+                                    },
+                                ],
+                                rollout_percentage: null,
+                            },
+                            {
+                                properties: [],
+                                rollout_percentage: 30,
+                            },
+                        ],
+                        multivariate: null,
+                    },
+                    after: {
+                        groups: [
+                            {
+                                properties: [
+                                    {
+                                        key: 'id',
+                                        type: 'cohort',
+                                        value: 98,
+                                        operator: null,
+                                    },
+                                ],
+                                rollout_percentage: null,
+                            },
+                        ],
+                        multivariate: null,
+                    },
+                },
+            ],
+            merge: null,
+            name: 'cohort-filters',
+            short_id: null,
+        },
+        created_at: '2022-05-24T12:28:14.507709Z',
     },
     {
         user: { first_name: 'Alex Kim', email: 'alex@posthog.com' },
@@ -29,12 +75,19 @@ export const featureFlagsActivityResponseJson: ActivityLogItem[] = [
                     before: {
                         groups: [
                             {
-                                properties: [{ key: 'id', type: 'cohort', value: 98, operator: null }],
+                                properties: [
+                                    {
+                                        key: 'id',
+                                        type: 'cohort',
+                                        value: 98,
+                                        operator: null,
+                                    },
+                                ],
                                 rollout_percentage: null,
                             },
                             {
-                                properties: [{ key: 'id', type: 'cohort', value: 411, operator: null }],
-                                rollout_percentage: 50,
+                                properties: [],
+                                rollout_percentage: 30,
                             },
                         ],
                         multivariate: null,
@@ -42,12 +95,15 @@ export const featureFlagsActivityResponseJson: ActivityLogItem[] = [
                     after: {
                         groups: [
                             {
-                                properties: [{ key: 'id', type: 'cohort', value: 98, operator: null }],
+                                properties: [
+                                    {
+                                        key: 'id',
+                                        type: 'cohort',
+                                        value: 98,
+                                        operator: null,
+                                    },
+                                ],
                                 rollout_percentage: null,
-                            },
-                            {
-                                properties: [{ key: 'id', type: 'cohort', value: 411, operator: null }],
-                                rollout_percentage: 100,
                             },
                         ],
                         multivariate: null,

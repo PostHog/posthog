@@ -105,7 +105,6 @@ export const FEATURE_FLAGS = {
     EXPERIMENTS_SECONDARY_METRICS: 'experiments-secondary-metrics', // owner: @neilkakkar
     DASHBOARD_PERMISSIONS: 'dashboard-permissions', // owner: @Twixes
     SESSION_CONSOLE: 'session-recording-console', // owner: @timgl
-    AND_OR_FILTERING: 'and-or-filtering', // owner: @edscode
     SMOOTHING_INTERVAL: 'smoothing-interval', // owner: @timgl
     TUNE_RECORDING_SNAPSHOT_LIMIT: 'tune-recording-snapshot-limit', // owner: @rcmarron
     BILLING_LIMIT: 'billing-limit', // owner: @timgl

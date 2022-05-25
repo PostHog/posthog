@@ -66,6 +66,19 @@ export function getBreakdownMaxIndex(breakdown?: FunnelStep[]): number | undefin
     return nonZeroCounts[nonZeroCounts.length - 1].index
 }
 
+export function getSeriesPositionName(
+    index?: number,
+    breakdownMaxIndex?: number
+): 'first' | 'last' | 'only' | undefined {
+    if (!breakdownMaxIndex) {
+        return 'only'
+    }
+    if (typeof index === 'number') {
+        return index === 0 ? 'first' : index === breakdownMaxIndex ? 'last' : undefined
+    }
+    return
+}
+
 export function aggregateBreakdownResult(
     breakdownList: FunnelStep[][],
     breakdownProperty?: BreakdownKeyType
