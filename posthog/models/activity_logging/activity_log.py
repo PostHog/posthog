@@ -148,10 +148,9 @@ def log_activity(
     scope: str,
     activity: str,
     detail: Detail,
-    force_save: bool = False,
 ) -> None:
     try:
-        if activity == "updated" and (detail.changes is None or len(detail.changes) == 0) and not force_save:
+        if activity == "updated" and (detail.changes is None or len(detail.changes) == 0):
             logger.warn(
                 "ignore_update_activity_no_changes",
                 team_id=team_id,

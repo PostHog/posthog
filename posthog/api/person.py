@@ -665,8 +665,7 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             item_id=instance.pk,
             scope="Person",
             activity="updated",
-            detail=Detail(changes=None),
-            force_save=True,
+            detail=Detail(changes=[Change(type="Person", action="changed", field="properties")]),
         )
 
         return Response(status=204)
