@@ -268,21 +268,25 @@ class InsightSerializer(InsightBasicSerializer):
         if validated_data.keys() & Insight.MATERIAL_INSIGHT_FIELDS:
             instance.last_modified_at = now()
             instance.last_modified_by = self.context["request"].user
-        dashboards = validated_data.pop("dashboards", None)
-        if dashboards is not None:
-            old_dashboard_ids = [tile.dashboard_id for tile in instance.dashboardtile_set.all()]
-            new_dashboard_ids = [d.id for d in dashboards]
 
-            ids_to_add = [id for id in new_dashboard_ids if id not in old_dashboard_ids]
-            ids_to_remove = [id for id in old_dashboard_ids if id not in new_dashboard_ids]
+        if validated_data.get("deleted", False):
+            DashboardTile.objects.filter(insight__id=instance.id).delete()
+        else:
+            dashboards = validated_data.pop("dashboards", None)
+            if dashboards is not None:
+                old_dashboard_ids = [tile.dashboard_id for tile in instance.dashboardtile_set.all()]
+                new_dashboard_ids = [d.id for d in dashboards]
 
-            for dashboard in Dashboard.objects.filter(id__in=ids_to_add):
-                if dashboard.team != instance.team:
-                    raise serializers.ValidationError("Dashboard not found")
-                DashboardTile.objects.create(insight=instance, dashboard=dashboard)
+                ids_to_add = [id for id in new_dashboard_ids if id not in old_dashboard_ids]
+                ids_to_remove = [id for id in old_dashboard_ids if id not in new_dashboard_ids]
 
-            if ids_to_remove:
-                DashboardTile.objects.filter(dashboard_id__in=ids_to_remove, insight=instance).delete()
+                for dashboard in Dashboard.objects.filter(id__in=ids_to_add):
+                    if dashboard.team != instance.team:
+                        raise serializers.ValidationError("Dashboard not found")
+                    DashboardTile.objects.create(insight=instance, dashboard=dashboard)
+
+                if ids_to_remove:
+                    DashboardTile.objects.filter(dashboard_id__in=ids_to_remove, insight=instance).delete()
 
         updated_insight = super().update(instance, validated_data)
 

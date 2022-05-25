@@ -159,6 +159,9 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
 
         instance = super().update(instance, validated_data)
 
+        if validated_data.get("deleted", False):
+            DashboardTile.objects.filter(dashboard__id=instance.id).delete()
+
         initial_data = dict(self.initial_data)
 
         tile_layouts = initial_data.pop("tile_layouts", [])

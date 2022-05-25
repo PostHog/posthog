@@ -659,6 +659,155 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.assertEqual(response.status_code, 200, response.content)
         self.assertEqual(response.json()["name"], "replaced")
 
+    def test_can_hard_delete_insight_after_hard_deleting_dashboard(self):
+        filter_dict = {
+            "events": [{"id": "$pageview"}],
+            "properties": [{"key": "$browser", "value": "Mac OS X"}],
+            "insight": "TRENDS",
+        }
+
+        dashboard_id, _ = self._create_dashboard({"name": "dashboard"})
+        insight_id, _ = self._create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
+
+        delete_dashboard_response = self.client.delete(f"/api/projects/{self.team.id}/dashboards/{dashboard_id}")
+        self.assertEqual(delete_dashboard_response.status_code, status.HTTP_204_NO_CONTENT)
+
+        insight_json = self._get_insight(insight_id=insight_id)
+        self.assertEqual(insight_json["dashboards"], [])
+
+        delete_insight_response = self.client.delete(f"/api/projects/{self.team.id}/insights/{insight_id}")
+        self.assertEqual(delete_insight_response.status_code, status.HTTP_204_NO_CONTENT)
+
+        self.assertEqual(
+            self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard_id}").status_code,
+            status.HTTP_404_NOT_FOUND,
+        )
+        self.assertEqual(
+            self.client.get(f"/api/projects/{self.team.id}/insights/{insight_id}").status_code,
+            status.HTTP_404_NOT_FOUND,
+        )
+
+    def test_can_hard_delete_insight_after_soft_deleting_dashboard(self):
+        filter_dict = {
+            "events": [{"id": "$pageview"}],
+            "properties": [{"key": "$browser", "value": "Mac OS X"}],
+            "insight": "TRENDS",
+        }
+
+        dashboard_id, _ = self._create_dashboard({"name": "dashboard"})
+        insight_id, _ = self._create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
+
+        delete_dashboard_response = self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}", {"deleted": True}
+        )
+        self.assertEqual(delete_dashboard_response.status_code, status.HTTP_200_OK)
+
+        insight_json = self._get_insight(insight_id=insight_id)
+        self.assertEqual(insight_json["dashboards"], [])
+
+        delete_insight_response = self.client.delete(f"/api/projects/{self.team.id}/insights/{insight_id}")
+        self.assertEqual(delete_insight_response.status_code, status.HTTP_204_NO_CONTENT)
+
+        self.assertEqual(
+            self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard_id}").status_code,
+            status.HTTP_404_NOT_FOUND,
+        )
+        self.assertEqual(
+            self.client.get(f"/api/projects/{self.team.id}/insights/{insight_id}").status_code,
+            status.HTTP_404_NOT_FOUND,
+        )
+
+    def test_can_soft_delete_insight_after_soft_deleting_dashboard(self):
+        filter_dict = {
+            "events": [{"id": "$pageview"}],
+            "properties": [{"key": "$browser", "value": "Mac OS X"}],
+            "insight": "TRENDS",
+        }
+
+        dashboard_id, _ = self._create_dashboard({"name": "dashboard"})
+        insight_id, _ = self._create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
+
+        delete_dashboard_response = self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}", {"deleted": True}
+        )
+        self.assertEqual(delete_dashboard_response.status_code, status.HTTP_200_OK)
+
+        insight_json = self._get_insight(insight_id=insight_id)
+        self.assertEqual(insight_json["dashboards"], [])
+
+        delete_insight_response = self.client.patch(
+            f"/api/projects/{self.team.id}/insights/{insight_id}", {"deleted": True}
+        )
+        self.assertEqual(delete_insight_response.status_code, status.HTTP_200_OK)
+
+        self.assertEqual(
+            self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard_id}").status_code,
+            status.HTTP_404_NOT_FOUND,
+        )
+        self.assertEqual(
+            self.client.get(f"/api/projects/{self.team.id}/insights/{insight_id}").status_code,
+            status.HTTP_200_OK,  # insights can still be read after soft delete
+        )
+
+    def test_can_soft_delete_insight_after_hard_deleting_dashboard(self):
+        filter_dict = {
+            "events": [{"id": "$pageview"}],
+            "properties": [{"key": "$browser", "value": "Mac OS X"}],
+            "insight": "TRENDS",
+        }
+
+        dashboard_id, _ = self._create_dashboard({"name": "dashboard"})
+        insight_id, _ = self._create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
+
+        delete_dashboard_response = self.client.delete(f"/api/projects/{self.team.id}/dashboards/{dashboard_id}")
+        self.assertEqual(delete_dashboard_response.status_code, status.HTTP_204_NO_CONTENT)
+
+        insight_json = self._get_insight(insight_id=insight_id)
+        self.assertEqual(insight_json["dashboards"], [])
+
+        delete_insight_response = self.client.patch(
+            f"/api/projects/{self.team.id}/insights/{insight_id}", {"deleted": True}
+        )
+        self.assertEqual(delete_insight_response.status_code, status.HTTP_200_OK)
+
+        self.assertEqual(
+            self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard_id}").status_code,
+            status.HTTP_404_NOT_FOUND,
+        )
+        self.assertEqual(
+            self.client.get(f"/api/projects/{self.team.id}/insights/{insight_id}").status_code,
+            status.HTTP_200_OK,  # insights can still be read after soft delete
+        )
+
+    def test_can_soft_and_hard_delete_insight_removes_from_dashboard(self):
+        filter_dict = {
+            "events": [{"id": "$pageview"}],
+            "properties": [{"key": "$browser", "value": "Mac OS X"}],
+            "insight": "TRENDS",
+        }
+
+        dashboard_id, _ = self._create_dashboard({"name": "dashboard"})
+        insight_to_soft_delete_id, _ = self._create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
+        insight_to_hard_delete_id, _ = self._create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
+        insight_not_to_delete_id, _ = self._create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
+
+        dashboard_json = self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard_id}").json()
+        self.assertEqual(len(dashboard_json["items"]), 3)
+
+        soft_delete_insight_response = self.client.patch(
+            f"/api/projects/{self.team.id}/insights/{insight_to_soft_delete_id}", {"deleted": True}
+        )
+        self.assertEqual(soft_delete_insight_response.status_code, status.HTTP_200_OK)
+
+        hard_delete_insight_response = self.client.delete(
+            f"/api/projects/{self.team.id}/insights/{insight_to_hard_delete_id}"
+        )
+        self.assertEqual(hard_delete_insight_response.status_code, status.HTTP_204_NO_CONTENT)
+
+        dashboard_json = self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard_id}").json()
+        self.assertEqual(len(dashboard_json["items"]), 1)
+        self.assertEqual(dashboard_json["items"][0]["id"], insight_not_to_delete_id)
+
     def _create_dashboard(self, data: Dict[str, Any], team_id: Optional[int] = None) -> Tuple[int, Dict[str, Any]]:
         if team_id is None:
             team_id = self.team.id
