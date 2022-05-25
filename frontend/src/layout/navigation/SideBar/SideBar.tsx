@@ -2,7 +2,6 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Link } from 'lib/components/Link'
 import React, { useState } from 'react'
-import { PushpinOutlined } from '@ant-design/icons'
 import { ProjectSwitcherOverlay } from '~/layout/navigation/ProjectSwitcher'
 import {
     EventStackGearIcon,
@@ -14,11 +13,12 @@ import {
     IconFlag,
     IconGauge,
     IconPerson,
+    IconPin,
     IconPlus,
     IconRecording,
     IconSettings,
     IconTools,
-    LiveIcon,
+    IconLive,
 } from 'lib/components/icons'
 import { LemonDivider } from 'lib/components/LemonDivider'
 import { Lettermark } from 'lib/components/Lettermark/Lettermark'
@@ -40,6 +40,7 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SideBarApps } from '~/layout/navigation/SideBar/SideBarApps'
 import { PageButton } from '~/layout/navigation/SideBar/PageButton'
 import { frontendAppsLogic } from 'scenes/apps/frontendAppsLogic'
+import { LemonRow } from 'lib/components/LemonRow'
 
 function Pages(): JSX.Element {
     const { currentOrganization } = useValues(organizationLogic)
@@ -103,17 +104,18 @@ function Pages(): JSX.Element {
                                                 />
                                             ))
                                         ) : (
-                                            <div className="text-muted text-center" style={{ maxWidth: 220 }}>
-                                                <PushpinOutlined style={{ marginRight: 4 }} /> Pinned dashboards will
-                                                show here.{' '}
-                                                <Link
-                                                    onClick={() => setArePinnedDashboardsShown(false)}
-                                                    to={urls.dashboards()}
-                                                >
-                                                    Go to dashboards
-                                                </Link>
-                                                .
-                                            </div>
+                                            <LemonRow icon={<IconPin />} fullWidth>
+                                                <span>
+                                                    <Link
+                                                        onClick={() => setArePinnedDashboardsShown(false)}
+                                                        to={urls.dashboards()}
+                                                    >
+                                                        Pin some dashboards
+                                                    </Link>
+                                                    <br />
+                                                    for them to show up here
+                                                </span>
+                                            </LemonRow>
                                         )}
                                     </div>
                                 ),
@@ -155,7 +157,7 @@ function Pages(): JSX.Element {
                         <LemonDivider />
                     )}
 
-                    <PageButton icon={<LiveIcon />} identifier={Scene.Events} to={urls.events()} />
+                    <PageButton icon={<IconLive />} identifier={Scene.Events} to={urls.events()} />
                     <PageButton
                         icon={<EventStackGearIcon />}
                         identifier={Scene.DataManagement}

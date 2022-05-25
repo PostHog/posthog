@@ -1,4 +1,4 @@
-import { clamp, compactNumber, humanFriendlyDuration } from 'lib/utils'
+import { clamp, delay } from 'lib/utils'
 import api from 'lib/api'
 import {
     FilterType,
@@ -6,7 +6,6 @@ import {
     FunnelRequestParams,
     FunnelResult,
     FunnelStep,
-    FunnelStepWithConversionMetrics,
     FunnelStepWithNestedBreakdown,
     BreakdownKeyType,
     FunnelsTimeConversionBins,
@@ -19,8 +18,6 @@ import {
 import { dayjs } from 'lib/dayjs'
 import { combineUrl } from 'kea-router'
 
-const PERCENTAGE_DISPLAY_PRECISION = 1 // Number of decimals to show in percentages
-
 const EMPTY_BREAKDOWN_KEY = '__empty_string__'
 const EMPTY_BREAKDOWN_VALUE = '(empty string)'
 export const EMPTY_BREAKDOWN_VALUES = {
@@ -28,15 +25,6 @@ export const EMPTY_BREAKDOWN_VALUES = {
     breakdown: [EMPTY_BREAKDOWN_KEY], // unique key not to be used by backend in calculating breakdowns
     breakdown_value: [EMPTY_BREAKDOWN_VALUE],
     isEmpty: true,
-}
-
-export function formatDisplayPercentage(percentage: number, includePercentSign: boolean = false): string {
-    if (Number.isNaN(percentage)) {
-        percentage = 0
-    }
-    // Returns a formatted string properly rounded to ensure consistent results
-    const result = (percentage * 100).toFixed(PERCENTAGE_DISPLAY_PRECISION)
-    return includePercentSign ? `${result}%` : result
 }
 
 export function getReferenceStep<T>(steps: T[], stepReference: FunnelStepReference, index?: number): T {
@@ -66,10 +54,6 @@ export function getLastFilledStep(steps: FunnelStep[], index?: number): FunnelSt
     )
 }
 
-export function humanizeOrder(order: number): number {
-    return order + 1
-}
-
 export function getBreakdownMaxIndex(breakdown?: FunnelStep[]): number | undefined {
     // Returns the index of the last nonzero breakdown item
     if (!breakdown) {
@@ -80,43 +64,6 @@ export function getBreakdownMaxIndex(breakdown?: FunnelStep[]): number | undefin
         return
     }
     return nonZeroCounts[nonZeroCounts.length - 1].index
-}
-
-export function createPopoverMetrics(
-    breakdown: Omit<FunnelStepWithConversionMetrics, 'nested_breakdown'>,
-    currentOrder = 0,
-    previousOrder = 0
-): { title: string; value: number | string; visible?: boolean }[] {
-    return [
-        {
-            title: 'Completed step',
-            value: breakdown.count,
-        },
-        {
-            title: 'Conversion rate (total)',
-            value: formatDisplayPercentage(breakdown.conversionRates.total) + '%',
-        },
-        {
-            title: `Conversion rate (from step ${humanizeOrder(previousOrder)})`,
-            value: formatDisplayPercentage(breakdown.conversionRates.fromPrevious) + '%',
-            visible: currentOrder !== 0,
-        },
-        {
-            title: 'Dropped off',
-            value: breakdown.droppedOffFromPrevious,
-            visible: currentOrder !== 0 && breakdown.droppedOffFromPrevious > 0,
-        },
-        {
-            title: `Dropoff rate (from step ${humanizeOrder(previousOrder)})`,
-            value: formatDisplayPercentage(1 - breakdown.conversionRates.fromPrevious) + '%',
-            visible: currentOrder !== 0 && breakdown.droppedOffFromPrevious > 0,
-        },
-        {
-            title: 'Average time on step',
-            value: humanFriendlyDuration(breakdown.average_conversion_time),
-            visible: !!breakdown.average_conversion_time,
-        },
-    ]
 }
 
 export function getSeriesPositionName(
@@ -130,25 +77,6 @@ export function getSeriesPositionName(
         return index === 0 ? 'first' : index === breakdownMaxIndex ? 'last' : undefined
     }
     return
-}
-
-export function humanizeStepCount(count?: number): string {
-    if (typeof count === 'undefined') {
-        return ''
-    }
-    return count > 9999 ? compactNumber(count) : count.toLocaleString()
-}
-
-export function cleanBinResult(result: FunnelResult): FunnelResult {
-    const binsResult = result.result as FunnelsTimeConversionBins
-    return {
-        ...result,
-        result: {
-            ...result.result,
-            bins: binsResult.bins?.map(([time, count]) => [time ?? 0, count ?? 0]) ?? [],
-            average_conversion_time: binsResult.average_conversion_time ?? 0,
-        },
-    }
 }
 
 export function aggregateBreakdownResult(
@@ -218,12 +146,6 @@ export function isValidBreakdownParameter(
     )
 }
 
-export function wait(ms = 1000): Promise<any> {
-    return new Promise((resolve) => {
-        setTimeout(resolve, ms)
-    })
-}
-
 export function getVisibilityIndex(step: FunnelStep, key?: BreakdownKeyType): string {
     if (step.type === 'actions') {
         return `${step.type}/${step.action_id}/${step.order}`
@@ -247,7 +169,7 @@ export async function pollFunnel<T = FunnelStep[] | FunnelsTimeConversionBins>(
     )
     const start = window.performance.now()
     while (result.result?.loading && (window.performance.now() - start) / 1000 < SECONDS_TO_POLL) {
-        await wait()
+        await delay(1000)
         result = await api.create(`api/projects/${teamId}/insights/funnel`, bodyParams)
     }
     // if endpoint is still loading after 3 minutes just return default

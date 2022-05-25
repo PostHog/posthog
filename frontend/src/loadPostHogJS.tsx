@@ -22,8 +22,7 @@ export function loadPostHogJS(): void {
             window.JS_POSTHOG_API_KEY,
             configWithSentry({
                 api_host: window.JS_POSTHOG_HOST,
-                // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-                // @ts-ignore
+                // @ts-expect-error
                 _capture_metrics: true,
                 rageclick: true,
                 debug: window.JS_POSTHOG_SELF_CAPTURE,

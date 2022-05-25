@@ -127,7 +127,8 @@
                               pdi.person_id as aggregation_target,
                               e.uuid AS uuid,
                               e."$session_id" as "$session_id",
-                              e."$window_id" as "$window_id"
+                              e."$window_id" as "$window_id",
+                              pdi.person_id as person_id
                        FROM events e
                        INNER JOIN
                          (SELECT distinct_id,
@@ -292,7 +293,8 @@
                               pdi.person_id as aggregation_target,
                               e.uuid AS uuid,
                               e."$session_id" as "$session_id",
-                              e."$window_id" as "$window_id"
+                              e."$window_id" as "$window_id",
+                              pdi.person_id as person_id
                        FROM events e
                        INNER JOIN
                          (SELECT distinct_id,
@@ -458,7 +460,8 @@
                               pdi.person_id as aggregation_target,
                               e.uuid AS uuid,
                               e."$session_id" as "$session_id",
-                              e."$window_id" as "$window_id"
+                              e."$window_id" as "$window_id",
+                              pdi.person_id as person_id
                        FROM events e
                        INNER JOIN
                          (SELECT distinct_id,

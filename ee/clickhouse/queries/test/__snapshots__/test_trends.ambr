@@ -1,3 +1,152 @@
+# name: TestClickhouseTrends.test_breakdown_active_user_math_with_actions
+  '
+  
+  SELECT groupArray(value)
+  FROM
+    (SELECT replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '') AS value,
+            count(*) as count
+     FROM events e
+     INNER JOIN
+       (SELECT distinct_id,
+               argMax(person_id, version) as person_id
+        FROM person_distinct_id2
+        WHERE team_id = 2
+        GROUP BY distinct_id
+        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+     INNER JOIN
+       (SELECT id,
+               argMax(properties, _timestamp) as person_props
+        FROM person
+        WHERE team_id = 2
+        GROUP BY id
+        HAVING max(is_deleted) = 0) person ON pdi.person_id = person.id
+     WHERE team_id = 2
+       AND ((event = '$pageview'
+             AND (has(['p1', 'p2', 'p3'], replaceRegexpAll(JSONExtractRaw(person_props, 'name'), '^"|"$', ''))
+                  AND pdi.person_id IN
+                    (select id
+                     from
+                       (SELECT *
+                        FROM person
+                        JOIN
+                          (SELECT id,
+                                  max(_timestamp) as _timestamp,
+                                  max(is_deleted) as is_deleted
+                           FROM person
+                           WHERE team_id = 2
+                           GROUP BY id) as person_max ON person.id = person_max.id
+                        AND person._timestamp = person_max._timestamp
+                        WHERE team_id = 2
+                          AND person_max.is_deleted = 0
+                          AND (has(['p1', 'p2'], replaceRegexpAll(JSONExtractRaw(properties, 'name'), '^"|"$', ''))) )))))
+       AND timestamp >= toDateTime('2020-01-01 00:00:00')
+       AND timestamp <= toDateTime('2020-01-12 23:59:59')
+     GROUP BY value
+     ORDER BY count DESC
+     LIMIT 25
+     OFFSET 0)
+  '
+---
+# name: TestClickhouseTrends.test_breakdown_active_user_math_with_actions.1
+  '
+  
+  SELECT groupArray(day_start) as date,
+         groupArray(count) as data,
+         breakdown_value
+  FROM
+    (SELECT SUM(total) as count,
+            day_start,
+            breakdown_value
+     FROM
+       (SELECT *
+        FROM
+          (SELECT toUInt16(0) AS total,
+                  ticks.day_start as day_start,
+                  breakdown_value
+           FROM
+             (SELECT toStartOfDay(toDateTime('2020-01-12 23:59:59', 'UTC') - number * 86400) as day_start
+              FROM numbers(12)
+              UNION ALL SELECT toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')) as day_start) as ticks
+           CROSS JOIN
+             (SELECT breakdown_value
+              FROM
+                (SELECT ['val'] as breakdown_value) ARRAY
+              JOIN breakdown_value) as sec
+           ORDER BY breakdown_value,
+                    day_start
+           UNION ALL SELECT counts as total,
+                            timestamp as day_start,
+                                         breakdown_value
+           FROM
+             (SELECT d.timestamp,
+                     COUNT(DISTINCT person_id) counts,
+                     breakdown_value
+              FROM
+                (SELECT toStartOfDay(toDateTime(timestamp), 'UTC') as timestamp
+                 FROM events e
+                 WHERE team_id = 2
+                   AND timestamp >= '2019-12-25 00:00:00'
+                   AND timestamp <= toDateTime('2020-01-12 23:59:59')
+                 GROUP BY timestamp) d
+              CROSS JOIN
+                (SELECT toStartOfDay(toDateTime(timestamp), 'UTC') as timestamp,
+                        pdi.person_id AS person_id,
+                        replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '') as breakdown_value
+                 FROM events e
+                 INNER JOIN
+                   (SELECT distinct_id,
+                           argMax(person_id, version) as person_id
+                    FROM person_distinct_id2
+                    WHERE team_id = 2
+                    GROUP BY distinct_id
+                    HAVING argMax(is_deleted, version) = 0) as pdi ON events.distinct_id = pdi.distinct_id
+                 INNER JOIN
+                   (SELECT id,
+                           argMax(properties, _timestamp) as person_props
+                    FROM person
+                    WHERE team_id = 2
+                    GROUP BY id
+                    HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
+                 WHERE e.team_id = 2
+                   AND timestamp >= '2019-12-25 00:00:00'
+                   AND timestamp <= toDateTime('2020-01-12 23:59:59')
+                   AND ((event = '$pageview'
+                         AND (has(['p1', 'p2', 'p3'], replaceRegexpAll(JSONExtractRaw(person_props, 'name'), '^"|"$', ''))
+                              AND pdi.person_id IN
+                                (select id
+                                 from
+                                   (SELECT *
+                                    FROM person
+                                    JOIN
+                                      (SELECT id,
+                                              max(_timestamp) as _timestamp,
+                                              max(is_deleted) as is_deleted
+                                       FROM person
+                                       WHERE team_id = 2
+                                       GROUP BY id) as person_max ON person.id = person_max.id
+                                    AND person._timestamp = person_max._timestamp
+                                    WHERE team_id = 2
+                                      AND person_max.is_deleted = 0
+                                      AND (has(['p1', 'p2'], replaceRegexpAll(JSONExtractRaw(properties, 'name'), '^"|"$', ''))) )))))
+                 GROUP BY timestamp,
+                          person_id,
+                          breakdown_value) e
+              WHERE e.timestamp <= d.timestamp
+                AND e.timestamp > d.timestamp - INTERVAL 7 DAY
+              GROUP BY d.timestamp,
+                       breakdown_value
+              ORDER BY d.timestamp)
+           WHERE 11111 = 11111
+             AND timestamp >= toStartOfDay(toDateTime('2020-01-01 00:00:00'), 'UTC')
+             AND timestamp <= toDateTime('2020-01-12 23:59:59') ))
+     GROUP BY day_start,
+              breakdown_value
+     ORDER BY breakdown_value,
+              day_start)
+  GROUP BY breakdown_value
+  ORDER BY breakdown_value
+  '
+---
 # name: TestClickhouseTrends.test_breakdown_by_group_props
   '
   

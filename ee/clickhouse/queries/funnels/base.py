@@ -51,7 +51,7 @@ class ClickhouseFunnelBase(ABC):
         self._base_uri = base_uri
         self.params = {
             "team_id": self._team.pk,
-            "timezone": self._team.timezone_for_charts,
+            "timezone": self._team.timezone,
             "events": [],  # purely a speed optimization, don't need this for filtering
         }
         self._include_timestamp = include_timestamp
@@ -362,6 +362,7 @@ class ClickhouseFunnelBase(ABC):
             team=self._team,
             extra_fields=[*self._extra_event_fields, *extra_fields],
             extra_event_properties=self._extra_event_properties,
+            using_person_on_events=self._team.actor_on_events_querying_enabled,
         ).get_query(entities_to_use, entity_name, skip_entity_filter=skip_entity_filter)
 
         self.params.update(params)
@@ -438,8 +439,15 @@ class ClickhouseFunnelBase(ABC):
             for action_step in action.steps.all():
                 if entity_name not in self.params[entity_name]:
                     self.params[entity_name].append(action_step.event)
+
             action_query, action_params = format_action_filter(
-                team_id=self._team.pk, action=action, prepend=f"{entity_name}_{step_prefix}step_{index}"
+                team_id=self._team.pk,
+                action=action,
+                prepend=f"{entity_name}_{step_prefix}step_{index}",
+                person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS
+                if self._team.actor_on_events_querying_enabled
+                else PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
+                person_id_joined_alias="person_id",
             )
             if action_query == "":
                 return ""
@@ -459,8 +467,10 @@ class ClickhouseFunnelBase(ABC):
             team_id=self._team.pk,
             property_group=entity.property_groups,
             prepend=str(index),
-            person_properties_mode=PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
-            person_id_joined_alias="aggregation_target",
+            person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS
+            if self._team.actor_on_events_querying_enabled
+            else PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
+            person_id_joined_alias="person_id",
         )
         self.params.update(prop_filter_params)
         return prop_filters
@@ -600,9 +610,19 @@ class ClickhouseFunnelBase(ABC):
         if self._filter.breakdown:
             self.params.update({"breakdown": self._filter.breakdown})
             if self._filter.breakdown_type == "person":
-                return get_single_or_multi_property_string_expr(
-                    self._filter.breakdown, table="person", query_alias="prop", column="person_props"
-                )
+
+                if self._team.actor_on_events_querying_enabled:
+                    return get_single_or_multi_property_string_expr(
+                        self._filter.breakdown,
+                        table="events",
+                        query_alias="prop",
+                        column="person_properties",
+                        allow_denormalized_props=False,
+                    )
+                else:
+                    return get_single_or_multi_property_string_expr(
+                        self._filter.breakdown, table="person", query_alias="prop", column="person_props"
+                    )
             elif self._filter.breakdown_type == "event":
                 return get_single_or_multi_property_string_expr(
                     self._filter.breakdown, table="events", query_alias="prop", column="properties"
@@ -612,10 +632,24 @@ class ClickhouseFunnelBase(ABC):
             elif self._filter.breakdown_type == "group":
                 # :TRICKY: We only support string breakdown for group properties
                 assert isinstance(self._filter.breakdown, str)
-                properties_field = f"group_properties_{self._filter.breakdown_group_type_index}"
-                expression, _ = get_property_string_expr(
-                    table="groups", property_name=self._filter.breakdown, var="%(breakdown)s", column=properties_field
-                )
+
+                if self._team.actor_on_events_querying_enabled:
+                    properties_field = f"group{self._filter.breakdown_group_type_index}_properties"
+                    expression, _ = get_property_string_expr(
+                        table="events",
+                        property_name=self._filter.breakdown,
+                        var="%(breakdown)s",
+                        column=properties_field,
+                        allow_denormalized_props=False,
+                    )
+                else:
+                    properties_field = f"group_properties_{self._filter.breakdown_group_type_index}"
+                    expression, _ = get_property_string_expr(
+                        table="groups",
+                        property_name=self._filter.breakdown,
+                        var="%(breakdown)s",
+                        column=properties_field,
+                    )
                 return f"{expression} AS prop"
 
         return ""

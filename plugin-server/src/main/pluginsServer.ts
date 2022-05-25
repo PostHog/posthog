@@ -14,7 +14,6 @@ import {
     PluginScheduleControl,
     PluginServerCapabilities,
     PluginsServerConfig,
-    Queue,
 } from '../types'
 import { createHub } from '../utils/db/hub'
 import { determineNodeEnv, NodeEnv } from '../utils/env-utils'
@@ -23,6 +22,7 @@ import { cancelAllScheduledJobs } from '../utils/node-schedule'
 import { PubSub } from '../utils/pubsub'
 import { status } from '../utils/status'
 import { delay, getPiscinaStats, stalenessCheck } from '../utils/utils'
+import { KafkaQueue } from './ingestion-queues/kafka-queue'
 import { startQueues } from './ingestion-queues/queue'
 import { startJobQueueConsumer } from './job-queues/job-queue-consumer'
 import { createHttpServer } from './services/http-server'
@@ -36,7 +36,7 @@ const { version } = require('../../package.json')
 export type ServerInstance = {
     hub: Hub
     piscina: Piscina
-    queue: Queue | null
+    queue: KafkaQueue | null
     mmdb?: ReaderModel
     kafkaHealthcheckConsumer?: Consumer
     mmdbUpdateJob?: schedule.Job
@@ -55,12 +55,13 @@ export async function startPluginsServer(
         ...config,
     }
 
+    status.updatePrompt(serverConfig.PLUGIN_SERVER_MODE)
     status.info('ℹ️', `${serverConfig.WORKER_CONCURRENCY} workers, ${serverConfig.TASKS_PER_WORKER} tasks per worker`)
 
     let pubSub: PubSub | undefined
     let hub: Hub | undefined
     let piscina: Piscina | undefined
-    let queue: Queue | undefined | null // ingestion queue
+    let queue: KafkaQueue | undefined | null // ingestion queue
     let healthCheckConsumer: Consumer | undefined
     let jobQueueConsumer: JobQueueConsumerControl | undefined
     let closeHub: () => Promise<void> | undefined
@@ -161,7 +162,6 @@ export async function startPluginsServer(
         // `queue` refers to the ingestion queue.
         queue = queues.ingestion
         piscina.on('drain', () => {
-            void queue?.resume()
             void jobQueueConsumer?.resume()
         })
 
@@ -274,8 +274,10 @@ export async function startPluginsServer(
             }
         }
 
-        // start http server used for the healthcheck
-        httpServer = createHttpServer(hub!, serverInstance as ServerInstance, serverConfig)
+        if (hub.capabilities.http) {
+            // start http server used for the healthcheck
+            httpServer = createHttpServer(hub!, serverInstance as ServerInstance, serverConfig)
+        }
 
         hub.statsd?.timing('total_setup_time', timer)
         status.info('🚀', 'All systems go')
