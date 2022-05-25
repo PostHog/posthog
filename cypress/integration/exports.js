@@ -2,6 +2,8 @@ import { urls } from 'scenes/urls'
 
 import { decideResponse } from '../fixtures/api/decide'
 
+// NOTE: As the API data is randomly generated, we are only really testing here that the overall output is correct
+// The actual graph is not under test
 describe('Exporting Insights', () => {
     beforeEach(() => {
         cy.intercept('https://app.posthog.com/decide/*', (req) =>
@@ -11,9 +13,17 @@ describe('Exporting Insights', () => {
                 })
             )
         )
-        cy.visit(urls.savedInsights())
-        cy.contains('Weekly active users (WAUs)').click()
-        cy.wait(3000)
+        cy.visit(urls.insightNew())
+        // apply filter
+        cy.get('[data-attr=new-prop-filter-trends-filters]').click()
+        cy.get('[data-attr=taxonomic-filter-searchfield]').click()
+        cy.get('[data-attr=expand-list-event_properties]').click()
+        cy.get('[data-attr=prop-filter-event_properties-1]').click({ force: true })
+        cy.get('[data-attr=prop-val] input').type('not-applicable')
+        cy.get('[data-attr=prop-val] input').type('{enter}')
+
+        // Save
+        cy.get('[data-attr="insight-save-button"]').click()
     })
 
     it('Export an Insight to png', () => {
@@ -21,8 +31,7 @@ describe('Exporting Insights', () => {
         cy.get('[data-attr=export-button]').click()
         cy.get('[data-attr=export-button-png]').click()
 
-        const expecteFileName = 'export-weekly-active-users-waus.png'
-        // NOTE: As the API data is only mocked in cypress, the image will always have empty data...
+        const expecteFileName = 'export-pageview-count.png'
         cy.task('compareToReferenceImage', {
             source: expecteFileName,
             reference: `../data/exports/${expecteFileName}`,
