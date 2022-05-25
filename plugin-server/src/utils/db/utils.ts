@@ -291,7 +291,7 @@ export function shouldStoreLog(
     source: PluginLogEntrySource,
     type: PluginLogEntryType
 ): boolean {
-    if (source === PluginLogEntrySource.System || !pluginLogLevel) {
+    if (source === PluginLogEntrySource.System) {
         return true
     }
 
