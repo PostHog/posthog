@@ -1,7 +1,6 @@
-import { ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 import { PluginEvent } from '@posthog/plugin-scaffold/src/types'
 
-import { Action, EnqueuedJob, Hub, PluginTaskType, PreIngestionEvent, Team } from '../types'
+import { Action, EnqueuedJob, Hub, IngestionEvent, PluginTaskType, PreIngestionEvent, Team } from '../types'
 import { convertToProcessedPluginEvent } from '../utils/event'
 import { EventPipelineRunner } from './ingestion/event-pipeline/runner'
 import { runPluginTask, runProcessEvent } from './plugins/run'
@@ -34,10 +33,9 @@ export const workerTasks: Record<string, TaskRunner> = {
         const runner = new EventPipelineRunner(hub, convertToProcessedPluginEvent(args.event))
         return await runner.runBufferEventPipeline(args.event)
     },
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    runAsyncHandlersEventPipeline: async (hub, args: { event: ProcessedPluginEvent }) => {
-        await Promise.resolve()
-        return
+    runAsyncHandlersEventPipeline: async (hub, args: { event: IngestionEvent }) => {
+        const runner = new EventPipelineRunner(hub, convertToProcessedPluginEvent(args.event))
+        return await runner.runAsyncHandlersEventPipeline(args.event)
     },
     reloadPlugins: async (hub) => {
         await setupPlugins(hub)

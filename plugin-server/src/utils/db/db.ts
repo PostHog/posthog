@@ -44,6 +44,7 @@ import {
     PluginLogEntry,
     PluginLogEntrySource,
     PluginLogEntryType,
+    PluginLogLevel,
     PluginSourceFileStatus,
     PostgresSessionRecordingEvent,
     PropertiesLastOperation,
@@ -1373,7 +1374,7 @@ export class DB {
 
         const logLevel = pluginConfig.plugin?.log_level
 
-        if (!shouldStoreLog(logLevel || 0, source, type)) {
+        if (!shouldStoreLog(logLevel || PluginLogLevel.Full, source, type)) {
             return
         }
 

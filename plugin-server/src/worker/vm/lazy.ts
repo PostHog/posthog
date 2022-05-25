@@ -78,25 +78,40 @@ export class LazyPluginVM {
     }
 
     public async getTask(name: string, type: PluginTaskType): Promise<PluginTask | null> {
-        const task = (await this.resolveInternalVm)?.tasks?.[type]?.[name] || null
+        let task = (await this.resolveInternalVm)?.tasks?.[type]?.[name] || null
         if (!this.ready && task) {
-            await this.setupPluginIfNeeded()
+            const pluginReady = await this.setupPluginIfNeeded()
+            if (!pluginReady) {
+                task = null
+            }
         }
         return task
     }
 
-    public async getTasks(type: PluginTaskType): Promise<Record<string, PluginTask>> {
-        const tasks = (await this.resolveInternalVm)?.tasks?.[type] || null
+    public async getScheduledTasks(): Promise<Record<string, PluginTask>> {
+        let tasks = (await this.resolveInternalVm)?.tasks?.[PluginTaskType.Schedule] || null
         if (!this.ready && tasks && Object.values(tasks).length > 0) {
-            await this.setupPluginIfNeeded()
+            const pluginReady = await this.setupPluginIfNeeded()
+            if (!pluginReady) {
+                tasks = null
+                // KLUDGE: setupPlugin is retried, meaning methods may fail initially but work after a retry
+                // Schedules on the other hand need to be loaded in advance, so retries cannot turn on scheduled tasks after the fact.
+                await this.createLogEntry(
+                    'Cannot load scheduled tasks because the plugin errored during setup.',
+                    PluginLogEntryType.Error
+                )
+            }
         }
         return tasks || {}
     }
 
     private async getVmMethod<T extends keyof VMMethods>(method: T): Promise<VMMethods[T] | null> {
-        const vmMethod = (await this.resolveInternalVm)?.methods[method] || null
+        let vmMethod = (await this.resolveInternalVm)?.methods[method] || null
         if (!this.ready && vmMethod) {
-            await this.setupPluginIfNeeded()
+            const pluginReady = await this.setupPluginIfNeeded()
+            if (!pluginReady) {
+                vmMethod = null
+            }
         }
         return vmMethod
     }
@@ -157,16 +172,21 @@ export class LazyPluginVM {
         })
     }
 
-    public async setupPluginIfNeeded(): Promise<void> {
-        if (this.ready || this.inErroredState) {
-            return
+    public async setupPluginIfNeeded(): Promise<boolean> {
+        if (this.inErroredState) {
+            return false
         }
-        const vm = (await this.resolveInternalVm)?.vm
-        try {
-            await this._setupPlugin(vm)
-        } catch (error) {
-            status.warn('⚠️', error.message)
+
+        if (!this.ready) {
+            const vm = (await this.resolveInternalVm)?.vm
+            try {
+                await this._setupPlugin(vm)
+            } catch (error) {
+                status.warn('⚠️', error.message)
+                return false
+            }
         }
+        return true
     }
 
     public async _setupPlugin(vm?: VM): Promise<void> {

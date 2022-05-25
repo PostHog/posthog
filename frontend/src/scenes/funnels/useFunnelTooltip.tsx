@@ -81,8 +81,8 @@ function FunnelTooltip({ showPersonsModal, stepIndex, series, groupTypeLabel }: 
     )
 }
 
-export function useFunnelTooltip(showPersonsModal: boolean, barWidthPx: number): React.RefObject<HTMLDivElement> {
-    const { filters, isTooltipShown, currentTooltip, tooltipCoordinates } = useValues(funnelLogic)
+export function useFunnelTooltip(showPersonsModal: boolean): React.RefObject<HTMLDivElement> {
+    const { filters, isTooltipShown, currentTooltip, tooltipOrigin } = useValues(funnelLogic)
     const { aggregationLabel } = useValues(groupsModel)
 
     const vizRef = useRef<HTMLDivElement>(null)
@@ -92,7 +92,7 @@ export function useFunnelTooltip(showPersonsModal: boolean, barWidthPx: number):
         const tooltipEl = ensureTooltipElement()
         tooltipEl.style.opacity = isTooltipShown ? '1' : '0'
         const tooltipRect = tooltipEl.getBoundingClientRect()
-        if (tooltipCoordinates) {
+        if (tooltipOrigin) {
             ReactDOM.render(
                 <>
                     {currentTooltip && (
@@ -111,19 +111,20 @@ export function useFunnelTooltip(showPersonsModal: boolean, barWidthPx: number):
             if (
                 svgRect &&
                 tooltipRect &&
-                tooltipCoordinates[0] + tooltipRect.width + FUNNEL_TOOLTIP_OFFSET_PX > svgRect.x + svgRect.width
+                tooltipOrigin[0] + tooltipOrigin[2] + tooltipRect.width + FUNNEL_TOOLTIP_OFFSET_PX >
+                    svgRect.x + svgRect.width
             ) {
-                xOffset = -(tooltipRect.width + barWidthPx + FUNNEL_TOOLTIP_OFFSET_PX)
+                xOffset = -tooltipRect.width - FUNNEL_TOOLTIP_OFFSET_PX
             } else {
-                xOffset = FUNNEL_TOOLTIP_OFFSET_PX
+                xOffset = tooltipOrigin[2] + FUNNEL_TOOLTIP_OFFSET_PX
             }
-            tooltipEl.style.left = `${window.pageXOffset + tooltipCoordinates[0] + xOffset}px`
-            tooltipEl.style.top = `${window.pageYOffset + tooltipCoordinates[1]}px`
+            tooltipEl.style.left = `${window.pageXOffset + tooltipOrigin[0] + xOffset}px`
+            tooltipEl.style.top = `${window.pageYOffset + tooltipOrigin[1]}px`
         } else {
             tooltipEl.style.left = 'revert'
             tooltipEl.style.top = 'revert'
         }
-    }, [isTooltipShown, tooltipCoordinates, currentTooltip])
+    }, [isTooltipShown, tooltipOrigin, currentTooltip])
 
     return vizRef
 }

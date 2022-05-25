@@ -1,7 +1,7 @@
 import { PluginEvent, ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 import * as Sentry from '@sentry/node'
 
-import { Hub, PreIngestionEvent } from '../../../types'
+import { Hub, IngestionEvent, PreIngestionEvent } from '../../../types'
 import { timeoutGuard } from '../../../utils/db/utils'
 import { status } from '../../../utils/status'
 import { generateEventDeadLetterQueueMessage } from '../utils'
@@ -71,6 +71,13 @@ export class EventPipelineRunner {
         const person = await this.hub.db.fetchPerson(event.teamId, event.distinctId)
         const result = await this.runPipeline('createEventStep', event, person)
         this.hub.statsd?.increment('kafka_queue.buffer_event.processed_and_ingested')
+        return result
+    }
+
+    async runAsyncHandlersEventPipeline(event: IngestionEvent): Promise<EventPipelineResult> {
+        const person = await this.hub.db.fetchPerson(event.teamId, event.distinctId)
+        const result = await this.runPipeline('runAsyncHandlersStep', event, person)
+        this.hub.statsd?.increment('kafka_queue.async_handlers.processed')
         return result
     }
 
