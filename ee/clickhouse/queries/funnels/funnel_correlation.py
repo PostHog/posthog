@@ -104,8 +104,6 @@ class FunnelCorrelation:
         filter: Filter,  #  Used to filter people
         team: Team,  # Used to partition by team
         base_uri: str = "/",  # Used to generate absolute urls
-        include_funnel_person_properties: Optional[bool] = None,
-        include_funnel_group_properties: Optional[List[int]] = None,
     ) -> None:
         self._filter = filter
         self._team = team
@@ -145,11 +143,9 @@ class FunnelCorrelation:
             else:
                 self.query_person_properties = True
 
-        provided_funnel_group_index = include_funnel_group_properties or []
         self.include_funnel_group_properties: list = [
-            *provided_funnel_group_index,
-            filter.aggregation_group_type_index,
-        ] if self.query_group_properties else provided_funnel_group_index
+            filter.aggregation_group_type_index
+        ] if self.query_group_properties else []
 
         funnel_order_actor_class = get_funnel_order_actor_class(filter)
 
@@ -163,7 +159,7 @@ class FunnelCorrelation:
             # NOTE: we don't need these as we have all the information we need to
             # deduce if the person was successful or not
             include_preceding_timestamp=False,
-            include_person_properties=include_funnel_person_properties or self.query_person_properties,
+            include_person_properties=self.query_person_properties,
             include_group_properties=self.include_funnel_group_properties,
         )
 
