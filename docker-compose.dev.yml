@@ -1,8 +1,10 @@
 #
 # docker-compose file used ONLY for local development.
+# For more info, see:
+# https://posthog.com/handbook/engineering/developing-locally
 #
-# If you are looking at self-hosted deployment options,
-# please take a look at https://posthog.com/docs/self-host
+# If you are looking at self-hosted deployment options check
+# https://posthog.com/docs/self-host
 #
 version: '3'
 
