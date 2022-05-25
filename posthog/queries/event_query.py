@@ -166,6 +166,7 @@ class EventQuery(metaclass=ABCMeta):
         self,
         prop_group: Optional[PropertyGroup],
         person_properties_mode=PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
+        person_id_joined_alias="person_id",
     ) -> Tuple[str, Dict]:
         if not prop_group:
             return "", {}
@@ -182,5 +183,5 @@ class EventQuery(metaclass=ABCMeta):
             table_name=self.EVENT_TABLE_ALIAS,
             allow_denormalized_props=True,
             person_properties_mode=person_properties_mode,
-            person_id_joined_alias=f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id",
+            person_id_joined_alias=person_id_joined_alias,
         )
