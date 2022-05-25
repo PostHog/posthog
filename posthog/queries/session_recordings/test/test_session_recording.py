@@ -9,15 +9,15 @@ from django.utils.timezone import now
 from freezegun import freeze_time
 from rest_framework.request import Request
 
-from posthog.helpers.session_recording import (
+from posthog.models import Filter
+from posthog.models.team import Team
+from posthog.queries.session_recordings.session_recording import RecordingMetadata, SessionRecording
+from posthog.session_recordings.helpers import (
     ACTIVITY_THRESHOLD_SECONDS,
     DecompressedRecordingData,
     RecordingSegment,
     compress_and_chunk_snapshots,
 )
-from posthog.models import Filter
-from posthog.models.team import Team
-from posthog.queries.session_recordings.session_recording import RecordingMetadata, SessionRecording
 from posthog.test.base import BaseTest
 
 

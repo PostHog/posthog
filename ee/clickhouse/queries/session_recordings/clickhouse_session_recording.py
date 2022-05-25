@@ -1,9 +1,9 @@
 from typing import List
 
 from posthog.client import sync_execute
-from posthog.helpers.session_recording import try_read_from_object_storage
 from posthog.models import SessionRecordingEvent
 from posthog.queries.session_recordings.session_recording import SessionRecording
+from posthog.session_recordings.object_storage import read_snapshot_data
 
 
 class ClickhouseSessionRecording(SessionRecording):
@@ -26,7 +26,7 @@ class ClickhouseSessionRecording(SessionRecording):
                 window_id=window_id,
                 distinct_id=distinct_id,
                 timestamp=timestamp,
-                snapshot_data=try_read_from_object_storage(session_id, snapshot_data),
+                snapshot_data=read_snapshot_data(snapshot_data, self._team.id),
             )
             for session_id, window_id, distinct_id, timestamp, snapshot_data in response
         ]

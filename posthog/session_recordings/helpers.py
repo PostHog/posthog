@@ -9,7 +9,6 @@ from typing import DefaultDict, Dict, Generator, List, Optional
 from sentry_sdk.api import capture_exception, capture_message
 
 from posthog.models import utils
-from posthog.storage import object_storage
 
 FULL_SNAPSHOT = 2
 
@@ -320,23 +319,3 @@ def paginate_list(list_to_paginate: List, limit: Optional[int], offset: int) -> 
         has_next = False
         paginated_list = list_to_paginate[offset:]
     return PaginatedList(has_next=has_next, paginated_list=paginated_list)
-
-
-def try_read_from_object_storage(session_id: str, snapshot_data: str) -> Dict:
-    """
-    Session recording payloads were orignally stored in ClickHouse, using a lot of expensive storage
-    Now, the plugin server (when configured to) removes the payload data from session recording events
-    and stores that data in object storage.
-    The data must be present in either the ClickHouse entry or object storage to be valid
-    """
-    json_data = json.loads(snapshot_data)
-    has_payload_chunk = json_data.get("data", None) is not None
-
-    if has_payload_chunk:
-        return json_data
-
-    object_storage_path = json_data["object_storage_path"]
-    file_content = object_storage.read(object_storage_path)
-
-    json_data["data"] = file_content
-    return json_data

@@ -25,9 +25,9 @@ from posthog.api.utils import (
     safe_clickhouse_string,
 )
 from posthog.exceptions import generate_exception_response
-from posthog.helpers.session_recording import preprocess_session_recording_events
 from posthog.models.feature_flag import get_overridden_feature_flags
 from posthog.models.utils import UUIDT
+from posthog.session_recordings.helpers import preprocess_session_recording_events
 from posthog.utils import cors_response, get_ip_address
 
 

@@ -4,7 +4,8 @@ from typing import Dict, List, Optional, Tuple, cast
 
 from rest_framework.request import Request
 
-from posthog.helpers.session_recording import (
+from posthog.models import SessionRecordingEvent, Team
+from posthog.session_recordings.helpers import (
     DecompressedRecordingData,
     EventActivityData,
     RecordingSegment,
@@ -14,7 +15,6 @@ from posthog.helpers.session_recording import (
     generate_inactive_segments_for_range,
     get_active_segments_from_event_list,
 )
-from posthog.models import SessionRecordingEvent, Team
 
 
 @dataclasses.dataclass
