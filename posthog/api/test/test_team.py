@@ -1,3 +1,6 @@
+import json
+
+from django.core.cache import cache
 from rest_framework import status
 
 from posthog.demo import create_demo_team
@@ -156,6 +159,29 @@ class TestTeamAPI(APIBaseTest):
         response = self.client.get("/api/projects/@current/")
         response_data = response.json()
         self.assertEqual(response_data["primary_dashboard"], None)
+
+    def test_update_timezone_remove_cache(self):
+        # Seed cache with some insights
+        self.client.post(
+            f"/api/projects/{self.team.id}/insights/",
+            data={"filters": {"events": json.dumps([{"id": "user signed up"}])}},
+        )
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/insights/", data={"filters": {"events": json.dumps([{"id": "$pageview"}])}},
+        ).json()
+        self.client.get(
+            f"/api/projects/{self.team.id}/insights/trend/", data={"events": json.dumps([{"id": "$pageview"}])},
+        )
+        self.client.get(
+            f"/api/projects/{self.team.id}/insights/trend/", data={"events": json.dumps([{"id": "user signed up"}])},
+        )
+
+        self.assertEqual(cache.get(response["filters_hash"])["result"][0]["count"], 0)
+        self.client.patch(
+            f"/api/projects/{self.team.id}/", {"timezone": "US/Pacific"},
+        )
+        # Verify cache was deleted
+        self.assertEqual(cache.get(response["filters_hash"]), None)
 
 
 def create_team(organization: Organization, name: str = "Test team") -> Team:

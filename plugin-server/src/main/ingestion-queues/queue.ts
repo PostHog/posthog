@@ -1,7 +1,7 @@
 import Piscina from '@posthog/piscina'
-import { PluginEvent, ProcessedPluginEvent } from '@posthog/plugin-scaffold'
+import { PluginEvent } from '@posthog/plugin-scaffold'
 
-import { Hub, PreIngestionEvent, WorkerMethods } from '../../types'
+import { Hub, IngestionEvent, PreIngestionEvent, WorkerMethods } from '../../types'
 import { status } from '../../utils/status'
 import { KafkaQueue } from './kafka-queue'
 
@@ -30,7 +30,7 @@ export async function startQueues(
             server.lastActivityType = 'runBufferEventPipeline'
             return piscina.run({ task: 'runBufferEventPipeline', args: { event } })
         },
-        runAsyncHandlersEventPipeline: (event: ProcessedPluginEvent) => {
+        runAsyncHandlersEventPipeline: (event: IngestionEvent) => {
             server.lastActivity = new Date().valueOf()
             server.lastActivityType = 'runAsyncHandlersEventPipeline'
             return piscina.run({ task: 'runAsyncHandlersEventPipeline', args: { event } })
@@ -55,7 +55,7 @@ export async function startQueues(
 }
 
 async function startQueueKafka(server: Hub, workerMethods: WorkerMethods): Promise<KafkaQueue | null> {
-    if (!server.capabilities.ingestion) {
+    if (!server.capabilities.ingestion && !server.capabilities.processAsyncHandlers) {
         return null
     }
 

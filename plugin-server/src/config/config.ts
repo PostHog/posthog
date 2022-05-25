@@ -100,6 +100,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         OBJECT_STORAGE_SESSION_RECORDING_FOLDER: 'session_recordings',
         OBJECT_STORAGE_BUCKET: 'posthog',
         OBJECT_STORAGE_SESSION_RECORDING_ENABLED_TEAMS: '',
+        PLUGIN_SERVER_MODE: null,
     }
 }
 
@@ -182,6 +183,7 @@ export function getConfigHelp(): Record<keyof PluginsServerConfig, string> {
         OBJECT_STORAGE_BUCKET: 'the object storage bucket name',
         OBJECT_STORAGE_SESSION_RECORDING_ENABLED_TEAMS:
             'a list of team ids determining which teams can store session recordings in object storage',
+        PLUGIN_SERVER_MODE: '(advanced) plugin server mode',
     }
 }
 
@@ -209,6 +211,10 @@ export function overrideWithEnv(
                 newConfig[key] = env[key]
             }
         }
+    }
+
+    if (!['ingestion', 'async', null].includes(newConfig.PLUGIN_SERVER_MODE)) {
+        throw Error(`Invalid PLUGIN_SERVER_MODE ${newConfig.PLUGIN_SERVER_MODE}`)
     }
     return newConfig
 }

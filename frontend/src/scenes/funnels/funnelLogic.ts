@@ -2,7 +2,7 @@ import { BreakPointFunction, kea } from 'kea'
 import equal from 'fast-deep-equal'
 import api from 'lib/api'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { autoCaptureEventToDescription, average, sum } from 'lib/utils'
+import { autoCaptureEventToDescription, average, percentage, sum } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import type { funnelLogicType } from './funnelLogicType'
 import {
@@ -39,7 +39,6 @@ import { BIN_COUNT_AUTO, FunnelLayout } from 'lib/constants'
 
 import {
     aggregateBreakdownResult,
-    formatDisplayPercentage,
     getClampedStepRangeFilter,
     getLastFilledStep,
     getMeanAndStandardDeviation,
@@ -188,8 +187,12 @@ export const funnelLogic = kea<funnelLogicType>({
         addNestedTableExpandedKey: (expandKey: string) => ({ expandKey }),
         removeNestedTableExpandedKey: (expandKey: string) => ({ expandKey }),
 
-        showTooltip: (coordinates: [number, number], stepIndex: number, series: FunnelStepWithConversionMetrics) => ({
-            coordinates,
+        showTooltip: (
+            origin: [number, number, number],
+            stepIndex: number,
+            series: FunnelStepWithConversionMetrics
+        ) => ({
+            origin,
             stepIndex,
             series,
         }),
@@ -446,10 +449,10 @@ export const funnelLogic = kea<funnelLogicType>({
                 showTooltip: (_, { stepIndex, series }) => [stepIndex, series],
             },
         ],
-        tooltipCoordinates: [
-            null as [number, number] | null,
+        tooltipOrigin: [
+            null as [number, number, number] | null, // x, y, width
             {
-                showTooltip: (_, { coordinates }) => coordinates,
+                showTooltip: (_, { origin }) => origin,
             },
         ],
     }),
@@ -546,7 +549,7 @@ export const funnelLogic = kea<funnelLogicType>({
                         bin0: value,
                         bin1: value + binSize,
                         count,
-                        label: percent === 0 ? '' : `${formatDisplayPercentage(percent)}%`,
+                        label: percent === 0 ? '' : percentage(percent, 1, true),
                     }
                 })
             },

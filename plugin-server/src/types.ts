@@ -149,6 +149,7 @@ export interface PluginsServerConfig extends Record<string, any> {
     OBJECT_STORAGE_SESSION_RECORDING_FOLDER: string
     OBJECT_STORAGE_BUCKET: string
     OBJECT_STORAGE_SESSION_RECORDING_ENABLED_TEAMS: string
+    PLUGIN_SERVER_MODE: 'ingestion' | 'async' | null
 }
 
 export interface Hub extends PluginsServerConfig {
@@ -200,6 +201,7 @@ export interface PluginServerCapabilities {
     pluginScheduledTasks?: boolean
     processJobs?: boolean
     processAsyncHandlers?: boolean
+    http?: boolean
 }
 
 export type OnJobCallback = (queue: EnqueuedJob[]) => Promise<void> | void
@@ -386,7 +388,7 @@ export interface PluginTask {
 
 export type WorkerMethods = {
     runBufferEventPipeline: (event: PreIngestionEvent) => Promise<IngestEventResponse>
-    runAsyncHandlersEventPipeline: (event: ProcessedPluginEvent) => Promise<void>
+    runAsyncHandlersEventPipeline: (event: IngestionEvent) => Promise<void>
     runEventPipeline: (event: PluginEvent) => Promise<void>
 }
 
@@ -930,4 +932,4 @@ export interface PreIngestionEvent {
     elementsList: Element[]
 }
 
-export type IngestionEvent = Omit<PreIngestionEvent, 'elementsList'>
+export type IngestionEvent = PreIngestionEvent

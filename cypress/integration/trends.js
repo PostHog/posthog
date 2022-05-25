@@ -52,7 +52,7 @@ describe('Trends', () => {
         cy.get('[data-attr=show-prop-filter-0]').click()
         cy.get('[data-attr=property-select-toggle-0]').click()
         cy.get('[data-attr="expand-list-event_properties"]').click()
-        cy.get('.taxonomic-list-row').contains('Browser').first().click({ force: true })
+        cy.get('.taxonomic-list-row').first().click({ force: true })
         cy.get('[data-attr=prop-val]').click({ force: true })
         // cypress is odd and even though when a human clicks this the right dropdown opens
         // in the test that doesn't happen
@@ -74,7 +74,7 @@ describe('Trends', () => {
         cy.get('[data-attr=property-select-toggle-0]').click()
         cy.get('[data-attr=taxonomic-filter-searchfield]').click()
         cy.get('[data-attr="expand-list-event_properties"]').click()
-        cy.get('.taxonomic-list-row').contains('Browser').first().click({ force: true })
+        cy.get('.taxonomic-list-row').first().click({ force: true })
         cy.get('[data-attr=prop-val]').click({ force: true })
         // cypress is odd and even though when a human clicks this the right dropdown opens
         // in the test that doesn't happen
@@ -138,7 +138,7 @@ describe('Trends', () => {
         cy.get('[data-attr=trend-line-graph]').should('exist')
     })
 
-    it.only('Save to dashboard', () => {
+    it('Save to dashboard', () => {
         // apply random filter
         cy.get('[data-attr=trends-filters-add-filter-group]').click()
         cy.get('[data-attr=property-select-toggle-0]').click()
