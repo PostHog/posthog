@@ -215,6 +215,10 @@ def get_git_commit() -> Optional[str]:
 
 
 def get_js_url(request: HttpRequest) -> str:
+    """
+    As the web app may be loaded from a non-localhost url (e.g. from the worker container calling the web container)
+    it is necessary to set the JS_URL host based on the calling origin
+    """
     if settings.DEBUG and not settings.JS_URL:
         return f"http://{request.get_host().split(':')[0]}:8234"
     return settings.JS_URL
