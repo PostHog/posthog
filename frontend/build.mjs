@@ -29,7 +29,10 @@ export function writeSourceCodeEditorTypes() {
         'react/global.d.ts': readFile('../node_modules/@types/react/global.d.ts'),
         'kea/index.d.ts': readFile('../node_modules/kea/lib/index.d.ts'),
     }
-    fse.writeFileSync(path.resolve(__dirname, './src/scenes/plugins/source/types/packages.json'), JSON.stringify(types))
+    fse.writeFileSync(
+        path.resolve(__dirname, './src/scenes/plugins/source/types/packages.json'),
+        JSON.stringify(types, null, 4) + '\n'
+    )
 }
 
 export function writeIndexHtml(chunks = {}, entrypoints = []) {

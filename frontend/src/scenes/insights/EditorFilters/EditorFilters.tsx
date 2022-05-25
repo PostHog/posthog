@@ -9,7 +9,6 @@ import {
 } from '~/types'
 import { EFInsightType } from 'scenes/insights/EditorFilters/EFInsightType'
 import { EFTrendsSteps } from 'scenes/insights/EditorFilters/EFTrendsSteps'
-import { EFTrendsGlobalFilters } from 'scenes/insights/EditorFilters/EFTrendsGlobalFilters'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { EFTrendsGlobalAndOrFilters } from 'scenes/insights/EditorFilters/EFTrendsGlobalAndOrFilters'
 import { EFTrendsFormula } from 'scenes/insights/EditorFilters/EFTrendsFormula'
@@ -155,9 +154,7 @@ export function EditorFilters({ insightProps }: EditorFiltersProps): JSX.Element
                 hasPropertyFilters && filters.properties
                     ? {
                           key: 'properties',
-                          component: featureFlags[FEATURE_FLAGS.AND_OR_FILTERING]
-                              ? EFTrendsGlobalAndOrFilters
-                              : EFTrendsGlobalFilters,
+                          component: EFTrendsGlobalAndOrFilters,
                       }
                     : null,
             ]),
