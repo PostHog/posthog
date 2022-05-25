@@ -161,15 +161,12 @@ describe('e2e', () => {
     })
 
     describe('onAction', () => {
-        const awaitOnActionLogs = async () =>
-            await new Promise((resolve) => {
-                resolve(testConsole.read().filter((log) => log[1] === 'onAction event'))
-            })
+        const getLogs = (): any[] => testConsole.read().filter((log) => log[1] === 'onAction event')
 
         test('onAction receives the action and event', async () => {
             await posthog.capture('onAction event', { foo: 'bar' })
 
-            await delayUntilEventIngested(awaitOnActionLogs as any, 1)
+            await delayUntilEventIngested(() => Promise.resolve(getLogs()), 1)
 
             const log = testConsole.read().filter((log) => log[0] === 'onAction')[0]
 

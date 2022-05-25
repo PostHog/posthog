@@ -1,10 +1,11 @@
 import * as Sentry from '@sentry/node'
-import { Consumer, EachBatchPayload, Kafka } from 'kafkajs'
+import { Consumer, ConsumerSubscribeTopics, EachBatchPayload, Kafka } from 'kafkajs'
 
 import { Hub, WorkerMethods } from '../../types'
 import { status } from '../../utils/status'
 import { killGracefully } from '../../utils/utils'
 import { KAFKA_BUFFER, KAFKA_EVENTS_JSON } from './../../config/kafka-topics'
+import { eachBatchAsyncHandlers } from './batch-processing/each-batch-async-handlers'
 import { eachBatchIngestion } from './batch-processing/each-batch-ingestion'
 
 type ConsumerManagementPayload = {
@@ -22,22 +23,47 @@ export class KafkaQueue {
     private sleepTimeout: NodeJS.Timeout | null
     private ingestionTopic: string
     private bufferTopic: string
-    private asyncHandlersTopic: string
+    private eventsTopic: string
     private eachBatch: Record<string, EachBatchFunction>
 
     constructor(pluginsServer: Hub, workerMethods: WorkerMethods) {
         this.pluginsServer = pluginsServer
         this.kafka = pluginsServer.kafka!
-        this.consumer = KafkaQueue.buildConsumer(this.kafka)
+        this.consumer = KafkaQueue.buildConsumer(this.kafka, this.consumerGroupId())
         this.wasConsumerRan = false
         this.workerMethods = workerMethods
         this.sleepTimeout = null
 
         this.ingestionTopic = this.pluginsServer.KAFKA_CONSUMPTION_TOPIC!
         this.bufferTopic = KAFKA_BUFFER
-        this.asyncHandlersTopic = KAFKA_EVENTS_JSON
+        this.eventsTopic = KAFKA_EVENTS_JSON
         this.eachBatch = {
             [this.ingestionTopic]: eachBatchIngestion,
+            [this.eventsTopic]: eachBatchAsyncHandlers,
+        }
+    }
+
+    topics(): ConsumerSubscribeTopics {
+        const topics = []
+
+        if (this.pluginsServer.capabilities.ingestion) {
+            topics.push(this.ingestionTopic)
+        } else if (this.pluginsServer.capabilities.processAsyncHandlers) {
+            topics.push(this.eventsTopic)
+        } else {
+            throw Error('No topics to consume, KafkaQueue should not be started')
+        }
+
+        return { topics }
+    }
+
+    consumerGroupId(): string {
+        if (this.pluginsServer.capabilities.ingestion) {
+            return 'clickhouse-ingestion'
+        } else if (this.pluginsServer.capabilities.processAsyncHandlers) {
+            return 'clickhouse-plugin-server-async'
+        } else {
+            throw Error('No topics to consume, KafkaQueue should not be started')
         }
     }
 
@@ -50,9 +76,7 @@ export class KafkaQueue {
             status.info('⏬', `Connecting Kafka consumer to ${this.pluginsServer.KAFKA_HOSTS}...`)
             this.wasConsumerRan = true
 
-            for (const topic of Object.keys(this.eachBatch)) {
-                await this.consumer.subscribe({ topic })
-            }
+            await this.consumer.subscribe(this.topics())
 
             // KafkaJS batching: https://kafka.js.org/docs/consuming#a-name-each-batch-a-eachbatch
             await this.consumer.run({
@@ -152,10 +176,10 @@ export class KafkaQueue {
         } catch {}
     }
 
-    private static buildConsumer(kafka: Kafka, groupId?: string): Consumer {
+    private static buildConsumer(kafka: Kafka, groupId: string): Consumer {
         const consumer = kafka.consumer({
             // NOTE: This should never clash with the group ID specified for the kafka engine posthog/ee/clickhouse/sql/clickhouse.py
-            groupId: groupId ?? 'clickhouse-ingestion',
+            groupId,
             readUncommitted: false,
         })
         const { GROUP_JOIN, CRASH, CONNECT, DISCONNECT } = consumer.events
