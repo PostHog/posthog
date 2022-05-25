@@ -19,7 +19,7 @@ import {
     CohortClientErrors,
     FieldWithFieldKey,
 } from 'scenes/cohorts/CohortFilters/types'
-import { areObjectValuesEmpty, calculateDays, convertPropertyGroupToProperties, isNumeric } from 'lib/utils'
+import { areObjectValuesEmpty, calculateDays, isNumeric } from 'lib/utils'
 import { DeepPartialMap, ValidationErrorType } from 'kea-forms'
 import equal from 'fast-deep-equal'
 import { BEHAVIORAL_TYPE_TO_LABEL, CRITERIA_VALIDATIONS, ROWS } from 'scenes/cohorts/CohortFilters/constants'
@@ -145,51 +145,6 @@ export function createCohortFormData(cohort: CohortType, isNewCohortFilterEnable
         cohortFormData.append(itemKey, value as string | Blob)
     }
     return cohortFormData
-}
-
-export function addLocalCohortGroupId(group: Partial<CohortGroupType>): CohortGroupType {
-    const matchType = group.action_id || group.event_id ? ENTITY_MATCH_TYPE : PROPERTY_MATCH_TYPE
-
-    return {
-        matchType,
-        id: Math.random().toString().substr(2, 5),
-        ...group,
-    }
-}
-
-export function processCohortOnSet(cohort: CohortType, isNewCohortFilterEnabled: boolean = false): CohortType {
-    return {
-        ...cohort,
-        ...(isNewCohortFilterEnabled
-            ? {
-                  /* Populate value_property with value and overwrite value with corresponding behavioral filter type */
-                  filters: applyAllNestedCriteria(cohort, (criteriaList) =>
-                      criteriaList.map((c) =>
-                          c.type &&
-                          [BehavioralFilterKey.Cohort, BehavioralFilterKey.Person].includes(c.type) &&
-                          !('value_property' in c)
-                              ? {
-                                    ...c,
-                                    value_property: c.value,
-                                    value:
-                                        c.type === BehavioralFilterKey.Cohort
-                                            ? BehavioralCohortType.InCohort
-                                            : BehavioralEventType.HaveProperty,
-                                }
-                              : c
-                      )
-                  ).filters,
-              }
-            : {
-                  groups:
-                      cohort.groups?.map((group) => ({
-                          ...addLocalCohortGroupId(group),
-                          ...(group.properties
-                              ? { properties: convertPropertyGroupToProperties(group.properties) }
-                              : {}),
-                      })) ?? [],
-              }),
-    }
 }
 
 export function validateGroup(

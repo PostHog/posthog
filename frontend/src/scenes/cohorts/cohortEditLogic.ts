@@ -24,12 +24,12 @@ import {
     cleanCriteria,
     createCohortFormData,
     isCohortCriteriaGroup,
-    processCohortOnSet,
     validateGroup,
 } from 'scenes/cohorts/cohortUtils'
 import { NEW_COHORT, NEW_CRITERIA, NEW_CRITERIA_GROUP } from 'scenes/cohorts/CohortFilters/constants'
 import type { cohortEditLogicType } from './cohortEditLogicType'
 import { CohortLogicProps } from 'scenes/cohorts/cohortLogic'
+import { processCohort } from 'lib/utils'
 
 export const cohortEditLogic = kea<cohortEditLogicType>([
     props({} as CohortLogicProps),
@@ -185,14 +185,14 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
         cohort: [
             NEW_COHORT as CohortType,
             {
-                setCohort: ({ cohort }) => processCohortOnSet(cohort, values.newCohortFiltersEnabled),
+                setCohort: ({ cohort }) => processCohort(cohort, values.newCohortFiltersEnabled),
                 fetchCohort: async ({ id }, breakpoint) => {
                     try {
                         const cohort = await api.cohorts.get(id)
                         breakpoint()
                         cohortsModel.actions.updateCohort(cohort)
                         actions.checkIfFinishedCalculating(cohort)
-                        return processCohortOnSet(cohort, values.newCohortFiltersEnabled)
+                        return processCohort(cohort, values.newCohortFiltersEnabled)
                     } catch (error: any) {
                         lemonToast.error(error.detail || 'Failed to fetch cohort')
                         return values.cohort
@@ -224,7 +224,7 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                         toastId: `cohort-saved-${key}`,
                     })
                     actions.checkIfFinishedCalculating(cohort)
-                    return processCohortOnSet(cohort, values.newCohortFiltersEnabled)
+                    return processCohort(cohort, values.newCohortFiltersEnabled)
                 },
                 onCriteriaChange: ({ newGroup, id }) => {
                     const cohort = { ...values.cohort }
@@ -241,7 +241,7 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                             ...newGroup,
                         }
                     }
-                    return processCohortOnSet(cohort, values.newCohortFiltersEnabled)
+                    return processCohort(cohort, values.newCohortFiltersEnabled)
                 },
             },
         ],
