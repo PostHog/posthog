@@ -10,7 +10,6 @@ import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { dayjs, now } from 'lib/dayjs'
 import { teamLogic } from 'scenes/teamLogic'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 const dashboardJson = _dashboardJson as any as DashboardType
 
@@ -244,13 +243,7 @@ describe('dashboardLogic', () => {
 
         describe('on load', () => {
             it('mounts other logics', async () => {
-                await expectLogic(logic).toMount([
-                    dashboardsModel,
-                    insightsModel,
-                    eventUsageLogic,
-                    teamLogic,
-                    featureFlagLogic,
-                ])
+                await expectLogic(logic).toMount([dashboardsModel, insightsModel, eventUsageLogic, teamLogic])
             })
 
             it('fetches dashboard items on mount', async () => {
