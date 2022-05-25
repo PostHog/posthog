@@ -20,7 +20,7 @@
         "start:dev": "NODE_ENV=dev BASE_DIR=.. ts-node-dev --debug --exit-child src/index.ts",
         "build": "yarn clean && yarn compile",
         "clean": "rimraf dist/*",
-        "protobuf:compile": "cd src/config/idl/ && rimraf protos.* && pbjs -t static-module -w commonjs -o protos.js *.proto --keep-case && pbts -o protos.d.ts protos.js && eslint --fix . && prettier --write .",
+        "protobuf:compile": "cd src/config/idl/ && rimraf protos.* && pbjs -t static-module -w commonjs -o protos.js *.proto --keep-case && pbts -o protos.d.ts protos.js && prettier --write .",
         "typescript:compile": "tsc -b",
         "typescript:check": "tsc --noEmit -p .",
         "compile": "yarn protobuf:compile && yarn typescript:compile",
