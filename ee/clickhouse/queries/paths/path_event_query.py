@@ -52,7 +52,7 @@ class PathEventQuery(EnterpriseEventQuery):
 
         _fields = [
             f"{self.EVENT_TABLE_ALIAS}.timestamp AS timestamp",
-            person_id,
+            f"{person_id} AS person_id",
             funnel_paths_timestamp,
         ]
         _fields += [f"{self.EVENT_TABLE_ALIAS}.{field} AS {field}" for field in self._extra_fields]
