@@ -34,8 +34,6 @@ import {
 import { dayjs } from 'lib/dayjs'
 import { inviteLogic } from 'scenes/organization/Settings/inviteLogic'
 import { Tooltip } from 'lib/components/Tooltip'
-import { sceneLogic } from 'scenes/sceneLogic'
-import { Scene } from 'scenes/sceneTypes'
 import { ingestionLogic } from 'scenes/ingestion/ingestionLogic'
 
 function SitePopoverSection({ title, children }: { title?: string | JSX.Element; children: any }): JSX.Element {
@@ -100,7 +98,7 @@ function CurrentOrganization({ organization }: { organization: OrganizationBasic
 export function InviteMembersButton(): JSX.Element {
     const { closeSitePopover } = useActions(navigationLogic)
     const { showInviteModal } = useActions(inviteLogic)
-    const { onboardingSidebar } = useValues(ingestionLogic)
+    const { onboardingSidebarEnabled } = useValues(ingestionLogic)
 
     return (
         <LemonButton
@@ -109,8 +107,8 @@ export function InviteMembersButton(): JSX.Element {
                 closeSitePopover()
                 showInviteModal()
             }}
-            center={onboardingSidebar}
-            type={onboardingSidebar ? 'primary' : 'default'}
+            center={onboardingSidebarEnabled}
+            type={onboardingSidebarEnabled ? 'primary' : 'default'}
             fullWidth
             data-attr="top-menu-invite-team-members"
         >
@@ -278,7 +276,6 @@ export function SitePopover(): JSX.Element {
     const { isSitePopoverOpen, systemStatus } = useValues(navigationLogic)
     const { toggleSitePopover, closeSitePopover } = useActions(navigationLogic)
     const { relevantLicense } = useValues(licenseLogic)
-    const { activeScene } = useValues(sceneLogic)
     useMountedLogic(licenseLogic)
 
     const expired = relevantLicense && isLicenseExpired(relevantLicense)
@@ -306,7 +303,7 @@ export function SitePopover(): JSX.Element {
                                 Billing
                             </LemonButton>
                         )}
-                        {activeScene !== Scene.Ingestion && <InviteMembersButton />}
+                        <InviteMembersButton />
                     </SitePopoverSection>
                     {(otherOrganizations.length > 0 || preflight?.can_create_org) && (
                         <SitePopoverSection title="Other organizations">

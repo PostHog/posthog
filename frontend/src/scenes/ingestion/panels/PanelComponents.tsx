@@ -10,7 +10,7 @@ import { ingestionLogic } from '../ingestionLogic'
 import './Panels.scss'
 
 export function PanelFooter(): JSX.Element {
-    const { platform, onboardingSidebar } = useValues(ingestionLogic)
+    const { platform, onboardingSidebarEnabled } = useValues(ingestionLogic)
     const { setPlatform, setVerify } = useActions(ingestionLogic)
     const { reportIngestionTryWithBookmarkletClicked } = useActions(eventUsageLogic)
 
@@ -66,7 +66,7 @@ export function PanelFooter(): JSX.Element {
                     </LemonButton>
                 </div>
             )}
-            {!onboardingSidebar && <PanelSupport />}
+            {!onboardingSidebarEnabled && <PanelSupport />}
         </Col>
     )
 }

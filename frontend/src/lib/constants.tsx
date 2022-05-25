@@ -122,6 +122,7 @@ export const FEATURE_FLAGS = {
     COHORT_FILTERS: 'cohort-filters', // owner: @edscode
     FRONTEND_APPS: '9618-frontend-apps', // owner: @mariusandra
     PROPERTY_FILTER_ON_DASHBOARD: 'property-filter-on-dashboard', // owner: @edscode
+    ONBOARDING_1_5: 'onboarding-1.5', // owner: @liyiy
 }
 
 /** Which self-hosted plan's features are available with Cloud's "Standard" plan (aka card attached). */

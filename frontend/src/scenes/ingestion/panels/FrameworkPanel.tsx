@@ -11,7 +11,7 @@ import { LemonDivider } from 'lib/components/LemonDivider'
 
 export function FrameworkPanel(): JSX.Element {
     const { setPlatform, setFramework } = useActions(ingestionLogic)
-    const { platform, index, onboarding1, onboardingSidebar } = useValues(ingestionLogic)
+    const { platform, index, onboarding1, onboardingSidebarEnabled } = useValues(ingestionLogic)
     const frameworks = platform === BACKEND ? webFrameworks : mobileFrameworks
 
     return (
@@ -47,7 +47,7 @@ export function FrameworkPanel(): JSX.Element {
                                 </a>
                             </p>
                         </Row>
-                        {!onboardingSidebar && (
+                        {!onboardingSidebarEnabled && (
                             <>
                                 <LemonDivider thick dashed />
                                 <PanelSupport />

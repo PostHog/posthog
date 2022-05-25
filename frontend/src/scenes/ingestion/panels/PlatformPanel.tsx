@@ -12,7 +12,7 @@ import { LemonDivider } from 'lib/components/LemonDivider'
 
 export function PlatformPanel(): JSX.Element {
     const { setPlatform } = useActions(ingestionLogic)
-    const { index, onboarding1, onboardingSidebar } = useValues(ingestionLogic)
+    const { index, onboarding1, onboardingSidebarEnabled } = useValues(ingestionLogic)
 
     return (
         <>
@@ -58,7 +58,7 @@ export function PlatformPanel(): JSX.Element {
                             {BOOKMARKLET}
                         </LemonButton>
                     </Col>
-                    {!onboardingSidebar && <PanelSupport />}
+                    {!onboardingSidebarEnabled && <PanelSupport />}
                 </div>
             ) : (
                 <CardContainer index={index}>

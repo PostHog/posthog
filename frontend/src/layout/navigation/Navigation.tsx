@@ -12,11 +12,11 @@ import { TopBar } from './TopBar/TopBar'
 
 export function Navigation({ children }: { children: any }): JSX.Element {
     const { sceneConfig, activeScene } = useValues(sceneLogic)
-    const { onboardingSidebar } = useValues(ingestionLogic)
+    const { onboardingSidebarEnabled } = useValues(ingestionLogic)
 
     return (
         <Layout style={{ minHeight: '100vh' }}>
-            {(!onboardingSidebar || (onboardingSidebar && activeScene !== Scene.Ingestion)) && <TopBar />}
+            {(!onboardingSidebarEnabled || (onboardingSidebarEnabled && activeScene !== Scene.Ingestion)) && <TopBar />}
             <SideBar>
                 <Layout.Content className={!sceneConfig?.plain ? 'main-app-content' : undefined}>
                     {!sceneConfig?.plain && (

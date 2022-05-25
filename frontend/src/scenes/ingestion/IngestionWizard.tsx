@@ -89,11 +89,11 @@ export function IngestionWizard(): JSX.Element {
 function IngestionContainer({ children }: { children: React.ReactNode }): JSX.Element {
     const { isInviteModalShown } = useValues(inviteLogic)
     const { hideInviteModal } = useActions(inviteLogic)
-    const { onboardingSidebar } = useValues(ingestionLogic)
+    const { onboardingSidebarEnabled } = useValues(ingestionLogic)
 
     return (
         <div style={{ display: 'flex', height: '100%', flexDirection: 'column' }}>
-            {onboardingSidebar && (
+            {onboardingSidebarEnabled && (
                 <div className="IngestionTopbar">
                     <FriendlyLogo style={{ fontSize: '1.125rem' }} />
                     <div style={{ display: 'flex' }}>
@@ -103,14 +103,14 @@ function IngestionContainer({ children }: { children: React.ReactNode }): JSX.El
                 </div>
             )}
             <div style={{ display: 'flex', height: '100%' }}>
-                {onboardingSidebar && (
+                {onboardingSidebarEnabled && (
                     <>
                         <InviteModal visible={isInviteModalShown} onClose={hideInviteModal} />
                         <Sidebar />
                     </>
                 )}
                 <div className="bridge-page IngestionContainer">
-                    {!onboardingSidebar && (
+                    {!onboardingSidebarEnabled && (
                         <div className="mb">
                             <FriendlyLogo style={{ fontSize: '1.125rem' }} />
                         </div>

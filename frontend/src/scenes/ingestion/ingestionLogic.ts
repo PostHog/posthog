@@ -132,10 +132,10 @@ export const ingestionLogic = kea<ingestionLogicType>([
                 return featFlags[FEATURE_FLAGS.ONBOARDING_1] === 'test'
             },
         ],
-        onboardingSidebar: [
+        onboardingSidebarEnabled: [
             () => [],
-            () => {
-                return false
+            (): boolean => {
+                return !!values.featureFlags[FEATURE_FLAGS.ONBOARDING_1_5]
             },
         ],
         frameworkString: [
