@@ -75,7 +75,6 @@ describe('DB', () => {
 
     describe('createPerson', () => {
         let team: Team
-        let person: Person
         const uuid = new UUIDT().toString()
         const distinctId = 'distinct_id1'
 
@@ -486,6 +485,29 @@ describe('DB', () => {
 
             source = await db.getPluginSource(plugin, 'index.ts')
             expect(source).toBe('USE THE SOURCE')
+        })
+    })
+
+    describe('fetchInstanceSetting & upsertInstanceSetting', () => {
+        it('fetch returns null by default', async () => {
+            const result = await db.fetchInstanceSetting('SOME_SETTING')
+            expect(result).toEqual(null)
+        })
+
+        it('can create and update settings', async () => {
+            await db.upsertInstanceSetting('SOME_SETTING', 'some_value')
+            expect(await db.fetchInstanceSetting('SOME_SETTING')).toEqual('some_value')
+
+            await db.upsertInstanceSetting('SOME_SETTING', 'new_value')
+            expect(await db.fetchInstanceSetting('SOME_SETTING')).toEqual('new_value')
+        })
+
+        it('handles different types', async () => {
+            await db.upsertInstanceSetting('NUMERIC_SETTING', 56)
+            await db.upsertInstanceSetting('BOOLEAN_SETTING', true)
+
+            expect(await db.fetchInstanceSetting('NUMERIC_SETTING')).toEqual(56)
+            expect(await db.fetchInstanceSetting('BOOLEAN_SETTING')).toEqual(true)
         })
     })
 })

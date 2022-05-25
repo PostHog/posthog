@@ -1,4 +1,5 @@
 import React, { FormEvent } from 'react'
+import { Tooltip } from 'lib/components/Tooltip'
 import { useActions, useValues } from 'kea'
 import { Modal, Select } from 'antd'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -9,7 +10,7 @@ import { lemonToast } from '../lemonToast'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
 import './AddToDashboard.scss'
-import { IconMagnifier } from 'lib/components/icons'
+import { IconMagnifier, IconCottage } from 'lib/components/icons'
 import { LemonInput } from 'lib/components/LemonInput/LemonInput'
 import { List, ListRowProps, ListRowRenderer } from 'react-virtualized/dist/es/List'
 import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
@@ -19,6 +20,7 @@ import { DashboardType, InsightModel } from '~/types'
 import clsx from 'clsx'
 import { LemonModal } from 'lib/components/LemonModal'
 import { pluralize } from 'lib/utils'
+import { teamLogic } from 'scenes/teamLogic'
 
 interface SaveToDashboardModalProps {
     visible: boolean
@@ -51,9 +53,25 @@ const DashboardRelationRow = ({
     const { addToDashboard, removeFromDashboard } = useActions(logic)
     const { dashboardWithActiveAPICall } = useValues(logic)
 
+    const { currentTeam } = useValues(teamLogic)
+    const isPrimary = dashboard.id === currentTeam?.primary_dashboard
     return (
         <div style={style} className={clsx('modal-row', isHighlighted && 'highlighted')}>
-            <Link to={urls.dashboard(dashboard.id)}>{dashboard.name || 'Untitled'}</Link>
+            <span>
+                <Link to={urls.dashboard(dashboard.id)}>{dashboard.name || 'Untitled'}</Link>
+                {isPrimary && (
+                    <Tooltip title="Primary dashboards are shown on the project home page">
+                        <IconCottage
+                            style={{
+                                marginLeft: 6,
+                                color: 'var(--warning)',
+                                fontSize: '1rem',
+                                verticalAlign: '-0.125em',
+                            }}
+                        />
+                    </Tooltip>
+                )}
+            </span>
             <LemonButton
                 type={isAlreadyOnDashboard ? 'primary' : 'secondary'}
                 loading={dashboardWithActiveAPICall === dashboard.id}

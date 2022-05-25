@@ -6,13 +6,20 @@ module.exports = {
         tsconfigRootDir: __dirname,
         project: ['./tsconfig.eslint.json'],
     },
-    plugins: ['@typescript-eslint', 'simple-import-sort'],
-    extends: ['plugin:@typescript-eslint/recommended', 'prettier'],
-    ignorePatterns: ['bin', 'dist', 'node_modules'],
+    plugins: ['@typescript-eslint', 'simple-import-sort', 'prettier'],
+    extends: ['plugin:@typescript-eslint/recommended', 'plugin:eslint-comments/recommended', 'prettier'],
+    ignorePatterns: ['bin', 'dist', 'node_modules', 'src/config/idl'],
     rules: {
         'simple-import-sort/imports': 'error',
         'simple-import-sort/exports': 'error',
-        '@typescript-eslint/no-unused-vars': 'off',
+        'no-unused-vars': 'off',
+        '@typescript-eslint/no-unused-vars': [
+            'error',
+            {
+                ignoreRestSiblings: true,
+            },
+        ],
+        '@typescript-eslint/prefer-ts-expect-error': 'error',
         '@typescript-eslint/explicit-function-return-type': 'off',
         '@typescript-eslint/no-non-null-assertion': 'off',
         '@typescript-eslint/no-var-requires': 'off',
@@ -33,4 +40,5 @@ module.exports = {
         },
     ],
     root: true,
+    reportUnusedDisableDirectives: true,
 }

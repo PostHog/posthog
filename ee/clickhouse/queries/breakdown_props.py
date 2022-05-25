@@ -16,6 +16,7 @@ from posthog.models.cohort import Cohort
 from posthog.models.entity import Entity
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.utils import GroupTypeIndex
+from posthog.models.property import PropertyGroup
 from posthog.models.team import Team
 from posthog.models.utils import PersonPropertiesMode
 from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
@@ -32,6 +33,7 @@ def get_breakdown_prop_values(
     team: Team,
     extra_params={},
     column_optimizer: Optional[EnterpriseColumnOptimizer] = None,
+    person_properties_mode: PersonPropertiesMode = PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
 ):
     """
     Returns the top N breakdown prop values for event/person breakdown
@@ -42,39 +44,58 @@ def get_breakdown_prop_values(
     parsed_date_from, parsed_date_to, date_params = parse_timestamps(filter=filter, team=team)
 
     props_to_filter = filter.property_groups.combine_property_group(PropertyOperatorType.AND, entity.property_groups)
-    outer_properties = column_optimizer.property_optimizer.parse_property_groups(props_to_filter).outer
+
+    person_join_clauses = ""
+    person_join_params: Dict = {}
+
+    groups_join_clause = ""
+    groups_join_params: Dict = {}
+
+    if person_properties_mode == PersonPropertiesMode.DIRECT_ON_EVENTS:
+        outer_properties: Optional[PropertyGroup] = props_to_filter
+        person_id_joined_alias = "e.person_id"
+    else:
+        outer_properties = column_optimizer.property_optimizer.parse_property_groups(props_to_filter).outer
+        person_id_joined_alias = "pdi.person_id"
+
+        person_query = PersonQuery(filter, team.pk, column_optimizer=column_optimizer, entity=entity)
+        if person_query.is_used:
+            person_subquery, person_join_params = person_query.get_query()
+            person_join_clauses = f"""
+                INNER JOIN ({get_team_distinct_ids_query(team.pk)}) AS pdi ON e.distinct_id = pdi.distinct_id
+                INNER JOIN ({person_subquery}) person ON pdi.person_id = person.id
+            """
+        elif column_optimizer.is_using_cohort_propertes:
+            person_join_clauses = f"""
+                INNER JOIN ({get_team_distinct_ids_query(team.pk)}) AS pdi ON e.distinct_id = pdi.distinct_id
+            """
+
+        groups_join_clause, groups_join_params = GroupsJoinQuery(filter, team.pk, column_optimizer).get_join_query()
 
     prop_filters, prop_filter_params = parse_prop_grouped_clauses(
         team_id=team.pk,
         property_group=outer_properties,
         table_name="e",
         prepend="e_brkdwn",
-        person_properties_mode=PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
+        person_properties_mode=person_properties_mode,
         allow_denormalized_props=True,
-        person_id_joined_alias="pdi.person_id",
+        person_id_joined_alias=person_id_joined_alias,
     )
 
     entity_params, entity_format_params = get_entity_filtering_params(
-        entity=entity, team_id=team.pk, table_name="e", person_id_joined_alias="pdi.person_id",
+        entity=entity,
+        team_id=team.pk,
+        table_name="e",
+        person_id_joined_alias=person_id_joined_alias,
+        person_properties_mode=person_properties_mode,
     )
 
-    value_expression = _to_value_expression(filter.breakdown_type, filter.breakdown, filter.breakdown_group_type_index)
-
-    person_join_clauses = ""
-    person_join_params: Dict = {}
-    person_query = PersonQuery(filter, team.pk, column_optimizer=column_optimizer, entity=entity)
-    if person_query.is_used:
-        person_subquery, person_join_params = person_query.get_query()
-        person_join_clauses = f"""
-            INNER JOIN ({get_team_distinct_ids_query(team.pk)}) AS pdi ON e.distinct_id = pdi.distinct_id
-            INNER JOIN ({person_subquery}) person ON pdi.person_id = person.id
-        """
-    elif column_optimizer.is_using_cohort_propertes:
-        person_join_clauses = f"""
-            INNER JOIN ({get_team_distinct_ids_query(team.pk)}) AS pdi ON e.distinct_id = pdi.distinct_id
-        """
-
-    groups_join_condition, groups_join_params = GroupsJoinQuery(filter, team.pk, column_optimizer).get_join_query()
+    value_expression = _to_value_expression(
+        filter.breakdown_type,
+        filter.breakdown,
+        filter.breakdown_group_type_index,
+        direct_on_events=True if person_properties_mode == PersonPropertiesMode.DIRECT_ON_EVENTS else False,
+    )
 
     elements_query = TOP_ELEMENTS_ARRAY_OF_KEY_SQL.format(
         value_expression=value_expression,
@@ -83,7 +104,7 @@ def get_breakdown_prop_values(
         prop_filters=prop_filters,
         aggregate_operation=aggregate_operation,
         person_join_clauses=person_join_clauses,
-        groups_join_clauses=groups_join_condition,
+        groups_join_clauses=groups_join_clause,
         **entity_format_params,
     )
 
@@ -94,7 +115,7 @@ def get_breakdown_prop_values(
             "limit": filter.breakdown_limit_or_default,
             "team_id": team.pk,
             "offset": filter.offset,
-            "timezone": team.timezone_for_charts,
+            "timezone": team.timezone,
             **prop_filter_params,
             **entity_params,
             **person_join_params,
@@ -109,19 +130,29 @@ def _to_value_expression(
     breakdown_type: Optional[BREAKDOWN_TYPES],
     breakdown: Union[str, List[Union[str, int]], None],
     breakdown_group_type_index: Optional[GroupTypeIndex],
+    direct_on_events: bool = False,
 ) -> str:
     if breakdown_type == "person":
-        return get_single_or_multi_property_string_expr(breakdown, table="person", query_alias="value")
+        return get_single_or_multi_property_string_expr(
+            breakdown,
+            table="events" if direct_on_events else "person",
+            query_alias="value",
+            column="person_properties" if direct_on_events else "person_props",
+        )
     elif breakdown_type == "group":
         value_expression, _ = get_property_string_expr(
             table="groups",
             property_name=cast(str, breakdown),
             var="%(key)s",
-            column=f"group_properties_{breakdown_group_type_index}",
+            column=f"group{breakdown_group_type_index}_properties"
+            if direct_on_events
+            else f"group_properties_{breakdown_group_type_index}",
         )
         return f"{value_expression} AS value"
     else:
-        return get_single_or_multi_property_string_expr(breakdown, table="events", query_alias="value")
+        return get_single_or_multi_property_string_expr(
+            breakdown, table="events", query_alias="value", column="properties"
+        )
 
 
 def _format_all_query(team: Team, filter: Filter, **kwargs) -> Tuple[str, Dict]:

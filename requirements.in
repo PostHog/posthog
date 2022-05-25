@@ -8,6 +8,7 @@ django-rest-hooks@ git+https://github.com/zapier/django-rest-hooks.git@v1.6.0
 amqp==2.5.2
 asgiref==3.3.2
 aioch==0.0.2
+boto3==1.21.29
 celery==4.4.2
 celery-redbeat==2.0.0
 clickhouse-driver==0.2.1
@@ -17,7 +18,6 @@ defusedxml==0.6.0
 dj-database-url==0.5.0
 Django==3.2.12
 django-axes==5.9.0
-django-constance==2.8.0
 django-cors-headers==3.5.0
 django-deprecate-fields==0.1.1
 django-extensions==3.1.2
@@ -37,7 +37,7 @@ gunicorn==20.1.0
 grpcio==1.33.1
 idna==2.8
 importlib-metadata==1.6.0
-infi-clickhouse-orm@ git+https://github.com/PostHog/infi.clickhouse_orm@de88ffaecda8c36c693cc51909a3598cb9725fde
+infi-clickhouse-orm@ git+https://github.com/PostHog/infi.clickhouse_orm@37722f350f3b449bbcd6564917c436b0d93e796f
 kafka-python==2.0.2
 kafka-helper==0.2
 kombu==4.6.8

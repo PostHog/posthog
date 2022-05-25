@@ -1,6 +1,7 @@
 import * as Sentry from '@sentry/node'
 import { StatsD } from 'hot-shots'
-import { Consumer, Kafka, Producer } from 'kafkajs'
+import { Consumer, Kafka } from 'kafkajs'
+import { KafkaProducerWrapper } from 'utils/db/kafka-producer-wrapper'
 
 import { KAFKA_HEALTHCHECK } from '../config/kafka-topics'
 import { Hub } from '../types'
@@ -41,14 +42,14 @@ export async function runInstrumentedFunction<T, EventType>({
 }
 
 export async function kafkaHealthcheck(
-    producer: Producer,
+    producer: KafkaProducerWrapper,
     consumer: Consumer,
     statsd?: StatsD,
     timeoutMs = 20000
 ): Promise<[boolean, Error | null]> {
     try {
         // :TRICKY: This _only_ checks producer works
-        await producer.send({
+        await producer.queueMessage({
             topic: KAFKA_HEALTHCHECK,
             messages: [
                 {
@@ -57,11 +58,12 @@ export async function kafkaHealthcheck(
                 },
             ],
         })
+        await producer.flush()
 
         let kafkaConsumerWorking = false
         let timer: Date | null = new Date()
         const waitForConsumerConnected = new Promise<void>((resolve) => {
-            consumer.on(consumer.events.FETCH_START, (...args) => {
+            consumer.on(consumer.events.FETCH_START, () => {
                 if (timer) {
                     statsd?.timing('kafka_healthcheck_consumer_latency', timer)
                     timer = null

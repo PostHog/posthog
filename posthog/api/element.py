@@ -10,7 +10,7 @@ from posthog.auth import PersonalAPIKeyAuthentication, TemporaryTokenAuthenticat
 from posthog.client import sync_execute
 from posthog.models import Element, Filter
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
-from posthog.queries.util import parse_timestamps
+from posthog.queries.util import date_from_clause, parse_timestamps
 
 
 class ElementSerializer(serializers.ModelSerializer):
@@ -47,14 +47,15 @@ class ElementViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     def stats(self, request: request.Request, **kwargs) -> response.Response:
         filter = Filter(request=request, team=self.team)
 
-        date_from, date_to, date_params = parse_timestamps(filter, team=self.team)
+        _, date_to, date_params = parse_timestamps(filter, team=self.team)
+        date_from = date_from_clause("toStartOfDay", True)
 
         prop_filters, prop_filter_params = parse_prop_grouped_clauses(
             team_id=self.team.pk, property_group=filter.property_groups
         )
         result = sync_execute(
             GET_ELEMENTS.format(date_from=date_from, date_to=date_to, query=prop_filters),
-            {"team_id": self.team.pk, "timezone": self.team.timezone_for_charts, **prop_filter_params, **date_params},
+            {"team_id": self.team.pk, "timezone": self.team.timezone, **prop_filter_params, **date_params},
         )
         return response.Response(
             [

@@ -34,7 +34,7 @@ export function UpgradeSection(): JSX.Element {
             loading={checkingForUpdates}
         >
             {checkingForUpdates
-                ? `Checking plugin ${Object.keys(updateStatus).length + 1} out of ${
+                ? `Checking app ${Object.keys(updateStatus).length + 1} out of ${
                       Object.keys(installedPluginUrls).length
                   }`
                 : pluginsNeedingUpdates.length > 0
@@ -57,7 +57,7 @@ export function UpgradeSection(): JSX.Element {
                             ) : (
                                 <CaretRightOutlined />
                             )}
-                            {` Plugins to update (${filteredPluginsNeedingUpdates.length})`}
+                            {` Apps to update (${filteredPluginsNeedingUpdates.length})`}
                         </>
                     }
                     buttons={!rearranging && upgradeButton}
@@ -74,11 +74,11 @@ export function UpgradeSection(): JSX.Element {
                                     ))}
                                 </>
                             ) : (
-                                <p style={{ margin: 10 }}>No plugins match your search.</p>
+                                <p style={{ margin: 10 }}>No apps match your search.</p>
                             )}
                         </Row>
                     ) : (
-                        <p style={{ margin: 10 }}>All your plugins are up to date. Great work!</p>
+                        <p style={{ margin: 10 }}>All your apps are up to date. Great work!</p>
                     )}
                 </>
             ) : null}

@@ -132,6 +132,7 @@ const insightActionsMapping: Record<keyof InsightModel, (change?: ActivityChange
     next: () => null, // only used by frontend
     saved: () => null,
     is_sample: () => null,
+    timezone: () => null,
 }
 
 export function insightActivityDescriber(logItem: ActivityLogItem): string | JSX.Element | null {

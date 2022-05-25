@@ -279,7 +279,11 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                 "last_refresh",
                 "refreshing",
                 "saved",
+                "tags",
                 "updated_at",
+                "created_by",
+                "created_at",
+                "last_modified_at",
             ],
         )
 
@@ -360,6 +364,27 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                     },
                 }
             ],
+        )
+
+    @freeze_time("2012-01-14T03:21:34.000Z")
+    def test_create_insight_with_no_names_logs_no_activity(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/insights",
+            data={
+                "filters": {
+                    "events": [{"id": "$pageview"}],
+                    "properties": [{"key": "$browser", "value": "Mac OS X"}],
+                    "date_from": "-90d",
+                },
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        response_data = response.json()
+        self.assertEqual(response_data["name"], None)
+        self.assertEqual(response_data["derived_name"], None)
+
+        self.assert_insight_activity(
+            response_data["id"], [],
         )
 
     def test_create_insight_items_on_a_dashboard(self):
@@ -685,6 +710,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
 
         self.assertEqual(response["result"][0]["count"], 2)
         self.assertEqual(response["result"][0]["action"]["name"], "$pageview")
+        self.assertEqual(response["timezone"], "UTC")
 
     def test_nonexistent_cohort_is_handled(self):
         response_nonexistent_property = self.client.get(
@@ -858,6 +884,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         self.assertEqual(len(response["result"]), 2)
         self.assertEqual(response["result"][0]["name"], "user signed up")
         self.assertEqual(response["result"][1]["name"], "user did things")
+        self.assertEqual(response["timezone"], "UTC")
 
     def test_insight_retention_basic(self):
         _create_person(team=self.team, distinct_ids=["person1"], properties={"email": "person1@test.com"})

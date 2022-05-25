@@ -91,7 +91,9 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         )
         flush_persons_and_events()
 
-        expected_queries = 14  # Django session, PostHog user, PostHog team, PostHog org membership, 2x team(?), person and distinct id, couple of constance inserts
+        expected_queries = (
+            10  # Django session, PostHog user, PostHog team, PostHog org membership, 2x team(?), person and distinct id
+        )
 
         with self.assertNumQueries(expected_queries):
             response = self.client.get(

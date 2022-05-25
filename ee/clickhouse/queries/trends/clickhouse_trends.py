@@ -4,7 +4,6 @@ from itertools import accumulate
 from typing import Any, Callable, Dict, List, Tuple, Union, cast
 
 from django.db.models.query import Prefetch
-from django.utils import timezone
 
 from ee.clickhouse.queries.trends.breakdown import ClickhouseTrendsBreakdown
 from ee.clickhouse.queries.trends.formula import ClickhouseTrendsFormula
@@ -18,23 +17,14 @@ from posthog.models.entity import Entity
 from posthog.models.filters import Filter
 from posthog.models.team import Team
 from posthog.queries.base import handle_compare
-from posthog.utils import relative_date_parse
 
 
 class ClickhouseTrends(ClickhouseTrendsTotalVolume, ClickhouseLifecycle, ClickhouseTrendsFormula):
-    def _set_default_dates(self, filter: Filter, team: Team) -> Filter:
-        data = {}
-        if not filter._date_from:
-            data.update({"date_from": relative_date_parse("-7d")})
-        if not filter._date_to:
-            data.update({"date_to": timezone.now()})
-        if data:
-            return Filter(data={**filter._data, **data}, team=team)
-        return filter
-
     def _get_sql_for_entity(self, filter: Filter, entity: Entity, team: Team) -> Tuple[str, Dict, Callable]:
         if filter.breakdown:
-            sql, params, parse_function = ClickhouseTrendsBreakdown(entity, filter, team).get_query()
+            sql, params, parse_function = ClickhouseTrendsBreakdown(
+                entity, filter, team, using_person_on_events=team.actor_on_events_querying_enabled
+            ).get_query()
         elif filter.shown_as == TRENDS_LIFECYCLE:
             sql, params, parse_function = self._format_lifecycle_query(entity, filter, team)
         else:
@@ -98,8 +88,6 @@ class ClickhouseTrends(ClickhouseTrendsTotalVolume, ClickhouseLifecycle, Clickho
         if len(filter.actions) > 0:
             actions = Action.objects.filter(pk__in=[entity.id for entity in filter.actions], team_id=team.pk)
         actions = actions.prefetch_related(Prefetch("steps", queryset=ActionStep.objects.order_by("id")))
-
-        filter = self._set_default_dates(filter, team)
 
         if filter.formula:
             return handle_compare(filter, self._run_formula_query, team)

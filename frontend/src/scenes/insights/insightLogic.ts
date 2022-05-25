@@ -54,8 +54,8 @@ function emptyFilters(filters: Partial<FilterType> | undefined): boolean {
     )
 }
 
-export const createEmptyInsight = (insightId: InsightShortId | 'new'): Partial<InsightModel> => ({
-    short_id: insightId !== 'new' ? insightId : undefined,
+export const createEmptyInsight = (insightId: InsightShortId | `new-${string}` | 'new'): Partial<InsightModel> => ({
+    short_id: insightId !== 'new' && !insightId.startsWith('new-') ? (insightId as InsightShortId) : undefined,
     name: '',
     description: '',
     tags: [],
@@ -335,6 +335,7 @@ export const insightLogic = kea<insightLogicType>({
                         ...values.insight,
                         result: response.result,
                         next: response.next,
+                        timezone: response.timezone,
                         filters,
                     } as Partial<InsightModel>
                 },
@@ -835,7 +836,11 @@ export const insightLogic = kea<insightLogicType>({
     events: ({ actions, cache, props, values }) => ({
         afterMount: () => {
             if (!props.cachedInsight || !props.cachedInsight?.result || !!props.cachedInsight?.filters) {
-                if (props.dashboardItemId && props.dashboardItemId !== 'new') {
+                if (
+                    props.dashboardItemId &&
+                    props.dashboardItemId !== 'new' &&
+                    !props.dashboardItemId.startsWith('new-')
+                ) {
                     const insight = findInsightFromMountedLogic(props.dashboardItemId, props.dashboardId)
                     if (insight) {
                         actions.setInsight(insight, { overrideFilter: true, fromPersistentApi: true })
@@ -850,8 +855,12 @@ export const insightLogic = kea<insightLogicType>({
                 if (!props.doNotLoad) {
                     if (props.cachedInsight?.filters) {
                         actions.loadResults()
-                    } else if (props.dashboardItemId && props.dashboardItemId !== 'new') {
-                        actions.loadInsight(props.dashboardItemId)
+                    } else if (
+                        props.dashboardItemId &&
+                        props.dashboardItemId !== 'new' &&
+                        !props.dashboardItemId.startsWith('new-')
+                    ) {
+                        actions.loadInsight(props.dashboardItemId as InsightShortId)
                     }
                 }
             }

@@ -20,7 +20,7 @@ import { createHub } from '../../src/utils/db/hub'
 import { hashElements } from '../../src/utils/db/utils'
 import { posthog } from '../../src/utils/posthog'
 import { UUIDT } from '../../src/utils/utils'
-import { ingestEvent } from '../../src/worker/ingestion/ingest-event'
+import { EventPipelineRunner } from '../../src/worker/ingestion/event-pipeline/runner'
 import { EventsProcessor } from '../../src/worker/ingestion/process-event'
 import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../helpers/clickhouse'
 import { resetKafka } from '../helpers/kafka'
@@ -114,16 +114,7 @@ async function processEvent(
     sentAt: DateTime | null,
     eventUuid: string
 ): Promise<PreIngestionEvent | null> {
-    const response = await eventsProcessor.processEvent(
-        distinctId,
-        ip,
-        data,
-        teamId,
-        now,
-        sentAt,
-        eventUuid,
-        'http://example.com'
-    )
+    const response = await eventsProcessor.processEvent(distinctId, ip, data, teamId, now, sentAt, eventUuid)
     if (response) {
         await eventsProcessor.createEvent(response)
     }
@@ -175,7 +166,7 @@ afterEach(async () => {
 })
 
 const capture = async (hub: Hub, eventName: string, properties: any = {}) => {
-    await ingestEvent(hub, {
+    const event = {
         event: eventName,
         distinct_id: properties.distinct_id ?? state.currentDistinctId,
         properties: properties,
@@ -185,7 +176,9 @@ const capture = async (hub: Hub, eventName: string, properties: any = {}) => {
         site_url: 'https://posthog.com',
         team_id: team.id,
         uuid: new UUIDT().toString(),
-    })
+    }
+    const runner = new EventPipelineRunner(hub, event)
+    await runner.runEventPipeline(event)
     await delayUntilEventIngested(() => hub.db.fetchEvents(), ++mockClientEventCounter)
 }
 
@@ -1167,8 +1160,7 @@ it('snapshot event not stored if session recording disabled', async () => {
         team.id,
         now,
         now,
-        new UUIDT().toString(),
-        'http://example.com'
+        new UUIDT().toString()
     )
     await delayUntilEventIngested(() => hub.db.fetchSessionRecordingEvents())
 
@@ -1190,8 +1182,7 @@ test('snapshot event stored as session_recording_event', async () => {
         team.id,
         now,
         now,
-        new UUIDT().toString(),
-        'http://example.com'
+        new UUIDT().toString()
     )
     await delayUntilEventIngested(() => hub.db.fetchSessionRecordingEvents())
 
@@ -1218,8 +1209,7 @@ test('$snapshot event creates new person if needed', async () => {
         team.id,
         now,
         now,
-        new UUIDT().toString(),
-        'http://example.com'
+        new UUIDT().toString()
     )
     await delayUntilEventIngested(() => hub.db.fetchPersons())
 
@@ -1759,8 +1749,6 @@ describe('when handling $identify', () => {
         // completing before continuing with the first identify.
         const originalCreatePerson = hub.db.createPerson.bind(hub.db)
         const createPersonMock = jest.fn(async (...args) => {
-            // eslint-disable-next-line
-            // @ts-ignore
             const result = await originalCreatePerson(...args)
 
             if (createPersonMock.mock.calls.length === 1) {

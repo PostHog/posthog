@@ -110,8 +110,8 @@ class ClickhouseFunnelTrends(ClickhouseFunnelBase):
             _date_from = self._filter.date_from
 
         breakdown_clause = self._get_breakdown_prop()
-        formatted_date_from = format_ch_timestamp(_date_from, self._filter)
-        formatted_date_to = format_ch_timestamp(self._filter.date_to, self._filter)
+        formatted_date_from = format_ch_timestamp(_date_from, convert_to_timezone=self._team.timezone)
+        formatted_date_to = format_ch_timestamp(self._filter.date_to, convert_to_timezone=self._team.timezone)
 
         self.params.update(
             {
@@ -140,7 +140,7 @@ class ClickhouseFunnelTrends(ClickhouseFunnelBase):
             ) data
             RIGHT OUTER JOIN (
                 SELECT
-                    {trunc_func}(toDateTime(%(formatted_date_from)s, %(timezone)s) + {interval_func}(number), {start_of_week_fix(self._filter)} %(timezone)s) AS entrance_period_start
+                    {trunc_func}(toDateTime(%(formatted_date_from)s) + {interval_func}(number), {start_of_week_fix(self._filter)} %(timezone)s) AS entrance_period_start
                     {', breakdown_value as prop' if breakdown_clause else ''}
                 FROM numbers(dateDiff(%(interval)s, toDateTime(%(formatted_date_from)s), toDateTime(%(formatted_date_to)s)) + 1) AS period_offsets
                 {'ARRAY JOIN (%(breakdown_values)s) AS breakdown_value' if breakdown_clause else ''}

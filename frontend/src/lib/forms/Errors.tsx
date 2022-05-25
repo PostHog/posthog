@@ -11,7 +11,7 @@ export function FormErrors({ errors }: FormErrorsProps): JSX.Element {
                 .map(([key, error]) => (
                     <div key={key}>
                         <strong>{key}: </strong>
-                        <span>{error}</span>
+                        <span>{typeof error === 'object' ? <FormErrors errors={error} /> : String(error)}</span>
                     </div>
                 ))}
         </>

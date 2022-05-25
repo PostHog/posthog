@@ -4,21 +4,21 @@ import { lemonToast } from 'lib/components/lemonToast'
 import { SECURE_URL_REGEX } from 'lib/constants'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { OrganizationDomainType, AvailableFeature } from '~/types'
-import { verifiedDomainsLogicType } from './verifiedDomainsLogicType'
+import type { verifiedDomainsLogicType } from './verifiedDomainsLogicType'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 
-type OrganizationDomainUpdatePayload = Partial<
+export type OrganizationDomainUpdatePayload = Partial<
     Pick<OrganizationDomainType, 'jit_provisioning_enabled' | 'sso_enforcement'>
 > &
     Pick<OrganizationDomainType, 'id'>
 
-type SAMLConfigType = Partial<
+export type SAMLConfigType = Partial<
     Pick<OrganizationDomainType, 'saml_acs_url' | 'saml_entity_id' | 'saml_x509_cert'> &
         Pick<OrganizationDomainType, 'id'>
 >
 
-export const verifiedDomainsLogic = kea<verifiedDomainsLogicType<OrganizationDomainUpdatePayload>>([
+export const verifiedDomainsLogic = kea<verifiedDomainsLogicType>([
     path(['scenes', 'organization', 'verifiedDomainsLogic']),
     connect({ values: [organizationLogic, ['currentOrganization']] }),
     actions({

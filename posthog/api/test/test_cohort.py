@@ -3,13 +3,13 @@ from datetime import datetime, timedelta
 from typing import Any, Dict, List
 from unittest.mock import patch
 
-from constance.test import override_config
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test.client import Client
 from rest_framework.test import APIClient
 
 from posthog.models import Person
 from posthog.models.cohort import Cohort
+from posthog.models.instance_setting import override_instance_config
 from posthog.test.base import APIBaseTest, _create_event, _create_person, flush_persons_and_events
 
 
@@ -325,7 +325,7 @@ email@example.org,
 
         flush_persons_and_events()
 
-        with override_config(NEW_COHORT_QUERY_TEAMS=f"{self.team.pk}"):
+        with override_instance_config("NEW_COHORT_QUERY_TEAMS", f"{self.team.pk}"):
             response = self.client.post(
                 f"/api/projects/{self.team.id}/cohorts",
                 data={
@@ -359,7 +359,7 @@ email@example.org,
             self.assertEqual(response.status_code, 200, response.content)
             self.assertEqual(2, len(response.json()["results"]))
 
-        with override_config(NEW_COHORT_QUERY_TEAMS=f"{self.team.pk}"):
+        with override_instance_config("NEW_COHORT_QUERY_TEAMS", f"{self.team.pk}"):
             response = self.client.patch(
                 f"/api/projects/{self.team.id}/cohorts/{cohort_id}",
                 data={

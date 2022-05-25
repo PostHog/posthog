@@ -31,6 +31,7 @@ from posthog.settings.sentry import *
 from posthog.settings.shell_plus import *
 from posthog.settings.service_requirements import *
 from posthog.settings.statsd import *
+from posthog.settings.object_storage import *
 
 from posthog.settings.web import *
 
@@ -67,7 +68,6 @@ PLUGINS_PREINSTALLED_URLS: List[str] = (
 )
 PLUGINS_CELERY_QUEUE = os.getenv("PLUGINS_CELERY_QUEUE", "posthog-plugins")
 PLUGINS_RELOAD_PUBSUB_CHANNEL = os.getenv("PLUGINS_RELOAD_PUBSUB_CHANNEL", "reload-plugins")
-PLUGINS_ALERT_CHANNEL = "plugins-alert"
 
 # Tokens used when installing plugins, for example to get the latest commit SHA or to download private repositories.
 # Used mainly to get around API limits and only if no ?private_token=TOKEN found in the plugin URL.

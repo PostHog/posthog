@@ -1,6 +1,6 @@
 import { PluginEvent } from '@posthog/plugin-scaffold/src/types'
 
-import { Hub, LogLevel, PluginsServerConfig } from '../../src/types'
+import { Hub, LogLevel } from '../../src/types'
 import { createHub } from '../../src/utils/db/hub'
 import { UUIDT } from '../../src/utils/utils'
 import { generateEventDeadLetterQueueMessage } from '../../src/worker/ingestion/utils'
@@ -18,7 +18,7 @@ jest.mock('../../src/worker/ingestion/utils', () => {
 })
 
 class MockEventsProcessor {
-    public async processEvent(...args: any[]) {
+    public async processEvent() {
         await new Promise<void>((resolve) => resolve())
         throw new Error('database unavailable')
     }
@@ -59,8 +59,12 @@ describe('events dead letter queue', () => {
     })
 
     test('events get sent to dead letter queue on error', async () => {
-        const ingestResponse1 = await workerTasks.ingestEvent(hub, { event: createEvent() })
-        expect(ingestResponse1).toEqual({ success: false, error: 'database unavailable' })
+        const ingestResponse1 = await workerTasks.runEventPipeline(hub, { event: createEvent() })
+        expect(ingestResponse1).toEqual({
+            lastStep: 'prepareEventStep',
+            error: 'database unavailable',
+            args: expect.anything(),
+        })
         expect(generateEventDeadLetterQueueMessage).toHaveBeenCalled()
 
         await delayUntilEventIngested(() => hub.db.fetchDeadLetterQueueEvents(), 1)

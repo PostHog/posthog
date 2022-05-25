@@ -2,7 +2,7 @@ import api from 'lib/api'
 import { kea } from 'kea'
 import { userLogic } from 'scenes/userLogic'
 
-import { asyncMigrationsLogicType } from './asyncMigrationsLogicType'
+import type { asyncMigrationsLogicType } from './asyncMigrationsLogicType'
 import { InstanceSetting } from '~/types'
 import { lemonToast } from 'lib/components/lemonToast'
 export type TabName = 'overview' | 'internal_metrics'
@@ -54,9 +54,7 @@ export interface AsyncMigration {
     error_count: number
 }
 
-export const asyncMigrationsLogic = kea<
-    asyncMigrationsLogicType<AsyncMigration, AsyncMigrationError, AsyncMigrationsTab>
->({
+export const asyncMigrationsLogic = kea<asyncMigrationsLogicType>({
     path: ['scenes', 'instance', 'AsyncMigrations', 'asyncMigrationsLogic'],
     actions: {
         triggerMigration: (migrationId: number) => ({ migrationId }),
@@ -75,7 +73,7 @@ export const asyncMigrationsLogic = kea<
     },
 
     reducers: {
-        activeTab: [AsyncMigrationsTab.Management, { setActiveTab: (_, { tab }) => tab }],
+        activeTab: [AsyncMigrationsTab.Management as AsyncMigrationsTab, { setActiveTab: (_, { tab }) => tab }],
         asyncMigrationErrors: [
             {} as Record<number, AsyncMigrationError[]>,
             {

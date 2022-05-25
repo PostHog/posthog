@@ -24,6 +24,10 @@ env:
     CLICKHOUSE_VERIFY: 'False'
     TEST: 1
     CLICKHOUSE_SERVER_IMAGE_VERSION: ${{ github.event.inputs.clickhouseServerVersion || '' }}
+    OBJECT_STORAGE_ENABLED: 'True'
+    OBJECT_STORAGE_ENDPOINT: 'http://localhost:19000'
+    OBJECT_STORAGE_ACCESS_KEY_ID: 'object_storage_root_user'
+    OBJECT_STORAGE_SECRET_ACCESS_KEY: 'object_storage_root_password'
 
 jobs:
     # Job to decide if we should run backend ci
@@ -172,12 +176,7 @@ jobs:
             fail-fast: false
             matrix:
                 python-version: ['3.8.12']
-                clickhouse-server-image:
-                    [
-                        'yandex/clickhouse-server:21.6.5',
-                        'clickhouse/clickhouse-server:21.11.11.1',
-                        'clickhouse/clickhouse-server:22.3',
-                    ]
+                clickhouse-server-image: ['clickhouse/clickhouse-server:22.3']
                 ee: [true]
                 foss: [false]
                 name: ['']
@@ -194,20 +193,6 @@ jobs:
                       clickhouse-server-image: 'clickhouse/clickhouse-server:22.3'
                       concurrency: 1
                       group: 1
-                    - python-version: '3.8.12'
-                      ee: false
-                      foss: true
-                      name: 'FOSS'
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:21.11.11.1'
-                      concurrency: 1
-                      group: 1
-                    - python-version: '3.8.12'
-                      ee: false
-                      foss: true
-                      name: 'FOSS'
-                      clickhouse-server-image: 'yandex/clickhouse-server:21.6.5'
-                      concurrency: 1
-                      group: 1
                     # :TRICKY: Run person-on-events tests only for one CH instance
                     # But still run in parallel
                     - python-version: '3.8.12'
@@ -215,7 +200,7 @@ jobs:
                       foss: false
                       person-on-events: true
                       name: 'Person on Events'
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:21.11.11.1'
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:22.3'
                       concurrency: 5
                       group: 1
                     - python-version: '3.8.12'
@@ -223,7 +208,7 @@ jobs:
                       foss: false
                       person-on-events: true
                       name: 'Person on Events'
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:21.11.11.1'
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:22.3'
                       concurrency: 5
                       group: 2
                     - python-version: '3.8.12'
@@ -231,7 +216,7 @@ jobs:
                       foss: false
                       person-on-events: true
                       name: 'Person on Events'
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:21.11.11.1'
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:22.3'
                       concurrency: 5
                       group: 3
                     - python-version: '3.8.12'
@@ -239,7 +224,7 @@ jobs:
                       foss: false
                       person-on-events: true
                       name: 'Person on Events'
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:21.11.11.1'
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:22.3'
                       concurrency: 5
                       group: 4
                     - python-version: '3.8.12'
@@ -247,7 +232,7 @@ jobs:
                       foss: false
                       person-on-events: true
                       name: 'Person on Events'
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:21.11.11.1'
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:22.3'
                       concurrency: 5
                       group: 5
 
@@ -271,11 +256,11 @@ jobs:
                   person-on-events: ${{ matrix.person-on-events }}
 
             - uses: EndBug/add-and-commit@v9 # You can change this to use a specific version.
-              if: ${{ matrix.clickhouse-server-image == 'clickhouse/clickhouse-server:21.11.11.1' && !matrix.person-on-events }}
+              if: ${{ matrix.clickhouse-server-image == 'clickhouse/clickhouse-server:22.3' && !matrix.person-on-events }}
               with:
                   # The arguments for the `git add` command (see the paragraph below for more info)
                   # Default: '.'
-                  add: 'ee/clickhouse'
+                  add: '["ee/clickhouse", "posthog/api/test/__snapshots__", "posthog/test/__snapshots__"]'
 
                   default_author: github_actions
 
@@ -305,10 +290,14 @@ jobs:
                   cp -r messaging deploy/
                   cat multi_tenancy_settings.py > deploy/posthog/settings/cloud.py
                   cat requirements.txt >> deploy/requirements.txt
+
+            - name: Add kafka host to /etc/hosts for kafka connectivity
+              run: sudo echo "127.0.0.1 kafka" | sudo tee -a /etc/hosts
+
             - name: Start stack with Docker Compose
               run: |
                   docker-compose -f deploy/docker-compose.dev.yml down
-                  docker-compose -f deploy/docker-compose.dev.yml up -d db clickhouse zookeeper kafka redis &
+                  docker-compose -f deploy/docker-compose.dev.yml up -d db clickhouse zookeeper kafka redis object_storage &
 
             - name: Set up Python 3.8.12
               uses: actions/setup-python@v2
@@ -368,9 +357,6 @@ jobs:
                   cd deploy
                   python manage.py makemigrations --check --dry-run
                   python manage.py migrate
-
-            - name: Add kafka host to /etc/hosts for kafka connectivity
-              run: sudo echo "127.0.0.1 kafka" | sudo tee -a /etc/hosts
 
             - name: Set up needed files
               run: |

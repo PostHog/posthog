@@ -8,14 +8,14 @@ import { sceneLogic } from 'scenes/sceneLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 import { VersionType } from '~/types'
-import { navigationLogicType } from './navigationLogicType'
+import type { navigationLogicType } from './navigationLogicType'
 import { membersLogic } from 'scenes/organization/Settings/membersLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 
-type WarningType = 'demo_project' | 'real_project_with_no_events' | 'invite_teammates' | null
+export type WarningType = 'demo_project' | 'real_project_with_no_events' | 'invite_teammates' | null
 
-export const navigationLogic = kea<navigationLogicType<WarningType>>({
+export const navigationLogic = kea<navigationLogicType>({
     path: ['layout', 'navigation', 'navigationLogic'],
     connect: {
         values: [sceneLogic, ['sceneConfig'], membersLogic, ['members', 'membersLoading']],
@@ -33,6 +33,9 @@ export const navigationLogic = kea<navigationLogicType<WarningType>>({
         hideCreateProjectModal: true,
         toggleProjectSwitcher: true,
         hideProjectSwitcher: true,
+        openAppSourceEditor: (id: number, pluginId: number) => ({ id, pluginId }),
+        closeAppSourceEditor: true,
+        setOpenAppMenu: (id: number | null) => ({ id }),
     },
     reducers: {
         // Non-mobile base
@@ -80,6 +83,14 @@ export const navigationLogic = kea<navigationLogicType<WarningType>>({
                 hideProjectSwitcher: () => false,
             },
         ],
+        appSourceEditor: [
+            null as null | { pluginId: number; id: number },
+            {
+                openAppSourceEditor: (_, payload) => payload,
+                closeAppSourceEditor: () => null,
+            },
+        ],
+        openAppMenu: [null as null | number, { setOpenAppMenu: (_, { id }) => id }],
     },
     windowValues: () => ({
         fullscreen: (window) => !!window.document.fullscreenElement,

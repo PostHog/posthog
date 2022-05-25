@@ -11,16 +11,19 @@ import { FormErrors } from 'lib/forms/Errors'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { frontendAppsLogic } from 'scenes/apps/frontendAppsLogic'
+import { formatSource } from 'scenes/plugins/source/formatSource'
 
-interface PluginSourceProps {
-    id: number
+export interface PluginSourceProps {
+    pluginId: number
+    pluginConfigId?: number
     onClose?: () => void
 }
 
-export const pluginSourceLogic = kea<pluginSourceLogicType<PluginSourceProps>>([
+export const pluginSourceLogic = kea<pluginSourceLogicType>([
     path(['scenes', 'plugins', 'edit', 'pluginSourceLogic']),
     props({} as PluginSourceProps),
-    key((props) => props.id),
+    key((props) => props.pluginConfigId ?? `plugin-${props.pluginId}`),
 
     connect({ values: [featureFlagLogic, ['featureFlags']] }),
 
@@ -35,18 +38,51 @@ export const pluginSourceLogic = kea<pluginSourceLogicType<PluginSourceProps>>([
 
     forms(({ actions, props, values }) => ({
         pluginSource: {
-            defaults: {},
+            defaults: {} as Record<string, string>,
             errors: (values) => ({
                 'plugin.json': !validateJson(values['plugin.json']) ? 'Not valid JSON' : '',
             }),
+            preSubmit: () => {
+                const changes = {}
+                const errors = {}
+                for (const [file, source] of Object.entries(values.pluginSource)) {
+                    if (source && file.match(/\.(ts|tsx|js|jsx|json)$/)) {
+                        try {
+                            const prettySource = formatSource(file, source)
+                            if (prettySource !== source) {
+                                changes[file] = prettySource
+                            }
+                        } catch (e: any) {
+                            errors[file] = e.message
+                        }
+                    }
+                }
+                if (Object.keys(changes).length > 0) {
+                    actions.setPluginSourceValues(changes)
+                }
+                actions.setPluginSourceManualErrors(errors)
+            },
             submit: async () => {
-                const { pluginSource } = values
                 const response = await api.update(
-                    `api/organizations/@current/plugins/${props.id}/update_source`,
-                    pluginSource
+                    `api/organizations/@current/plugins/${props.pluginId}/update_source`,
+                    values.pluginSource
                 )
                 actions.resetPluginSource(response)
                 pluginsLogic.findMounted()?.actions.loadPlugins()
+
+                const appsLogic = frontendAppsLogic.findMounted()
+                if (appsLogic && props.pluginConfigId) {
+                    const appConfig = appsLogic.values.appConfigs[props.pluginConfigId]
+                    if (appConfig) {
+                        appsLogic.actions.unloadFrontendApp(appConfig.pluginConfigId)
+                        if (
+                            !pluginsLogic.findMounted() ||
+                            pluginsLogic.values.getPluginConfig(props.pluginConfigId)?.enabled
+                        ) {
+                            appsLogic.actions.loadFrontendApp(appConfig.pluginConfigId, appConfig.pluginId, true)
+                        }
+                    }
+                }
             },
         },
     })),
@@ -54,7 +90,7 @@ export const pluginSourceLogic = kea<pluginSourceLogicType<PluginSourceProps>>([
     loaders(({ props }) => ({
         pluginSource: {
             fetchPluginSource: async () => {
-                const response = await api.get(`api/organizations/@current/plugins/${props.id}/source`)
+                const response = await api.get(`api/organizations/@current/plugins/${props.pluginId}/source`)
                 return response ?? {}
             },
         },
@@ -97,15 +133,18 @@ export const pluginSourceLogic = kea<pluginSourceLogicType<PluginSourceProps>>([
                     label: 'Close drawer',
                     action: () => props.onClose?.(),
                 },
-                toastId: `submit-plugin-${props.id}`,
+                position: 'top-right',
+                toastId: `submit-plugin-${props.pluginConfigId}`,
             })
         },
-        submitPluginSourceFailure: () => {
+        submitPluginSourceFailure: ({ error }) => {
             lemonToast.error(
                 <>
                     <div>Please fix the following errors:</div>
+                    <pre>{String(error?.message || error)}</pre>
                     <FormErrors errors={values.pluginSourceErrors} />
-                </>
+                </>,
+                { position: 'top-right' }
             )
         },
     })),

@@ -18,13 +18,11 @@ export function ActionsHorizontalBar({ showPersonsModal = true }: ChartParams): 
     const { insightProps, insight, hiddenLegendKeys } = useValues(insightLogic)
     const logic = trendsLogic(insightProps)
     const { loadPeople, loadPeopleFromUrl } = useActions(personsModalLogic)
-    const { results, labelGroupType } = useValues(logic)
+    const { indexedResults, labelGroupType } = useValues(logic)
 
     function updateData(): void {
-        const _data = [...results]
-        _data.sort((a, b) => b.aggregated_value - a.aggregated_value)
-
-        const colorList = results.map((_, idx) => getSeriesColor(idx))
+        const _data = [...indexedResults]
+        const colorList = indexedResults.map((_, idx) => getSeriesColor(idx))
 
         setData([
             {
@@ -46,10 +44,10 @@ export function ActionsHorizontalBar({ showPersonsModal = true }: ChartParams): 
     }
 
     useEffect(() => {
-        if (results) {
+        if (indexedResults) {
             updateData()
         }
-    }, [results])
+    }, [indexedResults])
 
     return data && total > 0 ? (
         <LineGraph

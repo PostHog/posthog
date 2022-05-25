@@ -73,9 +73,7 @@ def get_active_user_params(filter: Union[Filter, PathFilter], entity: Entity, te
     diff = timedelta(days=7) if entity.math == WEEKLY_ACTIVE else timedelta(days=30)
     if filter.date_from:
         params.update(
-            {
-                "parsed_date_from_prev_range": f"AND timestamp >= '{format_ch_timestamp(filter.date_from - diff, filter)}'"
-            }
+            {"parsed_date_from_prev_range": f"AND timestamp >= '{format_ch_timestamp(filter.date_from - diff)}'"}
         )
     else:
         try:
@@ -84,9 +82,7 @@ def get_active_user_params(filter: Union[Filter, PathFilter], entity: Entity, te
             raise ValidationError("Active User queries require a lower date bound")
         else:
             params.update(
-                {
-                    "parsed_date_from_prev_range": f"AND timestamp >= '{format_ch_timestamp(earliest_date - diff, filter)}'"
-                }
+                {"parsed_date_from_prev_range": f"AND timestamp >= '{format_ch_timestamp(earliest_date - diff)}'"}
             )
 
     return params

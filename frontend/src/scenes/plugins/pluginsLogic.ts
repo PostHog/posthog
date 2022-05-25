@@ -1,5 +1,7 @@
-import { kea } from 'kea'
-import { pluginsLogicType } from './pluginsLogicType'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { loaders } from 'kea-loaders'
+import { urlToAction } from 'kea-router'
+import type { pluginsLogicType } from './pluginsLogicType'
 import api from 'lib/api'
 import { PersonalAPIKeyType, PluginConfigType, PluginType } from '~/types'
 import {
@@ -16,8 +18,10 @@ import { FormInstance } from 'antd/lib/form'
 import { canGloballyManagePlugins, canInstallPlugins } from './access'
 import { teamLogic } from '../teamLogic'
 import { createDefaultPluginSource } from 'scenes/plugins/source/createDefaultPluginSource'
+import { frontendAppsLogic } from 'scenes/apps/frontendAppsLogic'
+import { urls } from 'scenes/urls'
 
-type PluginForm = FormInstance
+export type PluginForm = FormInstance
 
 export enum PluginSection {
     Upgrade = 'upgrade',
@@ -60,9 +64,10 @@ async function loadPaginatedResults(
     return results
 }
 
-export const pluginsLogic = kea<pluginsLogicType<PluginForm, PluginSection, PluginSelectionType>>({
-    path: ['scenes', 'plugins', 'pluginsLogic'],
-    actions: {
+export const pluginsLogic = kea<pluginsLogicType>([
+    path(['scenes', 'plugins', 'pluginsLogic']),
+    connect(frontendAppsLogic),
+    actions({
         editPlugin: (id: number | null, pluginConfigChanges: Record<string, any> = {}) => ({ id, pluginConfigChanges }),
         savePluginConfig: (pluginConfigChanges: Record<string, any>) => ({ pluginConfigChanges }),
         installPlugin: (pluginUrl: string, pluginType: PluginInstallationType) => ({ pluginUrl, pluginType }),
@@ -98,9 +103,10 @@ export const pluginsLogic = kea<pluginsLogicType<PluginForm, PluginSection, Plug
         setSearchTerm: (term: string | null) => ({ term }),
         setPluginConfigPollTimeout: (timeout: number | null) => ({ timeout }),
         toggleSectionOpen: (section: PluginSection) => ({ section }),
-    },
+        syncFrontendAppState: (id: number) => ({ id }),
+    }),
 
-    loaders: ({ actions, values }) => ({
+    loaders(({ actions, values }) => ({
         plugins: [
             {} as Record<number, PluginType>,
             {
@@ -119,10 +125,9 @@ export const pluginsLogic = kea<pluginsLogicType<PluginForm, PluginSection, Plug
                         pluginType === 'source' ? { plugin_type: pluginType, name: url } : { url }
                     )
                     if (pluginType === 'source') {
-                        await api.update(
-                            `api/organizations/@current/plugins/${response.id}/update_source`,
-                            createDefaultPluginSource(url)
-                        )
+                        await api.update(`api/organizations/@current/plugins/${response.id}/update_source`, {
+                            'plugin.json': createDefaultPluginSource(url)['plugin.json'],
+                        })
                         actions.loadPlugins()
                     }
                     capturePluginEvent(`plugin installed`, response, pluginType)
@@ -135,7 +140,7 @@ export const pluginsLogic = kea<pluginsLogicType<PluginForm, PluginSection, Plug
                     }
                     await api.delete(`api/organizations/@current/plugins/${editingPlugin.id}`)
                     capturePluginEvent(`plugin uninstalled`, editingPlugin)
-                    const { [editingPlugin.id]: _discard, ...rest } = plugins // eslint-disable-line
+                    const { [editingPlugin.id]: _discard, ...rest } = plugins
                     return rest
                 },
                 updatePlugin: async ({ id }) => {
@@ -187,7 +192,7 @@ export const pluginsLogic = kea<pluginsLogicType<PluginForm, PluginSection, Plug
                         formData.append('order', values.nextPluginOrder.toString())
                     }
 
-                    let response
+                    let response: PluginConfigType
                     if (editingPlugin.pluginConfig.id) {
                         response = await api.update(`api/plugin_config/${editingPlugin.pluginConfig.id}`, formData)
                     } else {
@@ -198,13 +203,15 @@ export const pluginsLogic = kea<pluginsLogicType<PluginForm, PluginSection, Plug
                     if (editingPlugin.pluginConfig.enabled !== response.enabled) {
                         capturePluginEvent(`plugin ${response.enabled ? 'enabled' : 'disabled'}`, editingPlugin)
                     }
-
+                    if ('id' in response) {
+                        // Run the sync after we return from the loader, and save its data
+                        window.setTimeout(() => response.id && actions.syncFrontendAppState(response.id), 0)
+                    }
                     return { ...pluginConfigs, [response.plugin]: response }
                 },
                 toggleEnabled: async ({ id, enabled }) => {
                     const { pluginConfigs, plugins } = values
-                    // pluginConfigs are indexed by plugin id, must look up the right config manually
-                    const pluginConfig = Object.values(pluginConfigs).find((config) => config.id === id)
+                    const pluginConfig = values.getPluginConfig(id)
                     if (pluginConfig) {
                         const plugin = plugins[pluginConfig.plugin]
                         if (plugin) {
@@ -252,9 +259,9 @@ export const pluginsLogic = kea<pluginsLogicType<PluginForm, PluginSection, Plug
                 },
             },
         ],
-    }),
+    })),
 
-    reducers: {
+    reducers({
         plugins: {
             setUpdateStatus: (state, { id, tag, latestTag }) => ({
                 ...state,
@@ -430,9 +437,15 @@ export const pluginsLogic = kea<pluginsLogicType<PluginForm, PluginSection, Plug
                 },
             },
         ],
-    },
+    }),
 
-    selectors: {
+    selectors({
+        getPluginConfig: [
+            (s) => [s.pluginConfigs],
+            (pluginConfigs): ((id: number) => PluginConfigType | undefined) =>
+                (id: number) =>
+                    Object.values(pluginConfigs).find(({ id: _id }) => id === _id),
+        ],
         installedPlugins: [
             (s) => [s.plugins, s.pluginConfigs, s.updateStatus],
             (plugins, pluginConfigs, updateStatus): PluginTypeWithConfig[] => {
@@ -644,9 +657,22 @@ export const pluginsLogic = kea<pluginsLogicType<PluginForm, PluginSection, Plug
                 return allPossiblePlugins
             },
         ],
-    },
+    }),
 
-    listeners: ({ actions, values }) => ({
+    listeners(({ actions, values }) => ({
+        toggleEnabledSuccess: ({ payload: { id } }) => {
+            actions.syncFrontendAppState(id)
+        },
+        // Load or unload an app, as directed by its enabled state in pluginsLogic
+        syncFrontendAppState: ({ id }) => {
+            const pluginConfig = values.getPluginConfig(id)
+            if (pluginConfig) {
+                frontendAppsLogic.actions.unloadFrontendApp(id)
+                if (pluginConfig.enabled) {
+                    frontendAppsLogic.actions.loadFrontendApp(id, pluginConfig.plugin, true)
+                }
+            }
+        },
         checkForUpdates: async ({ checkAll }, breakpoint) => {
             breakpoint()
             const { updatablePlugins } = values
@@ -712,24 +738,22 @@ export const pluginsLogic = kea<pluginsLogicType<PluginForm, PluginSection, Plug
                 form.setFieldsValue({ posthogHost: window.location.origin })
             }
         },
-    }),
+    })),
 
-    urlToAction: ({ actions }) => ({
-        '/project/plugins': (_, { tab, name }) => {
+    urlToAction(({ actions }) => ({
+        [urls.projectApps()]: (_, { tab, name }) => {
             if (tab && name) {
                 actions.setSearchTerm(name)
                 actions.setPluginTab(tab as PluginTab)
             }
         },
-    }),
+    })),
 
-    events: ({ actions }) => ({
-        afterMount: () => {
-            actions.loadPlugins()
-            actions.loadPluginConfigs()
-            if (canGloballyManagePlugins(userLogic.values.user?.organization)) {
-                actions.loadRepository()
-            }
-        },
+    afterMount(({ actions }) => {
+        actions.loadPlugins()
+        actions.loadPluginConfigs()
+        if (canGloballyManagePlugins(userLogic.values.user?.organization)) {
+            actions.loadRepository()
+        }
     }),
-})
+])

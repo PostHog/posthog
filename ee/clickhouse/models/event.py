@@ -12,6 +12,7 @@ from ee.clickhouse.sql.events import BULK_INSERT_EVENT_SQL, GET_EVENTS_BY_TEAM_S
 from ee.kafka_client.client import ClickhouseProducer
 from ee.kafka_client.topics import KAFKA_EVENTS_JSON
 from posthog.client import query_with_columns, sync_execute
+from posthog.models import Group
 from posthog.models.element import Element
 from posthog.models.person import Person
 from posthog.models.team import Team
@@ -96,26 +97,53 @@ def bulk_create_events(events: List[Dict[str, Any]], person_mapping: Optional[Di
         )
 
         #  use person properties mapping to populate person properties in given event
+        team_id = event["team"].pk if event.get("team") else event["team_id"]
         if person_mapping and person_mapping.get(event["distinct_id"]):
-            person_properties = person_mapping[event["distinct_id"]].properties
-            person_id = person_mapping[event["distinct_id"]].uuid
+            person = person_mapping[event["distinct_id"]]
+            person_properties = person.properties
+            person_id = person.uuid
+        else:
+            try:
+                person = Person.objects.get(
+                    persondistinctid__distinct_id=event["distinct_id"], persondistinctid__team_id=team_id
+                )
+                person_properties = person.properties
+                person_id = person.uuid
+            except Person.DoesNotExist:
+                person_properties = {}
+                person_id = uuid.uuid4()
 
-            event = {
-                **event,
-                "person_properties": {**person_properties, **event.get("person_properties", {})},
-                "person_id": person_id,
-            }
+        event = {
+            **event,
+            "person_properties": {**person_properties, **event.get("person_properties", {})},
+            "person_id": person_id,
+        }
+
+        # Populate group properties as well
+        for property_key, value in (event.get("properties") or {}).items():
+            if property_key.startswith("$group_"):
+                group_type_index = property_key[-1]
+                try:
+                    group = Group.objects.get(team_id=team_id, group_type_index=group_type_index, group_key=value)
+                    group_property_key = f"group{group_type_index}_properties"
+                    event = {
+                        **event,
+                        group_property_key: {**group.group_properties, **event.get(group_property_key, {})},
+                    }
+
+                except Group.DoesNotExist:
+                    continue
 
         event = {
             "uuid": str(event["event_uuid"]) if event.get("event_uuid") else str(uuid.uuid4()),
             "event": event["event"],
             "properties": json.dumps(event["properties"]) if event.get("properties") else "{}",
             "timestamp": timestamp,
-            "team_id": event["team"].pk if event.get("team") else event["team_id"],
+            "team_id": team_id,
             "distinct_id": str(event["distinct_id"]),
             "elements_chain": elements_chain,
             "created_at": timestamp,
-            "person_id": event["person_id"] if event.get("person_id") else "00000000-0000-0000-0000-000000000000",
+            "person_id": event["person_id"] if event.get("person_id") else str(uuid.uuid4()),
             "person_properties": json.dumps(event["person_properties"]) if event.get("person_properties") else "{}",
             "group0_properties": json.dumps(event["group0_properties"]) if event.get("group0_properties") else "{}",
             "group1_properties": json.dumps(event["group1_properties"]) if event.get("group1_properties") else "{}",

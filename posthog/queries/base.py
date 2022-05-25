@@ -1,5 +1,6 @@
 from typing import Any, Callable, Dict, List, Union, cast
 
+from dateutil.relativedelta import relativedelta
 from django.db.models import Exists, OuterRef, Q
 from rest_framework.exceptions import ValidationError
 
@@ -15,6 +16,8 @@ def determine_compared_filter(filter) -> Filter:
     if not filter.date_to or not filter.date_from:
         raise ValidationError("You need date_from and date_to to compare")
     date_from, date_to = get_compare_period_dates(filter.date_from, filter.date_to)
+
+    date_from += relativedelta(days=1)
     return filter.with_data({"date_from": date_from.date().isoformat(), "date_to": date_to.date().isoformat()})
 
 

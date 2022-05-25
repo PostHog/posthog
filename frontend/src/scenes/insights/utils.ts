@@ -85,7 +85,7 @@ export function extractObjectDiffKeys(
 }
 
 export function findInsightFromMountedLogic(
-    insightShortId: InsightShortId,
+    insightShortId: InsightShortId | string,
     dashboardId: number | undefined
 ): Partial<InsightModel> | null {
     if (dashboardId) {
@@ -178,7 +178,7 @@ export function summarizeInsightFilters(
     filters: Partial<FilterType>,
     aggregationLabel: groupsModelType['values']['aggregationLabel'],
     cohortsById: cohortsModelType['values']['cohortsById'],
-    mathDefinitions: mathsLogicType<MathDefinition>['values']['mathDefinitions']
+    mathDefinitions: mathsLogicType['values']['mathDefinitions']
 ): string {
     const insightType = filters.insight
     let summary: string

@@ -112,7 +112,7 @@ export function PluginCard({
                         </DragColumn>
                     ) : null}
                     {unorderedPlugin ? (
-                        <Tooltip title="This plugin does not do any processing in order." placement="topRight">
+                        <Tooltip title="This app does not do any processing in order." placement="topRight">
                             <Col>
                                 <Tag color="#555">-</Tag>
                             </Col>
@@ -204,7 +204,7 @@ export function PluginCard({
                                         title={
                                             pluginConfig?.id
                                                 ? 'Logs'
-                                                : 'Logs – enable the plugin for the first time to view them'
+                                                : 'Logs – enable the app for the first time to view them'
                                         }
                                     >
                                         <Button
