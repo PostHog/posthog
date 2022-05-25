@@ -152,7 +152,7 @@ export function SecondaryMetrics({ onMetricsChange, initialMetrics }: SecondaryM
                     </Form.Item>
                     <Form.Item name="metric-preview" label="Metric preview">
                         <BindLogic logic={insightLogic} props={insightProps}>
-                            <InsightContainer disableHeader={true} disableTable={true} />
+                            <InsightContainer disableHeader={true} disableTable={true} disableCorrelationTable={true} />
                         </BindLogic>
                     </Form.Item>
                     <Row justify="end">

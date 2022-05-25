@@ -169,7 +169,7 @@ export function UniversalSearchPopup({
                 modifier={{
                     name: 'offset',
                     options: {
-                        // @ts-ignore
+                        // @ts-expect-error
                         offset: ({ placement }) => {
                             if (placement === 'right-start') {
                                 return [-25, -250]

@@ -1,5 +1,3 @@
-/* eslint-disable @typescript-eslint/no-var-requires */
-
 /* global module */
 module.exports = {
     ignorePatterns: ['node_modules', 'plugin-server'],
@@ -16,8 +14,9 @@ module.exports = {
     extends: [
         'plugin:@typescript-eslint/recommended',
         'plugin:react/recommended',
-        'prettier',
+        'plugin:eslint-comments/recommended',
         'plugin:storybook/recommended',
+        'prettier',
     ],
     globals: {
         Atomics: 'readonly',
@@ -43,12 +42,14 @@ module.exports = {
                 html: true,
             },
         ],
-        'no-unused-vars': [
+        'no-unused-vars': 'off',
+        '@typescript-eslint/no-unused-vars': [
             'error',
             {
                 ignoreRestSiblings: true,
             },
         ],
+        '@typescript-eslint/prefer-ts-expect-error': 'error',
         '@typescript-eslint/explicit-function-return-type': 'off',
         '@typescript-eslint/explicit-module-boundary-types': 'off',
         '@typescript-eslint/no-empty-function': 'off',
@@ -103,4 +104,5 @@ module.exports = {
             },
         },
     ],
+    reportUnusedDisableDirectives: true,
 }
