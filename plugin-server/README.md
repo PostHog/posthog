@@ -53,7 +53,7 @@ plugin-server, with the following environment variables set:
 | `PLUGIN_SERVER_MODE=ingestion` | This plugin server instance only runs ingestion (1)                                                                             |
 | `PLUGIN_SERVER_MODE=async`     | This plugin server processes all async tasks (2-4). Note that async plugin tasks are triggered based on ClickHouse events topic |
 
-With unset `PLUGIN_SERVER_MODE` plugin-server executes all of its tasks (1-4).
+If `PLUGIN_SERVER_MODE` is not set the plugin server will execute all of its tasks (1-4).
 
 ## Configuration
 
