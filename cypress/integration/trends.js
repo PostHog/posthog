@@ -141,7 +141,7 @@ describe('Trends', () => {
         cy.get('[data-attr=new-prop-filter-trends-filters]').click()
         cy.get('[data-attr=taxonomic-filter-searchfield]').click()
         cy.get('[data-attr="expand-list-event_properties"]').click()
-        cy.get('.taxonomic-list-row').contains('Browser').first().click({ force: true })
+        cy.get('.taxonomic-list-row').first().click({ force: true })
         cy.get('[data-attr=prop-val]').click({ force: true })
         // cypress is odd and even though when a human clicks this the right dropdown opens
         // in the test that doesn't happen
