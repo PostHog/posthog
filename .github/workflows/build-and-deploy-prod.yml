@@ -17,6 +17,8 @@ jobs:
         if: github.repository == 'PostHog/posthog'
         runs-on: ubuntu-20.04
         steps:
+            - name: Set up Depot CLI
+              uses: depot/setup-action@v1
             - name: Configure AWS credentials
               uses: aws-actions/configure-aws-credentials@v1
               with:
@@ -48,7 +50,7 @@ jobs:
                   ECR_REPOSITORY: posthog-production
                   IMAGE_TAG: ${{ github.sha }}
               run: |
-                  docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG -f prod.web.Dockerfile .
+                  depot build --load -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG -f prod.web.Dockerfile .
                   docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
                   echo "::set-output name=image::$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
 
