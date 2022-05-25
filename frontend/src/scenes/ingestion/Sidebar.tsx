@@ -8,7 +8,6 @@ import { LemonButton } from 'lib/components/LemonButton'
 import { IconArticle, IconQuestionAnswer } from 'lib/components/icons'
 import { HelpType } from '~/types'
 import { LemonDivider } from 'lib/components/LemonDivider'
-import { FriendlyLogo } from '~/toolbar/assets/FriendlyLogo'
 
 const HELP_UTM_TAGS = '?utm_medium=in-product-onboarding&utm_campaign=help-button-sidebar'
 
@@ -20,21 +19,13 @@ export function Sidebar(): JSX.Element {
     return (
         <div className="IngestionSidebar">
             <div className="IngestionSidebar__content">
-                <div style={{ marginLeft: -4 }}>
-                    <FriendlyLogo style={{ fontSize: '1.125rem' }} />
-                </div>
                 <div className="IngestionSidebar__steps">
-                    <LemonButton
-                        className={`${currentIndex === 0 && 'ingestion-current-nav-step'}`}
-                        style={{ background: 'none', paddingLeft: 0 }}
-                        onClick={() => setPlatform(null)}
-                    >
+                    <LemonButton active={currentIndex === 0} onClick={() => setPlatform(null)}>
                         Get started
                     </LemonButton>
                     <LemonButton
-                        className={`${currentIndex === 1 && 'ingestion-current-nav-step'}`}
+                        active={currentIndex === 1}
                         disabled={!platform}
-                        style={{ background: 'none', paddingLeft: 0 }}
                         onClick={() => {
                             if (platform && currentIndex !== 1) {
                                 setVerify(false)
@@ -44,9 +35,8 @@ export function Sidebar(): JSX.Element {
                         Connect your product
                     </LemonButton>
                     <LemonButton
-                        className={`${currentIndex === 2 && 'ingestion-current-nav-step'}`}
+                        active={currentIndex === 2}
                         disabled={!platform}
-                        style={{ background: 'none', paddingLeft: 0 }}
                         onClick={() => {
                             if (platform) {
                                 setVerify(true)

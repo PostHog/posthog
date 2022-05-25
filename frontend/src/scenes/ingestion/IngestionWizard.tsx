@@ -18,6 +18,7 @@ import { InviteModal } from 'scenes/organization/Settings/InviteModal'
 import { inviteLogic } from 'scenes/organization/Settings/inviteLogic'
 import { FriendlyLogo } from '~/toolbar/assets/FriendlyLogo'
 import { SitePopover } from '~/layout/navigation/TopBar/SitePopover'
+import { HelpButton } from 'lib/components/HelpButton/HelpButton'
 
 export const scene: SceneExport = {
     component: IngestionWizard,
@@ -91,26 +92,32 @@ function IngestionContainer({ children }: { children: React.ReactNode }): JSX.El
     const { onboardingSidebar } = useValues(ingestionLogic)
 
     return (
-        <div style={{ display: 'flex', height: '100%' }}>
+        <div style={{ display: 'flex', height: '100%', flexDirection: 'column' }}>
             {onboardingSidebar && (
-                <>
-                    <InviteModal visible={isInviteModalShown} onClose={hideInviteModal} />
-                    <Sidebar />
-                </>
-            )}
-            <div className="bridge-page IngestionContainer">
-                {!onboardingSidebar && (
-                    <div className="mb">
-                        <FriendlyLogo style={{ fontSize: '1.125rem' }} />
+                <div className="IngestionTopbar">
+                    <FriendlyLogo style={{ fontSize: '1.125rem' }} />
+                    <div style={{ display: 'flex' }}>
+                        <HelpButton />
+                        <SitePopover />
                     </div>
-                )}
-                {children}
-            </div>
-            {onboardingSidebar && (
-                <div style={{ position: 'fixed', right: 0, marginRight: '1rem' }}>
-                    <SitePopover />
                 </div>
             )}
+            <div style={{ display: 'flex', height: '100%' }}>
+                {onboardingSidebar && (
+                    <>
+                        <InviteModal visible={isInviteModalShown} onClose={hideInviteModal} />
+                        <Sidebar />
+                    </>
+                )}
+                <div className="bridge-page IngestionContainer">
+                    {!onboardingSidebar && (
+                        <div className="mb">
+                            <FriendlyLogo style={{ fontSize: '1.125rem' }} />
+                        </div>
+                    )}
+                    {children}
+                </div>
+            </div>
         </div>
     )
 }

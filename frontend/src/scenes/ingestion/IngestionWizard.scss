@@ -10,6 +10,22 @@
     width: 100%;
 }
 
+.IngestionTopbar {
+    border-bottom: 1px solid var(--border);
+    padding: 0.25rem 1rem;
+    display: flex;
+    justify-content: space-between;
+    position: sticky;
+    top: 0;
+    background-color: white;
+    width: 100%;
+    z-index: 10;
+
+    .help-button {
+        margin-right: 1rem;
+    }
+}
+
 .platform-item {
     margin-right: 10px;
     padding: 10px;
@@ -27,12 +43,6 @@
 .selectable-item:hover {
     background-color: gainsboro;
     cursor: pointer;
-}
-
-.ingestion-current-nav-step {
-    color: black;
-    display: flex;
-    font-weight: bold;
 }
 
 .IngestionSidebar__bottom {
@@ -74,5 +84,4 @@
     flex-direction: column;
     height: 100%;
     position: fixed;
-    padding-top: 1.5rem;
 }
