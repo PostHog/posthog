@@ -102,7 +102,6 @@ export const FEATURE_FLAGS = {
     NEW_INSIGHT_COHORTS: '7569-insight-cohorts', // owner: @EDsCODE
     DATA_MANAGEMENT: 'data-management', // owner: @alexkim205
     INVITE_TEAMMATES_BANNER: 'invite-teammates-prompt', // owner: @marcushyett-ph
-    EXPERIMENTS_SECONDARY_METRICS: 'experiments-secondary-metrics', // owner: @neilkakkar
     DASHBOARD_PERMISSIONS: 'dashboard-permissions', // owner: @Twixes
     SESSION_CONSOLE: 'session-recording-console', // owner: @timgl
     SMOOTHING_INTERVAL: 'smoothing-interval', // owner: @timgl
