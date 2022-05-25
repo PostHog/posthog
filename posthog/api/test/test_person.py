@@ -621,7 +621,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         created_person = self.client.get("/api/person/%s/" % person.pk).json()
         created_person["properties"]["a"] = "b"
         response = self.client.patch("/api/person/%s/" % person.pk, created_person)
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
 
         self.client.get("/api/person/%s/" % person.pk)
 
@@ -634,20 +634,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
                     "created_at": "2021-08-25T22:09:14.252000Z",
                     "scope": "Person",
                     "item_id": str(person.pk),
-                    "detail": {
-                        "changes": [
-                            {
-                                "type": "Person",
-                                "action": "changed",
-                                "field": "properties",
-                                "before": {"$browser": "whatever", "$os": "Mac OS X"},
-                                "after": {"$browser": "whatever", "$os": "Mac OS X", "a": "b"},
-                            },
-                        ],
-                        "merge": None,
-                        "name": None,
-                        "short_id": None,
-                    },
+                    "detail": {"changes": None, "merge": None, "name": None, "short_id": None,},
                 }
             ],
         )

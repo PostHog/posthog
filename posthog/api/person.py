@@ -60,7 +60,6 @@ from posthog.models.activity_logging.activity_log import (
     Change,
     Detail,
     Merge,
-    changes_between,
     load_activity,
     log_activity,
 )
@@ -104,25 +103,6 @@ class PersonSerializer(serializers.HyperlinkedModelSerializer):
             "uuid",
         ]
         read_only_fields = ("id", "distinct_ids", "created_at", "uuid")
-
-    def update(self, instance: Person, validated_data: Dict):
-        # :KLUDGE: Keep clickhouse in sync with any property updates.
-        # Note we don't update the person model here as plugin-server is responsible for that.
-        capture_internal(
-            distinct_id=instance.distinct_ids[0],
-            ip=None,
-            site_url=None,
-            team_id=instance.team_id,
-            now=datetime.now(),
-            sent_at=None,
-            event={
-                "event": "$set",
-                "properties": {"$set": validated_data["properties"]},
-                "distinct_id": instance.distinct_ids[0],
-                "timestamp": datetime.now().isoformat(),
-            },
-        )
-        return instance
 
     def get_name(self, person: Person) -> str:
         return get_person_name(person)
@@ -661,31 +641,35 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             status=status.HTTP_200_OK,
         )
 
-    def partial_update(self, request, *args, **kwargs):
+    def update(self, request, *args, **kwargs):
+        instance = self.get_queryset().get(pk=kwargs["pk"])
+        capture_internal(
+            distinct_id=instance.distinct_ids[0],
+            ip=None,
+            site_url=None,
+            team_id=instance.team_id,
+            now=datetime.now(),
+            sent_at=None,
+            event={
+                "event": "$set",
+                "properties": {"$set": request.data["properties"]},
+                "distinct_id": instance.distinct_ids[0],
+                "timestamp": datetime.now().isoformat(),
+            },
+        )
 
-        instance_id = kwargs["pk"]
-        try:
-            before_update = self.get_queryset().get(pk=instance_id)
-        except Person.DoesNotExist:
-            before_update = None
-
-        kwargs["partial"] = True
-        response = self.update(request, *args, **kwargs)
-
-        updated_instance = self.get_object()
-
-        changes = changes_between(model_type="Person", previous=before_update, current=updated_instance)
         log_activity(
             organization_id=self.organization.id,
             team_id=self.team.id,
             user=request.user,
-            item_id=instance_id,
+            item_id=instance.pk,
             scope="Person",
             activity="updated",
-            detail=Detail(changes=changes),
+            detail=Detail(changes=None),
+            force_save=True,
         )
 
-        return response
+        return Response(status=204)
 
 
 def paginated_result(
