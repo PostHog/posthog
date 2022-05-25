@@ -21,12 +21,7 @@ export const keyForInsightLogicProps =
     }
 
 export function filterTrendsClientSideParams(filters: Partial<FilterType>): Partial<FilterType> {
-    const {
-        people_day: _skip_this_one, // eslint-disable-line
-        people_action: _skip_this_too, // eslint-disable-line
-        stickiness_days: __and_this, // eslint-disable-line
-        ...newFilters
-    } = filters
+    const { people_day: _discard, people_action: __discard, stickiness_days: ___discard, ...newFilters } = filters
 
     return newFilters
 }

@@ -1,7 +1,7 @@
 import { PluginEvent, ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 import * as Sentry from '@sentry/node'
 
-import { Hub, PreIngestionEvent } from '../../../types'
+import { Hub, IngestionEvent, PreIngestionEvent } from '../../../types'
 import { timeoutGuard } from '../../../utils/db/utils'
 import { status } from '../../../utils/status'
 import { generateEventDeadLetterQueueMessage } from '../utils'
@@ -74,6 +74,13 @@ export class EventPipelineRunner {
         return result
     }
 
+    async runAsyncHandlersEventPipeline(event: IngestionEvent): Promise<EventPipelineResult> {
+        const person = await this.hub.db.fetchPerson(event.teamId, event.distinctId)
+        const result = await this.runPipeline('runAsyncHandlersStep', event, person)
+        this.hub.statsd?.increment('kafka_queue.async_handlers.processed')
+        return result
+    }
+
     private async runPipeline<Step extends StepType, ArgsType extends StepParameters<EventPipelineStepsType[Step]>>(
         name: Step,
         ...args: ArgsType
@@ -122,7 +129,7 @@ export class EventPipelineRunner {
         })
         try {
             // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-            // @ts-ignore
+            // @ts-expect-error
             return EVENT_PIPELINE_STEPS[name](this, ...args)
         } finally {
             clearTimeout(timeout)
