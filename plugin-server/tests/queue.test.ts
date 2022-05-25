@@ -39,6 +39,7 @@ describe('queue', () => {
 
         it('handles ingestion being turned off', async () => {
             hub.capabilities.ingestion = false
+            hub.capabilities.processAsyncHandlers = false
 
             const queues = await startQueues(hub, piscina)
 
