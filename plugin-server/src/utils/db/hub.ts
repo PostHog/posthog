@@ -12,7 +12,7 @@ import { ConnectionOptions } from 'tls'
 
 import { defaultConfig } from '../../config/config'
 import { JobQueueManager } from '../../main/job-queues/job-queue-manager'
-import { connectObjectStorage } from '../../main/services/objectStorage'
+import { connectObjectStorage, noOpStorage } from '../../main/services/objectStorage'
 import { Hub, KafkaSecurityProtocol, PluginServerCapabilities, PluginsServerConfig } from '../../types'
 import { ActionManager } from '../../worker/ingestion/action-manager'
 import { ActionMatcher } from '../../worker/ingestion/action-matcher'
@@ -205,8 +205,9 @@ export async function createHub(
     status.info('👍', `Redis ready`)
 
     status.info('🤔', `Connecting to object storage...`)
+    let objectStorage = noOpStorage
     try {
-        connectObjectStorage(serverConfig)
+        objectStorage = connectObjectStorage(serverConfig)
         status.info('👍', 'Object storage ready')
     } catch (e) {
         status.warn('🪣', `Object storage could not be created: ${e}`)

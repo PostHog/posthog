@@ -41,12 +41,12 @@ class UnavailableStorage(S3):
 
 
 class ObjectStorage(S3):
-    def __init__(self, aws_client, bucket: str) -> None:
+    def __init__(self, aws_client) -> None:
         self.aws_client = aws_client
 
     def head_bucket(self, bucket: str) -> bool:
         try:
-            return bool(self.aws_client.head_bucket(bucket=bucket))
+            return bool(self.aws_client.head_bucket(Bucket=bucket))
         except Exception as e:
             logger.warn("object_storage.health_check_failed", bucket=bucket, error=e)
             return False
@@ -79,7 +79,6 @@ s3_client: S3 = ObjectStorage(
         config=Config(signature_version="s3v4", connect_timeout=1, retries={"max_attempts": 1}),
         region_name="us-east-1",
     ),
-    bucket=settings.OBJECT_STORAGE_BUCKET,
 ) if settings.OBJECT_STORAGE_ENABLED else UnavailableStorage()
 
 
@@ -92,4 +91,4 @@ def read(file_name: str) -> Optional[str]:
 
 
 def health_check() -> bool:
-    return s3_client.head_bucket(settings.OBJECT_STORAGE_BUCKET)
+    return s3_client.head_bucket(bucket=settings.OBJECT_STORAGE_BUCKET)

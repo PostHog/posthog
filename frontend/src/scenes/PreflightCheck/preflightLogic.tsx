@@ -37,8 +37,7 @@ export const preflightLogic = kea<preflightLogicType>([
             null as PreflightStatus | null,
             {
                 loadPreflight: async () => {
-                    const response = await api.get('_preflight/')
-                    return response
+                    return await api.get('_preflight/')
                 },
             },
         ],

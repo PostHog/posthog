@@ -12,18 +12,19 @@ export interface ObjectStorage {
     healthcheck: () => Promise<boolean>
 }
 
+export const noOpStorage: ObjectStorage = {
+    isEnabled: false,
+    putObject: () => Promise.resolve(),
+    sessionRecordingAllowList: [],
+    healthcheck: async () => {
+        return Promise.resolve(false)
+    },
+}
+
 // Object Storage added without any uses to flush out deployment concerns.
 // see https://github.com/PostHog/posthog/pull/9901
 export const connectObjectStorage = (serverConfig: Partial<PluginsServerConfig>): ObjectStorage => {
-    let storage: ObjectStorage = {
-        isEnabled: false,
-        putObject: () => Promise.resolve(),
-        sessionRecordingAllowList: [],
-        healthcheck: async () => {
-            return Promise.resolve(false)
-        },
-    }
-
+    let storage = { ...noOpStorage }
     try {
         const {
             OBJECT_STORAGE_ENDPOINT,

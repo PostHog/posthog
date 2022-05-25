@@ -1,5 +1,5 @@
 import { defaultConfig } from './config/config'
-import { connectObjectStorage } from './main/services/object_storage'
+import { connectObjectStorage } from './main/services/objectStorage'
 import { status } from './utils/status'
 import { createRedis } from './utils/utils'
 
