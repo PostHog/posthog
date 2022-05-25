@@ -49,6 +49,7 @@ jobs:
                   ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
                   ECR_REPOSITORY: posthog-production
                   IMAGE_TAG: ${{ github.sha }}
+                  DEPOT_TOKEN: ${{ secrets.DEPOT_TOKEN }}
               run: |
                   depot build --load -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG -f prod.web.Dockerfile .
                   docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
