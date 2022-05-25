@@ -138,7 +138,7 @@ describe('Trends', () => {
         cy.get('[data-attr=trend-line-graph]').should('exist')
     })
 
-    it.only('Save to dashboard', () => {
+    it('Save to dashboard', () => {
         // apply random filter
         cy.get('[data-attr=trends-filters-add-filter-group]').click()
         cy.get('[data-attr=property-select-toggle-0]').click()
