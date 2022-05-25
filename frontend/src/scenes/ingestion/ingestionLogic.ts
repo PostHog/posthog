@@ -135,6 +135,7 @@ export const ingestionLogic = kea<ingestionLogicType>([
         onboardingSidebarEnabled: [
             () => [],
             (): boolean => {
+                // DO NOT MAKE A FEATURE FLAG OUT OF THIS ON CLOUD IT'S PART OF EXPERIMENTS
                 return !!values.featureFlags[FEATURE_FLAGS.ONBOARDING_1_5]
             },
         ],
