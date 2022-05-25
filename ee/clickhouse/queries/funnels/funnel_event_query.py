@@ -14,22 +14,18 @@ class FunnelEventQuery(EnterpriseEventQuery):
     def get_query(self, entities=None, entity_name="events", skip_entity_filter=False) -> Tuple[str, Dict[str, Any]]:
 
         aggregation_target = (
-            "{} as aggregation_target".format(
-                get_aggregation_target_field(
-                    self._filter.aggregation_group_type_index,
-                    self.EVENT_TABLE_ALIAS,
-                    f"{self.EVENT_TABLE_ALIAS}.person_id",
-                )
+            get_aggregation_target_field(
+                self._filter.aggregation_group_type_index,
+                self.EVENT_TABLE_ALIAS,
+                f"{self.EVENT_TABLE_ALIAS}.person_id",
             )
             if self._using_person_on_events
-            else "{} as aggregation_target".format(
-                get_aggregation_target_field(
-                    self._filter.aggregation_group_type_index,
-                    self.EVENT_TABLE_ALIAS,
-                    f"{self.EVENT_TABLE_ALIAS}.distinct_id"
-                    if self._aggregate_users_by_distinct_id
-                    else f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id",
-                )
+            else get_aggregation_target_field(
+                self._filter.aggregation_group_type_index,
+                self.EVENT_TABLE_ALIAS,
+                f"{self.EVENT_TABLE_ALIAS}.distinct_id"
+                if self._aggregate_users_by_distinct_id
+                else f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id",
             )
         )
 
@@ -43,7 +39,7 @@ class FunnelEventQuery(EnterpriseEventQuery):
                 if self._column_optimizer.should_query_elements_chain_column
                 else ""
             ),
-            aggregation_target,
+            f"{aggregation_target} as aggregation_target",
         ]
 
         _fields += [f"{self.EVENT_TABLE_ALIAS}.{field} AS {field}" for field in self._extra_fields]

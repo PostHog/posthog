@@ -221,7 +221,7 @@ class ClickhouseSessionRecordingList(EnterpriseEventQuery):
             entity=entity,
             prepend=prepend,
             filter_by_team=False,
-            person_id_joined_alias="pdi.person_id",
+            person_id_joined_alias=f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id",
         )
 
         filters, filter_params = parse_prop_grouped_clauses(

@@ -643,7 +643,7 @@ class TestClickhouseFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFu
         filters = {
             "actions": [
                 {"id": sign_up_action.id, "math": "dau", "order": 0},
-                {"id": sign_up_action.id, "math": "wau", "order": 1},
+                {"id": sign_up_action.id, "math": "weekly_active", "order": 1},
             ],
             "insight": INSIGHT_FUNNELS,
         }
@@ -686,7 +686,7 @@ class TestClickhouseFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFu
         filters = {
             "actions": [
                 {"id": sign_up_action.id, "math": "dau", "order": 0},
-                {"id": sign_up_action.id, "math": "wau", "order": 1},
+                {"id": sign_up_action.id, "math": "weekly_active", "order": 1},
             ],
             "insight": INSIGHT_FUNNELS,
         }
@@ -740,7 +740,7 @@ class TestClickhouseFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFu
             ],
             "actions": [
                 {"id": sign_up_action.id, "math": "dau", "order": 2},
-                {"id": sign_up_action.id, "math": "wau", "order": 3},
+                {"id": sign_up_action.id, "math": "weekly_active", "order": 3},
             ],
             "insight": INSIGHT_FUNNELS,
             "funnel_window_days": 14,
