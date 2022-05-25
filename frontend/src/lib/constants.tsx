@@ -108,7 +108,6 @@ export const FEATURE_FLAGS = {
     SMOOTHING_INTERVAL: 'smoothing-interval', // owner: @timgl
     TUNE_RECORDING_SNAPSHOT_LIMIT: 'tune-recording-snapshot-limit', // owner: @rcmarron
     BILLING_LIMIT: 'billing-limit', // owner: @timgl
-    UNIVERSAL_SEARCH: 'universal-search', // owner: @neilkakkar
     HOMEPAGE_LISTS_EXPERIMENT: 'homepage-lists-experiment', // owner: @rcmarron
     AUTO_REFRESH_DASHBOARDS: 'auto-refresh-dashboards', // owner: @rcmarron
     KAFKA_INSPECTOR: 'kafka-inspector', // owner: @yakkomajuri
