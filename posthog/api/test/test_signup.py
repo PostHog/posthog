@@ -6,7 +6,6 @@ from unittest.mock import ANY, patch
 
 import pytest
 import pytz
-from constance.test import override_config
 from django.core import mail
 from django.urls.base import reverse
 from django.utils import timezone
@@ -14,6 +13,7 @@ from rest_framework import status
 
 from posthog.constants import AvailableFeature
 from posthog.models import Dashboard, Organization, Team, User
+from posthog.models.instance_setting import override_instance_config
 from posthog.models.organization import OrganizationInvite, OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
 from posthog.test.base import APIBaseTest
@@ -790,23 +790,24 @@ class TestInviteSignup(APIBaseTest):
 
         self.assertEqual(len(mail.outbox), 0)
 
-    @override_config(EMAIL_HOST="localhost")
     def test_api_invite_sign_up_member_joined_email_is_sent_for_next_members(self):
-        initial_user = User.objects.create_and_join(self.organization, "test+420@posthog.com", None)
+        with override_instance_config("EMAIL_HOST", "localhost"):
+            initial_user = User.objects.create_and_join(self.organization, "test+420@posthog.com", None)
 
-        invite: OrganizationInvite = OrganizationInvite.objects.create(
-            target_email="test+100@posthog.com", organization=self.organization,
-        )
-
-        with self.settings(EMAIL_ENABLED=True, SITE_URL="http://test.posthog.com"):
-            response = self.client.post(
-                f"/api/signup/{invite.id}/", {"first_name": "Alice", "password": "test_password", "email_opt_in": True},
+            invite: OrganizationInvite = OrganizationInvite.objects.create(
+                target_email="test+100@posthog.com", organization=self.organization,
             )
 
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+            with self.settings(EMAIL_ENABLED=True, SITE_URL="http://test.posthog.com"):
+                response = self.client.post(
+                    f"/api/signup/{invite.id}/",
+                    {"first_name": "Alice", "password": "test_password", "email_opt_in": True},
+                )
 
-        self.assertEqual(len(mail.outbox), 1)
-        self.assertListEqual(mail.outbox[0].to, [initial_user.email])
+            self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+            self.assertEqual(len(mail.outbox), 1)
+            self.assertListEqual(mail.outbox[0].to, [initial_user.email])
 
     def test_api_invite_sign_up_member_joined_email_is_not_sent_if_disabled(self):
         self.organization.is_member_join_email_enabled = False

@@ -118,6 +118,7 @@ class Filter(
             raise ValueError("You need to define either a data dict or a request")
 
         self._data = data
+
         self.kwargs = kwargs
 
         if "team" in kwargs and not self.is_simplified:

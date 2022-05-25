@@ -16,7 +16,7 @@ import { FunnelLayout } from 'lib/constants'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 
-import { secondaryMetricsLogicType } from './secondaryMetricsLogicType'
+import type { secondaryMetricsLogicType } from './secondaryMetricsLogicType'
 import { dayjs } from 'lib/dayjs'
 
 const DEFAULT_DURATION = 14
@@ -42,7 +42,7 @@ export interface SecondaryMetricsProps {
     initialMetrics: SecondaryExperimentMetric[]
 }
 
-export const secondaryMetricsLogic = kea<secondaryMetricsLogicType<SecondaryMetricsProps>>({
+export const secondaryMetricsLogic = kea<secondaryMetricsLogicType>({
     props: {} as SecondaryMetricsProps,
     path: ['scenes', 'experiment', 'secondaryMetricsLogic'],
     connect: { values: [teamLogic, ['currentTeamId']] },
@@ -126,7 +126,7 @@ export const secondaryMetricsLogic = kea<secondaryMetricsLogicType<SecondaryMetr
                     insight: InsightType.FUNNELS,
                     funnel_viz_type: FunnelVizType.Steps,
                     display: ChartDisplayType.FunnelViz,
-                    date_from: dayjs().subtract(DEFAULT_DURATION, 'day').format('YYYY-MM-DDTHH:mm'),
+                    date_from: dayjs().subtract(DEFAULT_DURATION, 'day').format('YYYY-MM-DD'),
                     date_to: dayjs().endOf('d').format('YYYY-MM-DDTHH:mm'),
                     layout: FunnelLayout.horizontal,
                     ...filters,
@@ -134,7 +134,7 @@ export const secondaryMetricsLogic = kea<secondaryMetricsLogicType<SecondaryMetr
             } else {
                 newInsightFilters = cleanFilters({
                     insight: InsightType.TRENDS,
-                    date_from: dayjs().subtract(DEFAULT_DURATION, 'day').format('YYYY-MM-DDTHH:mm'),
+                    date_from: dayjs().subtract(DEFAULT_DURATION, 'day').format('YYYY-MM-DD'),
                     date_to: dayjs().endOf('d').format('YYYY-MM-DDTHH:mm'),
                     ...filters,
                 })

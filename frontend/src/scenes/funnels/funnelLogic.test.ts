@@ -349,6 +349,7 @@ describe('funnelLogic', () => {
     }
 
     async function initFunnelLogic(props: InsightLogicProps = defaultProps): Promise<void> {
+        teamLogic.mount()
         await expectLogic(teamLogic).toFinishAllListeners()
         userLogic.mount()
         await expectLogic(userLogic).toFinishAllListeners()
@@ -558,6 +559,7 @@ describe('funnelLogic', () => {
                     step: {
                         action_id: '$pageview',
                         average_conversion_time: 0,
+                        median_conversion_time: 0,
                         count: 1,
                         name: '$pageview',
                         order: 0,

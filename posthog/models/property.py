@@ -45,6 +45,8 @@ OperatorType = Literal[
     "not_regex",
     "gt",
     "lt",
+    "gte",
+    "lte",
     "is_set",
     "is_not_set",
     "is_date_exact",

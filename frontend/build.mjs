@@ -9,6 +9,31 @@ import {
     buildInParallel,
     copyIndexHtml,
 } from './utils.mjs'
+import fse from 'fs-extra'
+
+let server
+function startDevServer() {
+    if (isDev) {
+        console.log(`👀 Starting dev server`)
+        return startServer()
+    } else {
+        console.log(`🛳 Starting production build`)
+        return null
+    }
+}
+
+export function writeSourceCodeEditorTypes() {
+    const readFile = (p) => fse.readFileSync(path.resolve(__dirname, p), { encoding: 'utf-8' })
+    const types = {
+        'react/index.d.ts': readFile('../node_modules/@types/react/index.d.ts'),
+        'react/global.d.ts': readFile('../node_modules/@types/react/global.d.ts'),
+        'kea/index.d.ts': readFile('../node_modules/kea/lib/index.d.ts'),
+    }
+    fse.writeFileSync(
+        path.resolve(__dirname, './src/scenes/plugins/source/types/packages.json'),
+        JSON.stringify(types, null, 4) + '\n'
+    )
+}
 
 export function writeIndexHtml(chunks = {}, entrypoints = []) {
     copyIndexHtml('src/index.html', 'dist/index.html', 'index', chunks, entrypoints)
@@ -19,19 +44,13 @@ export function writeSharedDashboardHtml(chunks = {}, entrypoints = []) {
     copyIndexHtml('src/shared_dashboard.html', 'dist/shared_dashboard.html', 'shared_dashboard', chunks, entrypoints)
 }
 
-let server
-if (isDev) {
-    console.log(`👀 Starting dev server`)
-    server = startServer()
-} else {
-    console.log(`🛳 Starting production build`)
-}
-let buildsInProgress = 0
-
+startDevServer()
 copyPublicFolder()
+writeSourceCodeEditorTypes()
 writeIndexHtml()
 writeSharedDashboardHtml()
 
+let buildsInProgress = 0
 buildInParallel(
     [
         {

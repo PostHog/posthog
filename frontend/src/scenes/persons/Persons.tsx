@@ -1,7 +1,7 @@
 import React from 'react'
 import { useValues, useActions, BindLogic } from 'kea'
 import { PersonsTable } from './PersonsTable'
-import { Popconfirm, Row } from 'antd'
+import { Popconfirm } from 'antd'
 import { personsLogic } from './personsLogic'
 import { CohortType } from '~/types'
 import { PersonsSearch } from './PersonsSearch'
@@ -37,9 +37,9 @@ export function PersonsScene(): JSX.Element {
     return (
         <div className="persons-list">
             {!cohortId && <PersonPageHeader />}
-            <Row align="middle" justify="space-between" className="mb-05" style={{ gap: '0.75rem' }}>
-                <PersonsSearch autoFocus={!cohortId} />
-                <div>
+            <div className="space-y-05">
+                <div className="space-between-items" style={{ gap: '0.75rem' }}>
+                    <PersonsSearch autoFocus={!cohortId} />
                     <Popconfirm
                         placement="topRight"
                         title={
@@ -65,26 +65,26 @@ export function PersonsScene(): JSX.Element {
                         )}
                     </Popconfirm>
                 </div>
-            </Row>
-            <PropertyFilters
-                pageKey="persons-list-page"
-                propertyFilters={listFilters.properties}
-                onChange={(properties) => {
-                    setListFilters({ properties })
-                    loadPersons()
-                }}
-                endpoint="person"
-                taxonomicGroupTypes={[TaxonomicFilterGroupType.PersonProperties, TaxonomicFilterGroupType.Cohorts]}
-                showConditionBadge
-            />
-            <PersonsTable
-                people={persons.results}
-                loading={personsLoading}
-                hasPrevious={!!persons.previous}
-                hasNext={!!persons.next}
-                loadPrevious={() => loadPersons(persons.previous)}
-                loadNext={() => loadPersons(persons.next)}
-            />
+                <PropertyFilters
+                    pageKey="persons-list-page"
+                    propertyFilters={listFilters.properties}
+                    onChange={(properties) => {
+                        setListFilters({ properties })
+                        loadPersons()
+                    }}
+                    endpoint="person"
+                    taxonomicGroupTypes={[TaxonomicFilterGroupType.PersonProperties, TaxonomicFilterGroupType.Cohorts]}
+                    showConditionBadge
+                />
+                <PersonsTable
+                    people={persons.results}
+                    loading={personsLoading}
+                    hasPrevious={!!persons.previous}
+                    hasNext={!!persons.next}
+                    loadPrevious={() => loadPersons(persons.previous)}
+                    loadNext={() => loadPersons(persons.next)}
+                />
+            </div>
         </div>
     )
 }

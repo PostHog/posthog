@@ -1,9 +1,8 @@
-/* This file contains the logic to report custom frontend events */
 import { kea } from 'kea'
 import { isPostHogProp, keyMappingKeys } from 'lib/components/PropertyKeyInfo'
 import posthog from 'posthog-js'
 import { userLogic } from 'scenes/userLogic'
-import { eventUsageLogicType } from './eventUsageLogicType'
+import type { eventUsageLogicType } from './eventUsageLogicType'
 import {
     AnnotationType,
     FilterType,
@@ -23,6 +22,7 @@ import {
     Experiment,
     PropertyGroupFilter,
     FilterLogicalOperator,
+    PropertyFilterValue,
 } from '~/types'
 import { dayjs } from 'lib/dayjs'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -103,6 +103,13 @@ function hasGroupProperties(properties: AnyPropertyFilter[] | PropertyGroupFilte
     return !!flattenedProperties && flattenedProperties.some((property) => property.group_type_index != undefined)
 }
 
+function usedCohortFilterIds(properties: AnyPropertyFilter[] | PropertyGroupFilter | undefined): PropertyFilterValue[] {
+    const flattenedProperties = convertPropertyGroupToProperties(properties)
+    const cohortIds = flattenedProperties?.filter((p) => p.type === 'cohort').map((p) => p.value)
+
+    return cohortIds || []
+}
+
 /*
     Takes a full list of filters for an insight and sanitizes any potentially sensitive info to report usage
 */
@@ -114,7 +121,6 @@ function sanitizeFilterParams(filters: Partial<FilterType>): Record<string, any>
         date_to,
         filter_test_accounts,
         formula,
-        insight,
         funnel_viz_type,
         funnel_from_step,
         funnel_to_step,
@@ -151,6 +157,7 @@ function sanitizeFilterParams(filters: Partial<FilterType>): Record<string, any>
     const breakdown_by_groups = filters.breakdown_group_type_index != undefined
     // If groups are being used in this query
     let using_groups = hasGroupProperties(filters.properties)
+    const used_cohort_filter_ids = usedCohortFilterIds(filters.properties)
 
     for (const entity of entities) {
         properties_local = properties_local.concat(flattenProperties(entity.properties || []))
@@ -163,7 +170,6 @@ function sanitizeFilterParams(filters: Partial<FilterType>): Record<string, any>
     const properties_global = flattenProperties(properties)
 
     return {
-        insight,
         display,
         interval,
         date_from,
@@ -184,17 +190,11 @@ function sanitizeFilterParams(filters: Partial<FilterType>): Record<string, any>
         aggregating_by_groups,
         breakdown_by_groups,
         using_groups: using_groups || aggregating_by_groups || breakdown_by_groups,
+        used_cohort_filter_ids,
     }
 }
 
-export const eventUsageLogic = kea<
-    eventUsageLogicType<
-        DashboardEventSource,
-        GraphSeriesAddedSource,
-        RecordingWatchedSource,
-        SessionRecordingFilterType
-    >
->({
+export const eventUsageLogic = kea<eventUsageLogicType>({
     path: ['lib', 'utils', 'eventUsageLogic'],
     connect: {
         values: [preflightLogic, ['realm'], userLogic, ['user']],
@@ -273,6 +273,7 @@ export const eventUsageLogic = kea<
             dateFrom,
             dateTo,
         }),
+        reportDashboardPropertiesChanged: true,
         reportDashboardPinToggled: (pinned: boolean, source: DashboardEventSource) => ({
             pinned,
             source,
@@ -289,7 +290,7 @@ export const eventUsageLogic = kea<
         reportTimezoneComponentViewed: (
             component: 'label' | 'indicator',
             project_timezone?: string,
-            device_timezone?: string
+            device_timezone?: string | null
         ) => ({ component, project_timezone, device_timezone }),
         reportTestAccountFiltersUpdated: (filters: Record<string, any>[]) => ({ filters }),
         reportProjectHomeItemClicked: (
@@ -705,6 +706,9 @@ export const eventUsageLogic = kea<
                 date_from: dateFrom?.toString(),
                 date_to: dateTo?.toString(),
             })
+        },
+        reportDashboardPropertiesChanged: async () => {
+            posthog.capture(`dashboard properties changed`)
         },
         reportDashboardPinToggled: async (payload) => {
             posthog.capture(`dashboard pin toggled`, payload)

@@ -2,12 +2,11 @@ import { kea } from 'kea'
 import { convertPropertyGroupToProperties, toParams } from 'lib/utils'
 import { router } from 'kea-router'
 import api from 'lib/api'
-import { eventsTableLogicType } from './eventsTableLogicType'
+import type { eventsTableLogicType } from './eventsTableLogicType'
 import { FixedFilters } from 'scenes/events/EventsTable'
 import { AnyPropertyFilter, EventsTableRowItem, EventType, PropertyFilter, PropertyGroupFilter } from '~/types'
 import { teamLogic } from '../teamLogic'
 import { dayjs, now } from 'lib/dayjs'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { lemonToast } from 'lib/components/lemonToast'
 
 const DAYS_FIRST_FETCH = 5
@@ -60,7 +59,7 @@ export interface ApiError {
     statusText?: string
 }
 
-export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLogicProps, OnFetchEventsSuccess>>({
+export const eventsTableLogic = kea<eventsTableLogicType>({
     path: (key) => ['scenes', 'events', 'eventsTableLogic', key],
     props: {} as EventsTableLogicProps,
     // Set a unique key based on the fixed filters.
@@ -70,7 +69,7 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
             .filter((keyPart) => !!keyPart)
             .join('-'),
     connect: {
-        values: [teamLogic, ['currentTeamId'], featureFlagLogic, ['featureFlags']],
+        values: [teamLogic, ['currentTeamId']],
     },
     actions: {
         setPollingActive: (pollingActive: boolean) => ({

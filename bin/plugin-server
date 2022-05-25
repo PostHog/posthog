@@ -22,12 +22,10 @@ while test $# -gt 0; do
 done
 
 export BASE_DIR=$(dirname $(dirname "$PWD/${0#./}"))
-# Fall back to default KAFKA_URL value if not set - sync with settings/data_stores.py
-export KAFKA_URL=${KAFKA_URL:-'kafka://kafka:9092'}
-# Crudely extract netlocs by removing "kafka://" in a compatibility approach
-export KAFKA_HOSTS=${KAFKA_HOSTS:-$(echo $KAFKA_URL | sed -e "s/kafka\(\+ssl\)\{0,1\}:\/\///g")}
-# Make sure KAFKA_ENABLED is true - eventually this should be redundant
-export KAFKA_ENABLED="true"
+# If KAFKA_URL is set, extract netlocs into KAFKA_HOSTS by removing "kafka://" in a compatibility approach
+if [ -n "$KAFKA_URL" ]; then
+  export KAFKA_HOSTS=$(echo $KAFKA_URL | sed -e "s/kafka\(\+ssl\)\{0,1\}:\/\///g")
+fi
 
 ./bin/migrate-check
 

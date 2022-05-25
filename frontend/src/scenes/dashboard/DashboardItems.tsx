@@ -81,6 +81,7 @@ export function DashboardItems(): JSX.Element {
                     <InsightCard
                         key={item.short_id}
                         insight={item}
+                        dashboardId={dashboard?.id}
                         loading={isRefreshing(item.short_id)}
                         apiErrored={refreshStatus[item.short_id]?.error || false}
                         highlighted={highlightedInsightId && item.short_id === highlightedInsightId}

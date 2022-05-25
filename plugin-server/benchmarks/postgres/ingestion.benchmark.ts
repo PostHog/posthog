@@ -3,8 +3,7 @@ import { DateTime } from 'luxon'
 import * as os from 'os'
 import { performance } from 'perf_hooks'
 
-import { IEvent } from '../../src/config/idl/protos'
-import { Hub, LogLevel, SessionRecordingEvent, Team } from '../../src/types'
+import { Hub, LogLevel, PreIngestionEvent, Team } from '../../src/types'
 import { createHub } from '../../src/utils/db/hub'
 import { UUIDT } from '../../src/utils/utils'
 import { EventsProcessor } from '../../src/worker/ingestion/process-event'
@@ -22,11 +21,10 @@ describe('ingestion benchmarks', () => {
     let eventsProcessor: EventsProcessor
     let now = DateTime.utc()
 
-    async function processOneEvent(): Promise<IEvent | SessionRecordingEvent> {
+    async function processOneEvent(): Promise<PreIngestionEvent> {
         return await eventsProcessor.processEvent(
             'my_id',
             '127.0.0.1',
-            'http://localhost',
             {
                 event: 'default event',
                 timestamp: now.toISO(),

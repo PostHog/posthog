@@ -1,16 +1,14 @@
 import re
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
-import posthoganalytics
 import pytz
-from constance import config
 from django.contrib.postgres.fields import ArrayField
 from django.core.validators import MinLengthValidator
 from django.db import models
 
 from posthog.constants import AvailableFeature
 from posthog.helpers.dashboard_templates import create_dashboard_from_template
-from posthog.models.filters.mixins.utils import cached_property
+from posthog.models.instance_setting import get_instance_setting
 from posthog.settings.utils import get_list
 from posthog.utils import GenericEmails
 
@@ -125,7 +123,7 @@ class Team(UUIDClassicModel):
     # Switches _most_ queries to using distinct_id as aggregator instead of person_id
     @property
     def aggregate_users_by_distinct_id(self) -> bool:
-        return str(self.pk) in get_list(config.AGGREGATE_BY_DISTINCT_IDS_TEAMS)
+        return str(self.pk) in get_list(get_instance_setting("AGGREGATE_BY_DISTINCT_IDS_TEAMS"))
 
     # This correlation_config is intended to be used initially for
     # `excluded_person_property_names` but will be used as a general config
@@ -186,24 +184,13 @@ class Team(UUIDClassicModel):
             return requesting_parent_membership.level
 
     @property
-    def timezone_for_charts(self) -> str:
-        """
-        Stopgap function for rolling this feature out
-        """
-        if self.timezone != "UTC" and self._timezone_feature_flag_enabled:
-            return self.timezone
-        return "UTC"
-
-    @cached_property
-    def _timezone_feature_flag_enabled(self) -> bool:
-        distinct_id = self.organization.members.filter(is_active=True).first().distinct_id
-        return posthoganalytics.feature_enabled(
-            "timezone-for-charts", distinct_id, groups={"organization": str(self.organization_id)}
-        )
+    def behavioral_cohort_querying_enabled(self) -> bool:
+        return str(self.pk) in get_list(get_instance_setting("NEW_COHORT_QUERY_TEAMS"))
 
     @property
-    def behavioral_cohort_querying_enabled(self) -> bool:
-        return str(self.pk) in get_list(config.NEW_COHORT_QUERY_TEAMS)
+    def actor_on_events_querying_enabled(self) -> bool:
+        enabled_teams = get_list(get_instance_setting("ENABLE_ACTOR_ON_EVENTS_TEAMS"))
+        return str(self.pk) in enabled_teams or "all" in enabled_teams
 
     def __str__(self):
         if self.name:

@@ -70,7 +70,8 @@
                                     e.team_id as team_id,
                                     e.distinct_id as distinct_id,
                                     e.timestamp as timestamp,
-                                    pdi.person_id as aggregation_target
+                                    pdi.person_id as aggregation_target,
+                                    pdi.person_id as person_id
                              FROM events e
                              INNER JOIN
                                (SELECT distinct_id,
@@ -81,8 +82,8 @@
                                 HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                              WHERE team_id = 2
                                AND event IN ['step one', 'step three', 'step two']
-                               AND timestamp >= toDateTime('2021-06-07 00:00:00', 'UTC')
-                               AND timestamp <= toDateTime('2021-06-13 23:59:59', 'UTC') ) events
+                               AND timestamp >= toDateTime('2021-06-07 00:00:00')
+                               AND timestamp <= toDateTime('2021-06-13 23:59:59') ) events
                           WHERE (step_0 = 1
                                  OR step_1 = 1
                                  OR step_2 = 1) ))))
@@ -183,7 +184,8 @@
                               e.team_id as team_id,
                               e.distinct_id as distinct_id,
                               e.timestamp as timestamp,
-                              pdi.person_id as aggregation_target
+                              pdi.person_id as aggregation_target,
+                              pdi.person_id as person_id
                        FROM events e
                        INNER JOIN
                          (SELECT distinct_id,
@@ -193,8 +195,8 @@
                           GROUP BY distinct_id
                           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                        WHERE team_id = 2
-                         AND timestamp >= toDateTime('2021-06-07 00:00:00', 'UTC')
-                         AND timestamp <= toDateTime('2021-06-13 23:59:59', 'UTC') ) events
+                         AND timestamp >= toDateTime('2021-06-07 00:00:00')
+                         AND timestamp <= toDateTime('2021-06-13 23:59:59') ) events
                     WHERE (1=1) ))
               WHERE step_0 = 1 ))
         GROUP BY aggregation_target,
@@ -291,7 +293,8 @@
                               e.team_id as team_id,
                               e.distinct_id as distinct_id,
                               e.timestamp as timestamp,
-                              pdi.person_id as aggregation_target
+                              pdi.person_id as aggregation_target,
+                              pdi.person_id as person_id
                        FROM events e
                        INNER JOIN
                          (SELECT distinct_id,
@@ -302,8 +305,8 @@
                           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                        WHERE team_id = 2
                          AND event IN ['step one', 'step three', 'step two']
-                         AND timestamp >= toDateTime('2021-06-07 00:00:00', 'UTC')
-                         AND timestamp <= toDateTime('2021-06-13 23:59:59', 'UTC') ) events
+                         AND timestamp >= toDateTime('2021-06-07 00:00:00')
+                         AND timestamp <= toDateTime('2021-06-13 23:59:59') ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1
                            OR step_2 = 1) ))
@@ -341,7 +344,8 @@
                               e.team_id as team_id,
                               e.distinct_id as distinct_id,
                               e.timestamp as timestamp,
-                              pdi.person_id as aggregation_target
+                              pdi.person_id as aggregation_target,
+                              pdi.person_id as person_id
                        FROM events e
                        INNER JOIN
                          (SELECT distinct_id,
@@ -352,8 +356,8 @@
                           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                        WHERE team_id = 2
                          AND event IN ['step one', 'step three', 'step two']
-                         AND timestamp >= toDateTime('2021-06-07 00:00:00', 'UTC')
-                         AND timestamp <= toDateTime('2021-06-13 23:59:59', 'UTC') ) events
+                         AND timestamp >= toDateTime('2021-06-07 00:00:00')
+                         AND timestamp <= toDateTime('2021-06-13 23:59:59') ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1
                            OR step_2 = 1) ))
@@ -391,7 +395,8 @@
                               e.team_id as team_id,
                               e.distinct_id as distinct_id,
                               e.timestamp as timestamp,
-                              pdi.person_id as aggregation_target
+                              pdi.person_id as aggregation_target,
+                              pdi.person_id as person_id
                        FROM events e
                        INNER JOIN
                          (SELECT distinct_id,
@@ -402,8 +407,8 @@
                           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                        WHERE team_id = 2
                          AND event IN ['step one', 'step three', 'step two']
-                         AND timestamp >= toDateTime('2021-06-07 00:00:00', 'UTC')
-                         AND timestamp <= toDateTime('2021-06-13 23:59:59', 'UTC') ) events
+                         AND timestamp >= toDateTime('2021-06-07 00:00:00')
+                         AND timestamp <= toDateTime('2021-06-13 23:59:59') ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1
                            OR step_2 = 1) ))

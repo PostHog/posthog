@@ -28,7 +28,7 @@ export function PluginJobOptions({ plugin, pluginConfigId }: PluginJobOptionsPro
                 return (
                     <div key={jobName}>
                         {jobName === 'Export historical events' ? (
-                            <Tooltip title="Run this plugin on all historical events ingested until now">
+                            <Tooltip title="Run this app on all historical events ingested until now">
                                 <i>Export historical events</i>
                             </Tooltip>
                         ) : (

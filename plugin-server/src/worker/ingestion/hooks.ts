@@ -1,13 +1,13 @@
-import { PluginEvent } from '@posthog/plugin-scaffold'
 import { captureException } from '@sentry/node'
 import { StatsD } from 'hot-shots'
 import fetch from 'node-fetch'
 import { format } from 'util'
 
-import { Action, Hook, Person } from '../../types'
+import { Action, Hook, IngestionEvent, Person } from '../../types'
 import { CachedPersonData, DB } from '../../utils/db/db'
 import { stringify } from '../../utils/utils'
 import { OrganizationManager } from './organization-manager'
+import { SiteUrlManager } from './site-url-manager'
 import { TeamManager } from './team-manager'
 
 export enum WebhookType {
@@ -28,7 +28,7 @@ export function determineWebhookType(url: string): WebhookType {
 }
 
 export function getUserDetails(
-    event: PluginEvent,
+    event: IngestionEvent,
     person: CachedPersonData | Person | undefined,
     siteUrl: string,
     webhookType: WebhookType
@@ -37,13 +37,13 @@ export function getUserDetails(
         return ['undefined', 'undefined']
     }
     const userName = stringify(
-        person.properties?.email || person.properties?.name || person.properties?.username || event.distinct_id
+        person.properties?.email || person.properties?.name || person.properties?.username || event.distinctId
     )
     let userMarkdown: string
     if (webhookType === WebhookType.Slack) {
-        userMarkdown = `<${siteUrl}/person/${event.distinct_id}|${userName}>`
+        userMarkdown = `<${siteUrl}/person/${event.distinctId}|${userName}>`
     } else {
-        userMarkdown = `[${userName}](${siteUrl}/person/${event.distinct_id})`
+        userMarkdown = `[${userName}](${siteUrl}/person/${event.distinctId})`
     }
     return [userName, userMarkdown]
 }
@@ -73,7 +73,7 @@ export function getTokens(messageFormat: string): [string[], string] {
 
 export function getValueOfToken(
     action: Action,
-    event: PluginEvent,
+    event: IngestionEvent,
     person: CachedPersonData | Person | undefined,
     siteUrl: string,
     webhookType: WebhookType,
@@ -110,7 +110,7 @@ export function getValueOfToken(
         if (tokenParts[1] === 'name') {
             text = stringify(event.event)
         } else if (tokenParts[1] === 'distinct_id') {
-            text = stringify(event.distinct_id)
+            text = stringify(event.distinctId)
         } else if (tokenParts[1] === 'properties' && tokenParts.length > 2) {
             const propertyName = tokenParts[2]
             const property = event.properties?.[propertyName]
@@ -125,7 +125,7 @@ export function getValueOfToken(
 
 export function getFormattedMessage(
     action: Action,
-    event: PluginEvent,
+    event: IngestionEvent,
     person: CachedPersonData | Person | undefined,
     siteUrl: string,
     webhookType: WebhookType
@@ -161,26 +161,33 @@ export class HookCommander {
     db: DB
     teamManager: TeamManager
     organizationManager: OrganizationManager
+    siteUrlManager: SiteUrlManager
     statsd: StatsD | undefined
 
-    constructor(db: DB, teamManager: TeamManager, organizationManager: OrganizationManager, statsd?: StatsD) {
+    constructor(
+        db: DB,
+        teamManager: TeamManager,
+        organizationManager: OrganizationManager,
+        siteUrlManager: SiteUrlManager,
+        statsd?: StatsD
+    ) {
         this.db = db
         this.teamManager = teamManager
         this.organizationManager = organizationManager
+        this.siteUrlManager = siteUrlManager
         this.statsd = statsd
     }
 
     public async findAndFireHooks(
-        event: PluginEvent,
+        event: IngestionEvent,
         person: CachedPersonData | Person | undefined,
-        siteUrl: string,
         actionMatches: Action[]
     ): Promise<void> {
         if (!actionMatches.length) {
             return
         }
 
-        const team = await this.teamManager.fetchTeam(event.team_id)
+        const team = await this.teamManager.fetchTeam(event.teamId)
 
         if (!team) {
             return
@@ -192,7 +199,7 @@ export class HookCommander {
         if (webhookUrl) {
             const webhookRequests = actionMatches
                 .filter((action) => action.post_to_slack)
-                .map((action) => this.postWebhook(webhookUrl, action, event, person, siteUrl))
+                .map((action) => this.postWebhook(webhookUrl, action, event, person))
             await Promise.all(webhookRequests).catch((error) => captureException(error))
         }
 
@@ -204,20 +211,27 @@ export class HookCommander {
                     )
                 )
             ).flat()
+
             const restHookRequests = restHooks.map((hook) => this.postRestHook(hook, event, person))
             await Promise.all(restHookRequests).catch((error) => captureException(error))
+
+            if (restHooks.length > 0) {
+                this.statsd?.increment('zapier_hooks_fired', {
+                    team_id: String(team.id),
+                })
+            }
         }
     }
 
     private async postWebhook(
         webhookUrl: string,
         action: Action,
-        event: PluginEvent,
-        person: CachedPersonData | Person | undefined,
-        siteUrl: string
+        event: IngestionEvent,
+        person: CachedPersonData | Person | undefined
     ): Promise<void> {
         const webhookType = determineWebhookType(webhookUrl)
-        const [messageText, messageMarkdown] = getFormattedMessage(action, event, person, siteUrl, webhookType)
+        const siteUrl = await this.siteUrlManager.getSiteUrl()
+        const [messageText, messageMarkdown] = getFormattedMessage(action, event, person, siteUrl || '', webhookType)
         let message: Record<string, any>
         if (webhookType === WebhookType.Slack) {
             message = {
@@ -235,14 +249,14 @@ export class HookCommander {
             headers: { 'Content-Type': 'application/json' },
         })
         this.statsd?.increment('webhook_firings', {
-            team_id: event.team_id.toString(),
+            team_id: event.teamId.toString(),
             action: action.name || 'unknown',
         })
     }
 
     public async postRestHook(
         hook: Hook,
-        event: PluginEvent,
+        event: IngestionEvent,
         person: CachedPersonData | Person | undefined
     ): Promise<void> {
         let sendablePerson: Record<string, any> = {}

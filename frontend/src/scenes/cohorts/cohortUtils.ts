@@ -302,7 +302,7 @@ export function validateGroup(
                     BehavioralLifecycleType.StopPerformEvent,
                     BehavioralEventType.PerformSequenceEvents,
                 ].includes(c.value as BehavioralLifecycleType | BehavioralEventType)
-                    ? calculateDays(Number(c.seq_time_value) ?? 0, c.seq_time_interval ?? TimeUnitType.Day) >=
+                    ? calculateDays(Number(c.seq_time_value) ?? 0, c.seq_time_interval ?? TimeUnitType.Day) >
                       calculateDays(Number(c.time_value) ?? 0, c.time_interval ?? TimeUnitType.Day)
                         ? {
                               id: CohortClientErrors.SequentialTimeMismatch,
@@ -446,14 +446,14 @@ export function applyAllNestedCriteria(
         filters: {
             properties: {
                 ...oldCohort.filters.properties,
-                values: oldCohort.filters.properties.values.map((group, groupI) =>
+                values: (oldCohort.filters.properties.values?.map((group, groupI) =>
                     (groupIndex === undefined || groupI === groupIndex) && isCohortCriteriaGroup(group)
                         ? {
                               ...group,
                               values: fn(group.values as AnyCohortCriteriaType[]),
                           }
                         : group
-                ) as CohortCriteriaGroupFilter[] | AnyCohortCriteriaType[],
+                ) ?? []) as CohortCriteriaGroupFilter[] | AnyCohortCriteriaType[],
             },
         },
     }

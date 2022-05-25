@@ -21,6 +21,7 @@ import clsx from 'clsx'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { FilterLogicalOperator } from '~/types'
 import { IconPlus } from 'lib/components/icons'
+import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 
 let uniqueMemoizedIndex = 0
 
@@ -83,18 +84,29 @@ export function TaxonomicPropertyFilter({
         />
     )
 
+    const { ref: wrapperRef, size } = useResizeBreakpoints({
+        0: 'tiny',
+        350: 'small',
+        512: 'medium',
+        1280: 'large',
+    })
+
     return (
         <div
-            className={clsx(
-                'taxonomic-property-filter',
-                disablePopover && 'row-on-page',
-                !disablePopover && ' in-dropdown large'
-            )}
+            className={clsx('taxonomic-property-filter', {
+                'in-dropdown': !showInitialSearchInline && !disablePopover,
+            })}
+            ref={wrapperRef}
         >
             {showInitialSearchInline ? (
                 taxonomicFilter
             ) : (
-                <div className={clsx('taxonomic-filter-row', orFiltering && 'logical-operator-filtering')}>
+                <div
+                    className={clsx('taxonomic-filter-row', {
+                        [`width-${size}`]: true,
+                        'logical-operator-filtering': orFiltering,
+                    })}
+                >
                     {orFiltering ? (
                         <>
                             {propertyGroupType && index !== 0 && filter?.key && (

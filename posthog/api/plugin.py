@@ -4,22 +4,23 @@ from typing import Any, Dict, Optional, Set, cast
 
 import requests
 from dateutil.relativedelta import relativedelta
-from django.conf import settings
 from django.core.exceptions import ObjectDoesNotExist
 from django.core.files.uploadedfile import UploadedFile
+from django.db import connection
 from django.db.models import Q
+from django.http import HttpResponse
+from django.utils.encoding import smart_str
 from django.utils.timezone import now
-from rest_framework import request, serializers, status, viewsets
-from rest_framework.decorators import action
+from rest_framework import renderers, request, serializers, status, viewsets
+from rest_framework.decorators import action, renderer_classes
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAuthenticated
 from rest_framework.response import Response
 
 from posthog.api.routing import StructuredViewSetMixin
-from posthog.celery import app as celery_app
 from posthog.models import Plugin, PluginAttachment, PluginConfig, Team
 from posthog.models.organization import Organization
-from posthog.models.plugin import update_validated_data_from_url
+from posthog.models.plugin import PluginSourceFile, update_validated_data_from_url
 from posthog.permissions import (
     OrganizationMemberPermissions,
     ProjectMembershipNecessaryPermissions,
@@ -73,6 +74,13 @@ def _fix_formdata_config_json(request: request.Request, validated_data: dict):
         validated_data["config"] = json.loads(request.POST["config"])
 
 
+class PlainRenderer(renderers.BaseRenderer):
+    format = "txt"
+
+    def render(self, data, accepted_media_type=None, renderer_context=None):
+        return smart_str(data, encoding=self.charset or "utf-8")
+
+
 class PluginsAccessLevelPermission(BasePermission):
     message = "Your organization's plugin access level is insufficient."
 
@@ -106,7 +114,6 @@ class PluginSerializer(serializers.ModelSerializer):
             "url",
             "config_schema",
             "tag",
-            "source",
             "latest_tag",
             "is_global",
             "organization_id",
@@ -176,6 +183,15 @@ class PluginViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
                 return queryset
         return queryset.none()
 
+    def get_plugin_with_permissions(self, reason="installation"):
+        plugin = self.get_object()
+        organization = self.organization
+        if plugin.organization != organization:
+            raise NotFound()
+        if not can_install_plugins(self.organization):
+            raise PermissionDenied(f"Plugin {reason} is not available for the current organization!")
+        return plugin
+
     def filter_queryset_by_parents_lookups(self, queryset):
         try:
             return queryset.filter(Q(**self.parents_query_dict) | Q(is_global=True))
@@ -190,10 +206,7 @@ class PluginViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
     @action(methods=["GET"], detail=True)
     def check_for_updates(self, request: request.Request, **kwargs):
-        if not can_install_plugins(self.organization):
-            raise PermissionDenied("Plugin installation is not available for the current organization!")
-
-        plugin = self.get_object()
+        plugin = self.get_plugin_with_permissions(reason="installation")
         latest_url = parse_url(plugin.url, get_latest_if_none=True)
 
         # use update to not trigger the post_save signal and avoid telling the plugin server to reload vms
@@ -203,15 +216,67 @@ class PluginViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
         return Response({"plugin": PluginSerializer(plugin).data})
 
+    @action(methods=["GET"], detail=True)
+    def source(self, request: request.Request, **kwargs):
+        plugin = self.get_plugin_with_permissions(reason="source editing")
+        response: Dict[str, str] = {}
+        for source in PluginSourceFile.objects.filter(plugin=plugin):
+            response[source.filename] = source.source
+        return Response(response)
+
+    @action(methods=["PATCH"], detail=True)
+    def update_source(self, request: request.Request, **kwargs):
+        plugin = self.get_plugin_with_permissions(reason="source editing")
+        sources: Dict[str, PluginSourceFile] = {}
+        performed_changes = False
+        for source in PluginSourceFile.objects.filter(plugin=plugin):
+            sources[source.filename] = source
+        for key, value in request.data.items():
+            if key not in sources:
+                performed_changes = True
+                sources[key], created = PluginSourceFile.objects.update_or_create(
+                    plugin=plugin, filename=key, defaults={"source": value}
+                )
+            elif sources[key].source != value:
+                performed_changes = True
+                if value is None:
+                    sources[key].delete()
+                    del sources[key]
+                else:
+                    sources[key].source = value
+                    sources[key].status = None
+                    sources[key].transpiled = None
+                    sources[key].error = None
+                    sources[key].save()
+        response: Dict[str, str] = {}
+        for key, source in sources.items():
+            response[source.filename] = source.source
+
+        # Update values from plugin.json, if one exists
+        if response.get("plugin.json"):
+            plugin_json = json.loads(response["plugin.json"])
+            if "name" in plugin_json and plugin_json["name"] != plugin.name:
+                plugin.name = plugin_json.get("name")
+                performed_changes = True
+            if "config" in plugin_json and json.dumps(plugin_json["config"]) != json.dumps(plugin.config_schema):
+                plugin.config_schema = plugin_json["config"]
+                performed_changes = True
+
+        # TODO: Truly deprecate this old field. Keeping the sync just in case for now.
+        if response.get("index.ts") and plugin.source != response["index.ts"]:
+            plugin.source = response["index.ts"]
+            performed_changes = True
+
+        # Save regardless if changed the plugin or plugin source models. This reloads the plugin in the plugin server.
+        if performed_changes:
+            plugin.updated_at = now()
+            plugin.save()
+        return Response(response)
+
     @action(methods=["POST"], detail=True)
     def upgrade(self, request: request.Request, **kwargs):
-        plugin: Plugin = self.get_object()
-        organization = self.organization
-        if plugin.organization != organization:
-            raise NotFound()
-        if not can_install_plugins(self.organization, plugin.organization_id):
-            raise PermissionDenied("Plugin upgrading is not available for the current organization!")
-        serializer = PluginSerializer(plugin, context={"organization": organization})
+        plugin = self.get_plugin_with_permissions(reason="upgrading")
+        serializer = PluginSerializer(plugin, context={"organization": self.organization})
         validated_data = {}
         if plugin.plugin_type != Plugin.PluginType.SOURCE:
             validated_data = update_validated_data_from_url({}, plugin.url)
@@ -354,13 +419,45 @@ class PluginConfigViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         job_payload = job.get("payload", {})
         job_op = job.get("operation", "start")
 
-        celery_app.send_task(
-            name="posthog.tasks.plugins.plugin_job",
-            queue=settings.PLUGINS_CELERY_QUEUE,
-            args=[self.team.pk, plugin_config_id, job_type, job_op, job_payload],
+        payload_json = json.dumps(
+            {
+                "type": job_type,
+                "payload": {**job_payload, **{"$operation": job_op}},
+                "pluginConfigId": plugin_config_id,
+                "pluginConfigTeam": self.team.pk,
+            }
         )
+        sql = f"SELECT graphile_worker.add_job('pluginJob', %s)"
+        params = [payload_json]
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute(sql, params)
+        except Exception as e:
+            raise Exception(f"Failed to execute postgres sql={sql},\nparams={params},\nexception={str(e)}")
 
         return Response(status=200)
+
+    @action(methods=["GET"], detail=True)
+    @renderer_classes((PlainRenderer,))
+    def frontend(self, request: request.Request, **kwargs):
+        plugin_config = self.get_object()
+        plugin_source = PluginSourceFile.objects.filter(
+            plugin_id=plugin_config.plugin_id, filename="frontend.tsx"
+        ).first()
+        if plugin_source and plugin_source.status == PluginSourceFile.Status.TRANSPILED:
+            content = plugin_source.transpiled or ""
+            return HttpResponse(content, content_type="application/javascript; charset=UTF-8")
+
+        obj: Dict[str, Any] = {}
+        if not plugin_source:
+            obj = {"no_frontend": True}
+        elif plugin_source.status is None or plugin_source.status == PluginSourceFile.Status.LOCKED:
+            obj = {"transpiling": True}
+        else:
+            obj = {"error": plugin_source.error or "Error Compiling Plugin"}
+
+        content = f"export function getFrontendApp () {'{'} return {json.dumps(obj)} {'}'}"
+        return HttpResponse(content, content_type="application/javascript; charset=UTF-8")
 
 
 def _get_secret_fields_for_plugin(plugin: Plugin) -> Set[str]:

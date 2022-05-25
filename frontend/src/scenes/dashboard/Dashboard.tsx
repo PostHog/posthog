@@ -15,6 +15,9 @@ import { DashboardReloadAction, LastRefreshText } from 'scenes/dashboard/Dashboa
 import { SceneExport } from 'scenes/sceneTypes'
 import { InsightErrorState } from 'scenes/insights/EmptyStates'
 import { DashboardHeader } from './DashboardHeader'
+import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 interface Props {
     id?: string
@@ -51,7 +54,8 @@ function DashboardScene(): JSX.Element {
         dashboardMode,
         receivedErrorsFromAPI,
     } = useValues(dashboardLogic)
-    const { setDashboardMode, setDates, reportDashboardViewed } = useActions(dashboardLogic)
+    const { setDashboardMode, setDates, reportDashboardViewed, setProperties } = useActions(dashboardLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     useEffect(() => {
         reportDashboardViewed()
@@ -102,24 +106,10 @@ function DashboardScene(): JSX.Element {
                 <EmptyDashboardComponent loading={itemsLoading} />
             ) : (
                 <div>
-                    <div className="dashboard-items-actions">
-                        <div
-                            className="left-item"
-                            style={placement === DashboardPlacement.Public ? { textAlign: 'right' } : undefined}
-                        >
-                            {placement === DashboardPlacement.Public ? <LastRefreshText /> : <DashboardReloadAction />}
-                        </div>
-
-                        {placement !== DashboardPlacement.Public && (
-                            <div
-                                className="right-item"
-                                style={{
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'flex-end',
-                                }}
-                            >
-                                <TZIndicator style={{ marginRight: 8, fontWeight: 'bold' }} />
+                    {placement !== DashboardPlacement.Public && (
+                        <div className="flex pb border-bottom space-x">
+                            <div className="flex-grow flex" style={{ height: 30 }}>
+                                <TZIndicator style={{ marginRight: 8, fontWeight: 'bold', lineHeight: '30px' }} />
                                 <DateFilter
                                     defaultValue="Custom"
                                     showCustom
@@ -135,7 +125,24 @@ function DashboardScene(): JSX.Element {
                                     )}
                                 />
                             </div>
-                        )}
+                            {(featureFlags[FEATURE_FLAGS.PROPERTY_FILTER_ON_DASHBOARD] ||
+                                dashboard?.filters.properties) && (
+                                <PropertyFilters
+                                    onChange={setProperties}
+                                    pageKey={'dashboard_' + dashboard?.id}
+                                    propertyFilters={dashboard?.filters.properties}
+                                    useLemonButton
+                                />
+                            )}
+                        </div>
+                    )}
+                    <div className="flex pt pb space-x dashoard-items-actions">
+                        <div
+                            className="left-item"
+                            style={placement === DashboardPlacement.Public ? { textAlign: 'right' } : undefined}
+                        >
+                            {placement === DashboardPlacement.Public ? <LastRefreshText /> : <DashboardReloadAction />}
+                        </div>
                     </div>
                     <DashboardItems />
                 </div>

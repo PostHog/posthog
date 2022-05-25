@@ -289,7 +289,7 @@ class TestFormula(APIBaseTest):
     def test_compare(self):
         response = self._run({"date_from": "-1dStart", "compare": True})
         self.assertEqual(response[0]["data"], [1350.0, 0.0])
-        self.assertEqual(response[1]["data"], [0, 1200.0, 1350.0])
+        self.assertEqual(response[1]["data"], [1200.0, 1350.0])
 
     def test_pie(self):
         self.assertEqual(self._run({"display": TRENDS_PIE})[0]["aggregated_value"], 2160.0)

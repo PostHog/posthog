@@ -22,11 +22,7 @@ services:
         # Note: please keep the default version in sync across
         #       `posthog` and the `charts-clickhouse` repos
         #
-        # Note2: we are temporary keeping `v21.9.2.17` on ARM64 due to some
-        #        CI issue happening only on this architecture. As we want to
-        #        move forward with the upgrade everywhere else.
-        #        See: https://github.com/PostHog/posthog/issues/8940
-        image: posthog/clickhouse:${CLICKHOUSE_SERVER_IMAGE_VERSION:-v21.9.2.17-stable}
+        image: ${CLICKHOUSE_SERVER_IMAGE:-clickhouse/clickhouse-server:22.3}
         depends_on:
             - kafka
             - zookeeper
@@ -82,6 +78,7 @@ services:
             - redis
             - clickhouse
             - kafka
+            - object_storage
     web:
         <<: *worker
         command: '${CH_WEB_SCRIPT:-./ee/bin/docker-ch-dev-web}'
@@ -107,3 +104,17 @@ services:
             - redis
             - clickhouse
             - kafka
+            - object_storage
+
+    object_storage:
+        image: minio/minio
+        ports:
+            - '19000:19000'
+            - '19001:19001'
+        volumes:
+            - ./object_storage:/data
+        environment:
+            MINIO_ROOT_USER: object_storage_root_user
+            MINIO_ROOT_PASSWORD: object_storage_root_password
+        entrypoint: sh
+        command: -c 'mkdir -p /data/posthog && minio server --address ":19000" --console-address ":19001" /data' # create the 'posthog' bucket before starting the service

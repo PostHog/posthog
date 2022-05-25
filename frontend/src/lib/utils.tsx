@@ -1070,12 +1070,15 @@ export function endWithPunctation(text?: string | null): string {
     return trimmedText
 }
 
-export function shortTimeZone(timeZone?: string, atDate?: Date): string {
+export function shortTimeZone(timeZone?: string, atDate?: Date): string | null {
     /**
      * Return the short timezone identifier for a specific timezone (e.g. BST, EST, PDT, UTC+2).
      * @param timeZone E.g. 'America/New_York'
      * @param atDate
      */
+    if (!timeZone) {
+        return null
+    }
     const date = atDate ? new Date(atDate) : new Date()
     const localeTimeString = date.toLocaleTimeString('en-us', { timeZoneName: 'short', timeZone })
     return localeTimeString.split(' ')[2]
@@ -1181,13 +1184,17 @@ export function sum(input: number[]): number {
     return input.reduce((a, b) => a + b, 0)
 }
 
-export function validateJsonFormItem(_: any, value: string): Promise<string | void> {
+export function validateJson(value: string): boolean {
     try {
         JSON.parse(value)
-        return Promise.resolve()
+        return true
     } catch (error) {
-        return Promise.reject('Not valid JSON!')
+        return false
     }
+}
+
+export function validateJsonFormItem(_: any, value: string): Promise<string | void> {
+    return validateJson(value) ? Promise.resolve() : Promise.reject('Not valid JSON!')
 }
 
 export function ensureStringIsNotBlank(s?: string | null): string | null {

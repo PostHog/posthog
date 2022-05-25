@@ -1,5 +1,4 @@
 import { DateTime } from 'luxon'
-import { PoolClient } from 'pg'
 
 import { startPluginsServer } from '../../src/main/pluginsServer'
 import {
@@ -11,21 +10,16 @@ import {
     Team,
     TimestampFormat,
 } from '../../src/types'
-import { castTimestampOrNow, delay, UUIDT } from '../../src/utils/utils'
+import { castTimestampOrNow, UUIDT } from '../../src/utils/utils'
 import { makePiscina } from '../../src/worker/piscina'
-import { createPosthog, DummyPostHog } from '../../src/worker/vm/extensions/posthog'
-import { resetTestDatabaseClickhouse } from '../helpers/clickhouse'
+import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../helpers/clickhouse'
 import { resetKafka } from '../helpers/kafka'
-import { pluginConfig39 } from '../helpers/plugins'
 import { getFirstTeam, resetTestDatabase } from '../helpers/sql'
-import { delayUntilEventIngested } from '../shared/process-event'
 
 jest.mock('../../src/utils/status')
 jest.setTimeout(60000) // 60 sec timeout
 
 const extraServerConfig: Partial<PluginsServerConfig> = {
-    KAFKA_ENABLED: true,
-    KAFKA_HOSTS: process.env.KAFKA_HOSTS || 'kafka:9092',
     WORKER_CONCURRENCY: 2,
     LOG_LEVEL: LogLevel.Log,
 }
@@ -33,7 +27,6 @@ const extraServerConfig: Partial<PluginsServerConfig> = {
 describe('postgres parity', () => {
     let hub: Hub
     let stopServer: () => Promise<void>
-    let posthog: DummyPostHog
     let team: Team
 
     beforeAll(async () => {
@@ -52,7 +45,6 @@ describe('postgres parity', () => {
         const startResponse = await startPluginsServer(extraServerConfig, makePiscina)
         hub = startResponse.hub
         stopServer = startResponse.stop
-        posthog = createPosthog(hub, pluginConfig39)
         team = await getFirstTeam(hub)
     })
 

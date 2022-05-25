@@ -91,7 +91,9 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         )
         flush_persons_and_events()
 
-        expected_queries = 14  # Django session, PostHog user, PostHog team, PostHog org membership, 2x team(?), person and distinct id, couple of constance inserts
+        expected_queries = (
+            10  # Django session, PostHog user, PostHog team, PostHog org membership, 2x team(?), person and distinct id
+        )
 
         with self.assertNumQueries(expected_queries):
             response = self.client.get(
@@ -571,18 +573,39 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         response_invalid_token = self.client.get(f"/api/projects/{self.team.id}/events?token=invalid")
         self.assertEqual(response_invalid_token.status_code, 401)
 
-    @patch("posthog.api.event.sync_execute")
-    def test_optimize_query(self, patch_sync_execute):
+    @patch("posthog.api.event.query_with_columns")
+    def test_optimize_query(self, patch_query_with_columns):
         #  For ClickHouse we normally only query the last day,
         # but if a user doesn't have many events we still want to return events that are older
-        patch_sync_execute.return_value = [("event", "d", "{}", timezone.now(), "d", "d", "d")]
+        patch_query_with_columns.return_value = [
+            {
+                "uuid": "event",
+                "event": "d",
+                "properties": "{}",
+                "timestamp": timezone.now(),
+                "team_id": "d",
+                "distinct_id": "d",
+                "elements_chain": "d",
+            }
+        ]
         response = self.client.get(f"/api/projects/{self.team.id}/events/").json()
         self.assertEqual(len(response["results"]), 1)
-        self.assertEqual(patch_sync_execute.call_count, 2)
+        self.assertEqual(patch_query_with_columns.call_count, 2)
 
-        patch_sync_execute.return_value = [("event", "d", "{}", timezone.now(), "d", "d", "d") for _ in range(0, 100)]
+        patch_query_with_columns.return_value = [
+            {
+                "uuid": "event",
+                "event": "d",
+                "properties": "{}",
+                "timestamp": timezone.now(),
+                "team_id": "d",
+                "distinct_id": "d",
+                "elements_chain": "d",
+            }
+            for _ in range(0, 100)
+        ]
         response = self.client.get(f"/api/projects/{self.team.id}/events/").json()
-        self.assertEqual(patch_sync_execute.call_count, 3)
+        self.assertEqual(patch_query_with_columns.call_count, 3)
 
     def test_filter_events_by_being_after_properties_with_date_type(self):
         journeys_for(

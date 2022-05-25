@@ -1,8 +1,7 @@
 import { PluginEvent } from '@posthog/plugin-scaffold/src/types'
-import { mocked } from 'ts-jest/utils'
 
-import { Hub, LogLevel, PluginTaskType } from '../src/types'
-import { clearError, processError } from '../src/utils/db/error'
+import { Hub, LogLevel } from '../src/types'
+import { processError } from '../src/utils/db/error'
 import { createHub } from '../src/utils/db/hub'
 import { delay, IllegalOperationError } from '../src/utils/utils'
 import { loadPlugin } from '../src/worker/plugins/loadPlugin'
@@ -81,7 +80,6 @@ describe('plugins', () => {
         const vm = await pluginConfig.vm!.resolveInternalVm
         expect(Object.keys(vm!.methods).sort()).toEqual([
             'exportEvents',
-            'handleAlert',
             'onAction',
             'onEvent',
             'onSnapshot',
@@ -122,7 +120,7 @@ describe('plugins', () => {
         getPluginConfigRows.mockReturnValueOnce([pluginConfig39, { ...pluginConfig39, id: 40, team_id: 1 }])
 
         await setupPlugins(hub)
-        const { plugins, pluginConfigs } = hub
+        const { pluginConfigs } = hub
 
         expect(getPluginRows).toHaveBeenCalled()
         expect(getPluginAttachmentRows).toHaveBeenCalled()
@@ -215,14 +213,14 @@ describe('plugins', () => {
         const pluginConfig = pluginConfigs.get(39)!
         pluginConfig.vm!.totalInitAttemptsCounter = 20 // prevent more retries
         await delay(4000) // processError is called at end of retries
-        expect(await pluginConfig.vm!.getTasks(PluginTaskType.Schedule)).toEqual({})
+        expect(await pluginConfig.vm!.getScheduledTasks()).toEqual({})
 
         const event = { event: '$test', properties: {}, team_id: 2 } as PluginEvent
         const returnedEvent = await runProcessEvent(hub, { ...event })
         expect(returnedEvent).toEqual(event)
 
         expect(processError).toHaveBeenCalledWith(hub, pluginConfig, expect.any(SyntaxError))
-        const error = mocked(processError).mock.calls[0][2]! as Error
+        const error = jest.mocked(processError).mock.calls[0][2]! as Error
         expect(error.message).toContain(': Unexpected token, expected ","')
     })
 
@@ -242,14 +240,14 @@ describe('plugins', () => {
         const pluginConfig = pluginConfigs.get(39)!
         pluginConfig.vm!.totalInitAttemptsCounter = 20 // prevent more retries
         await delay(4000) // processError is called at end of retries
-        expect(await pluginConfig.vm!.getTasks(PluginTaskType.Schedule)).toEqual({})
+        expect(await pluginConfig.vm!.getScheduledTasks()).toEqual({})
 
         const event = { event: '$test', properties: {}, team_id: 2 } as PluginEvent
         const returnedEvent = await runProcessEvent(hub, { ...event })
         expect(returnedEvent).toEqual(event)
 
         expect(processError).toHaveBeenCalledWith(hub, pluginConfig, expect.any(SyntaxError))
-        const error = mocked(processError).mock.calls[0][2]! as Error
+        const error = jest.mocked(processError).mock.calls[0][2]! as Error
         expect(error.message).toContain(': Unexpected token, expected ","')
 
         unlink()
@@ -311,7 +309,7 @@ describe('plugins', () => {
         await setupPlugins(hub)
         const { pluginConfigs } = hub
 
-        expect(await pluginConfigs.get(39)!.vm!.getTasks(PluginTaskType.Schedule)).toEqual({})
+        expect(await pluginConfigs.get(39)!.vm!.getScheduledTasks()).toEqual({})
 
         const event = { event: '$test', properties: {}, team_id: 2 } as PluginEvent
         const returnedEvent = await runProcessEvent(hub, { ...event })
@@ -345,7 +343,7 @@ describe('plugins', () => {
         await setupPlugins(hub)
         const { pluginConfigs } = hub
 
-        expect(await pluginConfigs.get(39)!.vm!.getTasks(PluginTaskType.Schedule)).toEqual({})
+        expect(await pluginConfigs.get(39)!.vm!.getScheduledTasks()).toEqual({})
 
         const event = { event: '$test', properties: {}, team_id: 2 } as PluginEvent
         const returnedEvent = await runProcessEvent(hub, { ...event })
@@ -379,7 +377,7 @@ describe('plugins', () => {
         await setupPlugins(hub)
         const { pluginConfigs } = hub
 
-        expect(await pluginConfigs.get(39)!.vm!.getTasks(PluginTaskType.Schedule)).toEqual({})
+        expect(await pluginConfigs.get(39)!.vm!.getScheduledTasks()).toEqual({})
 
         const event = { event: '$test', properties: {}, team_id: 2 } as PluginEvent
         const returnedEvent = await runProcessEvent(hub, { ...event })
@@ -415,10 +413,10 @@ describe('plugins', () => {
         expect(processError).toHaveBeenCalledWith(
             hub,
             pluginConfigs.get(39)!,
-            `Can not load plugin.json for plugin test-maxmind-plugin ID ${plugin60.id} (organization ID ${commonOrganizationId})`
+            `Could not load "plugin.json" for plugin test-maxmind-plugin ID ${plugin60.id} (organization ID ${commonOrganizationId})`
         )
 
-        expect(await pluginConfigs.get(39)!.vm!.getTasks(PluginTaskType.Schedule)).toEqual({})
+        expect(await pluginConfigs.get(39)!.vm!.getScheduledTasks()).toEqual({})
     })
 
     test('local plugin with broken plugin.json does not do much', async () => {
@@ -440,9 +438,9 @@ describe('plugins', () => {
         expect(processError).toHaveBeenCalledWith(
             hub,
             pluginConfigs.get(39)!,
-            expect.stringContaining('Could not load posthog config at ')
+            expect.stringContaining('Could not load "plugin.json" for plugin ')
         )
-        expect(await pluginConfigs.get(39)!.vm!.getTasks(PluginTaskType.Schedule)).toEqual({})
+        expect(await pluginConfigs.get(39)!.vm!.getScheduledTasks()).toEqual({})
 
         unlink()
     })
@@ -463,9 +461,9 @@ describe('plugins', () => {
         expect(processError).toHaveBeenCalledWith(
             hub,
             pluginConfigs.get(39)!,
-            `Tried using undownloaded remote plugin test-maxmind-plugin ID ${plugin60.id} (organization ID ${commonOrganizationId} - global), which is not supported!`
+            `Plugin plugin test-maxmind-plugin ID ${plugin60.id} (organization ID ${commonOrganizationId} - global) is not a local, remote or source plugin. Can not load.`
         )
-        expect(await pluginConfigs.get(39)!.vm!.getTasks(PluginTaskType.Schedule)).toEqual({})
+        expect(await pluginConfigs.get(39)!.vm!.getScheduledTasks()).toEqual({})
     })
 
     test("plugin with broken archive doesn't load", async () => {
@@ -486,24 +484,23 @@ describe('plugins', () => {
             pluginConfigs.get(39)!,
             Error('Could not read archive as .zip or .tgz')
         )
-        expect(await pluginConfigs.get(39)!.vm!.getTasks(PluginTaskType.Schedule)).toEqual({})
+        expect(await pluginConfigs.get(39)!.vm!.getScheduledTasks()).toEqual({})
     })
 
     test('plugin config order', async () => {
-        const setOrderCode = (id: number) => {
-            return `
-            function processEvent(event) {
-                if (!event.properties.plugins) { event.properties.plugins = [] }
-                event.properties.plugins.push(${id})
-                return event
-            }
-        `
-        }
-
+        hub.db.getPluginSource = (pluginId, filename) =>
+            Promise.resolve(
+                filename === 'index.ts'
+                    ? `function processEvent(event) {
+                         event.properties.plugins = [...(event.properties.plugins || []), ${pluginId}]
+                         return event
+                       }`
+                    : null
+            )
         getPluginRows.mockReturnValueOnce([
-            { ...plugin60, id: 60, plugin_type: 'source', archive: null, source: setOrderCode(60) },
-            { ...plugin60, id: 61, plugin_type: 'source', archive: null, source: setOrderCode(61) },
-            { ...plugin60, id: 62, plugin_type: 'source', archive: null, source: setOrderCode(62) },
+            { ...plugin60, id: 60, plugin_type: 'source', archive: null },
+            { ...plugin60, id: 61, plugin_type: 'source', archive: null },
+            { ...plugin60, id: 62, plugin_type: 'source', archive: null },
         ])
         getPluginAttachmentRows.mockReturnValueOnce([])
         getPluginConfigRows.mockReturnValueOnce([
@@ -615,10 +612,10 @@ describe('plugins', () => {
         function randomFunction (event, meta) { return event}
         function onSnapshot (event, meta) { return event }
     `
-        getPluginRows.mockReturnValueOnce([mockPluginSourceCode(source_code)])
-
+        getPluginRows.mockReturnValueOnce([mockPluginSourceCode()])
         getPluginConfigRows.mockReturnValueOnce([pluginConfig39])
         getPluginAttachmentRows.mockReturnValueOnce([pluginAttachment1])
+        hub.db.getPluginSource = (_, filename) => Promise.resolve(filename === 'index.ts' ? source_code : null)
 
         await setupPlugins(hub)
         const { pluginConfigs } = hub
@@ -631,6 +628,85 @@ describe('plugins', () => {
         expect(pluginConfig.plugin!.capabilities!.methods!.sort()).toEqual(['onSnapshot', 'processEvent'])
         expect(pluginConfig.plugin!.capabilities!.jobs).toEqual([])
         expect(pluginConfig.plugin!.capabilities!.scheduled_tasks).toEqual([])
+    })
+
+    test('plugin with frontend source transpiles it', async () => {
+        const source_frontend = `export const scene = {}`
+        hub.db.getPluginSource = (_, filename) => Promise.resolve(filename === 'frontend.tsx' ? source_frontend : null)
+        getPluginRows.mockReturnValueOnce([mockPluginSourceCode()])
+        getPluginConfigRows.mockReturnValueOnce([pluginConfig39])
+        getPluginAttachmentRows.mockReturnValueOnce([pluginAttachment1])
+        await setupPlugins(hub)
+        const {
+            rows: [{ transpiled }],
+        } = await hub.db.postgresQuery(
+            `SELECT transpiled FROM posthog_pluginsourcefile WHERE plugin_id = $1 AND filename = $2`,
+            [60, 'frontend.tsx'],
+            ''
+        )
+        expect(transpiled).toEqual(`"use strict";
+export function getFrontendApp (require) { let exports = {}; "use strict";
+
+Object.defineProperty(exports, "__esModule", {
+  value: true
+});
+exports.scene = void 0;
+var scene = {};
+exports.scene = scene;; return exports; }`)
+    })
+
+    test('plugin with frontend source with error', async () => {
+        const source_frontend = `export const scene = {}/`
+        hub.db.getPluginSource = (_, filename) => Promise.resolve(filename === 'frontend.tsx' ? source_frontend : null)
+        getPluginRows.mockReturnValueOnce([mockPluginSourceCode()])
+        getPluginConfigRows.mockReturnValueOnce([pluginConfig39])
+        getPluginAttachmentRows.mockReturnValueOnce([pluginAttachment1])
+        await setupPlugins(hub)
+        const {
+            rows: [plugin],
+        } = await hub.db.postgresQuery(
+            `SELECT * FROM posthog_pluginsourcefile WHERE plugin_id = $1 AND filename = $2`,
+            [60, 'frontend.tsx'],
+            ''
+        )
+        expect(plugin.transpiled).toEqual(null)
+        expect(plugin.status).toEqual('ERROR')
+        expect(plugin.error).toContain(`SyntaxError: /frontend.tsx: Unexpected token (1:24)`)
+        expect(plugin.error).toContain(`export const scene = {}/`)
+    })
+
+    test('getTranspilationLock returns just once', async () => {
+        const source = `function processEvent (event, meta) { event.properties={"x": 1}; return event }`
+        const source_frontend = `export const scene = {}`
+        hub.db.getPluginSource = (_, filename) =>
+            Promise.resolve(filename === 'index.ts' ? source : filename === 'frontend.tsx' ? source_frontend : null)
+        getPluginRows.mockReturnValueOnce([mockPluginSourceCode()])
+        getPluginConfigRows.mockReturnValueOnce([pluginConfig39])
+        getPluginAttachmentRows.mockReturnValueOnce([pluginAttachment1])
+
+        await setupPlugins(hub)
+        const getStatus = async () =>
+            (
+                await hub.db.postgresQuery(
+                    `SELECT status FROM posthog_pluginsourcefile WHERE plugin_id = $1 AND filename = $2`,
+                    [60, 'frontend.tsx'],
+                    ''
+                )
+            )?.rows?.[0]?.status || null
+
+        expect(await getStatus()).toEqual('TRANSPILED')
+        expect(await hub.db.getPluginTranspilationLock(60, 'frontend.tsx')).toEqual(false)
+        expect(await hub.db.getPluginTranspilationLock(60, 'frontend.tsx')).toEqual(false)
+
+        await hub.db.postgresQuery(
+            'UPDATE posthog_pluginsourcefile SET transpiled = NULL, status = NULL WHERE filename = $1',
+            ['frontend.tsx'],
+            ''
+        )
+
+        expect(await hub.db.getPluginTranspilationLock(60, 'frontend.tsx')).toEqual(true)
+        expect(await hub.db.getPluginTranspilationLock(60, 'frontend.tsx')).toEqual(false)
+        expect(await getStatus()).toEqual('LOCKED')
     })
 
     test('reloading plugins after config changes', async () => {
@@ -760,7 +836,7 @@ describe('plugins', () => {
     })
 
     describe('loadSchedule()', () => {
-        const mockConfig = (tasks: any) => ({ vm: { getTasks: () => Promise.resolve(tasks) } })
+        const mockConfig = (tasks: any) => ({ vm: { getScheduledTasks: () => Promise.resolve(tasks) } })
 
         const hub = {
             pluginConfigs: new Map(

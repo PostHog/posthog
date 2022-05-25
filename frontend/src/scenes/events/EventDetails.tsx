@@ -2,11 +2,13 @@ import React, { useState } from 'react'
 import { keyMapping } from 'lib/components/PropertyKeyInfo'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { EventElements } from 'scenes/events/EventElements'
-import { Tabs, Button } from 'antd'
+import { Tabs } from 'antd'
 import { EventJSON } from 'scenes/events/EventJSON'
 import { EventType } from '../../types'
 import { Properties } from '@posthog/plugin-scaffold'
 import { dayjs } from 'lib/dayjs'
+import { LemonButton } from 'lib/components/LemonButton'
+import { pluralize } from 'lib/utils'
 
 const { TabPane } = Tabs
 
@@ -45,16 +47,10 @@ export function EventDetails({ event }: { event: EventType }): JSX.Element {
                     useDetectedPropertyType={true}
                 />
                 {hiddenPropsCount > 0 && (
-                    <small>
-                        <Button
-                            style={{ margin: '8px 0 0 8px' }}
-                            type="link"
-                            onClick={() => setShowHiddenProps(!showHiddenProps)}
-                        >
-                            {showHiddenProps ? 'Showing ' : ''}
-                            {hiddenPropsCount} hidden properties. Click to {showHiddenProps ? 'hide' : 'show'}.
-                        </Button>
-                    </small>
+                    <LemonButton className="mb-05" onClick={() => setShowHiddenProps(!showHiddenProps)} size="small">
+                        {showHiddenProps ? 'Hide' : 'Show'}{' '}
+                        {pluralize(hiddenPropsCount, 'hidden property', 'hidden properties')}
+                    </LemonButton>
                 )}
             </TabPane>
             <TabPane tab="JSON" key="json">

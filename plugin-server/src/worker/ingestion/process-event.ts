@@ -21,7 +21,6 @@ import {
     Team,
     TimestampFormat,
 } from '../../types'
-import { Client } from '../../utils/celery/client'
 import { DB, GroupIdentifier } from '../../utils/db/db'
 import { KafkaProducerWrapper } from '../../utils/db/kafka-producer-wrapper'
 import {
@@ -77,9 +76,8 @@ export interface EventProcessingResult {
 export class EventsProcessor {
     pluginsServer: Hub
     db: DB
-    clickhouse: ClickHouse | undefined
-    kafkaProducer: KafkaProducerWrapper | undefined
-    celery: Client
+    clickhouse: ClickHouse
+    kafkaProducer: KafkaProducerWrapper
     teamManager: TeamManager
     personManager: PersonManager
     groupTypeManager: GroupTypeManager
@@ -90,7 +88,6 @@ export class EventsProcessor {
         this.db = pluginsServer.db
         this.clickhouse = pluginsServer.clickhouse
         this.kafkaProducer = pluginsServer.kafkaProducer
-        this.celery = new Client(pluginsServer.db, pluginsServer.CELERY_DEFAULT_QUEUE)
         this.teamManager = pluginsServer.teamManager
         this.personManager = new PersonManager(pluginsServer)
         this.groupTypeManager = new GroupTypeManager(pluginsServer.db, this.teamManager, pluginsServer.SITE_URL)
@@ -158,7 +155,7 @@ export class EventsProcessor {
                         { eventUuid }
                     )
                     try {
-                        await this.createSessionRecordingEvent(
+                        result = await this.createSessionRecordingEvent(
                             eventUuid,
                             teamId,
                             distinctId,
@@ -166,7 +163,9 @@ export class EventsProcessor {
                             properties['$window_id'],
                             ts,
                             properties['$snapshot_data'],
-                            personUuid
+                            properties,
+                            personUuid,
+                            ip
                         )
                         this.pluginsServer.statsd?.timing('kafka_queue.single_save.snapshot', singleSaveTimer, {
                             team_id: teamId.toString(),
@@ -235,8 +234,7 @@ export class EventsProcessor {
         teamId: number,
         distinctId: string,
         properties: Properties,
-        propertiesOnce: Properties,
-        timestamp: DateTime
+        propertiesOnce: Properties
     ): Promise<void> {
         await this.updatePersonPropertiesDeprecated(teamId, distinctId, properties, propertiesOnce)
     }
@@ -506,7 +504,7 @@ export class EventsProcessor {
             }
         })
 
-        if (this.kafkaProducer) {
+        if (this.pluginsServer.KAFKA_ENABLED) {
             await this.kafkaProducer.queueMessages(kafkaMessages)
         }
     }
@@ -557,14 +555,14 @@ export class EventsProcessor {
                 team.id,
                 distinctId,
                 properties['$set'] || {},
-                properties['$set_once'] || {},
-                timestamp
+                properties['$set_once'] || {}
             )
         }
 
         return {
             eventUuid,
             event,
+            ip,
             distinctId,
             properties,
             timestamp,
@@ -627,7 +625,7 @@ export class EventsProcessor {
 
         let eventId: Event['id'] | undefined
 
-        if (this.kafkaProducer) {
+        if (this.pluginsServer.KAFKA_ENABLED) {
             const useExternalSchemas = this.clickhouseExternalSchemasEnabled(teamId)
             // proto ingestion is deprecated and we won't support new additions to the schema
             const message = useExternalSchemas
@@ -678,7 +676,7 @@ export class EventsProcessor {
     }
 
     async produceEventToBuffer(bufferEvent: PreIngestionEvent): Promise<void> {
-        if (this.kafkaProducer) {
+        if (this.pluginsServer.KAFKA_ENABLED) {
             const partitionKeyHash = crypto.createHash('sha256')
             partitionKeyHash.update(`${bufferEvent.teamId}:${bufferEvent.distinctId}`)
             const partitionKey = partitionKeyHash.digest('hex')
@@ -703,8 +701,10 @@ export class EventsProcessor {
         window_id: string,
         timestamp: DateTime,
         snapshot_data: Record<any, any>,
-        personUuid: string
-    ): Promise<SessionRecordingEvent | PostgresSessionRecordingEvent> {
+        properties: Properties,
+        personUuid: string,
+        ip: string | null
+    ): Promise<PreIngestionEvent> {
         const timestampString = castTimestampOrNow(
             timestamp,
             this.kafkaProducer ? TimestampFormat.ClickHouse : TimestampFormat.ISO
@@ -723,15 +723,13 @@ export class EventsProcessor {
             created_at: timestampString,
         }
 
-        if (this.kafkaProducer) {
+        if (this.pluginsServer.KAFKA_ENABLED) {
             await this.kafkaProducer.queueMessage({
                 topic: KAFKA_SESSION_RECORDING_EVENTS,
                 messages: [{ key: uuid, value: Buffer.from(JSON.stringify(data)) }],
             })
         } else {
-            const {
-                rows: [eventCreated],
-            } = await this.db.postgresQuery(
+            await this.db.postgresQuery(
                 'INSERT INTO posthog_sessionrecordingevent (created_at, team_id, distinct_id, session_id, window_id, timestamp, snapshot_data) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *',
                 [
                     data.created_at,
@@ -744,9 +742,18 @@ export class EventsProcessor {
                 ],
                 'insertSessionRecording'
             )
-            return eventCreated as PostgresSessionRecordingEvent
         }
-        return data
+
+        return {
+            eventUuid: uuid,
+            event: '$snapshot',
+            ip,
+            distinctId: distinct_id,
+            properties,
+            timestamp: timestampString,
+            elementsList: [],
+            teamId: team_id,
+        }
     }
 
     private async createPersonIfDistinctIdIsNew(

@@ -75,7 +75,6 @@ describe('DB', () => {
 
     describe('createPerson', () => {
         let team: Team
-        let person: Person
         const uuid = new UUIDT().toString()
         const distinctId = 'distinct_id1'
 
@@ -457,6 +456,58 @@ describe('DB', () => {
             expect(res).toEqual({
                 group0_properties: '{"prop":"val","num":1234567}',
             })
+        })
+    })
+
+    describe('getPluginSource', () => {
+        let team: Team
+        let plugin: number
+
+        beforeEach(async () => {
+            team = await getFirstTeam(hub)
+            const plug = await db.postgresQuery(
+                'INSERT INTO posthog_plugin (name, organization_id, config_schema, from_json, from_web, is_global, is_preinstalled, is_stateless, created_at, capabilities) values($1, $2, $3, false, false, false, false, false, $4, $5) RETURNING id',
+                ['My Plug', team.organization_id, [], new Date(), {}],
+                ''
+            )
+            plugin = plug.rows[0].id
+        })
+
+        test('fetches from the database', async () => {
+            let source = await db.getPluginSource(plugin, 'index.ts')
+            expect(source).toBe(null)
+
+            await db.postgresQuery(
+                'INSERT INTO posthog_pluginsourcefile (id, plugin_id, filename, source) values($1, $2, $3, $4)',
+                [new UUIDT().toString(), plugin, 'index.ts', 'USE THE SOURCE'],
+                ''
+            )
+
+            source = await db.getPluginSource(plugin, 'index.ts')
+            expect(source).toBe('USE THE SOURCE')
+        })
+    })
+
+    describe('fetchInstanceSetting & upsertInstanceSetting', () => {
+        it('fetch returns null by default', async () => {
+            const result = await db.fetchInstanceSetting('SOME_SETTING')
+            expect(result).toEqual(null)
+        })
+
+        it('can create and update settings', async () => {
+            await db.upsertInstanceSetting('SOME_SETTING', 'some_value')
+            expect(await db.fetchInstanceSetting('SOME_SETTING')).toEqual('some_value')
+
+            await db.upsertInstanceSetting('SOME_SETTING', 'new_value')
+            expect(await db.fetchInstanceSetting('SOME_SETTING')).toEqual('new_value')
+        })
+
+        it('handles different types', async () => {
+            await db.upsertInstanceSetting('NUMERIC_SETTING', 56)
+            await db.upsertInstanceSetting('BOOLEAN_SETTING', true)
+
+            expect(await db.fetchInstanceSetting('NUMERIC_SETTING')).toEqual(56)
+            expect(await db.fetchInstanceSetting('BOOLEAN_SETTING')).toEqual(true)
         })
     })
 })

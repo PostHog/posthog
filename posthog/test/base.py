@@ -360,11 +360,12 @@ class NonAtomicTestMigrations(BaseTestMigrations, NonAtomicBaseTest):
 
 
 def flush_persons_and_events():
+    person_mapping = {}
     if len(persons_cache_tests) > 0:
-        bulk_create_persons(persons_cache_tests)
+        person_mapping = bulk_create_persons(persons_cache_tests)
         persons_cache_tests.clear()
     if len(events_cache_tests) > 0:
-        bulk_create_events(events_cache_tests)
+        bulk_create_events(events_cache_tests, person_mapping)
         events_cache_tests.clear()
 
 

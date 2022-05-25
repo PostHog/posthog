@@ -17,12 +17,13 @@ from .filters import Filter, RetentionFilter
 from .group import Group
 from .group_type_mapping import GroupTypeMapping
 from .insight import Insight, InsightViewed
+from .instance_setting import InstanceSetting
 from .messaging import MessagingRecord
 from .organization import Organization, OrganizationInvite, OrganizationMembership
 from .organization_domain import OrganizationDomain
 from .person import Person, PersonDistinctId
 from .personal_api_key import PersonalAPIKey
-from .plugin import Plugin, PluginAttachment, PluginConfig, PluginLogEntry
+from .plugin import Plugin, PluginAttachment, PluginConfig, PluginLogEntry, PluginSourceFile
 from .property import Property
 from .property_definition import PropertyDefinition
 from .session_recording_event import SessionRecordingEvent
@@ -42,6 +43,7 @@ __all__ = [
     "DashboardTile",
     "Insight",
     "InsightViewed",
+    "InstanceSetting",
     "Element",
     "ElementGroup",
     "Entity",
@@ -65,6 +67,7 @@ __all__ = [
     "PluginAttachment",
     "PluginConfig",
     "PluginLogEntry",
+    "PluginSourceFile",
     "Property",
     "PropertyDefinition",
     "RetentionFilter",

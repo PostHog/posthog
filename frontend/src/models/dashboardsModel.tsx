@@ -19,7 +19,12 @@ export const dashboardsModel = kea<dashboardsModelType>({
         addDashboardSuccess: (dashboard: DashboardType) => ({ dashboard }),
         // this is moved out of dashboardLogic, so that you can click "undo" on a item move when already
         // on another dashboard - both dashboards can listen to and share this event, even if one is not yet mounted
-        updateDashboardItem: (item: InsightModel) => ({ item }),
+        // can provide dashboard ids if not all listeners will choose to respond to this action
+        // not providing a dashboard id is a signal that all listeners should respond
+        updateDashboardItem: (item: InsightModel, dashboardIds?: Array<DashboardType['id']>) => ({
+            item,
+            dashboardIds,
+        }),
         // a side effect on this action exists in dashboardLogic so that individual refresh statuses can be bubbled up
         // to dashboard items in dashboards
         updateDashboardRefreshStatus: (
@@ -51,7 +56,9 @@ export const dashboardsModel = kea<dashboardsModelType>({
                         // If user is anonymous (i.e. viewing a shared dashboard logged out), don't load authenticated stuff
                         return []
                     }
-                    const { results } = await api.get(`api/projects/${teamLogic.values.currentTeamId}/dashboards/`)
+                    const { results } = await api.get(
+                        `api/projects/${teamLogic.values.currentTeamId}/dashboards/?limit=300`
+                    )
                     return idToKey(results ?? [])
                 },
             },

@@ -24,6 +24,10 @@ env:
     CLICKHOUSE_VERIFY: 'False'
     TEST: 1
     CLICKHOUSE_SERVER_IMAGE_VERSION: ${{ github.event.inputs.clickhouseServerVersion || '' }}
+    OBJECT_STORAGE_ENABLED: 'True'
+    OBJECT_STORAGE_ENDPOINT: 'http://localhost:19000'
+    OBJECT_STORAGE_ACCESS_KEY_ID: 'object_storage_root_user'
+    OBJECT_STORAGE_SECRET_ACCESS_KEY: 'object_storage_root_password'
 
 jobs:
     # Job to decide if we should run backend ci
@@ -165,17 +169,18 @@ jobs:
         needs: changes
         if: ${{ needs.changes.outputs.backend == 'true' && github.repository == 'PostHog/posthog' || github.event_name == 'workflow_dispatch' }}
 
-        name: Django tests – Py ${{ matrix.python-version }} ${{ matrix.name }}, CH ${{ matrix.clickhouse-server-image-version }} (${{matrix.group}}/${{ matrix.concurrency }})
+        name: Django tests – Py ${{ matrix.python-version }} ${{ matrix.name }}, CH ${{ matrix.clickhouse-server-image }} (${{matrix.group}}/${{ matrix.concurrency }})
         runs-on: ubuntu-latest
 
         strategy:
             fail-fast: false
             matrix:
                 python-version: ['3.8.12']
-                clickhouse-server-image-version: ['21.6.5', '21.11.11.1']
+                clickhouse-server-image: ['clickhouse/clickhouse-server:22.3']
                 ee: [true]
                 foss: [false]
                 name: ['']
+                person-on-events: [false]
                 # :NOTE: Keep concurrency and group's in sync
                 concurrency: [5]
                 group: [1, 2, 3, 4, 5]
@@ -185,16 +190,51 @@ jobs:
                       ee: false
                       foss: true
                       name: 'FOSS'
-                      clickhouse-server-image-version: '21.6.5'
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:22.3'
                       concurrency: 1
+                      group: 1
+                    # :TRICKY: Run person-on-events tests only for one CH instance
+                    # But still run in parallel
+                    - python-version: '3.8.12'
+                      ee: true
+                      foss: false
+                      person-on-events: true
+                      name: 'Person on Events'
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:22.3'
+                      concurrency: 5
                       group: 1
                     - python-version: '3.8.12'
-                      ee: false
-                      foss: true
-                      name: 'FOSS'
-                      clickhouse-server-image-version: '21.11.11.1'
-                      concurrency: 1
-                      group: 1
+                      ee: true
+                      foss: false
+                      person-on-events: true
+                      name: 'Person on Events'
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:22.3'
+                      concurrency: 5
+                      group: 2
+                    - python-version: '3.8.12'
+                      ee: true
+                      foss: false
+                      person-on-events: true
+                      name: 'Person on Events'
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:22.3'
+                      concurrency: 5
+                      group: 3
+                    - python-version: '3.8.12'
+                      ee: true
+                      foss: false
+                      person-on-events: true
+                      name: 'Person on Events'
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:22.3'
+                      concurrency: 5
+                      group: 4
+                    - python-version: '3.8.12'
+                      ee: true
+                      foss: false
+                      person-on-events: true
+                      name: 'Person on Events'
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:22.3'
+                      concurrency: 5
+                      group: 5
 
         steps:
             - uses: actions/checkout@v2
@@ -210,16 +250,17 @@ jobs:
                   python-version: ${{ matrix.python-version }}
                   ee: ${{ matrix.ee }}
                   foss: ${{ matrix.foss }}
-                  clickhouse-server-image-version: ${{ matrix.clickhouse-server-image-version }}
+                  clickhouse-server-image: ${{ matrix.clickhouse-server-image }}
                   concurrency: ${{ matrix.concurrency }}
                   group: ${{ matrix.group }}
+                  person-on-events: ${{ matrix.person-on-events }}
 
             - uses: EndBug/add-and-commit@v9 # You can change this to use a specific version.
-              if: ${{ matrix.clickhouse-server-image-version == '21.11.11.1' }}
+              if: ${{ matrix.clickhouse-server-image == 'clickhouse/clickhouse-server:22.3' && !matrix.person-on-events }}
               with:
                   # The arguments for the `git add` command (see the paragraph below for more info)
                   # Default: '.'
-                  add: 'ee/clickhouse'
+                  add: '["ee/clickhouse", "posthog/api/test/__snapshots__", "posthog/test/__snapshots__"]'
 
                   default_author: github_actions
 
@@ -249,10 +290,14 @@ jobs:
                   cp -r messaging deploy/
                   cat multi_tenancy_settings.py > deploy/posthog/settings/cloud.py
                   cat requirements.txt >> deploy/requirements.txt
+
+            - name: Add kafka host to /etc/hosts for kafka connectivity
+              run: sudo echo "127.0.0.1 kafka" | sudo tee -a /etc/hosts
+
             - name: Start stack with Docker Compose
               run: |
                   docker-compose -f deploy/docker-compose.dev.yml down
-                  docker-compose -f deploy/docker-compose.dev.yml up -d db clickhouse zookeeper kafka redis &
+                  docker-compose -f deploy/docker-compose.dev.yml up -d db clickhouse zookeeper kafka redis object_storage &
 
             - name: Set up Python 3.8.12
               uses: actions/setup-python@v2
@@ -312,9 +357,6 @@ jobs:
                   cd deploy
                   python manage.py makemigrations --check --dry-run
                   python manage.py migrate
-
-            - name: Add kafka host to /etc/hosts for kafka connectivity
-              run: sudo echo "127.0.0.1 kafka" | sudo tee -a /etc/hosts
 
             - name: Set up needed files
               run: |

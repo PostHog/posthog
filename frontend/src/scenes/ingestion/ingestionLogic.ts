@@ -1,4 +1,4 @@
-import { kea } from 'kea'
+import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { Framework, PlatformType } from 'scenes/ingestion/types'
 import {
     API,
@@ -17,13 +17,16 @@ import { teamLogic } from 'scenes/teamLogic'
 import { PluginTypeWithConfig } from 'scenes/plugins/types'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { urls } from 'scenes/urls'
+import { actionToUrl, urlToAction } from 'kea-router'
 
-export const ingestionLogic = kea<ingestionLogicType>({
-    path: ['scenes', 'ingestion', 'ingestionLogic'],
-    connect: {
+export const ingestionLogic = kea<ingestionLogicType>([
+    path(['scenes', 'ingestion', 'ingestionLogic']),
+    connect({
+        values: [featureFlagLogic, ['featureFlags']],
         actions: [teamLogic, ['updateCurrentTeamSuccess']],
-    },
-    actions: {
+    }),
+    actions({
         setPlatform: (platform: PlatformType) => ({ platform }),
         setFramework: (framework: Framework) => ({ framework: framework as Framework }),
         setVerify: (verify: boolean) => ({ verify }),
@@ -37,9 +40,9 @@ export const ingestionLogic = kea<ingestionLogicType>({
         setThirdPartySource: (sourceIndex: number) => ({ sourceIndex }),
         openThirdPartyPluginModal: (plugin: PluginTypeWithConfig) => ({ plugin }),
         completeOnboarding: true,
-    },
+    }),
 
-    reducers: {
+    reducers({
         platform: [
             null as null | PlatformType,
             {
@@ -88,9 +91,9 @@ export const ingestionLogic = kea<ingestionLogicType>({
                 openThirdPartyPluginModal: (_, { plugin }) => plugin,
             },
         ],
-    },
+    }),
 
-    selectors: {
+    selectors(({ values }) => ({
         index: [
             (s) => [s.platform, s.framework, s.verify],
             (platform, framework, verify) => {
@@ -106,7 +109,7 @@ export const ingestionLogic = kea<ingestionLogicType>({
         onboarding1: [
             () => [],
             (): boolean => {
-                const featFlags = featureFlagLogic.values.featureFlags
+                const featFlags = values.featureFlags
                 return featFlags[FEATURE_FLAGS.ONBOARDING_1] === 'test'
             },
         ],
@@ -132,15 +135,16 @@ export const ingestionLogic = kea<ingestionLogicType>({
                 return ''
             },
         ],
-    },
+    })),
 
-    actionToUrl: ({ values }) => ({
+    actionToUrl(({ values }) => ({
         setPlatform: () => getUrl(values),
         setFramework: () => getUrl(values),
         setVerify: () => getUrl(values),
-    }),
+        updateCurrentTeamSuccess: () => urls.events(),
+    })),
 
-    urlToAction: ({ actions }) => ({
+    urlToAction(({ actions }) => ({
         '/ingestion': () => actions.setState(null, null, false),
         '/ingestion/verify': (_: any, { platform, framework }) => {
             actions.setState(
@@ -183,15 +187,12 @@ export const ingestionLogic = kea<ingestionLogicType>({
                 false
             )
         },
-    }),
-    listeners: () => ({
+    })),
+    listeners(() => ({
         completeOnboarding: () => {
             teamLogic.actions.updateCurrentTeam({
                 completed_snippet_onboarding: true,
             })
-        },
-        updateCurrentTeamSuccess: () => {
-            window.location.href = '/'
         },
         openThirdPartyPluginModal: ({ plugin }) => {
             pluginsLogic.actions.editPlugin(plugin.id)
@@ -202,8 +203,8 @@ export const ingestionLogic = kea<ingestionLogicType>({
         setFramework: ({ framework }) => {
             eventUsageLogic.actions.reportIngestionSelectFrameworkType(framework)
         },
-    }),
-})
+    })),
+])
 
 function getUrl(values: ingestionLogicType['values']): string | [string, Record<string, undefined | string>] {
     const { platform, framework, verify } = values

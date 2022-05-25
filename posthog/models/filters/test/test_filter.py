@@ -1,10 +1,7 @@
 import json
 from typing import Callable, cast
 
-from dateutil.relativedelta import relativedelta
 from django.db.models import Q
-from django.utils import timezone
-from freezegun.api import freeze_time
 
 from posthog.constants import FILTER_TEST_ACCOUNTS
 from posthog.models import Cohort, Filter, Person, Team
@@ -366,39 +363,3 @@ class TestDjangoPropertiesToQ(property_to_Q_test_factory(_filter_persons, _creat
     def test_group_property_filters_used(self):
         filter = Filter(data={"properties": [{"key": "some_prop", "value": 5, "type": "group", "group_type_index": 1}]})
         self.assertRaises(ValueError, lambda: properties_to_Q(filter.property_groups.flat, team_id=self.team.pk))
-
-
-class TestDateFilterQ(BaseTest):
-    def test_filter_by_all(self):
-        filter = Filter(
-            data={
-                "properties": [
-                    {
-                        "key": "name",
-                        "value": json.dumps({"first_name": "Mary", "last_name": "Smith"}),
-                        "type": "person",
-                    }
-                ],
-                "date_from": "all",
-            }
-        )
-        date_filter_query = filter.date_filter_Q
-        self.assertEqual(date_filter_query, Q())
-
-    def test_default_filter_by_date_from(self):
-
-        with freeze_time("2020-01-01T00:00:00Z"):
-            filter = Filter(
-                data={
-                    "properties": [
-                        {
-                            "key": "name",
-                            "value": json.dumps({"first_name": "Mary", "last_name": "Smith"}),
-                            "type": "person",
-                        }
-                    ],
-                }
-            )
-            one_week_ago = timezone.now().replace(hour=0, minute=0, second=0, microsecond=0) - relativedelta(days=7)
-            date_filter_query = filter.date_filter_Q
-            self.assertEqual(date_filter_query, Q(timestamp__gte=one_week_ago, timestamp__lte=timezone.now()))

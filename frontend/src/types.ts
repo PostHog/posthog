@@ -22,6 +22,7 @@ import { ChartDataset, ChartType, InteractionItem } from 'chart.js'
 import { LogLevel } from 'rrweb'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { BehavioralFilterKey, BehavioralFilterType } from 'scenes/cohorts/CohortFilters/types'
+import { LogicWrapper } from 'kea'
 
 export type Optional<T, K extends string | number | symbol> = Omit<T, K> & { [K in keyof T]?: T[K] }
 
@@ -42,6 +43,8 @@ export enum AvailableFeature {
     MULTIVARIATE_FLAGS = 'multivariate_flags',
     EXPERIMENTATION = 'experimentation',
     TAGGING = 'tagging',
+    BEHAVIORAL_COHORT_FILTERING = 'behavioral_cohort_filtering',
+    WHITE_LABELLING = 'white_labelling',
 }
 
 export enum LicensePlan {
@@ -759,7 +762,16 @@ export enum InsightColor {
     Purple = 'purple',
 }
 
-export interface InsightModel {
+export interface DashboardTile {
+    result: any | null
+    layouts: Record<string, any>
+    color: InsightColor | null
+    last_refresh: string | null
+    filters: Partial<FilterType>
+    filters_hash: string
+}
+
+export interface InsightModel extends DashboardTile {
     /** The unique key we use when communicating with the user, e.g. in URLs */
     short_id: InsightShortId
     /** The primary key in the database, used as well in API endpoints */
@@ -768,26 +780,21 @@ export interface InsightModel {
     derived_name?: string
     description?: string
     favorited?: boolean
-    filters: Partial<FilterType>
-    filters_hash: string
     order: number | null
     deleted: boolean
     saved: boolean
     created_at: string
     created_by: UserBasicType | null
-    layouts: Record<string, any>
-    color: InsightColor | null
-    last_refresh: string | null
     refreshing: boolean
     is_sample: boolean
     dashboards: number[] | null
-    result: any | null
     updated_at: string
     tags?: string[]
     last_modified_at: string
     last_modified_by: UserBasicType | null
     effective_restriction_level: DashboardRestrictionLevel
     effective_privilege_level: DashboardPrivilegeLevel
+    timezone?: string
     /** Only used in the frontend to store the next breakdown url */
     next?: string
 }
@@ -855,6 +862,27 @@ export interface PluginType {
     metrics?: Record<string, StoredMetricMathOperations>
     capabilities?: Record<'jobs' | 'methods' | 'scheduled_tasks', string[]>
     public_jobs?: Record<string, JobSpec>
+}
+
+/** Config passed to app component and logic as props. Sent in Django's app context */
+export interface FrontendAppConfig {
+    pluginId: number
+    pluginConfigId: number
+    pluginType: PluginInstallationType | null
+    name: string
+    url: string
+    config: Record<string, any>
+}
+
+/** Frontend app created after receiving a bundle via import('').getFrontendApp() */
+export interface FrontendApp {
+    id: number
+    pluginId: number
+    error?: any
+    title?: string
+    logic?: LogicWrapper
+    component?: (props: FrontendAppConfig) => JSX.Element
+    onInit?: (props: FrontendAppConfig) => void
 }
 
 export interface JobPayloadFieldOptions {
@@ -1161,6 +1189,7 @@ export interface FunnelStep {
     // The type returned from the API.
     action_id: string
     average_conversion_time: number | null
+    median_conversion_time: number | null
     count: number
     name: string
     custom_name?: string
@@ -1280,7 +1309,9 @@ export interface ChartParams {
 // Shared between insightLogic, dashboardItemLogic, trendsLogic, funnelLogic, pathsLogic, retentionTableLogic
 export interface InsightLogicProps {
     /** currently persisted insight */
-    dashboardItemId?: InsightShortId | 'new' | null
+    dashboardItemId?: InsightShortId | 'new' | `new-${string}` | null
+    /** id of the dashboard the insight is on (when the insight is being displayed on a dashboard) **/
+    dashboardId?: DashboardType['id']
     /** cached insight */
     cachedInsight?: Partial<InsightModel> | null
     /** enable this to avoid API requests */
@@ -1383,6 +1414,7 @@ export interface PreflightStatus {
     licensed_users_available?: number | null
     site_url?: string
     instance_preferences?: InstancePreferencesInterface
+    object_storage: boolean
 }
 
 export enum ItemMode { // todo: consolidate this and dashboardmode
@@ -1614,6 +1646,7 @@ export interface AppContext {
     default_event_name: string
     persisted_feature_flags?: string[]
     anonymous: boolean
+    frontend_apps?: Record<number, FrontendAppConfig>
     /** Whether the user was autoswitched to the current item's team. */
     switched_team: TeamType['id'] | null
 }

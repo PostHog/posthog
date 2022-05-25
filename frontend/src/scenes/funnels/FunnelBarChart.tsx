@@ -9,12 +9,12 @@ import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { getActionFilterFromFunnelStep } from 'scenes/insights/InsightTabs/FunnelTab/funnelStepTableUtils'
 import { IconSchedule, IconTrendingFlat, IconTrendingFlatDown } from 'lib/components/icons'
 import { humanFriendlyDuration, percentage, pluralize } from 'lib/utils'
-import { ValueInspectorButton } from './FunnelBarGraph'
+import { ValueInspectorButton } from './ValueInspectorButton'
 import clsx from 'clsx'
 import { useScrollable } from 'lib/hooks/useScrollable'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { getSeriesColor } from 'lib/colors'
-import { useFunnelTooltip } from './FunnelTooltip'
+import { useFunnelTooltip } from './useFunnelTooltip'
 import { FunnelStepMore } from './FunnelStepMore'
 
 function StepBarLabels(): JSX.Element {
@@ -58,7 +58,7 @@ function StepBar({ step, stepIndex, series }: StepBarProps): JSX.Element {
             onMouseEnter={() => {
                 if (ref.current) {
                     const rect = ref.current.getBoundingClientRect()
-                    showTooltip([rect.x + rect.width, rect.y], stepIndex, series)
+                    showTooltip([rect.x, rect.y, rect.width], stepIndex, series)
                 }
             }}
             onMouseLeave={() => hideTooltip()}
@@ -159,8 +159,8 @@ function StepLegend({ step, stepIndex, showTime, showPersonsModal }: StepLegendP
                 )}
             </LemonRow>
             {showTime && (
-                <LemonRow icon={<IconSchedule />} title="Average time of conversion from previous step">
-                    {humanFriendlyDuration(step.average_conversion_time, 3) || '–'}
+                <LemonRow icon={<IconSchedule />} title="Median time of conversion from previous step">
+                    {humanFriendlyDuration(step.median_conversion_time, 3) || '–'}
                 </LemonRow>
             )}
         </div>
@@ -203,7 +203,7 @@ export function FunnelBarChart({ showPersonsModal = true }: ChartParams): JSX.El
             ? 96
             : 192
 
-    const vizRef = useFunnelTooltip(showPersonsModal, barWidthPx)
+    const vizRef = useFunnelTooltip(showPersonsModal)
 
     const table = useMemo(() => {
         /** Average conversion time is only shown if it's known for at least one step. */
@@ -223,7 +223,8 @@ export function FunnelBarChart({ showPersonsModal = true }: ChartParams): JSX.El
                     {visibleStepsWithConversionMetrics.map((_, i) => (
                         <col key={i} width={0} />
                     ))}
-                    <col width="100%" /> {/* The last column is meant to fill up leftover space. */}
+                    <col width="100%" />
+                    {/* The last column is meant to fill up leftover space. */}
                 </colgroup>
                 <tbody>
                     <tr>

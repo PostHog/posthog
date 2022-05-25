@@ -20,7 +20,6 @@ export function LemonBubble({
     position = 'none',
     showZero = false,
 }: LemonBubbleProps): JSX.Element {
-    console.log(showZero)
     // NOTE: We use 1 for the text if not showing so the fade out animation looks right
     const text = typeof count === 'number' && count !== 0 ? (count < 10 ? String(count) : '9+') : showZero ? '0' : '1'
     const hide = count === undefined || (count == 0 && !showZero)

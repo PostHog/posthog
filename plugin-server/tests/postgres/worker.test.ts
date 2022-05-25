@@ -1,15 +1,14 @@
 import { PluginEvent } from '@posthog/plugin-scaffold/src/types'
-import { mocked } from 'ts-jest/utils'
 
 import { loadPluginSchedule } from '../../src/main/services/schedule'
-import { Hub } from '../../src/types'
+import { Hub, PreIngestionEvent } from '../../src/types'
 import { createHub } from '../../src/utils/db/hub'
 import { KafkaProducerWrapper } from '../../src/utils/db/kafka-producer-wrapper'
 import { delay, UUIDT } from '../../src/utils/utils'
 import { ActionManager } from '../../src/worker/ingestion/action-manager'
 import { ActionMatcher } from '../../src/worker/ingestion/action-matcher'
-import { ingestEvent } from '../../src/worker/ingestion/ingest-event'
-import { runPluginTask, runProcessEvent } from '../../src/worker/plugins/run'
+import { EventPipelineRunner } from '../../src/worker/ingestion/event-pipeline/runner'
+import { runPluginTask } from '../../src/worker/plugins/run'
 import { loadSchedule, setupPlugins } from '../../src/worker/plugins/setup'
 import { teardownPlugins } from '../../src/worker/plugins/teardown'
 import { createTaskRunner } from '../../src/worker/worker'
@@ -20,7 +19,6 @@ jest.mock('../../src/worker/ingestion/action-manager')
 jest.mock('../../src/worker/ingestion/action-matcher')
 jest.mock('../../src/utils/db/sql')
 jest.mock('../../src/utils/status')
-jest.mock('../../src/worker/ingestion/ingest-event')
 jest.mock('../../src/worker/plugins/run')
 jest.mock('../../src/worker/plugins/setup')
 jest.mock('../../src/worker/plugins/teardown')
@@ -35,6 +33,7 @@ function createEvent(index = 0): PluginEvent {
         now: new Date().toISOString(),
         event: 'default event',
         properties: { key: 'value', index },
+        uuid: new UUIDT().toString(),
     }
 }
 
@@ -61,24 +60,31 @@ describe('worker', () => {
         await resetTestDatabase(testCode)
         const piscina = setupPiscina(workerThreads, 10)
 
-        const processEvent = (event: PluginEvent) => piscina.run({ task: 'processEvent', args: { event } })
         const runEveryDay = (pluginConfigId: number) => piscina.run({ task: 'runEveryDay', args: { pluginConfigId } })
-        const ingestEvent = (event: PluginEvent) => piscina.run({ task: 'ingestEvent', args: { event } })
+        const ingestEvent = async (event: PluginEvent) => {
+            const result = await piscina.run({ task: 'runEventPipeline', args: { event } })
+            const resultEvent = result.args[0]
+            return { ...result, event: resultEvent }
+        }
 
         const pluginSchedule = await loadPluginSchedule(piscina)
         expect(pluginSchedule).toEqual({ runEveryDay: [39], runEveryHour: [], runEveryMinute: [] })
 
-        const event = await processEvent(createEvent())
-        expect(event.properties['somewhere']).toBe('over the rainbow')
+        const ingestResponse1 = await ingestEvent(createEvent())
+        expect(ingestResponse1.event.properties['somewhere']).toBe('over the rainbow')
 
         const everyDayReturn = await runEveryDay(39)
         expect(everyDayReturn).toBe(4)
 
-        const ingestResponse1 = await ingestEvent(createEvent())
-        expect(ingestResponse1).toEqual({ error: 'Not a valid UUID: "undefined"' })
+        const ingestResponse2 = await ingestEvent(createEvent())
+        expect(ingestResponse2).toEqual({
+            lastStep: 'runAsyncHandlersStep',
+            args: expect.anything(),
+            event: expect.anything(),
+        })
 
-        const ingestResponse2 = await ingestEvent({ ...createEvent(), uuid: new UUIDT().toString() })
-        expect(ingestResponse2).toEqual({ success: true, actionMatches: [] })
+        const ingestResponse3 = await ingestEvent({ ...createEvent(), uuid: undefined })
+        expect(ingestResponse3.error).toEqual('Not a valid UUID: "undefined"')
 
         await delay(2000)
         await piscina.destroy()
@@ -95,7 +101,7 @@ describe('worker', () => {
     `
         await resetTestDatabase(testCode)
         const piscina = setupPiscina(workerThreads, tasksPerWorker)
-        const processEvent = (event: PluginEvent) => piscina.run({ task: 'processEvent', args: { event } })
+        const processEvent = (event: PluginEvent) => piscina.run({ task: '_testsRunProcessEvent', args: { event } })
         const promises: Array<Promise<any>> = []
 
         // warmup 2x
@@ -133,34 +139,47 @@ describe('worker', () => {
             await closeHub()
         })
 
-        it('handles `processEvent` task', async () => {
-            mocked(runProcessEvent).mockReturnValue('runProcessEvent response' as any)
-
-            expect(await taskRunner({ task: 'processEvent', args: { event: 'someEvent' } })).toEqual(
-                'runProcessEvent response'
-            )
-
-            expect(runProcessEvent).toHaveBeenCalledWith(hub, 'someEvent')
-        })
-
         it('handles `getPluginSchedule` task', async () => {
             hub.pluginSchedule = { runEveryDay: [66] }
 
             expect(await taskRunner({ task: 'getPluginSchedule' })).toEqual(hub.pluginSchedule)
         })
 
-        it('handles `ingestEvent` task', async () => {
-            mocked(ingestEvent).mockReturnValue('ingestEvent response' as any)
+        it('handles `runEventPipeline` tasks', async () => {
+            const spy = jest
+                .spyOn(EventPipelineRunner.prototype, 'runEventPipeline')
+                .mockResolvedValue('runEventPipeline result' as any)
+            const event = createEvent()
 
-            expect(await taskRunner({ task: 'ingestEvent', args: { event: 'someEvent' } })).toEqual(
-                'ingestEvent response'
+            expect(await taskRunner({ task: 'runEventPipeline', args: { event } })).toEqual('runEventPipeline result')
+
+            expect(spy).toHaveBeenCalledWith(event)
+        })
+
+        it('handles `runBufferEventPipeline` tasks', async () => {
+            const spy = jest
+                .spyOn(EventPipelineRunner.prototype, 'runBufferEventPipeline')
+                .mockResolvedValue('runBufferEventPipeline result' as any)
+            const event: PreIngestionEvent = {
+                eventUuid: 'uuid1',
+                distinctId: 'my_id',
+                ip: '127.0.0.1',
+                teamId: 2,
+                timestamp: '2020-02-23T02:15:00Z',
+                event: '$pageview',
+                properties: {},
+                elementsList: [],
+            }
+
+            expect(await taskRunner({ task: 'runBufferEventPipeline', args: { event } })).toEqual(
+                'runBufferEventPipeline result'
             )
 
-            expect(ingestEvent).toHaveBeenCalledWith(hub, 'someEvent')
+            expect(spy).toHaveBeenCalledWith(event)
         })
 
         it('handles `runEvery` tasks', async () => {
-            mocked(runPluginTask).mockImplementation((server, task, taskType, pluginId) =>
+            jest.mocked(runPluginTask).mockImplementation((server, task, taskType, pluginId) =>
                 Promise.resolve(`${task} for ${pluginId}`)
             )
 

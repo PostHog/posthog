@@ -20,7 +20,7 @@ services:
         # Note: please keep the default version in sync across
         #       `posthog` and the `charts-clickhouse` repos
         #
-        image: yandex/clickhouse-server:${CLICKHOUSE_SERVER_IMAGE_VERSION:-21.11.11.1}
+        image: ${CLICKHOUSE_SERVER_IMAGE:-clickhouse/clickhouse-server:22.3}
         depends_on:
             - kafka
             - zookeeper
@@ -75,6 +75,7 @@ services:
             - redis
             - clickhouse
             - kafka
+            - object_storage
     web:
         <<: *worker
         command: '${CH_WEB_SCRIPT:-./ee/bin/docker-ch-dev-web}'
@@ -100,3 +101,15 @@ services:
             - redis
             - clickhouse
             - kafka
+            - object_storage
+
+    object_storage:
+        image: minio/minio
+        ports:
+            - '19000:19000'
+            - '19001:19001'
+        environment:
+            MINIO_ROOT_USER: object_storage_root_user
+            MINIO_ROOT_PASSWORD: object_storage_root_password
+        entrypoint: sh
+        command: -c 'mkdir -p /data/posthog && chmod u+rxw /data/posthog && minio server --address ":19000" --console-address ":19001" /data' # create the 'posthog' bucket before starting the service

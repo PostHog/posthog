@@ -45,28 +45,44 @@ describe('Trends', () => {
 
     it('Apply specific filter on default pageview event', () => {
         cy.get('[data-attr=trend-element-subject-0]').click()
-        cy.wait(500)
-        cy.get('.property-key-info').contains('Pageview').click() // Tooltip is shown with description
+        cy.get('.taxonomic-infinite-list').find('.property-key-info').contains('Pageview').click() // Tooltip is shown with description
         cy.get('[data-attr=trend-element-subject-0]').should('have.text', 'Pageview')
 
         // Apply a property filter
         cy.get('[data-attr=show-prop-filter-0]').click()
         cy.get('[data-attr=property-select-toggle-0]').click()
-        cy.get('[data-attr=prop-filter-event_properties-1]').click({ force: true })
-        cy.get('[data-attr=prop-val]').click()
+        cy.get('[data-attr="expand-list-event_properties"]').click()
+        cy.get('.taxonomic-list-row').first().click({ force: true })
+        cy.get('[data-attr=prop-val]').click({ force: true })
+        // cypress is odd and even though when a human clicks this the right dropdown opens
+        // in the test that doesn't happen
+        cy.get('body').then(($body) => {
+            if ($body.find('[data-attr=prop-val-0]').length === 0) {
+                cy.get('.taxonomic-value-select').click()
+            }
+        })
         cy.get('[data-attr=prop-val-0]').click({ force: true })
         cy.get('[data-attr=trend-line-graph]', { timeout: 8000 }).should('exist')
     })
 
     it('Apply 1 overall filter', () => {
         cy.get('[data-attr=trend-element-subject-0]').click()
-        cy.wait(500)
-        cy.get('.property-key-info').contains('Pageview').click()
+        cy.get('.taxonomic-infinite-list').find('.property-key-info').contains('Pageview').click()
         cy.get('[data-attr=trend-element-subject-0]').should('have.text', 'Pageview')
-        cy.get('[data-attr=new-prop-filter-trends-filters]').click()
+
+        cy.get('[data-attr=trends-filters-add-filter-group]').click()
+        cy.get('[data-attr=property-select-toggle-0]').click()
         cy.get('[data-attr=taxonomic-filter-searchfield]').click()
-        cy.get('[data-attr=prop-filter-event_properties-1]').click({ force: true })
-        cy.get('[data-attr=prop-val]').click()
+        cy.get('[data-attr="expand-list-event_properties"]').click()
+        cy.get('.taxonomic-list-row').first().click({ force: true })
+        cy.get('[data-attr=prop-val]').click({ force: true })
+        // cypress is odd and even though when a human clicks this the right dropdown opens
+        // in the test that doesn't happen
+        cy.get('body').then(($body) => {
+            if ($body.find('[data-attr=prop-val-0]').length === 0) {
+                cy.get('.taxonomic-value-select').click()
+            }
+        })
         cy.get('[data-attr=prop-val-0]').click({ force: true })
 
         cy.get('[data-attr=trend-line-graph]', { timeout: 8000 }).should('exist')
@@ -81,14 +97,14 @@ describe('Trends', () => {
 
     it('Apply pie filter', () => {
         cy.get('[data-attr=chart-filter]').click()
-        cy.contains('Pie').click()
+        cy.get('.ant-select-dropdown').find('.ant-select-item-option-content').contains('Pie').click({ force: true })
 
         cy.get('[data-attr=trend-pie-graph]').should('exist')
     })
 
     it('Apply table filter', () => {
         cy.get('[data-attr=chart-filter]').click()
-        cy.contains('Table').click()
+        cy.get('.ant-select-dropdown').find('.ant-select-item-option-content').contains('Table').click({ force: true })
 
         cy.get('[data-attr=insights-table-graph]').should('exist')
 
@@ -110,7 +126,8 @@ describe('Trends', () => {
 
     it('Apply property breakdown', () => {
         cy.get('[data-attr=add-breakdown-button]').click()
-        cy.get('[data-attr=prop-filter-event_properties-2]').click()
+        cy.get('[data-attr="expand-list-event_properties"]').click()
+        cy.get('.taxonomic-list-row').first().click()
         cy.get('[data-attr=trend-line-graph]').should('exist')
     })
 
@@ -123,17 +140,25 @@ describe('Trends', () => {
 
     it('Save to dashboard', () => {
         // apply random filter
-        cy.get('[data-attr=new-prop-filter-trends-filters]').click()
+        cy.get('[data-attr=trends-filters-add-filter-group]').click()
+        cy.get('[data-attr=property-select-toggle-0]').click()
         cy.get('[data-attr=taxonomic-filter-searchfield]').click()
-        cy.get('[data-attr=prop-filter-event_properties-1]').click({ force: true })
-        cy.get('[data-attr=prop-val]').click()
+        cy.get('[data-attr="expand-list-event_properties"]').click()
+        cy.get('.taxonomic-list-row').first().click({ force: true })
+        cy.get('[data-attr=prop-val]').click({ force: true })
+        // cypress is odd and even though when a human clicks this the right dropdown opens
+        // in the test that doesn't happen
+        cy.get('body').then(($body) => {
+            if ($body.find('[data-attr=prop-val-0]').length === 0) {
+                cy.get('.taxonomic-value-select').click()
+            }
+        })
         cy.get('[data-attr=prop-val-0]').click({ force: true })
 
         cy.get('[data-attr=insight-save-button]').click()
         cy.get('[data-attr=save-to-dashboard-button]').click()
-        cy.get('[data-attr=add-to-dashboard-select]').click()
-        cy.get('[data-attr=add-to-dashboard-option-0').click()
-        cy.contains('Add insight to dashboard').click()
+        cy.get('.modal-row button').contains('Add to dashboard').first().click({ force: true }) // Add the insight to a dashboard
+        cy.get('.modal-row button').first().contains('Added')
 
         cy.wait(200)
         cy.get('[data-attr=success-toast]').contains('Insight added to dashboard').should('exist')

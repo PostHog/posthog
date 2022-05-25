@@ -219,7 +219,7 @@ class ApiRequest {
     }
 
     public license(id: LicenseType['id']): ApiRequest {
-        return this.persons().addPathComponent(id)
+        return this.licenses().addPathComponent(id)
     }
 
     public insights(teamId: TeamType['id']): ApiRequest {
@@ -560,6 +560,9 @@ const api = {
         },
         async create(key: LicenseType['key']): Promise<LicenseType> {
             return await new ApiRequest().licenses().create({ data: { key } })
+        },
+        async delete(licenseId: LicenseType['id']): Promise<LicenseType> {
+            return await new ApiRequest().license(licenseId).delete()
         },
     },
 

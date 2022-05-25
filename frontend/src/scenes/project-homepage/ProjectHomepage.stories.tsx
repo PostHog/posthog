@@ -6,7 +6,7 @@ import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
 
 export default {
-    title: 'Scenes-App/ProjectHomepage',
+    title: 'Scenes-App/Project Homepage',
     decorators: [
         mswDecorator({
             get: {
@@ -19,7 +19,7 @@ export default {
     parameters: { layout: 'fullscreen', options: { showPanel: false }, viewMode: 'canvas' },
 } as Meta
 
-export const Show = (): JSX.Element => {
+export const ProjectHomepage = (): JSX.Element => {
     useEffect(() => {
         router.actions.push(urls.projectHomepage())
     }, [])

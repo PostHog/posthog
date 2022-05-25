@@ -123,7 +123,7 @@ class SimplifyFilterMixin:
                 # :TODO: Handle non-existing resource in-query instead
                 return PropertyGroup(type=PropertyOperatorType.AND, values=[property])
 
-            return simplified_cohort_filter_properties(cohort, team)
+            return simplified_cohort_filter_properties(cohort, team, property.negation)
 
         # PropertyOperatorType doesn't really matter here, since only one value.
         return PropertyGroup(type=PropertyOperatorType.AND, values=[property])

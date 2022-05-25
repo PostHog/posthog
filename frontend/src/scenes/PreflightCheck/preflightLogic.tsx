@@ -1,18 +1,14 @@
-import { kea } from 'kea'
-import React from 'react'
+import { actions, events, kea, listeners, path, reducers, selectors } from 'kea'
 import api from 'lib/api'
 import { PreflightStatus, Realm } from '~/types'
 import posthog from 'posthog-js'
 import { getAppContext } from 'lib/utils/getAppContext'
-import { teamLogic } from 'scenes/teamLogic'
-import { IconSwapHoriz } from 'lib/components/icons'
-import { userLogic } from 'scenes/userLogic'
-import { lemonToast } from 'lib/components/lemonToast'
-import { preflightLogicType } from './preflightLogicType'
+import type { preflightLogicType } from './preflightLogicType'
 import { urls } from 'scenes/urls'
-import { router } from 'kea-router'
+import { actionToUrl, router, urlToAction } from 'kea-router'
+import { loaders } from 'kea-loaders'
 
-type PreflightMode = 'experimentation' | 'live'
+export type PreflightMode = 'experimentation' | 'live'
 
 export type PreflightCheckStatus = 'validated' | 'error' | 'warning' | 'optional'
 
@@ -23,7 +19,7 @@ export interface PreflightItemInterface {
     id: string
 }
 
-interface PreflightCheckSummary {
+export interface PreflightCheckSummary {
     summaryString: string
     summaryStatus: PreflightCheckStatus
 }
@@ -34,14 +30,9 @@ export interface EnvironmentConfigOption {
     value: string
 }
 
-export const preflightLogic = kea<
-    preflightLogicType<EnvironmentConfigOption, PreflightCheckSummary, PreflightItemInterface, PreflightMode>
->({
-    path: ['scenes', 'PreflightCheck', 'preflightLogic'],
-    connect: {
-        values: [teamLogic, ['currentTeam']],
-    },
-    loaders: {
+export const preflightLogic = kea<preflightLogicType>([
+    path(['scenes', 'PreflightCheck', 'preflightLogic']),
+    loaders({
         preflight: [
             null as PreflightStatus | null,
             {
@@ -51,14 +42,14 @@ export const preflightLogic = kea<
                 },
             },
         ],
-    },
-    actions: {
+    }),
+    actions({
         registerInstrumentationProps: true,
         setPreflightMode: (mode: PreflightMode | null, noReload?: boolean) => ({ mode, noReload }),
         handlePreflightFinished: true,
         setChecksManuallyExpanded: (expanded: boolean | null) => ({ expanded }),
-    },
-    reducers: {
+    }),
+    reducers({
         preflightMode: [
             null as PreflightMode | null,
             {
@@ -71,12 +62,12 @@ export const preflightLogic = kea<
                 setChecksManuallyExpanded: (_, { expanded }) => expanded,
             },
         ],
-    },
-    selectors: {
+    }),
+    selectors({
         checks: [
             (s) => [s.preflight, s.preflightMode],
             (preflight, preflightMode) => {
-                return [
+                const preflightItems = [
                     {
                         id: 'database',
                         name: 'Application database · Postgres',
@@ -139,7 +130,21 @@ export const preflightLogic = kea<
                                 ? 'Not required for experimentation mode'
                                 : 'Set up before ingesting real user data',
                     },
-                ] as PreflightItemInterface[]
+                ]
+
+                if (preflight?.object_storage || preflight?.is_debug) {
+                    /** __for now__, only prompt debug users if object storage is unhealthy **/
+                    preflightItems.push({
+                        id: 'object_storage',
+                        name: 'Object Storage',
+                        status: preflight?.object_storage ? 'validated' : 'warning',
+                        caption: preflight?.object_storage
+                            ? undefined
+                            : 'Some features will not work without object storage',
+                    })
+                }
+
+                return preflightItems as PreflightItemInterface[]
             },
         ],
         checksSummary: [
@@ -222,8 +227,8 @@ export const preflightLogic = kea<
                 }))
             },
         ],
-    },
-    listeners: ({ values, actions }) => ({
+    }),
+    listeners(({ values, actions }) => ({
         handlePreflightFinished: () => {
             router.actions.push(urls.signup())
         },
@@ -252,41 +257,26 @@ export const preflightLogic = kea<
                 actions.loadPreflight()
             }
         },
-    }),
-    events: ({ actions, values }) => ({
+    })),
+    events(({ actions, values }) => ({
         afterMount: () => {
             const appContext = getAppContext()
             const preflight = appContext?.preflight
-            const switchedTeam = appContext?.switched_team
             if (preflight) {
                 actions.loadPreflightSuccess(preflight)
             } else if (!values.preflight) {
                 actions.loadPreflight()
             }
-            if (switchedTeam) {
-                lemonToast.info(
-                    <>
-                        You've switched to&nbsp;project <b>{values.currentTeam?.name}</b>
-                    </>,
-                    {
-                        button: {
-                            label: 'Switch back',
-                            action: () => userLogic.actions.updateCurrentTeam(switchedTeam),
-                        },
-                        icon: <IconSwapHoriz />,
-                    }
-                )
-            }
         },
-    }),
-    actionToUrl: ({ values }) => ({
+    })),
+    actionToUrl(({ values }) => ({
         setPreflightMode: () => ['/preflight', { mode: values.preflightMode }],
-    }),
-    urlToAction: ({ actions, values }) => ({
+    })),
+    urlToAction(({ actions, values }) => ({
         '/preflight': (_, { mode }) => {
             if (values.preflightMode !== mode) {
                 actions.setPreflightMode(mode ?? (null as PreflightMode | null), true)
             }
         },
-    }),
-})
+    })),
+])

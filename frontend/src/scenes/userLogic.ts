@@ -4,7 +4,6 @@ import type { userLogicType } from './userLogicType'
 import { AvailableFeature, OrganizationBasicType, UserType } from '~/types'
 import posthog from 'posthog-js'
 import { getAppContext } from 'lib/utils/getAppContext'
-import { teamLogic } from './teamLogic'
 import { preflightLogic } from './PreflightCheck/preflightLogic'
 import { lemonToast } from 'lib/components/lemonToast'
 import { loaders } from 'kea-loaders'
@@ -14,7 +13,7 @@ export interface UserDetailsFormType {
     first_name: string
 }
 
-export const userLogic = kea<userLogicType<UserDetailsFormType>>([
+export const userLogic = kea<userLogicType>([
     path(['scenes', 'userLogic']),
     connect({
         values: [preflightLogic, ['preflight']],
@@ -113,7 +112,7 @@ export const userLogic = kea<userLogicType<UserDetailsFormType>>([
                     })
 
                     posthog.register({
-                        is_demo_project: teamLogic.values.currentTeam?.is_demo,
+                        is_demo_project: user.team?.is_demo,
                     })
 
                     if (user.team) {

@@ -117,12 +117,6 @@ export const FIELD_VALUES: Record<FieldOptionsType, FieldValues> = {
             [BehavioralEventType.PerformMultipleEvents]: {
                 label: 'Completed an event multiple times',
             },
-            [BehavioralEventType.PerformSequenceEvents]: {
-                label: 'Completed a sequence of events',
-            },
-            [BehavioralEventType.NotPerformSequenceEvents]: {
-                label: 'Did not complete a sequence of events',
-            },
         },
     },
     [FieldOptionsType.PersonPropertyBehavioral]: {
@@ -152,20 +146,7 @@ export const FIELD_VALUES: Record<FieldOptionsType, FieldValues> = {
     [FieldOptionsType.LifecycleBehavioral]: {
         label: 'Lifecycle',
         type: FieldOptionsType.LifecycleBehavioral,
-        values: {
-            [BehavioralLifecycleType.PerformEventFirstTime]: {
-                label: 'Completed an event for the first time',
-            },
-            [BehavioralLifecycleType.PerformEventRegularly]: {
-                label: 'Completed an event regularly',
-            },
-            [BehavioralLifecycleType.StopPerformEvent]: {
-                label: 'Stopped doing an event',
-            },
-            [BehavioralLifecycleType.StartPerformEventAgain]: {
-                label: 'Started doing an event again',
-            },
-        },
+        values: {},
     },
     [FieldOptionsType.TimeUnits]: {
         label: 'Units',
@@ -274,13 +255,13 @@ export const FIELD_VALUES: Record<FieldOptionsType, FieldValues> = {
         type: FieldOptionsType.EventsAndActionsMathOperators,
         values: {
             [PropertyOperator.Exact]: {
-                label: 'equals',
+                label: 'exactly',
             },
             [PropertyOperator.GreaterThanOrEqual]: {
-                label: 'greater than or equal to',
+                label: 'at least',
             },
             [PropertyOperator.LessThanOrEqual]: {
-                label: 'less than or equal to',
+                label: 'at most',
             },
         },
     },
@@ -296,6 +277,48 @@ export const FIELD_VALUES: Record<FieldOptionsType, FieldValues> = {
             },
             [ValueOptionType.OnDate]: {
                 label: 'value on the date',
+            },
+        },
+    },
+}
+
+export const SCALE_FIELD_VALUES = {
+    [FieldOptionsType.EventBehavioral]: {
+        label: 'Behavioral',
+        type: FieldOptionsType.EventBehavioral,
+        values: {
+            [BehavioralEventType.PerformEvent]: {
+                label: 'Completed event',
+            },
+            [BehavioralEventType.NotPerformedEvent]: {
+                label: 'Did not complete event',
+            },
+            [BehavioralEventType.PerformMultipleEvents]: {
+                label: 'Completed an event multiple times',
+            },
+            [BehavioralEventType.PerformSequenceEvents]: {
+                label: 'Completed a sequence of events',
+            },
+            [BehavioralEventType.NotPerformSequenceEvents]: {
+                label: 'Did not complete a sequence of events',
+            },
+        },
+    },
+    [FieldOptionsType.LifecycleBehavioral]: {
+        label: 'Lifecycle',
+        type: FieldOptionsType.LifecycleBehavioral,
+        values: {
+            [BehavioralLifecycleType.PerformEventFirstTime]: {
+                label: 'Completed an event for the first time',
+            },
+            [BehavioralLifecycleType.PerformEventRegularly]: {
+                label: 'Completed an event regularly',
+            },
+            [BehavioralLifecycleType.StopPerformEvent]: {
+                label: 'Stopped doing an event',
+            },
+            [BehavioralLifecycleType.StartPerformEventAgain]: {
+                label: 'Started doing an event again',
             },
         },
     },

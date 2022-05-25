@@ -5,7 +5,7 @@ import { EditorProps, TrendResult } from '~/types'
 import { teamLogic } from 'scenes/teamLogic'
 import { dayjs } from 'lib/dayjs'
 import Fuse from 'fuse.js'
-import { authorizedUrlsLogicType } from './authorizedUrlsLogicType'
+import type { authorizedUrlsLogicType } from './authorizedUrlsLogicType'
 import { encodeParams } from 'kea-router'
 
 /** defaultIntent: whether to launch with empty intent (i.e. toolbar mode is default) */
@@ -26,7 +26,7 @@ export interface KeyedAppUrl {
     originalIndex: number
 }
 
-export const authorizedUrlsLogic = kea<authorizedUrlsLogicType<KeyedAppUrl>>({
+export const authorizedUrlsLogic = kea<authorizedUrlsLogicType>({
     path: (key) => ['lib', 'components', 'AppEditorLink', 'appUrlsLogic', key],
     key: (props) => `${props.pageKey}${props.actionId}` || 'global',
     props: {} as {

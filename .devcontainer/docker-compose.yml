@@ -29,7 +29,7 @@ services:
         # Note: please keep the default version in sync across
         #       `posthog` and the `charts-clickhouse` repos
         #
-        image: yandex/clickhouse-server:${CLICKHOUSE_SERVER_IMAGE_VERSION:-21.11.11.1}
+        image: ${CLICKHOUSE_SERVER_IMAGE:-clickhouse/clickhouse-server:22.3}
         ports:
             - '8123:8123'
             - '9000:9000'

@@ -1,18 +1,12 @@
 import { PluginEvent } from '@posthog/plugin-scaffold/src/types'
 
-import { Hub, LogLevel, PluginsServerConfig, Team, TimestampFormat } from '../../src/types'
+import { Hub, LogLevel } from '../../src/types'
 import { createHub } from '../../src/utils/db/hub'
 import { UUIDT } from '../../src/utils/utils'
 import { generateEventDeadLetterQueueMessage } from '../../src/worker/ingestion/utils'
-import { resetTestDatabaseClickhouse } from '../helpers/clickhouse'
+import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../helpers/clickhouse'
 import { resetTestDatabase } from '../helpers/sql'
-import { delayUntilEventIngested } from '../shared/process-event'
 import { workerTasks } from './../../src/worker/tasks'
-
-const extraServerConfig: Partial<PluginsServerConfig> = {
-    KAFKA_ENABLED: true,
-    KAFKA_HOSTS: process.env.KAFKA_HOSTS || 'kafka:9092',
-}
 
 jest.setTimeout(60000) // 60 sec timeout
 jest.mock('../../src/utils/status')
@@ -24,7 +18,7 @@ jest.mock('../../src/worker/ingestion/utils', () => {
 })
 
 class MockEventsProcessor {
-    public async processEvent(...args: any[]) {
+    public async processEvent() {
         await new Promise<void>((resolve) => resolve())
         throw new Error('database unavailable')
     }
@@ -54,10 +48,10 @@ describe('events dead letter queue', () => {
     let closeHub: () => Promise<void>
 
     beforeEach(async () => {
-        ;[hub, closeHub] = await createHub({ LOG_LEVEL: LogLevel.Log, ...extraServerConfig })
+        ;[hub, closeHub] = await createHub({ LOG_LEVEL: LogLevel.Log })
         console.warn = jest.fn() as any
         await resetTestDatabase()
-        await resetTestDatabaseClickhouse(extraServerConfig)
+        await resetTestDatabaseClickhouse()
     })
 
     afterEach(async () => {
@@ -65,8 +59,12 @@ describe('events dead letter queue', () => {
     })
 
     test('events get sent to dead letter queue on error', async () => {
-        const ingestResponse1 = await workerTasks.ingestEvent(hub, { event: createEvent() })
-        expect(ingestResponse1).toEqual({ error: 'database unavailable' })
+        const ingestResponse1 = await workerTasks.runEventPipeline(hub, { event: createEvent() })
+        expect(ingestResponse1).toEqual({
+            lastStep: 'prepareEventStep',
+            error: 'database unavailable',
+            args: expect.anything(),
+        })
         expect(generateEventDeadLetterQueueMessage).toHaveBeenCalled()
 
         await delayUntilEventIngested(() => hub.db.fetchDeadLetterQueueEvents(), 1)

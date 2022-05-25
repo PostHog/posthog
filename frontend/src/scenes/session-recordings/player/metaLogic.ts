@@ -16,7 +16,7 @@ const getPersonProperties = (person: Partial<PersonType>, keys: string[]): strin
 
 export const metaLogic = kea<metaLogicType>({
     path: ['scenes', 'session-recordings', 'player', 'metaLogic'],
-    connect: {
+    connect: () => ({
         values: [
             sessionRecordingLogic,
             ['sessionPlayerData'],
@@ -24,7 +24,7 @@ export const metaLogic = kea<metaLogicType>({
             ['currentPlayerPosition', 'scale'],
         ],
         actions: [sessionRecordingLogic, ['loadRecordingMetaSuccess']],
-    },
+    }),
     reducers: {
         loading: [
             true,

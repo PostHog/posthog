@@ -321,12 +321,12 @@ def insert_actors_into_cohort_by_query(cohort: Cohort, query: str, params: Dict[
         cohort.is_calculating = False
         cohort.last_calculation = timezone.now()
         cohort.errors_calculating = 0
-        cohort.save()
+        cohort.save(update_fields=["errors_calculating", "last_calculation", "is_calculating"])
     except Exception as err:
 
         if settings.DEBUG:
             raise err
         cohort.is_calculating = False
         cohort.errors_calculating = F("errors_calculating") + 1
-        cohort.save()
+        cohort.save(update_fields=["errors_calculating", "is_calculating"])
         capture_exception(err)

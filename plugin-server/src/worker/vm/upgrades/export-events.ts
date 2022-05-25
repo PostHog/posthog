@@ -1,6 +1,6 @@
-import { Plugin, PluginEvent, PluginMeta, RetryError } from '@posthog/plugin-scaffold'
+import { Plugin, PluginEvent, PluginMeta, ProcessedPluginEvent, RetryError } from '@posthog/plugin-scaffold'
 
-import { Hub, MetricMathOperations, PluginConfig, PluginConfigVMInternalResponse, PluginTaskType } from '../../../types'
+import { Hub, PluginConfig, PluginConfigVMInternalResponse, PluginTaskType } from '../../../types'
 import { determineNodeEnv, NodeEnv } from '../../../utils/env-utils'
 import { status } from '../../../utils/status'
 import { stringClamp } from '../../../utils/utils'
@@ -135,7 +135,7 @@ export function upgradeExportEvents(
     }
 
     const oldOnEvent = methods.onEvent
-    methods.onEvent = async (event: PluginEvent) => {
+    methods.onEvent = async (event: ProcessedPluginEvent) => {
         if (!meta.global.exportEventsToIgnore.has(event.event)) {
             await meta.global.exportEventsBuffer.add(event, JSON.stringify(event).length)
         }

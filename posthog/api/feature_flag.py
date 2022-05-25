@@ -34,6 +34,11 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
     filters = serializers.DictField(source="get_filters", required=False)
     is_simple_flag = serializers.SerializerMethodField()
     rollout_percentage = serializers.SerializerMethodField()
+    name = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="contains the description for the flag (field name `name` is kept for backwards-compatibility)",
+    )
 
     class Meta:
         model = FeatureFlag
@@ -81,6 +86,12 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
         return value
 
     def validate_filters(self, filters):
+        # For some weird internal REST framework reason this field gets validated on a partial PATCH call, even if filters isn't being updatd
+        # If we see this, just return the current filters
+        if "groups" not in filters and self.context["request"].method == "PATCH":
+            # mypy cannot tell that self.instance is a FeatureFlag
+            return self.instance.filters  # type: ignore
+
         aggregation_group_type_index = filters.get("aggregation_group_type_index", None)
 
         def properties_all_match(predicate):
@@ -119,6 +130,7 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
         return filters
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> FeatureFlag:
+
         request = self.context["request"]
         validated_data["created_by"] = request.user
         validated_data["team_id"] = self.context["team_id"]

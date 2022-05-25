@@ -8,6 +8,7 @@ import { insightsModel } from '~/models/insightsModel'
 import { DashboardPrivilegeLevel, FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import {
+    AnyPropertyFilter,
     Breadcrumb,
     ChartDisplayType,
     DashboardLayoutSize,
@@ -19,13 +20,14 @@ import {
     InsightShortId,
     InsightType,
 } from '~/types'
-import { dashboardLogicType } from './dashboardLogicType'
+import type { dashboardLogicType } from './dashboardLogicType'
 import { Layout, Layouts } from 'react-grid-layout'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { teamLogic } from '../teamLogic'
 import { urls } from 'scenes/urls'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { userLogic } from 'scenes/userLogic'
+import { mergeWithDashboardTile } from 'scenes/insights/utils/dashboardTiles'
 
 export const BREAKPOINTS: Record<DashboardLayoutSize, number> = {
     sm: 1024,
@@ -45,7 +47,7 @@ export interface DashboardLogicProps {
 
 export const AUTO_REFRESH_INITIAL_INTERVAL_SECONDS = 300
 
-export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
+export const dashboardLogic = kea<dashboardLogicType>({
     path: ['scenes', 'dashboard', 'dashboardLogic'],
     connect: () => ({
         values: [teamLogic, ['currentTeamId'], featureFlagLogic, ['featureFlags']],
@@ -91,6 +93,7 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
             dateTo,
             reloadDashboard,
         }),
+        setProperties: (properties: AnyPropertyFilter[]) => ({ properties }),
         setAutoRefresh: (enabled: boolean, interval: number) => ({ enabled, interval }),
         setRefreshStatus: (shortId: InsightShortId, loading = false) => ({ shortId, loading }),
         setRefreshStatuses: (shortIds: InsightShortId[], loading = false) => ({ shortIds, loading }),
@@ -154,17 +157,15 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
                     date_from: dateFrom || null,
                     date_to: dateTo || null,
                 }),
+                setProperties: (state, { properties }) => ({
+                    ...state,
+                    properties: properties || null,
+                }),
             },
         ],
         allItems: [
             null as DashboardType | null,
             {
-                [insightsModel.actionTypes.renameInsightSuccess]: (state, { item }) => {
-                    return {
-                        ...state,
-                        items: state?.items.map((i) => (i.short_id === item.short_id ? item : i)) || [],
-                    } as DashboardType
-                },
                 updateLayouts: (state, { layouts }) => {
                     const itemLayouts: Record<string, Partial<Record<string, Layout>>> = {}
                     state?.items.forEach((item) => {
@@ -185,12 +186,17 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
                         items: state?.items.map((item) => ({ ...item, layouts: itemLayouts[item.short_id] })),
                     } as DashboardType
                 },
-                [dashboardsModel.actionTypes.updateDashboardItem]: (state, { item }) => {
+                [dashboardsModel.actionTypes.updateDashboardItem]: (state, { item, dashboardIds }) => {
+                    if (dashboardIds && props.id && !dashboardIds.includes(props.id)) {
+                        // this update is not for this dashboard
+                        return state
+                    }
+
                     if (state) {
                         const itemIndex = state.items.findIndex((i) => i.short_id === item.short_id)
                         const newItems = state.items.slice(0)
                         if (itemIndex >= 0) {
-                            newItems[itemIndex] = item
+                            newItems[itemIndex] = mergeWithDashboardTile(item, newItems[itemIndex])
                         } else {
                             newItems.push(item)
                         }
@@ -617,10 +623,15 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
                 try {
                     breakpoint()
 
+                    if (!props.id) {
+                        // what are we loading the insight card on?!
+                        return
+                    }
+
                     const refreshedDashboardItem = await api.get(
                         `api/projects/${values.currentTeamId}/insights/${dashboardItem.id}/?${toParams({
                             refresh: true,
-                            from_dashboard: props.id || undefined, // needed to load insight in correct context
+                            from_dashboard: props.id, // needed to load insight in correct context
                         })}`
                     )
                     breakpoint()
@@ -629,6 +640,7 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
                     if (dashboardItem.filters.insight) {
                         const itemResultLogic = insightLogic?.findMounted({
                             dashboardItemId: dashboardItem.short_id,
+                            dashboardId: props.id,
                             cachedInsight: dashboardItem,
                         })
                         itemResultLogic?.actions.setInsight(
@@ -637,7 +649,7 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
                         )
                     }
 
-                    dashboardsModel.actions.updateDashboardItem(refreshedDashboardItem)
+                    dashboardsModel.actions.updateDashboardItem(refreshedDashboardItem, [props.id])
                     actions.setRefreshStatus(dashboardItem.short_id)
                 } catch (e: any) {
                     if (isBreakpoint(e)) {
@@ -672,6 +684,10 @@ export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
                 actions.updateAndRefreshDashboard()
             }
             eventUsageLogic.actions.reportDashboardDateRangeChanged(dateFrom, dateTo)
+        },
+        setProperties: () => {
+            actions.updateAndRefreshDashboard()
+            eventUsageLogic.actions.reportDashboardPropertiesChanged()
         },
         setDashboardMode: async ({ mode, source }) => {
             // Edit mode special handling

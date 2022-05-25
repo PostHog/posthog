@@ -179,7 +179,7 @@ VALUES (%(uuid)s, %(event)s, %(properties)s, %(timestamp)s, %(team_id)s, %(disti
 
 BULK_INSERT_EVENT_SQL = (
     lambda: f"""
-INSERT INTO {EVENTS_DATA_TABLE()} (uuid, event, properties, timestamp, team_id, distinct_id, elements_chain, created_at, _timestamp, _offset)
+INSERT INTO {EVENTS_DATA_TABLE()} (uuid, event, properties, timestamp, team_id, distinct_id, elements_chain, person_id, person_properties, group0_properties, group1_properties, group2_properties, group3_properties, group4_properties, created_at, _timestamp, _offset)
 VALUES
 """
 )
@@ -250,7 +250,7 @@ FROM
     events
 where team_id = %(team_id)s
 {conditions}
-ORDER BY toDate(timestamp) {order}, timestamp {order} {limit}
+ORDER BY timestamp {order} {limit}
 """
 
 SELECT_EVENT_BY_TEAM_AND_CONDITIONS_FILTERS_SQL = """
@@ -268,7 +268,7 @@ WHERE
 team_id = %(team_id)s
 {conditions}
 {filters}
-ORDER BY toDate(timestamp) {order}, timestamp {order} {limit}
+ORDER BY timestamp {order} {limit}
 """
 
 SELECT_ONE_EVENT_SQL = """
