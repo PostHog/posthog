@@ -143,17 +143,20 @@ describe('e2e', () => {
 
         test('console logging is persistent', async () => {
             await posthog.capture('custom event', { name: 'hehe', uuid: new UUIDT().toString() })
-
             await hub.kafkaProducer.flush()
+
             await delayUntilEventIngested(() => hub.db.fetchEvents())
+            // :KLUDGE: Force workers to emit their logs, otherwise they might never get cpu time.
+            await piscina.broadcastTask({ task: 'flushKafkaMessages' })
             await delayUntilEventIngested(() => hub.db.fetchPluginLogEntries())
 
-            await delay(2000)
-
             const pluginLogEntries = await hub.db.fetchPluginLogEntries()
-            expect(
-                pluginLogEntries.filter(({ message, type }) => message.includes('amogus') && type === 'INFO').length
-            ).toEqual(1)
+            expect(pluginLogEntries).toContainEqual(
+                expect.objectContaining({
+                    type: 'INFO',
+                    message: 'amogus',
+                })
+            )
         })
     })
 
