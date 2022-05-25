@@ -80,7 +80,6 @@ const TEST_CONFIG: Partial<PluginsServerConfig> = {
     KAFKA_CONSUMPTION_TOPIC: KAFKA_EVENTS_PLUGIN_INGESTION,
 }
 
-const testCounter = 0
 let processEventCounter = 0
 let mockClientEventCounter = 0
 let team: Team
