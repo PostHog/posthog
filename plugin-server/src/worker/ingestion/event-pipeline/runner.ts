@@ -77,7 +77,7 @@ export class EventPipelineRunner {
     async runAsyncHandlersEventPipeline(event: IngestionEvent): Promise<EventPipelineResult> {
         const person = await this.hub.db.fetchPerson(event.teamId, event.distinctId)
         const result = await this.runPipeline('runAsyncHandlersStep', event, person)
-        this.hub.statsd?.increment('kafka_queue.async_handlers.processed_and_ingested')
+        this.hub.statsd?.increment('kafka_queue.async_handlers.processed')
         return result
     }
 

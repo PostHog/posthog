@@ -40,6 +40,7 @@ Each one does a single thing. They are listed in the table below, in order of pr
 ## Alternative modes
 
 By default, plugin-server is responsible for and executes all of the following:
+
 1. Ingestion (calling plugins and writing event and person data to ClickHouse and Postgres, buffering events)
 2. Scheduled tasks (runEveryX type plugin tasks)
 3. Processing plugin jobs
