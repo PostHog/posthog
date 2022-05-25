@@ -3,7 +3,7 @@ from typing import Literal, Optional
 from django.utils import timezone
 
 from posthog.constants import INSIGHT_TRENDS, TRENDS_LINEAR, TRENDS_WORLD_MAP
-from posthog.models import Cohort, Dashboard, DashboardTile, Experiment, FeatureFlag, Insight
+from posthog.models import Cohort, Dashboard, DashboardTile, Experiment, FeatureFlag, Insight, InsightViewed
 from posthog.models.property_definition import PropertyType
 from posthog.models.utils import UUIDT
 
@@ -256,13 +256,11 @@ class HedgeboxMatrix(Matrix):
         super().set_project_up(team, user)
         team.name = PROJECT_NAME
 
-        # Dashboards
+        # Dashboard: Key metrics (project home)
         key_metrics_dashboard = Dashboard.objects.create(
             team=team, name="🔑 Key metrics", description="Company overview.", pinned=True
         )
         team.primary_dashboard = key_metrics_dashboard
-
-        # Insights
         weekly_signups_insight = Insight.objects.create(
             team=team,
             dashboard=key_metrics_dashboard,
@@ -277,6 +275,8 @@ class HedgeboxMatrix(Matrix):
                 "interval": "week",
                 "date_from": "-1m",
             },
+            last_modified_at=timezone.now() - timezone.timedelta(days=23),
+            last_modified_by=user,
         )
         DashboardTile.objects.create(
             dashboard=key_metrics_dashboard,
@@ -302,6 +302,8 @@ class HedgeboxMatrix(Matrix):
                 "breakdown": "$geoip_country_code",
                 "date_from": "-1m",
             },
+            last_modified_at=timezone.now() - timezone.timedelta(days=6),
+            last_modified_by=user,
         )
         DashboardTile.objects.create(
             dashboard=key_metrics_dashboard,
@@ -311,7 +313,81 @@ class HedgeboxMatrix(Matrix):
                 "xs": {"h": 5, "w": 1, "x": 0, "y": 5, "minH": 5, "minW": 3, "moved": False, "static": False},
             },
         )
+        signup_from_homepage_funnel = Insight.objects.create(
+            team=team,
+            dashboard=key_metrics_dashboard,
+            order=0,
+            saved=True,
+            name="Homepage view to signup conversion",
+            filters={
+                "events": [
+                    {
+                        "custom_name": "Viewed homepage",
+                        "id": "$pageview",
+                        "name": "$pageview",
+                        "type": "events",
+                        "order": 0,
+                        "properties": [
+                            {
+                                "key": "$current_url",
+                                "type": "event",
+                                "value": "https://hedgebox.net/",
+                                "operator": "exact",
+                            }
+                        ],
+                    },
+                    {
+                        "custom_name": "Viewed signup page",
+                        "id": "$pageview",
+                        "name": "$pageview",
+                        "type": "events",
+                        "order": 1,
+                        "properties": [
+                            {
+                                "key": "$current_url",
+                                "type": "event",
+                                "value": "https:\\/\\/hedgebox\\.net\\/register($|\\/)",
+                                "operator": "regex",
+                            }
+                        ],
+                    },
+                    {"custom_name": "Signed up", "id": "signed_up", "name": "signed_up", "type": "events", "order": 2},
+                ],
+                "actions": [],
+                "display": "FunnelViz",
+                "insight": "FUNNELS",
+                "interval": "day",
+                "funnel_viz_type": "steps",
+                "filter_test_accounts": True,
+                "date_from": "-1m",
+            },
+            last_modified_at=timezone.now() - timezone.timedelta(days=19),
+            last_modified_by=user,
+        )
+        DashboardTile.objects.create(
+            dashboard=key_metrics_dashboard,
+            insight=signup_from_homepage_funnel,
+            layouts={
+                "sm": {"h": 5, "w": 6, "x": 0, "y": 5, "minH": 5, "minW": 3},
+                "xs": {"h": 5, "w": 1, "x": 0, "y": 10, "minH": 5, "minW": 3, "moved": False, "static": False},
+            },
+        )
 
+        # InsightViewed
+        InsightViewed.objects.bulk_create(
+            (
+                InsightViewed(
+                    team=team,
+                    user=user,
+                    insight=insight,
+                    last_viewed_at=(
+                        timezone.now()
+                        - timezone.timedelta(days=self.random.randint(0, 3), minutes=self.random.randint(5, 60))
+                    ),
+                )
+                for insight in Insight.objects.filter(team=team)
+            )
+        )
         # Cohorts
         Cohort.objects.create(
             team=team,
@@ -399,7 +475,6 @@ class HedgeboxMatrix(Matrix):
                     },
                     {"id": "signed_up", "name": "signed_up", "type": "events", "order": 1},
                 ],
-                "layout": "horizontal",
                 "actions": [],
                 "display": "FunnelViz",
                 "insight": "FUNNELS",
