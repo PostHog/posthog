@@ -4,7 +4,7 @@ import { determineNodeEnv, NodeEnv } from '../utils/env-utils'
 
 const isTestEnv = determineNodeEnv() === NodeEnv.Test
 const suffix = isTestEnv ? '_test' : ''
-const prefix = process.env.KAFKA_TOPIC_PREFIX || ''
+const prefix = process.env.KAFKA_PREFIX || ''
 
 export const KAFKA_EVENTS = `${prefix}clickhouse_events_proto${suffix}`
 export const KAFKA_EVENTS_JSON = `${prefix}clickhouse_events_json${suffix}`
