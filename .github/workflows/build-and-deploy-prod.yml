@@ -92,8 +92,16 @@ jobs:
               id: task-def-plugins
               uses: aws-actions/amazon-ecs-render-task-definition@v1
               with:
-                  task-definition: deploy/task-definition.plugins.json
+                  task-definition: deploy/task-definition.plugins-ingestion.json
                   container-name: posthog-production-plugins
+                  image: ${{ steps.build-image.outputs.image }}
+
+            - name: Fill in the new plugins image ID in the Amazon ECS task definition
+              id: task-def-plugins-async
+              uses: aws-actions/amazon-ecs-render-task-definition@v1
+              with:
+                  task-definition: deploy/task-definition.plugins-async.json
+                  container-name: posthog-production-plugins-async
                   image: ${{ steps.build-image.outputs.image }}
 
             - name: Fill in the new migration image ID in the Amazon ECS task definition
@@ -145,6 +153,13 @@ jobs:
               with:
                   task-definition: ${{ steps.task-def-plugins.outputs.task-definition }}
                   service: posthog-production-plugins
+                  cluster: posthog-production-cluster
+
+            - name: Deploy Amazon ECS plugins-async task definition
+              uses: aws-actions/amazon-ecs-deploy-task-definition@v1
+              with:
+                  task-definition: ${{ steps.task-def-plugins-async.outputs.task-definition }}
+                  service: posthog-production-plugins-async
                   cluster: posthog-production-cluster
 
             - name: Notify Platform team on slack
