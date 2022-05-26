@@ -96,7 +96,7 @@ jobs:
                   container-name: posthog-production-plugins
                   image: ${{ steps.build-image.outputs.image }}
 
-            - name: Fill in the new plugins image ID in the Amazon ECS task definition
+            - name: Fill in the new plugins-async image ID in the Amazon ECS task definition
               id: task-def-plugins-async
               uses: aws-actions/amazon-ecs-render-task-definition@v1
               with:
