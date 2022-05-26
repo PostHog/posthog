@@ -1,4 +1,5 @@
 import json
+from datetime import datetime
 from typing import (
     Any,
     Callable,
@@ -38,6 +39,7 @@ from ee.clickhouse.queries.retention.clickhouse_retention import ClickhouseReten
 from ee.clickhouse.queries.stickiness.clickhouse_stickiness import ClickhouseStickiness
 from ee.clickhouse.queries.trends.lifecycle import ClickhouseLifecycle
 from ee.clickhouse.sql.person import GET_PERSON_PROPERTIES_COUNT
+from posthog.api.capture import capture_internal
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.utils import format_paginated_url, get_target_entity
 from posthog.client import sync_execute
@@ -58,7 +60,6 @@ from posthog.models.activity_logging.activity_log import (
     Change,
     Detail,
     Merge,
-    changes_between,
     load_activity,
     log_activity,
 )
@@ -101,6 +102,7 @@ class PersonSerializer(serializers.HyperlinkedModelSerializer):
             "created_at",
             "uuid",
         ]
+        read_only_fields = ("id", "distinct_ids", "created_at", "uuid")
 
     def get_name(self, person: Person) -> str:
         return get_person_name(person)
@@ -479,6 +481,37 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
         return response.Response({"success": True}, status=201)
 
+    @action(methods=["POST"], detail=True)
+    def delete_property(self, request: request.Request, pk=None, **kwargs) -> response.Response:
+        person: Person = Person.objects.get(pk=pk, team_id=self.team_id)
+
+        capture_internal(
+            distinct_id=person.distinct_ids[0],
+            ip=None,
+            site_url=None,
+            team_id=self.team_id,
+            now=datetime.now(),
+            sent_at=None,
+            event={
+                "event": "$delete_person_property",
+                "properties": {"$unset": [request.data["$unset"]]},
+                "distinct_id": person.distinct_ids[0],
+                "timestamp": datetime.now().isoformat(),
+            },
+        )
+
+        log_activity(
+            organization_id=self.organization.id,
+            team_id=self.team.id,
+            user=request.user,  # type: ignore
+            item_id=person.id,
+            scope="Person",
+            activity="delete_property",
+            detail=Detail(changes=[Change(type="Person", action="changed")]),
+        )
+
+        return response.Response({"success": True}, status=201)
+
     @action(methods=["GET"], detail=False)
     def lifecycle(self, request: request.Request) -> response.Response:
 
@@ -608,31 +641,35 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             status=status.HTTP_200_OK,
         )
 
-    def partial_update(self, request, *args, **kwargs):
+    def update(self, request, *args, **kwargs):
+        instance = self.get_queryset().get(pk=kwargs["pk"])
+        capture_internal(
+            distinct_id=instance.distinct_ids[0],
+            ip=None,
+            site_url=None,
+            team_id=instance.team_id,
+            now=datetime.now(),
+            sent_at=None,
+            event={
+                "event": "$set",
+                "properties": {"$set": request.data["properties"]},
+                "distinct_id": instance.distinct_ids[0],
+                "timestamp": datetime.now().isoformat(),
+            },
+        )
 
-        instance_id = kwargs["pk"]
-        try:
-            before_update = self.get_queryset().get(pk=instance_id)
-        except Person.DoesNotExist:
-            before_update = None
-
-        kwargs["partial"] = True
-        response = self.update(request, *args, **kwargs)
-
-        updated_instance = self.get_object()
-
-        changes = changes_between(model_type="Person", previous=before_update, current=updated_instance)
         log_activity(
             organization_id=self.organization.id,
             team_id=self.team.id,
             user=request.user,
-            item_id=instance_id,
+            item_id=instance.pk,
             scope="Person",
             activity="updated",
-            detail=Detail(changes=changes),
+            detail=Detail(changes=None),
+            force_save=True,
         )
 
-        return response
+        return Response(status=204)
 
 
 def paginated_result(
