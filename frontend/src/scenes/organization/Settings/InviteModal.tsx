@@ -142,7 +142,7 @@ export function InviteModal({ visible, onClose }: { visible: boolean; onClose: (
                                 resetInviteRows()
                                 onClose()
                             }}
-                         />
+                        />
                     </div>
                 }
             >
@@ -304,6 +304,7 @@ export function InviteModal({ visible, onClose }: { visible: boolean; onClose: (
                                 fullWidth
                                 center
                                 disabled={!canSubmit}
+                                data-attr="invite-team-member-submit"
                             >
                                 {validInvitesCount ? `Invite ${pluralize(validInvitesCount, 'user')}` : 'Invite users'}
                             </LemonButton>
