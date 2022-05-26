@@ -37,7 +37,7 @@ export interface LemonRowPropsBase<T extends keyof JSX.IntrinsicElements>
 }
 
 export interface LemonRowProps<T extends keyof JSX.IntrinsicElements = 'div'> extends LemonRowPropsBase<T> {
-    sideIcon?: React.ReactElement | null
+    sideIcon?: React.ReactElement | false | null
 }
 
 /** Generic UI row component. Can be exploited as a button (see LemonButton) or just as a standard row of content.
@@ -103,13 +103,7 @@ export const LemonRow = React.forwardRef(function LemonRowInternal<T extends key
                 )}
                 {!symbolic && <div className="LemonRow__content">{children}</div>}
                 {sideIcon && (
-                    <span
-                        className={clsx(
-                            'LemonRow__icon',
-                            'LemonRow__icon--suffix',
-                            relaxedIconWidth && 'LemonRow__icon--relaxed-width'
-                        )}
-                    >
+                    <span className={clsx('LemonRow__icon', relaxedIconWidth && 'LemonRow__icon--relaxed-width')}>
                         {sideIcon}
                     </span>
                 )}
