@@ -125,7 +125,7 @@ export const inviteLogic = kea<inviteLogicType>({
                 // If email service is not available, take user to org settings page to copy invite(s) link(s)
                 router.actions.push(`${urls.organizationSettings()}#invites`)
             }
-            if (values.preflight.email_service_available) {
+            if (values.preflight?.email_service_available) {
                 actions.hideInviteModal()
             }
         },
