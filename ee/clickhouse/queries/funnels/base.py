@@ -710,27 +710,15 @@ class ClickhouseFunnelBase(ABC):
         else:
             return ""
 
-    def _get_person_and_group_properties(self) -> str:
+    def _get_person_and_group_properties(self, aggregate: bool = False) -> str:
         fields = []
         if self._team.actor_on_events_querying_enabled:
             if self._include_person_properties:
-                fields.append("person_properties")
-
-            for group_index in self._include_group_properties:
-                fields.append(f"group{group_index}_properties")
-
-        parsed_fields = f", {', '.join(fields)}" if fields else ""
-        return parsed_fields
-
-    def _get_person_and_group_properties_aggregate(self) -> str:
-        fields = []
-        if self._team.actor_on_events_querying_enabled:
-            if self._include_person_properties:
-                fields.append("any(person_properties) as person_properties")
+                fields.append("any(person_properties) as person_properties" if aggregate else "person_properties")
 
             for group_index in self._include_group_properties:
                 group_label = f"group{group_index}_properties"
-                fields.append(f"any({group_label}) as {group_label}")
+                fields.append(f"any({group_label}) as {group_label}" if aggregate else group_label)
 
         parsed_fields = f", {', '.join(fields)}" if fields else ""
         return parsed_fields
