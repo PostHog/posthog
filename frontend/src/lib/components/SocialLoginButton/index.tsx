@@ -47,7 +47,6 @@ export function SocialLoginLink({ provider, queryString }: SocialLoginButtonProp
 export function SocialLoginButtons({ title, caption, ...props }: SocialLoginButtonsProps): JSX.Element | null {
     const { preflight } = useValues(preflightLogic)
 
-    console.log('XX', preflight)
     if (
         !preflight?.available_social_auth_providers ||
         !Object.values(preflight.available_social_auth_providers).filter((val) => !!val).length
