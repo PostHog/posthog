@@ -48,18 +48,18 @@ export function Sidebar(): JSX.Element {
                 </div>
                 <div className="IngestionSidebar__bottom">
                     <InviteMembersButton center={true} type="primary" />
+                    <LemonDivider thick dashed large style={{ marginTop: 24, marginBottom: 24 }} />
                     <div className="IngestionSidebar__help">
-                        <LemonDivider thick dashed style={{ color: 'var(--border)', opacity: 100 }} />
                         <a href={`https://posthog.com/slack${HELP_UTM_TAGS}`} rel="noopener" target="_blank">
                             <LemonButton
                                 icon={<IconQuestionAnswer style={{ color: 'var(--primary)' }} />}
                                 type="tertiary"
                                 fullWidth
                                 style={{
-                                    marginTop: '1.5em',
                                     color: 'var(--primary)',
                                     background: 'none',
-                                    paddingLeft: 0,
+                                    padding: 0,
+                                    minHeight: 'auto',
                                 }}
                                 onClick={() => {
                                     reportIngestionHelpClicked(HelpType.Slack)
@@ -72,11 +72,17 @@ export function Sidebar(): JSX.Element {
                             href={`https://posthog.com/docs/integrate/ingest-live-data${HELP_UTM_TAGS}`}
                             rel="noopener"
                             target="_blank"
+                            className="mt-05"
                         >
                             <LemonButton
                                 icon={<IconArticle style={{ color: 'var(--primary)' }} />}
                                 type="tertiary"
-                                style={{ color: 'var(--primary)', background: 'none', paddingLeft: 0 }}
+                                style={{
+                                    color: 'var(--primary)',
+                                    background: 'none',
+                                    paddingLeft: 0,
+                                    minHeight: 'auto',
+                                }}
                                 fullWidth
                                 onClick={() => {
                                     reportIngestionHelpClicked(HelpType.Docs)
