@@ -39,7 +39,6 @@ export const inviteLogic = kea<inviteLogicType>({
             {
                 showInviteModal: () => true,
                 hideInviteModal: () => false,
-                // inviteTeamMembersSuccess: () => false,
                 [router.actionTypes.locationChanged]: () => false,
             },
         ],
@@ -62,7 +61,7 @@ export const inviteLogic = kea<inviteLogicType>({
             },
         ],
         message: [
-            null,
+            '',
             {
                 updateMessage: (_, { message }) => message,
             },
@@ -126,9 +125,9 @@ export const inviteLogic = kea<inviteLogicType>({
                 // If email service is not available, take user to org settings page to copy invite(s) link(s)
                 router.actions.push(`${urls.organizationSettings()}#invites`)
             }
-            // if (!values.onboardingSidebar) {
-            //     actions.hideInviteModal()
-            // }
+            if (values.preflight.email_service_available) {
+                actions.hideInviteModal()
+            }
         },
     }),
     events: ({ actions }) => ({

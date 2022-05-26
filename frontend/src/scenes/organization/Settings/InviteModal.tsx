@@ -110,8 +110,7 @@ function InviteRow({ index, isDeletable }: { index: number; isDeletable: boolean
 export function InviteModal({ visible, onClose }: { visible: boolean; onClose: () => void }): JSX.Element {
     const { preflight } = useValues(preflightLogic)
     const { invitesToSend, canSubmit, invitedTeamMembersInternalLoading: loading, invites } = useValues(inviteLogic)
-    const { appendInviteRow, resetInviteRows, inviteTeamMembers, deleteInvite, hideInviteModal, updateMessage } =
-        useActions(inviteLogic)
+    const { appendInviteRow, resetInviteRows, inviteTeamMembers, deleteInvite, updateMessage } = useActions(inviteLogic)
     const { onboardingSidebarEnabled } = useValues(ingestionLogic)
 
     const areInvitesCreatable = invitesToSend.length + 1 < MAX_INVITES_AT_ONCE
@@ -296,12 +295,7 @@ export function InviteModal({ visible, onClose }: { visible: boolean; onClose: (
                     ) : (
                         <>
                             <LemonButton
-                                onClick={() => {
-                                    inviteTeamMembers()
-                                    if (!loading) {
-                                        hideInviteModal()
-                                    }
-                                }}
+                                onClick={() => inviteTeamMembers()}
                                 className="mb-05"
                                 type="primary"
                                 fullWidth
