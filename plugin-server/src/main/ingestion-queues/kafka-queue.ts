@@ -69,7 +69,8 @@ export class KafkaQueue {
 
     async start(): Promise<void> {
         const startPromise = new Promise<void>(async (resolve, reject) => {
-            this.consumer.on(this.consumer.events.GROUP_JOIN, () => {
+            this.consumer.on(this.consumer.events.GROUP_JOIN, ({ payload }) => {
+                status.info('ℹ️', 'Kafka joined consumer group', payload)
                 resolve()
             })
             this.consumer.on(this.consumer.events.CRASH, ({ payload: { error } }) => reject(error))
