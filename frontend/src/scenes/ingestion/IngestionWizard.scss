@@ -7,6 +7,23 @@
     justify-content: center;
     padding: 2rem;
     flex-direction: column;
+    width: 100%;
+}
+
+.IngestionTopbar {
+    border-bottom: 1px solid var(--border);
+    padding: 0.25rem 1rem;
+    display: flex;
+    justify-content: space-between;
+    position: sticky;
+    top: 0;
+    background-color: white;
+    width: 100%;
+    z-index: 10;
+
+    .help-button {
+        margin-right: 1rem;
+    }
 }
 
 .platform-item {
@@ -26,4 +43,50 @@
 .selectable-item:hover {
     background-color: gainsboro;
     cursor: pointer;
+}
+
+.IngestionSidebar__bottom {
+    margin-top: auto;
+
+    .popover {
+        padding-left: 0.5rem;
+        padding-right: 0.5rem;
+    }
+}
+
+.IngestionSidebar__help {
+    display: flex;
+    flex-direction: column;
+    font-weight: 500;
+    color: var(--primary);
+    margin-top: 1rem;
+    padding-bottom: 4rem;
+}
+
+.IngestionSidebar__steps {
+    color: var(--muted-alt);
+    font-size: 14px;
+    margin-top: 1.5rem;
+
+    .LemonButton {
+        font-weight: 600;
+        margin-bottom: 0.5rem;
+    }
+}
+
+.IngestionSidebar {
+    background: white;
+    width: 300px;
+    display: flex;
+    flex-direction: column;
+    position: relative;
+    align-items: center;
+    border-right: 1px solid var(--border);
+}
+
+.IngestionSidebar__content {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    position: fixed;
 }

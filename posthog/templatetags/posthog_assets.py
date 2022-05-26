@@ -52,7 +52,7 @@ def human_social_providers(providers: List[str]) -> str:
             return "GitHub"
         elif prov == "gitlab":
             return "GitLab"
-        return "Single sign-on (SSO)"
+        return "single sign-on (SAML)"
 
     return ", ".join(map(friendly_provider, providers))
 

@@ -1,3 +1,5 @@
+/* Don't modify this file anymore! */
+
 syntax = "proto3";
 import "google/protobuf/timestamp.proto";
 

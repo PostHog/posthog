@@ -1,5 +1,5 @@
 import './InsightTooltip.scss'
-import React from 'react'
+import React, { ReactNode } from 'react'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/components/LemonTable'
 import {
     COL_CUTOFF,
@@ -68,19 +68,11 @@ export function InsightTooltip({
     const itemizeEntitiesAsColumns =
         forceEntitiesAsColumns ||
         (seriesData?.length > 1 && (seriesData?.[0]?.breakdown_value || seriesData?.[0]?.compare_label))
-    const title = (function () {
-        const tooltipTitle = getTooltipTitle(seriesData, altTitle, date)
-        if (tooltipTitle) {
-            return tooltipTitle
-        }
-        return (
-            <>
-                {getFormattedDate(date, seriesData?.[0]?.filter?.interval)}
-                {shortTimeZone(timezone)}
-            </>
-        )
-    })()
-    const rightTitle = getTooltipTitle(seriesData, altRightTitle, date) ?? null
+
+    const title: ReactNode | null =
+        getTooltipTitle(seriesData, altTitle, date) ||
+        `${getFormattedDate(date, seriesData?.[0]?.filter?.interval)} (${shortTimeZone(timezone)})`
+    const rightTitle: ReactNode | null = getTooltipTitle(seriesData, altRightTitle, date) || null
 
     const renderTable = (): JSX.Element => {
         if (itemizeEntitiesAsColumns) {
@@ -164,7 +156,7 @@ export function InsightTooltip({
             key: 'datum',
             className: 'datum-label-column',
             width: 120,
-            title,
+            title: <span className="no-wrap">{title}</span>,
             sticky: true,
             render: function renderDatum(_, datum, rowIdx) {
                 return renderSeries(

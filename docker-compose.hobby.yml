@@ -1,3 +1,9 @@
+#
+# `docker-compose` file used ONLY for hobby deployments.
+#
+# Please take a look at https://posthog.com/docs/self-host/deploy/hobby
+# for more info.
+#
 version: '3'
 
 services:
@@ -88,6 +94,7 @@ services:
     web:
         <<: *worker
         command: /compose/start
+        restart: on-failure
         ports:
             - '8000:8000'
             - '8234:8234'
@@ -122,6 +129,7 @@ services:
 
     object_storage:
         image: minio/minio
+        restart: on-failure
         ports:
             - '19000:19000'
             - '19001:19001'

@@ -5,6 +5,7 @@ import { useValues } from 'kea'
 import { PanelFooter, PanelHeader } from './panels/PanelComponents'
 import './panels/Panels.scss'
 import { ArrowLeftOutlined } from '@ant-design/icons'
+import { LemonButton } from 'lib/components/LemonButton'
 
 export function CardContainer({
     index,
@@ -19,44 +20,51 @@ export function CardContainer({
     showFooter?: boolean
     onSubmit?: () => void
 }): JSX.Element {
-    const { onboarding1 } = useValues(ingestionLogic)
+    const { onboarding1, onboardingSidebarEnabled } = useValues(ingestionLogic)
 
     return (
-        <div className="ingestion-card-container">
-            <Row align="middle" data-attr="wizard-step-counter">
-                {index !== 0 && (
-                    <ArrowLeftOutlined
-                        className="button-border clickable"
-                        style={{ marginRight: 4 }}
-                        onClick={onBack}
-                    />
+        <div>
+            {onboardingSidebarEnabled && index !== 0 && (
+                <LemonButton className="mb" icon={<ArrowLeftOutlined />} size="small" onClick={onBack} />
+            )}
+            <div className="ingestion-card-container">
+                {!onboardingSidebarEnabled && (
+                    <Row align="middle" data-attr="wizard-step-counter">
+                        {index !== 0 && (
+                            <ArrowLeftOutlined
+                                className="button-border clickable"
+                                style={{ marginRight: 4 }}
+                                onClick={onBack}
+                            />
+                        )}
+                        <PanelHeader index={index} />
+                    </Row>
                 )}
-                <PanelHeader index={index} />
-            </Row>
-            {children}
-            <div>
-                {showFooter &&
-                    (onboarding1 ? (
-                        <PanelFooter />
-                    ) : (
-                        <div
-                            data-attr="wizard-continue-button"
-                            className="bg-primary"
-                            role="button"
-                            style={{
-                                height: 70,
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                borderRadius: 5,
-                                cursor: 'pointer',
-                                margin: 16,
-                            }}
-                            onClick={onSubmit}
-                        >
-                            <span style={{ fontWeight: 500, fontSize: 18, color: 'white' }}>Continue</span>
-                        </div>
-                    ))}
+                {children}
+                <div>
+                    {showFooter &&
+                        (onboarding1 ? (
+                            <PanelFooter />
+                        ) : (
+                            <div
+                                data-attr="wizard-continue-button"
+                                className="bg-primary"
+                                role="button"
+                                style={{
+                                    height: 70,
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    borderRadius: 5,
+                                    cursor: 'pointer',
+                                    margin: 16,
+                                }}
+                                onClick={onSubmit}
+                            >
+                                <span style={{ fontWeight: 500, fontSize: 18, color: 'white' }}>Continue</span>
+                            </div>
+                        ))}
+                </div>
             </div>
         </div>
     )
