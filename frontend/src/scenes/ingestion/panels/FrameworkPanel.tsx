@@ -11,16 +11,11 @@ import { LemonDivider } from 'lib/components/LemonDivider'
 
 export function FrameworkPanel(): JSX.Element {
     const { setPlatform, setFramework } = useActions(ingestionLogic)
-    const { platform, index, onboarding1 } = useValues(ingestionLogic)
+    const { platform, index, onboarding1, onboardingSidebarEnabled } = useValues(ingestionLogic)
     const frameworks = platform === BACKEND ? webFrameworks : mobileFrameworks
 
     return (
-        <CardContainer
-            index={index}
-            onBack={() => {
-                setPlatform(null)
-            }}
-        >
+        <CardContainer index={index} onBack={() => setPlatform(null)}>
             {onboarding1 ? (
                 <div style={{ maxWidth: 400 }}>
                     <h1 className="ingestion-title">
@@ -52,8 +47,12 @@ export function FrameworkPanel(): JSX.Element {
                                 </a>
                             </p>
                         </Row>
-                        <LemonDivider thick dashed />
-                        <PanelSupport />
+                        {!onboardingSidebarEnabled && (
+                            <>
+                                <LemonDivider thick dashed />
+                                <PanelSupport />
+                            </>
+                        )}
                     </Col>
                 </div>
             ) : (

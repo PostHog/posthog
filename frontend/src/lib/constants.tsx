@@ -114,6 +114,7 @@ export const FEATURE_FLAGS = {
     COHORT_FILTERS: 'cohort-filters', // owner: @edscode
     FRONTEND_APPS: '9618-frontend-apps', // owner: @mariusandra
     PROPERTY_FILTER_ON_DASHBOARD: 'property-filter-on-dashboard', // owner: @edscode
+    ONBOARDING_1_5: 'onboarding-1_5', // owner: @liyiy
 }
 
 /** Which self-hosted plan's features are available with Cloud's "Standard" plan (aka card attached). */
@@ -160,11 +161,11 @@ export enum CohortTypeEnum {
  */
 export const MOCK_NODE_PROCESS = { cwd: () => '', env: {} } as unknown as NodeJS.Process
 
-export const SSOProviderNames: Record<SSOProviders, string> = {
+export const SSO_PROVIDER_NAMES: Record<SSOProviders, string> = {
     'google-oauth2': 'Google',
     github: 'GitHub',
     gitlab: 'GitLab',
-    saml: 'Single sign-on (SAML)',
+    saml: 'single sign-on (SAML)',
 }
 
 // TODO: Support checking minimum plan required for specific feature and highlight the relevant plan in the

@@ -7,7 +7,6 @@ import { LemonRow } from '../../../lib/components/LemonRow'
 import {
     IconCheckmark,
     IconOffline,
-    IconPlus,
     IconLogout,
     IconUpdate,
     IconExclamation,
@@ -15,6 +14,7 @@ import {
     IconArrowDropDown,
     IconSettings,
     IconCorporate,
+    IconPlus,
 } from 'lib/components/icons'
 import { Popup } from '../../../lib/components/Popup/Popup'
 import { Link } from '../../../lib/components/Link'
@@ -34,6 +34,7 @@ import {
 import { dayjs } from 'lib/dayjs'
 import { inviteLogic } from 'scenes/organization/Settings/inviteLogic'
 import { Tooltip } from 'lib/components/Tooltip'
+import { LemonButtonPropsBase } from '~/packages/apps-common'
 
 function SitePopoverSection({ title, children }: { title?: string | JSX.Element; children: any }): JSX.Element {
     return (
@@ -94,7 +95,13 @@ function CurrentOrganization({ organization }: { organization: OrganizationBasic
     )
 }
 
-function InviteMembersButton(): JSX.Element {
+export function InviteMembersButton({
+    center = false,
+    type = 'default',
+}: {
+    center?: boolean
+    type?: LemonButtonPropsBase['type']
+}): JSX.Element {
     const { closeSitePopover } = useActions(navigationLogic)
     const { showInviteModal } = useActions(inviteLogic)
 
@@ -105,6 +112,8 @@ function InviteMembersButton(): JSX.Element {
                 closeSitePopover()
                 showInviteModal()
             }}
+            center={center}
+            type={type}
             fullWidth
             data-attr="top-menu-invite-team-members"
         >
