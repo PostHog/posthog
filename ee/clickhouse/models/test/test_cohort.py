@@ -877,14 +877,29 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
 
         cohort1.calculate_people_ch(pending_version=0)
 
+        # Should only have p1 in this cohort
+        results = sync_execute(
+            "SELECT person_id FROM cohortpeople WHERE team_id = %(team_id)s GROUP BY person_id HAVING sum(sign) = 1",
+            {"team_id": self.team.pk},
+        )
+        self.assertEqual(len(results), 1)
+
         cohort1.groups = [{"properties": [{"key": "$another_prop", "value": "something", "type": "person"},]}]
         cohort1.save()
         cohort1.calculate_people_ch(pending_version=1)
+
+        # Should only have p2, p3 in this cohort
+        results = sync_execute(
+            "SELECT person_id FROM cohortpeople WHERE team_id = %(team_id)s GROUP BY person_id HAVING sum(sign) = 1",
+            {"team_id": self.team.pk},
+        )
+        self.assertEqual(len(results), 2)
 
         cohort1.groups = [{"properties": [{"key": "$some_prop", "value": "something", "type": "person"},]}]
         cohort1.save()
         cohort1.calculate_people_ch(pending_version=2)
 
+        # Should only have p1 again in this cohort
         results = sync_execute(
             "SELECT person_id FROM cohortpeople WHERE team_id = %(team_id)s GROUP BY person_id HAVING sum(sign) = 1",
             {"team_id": self.team.pk},
