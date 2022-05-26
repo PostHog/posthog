@@ -243,14 +243,14 @@ export function InviteModal({ visible, onClose }: { visible: boolean; onClose: (
                                             invite.is_expired
                                                 ? deleteInvite(invite)
                                                 : Modal.confirm({
-                                                    title: `Do you want to cancel the invite for ${invite.target_email}?`,
-                                                    okText: 'Yes, cancel invite',
-                                                    okType: 'danger',
-                                                    onOk() {
-                                                        deleteInvite(invite)
-                                                    },
-                                                    cancelText: 'No, keep invite',
-                                                })
+                                                      title: `Do you want to cancel the invite for ${invite.target_email}?`,
+                                                      okText: 'Yes, cancel invite',
+                                                      okType: 'danger',
+                                                      onOk() {
+                                                          deleteInvite(invite)
+                                                      },
+                                                      cancelText: 'No, keep invite',
+                                                  })
                                         }}
                                     />
                                 </Row>
@@ -277,7 +277,6 @@ export function InviteModal({ visible, onClose }: { visible: boolean; onClose: (
                     </div>
                 </div>
                 {onboardingSidebarEnabled && preflight?.email_service_available && (
-
                     <div className="mb">
                         <div className="mb-05">
                             <b>Message</b> (optional)

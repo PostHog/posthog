@@ -64,9 +64,9 @@ export const inviteLogic = kea<inviteLogicType>({
         message: [
             null,
             {
-                updateMessage: (_, { message }) => message
-            }
-        ]
+                updateMessage: (_, { message }) => message,
+            },
+        ],
     }),
     selectors: {
         canSubmit: [
@@ -92,7 +92,7 @@ export const inviteLogic = kea<inviteLogicType>({
                         payload.filter((invite) => !!invite.first_name).length
                     )
                     if (values.message) {
-                        payload.forEach(payload => payload.message = values.message)
+                        payload.forEach((payload) => (payload.message = values.message))
                     }
                     return await api.create('api/organizations/@current/invites/bulk/', payload)
                 },
