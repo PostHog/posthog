@@ -29,6 +29,7 @@ def send_invite(invite_id: str) -> None:
         template_name="invite",
         template_context={"invite": invite},
         reply_to=invite.created_by.email if invite.created_by and invite.created_by.email else "",
+        text_body=invite.message
     )
     message.add_recipient(email=invite.target_email)
     message.send()

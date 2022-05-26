@@ -125,6 +125,7 @@ class EmailMessage:
         template_context: Optional[Dict] = None,
         headers: Optional[Dict] = None,
         reply_to: Optional[str] = None,
+        text_body: Optional[str] = None,
     ):
         if not is_email_available():
             raise exceptions.ImproperlyConfigured("Email is not enabled in this instance.",)
@@ -133,7 +134,7 @@ class EmailMessage:
         self.subject = subject
         template = get_template(f"email/{template_name}.html")
         self.html_body = inline_css(template.render(template_context))
-        self.txt_body = ""
+        self.txt_body = text_body or ""
         self.headers = headers if headers else {}
         self.to: List[Dict[str, str]] = []
         self.reply_to = reply_to
