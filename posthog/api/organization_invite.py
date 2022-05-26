@@ -29,6 +29,7 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
             "created_by",
             "created_at",
             "updated_at",
+            "message",
         ]
         read_only_fields = [
             "id",
@@ -46,7 +47,6 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
         invite: OrganizationInvite = OrganizationInvite.objects.create(
             organization_id=self.context["organization_id"], created_by=self.context["request"].user, **validated_data,
         )
-
         if is_email_available(with_absolute_urls=True):
             invite.emailing_attempt_made = True
             send_invite.delay(invite_id=invite.id)

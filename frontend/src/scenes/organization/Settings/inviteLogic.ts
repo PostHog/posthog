@@ -14,6 +14,7 @@ interface InviteRowState {
     target_email: string
     first_name: string
     isValid: boolean
+    message?: string
 }
 
 const EMPTY_INVITE: InviteRowState = { target_email: '', first_name: '', isValid: true }
@@ -25,6 +26,7 @@ export const inviteLogic = kea<inviteLogicType<InviteRowState>>({
         hideInviteModal: true,
         updateInviteAtIndex: (payload, index: number) => ({ payload, index }),
         deleteInviteAtIndex: (index: number) => ({ index }),
+        updateMessage: (message: string) => ({ message }),
         appendInviteRow: true,
         resetInviteRows: true,
     },
@@ -59,6 +61,12 @@ export const inviteLogic = kea<inviteLogicType<InviteRowState>>({
                 inviteTeamMembersSuccess: () => [EMPTY_INVITE],
             },
         ],
+        message: [
+            null,
+            {
+                updateMessage: (_, { message }) => message
+            }
+        ]
     }),
     selectors: {
         canSubmit: [
@@ -77,13 +85,15 @@ export const inviteLogic = kea<inviteLogicType<InviteRowState>>({
                         return { invites: [] }
                     }
 
-                    const payload: Pick<OrganizationInviteType, 'target_email' | 'first_name'>[] =
+                    const payload: Pick<OrganizationInviteType, 'target_email' | 'first_name' | 'message'>[] =
                         values.invitesToSend.filter((invite) => invite.target_email)
                     eventUsageLogic.actions.reportBulkInviteAttempted(
                         payload.length,
                         payload.filter((invite) => !!invite.first_name).length
                     )
-
+                    if (values.message) {
+                        payload.forEach(payload => payload.message = values.message)
+                    }
                     return await api.create('api/organizations/@current/invites/bulk/', payload)
                 },
             },

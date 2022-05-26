@@ -843,6 +843,7 @@ export interface OrganizationInviteType {
     created_by: UserBasicType | null
     created_at: string
     updated_at: string
+    message?: string
 }
 
 export interface PluginType {
