@@ -13,7 +13,7 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.auth import PersonalAPIKeyAuthentication, TemporaryTokenAuthentication
 from posthog.event_usage import report_user_action
 from posthog.mixins import AnalyticsDestroyModelMixin
-from posthog.models import FeatureFlag
+from posthog.models import Experiment, FeatureFlag
 from posthog.models.activity_logging.activity_log import (
     ActivityPage,
     Detail,
@@ -165,6 +165,9 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
         self._update_filters(validated_data)
         instance = super().update(instance, validated_data)
         instance.update_cohorts()
+
+        if validated_data.get("deleted", False):
+            Experiment.objects.filter(feature_flag=instance).delete()
 
         report_user_action(
             request.user, "feature flag updated", instance.get_analytics_metadata(),
