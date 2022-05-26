@@ -1,5 +1,4 @@
 import json
-from datetime import datetime, timedelta
 from typing import Any, Dict, List
 from unittest.mock import patch
 
@@ -9,8 +8,7 @@ from rest_framework.test import APIClient
 
 from posthog.models import Person
 from posthog.models.cohort import Cohort
-from posthog.models.instance_setting import override_instance_config
-from posthog.test.base import APIBaseTest, _create_event, _create_person, flush_persons_and_events
+from posthog.test.base import APIBaseTest
 
 
 class TestCohort(APIBaseTest):
@@ -304,94 +302,6 @@ email@example.org,
             {"detail": "Invalid Cohort ID in filter", "type": "validation_error"}, response.json()
         )
         self.assertEqual(patch_calculate_cohort.call_count, 1)
-
-    @patch("posthog.api.cohort.report_user_action")
-    def test_creating_update_and_calculating_with_new_cohort_filters(self, patch_capture):
-
-        _create_person(distinct_ids=["p1"], team_id=self.team.pk, properties={"$some_prop": "something"})
-        _create_event(
-            team=self.team, event="$pageview", distinct_id="p1", timestamp=datetime.now() - timedelta(hours=12)
-        )
-
-        _create_person(distinct_ids=["p2"], team_id=self.team.pk, properties={"$some_prop": "not it"})
-        _create_event(
-            team=self.team, event="$pageview", distinct_id="p2", timestamp=datetime.now() - timedelta(hours=12)
-        )
-
-        _create_person(distinct_ids=["p3"], team_id=self.team.pk, properties={"$some_prop": "not it"})
-        _create_event(
-            team=self.team, event="$pageview", distinct_id="p3", timestamp=datetime.now() - timedelta(days=12)
-        )
-
-        flush_persons_and_events()
-
-        with override_instance_config("NEW_COHORT_QUERY_TEAMS", f"{self.team.pk}"):
-            response = self.client.post(
-                f"/api/projects/{self.team.id}/cohorts",
-                data={
-                    "name": "cohort A",
-                    "filters": {
-                        "properties": {
-                            "type": "OR",
-                            "values": [
-                                {"key": "$some_prop", "value": "something", "type": "person"},
-                                {
-                                    "key": "$pageview",
-                                    "event_type": "events",
-                                    "time_value": 1,
-                                    "time_interval": "day",
-                                    "value": "performed_event",
-                                    "type": "behavioral",
-                                },
-                            ],
-                        }
-                    },
-                },
-            )
-            self.assertEqual(response.status_code, 201, response.content)
-
-            cohort_id = response.json()["id"]
-
-            while response.json()["is_calculating"]:
-                response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort_id}")
-
-            response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort_id}/persons/?cohort={cohort_id}")
-            self.assertEqual(response.status_code, 200, response.content)
-            self.assertEqual(2, len(response.json()["results"]))
-
-        with override_instance_config("NEW_COHORT_QUERY_TEAMS", f"{self.team.pk}"):
-            response = self.client.patch(
-                f"/api/projects/{self.team.id}/cohorts/{cohort_id}",
-                data={
-                    "name": "cohort A",
-                    "filters": {
-                        "properties": {
-                            "type": "OR",
-                            "values": [
-                                {"key": "$some_prop", "value": "something", "type": "person"},
-                                {
-                                    "key": "$pageview",
-                                    "event_type": "events",
-                                    "time_value": 2,
-                                    "time_interval": "week",
-                                    "value": "performed_event",
-                                    "type": "behavioral",
-                                },
-                            ],
-                        }
-                    },
-                },
-            )
-            self.assertEqual(response.status_code, 200, response.content)
-
-            cohort_id = response.json()["id"]
-
-            while response.json()["is_calculating"]:
-                response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort_id}")
-
-            response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort_id}/persons/?cohort={cohort_id}")
-            self.assertEqual(response.status_code, 200, response.content)
-            self.assertEqual(3, len(response.json()["results"]))
 
     @patch("posthog.api.cohort.report_user_action")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
