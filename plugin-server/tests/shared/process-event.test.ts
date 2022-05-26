@@ -15,15 +15,17 @@ import {
     PropertyType,
     PropertyUpdateOperation,
     Team,
+    TimestampFormat,
 } from '../../src/types'
 import { createHub } from '../../src/utils/db/hub'
 import { hashElements } from '../../src/utils/db/utils'
 import { posthog } from '../../src/utils/posthog'
-import { UUIDT } from '../../src/utils/utils'
+import { castTimestampOrNow, UUIDT } from '../../src/utils/utils'
 import { EventPipelineRunner } from '../../src/worker/ingestion/event-pipeline/runner'
 import { EventsProcessor } from '../../src/worker/ingestion/process-event'
 import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../helpers/clickhouse'
 import { resetKafka } from '../helpers/kafka'
+import { pluginConfig39 } from '../helpers/plugins'
 import { createUserTeamAndOrganization, getFirstTeam, getTeams, resetTestDatabase } from '../helpers/sql'
 
 jest.mock('../../src/utils/status')
@@ -78,6 +80,8 @@ const TEST_CONFIG: Partial<PluginsServerConfig> = {
     CELERY_DEFAULT_QUEUE: 'test-celery-default-queue',
     LOG_LEVEL: LogLevel.Log,
     KAFKA_CONSUMPTION_TOPIC: KAFKA_EVENTS_PLUGIN_INGESTION,
+    OBJECT_STORAGE_ENABLED: true,
+    OBJECT_STORAGE_SESSION_RECORDING_ENABLED_TEAMS: `${pluginConfig39.team_id}`,
 }
 
 let processEventCounter = 0
@@ -1175,7 +1179,11 @@ test('snapshot event stored as session_recording_event', async () => {
         '',
         {
             event: '$snapshot',
-            properties: { $session_id: sessionId, $window_id: windowId, $snapshot_data: { timestamp: 123 } },
+            properties: {
+                $session_id: sessionId,
+                $window_id: windowId,
+                $snapshot_data: { timestamp: 123, chunk_id: 'chunk_id', chunk_index: 'chunk_index' },
+            },
         } as any as PluginEvent,
         team.id,
         now,
@@ -1193,20 +1201,22 @@ test('snapshot event stored as session_recording_event', async () => {
     const [event] = sessionRecordingEvents
     expect(event.session_id).toEqual(sessionId)
     expect(event.distinct_id).toEqual('some-id')
-    const expectedFolderDate = now.toFormat('yyyy-MM-dd')
-    const expectedOrderingTime = now.toISO()
+
+    const expectedFolderDate = castTimestampOrNow(now, TimestampFormat.DateOnly)
+    const expectedOrderingTime = castTimestampOrNow(now, TimestampFormat.UnixMilliseconds)
+    const expectedObjectStoragePath = [
+        'session_recordings',
+        expectedFolderDate,
+        team.id,
+        event.session_id,
+        event.window_id,
+        `${expectedOrderingTime}-chunk_id`,
+        'chunk_index',
+    ].join('/')
     expect(event.snapshot_data).toEqual({
         chunk_id: 'chunk_id',
         chunk_index: 'chunk_index',
-        object_storage_path: [
-            'session_recordings',
-            team.id,
-            expectedFolderDate,
-            event.session_id,
-            event.window_id,
-            `${expectedOrderingTime}-chunk_id`,
-            'chunk_index',
-        ].join('/'),
+        object_storage_path: expectedObjectStoragePath,
         timestamp: 123,
     })
 })
