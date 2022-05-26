@@ -22,6 +22,7 @@ from ee.clickhouse.queries.paths.paths_actors import ClickhousePathsActors
 from ee.clickhouse.queries.stickiness.stickiness_actors import ClickhouseStickinessActors
 from ee.clickhouse.queries.trends.person import ClickhouseTrendsActors
 from ee.clickhouse.sql.person import INSERT_COHORT_ALL_PEOPLE_THROUGH_PERSON_ID, PERSON_STATIC_COHORT_TABLE
+from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.person import get_funnel_actor_class, should_paginate
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
@@ -184,7 +185,7 @@ class CohortSerializer(serializers.ModelSerializer):
         return representation
 
 
-class CohortViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
+class CohortViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     queryset = Cohort.objects.all()
     serializer_class = CohortSerializer
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
