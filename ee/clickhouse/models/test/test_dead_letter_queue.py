@@ -76,14 +76,14 @@ class TestDeadLetterQueue(ClickhouseTestMixin, BaseTest):
         sync_execute(
             INSERT_DEAD_LETTER_QUEUE_EVENT_SQL, inserted_dlq_event,
         )
-        query_result = sync_execute(f"SELECT * FROM events_dead_letter_queue")
+        query_result = sync_execute(f"SELECT * FROM {DEAD_LETTER_QUEUE_TABLE}")
         events_returned = convert_query_result_to_dlq_event_dicts(query_result)
         # TRICKY: because it's hard to truncate the dlq table, we just check if the event is in the table along with events from other tests
         # Because each generated event is unique, this works
         self.assertIn(inserted_dlq_event, events_returned)
 
     def test_kafka_insert(self):
-        row_count_before_insert = sync_execute(f"SELECT count(1) FROM events_dead_letter_queue")[0][0]
+        row_count_before_insert = sync_execute(f"SELECT count(1) FROM {DEAD_LETTER_QUEUE_TABLE}")[0][0]
         inserted_dlq_event = get_dlq_event()
 
         new_error = "cannot reach db to fetch team"
