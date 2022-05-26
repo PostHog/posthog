@@ -223,14 +223,12 @@ describe('the activity log logic', () => {
                         type: 'Person',
                         action: 'changed',
                         field: 'properties',
-                        before: {},
-                        after: { a: 'b' },
                     },
                 ])
                 const actual = logic.values.humanizedActivity
 
                 expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent(
-                    'added property a with value: b'
+                    "edited this person's properties"
                 )
             })
 

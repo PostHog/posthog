@@ -1085,7 +1085,7 @@ export function shortTimeZone(timeZone?: string, atDate?: Date): string | null {
         return null
     }
     const date = atDate ? new Date(atDate) : new Date()
-    const localeTimeString = date.toLocaleTimeString('en-us', { timeZoneName: 'short', timeZone })
+    const localeTimeString = date.toLocaleTimeString('en-us', { timeZoneName: 'short', timeZone }).replace('GMT', 'UTC')
     return localeTimeString.split(' ')[2]
 }
 

@@ -4,7 +4,7 @@ import { Consumer, ConsumerSubscribeTopics, EachBatchPayload, Kafka } from 'kafk
 import { Hub, WorkerMethods } from '../../types'
 import { status } from '../../utils/status'
 import { killGracefully } from '../../utils/utils'
-import { KAFKA_BUFFER, KAFKA_EVENTS_JSON } from './../../config/kafka-topics'
+import { KAFKA_BUFFER, KAFKA_EVENTS_JSON, prefix as KAFKA_PREFIX } from './../../config/kafka-topics'
 import { eachBatchAsyncHandlers } from './batch-processing/each-batch-async-handlers'
 import { eachBatchIngestion } from './batch-processing/each-batch-ingestion'
 
@@ -59,9 +59,9 @@ export class KafkaQueue {
 
     consumerGroupId(): string {
         if (this.pluginsServer.capabilities.ingestion) {
-            return 'clickhouse-ingestion'
+            return `${KAFKA_PREFIX}clickhouse-ingestion`
         } else if (this.pluginsServer.capabilities.processAsyncHandlers) {
-            return 'clickhouse-plugin-server-async'
+            return `${KAFKA_PREFIX}clickhouse-plugin-server-async`
         } else {
             throw Error('No topics to consume, KafkaQueue should not be started')
         }
@@ -69,7 +69,9 @@ export class KafkaQueue {
 
     async start(): Promise<void> {
         const startPromise = new Promise<void>(async (resolve, reject) => {
-            this.consumer.on(this.consumer.events.GROUP_JOIN, () => {
+            this.addMetricListeners()
+            this.consumer.on(this.consumer.events.GROUP_JOIN, ({ payload }) => {
+                status.info('ℹ️', 'Kafka joined consumer group', JSON.stringify(payload))
                 resolve()
             })
             this.consumer.on(this.consumer.events.CRASH, ({ payload: { error } }) => reject(error))
@@ -174,6 +176,25 @@ export class KafkaQueue {
         try {
             await this.consumer.disconnect()
         } catch {}
+    }
+
+    private addMetricListeners() {
+        const listenEvents = [
+            this.consumer.events.GROUP_JOIN,
+            this.consumer.events.CONNECT,
+            this.consumer.events.DISCONNECT,
+            this.consumer.events.STOP,
+            this.consumer.events.CRASH,
+            this.consumer.events.REBALANCING,
+            this.consumer.events.RECEIVED_UNSUBSCRIBED_TOPICS,
+            this.consumer.events.REQUEST_TIMEOUT,
+        ]
+
+        listenEvents.forEach((event) => {
+            this.consumer.on(event, () => {
+                this.pluginsServer.statsd?.increment('kafka_queue_consumer_event', { event })
+            })
+        })
     }
 
     private static buildConsumer(kafka: Kafka, groupId: string): Consumer {
