@@ -25,6 +25,7 @@ from ee.clickhouse.queries.retention.clickhouse_retention import ClickhouseReten
 from ee.clickhouse.queries.stickiness.clickhouse_stickiness import ClickhouseStickiness
 from ee.clickhouse.queries.trends.clickhouse_trends import ClickhouseTrends
 from posthog.api.documentation import extend_schema
+from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.insight_serializers import (
     FunnelSerializer,
     FunnelStepsResultsSerializer,
@@ -381,7 +382,7 @@ class InsightSerializer(InsightBasicSerializer):
         return representation
 
 
-class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, viewsets.ModelViewSet):
+class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     queryset = Insight.objects.all()
     serializer_class = InsightSerializer
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
@@ -400,6 +401,7 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, viewsets.Mo
 
     def get_queryset(self) -> QuerySet:
         queryset = super().get_queryset()
+
         queryset = queryset.prefetch_related(
             "dashboards", "dashboards__created_by", "dashboards__team", "dashboards__team__organization",
         )
@@ -692,25 +694,6 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, viewsets.Mo
             team=self.team, user=request.user, insight=self.get_object(), defaults={"last_viewed_at": now()}
         )
         return Response(status=status.HTTP_201_CREATED)
-
-    def destroy(self, request, *args, **kwargs):
-        instance: Insight = self.get_object()
-        instance_id = instance.id
-        instance_short_id = instance.short_id
-
-        instance.delete()
-
-        log_insight_activity(
-            activity="deleted",
-            insight=instance,
-            insight_id=instance_id,
-            insight_short_id=instance_short_id,
-            organization_id=self.organization.id,
-            team_id=self.team_id,
-            user=request.user,
-        )
-
-        return Response(status=status.HTTP_204_NO_CONTENT)
 
     @action(methods=["GET"], url_path="activity", detail=False)
     def all_activity(self, request: request.Request, **kwargs):

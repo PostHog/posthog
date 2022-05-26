@@ -12,6 +12,7 @@ from rest_framework.authentication import BaseAuthentication, BasicAuthenticatio
 from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAuthenticated, OperandHolder, SingleOperandHolder
 from rest_framework.request import Request
 
+from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.insight import InsightSerializer, InsightViewSet
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
@@ -236,7 +237,7 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
         return {**validated_data, "creation_mode": "default"}
 
 
-class DashboardsViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, viewsets.ModelViewSet):
+class DashboardsViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     queryset = Dashboard.objects.order_by("name")
     serializer_class = DashboardSerializer
     authentication_classes = [

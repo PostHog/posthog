@@ -499,43 +499,6 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                 ],
             )
 
-    def test_hard_delete_insight(self):
-        with freeze_time("2012-01-14T03:21:34.000Z") as frozen_time:
-            insight_id, insight = self._create_insight(
-                {"name": "insight new name", "description": "Internal system metrics.",}
-            )
-            short_id = insight["short_id"]
-
-            frozen_time.tick(delta=timedelta(minutes=10))
-
-            response = self.client.delete(f"/api/projects/{self.team.id}/insights/{insight_id}",)
-            self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
-
-            response = self.client.get(f"/api/projects/{self.team.id}/insights/{insight_id}",)
-            self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
-
-            self.assert_insight_activity(
-                insight_id=None,
-                expected=[
-                    {
-                        "user": {"first_name": "", "email": "user1@posthog.com"},
-                        "activity": "deleted",
-                        "created_at": "2012-01-14T03:31:34Z",
-                        "scope": "Insight",
-                        "item_id": str(insight_id),
-                        "detail": {"changes": None, "merge": None, "name": "insight new name", "short_id": short_id},
-                    },
-                    {
-                        "user": {"first_name": "", "email": "user1@posthog.com"},
-                        "activity": "created",
-                        "created_at": "2012-01-14T03:21:34Z",
-                        "scope": "Insight",
-                        "item_id": str(insight_id),
-                        "detail": {"changes": None, "merge": None, "name": "insight new name", "short_id": short_id},
-                    },
-                ],
-            )
-
     def test_cannot_set_filters_hash_via_api(self):
         insight_id, insight = self._create_insight({"name": "should not update the filters_hash"})
         original_filters_hash = insight["filters_hash"]
@@ -1416,6 +1379,14 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         self.assertIsNotNone(before_save)
         self.assertIsNotNone(after_save)
         self.assertEqual(before_save, after_save)
+
+    def test_hard_delete_is_forbidden(self) -> None:
+        insight_id, _ = self._create_insight({"name": "to be deleted"})
+        api_response = self.client.delete(f"/api/projects/{self.team.id}/insights/{insight_id}")
+        self.assertEqual(api_response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
+        self.assertEqual(
+            self.client.get(f"/api/projects/{self.team.id}/insights/{insight_id}").status_code, status.HTTP_200_OK,
+        )
 
     def _create_insight(
         self, data: Dict[str, Any], team_id: Optional[int] = None, expected_status: int = status.HTTP_201_CREATED
