@@ -634,7 +634,20 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
                     "created_at": "2021-08-25T22:09:14.252000Z",
                     "scope": "Person",
                     "item_id": str(person.pk),
-                    "detail": {"changes": None, "merge": None, "name": None, "short_id": None,},
+                    "detail": {
+                        "changes": [
+                            {
+                                "type": "Person",
+                                "action": "changed",
+                                "field": "properties",
+                                "before": None,
+                                "after": None,
+                            }
+                        ],
+                        "merge": None,
+                        "name": None,
+                        "short_id": None,
+                    },
                 }
             ],
         )

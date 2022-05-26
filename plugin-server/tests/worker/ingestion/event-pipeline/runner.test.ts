@@ -101,7 +101,7 @@ describe('EventPipelineRunner', () => {
             await runner.runEventPipeline(pluginEvent)
 
             expect(hub.statsd.timing).toHaveBeenCalledTimes(5)
-            expect(hub.statsd.increment).toBeCalledTimes(7)
+            expect(hub.statsd.increment).toBeCalledTimes(8)
 
             expect(hub.statsd.increment).toHaveBeenCalledWith('kafka_queue.event_pipeline.step', {
                 step: 'createEventStep',
