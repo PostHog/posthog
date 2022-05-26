@@ -184,6 +184,10 @@ class Team(UUIDClassicModel):
             return requesting_parent_membership.level
 
     @property
+    def behavioral_cohort_querying_enabled(self) -> bool:
+        return str(self.pk) in get_list(get_instance_setting("NEW_COHORT_QUERY_TEAMS"))
+
+    @property
     def actor_on_events_querying_enabled(self) -> bool:
         enabled_teams = get_list(get_instance_setting("ENABLE_ACTOR_ON_EVENTS_TEAMS"))
         return str(self.pk) in enabled_teams or "all" in enabled_teams
