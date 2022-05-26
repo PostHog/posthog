@@ -1388,6 +1388,15 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
             self.client.get(f"/api/projects/{self.team.id}/insights/{insight_id}").status_code, status.HTTP_200_OK,
         )
 
+    def test_soft_delete_causes_404(self) -> None:
+        insight_id, _ = self._create_insight({"name": "to be deleted"})
+        self._get_insight(insight_id=insight_id, expected_status=status.HTTP_200_OK)
+
+        update_response = self.client.patch(f"/api/projects/{self.team.id}/insights/{insight_id}", {"deleted": True})
+        self.assertEqual(update_response.status_code, status.HTTP_200_OK)
+
+        self._get_insight(insight_id=insight_id, expected_status=status.HTTP_404_NOT_FOUND)
+
     def _create_insight(
         self, data: Dict[str, Any], team_id: Optional[int] = None, expected_status: int = status.HTTP_201_CREATED
     ) -> Tuple[int, Dict[str, Any]]:

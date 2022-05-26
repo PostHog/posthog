@@ -674,7 +674,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         insight_json = self._get_insight(insight_id=insight_id)
         self.assertEqual(insight_json["dashboards"], [])
 
-        self._soft_delete(insight_id, "insights", status.HTTP_200_OK)  # insights can still be read after soft delete
+        self._soft_delete(insight_id, "insights")
 
     def test_can_soft_delete_dashboard_after_soft_deleting_insight(self) -> None:
         filter_dict = {
@@ -686,10 +686,9 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         dashboard_id, _ = self._create_dashboard({"name": "dashboard"})
         insight_id, _ = self._create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
 
-        self._soft_delete(insight_id, "insights", status.HTTP_200_OK)  # insights can still be read after soft delete
+        self._soft_delete(insight_id, "insights")
 
-        insight_json = self._get_insight(insight_id=insight_id)
-        self.assertEqual(insight_json["dashboards"], [])
+        self._get_insight(insight_id=insight_id, expected_status=status.HTTP_404_NOT_FOUND)
 
         dashboard_json = self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard_id}").json()
         self.assertEqual(len(dashboard_json["items"]), 0)

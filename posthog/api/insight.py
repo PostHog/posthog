@@ -402,6 +402,10 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDestr
     def get_queryset(self) -> QuerySet:
         queryset = super().get_queryset()
 
+        if not self.action.endswith("update"):
+            # Soft-deleted insights can be brought back with a PATCH request
+            queryset = queryset.filter(deleted=False)
+
         queryset = queryset.prefetch_related(
             "dashboards", "dashboards__created_by", "dashboards__team", "dashboards__team__organization",
         )
