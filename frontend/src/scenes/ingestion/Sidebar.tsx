@@ -47,7 +47,7 @@ export function Sidebar(): JSX.Element {
                     </LemonButton>
                 </div>
                 <div className="IngestionSidebar__bottom">
-                    <InviteMembersButton />
+                    <InviteMembersButton center={true} type="primary" />
                     <div className="IngestionSidebar__help">
                         <LemonDivider thick dashed style={{ color: 'var(--border)', opacity: 100 }} />
                         <a href={`https://posthog.com/slack${HELP_UTM_TAGS}`} rel="noopener" target="_blank">

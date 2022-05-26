@@ -34,7 +34,7 @@ import {
 import { dayjs } from 'lib/dayjs'
 import { inviteLogic } from 'scenes/organization/Settings/inviteLogic'
 import { Tooltip } from 'lib/components/Tooltip'
-import { ingestionLogic } from 'scenes/ingestion/ingestionLogic'
+import { LemonButtonPropsBase } from '~/packages/apps-common'
 
 function SitePopoverSection({ title, children }: { title?: string | JSX.Element; children: any }): JSX.Element {
     return (
@@ -95,10 +95,15 @@ function CurrentOrganization({ organization }: { organization: OrganizationBasic
     )
 }
 
-export function InviteMembersButton(): JSX.Element {
+export function InviteMembersButton({
+    center = false,
+    type = 'default',
+}: {
+    center?: boolean
+    type?: LemonButtonPropsBase['type']
+}): JSX.Element {
     const { closeSitePopover } = useActions(navigationLogic)
     const { showInviteModal } = useActions(inviteLogic)
-    const { onboardingSidebarEnabled } = useValues(ingestionLogic)
 
     return (
         <LemonButton
@@ -107,8 +112,8 @@ export function InviteMembersButton(): JSX.Element {
                 closeSitePopover()
                 showInviteModal()
             }}
-            center={onboardingSidebarEnabled}
-            type={onboardingSidebarEnabled ? 'primary' : 'default'}
+            center={center}
+            type={type}
             fullWidth
             data-attr="top-menu-invite-team-members"
         >
