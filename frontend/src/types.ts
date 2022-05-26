@@ -1516,6 +1516,8 @@ export interface PropertyDefinition {
     example?: string
 }
 
+export type Definition = EventDefinition | PropertyDefinition
+
 export interface PersonProperty {
     id: number
     name: string
