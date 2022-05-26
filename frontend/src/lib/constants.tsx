@@ -160,11 +160,11 @@ export enum CohortTypeEnum {
  */
 export const MOCK_NODE_PROCESS = { cwd: () => '', env: {} } as unknown as NodeJS.Process
 
-export const SSOProviderNames: Record<SSOProviders, string> = {
+export const SSO_PROVIDER_NAMES: Record<SSOProviders, string> = {
     'google-oauth2': 'Google',
     github: 'GitHub',
     gitlab: 'GitLab',
-    saml: 'Single sign-on (SAML)',
+    saml: 'single sign-on (SAML)',
 }
 
 // TODO: Support checking minimum plan required for specific feature and highlight the relevant plan in the
