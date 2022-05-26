@@ -5,12 +5,30 @@ from ee.clickhouse.models.property import get_property_string_expr
 from ee.clickhouse.queries.event_query import EnterpriseEventQuery
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 from posthog.models.filters.filter import Filter
+from posthog.models.utils import PersonPropertiesMode
 
 
 class FunnelEventQuery(EnterpriseEventQuery):
     _filter: Filter
 
     def get_query(self, entities=None, entity_name="events", skip_entity_filter=False) -> Tuple[str, Dict[str, Any]]:
+
+        aggregation_target = (
+            get_aggregation_target_field(
+                self._filter.aggregation_group_type_index,
+                self.EVENT_TABLE_ALIAS,
+                f"{self.EVENT_TABLE_ALIAS}.person_id",
+            )
+            if self._using_person_on_events
+            else get_aggregation_target_field(
+                self._filter.aggregation_group_type_index,
+                self.EVENT_TABLE_ALIAS,
+                f"{self.EVENT_TABLE_ALIAS}.distinct_id"
+                if self._aggregate_users_by_distinct_id
+                else f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id",
+            )
+        )
+
         _fields = [
             f"{self.EVENT_TABLE_ALIAS}.event as event",
             f"{self.EVENT_TABLE_ALIAS}.team_id as team_id",
@@ -21,15 +39,7 @@ class FunnelEventQuery(EnterpriseEventQuery):
                 if self._column_optimizer.should_query_elements_chain_column
                 else ""
             ),
-            "{} as aggregation_target".format(
-                get_aggregation_target_field(
-                    self._filter.aggregation_group_type_index,
-                    self.EVENT_TABLE_ALIAS,
-                    f"{self.EVENT_TABLE_ALIAS}.distinct_id"
-                    if self._aggregate_users_by_distinct_id
-                    else f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id",
-                )
-            ),
+            f"{aggregation_target} as aggregation_target",
         ]
 
         _fields += [f"{self.EVENT_TABLE_ALIAS}.{field} AS {field}" for field in self._extra_fields]
@@ -44,22 +54,41 @@ class FunnelEventQuery(EnterpriseEventQuery):
             for column_name in self._column_optimizer.event_columns_to_query
         )
 
-        _fields.extend(
-            f"groups_{group_index}.group_properties_{group_index} as group_properties_{group_index}"
-            for group_index in self._column_optimizer.group_types_to_query
-        )
-
-        if self._should_join_persons:
+        if self._using_person_on_events:
+            _fields += [f"{self.EVENT_TABLE_ALIAS}.person_id as person_id"]
             _fields.extend(
-                f"{self.PERSON_TABLE_ALIAS}.{column_name} as {column_name}" for column_name in self._person_query.fields
+                f"group{group_index}_properties AS group{group_index}_properties"
+                for group_index in self._column_optimizer.group_types_to_query
             )
+
+            if self._column_optimizer.person_columns_to_query:
+                _fields += [f"{self.EVENT_TABLE_ALIAS}.person_properties AS person_properties"]
+        else:
+            if self._should_join_distinct_ids:
+                _fields += [f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id as person_id"]
+            _fields.extend(
+                f"groups_{group_index}.group_properties_{group_index} as group_properties_{group_index}"
+                for group_index in self._column_optimizer.group_types_to_query
+            )
+
+            if self._should_join_persons:
+                _fields.extend(
+                    f"{self.PERSON_TABLE_ALIAS}.{column_name} as {column_name}"
+                    for column_name in self._person_query.fields
+                )
 
         _fields = list(filter(None, _fields))
 
         date_query, date_params = self._get_date_filter()
         self.params.update(date_params)
 
-        prop_query, prop_params = self._get_prop_groups(self._filter.property_groups)
+        prop_query, prop_params = self._get_prop_groups(
+            self._filter.property_groups,
+            person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS
+            if self._using_person_on_events
+            else PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
+            person_id_joined_alias=f"{self.DISTINCT_ID_TABLE_ALIAS if not self._using_person_on_events else self.EVENT_TABLE_ALIAS}.person_id",
+        )
 
         self.params.update(prop_params)
 
@@ -87,7 +116,6 @@ class FunnelEventQuery(EnterpriseEventQuery):
             {date_query}
             {prop_query}
         """
-
         return query, self.params
 
     def _determine_should_join_distinct_ids(self) -> None:
@@ -97,6 +125,12 @@ class FunnelEventQuery(EnterpriseEventQuery):
             self._should_join_distinct_ids = False
         else:
             self._should_join_distinct_ids = True
+
+    def _determine_should_join_persons(self) -> None:
+        EnterpriseEventQuery._determine_should_join_persons(self)
+        if self._using_person_on_events:
+            self._should_join_distinct_ids = False
+            self._should_join_persons = False
 
     def _get_entity_query(self, entities=None, entity_name="events") -> Tuple[str, Dict[str, Any]]:
         events = set()

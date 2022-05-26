@@ -69,7 +69,9 @@ export class KafkaQueue {
 
     async start(): Promise<void> {
         const startPromise = new Promise<void>(async (resolve, reject) => {
-            this.consumer.on(this.consumer.events.GROUP_JOIN, () => {
+            this.addMetricListeners()
+            this.consumer.on(this.consumer.events.GROUP_JOIN, ({ payload }) => {
+                status.info('ℹ️', 'Kafka joined consumer group', payload)
                 resolve()
             })
             this.consumer.on(this.consumer.events.CRASH, ({ payload: { error } }) => reject(error))
@@ -174,6 +176,25 @@ export class KafkaQueue {
         try {
             await this.consumer.disconnect()
         } catch {}
+    }
+
+    private addMetricListeners() {
+        const listenEvents = [
+            this.consumer.events.GROUP_JOIN,
+            this.consumer.events.CONNECT,
+            this.consumer.events.DISCONNECT,
+            this.consumer.events.STOP,
+            this.consumer.events.CRASH,
+            this.consumer.events.REBALANCING,
+            this.consumer.events.RECEIVED_UNSUBSCRIBED_TOPICS,
+            this.consumer.events.REQUEST_TIMEOUT,
+        ]
+
+        listenEvents.forEach((event) => {
+            this.consumer.on(event, () => {
+                this.pluginsServer.statsd?.increment('kafka_queue_consumer_event', { event })
+            })
+        })
     }
 
     private static buildConsumer(kafka: Kafka, groupId: string): Consumer {

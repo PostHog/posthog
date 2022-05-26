@@ -24,7 +24,7 @@ function diffInCoords(e, initialCoords) {
           - exclude = ''       - selector for when to NOT start long-pressing
  */
 export function useLongPress(
-    callback = (clicked = false, ms = null) => {}, // eslint-disable-line
+    callback = (clicked = false, ms = null) => {}, // eslint-disable-line @typescript-eslint/no-unused-vars
     { ms = 300, pixelDistance = 10, touch = true, click = true, exclude = '', clickMs = null }
 ) {
     const [startLongPress, setStartLongPress] = useState(null)
@@ -34,7 +34,7 @@ export function useLongPress(
         let timerId
         if (startLongPress && ms) {
             timerId = setTimeout(() => {
-                callback(false, window.performance.now() - startLongPress, initialCoords)
+                callback?.(false, window.performance.now() - startLongPress, initialCoords)
                 stop()
             }, ms)
         }

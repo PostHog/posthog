@@ -30,8 +30,6 @@ import {
 } from './player/playerUtils'
 import { lemonToast } from 'lib/components/lemonToast'
 import equal from 'fast-deep-equal'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 
@@ -136,7 +134,7 @@ export const sessionRecordingLogic = kea<sessionRecordingLogicType>({
     path: ['scenes', 'session-recordings', 'sessionRecordingLogic'],
     connect: {
         logic: [eventUsageLogic],
-        values: [teamLogic, ['currentTeamId'], featureFlagLogic, ['featureFlags']],
+        values: [teamLogic, ['currentTeamId']],
     },
     actions: {
         setFilters: (filters: Partial<RecordingEventsFilters>) => ({ filters }),
@@ -289,12 +287,7 @@ export const sessionRecordingLogic = kea<sessionRecordingLogicType>({
                 },
                 loadRecordingSnapshots: async ({ sessionRecordingId, url }, breakpoint): Promise<SessionPlayerData> => {
                     const apiUrl =
-                        url ||
-                        `api/projects/${
-                            values.currentTeamId
-                        }/session_recordings/${sessionRecordingId}/snapshots?${toParams({
-                            limit: values.featureFlags[FEATURE_FLAGS.TUNE_RECORDING_SNAPSHOT_LIMIT] ? 4 : undefined,
-                        })}`
+                        url || `api/projects/${values.currentTeamId}/session_recordings/${sessionRecordingId}/snapshots`
                     const response = await api.get(apiUrl)
                     breakpoint()
                     const snapshotsByWindowId = { ...(values.sessionPlayerData.snapshotsByWindowId ?? {}) }
