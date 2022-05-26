@@ -9,9 +9,11 @@ import { IconSettings } from 'lib/components/icons'
 export function TestAccountFilter({
     filters,
     onChange,
+    className,
 }: {
     filters: Partial<FilterType>
     onChange: (filters: Partial<FilterType>) => void
+    className?: string
 }): JSX.Element | null {
     const { currentTeam } = useValues(teamLogic)
     const hasFilters = (currentTeam?.test_account_filters || []).length > 0
@@ -39,6 +41,7 @@ export function TestAccountFilter({
                 </div>
             }
             style={{ width: '100%' }}
+            className={className}
         />
     )
 }

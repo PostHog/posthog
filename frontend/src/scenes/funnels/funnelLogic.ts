@@ -2,9 +2,9 @@ import { BreakPointFunction, kea } from 'kea'
 import equal from 'fast-deep-equal'
 import api from 'lib/api'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { autoCaptureEventToDescription, average, sum } from 'lib/utils'
+import { autoCaptureEventToDescription, average, percentage, sum } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { funnelLogicType } from './funnelLogicType'
+import type { funnelLogicType } from './funnelLogicType'
 import {
     AvailableFeature,
     BinCountValue,
@@ -39,7 +39,6 @@ import { BIN_COUNT_AUTO, FunnelLayout } from 'lib/constants'
 
 import {
     aggregateBreakdownResult,
-    formatDisplayPercentage,
     getClampedStepRangeFilter,
     getLastFilledStep,
     getMeanAndStandardDeviation,
@@ -96,12 +95,12 @@ export const DEFAULT_EXCLUDED_PERSON_PROPERTIES = [
     '$initial_geoip_subdivision_name',
 ]
 
-type openPersonsModelProps = {
+export type openPersonsModelProps = {
     step: FunnelStep
     converted: boolean
 }
 
-export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
+export const funnelLogic = kea<funnelLogicType>({
     path: (key) => ['scenes', 'funnels', 'funnelLogic', key],
     props: {} as InsightLogicProps,
     key: keyForInsightLogicProps('insight_funnel'),
@@ -188,14 +187,21 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
         addNestedTableExpandedKey: (expandKey: string) => ({ expandKey }),
         removeNestedTableExpandedKey: (expandKey: string) => ({ expandKey }),
 
-        showTooltip: (coordinates: [number, number], stepIndex: number, series: FunnelStepWithConversionMetrics) => ({
-            coordinates,
+        showTooltip: (
+            origin: [number, number, number],
+            stepIndex: number,
+            series: FunnelStepWithConversionMetrics
+        ) => ({
+            origin,
             stepIndex,
             series,
         }),
         hideTooltip: true,
     }),
-
+    defaults: {
+        // This is a hack to get `FunnelCorrelationResultsType` imported in `funnelLogicType.ts`
+        __ignore: null as FunnelCorrelationResultsType | null,
+    },
     loaders: ({ values }) => ({
         people: [
             [] as any[],
@@ -443,10 +449,10 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
                 showTooltip: (_, { stepIndex, series }) => [stepIndex, series],
             },
         ],
-        tooltipCoordinates: [
-            null as [number, number] | null,
+        tooltipOrigin: [
+            null as [number, number, number] | null, // x, y, width
             {
-                showTooltip: (_, { coordinates }) => coordinates,
+                showTooltip: (_, { origin }) => origin,
             },
         ],
     }),
@@ -543,7 +549,7 @@ export const funnelLogic = kea<funnelLogicType<openPersonsModelProps>>({
                         bin0: value,
                         bin1: value + binSize,
                         count,
-                        label: percent === 0 ? '' : `${formatDisplayPercentage(percent)}%`,
+                        label: percent === 0 ? '' : percentage(percent, 1, true),
                     }
                 })
             },

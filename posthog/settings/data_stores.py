@@ -110,6 +110,12 @@ _parse_kafka_hosts = lambda kafka_url: ",".join(urlparse(host).netloc for host i
 KAFKA_URL = os.getenv("KAFKA_URL", "kafka://kafka:9092")
 KAFKA_HOSTS = _parse_kafka_hosts(KAFKA_URL)
 
+# To support e.g. Multi-tenanted plans on Heroko, we support specifying a prefix for
+# Kafka Topics. See
+# https://devcenter.heroku.com/articles/multi-tenant-kafka-on-heroku#differences-to-dedicated-kafka-plans
+# for details.
+KAFKA_PREFIX = os.getenv("KAFKA_PREFIX", "")
+
 # Kafka broker host(s) that is used by clickhouse for ingesting messages. Useful if clickhouse is hosted outside the cluster.
 KAFKA_HOSTS_FOR_CLICKHOUSE = _parse_kafka_hosts(os.getenv("KAFKA_URL_FOR_CLICKHOUSE", KAFKA_URL))
 

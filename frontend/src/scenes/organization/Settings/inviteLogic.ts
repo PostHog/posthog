@@ -3,14 +3,14 @@ import { OrganizationInviteType } from '~/types'
 import api from 'lib/api'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { inviteLogicType } from './inviteLogicType'
+import type { inviteLogicType } from './inviteLogicType'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
 import { lemonToast } from 'lib/components/lemonToast'
 
 /** State of a single invite row (with input data) in bulk invite creation. */
-interface InviteRowState {
+export interface InviteRowState {
     target_email: string
     first_name: string
     isValid: boolean
@@ -19,7 +19,7 @@ interface InviteRowState {
 
 const EMPTY_INVITE: InviteRowState = { target_email: '', first_name: '', isValid: true }
 
-export const inviteLogic = kea<inviteLogicType<InviteRowState>>({
+export const inviteLogic = kea<inviteLogicType>({
     path: ['scenes', 'organization', 'Settings', 'inviteLogic'],
     actions: {
         showInviteModal: true,

@@ -1,7 +1,7 @@
 import { Properties } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 
-import { Group, Hub, Person, Team } from '../../../src/types'
+import { Group, Hub, Team } from '../../../src/types'
 import { DB } from '../../../src/utils/db/db'
 import { createHub } from '../../../src/utils/db/hub'
 import { UUIDT } from '../../../src/utils/utils'
@@ -17,12 +17,10 @@ describe('properties-updater', () => {
     let db: DB
 
     let team: Team
-    let person: Person
     const uuid = new UUIDT().toString()
     const distinctId = 'distinct_id_update_person_properties'
 
     const FUTURE_TIMESTAMP = DateTime.fromISO('2050-10-14T11:42:06.502Z')
-    const MIDDLE_TIMESTAMP = DateTime.fromISO('2021-10-14T11:42:06.502Z')
     const PAST_TIMESTAMP = DateTime.fromISO('2000-10-14T11:42:06.502Z')
 
     beforeEach(async () => {
@@ -31,7 +29,7 @@ describe('properties-updater', () => {
         db = hub.db
 
         team = await getFirstTeam(hub)
-        person = await db.createPerson(PAST_TIMESTAMP, {}, {}, {}, team.id, null, false, uuid, [distinctId])
+        await db.createPerson(PAST_TIMESTAMP, {}, {}, {}, team.id, null, false, uuid, [distinctId])
     })
 
     afterEach(async () => {

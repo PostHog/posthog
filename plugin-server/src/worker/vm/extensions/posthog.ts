@@ -3,7 +3,6 @@ import crypto from 'crypto'
 import { DateTime } from 'luxon'
 import { Hub, PluginConfig, RawEventMessage } from 'types'
 
-import { Client } from '../../../utils/celery/client'
 import { UUIDT } from '../../../utils/utils'
 import { ApiExtension, createApi } from './api'
 const { version } = require('../../../../package.json')
@@ -52,16 +51,6 @@ export function createPosthog(server: Hub, pluginConfig: PluginConfig): DummyPos
                 ],
             })
             server.statsd?.increment('vm_posthog_extension_capture_called')
-        }
-    } else {
-        // Sending event to our Redis>Postgres pipeline
-        const client = new Client(server.db, server.PLUGINS_CELERY_QUEUE)
-        sendEvent = async (data) => {
-            await client.sendTaskAsync(
-                'posthog.tasks.process_event.process_event_with_plugins',
-                [data.distinct_id, null, null, data, pluginConfig.team_id, data.timestamp, data.timestamp],
-                {}
-            )
         }
     }
 

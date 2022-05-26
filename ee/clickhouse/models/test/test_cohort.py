@@ -4,12 +4,7 @@ from unittest.mock import patch
 from django.utils import timezone
 from freezegun import freeze_time
 
-from ee.clickhouse.models.cohort import (
-    format_filter_query,
-    get_person_ids_by_cohort_id,
-    recalculate_cohortpeople,
-    recalculate_cohortpeople_with_new_query,
-)
+from ee.clickhouse.models.cohort import format_filter_query, get_person_ids_by_cohort_id
 from ee.clickhouse.models.person import create_person, create_person_distinct_id
 from ee.clickhouse.models.property import parse_prop_grouped_clauses
 from ee.clickhouse.util import ClickhouseTestMixin
@@ -861,32 +856,3 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
             "SELECT person_id FROM cohortpeople where cohort_id = %(cohort_id)s", {"cohort_id": cohort1.pk}
         )
         self.assertCountEqual([p1.uuid, p3.uuid], [r[0] for r in result])
-
-    def test_new_and_old_aligned(self):
-        p1 = Person.objects.create(team_id=self.team.pk, distinct_ids=["1"], properties={"foo": "bar"},)
-
-        p1.properties = {"foo": "bar"}
-        p1.save()
-
-        cohort2 = Cohort.objects.create(
-            team=self.team,
-            groups=[
-                {
-                    "days": None,
-                    "count": None,
-                    "label": None,
-                    "end_date": None,
-                    "event_id": None,
-                    "action_id": None,
-                    "properties": [{"key": "foo", "type": "person", "value": "bar"}],
-                    "start_date": None,
-                    "count_operator": None,
-                }
-            ],
-            name="cohort1",
-        )
-
-        count = recalculate_cohortpeople(cohort2)
-        new_count = recalculate_cohortpeople_with_new_query(cohort2)
-
-        self.assertEqual(count, new_count)

@@ -80,7 +80,6 @@ const TEST_CONFIG: Partial<PluginsServerConfig> = {
     KAFKA_CONSUMPTION_TOPIC: KAFKA_EVENTS_PLUGIN_INGESTION,
 }
 
-let testCounter = 0
 let processEventCounter = 0
 let mockClientEventCounter = 0
 let team: Team
@@ -114,16 +113,7 @@ async function processEvent(
     sentAt: DateTime | null,
     eventUuid: string
 ): Promise<PreIngestionEvent | null> {
-    const response = await eventsProcessor.processEvent(
-        distinctId,
-        ip,
-        data,
-        teamId,
-        now,
-        sentAt,
-        eventUuid,
-        'http://example.com'
-    )
+    const response = await eventsProcessor.processEvent(distinctId, ip, data, teamId, now, sentAt, eventUuid)
     if (response) {
         await eventsProcessor.createEvent(response)
     }
@@ -164,12 +154,9 @@ beforeEach(async () => {
 
     // Always start with an anonymous state
     state = { currentDistinctId: 'anonymous_id' }
-
-    console.log(`About to start test ${++testCounter}: ${expect.getState().currentTestName}`)
 })
 
 afterEach(async () => {
-    console.log(`Finished test ${testCounter}`)
     await hub.redisPool.release(redis)
     await closeHub?.()
 })
@@ -1169,8 +1156,7 @@ it('snapshot event not stored if session recording disabled', async () => {
         team.id,
         now,
         now,
-        new UUIDT().toString(),
-        'http://example.com'
+        new UUIDT().toString()
     )
     await delayUntilEventIngested(() => hub.db.fetchSessionRecordingEvents())
 
@@ -1192,8 +1178,7 @@ test('snapshot event stored as session_recording_event', async () => {
         team.id,
         now,
         now,
-        new UUIDT().toString(),
-        'http://example.com'
+        new UUIDT().toString()
     )
     await delayUntilEventIngested(() => hub.db.fetchSessionRecordingEvents())
 
@@ -1220,8 +1205,7 @@ test('$snapshot event creates new person if needed', async () => {
         team.id,
         now,
         now,
-        new UUIDT().toString(),
-        'http://example.com'
+        new UUIDT().toString()
     )
     await delayUntilEventIngested(() => hub.db.fetchPersons())
 
@@ -1761,8 +1745,6 @@ describe('when handling $identify', () => {
         // completing before continuing with the first identify.
         const originalCreatePerson = hub.db.createPerson.bind(hub.db)
         const createPersonMock = jest.fn(async (...args) => {
-            // eslint-disable-next-line
-            // @ts-ignore
             const result = await originalCreatePerson(...args)
 
             if (createPersonMock.mock.calls.length === 1) {
@@ -2462,6 +2444,36 @@ test('set and set_once on the same key', async () => {
     const [person] = await hub.db.fetchPersons()
     expect(await hub.db.fetchDistinctIdValues(person)).toEqual(['distinct_id1'])
     expect(person.properties).toEqual({ a_prop: 'test-set' })
+})
+
+test('$unset person property', async () => {
+    await createPerson(hub, team, ['distinct_id1'], { a: 1, b: 2, c: 3 })
+
+    await processEvent(
+        'distinct_id1',
+        '',
+        '',
+        {
+            event: 'some_event',
+            properties: {
+                token: team.api_token,
+                distinct_id: 'distinct_id1',
+                $unset: ['a', 'c'],
+            },
+        } as any as PluginEvent,
+        team.id,
+        now,
+        now,
+        new UUIDT().toString()
+    )
+    expect((await hub.db.fetchEvents()).length).toBe(1)
+
+    const [event] = await hub.db.fetchEvents()
+    expect(event.properties['$unset']).toEqual(['a', 'c'])
+
+    const [person] = await hub.db.fetchPersons()
+    expect(await hub.db.fetchDistinctIdValues(person)).toEqual(['distinct_id1'])
+    expect(person.properties).toEqual({ b: 2 })
 })
 
 describe('ingestion in any order', () => {

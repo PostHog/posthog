@@ -1,166 +1,84 @@
-import { PluginEvent } from '@posthog/plugin-scaffold'
 import * as Sentry from '@sentry/node'
-import { Consumer, EachBatchPayload, Kafka, KafkaMessage } from 'kafkajs'
+import { Consumer, ConsumerSubscribeTopics, EachBatchPayload, Kafka } from 'kafkajs'
 
-import { Hub, Queue, WorkerMethods } from '../../types'
+import { Hub, WorkerMethods } from '../../types'
 import { status } from '../../utils/status'
-import { groupIntoBatches, killGracefully, sanitizeEvent } from '../../utils/utils'
-import { runInstrumentedFunction } from '../utils'
-import { KAFKA_BUFFER } from './../../config/kafka-topics'
-import { ingestEvent } from './ingest-event'
-
-class DelayProcessing extends Error {}
+import { killGracefully } from '../../utils/utils'
+import { KAFKA_BUFFER, KAFKA_EVENTS_JSON, prefix as KAFKA_PREFIX } from './../../config/kafka-topics'
+import { eachBatchAsyncHandlers } from './batch-processing/each-batch-async-handlers'
+import { eachBatchIngestion } from './batch-processing/each-batch-ingestion'
 
 type ConsumerManagementPayload = {
     topic: string
     partitions?: number[] | undefined
 }
-export class KafkaQueue implements Queue {
-    private pluginsServer: Hub
+
+type EachBatchFunction = (payload: EachBatchPayload, queue: KafkaQueue) => Promise<void>
+export class KafkaQueue {
+    public pluginsServer: Hub
+    public workerMethods: WorkerMethods
     private kafka: Kafka
     private consumer: Consumer
     private wasConsumerRan: boolean
-    private workerMethods: WorkerMethods
     private sleepTimeout: NodeJS.Timeout | null
+    private ingestionTopic: string
+    private bufferTopic: string
+    private eventsTopic: string
+    private eachBatch: Record<string, EachBatchFunction>
 
     constructor(pluginsServer: Hub, workerMethods: WorkerMethods) {
         this.pluginsServer = pluginsServer
         this.kafka = pluginsServer.kafka!
-        this.consumer = KafkaQueue.buildConsumer(this.kafka)
+        this.consumer = KafkaQueue.buildConsumer(this.kafka, this.consumerGroupId())
         this.wasConsumerRan = false
         this.workerMethods = workerMethods
         this.sleepTimeout = null
-    }
 
-    private async eachMessageIngestion(message: KafkaMessage): Promise<void> {
-        const { data: dataStr, ...rawEvent } = JSON.parse(message.value!.toString())
-        const combinedEvent = { ...rawEvent, ...JSON.parse(dataStr) }
-        const event: PluginEvent = sanitizeEvent({
-            ...combinedEvent,
-            site_url: combinedEvent.site_url || null,
-            ip: combinedEvent.ip || null,
-        })
-        await ingestEvent(this.pluginsServer, this.workerMethods, event)
-    }
-
-    private async eachMessageBuffer(
-        message: KafkaMessage,
-        resolveOffset: EachBatchPayload['resolveOffset']
-    ): Promise<void> {
-        const bufferEvent = JSON.parse(message.value!.toString())
-        await runInstrumentedFunction({
-            server: this.pluginsServer,
-            event: bufferEvent,
-            func: (_) => this.workerMethods.runBufferEventPipeline(bufferEvent),
-            statsKey: `kafka_queue.ingest_buffer_event`,
-            timeoutMessage: 'After 30 seconds still running runBufferEventPipeline',
-        })
-        resolveOffset(message.offset)
-    }
-
-    private async eachBatchBuffer({ batch, resolveOffset, commitOffsetsIfNecessary }: EachBatchPayload): Promise<void> {
-        if (batch.messages.length === 0) {
-            return
+        this.ingestionTopic = this.pluginsServer.KAFKA_CONSUMPTION_TOPIC!
+        this.bufferTopic = KAFKA_BUFFER
+        this.eventsTopic = KAFKA_EVENTS_JSON
+        this.eachBatch = {
+            [this.ingestionTopic]: eachBatchIngestion,
+            [this.eventsTopic]: eachBatchAsyncHandlers,
         }
-        const batchStartTimer = new Date()
+    }
 
-        let consumerSleep = 0
-        for (const message of batch.messages) {
-            // kafka timestamps are unix timestamps in string format
-            const processAt = Number(message.timestamp) + this.pluginsServer.BUFFER_CONVERSION_SECONDS * 1000
-            const delayUntilTimeToProcess = processAt - Date.now()
+    topics(): ConsumerSubscribeTopics {
+        const topics = []
 
-            if (delayUntilTimeToProcess < 0) {
-                await this.eachMessageBuffer(message, resolveOffset)
-            } else {
-                consumerSleep = Math.max(consumerSleep, delayUntilTimeToProcess)
-            }
+        if (this.pluginsServer.capabilities.ingestion) {
+            topics.push(this.ingestionTopic)
+        } else if (this.pluginsServer.capabilities.processAsyncHandlers) {
+            topics.push(this.eventsTopic)
+        } else {
+            throw Error('No topics to consume, KafkaQueue should not be started')
         }
 
-        // if consumerSleep > 0 it means we didn't process at least one message
-        if (consumerSleep > 0) {
-            // pause the consumer for this partition until we can process all unprocessed messages from this batch
-            this.sleepTimeout = setTimeout(() => {
-                if (this.sleepTimeout) {
-                    clearTimeout(this.sleepTimeout)
-                }
-                this.resume(batch.topic, batch.partition)
-            }, consumerSleep)
-            await this.pause(batch.topic, batch.partition)
-
-            // we throw an error to prevent the non-processed message offsets from being committed
-            // from the kafkajs docs:
-            // > resolveOffset() is used to mark a message in the batch as processed.
-            // > In case of errors, the consumer will automatically commit the resolved offsets.
-            throw new DelayProcessing()
-        }
-
-        await commitOffsetsIfNecessary()
-
-        this.pluginsServer.statsd?.timing('kafka_queue.each_batch_buffer', batchStartTimer)
+        return { topics }
     }
 
-    private async eachBatchIngestion({
-        batch,
-        resolveOffset,
-        heartbeat,
-        commitOffsetsIfNecessary,
-        isRunning,
-        isStale,
-    }: EachBatchPayload): Promise<void> {
-        const batchStartTimer = new Date()
-
-        try {
-            const messageBatches = groupIntoBatches(
-                batch.messages,
-                this.pluginsServer.WORKER_CONCURRENCY * this.pluginsServer.TASKS_PER_WORKER
-            )
-
-            for (const messageBatch of messageBatches) {
-                if (!isRunning() || isStale()) {
-                    status.info('🚪', `Bailing out of a batch of ${batch.messages.length} events`, {
-                        isRunning: isRunning(),
-                        isStale: isStale(),
-                        msFromBatchStart: new Date().valueOf() - batchStartTimer.valueOf(),
-                    })
-                    return
-                }
-
-                await Promise.all(messageBatch.map((message) => this.eachMessageIngestion(message)))
-
-                // this if should never be false, but who can trust computers these days
-                if (messageBatch.length > 0) {
-                    resolveOffset(messageBatch[messageBatch.length - 1].offset)
-                }
-                await commitOffsetsIfNecessary()
-                await heartbeat()
-            }
-
-            status.info(
-                '🧩',
-                `Kafka batch of ${batch.messages.length} events completed in ${
-                    new Date().valueOf() - batchStartTimer.valueOf()
-                }ms`
-            )
-        } finally {
-            this.pluginsServer.statsd?.timing('kafka_queue.each_batch', batchStartTimer)
+    consumerGroupId(): string {
+        if (this.pluginsServer.capabilities.ingestion) {
+            return `${KAFKA_PREFIX}clickhouse-ingestion`
+        } else if (this.pluginsServer.capabilities.processAsyncHandlers) {
+            return `${KAFKA_PREFIX}clickhouse-plugin-server-async`
+        } else {
+            throw Error('No topics to consume, KafkaQueue should not be started')
         }
     }
 
     async start(): Promise<void> {
         const startPromise = new Promise<void>(async (resolve, reject) => {
-            this.consumer.on(this.consumer.events.GROUP_JOIN, () => {
+            this.addMetricListeners()
+            this.consumer.on(this.consumer.events.GROUP_JOIN, ({ payload }) => {
+                status.info('ℹ️', 'Kafka joined consumer group', JSON.stringify(payload))
                 resolve()
             })
             this.consumer.on(this.consumer.events.CRASH, ({ payload: { error } }) => reject(error))
             status.info('⏬', `Connecting Kafka consumer to ${this.pluginsServer.KAFKA_HOSTS}...`)
             this.wasConsumerRan = true
 
-            const ingestionTopic = this.pluginsServer.KAFKA_CONSUMPTION_TOPIC!
-
-            await this.consumer.subscribe({
-                topic: ingestionTopic,
-            })
+            await this.consumer.subscribe(this.topics())
 
             // KafkaJS batching: https://kafka.js.org/docs/consuming#a-name-each-batch-a-eachbatch
             await this.consumer.run({
@@ -169,20 +87,15 @@ export class KafkaQueue implements Queue {
                 autoCommitThreshold: 1000, // …or every 1000 messages, whichever is sooner
                 partitionsConsumedConcurrently: this.pluginsServer.KAFKA_PARTITIONS_CONSUMED_CONCURRENTLY,
                 eachBatch: async (payload) => {
-                    const batchTopic = payload.batch.topic
+                    const topic = payload.batch.topic
                     try {
-                        if (batchTopic === ingestionTopic) {
-                            await this.eachBatchIngestion(payload)
-                        } else if (batchTopic === KAFKA_BUFFER) {
-                            // currently this never runs - it depends on us subscribing to the buffer topic
-                            await this.eachBatchBuffer(payload)
-                        }
+                        await this.eachBatch[topic](payload, this)
                     } catch (error) {
                         const eventCount = payload.batch.messages.length
                         this.pluginsServer.statsd?.increment('kafka_queue_each_batch_failed_events', eventCount, {
-                            topic: batchTopic,
+                            topic: topic,
                         })
-                        status.info('💀', `Kafka batch of ${eventCount} events for topic ${batchTopic} failed!`)
+                        status.info('💀', `Kafka batch of ${eventCount} events for topic ${topic} failed!`)
                         if (error.type === 'UNKNOWN_MEMBER_ID') {
                             status.info(
                                 '💀',
@@ -204,7 +117,18 @@ export class KafkaQueue implements Queue {
         return await startPromise
     }
 
-    async pause(targetTopic: string = this.pluginsServer.KAFKA_CONSUMPTION_TOPIC!, partition?: number): Promise<void> {
+    async bufferSleep(sleepMs: number, partition: number): Promise<void> {
+        this.sleepTimeout = setTimeout(() => {
+            if (this.sleepTimeout) {
+                clearTimeout(this.sleepTimeout)
+            }
+            this.resume(this.bufferTopic, partition)
+        }, sleepMs)
+
+        await this.pause(this.bufferTopic, partition)
+    }
+
+    async pause(targetTopic: string, partition?: number): Promise<void> {
         if (this.wasConsumerRan && !this.isPaused(targetTopic, partition)) {
             const pausePayload: ConsumerManagementPayload = { topic: targetTopic }
             let partitionInfo = ''
@@ -220,7 +144,7 @@ export class KafkaQueue implements Queue {
         return Promise.resolve()
     }
 
-    resume(targetTopic: string = this.pluginsServer.KAFKA_CONSUMPTION_TOPIC!, partition?: number): void {
+    resume(targetTopic: string, partition?: number): void {
         if (this.wasConsumerRan && this.isPaused(targetTopic, partition)) {
             const resumePayload: ConsumerManagementPayload = { topic: targetTopic }
             let partitionInfo = ''
@@ -234,7 +158,7 @@ export class KafkaQueue implements Queue {
         }
     }
 
-    isPaused(targetTopic: string = this.pluginsServer.KAFKA_CONSUMPTION_TOPIC!, partition?: number): boolean {
+    isPaused(targetTopic: string, partition?: number): boolean {
         // if we pass a partition, check that as well, else just return if the topic is paused
         return this.consumer
             .paused()
@@ -254,9 +178,29 @@ export class KafkaQueue implements Queue {
         } catch {}
     }
 
-    private static buildConsumer(kafka: Kafka, groupId?: string): Consumer {
+    private addMetricListeners() {
+        const listenEvents = [
+            this.consumer.events.GROUP_JOIN,
+            this.consumer.events.CONNECT,
+            this.consumer.events.DISCONNECT,
+            this.consumer.events.STOP,
+            this.consumer.events.CRASH,
+            this.consumer.events.REBALANCING,
+            this.consumer.events.RECEIVED_UNSUBSCRIBED_TOPICS,
+            this.consumer.events.REQUEST_TIMEOUT,
+        ]
+
+        listenEvents.forEach((event) => {
+            this.consumer.on(event, () => {
+                this.pluginsServer.statsd?.increment('kafka_queue_consumer_event', { event })
+            })
+        })
+    }
+
+    private static buildConsumer(kafka: Kafka, groupId: string): Consumer {
         const consumer = kafka.consumer({
-            groupId: groupId ?? 'clickhouse-ingestion',
+            // NOTE: This should never clash with the group ID specified for the kafka engine posthog/ee/clickhouse/sql/clickhouse.py
+            groupId,
             readUncommitted: false,
         })
         const { GROUP_JOIN, CRASH, CONNECT, DISCONNECT } = consumer.events

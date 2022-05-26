@@ -44,8 +44,8 @@ import {
     PluginLogEntry,
     PluginLogEntrySource,
     PluginLogEntryType,
+    PluginLogLevel,
     PluginSourceFileStatus,
-    PluginsServerConfig,
     PostgresSessionRecordingEvent,
     PropertiesLastOperation,
     PropertiesLastUpdatedAt,
@@ -70,7 +70,7 @@ import {
     UUID,
     UUIDT,
 } from '../utils'
-import { OrganizationPluginsAccessLevel, PluginLogLevel } from './../../types'
+import { OrganizationPluginsAccessLevel } from './../../types'
 import { KafkaProducerWrapper } from './kafka-producer-wrapper'
 import { PostgresLogsWrapper } from './postgres-logs-wrapper'
 import {
@@ -1374,7 +1374,7 @@ export class DB {
 
         const logLevel = pluginConfig.plugin?.log_level
 
-        if (!shouldStoreLog(logLevel || 0, source, type)) {
+        if (!shouldStoreLog(logLevel || PluginLogLevel.Full, source, type)) {
             return
         }
 

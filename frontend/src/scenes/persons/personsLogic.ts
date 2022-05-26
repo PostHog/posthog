@@ -1,7 +1,7 @@
 import { kea } from 'kea'
 import { router } from 'kea-router'
 import api from 'lib/api'
-import { personsLogicType } from './personsLogicType'
+import type { personsLogicType } from './personsLogicType'
 import { AnyPropertyFilter, Breadcrumb, CohortType, PersonsTabType, PersonType } from '~/types'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { urls } from 'scenes/urls'
@@ -11,7 +11,7 @@ import { asDisplay } from 'scenes/persons/PersonHeader'
 import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { lemonToast } from 'lib/components/lemonToast'
 
-interface PersonPaginatedResponse {
+export interface PersonPaginatedResponse {
     next: string | null
     previous: string | null
     results: PersonType[]
@@ -29,7 +29,7 @@ export interface PersonLogicProps {
     urlId?: string
 }
 
-export const personsLogic = kea<personsLogicType<PersonFilters, PersonLogicProps, PersonPaginatedResponse>>({
+export const personsLogic = kea<personsLogicType>({
     props: {} as PersonLogicProps,
     key: (props) => {
         if (!props.cohort && !props.syncWithUrl) {
@@ -48,6 +48,7 @@ export const personsLogic = kea<personsLogicType<PersonFilters, PersonLogicProps
         loadPersons: (url: string | null = '') => ({ url }),
         setListFilters: (payload: PersonFilters) => ({ payload }),
         editProperty: (key: string, newValue?: string | number | boolean | null) => ({ key, newValue }),
+        deleteProperty: (key: string) => ({ key }),
         navigateToCohort: (cohort: CohortType) => ({ cohort }),
         navigateToTab: (tab: PersonsTabType) => ({ tab }),
         setSplitMergeModalShown: (shown: boolean) => ({ shown }),
@@ -173,12 +174,14 @@ export const personsLogic = kea<personsLogicType<PersonFilters, PersonLogicProps
                     action = 'added'
                 } else {
                     person.properties[key] = parsedValue
-                    action = parsedValue !== undefined ? 'updated' : 'removed'
+                    action = 'updated'
                 }
 
-                actions.setPerson(person) // To update the UI immediately while the request is being processed
-                const response = await api.update(`api/person/${person.id}`, person)
-                actions.setPerson(response)
+                actions.setPerson({ ...person }) // To update the UI immediately while the request is being processed
+                // :KLUDGE: Person properties are updated asynchronosly in the plugin server - the response won't reflect
+                //      the 'updated' properties yet.
+                await api.update(`api/person/${person.id}`, person)
+                lemonToast.success(`Person property ${action}`)
 
                 eventUsageLogic.actions.reportPersonPropertyUpdated(
                     action,
@@ -186,6 +189,20 @@ export const personsLogic = kea<personsLogicType<PersonFilters, PersonLogicProps
                     oldPropertyType,
                     newPropertyType
                 )
+            }
+        },
+        deleteProperty: async ({ key }) => {
+            const person = values.person
+
+            if (person) {
+                const updatedProperties = { ...person.properties }
+                delete updatedProperties[key]
+
+                actions.setPerson({ ...person, properties: updatedProperties })
+                await api.create(`api/person/${person.id}/delete_property`, { $unset: key })
+                lemonToast.success(`Person property deleted`)
+
+                eventUsageLogic.actions.reportPersonPropertyUpdated('removed', 1, undefined, undefined)
             }
         },
         navigateToCohort: ({ cohort }) => {

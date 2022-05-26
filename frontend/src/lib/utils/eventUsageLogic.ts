@@ -1,9 +1,8 @@
-/* This file contains the logic to report custom frontend events */
 import { kea } from 'kea'
 import { isPostHogProp, keyMappingKeys } from 'lib/components/PropertyKeyInfo'
 import posthog from 'posthog-js'
 import { userLogic } from 'scenes/userLogic'
-import { eventUsageLogicType } from './eventUsageLogicType'
+import type { eventUsageLogicType } from './eventUsageLogicType'
 import {
     AnnotationType,
     FilterType,
@@ -195,14 +194,7 @@ function sanitizeFilterParams(filters: Partial<FilterType>): Record<string, any>
     }
 }
 
-export const eventUsageLogic = kea<
-    eventUsageLogicType<
-        DashboardEventSource,
-        GraphSeriesAddedSource,
-        RecordingWatchedSource,
-        SessionRecordingFilterType
-    >
->({
+export const eventUsageLogic = kea<eventUsageLogicType>({
     path: ['lib', 'utils', 'eventUsageLogic'],
     connect: {
         values: [preflightLogic, ['realm'], userLogic, ['user']],
@@ -832,7 +824,7 @@ export const eventUsageLogic = kea<
             posthog.capture('saved insights new insight clicked', { insight_type: insightType })
         },
         reportRecording: ({ recordingData, source, loadTime, type }) => {
-            // @ts-ignore
+            // @ts-expect-error
             const eventIndex = new EventIndex(recordingData?.snapshots || [])
             const payload: Partial<RecordingViewedProps> = {
                 load_time: loadTime,

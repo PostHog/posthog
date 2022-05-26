@@ -6,15 +6,15 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { groupsModel } from '~/models/groupsModel'
 import { Breadcrumb, Group } from '~/types'
-import { groupsListLogicType } from './groupsListLogicType'
+import type { groupsListLogicType } from './groupsListLogicType'
 
-interface GroupsPaginatedResponse {
+export interface GroupsPaginatedResponse {
     next: string | null
     previous: string | null
     results: Group[]
 }
 
-export const groupsListLogic = kea<groupsListLogicType<GroupsPaginatedResponse>>({
+export const groupsListLogic = kea<groupsListLogicType>({
     path: ['groups', 'groupsListLogic'],
     connect: {
         values: [

@@ -4,15 +4,16 @@ import * as fs from 'fs'
 import { createPool } from 'generic-pool'
 import { StatsD } from 'hot-shots'
 import Redis from 'ioredis'
-import { Kafka, logLevel, SASLOptions } from 'kafkajs'
+import { Kafka, logLevel, Partitioners, SASLOptions } from 'kafkajs'
 import { DateTime } from 'luxon'
 import * as path from 'path'
 import { types as pgTypes } from 'pg'
 import { ConnectionOptions } from 'tls'
 
+import { getPluginServerCapabilities } from '../../capabilities'
 import { defaultConfig } from '../../config/config'
 import { JobQueueManager } from '../../main/job-queues/job-queue-manager'
-import { connectObjectStorage, ObjectStorage } from '../../main/services/object_storage'
+import { connectObjectStorage } from '../../main/services/object_storage'
 import { Hub, KafkaSecurityProtocol, PluginServerCapabilities, PluginsServerConfig } from '../../types'
 import { ActionManager } from '../../worker/ingestion/action-manager'
 import { ActionMatcher } from '../../worker/ingestion/action-matcher'
@@ -58,8 +59,9 @@ export async function createHub(
         ...config,
     }
     if (capabilities === null) {
-        capabilities = { ingestion: true, pluginScheduledTasks: true, processJobs: true }
+        capabilities = getPluginServerCapabilities(serverConfig)
     }
+    status.updatePrompt(serverConfig.PLUGIN_SERVER_MODE)
     const instanceId = new UUIDT()
 
     let statsd: StatsD | undefined
@@ -175,7 +177,10 @@ export async function createHub(
         connectionTimeout: 3000, // default: 1000
         authenticationTimeout: 3000, // default: 1000
     })
-    const producer = kafka.producer({ retry: { retries: 10, initialRetryTime: 1000, maxRetryTime: 30 } })
+    const producer = kafka.producer({
+        retry: { retries: 10, initialRetryTime: 1000, maxRetryTime: 30 },
+        createPartitioner: Partitioners.LegacyPartitioner,
+    })
     await producer.connect()
 
     const kafkaProducer = new KafkaProducerWrapper(producer, statsd, serverConfig)
@@ -202,15 +207,11 @@ export async function createHub(
     status.info('👍', `Redis ready`)
 
     status.info('🤔', `Connecting to object storage...`)
-    const objectStorage: ObjectStorage = connectObjectStorage(serverConfig)
     try {
-        if (serverConfig.OBJECT_STORAGE_ENABLED && (await objectStorage.healthCheck())) {
-            status.info('👍', 'Object storage ready')
-        } else {
-            status.info('🪣', 'Object storage not in use')
-        }
+        connectObjectStorage(serverConfig)
+        status.info('👍', 'Object storage ready')
     } catch (e) {
-        status.warn('🪣', `Object storage failed healthcheck: ${e}`)
+        status.warn('🪣', `Object storage could not be created: ${e}`)
     }
 
     const db = new DB(

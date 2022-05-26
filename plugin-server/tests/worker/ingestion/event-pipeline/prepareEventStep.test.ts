@@ -93,7 +93,6 @@ describe('prepareEventStep()', () => {
                 timestamp: '2020-02-23 02:15:00.000',
             },
             undefined,
-            undefined,
         ])
         expect(hub.db.kafkaProducer!.queueMessage).toHaveBeenCalled()
     })

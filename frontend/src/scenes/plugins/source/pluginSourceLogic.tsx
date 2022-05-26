@@ -14,13 +14,13 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { frontendAppsLogic } from 'scenes/apps/frontendAppsLogic'
 import { formatSource } from 'scenes/plugins/source/formatSource'
 
-interface PluginSourceProps {
+export interface PluginSourceProps {
     pluginId: number
     pluginConfigId?: number
     onClose?: () => void
 }
 
-export const pluginSourceLogic = kea<pluginSourceLogicType<PluginSourceProps>>([
+export const pluginSourceLogic = kea<pluginSourceLogicType>([
     path(['scenes', 'plugins', 'edit', 'pluginSourceLogic']),
     props({} as PluginSourceProps),
     key((props) => props.pluginConfigId ?? `plugin-${props.pluginId}`),

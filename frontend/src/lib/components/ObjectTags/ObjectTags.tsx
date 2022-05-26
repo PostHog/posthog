@@ -1,7 +1,6 @@
 import { Tag, Select } from 'antd'
-import equal from 'fast-deep-equal'
 import { colorForString } from 'lib/utils'
-import React, { CSSProperties, useEffect, useMemo } from 'react'
+import React, { CSSProperties, useMemo } from 'react'
 import { PlusOutlined, SyncOutlined, CloseOutlined } from '@ant-design/icons'
 import { SelectGradientOverflow } from '../SelectGradientOverflow'
 import { useActions, useValues } from 'kea'
@@ -56,15 +55,8 @@ export function ObjectTags({
     const objectTagId = useMemo(() => uniqueMemoizedIndex++, [])
     const logic = objectTagsLogic({ id: objectTagId, onChange, tags })
     const { guardAvailableFeature } = useActions(sceneLogic)
-    const { addingNewTag, newTag, cleanedNewTag, deletedTags, tags: _tags } = useValues(logic)
-    const { setAddingNewTag, setNewTag, handleDelete, handleAdd, setTags } = useActions(logic)
-
-    // Necessary to keep logic updated with component props
-    useEffect(() => {
-        if (!equal(tags, _tags)) {
-            setTags(tags)
-        }
-    }, [tags])
+    const { addingNewTag, newTag, cleanedNewTag, deletedTags } = useValues(logic)
+    const { setAddingNewTag, setNewTag, handleDelete, handleAdd } = useActions(logic)
 
     /** Displaying nothing is confusing, so in case of empty static tags we use a dash as a placeholder */
     const showPlaceholder = staticOnly && !tags?.length

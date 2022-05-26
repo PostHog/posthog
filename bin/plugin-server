@@ -22,10 +22,9 @@ while test $# -gt 0; do
 done
 
 export BASE_DIR=$(dirname $(dirname "$PWD/${0#./}"))
-# If KAFKA_URL is set, extract netlocs into KAFKA_HOSTS by removing "kafka://" in a compatibility approach
-if [ -n "$KAFKA_URL" ]; then
-  export KAFKA_HOSTS=$(echo $KAFKA_URL | sed -e "s/kafka\(\+ssl\)\{0,1\}:\/\///g")
-fi
+
+export KAFKA_URL=${KAFKA_URL:-'kafka://kafka:9092'}
+export KAFKA_HOSTS
 
 ./bin/migrate-check
 
