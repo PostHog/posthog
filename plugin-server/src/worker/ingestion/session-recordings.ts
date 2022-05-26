@@ -11,6 +11,7 @@ const { OBJECT_STORAGE_SESSION_RECORDING_FOLDER, OBJECT_STORAGE_BUCKET } = defau
 export const processSnapshotData = async (
     timestamp: DateTime,
     session_id: string,
+    window_id: string,
     snapshot_data: Record<any, any>,
     team_id: number,
     objectStorage: ObjectStorage,
@@ -31,7 +32,16 @@ export const processSnapshotData = async (
     }
 
     const dateKey = castTimestampOrNow(timestamp, TimestampFormat.DateOnly)
-    const object_storage_path = `${OBJECT_STORAGE_SESSION_RECORDING_FOLDER}/${dateKey}/${session_id}/${snapshot_data.chunk_id}/${snapshot_data.chunk_index}`
+    const orderingTimestmap = castTimestampOrNow(timestamp, TimestampFormat.ISO)
+    const object_storage_path = [
+        OBJECT_STORAGE_SESSION_RECORDING_FOLDER,
+        dateKey,
+        team_id,
+        session_id,
+        window_id,
+        `${orderingTimestmap}-${snapshot_data.chunk_id}`,
+        snapshot_data.chunk.index,
+    ].join('/')
     const params = { Bucket: OBJECT_STORAGE_BUCKET, Key: object_storage_path, Body: snapshot_data.data }
 
     const tags = {

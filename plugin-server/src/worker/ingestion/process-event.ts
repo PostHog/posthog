@@ -729,6 +729,7 @@ export class EventsProcessor {
         const processed_snapshot_data = await processSnapshotData(
             timestamp,
             session_id,
+            window_id,
             snapshot_data,
             team_id,
             this.objectStorage,

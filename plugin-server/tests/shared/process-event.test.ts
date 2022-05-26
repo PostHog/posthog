@@ -88,7 +88,8 @@ let closeHub: () => Promise<void>
 let redis: IORedis.Redis
 let eventsProcessor: EventsProcessor
 let now = DateTime.utc()
-const sessionId = `abcf-efg-${now.toISO()}`
+const sessionId = `session-id-${now.toISO()}`
+const windowId = `window-id-${now.toISO()}`
 
 async function createTestHub(additionalProps?: Record<string, any>): Promise<[Hub, () => Promise<void>]> {
     const [hub, closeHub] = await createHub({
@@ -1174,7 +1175,7 @@ test('snapshot event stored as session_recording_event', async () => {
         '',
         {
             event: '$snapshot',
-            properties: { $session_id: sessionId, $snapshot_data: { timestamp: 123 } },
+            properties: { $session_id: sessionId, $window_id: windowId, $snapshot_data: { timestamp: 123 } },
         } as any as PluginEvent,
         team.id,
         now,
@@ -1193,10 +1194,19 @@ test('snapshot event stored as session_recording_event', async () => {
     expect(event.session_id).toEqual(sessionId)
     expect(event.distinct_id).toEqual('some-id')
     const expectedFolderDate = now.toFormat('yyyy-MM-dd')
+    const expectedOrderingTime = now.toISO()
     expect(event.snapshot_data).toEqual({
         chunk_id: 'chunk_id',
         chunk_index: 'chunk_index',
-        object_storage_path: `session_recordings/${expectedFolderDate}/${event.session_id}/chunk_id/chunk_index`,
+        object_storage_path: [
+            'session_recordings',
+            team.id,
+            expectedFolderDate,
+            event.session_id,
+            event.window_id,
+            `${expectedOrderingTime}-chunk_id`,
+            'chunk_index',
+        ].join('/'),
         timestamp: 123,
     })
 })

@@ -125,6 +125,7 @@ describe('e2e', () => {
 
         test('snapshot captured, processed, ingested', async () => {
             const sessionId = new UUIDT().toString()
+            const windowId = new UUIDT().toString()
 
             expect((await hub.db.fetchSessionRecordingEvents(sessionId)).length).toBe(0)
 
@@ -140,8 +141,17 @@ describe('e2e', () => {
 
             // processEvent stored data to disk and added path to the snapshot data
             const expectedDate = DateTime.utc().toFormat('yyyy-MM-dd')
+            const expectedOrderingTimestamp = DateTime.utc().toISO()
             expect((events[0].snapshot_data as unknown as Record<string, any>)['object_storage_path']).toEqual(
-                `session_recordings/${expectedDate}/${sessionId}/undefined/undefined`
+                [
+                    'session_recordings',
+                    expectedDate,
+                    pluginConfig39.team_id,
+                    sessionId,
+                    windowId,
+                    `${expectedOrderingTimestamp}-undefined`,
+                    'undefined',
+                ].join('/')
             )
 
             // onSnapshot ran
