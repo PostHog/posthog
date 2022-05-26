@@ -32,15 +32,15 @@ export const processSnapshotData = async (
     }
 
     const dateKey = castTimestampOrNow(timestamp, TimestampFormat.DateOnly)
-    const orderingTimestmap = castTimestampOrNow(timestamp, TimestampFormat.ISO)
+    const orderingTimestamp = castTimestampOrNow(timestamp, TimestampFormat.ISO)
     const object_storage_path = [
         OBJECT_STORAGE_SESSION_RECORDING_FOLDER,
         dateKey,
         team_id,
         session_id,
         window_id,
-        `${orderingTimestmap}-${snapshot_data.chunk_id}`,
-        snapshot_data.chunk.index,
+        `${orderingTimestamp}-${snapshot_data.chunk_id}`,
+        snapshot_data.chunk_index,
     ].join('/')
     const params = { Bucket: OBJECT_STORAGE_BUCKET, Key: object_storage_path, Body: snapshot_data.data }
 

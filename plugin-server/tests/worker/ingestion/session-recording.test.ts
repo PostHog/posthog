@@ -2,6 +2,8 @@ import { StatsD } from 'hot-shots'
 import { DateTime } from 'luxon'
 
 import { connectObjectStorage, ObjectStorage } from '../../../src/main/services/objectStorage'
+import { TimestampFormat } from '../../../src/types'
+import { castTimestampOrNow } from '../../../src/utils/utils'
 import { processSnapshotData } from '../../../src/worker/ingestion/session-recordings'
 
 describe('session recordings', () => {
@@ -17,8 +19,12 @@ describe('session recordings', () => {
         statsd = { timing: statsdTiming, increment: statsdIncrement } as unknown as StatsD
     })
 
-    const processWithTestContext = async (snapshotData: Record<any, any>, objectStorage: ObjectStorage, teamId = 4) =>
-        await processSnapshotData(DateTime.now(), '123456', snapshotData, teamId, objectStorage, statsd)
+    const processWithTestContext = async (
+        snapshotData: Record<any, any>,
+        objectStorage: ObjectStorage,
+        teamId = 4,
+        timestamp: DateTime = DateTime.now()
+    ) => await processSnapshotData(timestamp, '123456', '7890', snapshotData, teamId, objectStorage, statsd)
 
     it('returns stringified data when storage is disabled', async () => {
         const actual = await processWithTestContext(
@@ -37,7 +43,8 @@ describe('session recordings', () => {
                 OBJECT_STORAGE_ENABLED: true,
                 OBJECT_STORAGE_SESSION_RECORDING_ENABLED_TEAMS: '1,2,3,4',
             }),
-            5
+            5,
+            DateTime.now()
         )
 
         expect(actual).toEqual(JSON.stringify(theSnapshotEvent))
@@ -75,14 +82,25 @@ describe('session recordings', () => {
         }
 
         theSnapshotEvent = { data: 'tomato', chunk_id: 1, chunk_index: 1 }
-        const actual = await processWithTestContext(theSnapshotEvent, objectStorage)
+        const now = DateTime.now()
+        const actual = await processWithTestContext(theSnapshotEvent, objectStorage, 4, now)
 
+        const expectedFolderDate = castTimestampOrNow(now, TimestampFormat.DateOnly)
+        const expectedOrderingTimestamp = castTimestampOrNow(now, TimestampFormat.ISO)
         expect(actual).toEqual(
             JSON.stringify({
                 data: 'tomato',
                 chunk_id: 1,
                 chunk_index: 1,
-                object_storage_path: `session_recordings/${DateTime.now().toFormat('yyyy-MM-dd')}/123456/1/1`,
+                object_storage_path: [
+                    'session_recordings',
+                    expectedFolderDate,
+                    4,
+                    '123456',
+                    '7890',
+                    `${expectedOrderingTimestamp}-1`,
+                    1,
+                ].join('/'),
             })
         )
         expect(statsdTiming).toHaveBeenCalledTimes(1)
