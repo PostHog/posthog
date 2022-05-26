@@ -88,6 +88,8 @@ let closeHub: () => Promise<void>
 let redis: IORedis.Redis
 let eventsProcessor: EventsProcessor
 let now = DateTime.utc()
+const sessionId = `session-id-${now.toISO()}`
+const windowId = `window-id-${now.toISO()}`
 
 async function createTestHub(additionalProps?: Record<string, any>): Promise<[Hub, () => Promise<void>]> {
     const [hub, closeHub] = await createHub({
@@ -1145,8 +1147,6 @@ test('capture first team event', async () => {
 })
 
 it('snapshot event not stored if session recording disabled', async () => {
-    const sessionId = new UUIDT()
-
     await hub.db.postgresQuery('update posthog_team set session_recording_opt_in = $1', [false], 'testRecordings')
     await eventsProcessor.processEvent(
         'some-id',
@@ -1170,9 +1170,6 @@ it('snapshot event not stored if session recording disabled', async () => {
 })
 
 test('snapshot event stored as session_recording_event', async () => {
-    const sessionId = new UUIDT()
-    const windowId = new UUIDT()
-
     await eventsProcessor.processEvent(
         'some-id',
         '',
@@ -1215,8 +1212,6 @@ test('snapshot event stored as session_recording_event', async () => {
 })
 
 test('$snapshot event creates new person if needed', async () => {
-    const sessionId = new UUIDT()
-
     await eventsProcessor.processEvent(
         'some_new_id',
         '',

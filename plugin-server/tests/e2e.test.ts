@@ -134,7 +134,7 @@ describe('e2e', () => {
             await delayUntilEventIngested(() => hub.db.fetchSessionRecordingEvents(sessionId))
 
             await hub.kafkaProducer.flush()
-            const events = await hub.db.fetchSessionRecordingEvents(sessionId)
+            const events = await hub.db.fetchSessionRecordingEvents()
             await delay(1000)
 
             expect(events.length).toBe(1)
