@@ -14,6 +14,7 @@ from posthog.models.entity import Entity
 from posthog.models.filters import Filter
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.team import Team
+from posthog.models.utils import PersonPropertiesMode
 from posthog.queries.person_query import PersonQuery
 from posthog.queries.util import parse_timestamps
 
@@ -30,7 +31,9 @@ from posthog.queries.util import parse_timestamps
 
 class ClickhouseLifecycle:
     def _format_lifecycle_query(self, entity: Entity, filter: Filter, team: Team) -> Tuple[str, Dict, Callable]:
-        event_query, event_params = LifecycleEventQuery(team=team, filter=filter).get_query()
+        event_query, event_params = LifecycleEventQuery(
+            team=team, filter=filter, using_person_on_events=team.actor_on_events_querying_enabled
+        ).get_query()
 
         return (
             LIFECYCLE_SQL.format(events_query=event_query, interval_expr=filter.interval),
@@ -60,7 +63,9 @@ class ClickhouseLifecycle:
         request: Request,
         limit: int = 100,
     ):
-        event_query, event_params = LifecycleEventQuery(team=team, filter=filter).get_query()
+        event_query, event_params = LifecycleEventQuery(
+            team=team, filter=filter, using_person_on_events=team.actor_on_events_querying_enabled
+        ).get_query()
 
         result = sync_execute(
             LIFECYCLE_PEOPLE_SQL.format(events_query=event_query, interval_expr=filter.interval),
@@ -88,7 +93,11 @@ class LifecycleEventQuery(EnterpriseEventQuery):
         self.params.update(date_params)
 
         prop_query, prop_params = self._get_prop_groups(
-            self._filter.property_groups, person_id_joined_alias=f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id"
+            self._filter.property_groups,
+            person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS
+            if self._using_person_on_events
+            else PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
+            person_id_joined_alias=f"{self.DISTINCT_ID_TABLE_ALIAS if not self._using_person_on_events else self.EVENT_TABLE_ALIAS}.person_id",
         )
 
         self.params.update(prop_params)
@@ -100,16 +109,23 @@ class LifecycleEventQuery(EnterpriseEventQuery):
         self.params.update(groups_params)
 
         entity_params, entity_format_params = get_entity_filtering_params(
-            entity=self._filter.entities[0], team_id=self._team_id, table_name=self.EVENT_TABLE_ALIAS
+            entity=self._filter.entities[0],
+            team_id=self._team_id,
+            table_name=self.EVENT_TABLE_ALIAS,
+            person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS
+            if self._using_person_on_events
+            else PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
         )
         self.params.update(entity_params)
+
+        created_at_clause = "person.created_at" if not self._using_person_on_events else "person_created_at"
 
         return (
             f"""
             SELECT DISTINCT
-                {self.DISTINCT_ID_TABLE_ALIAS}.person_id as person_id,
+                {self.DISTINCT_ID_TABLE_ALIAS if not self._using_person_on_events else self.EVENT_TABLE_ALIAS}.person_id as person_id,
                 dateTrunc(%(interval)s, toDateTime(events.timestamp, %(timezone)s)) AS period,
-                toDateTime(person.created_at, %(timezone)s) AS created_at
+                toDateTime({created_at_clause}, %(timezone)s) AS created_at
             FROM events AS {self.EVENT_TABLE_ALIAS}
             {self._get_distinct_id_query()}
             {person_query}
@@ -139,7 +155,7 @@ class LifecycleEventQuery(EnterpriseEventQuery):
         )
 
     def _determine_should_join_distinct_ids(self) -> None:
-        self._should_join_distinct_ids = True
+        self._should_join_distinct_ids = True if not self._using_person_on_events else False
 
     def _determine_should_join_persons(self) -> None:
-        self._should_join_persons = True
+        self._should_join_persons = True if not self._using_person_on_events else False

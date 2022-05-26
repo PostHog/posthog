@@ -57,29 +57,30 @@ class TestClickhouseLifecycle(ClickhouseTestMixin, lifecycle_test_factory(Clickh
             self.team,
         )
 
-        result = ClickhouseTrends().run(
-            Filter(
-                data={
-                    "date_from": "2020-01-12T00:00:00Z",
-                    "date_to": "2020-01-19T00:00:00Z",
-                    "events": [{"id": "$pageview", "type": "events", "order": 0}],
-                    "shown_as": TRENDS_LIFECYCLE,
-                    FILTER_TEST_ACCOUNTS: True,
-                },
-                team=self.team,
-            ),
-            self.team,
-        )
+        with self.settings(SHELL_PLUS_PRINT_SQL=True):
+            result = ClickhouseTrends().run(
+                Filter(
+                    data={
+                        "date_from": "2020-01-12T00:00:00Z",
+                        "date_to": "2020-01-19T00:00:00Z",
+                        "events": [{"id": "$pageview", "type": "events", "order": 0}],
+                        "shown_as": TRENDS_LIFECYCLE,
+                        FILTER_TEST_ACCOUNTS: True,
+                    },
+                    team=self.team,
+                ),
+                self.team,
+            )
 
-        self.assertLifecycleResults(
-            result,
-            [
-                {"status": "dormant", "data": [0, -1, 0, 0, -1, 0, 0, 0]},
-                {"status": "new", "data": [0, 0, 0, 0, 0, 0, 0, 0]},
-                {"status": "resurrecting", "data": [1, 0, 0, 1, 0, 0, 0, 0]},
-                {"status": "returning", "data": [0, 0, 0, 0, 0, 0, 0, 0]},
-            ],
-        )
+            self.assertLifecycleResults(
+                result,
+                [
+                    {"status": "dormant", "data": [0, -1, 0, 0, -1, 0, 0, 0]},
+                    {"status": "new", "data": [0, 0, 0, 0, 0, 0, 0, 0]},
+                    {"status": "resurrecting", "data": [1, 0, 0, 1, 0, 0, 0, 0]},
+                    {"status": "returning", "data": [0, 0, 0, 0, 0, 0, 0, 0]},
+                ],
+            )
 
     @snapshot_clickhouse_queries
     def test_lifecycle_edge_cases(self):
