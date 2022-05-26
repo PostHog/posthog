@@ -157,7 +157,7 @@ describe('cohortEditLogic', () => {
             }).toDispatchActions(['setCohort', 'submitCohort', 'submitCohortFailure'])
             expect(api.update).toBeCalledTimes(0)
         })
-        it('do not save static cohort with empty csv', async () => {
+        it('can save existing static cohort with empty csv', async () => {
             await initCohortLogic({ id: 1 })
             await expectLogic(logic, async () => {
                 await logic.actions.setCohort({
@@ -165,6 +165,20 @@ describe('cohortEditLogic', () => {
                     is_static: true,
                     groups: [],
                     csv: undefined,
+                })
+                await logic.actions.submitCohort()
+            }).toDispatchActions(['setCohort', 'submitCohort', 'submitCohortSuccess'])
+            expect(api.update).toBeCalledTimes(1)
+        })
+        it('do not save new static cohort with empty csv', async () => {
+            await initCohortLogic({ id: 'new' })
+            await expectLogic(logic, async () => {
+                await logic.actions.setCohort({
+                    ...mockCohort,
+                    is_static: true,
+                    groups: [],
+                    csv: undefined,
+                    id: 'new',
                 })
                 await logic.actions.submitCohort()
             }).toDispatchActions(['setCohort', 'submitCohort', 'submitCohortFailure'])
@@ -582,7 +596,7 @@ describe('cohortEditLogic', () => {
             })
         })
 
-        it('do not save static cohort with empty csv', async () => {
+        it('can save existing static cohort with empty csv', async () => {
             await initCohortLogic({ id: 1 })
             await expectLogic(logic, async () => {
                 await logic.actions.setCohort({
@@ -590,6 +604,21 @@ describe('cohortEditLogic', () => {
                     is_static: true,
                     groups: [],
                     csv: undefined,
+                })
+                await logic.actions.submitCohort()
+            }).toDispatchActions(['setCohort', 'submitCohort', 'submitCohortSuccess'])
+            expect(api.update).toBeCalledTimes(1)
+        })
+
+        it('do not save static cohort with empty csv', async () => {
+            await initCohortLogic({ id: 'new' })
+            await expectLogic(logic, async () => {
+                await logic.actions.setCohort({
+                    ...mockCohort,
+                    is_static: true,
+                    groups: [],
+                    csv: undefined,
+                    id: 'new',
                 })
                 await logic.actions.submitCohort()
             }).toDispatchActions(['setCohort', 'submitCohort', 'submitCohortFailure'])
