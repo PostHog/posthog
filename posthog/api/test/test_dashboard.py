@@ -703,6 +703,20 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard_id}").status_code, status.HTTP_200_OK,
         )
 
+    def test_soft_delete_can_be_reversed_with_patch(self) -> None:
+        dashboard_id, _ = self._create_dashboard({"name": "dashboard"})
+
+        self._soft_delete(dashboard_id, "dashboards")
+
+        update_response = self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}", {"deleted": False}
+        )
+        self.assertEqual(update_response.status_code, status.HTTP_200_OK)
+
+        self.assertEqual(
+            self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard_id}").status_code, status.HTTP_200_OK
+        )
+
     def _soft_delete(
         self,
         model_id: int,

@@ -1397,6 +1397,23 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
 
         self._get_insight(insight_id=insight_id, expected_status=status.HTTP_404_NOT_FOUND)
 
+    def test_soft_delete_can_be_reversed_by_patch(self) -> None:
+        insight_id, _ = self._create_insight({"name": "an insight"})
+
+        self.client.patch(f"/api/projects/{self.team.id}/insights/{insight_id}", {"deleted": True})
+
+        self.assertEqual(
+            self.client.get(f"/api/projects/{self.team.id}/insights/{insight_id}").status_code,
+            status.HTTP_404_NOT_FOUND,
+        )
+
+        update_response = self.client.patch(f"/api/projects/{self.team.id}/insights/{insight_id}", {"deleted": False})
+        self.assertEqual(update_response.status_code, status.HTTP_200_OK)
+
+        self.assertEqual(
+            self.client.get(f"/api/projects/{self.team.id}/insights/{insight_id}").status_code, status.HTTP_200_OK
+        )
+
     def _create_insight(
         self, data: Dict[str, Any], team_id: Optional[int] = None, expected_status: int = status.HTTP_201_CREATED
     ) -> Tuple[int, Dict[str, Any]]:
