@@ -71,7 +71,7 @@ function InviteRow({ index, isDeletable }: { index: number; isDeletable: boolean
                     data-attr="invite-email-input"
                 />
             </Col>
-            {!preflight?.email_service_unavailable && (
+            {!preflight?.email_service_available && (
                 <Col xs={isDeletable || onboardingSidebarEnabled ? 11 : 12}>
                     {onboardingSidebarEnabled && !preflight?.email_service_available ? (
                         <LemonButton
@@ -147,7 +147,7 @@ export function InviteModal({ visible, onClose }: { visible: boolean; onClose: (
                 }
             >
                 <h1 className="fw-800">Invite others to PostHog</h1>
-                {onboardingSidebarEnabled && !preflight?.email_service_unavailable && (
+                {onboardingSidebarEnabled && !preflight?.email_service_available && (
                     <p>
                         This PostHog instance isn't configured to send emails. In the meantime, you can generate a link
                         for each team member you want to invite. You can always invite others at a later time.
