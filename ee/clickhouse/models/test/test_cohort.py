@@ -879,8 +879,8 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
 
         # Should only have p1 in this cohort
         results = sync_execute(
-            "SELECT person_id FROM cohortpeople WHERE team_id = %(team_id)s GROUP BY person_id HAVING sum(sign) = 1",
-            {"team_id": self.team.pk},
+            "SELECT person_id FROM cohortpeople WHERE team_id = %(team_id)s and cohort_id=%(cohort_id)s GROUP BY person_id HAVING sum(sign) = 1",
+            {"team_id": self.team.pk, "cohort_id": cohort1.id},
         )
         self.assertEqual(len(results), 1)
 
@@ -890,8 +890,8 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
 
         # Should only have p2, p3 in this cohort
         results = sync_execute(
-            "SELECT person_id FROM cohortpeople WHERE team_id = %(team_id)s GROUP BY person_id HAVING sum(sign) = 1",
-            {"team_id": self.team.pk},
+            "SELECT person_id FROM cohortpeople WHERE team_id = %(team_id)s and cohort_id=%(cohort_id)s GROUP BY person_id HAVING sum(sign) = 1",
+            {"team_id": self.team.pk, "cohort_id": cohort1.id},
         )
         self.assertEqual(len(results), 2)
 
@@ -901,8 +901,8 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
 
         # Should only have p1 again in this cohort
         results = sync_execute(
-            "SELECT person_id FROM cohortpeople WHERE team_id = %(team_id)s GROUP BY person_id HAVING sum(sign) = 1",
-            {"team_id": self.team.pk},
+            "SELECT person_id FROM cohortpeople WHERE team_id = %(team_id)s and cohort_id=%(cohort_id)s GROUP BY person_id HAVING sum(sign) = 1",
+            {"team_id": self.team.pk, "cohort_id": cohort1.id},
         )
         self.assertEqual(len(results), 1)
 
