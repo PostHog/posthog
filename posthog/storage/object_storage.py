@@ -13,7 +13,7 @@ class ObjectStorageError(Exception):
     pass
 
 
-class S3(metaclass=abc.ABCMeta):
+class ObjectStorageClient(metaclass=abc.ABCMeta):
     """Just because the full S3 API is available doesn't mean we should use it all"""
 
     @abc.abstractmethod
@@ -29,7 +29,7 @@ class S3(metaclass=abc.ABCMeta):
         pass
 
 
-class UnavailableStorage(S3):
+class UnavailableStorage(ObjectStorageClient):
     def read(self, bucket: str, key: str) -> Optional[str]:
         pass
 
@@ -40,7 +40,7 @@ class UnavailableStorage(S3):
         return False
 
 
-class ObjectStorage(S3):
+class ObjectStorage(ObjectStorageClient):
     def __init__(self, aws_client) -> None:
         self.aws_client = aws_client
 
@@ -70,25 +70,37 @@ class ObjectStorage(S3):
             raise ObjectStorageError("write failed") from e
 
 
-s3_client: S3 = ObjectStorage(
-    client(
-        "s3",
-        endpoint_url=settings.OBJECT_STORAGE_ENDPOINT,
-        aws_access_key_id=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
-        aws_secret_access_key=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
-        config=Config(signature_version="s3v4", connect_timeout=1, retries={"max_attempts": 1}),
-        region_name="us-east-1",
-    ),
-) if settings.OBJECT_STORAGE_ENABLED else UnavailableStorage()
+_client: ObjectStorageClient = UnavailableStorage()
+
+
+def object_storage_client() -> ObjectStorageClient:
+    global _client
+
+    if not settings.OBJECT_STORAGE_ENABLED:
+        _client = UnavailableStorage()
+    elif isinstance(_client, UnavailableStorage):
+        _client = ObjectStorage(
+            client(
+                "s3",
+                endpoint_url=settings.OBJECT_STORAGE_ENDPOINT,
+                aws_access_key_id=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+                aws_secret_access_key=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+                config=Config(signature_version="s3v4", connect_timeout=1, retries={"max_attempts": 1}),
+                region_name="us-east-1",
+            ),
+        )
+
+    return _client
 
 
 def write(file_name: str, content: str) -> None:
-    return s3_client.write(bucket=settings.OBJECT_STORAGE_BUCKET, key=file_name, content=content)
+    return object_storage_client().write(bucket=settings.OBJECT_STORAGE_BUCKET, key=file_name, content=content)
 
 
 def read(file_name: str) -> Optional[str]:
-    return s3_client.read(bucket=settings.OBJECT_STORAGE_BUCKET, key=file_name)
+    client = object_storage_client()
+    return client.read(bucket=settings.OBJECT_STORAGE_BUCKET, key=file_name)
 
 
 def health_check() -> bool:
-    return s3_client.head_bucket(bucket=settings.OBJECT_STORAGE_BUCKET)
+    return object_storage_client().head_bucket(bucket=settings.OBJECT_STORAGE_BUCKET)
