@@ -265,7 +265,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 return NEW_FLAG
             },
             saveFeatureFlag: async (updatedFlag: Partial<FeatureFlagType>) => {
-                // eslint-disable-next-line @typescript-eslint/no-unused-vars
                 const { created_at, id, ...flag } = updatedFlag
 
                 try {

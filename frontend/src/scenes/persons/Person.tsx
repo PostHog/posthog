@@ -80,7 +80,8 @@ function PersonCaption({ person }: { person: PersonType }): JSX.Element {
 export function Person({ _: urlId }: { _?: string } = {}): JSX.Element | null {
     const { person, personLoading, deletedPersonLoading, currentTab, showSessionRecordings, splitMergeModalShown } =
         useValues(personsLogic)
-    const { deletePerson, editProperty, navigateToTab, setSplitMergeModalShown } = useActions(personsLogic)
+    const { deletePerson, editProperty, deleteProperty, navigateToTab, setSplitMergeModalShown } =
+        useActions(personsLogic)
     const { groupsEnabled } = useValues(groupsAccessLogic)
 
     if (!person) {
@@ -144,7 +145,7 @@ export function Person({ _: urlId }: { _?: string } = {}): JSX.Element | null {
                         onEdit={editProperty}
                         sortProperties
                         embedded={false}
-                        onDelete={(key) => editProperty(key, undefined)}
+                        onDelete={(key) => deleteProperty(key)}
                     />
                 </TabPane>
                 <TabPane tab={<span data-attr="persons-events-tab">Events</span>} key={PersonsTabType.EVENTS}>

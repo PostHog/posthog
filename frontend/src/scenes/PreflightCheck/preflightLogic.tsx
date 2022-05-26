@@ -218,7 +218,6 @@ export const preflightLogic = kea<preflightLogicType>([
                 if (!preflight) {
                     return []
                 }
-                // @ts-ignore
                 return RELEVANT_CONFIGS.map((config) => ({
                     key: config.key,
                     metric: config.label,
