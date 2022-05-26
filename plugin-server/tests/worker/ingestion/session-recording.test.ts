@@ -86,7 +86,7 @@ describe('session recordings', () => {
         const actual = await processWithTestContext(theSnapshotEvent, objectStorage, 4, now)
 
         const expectedFolderDate = castTimestampOrNow(now, TimestampFormat.DateOnly)
-        const expectedOrderingTimestamp = castTimestampOrNow(now, TimestampFormat.ISO)
+        const expectedOrderingTimestamp = castTimestampOrNow(now, TimestampFormat.UnixMilliseconds)
         expect(actual).toEqual(
             JSON.stringify({
                 data: 'tomato',
