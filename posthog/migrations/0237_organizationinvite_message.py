@@ -6,13 +6,11 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('posthog', '0236_add_instance_setting_model'),
+        ("posthog", "0236_add_instance_setting_model"),
     ]
 
     operations = [
         migrations.AddField(
-            model_name='organizationinvite',
-            name='message',
-            field=models.TextField(blank=True, null=True),
+            model_name="organizationinvite", name="message", field=models.TextField(blank=True, null=True),
         ),
     ]
