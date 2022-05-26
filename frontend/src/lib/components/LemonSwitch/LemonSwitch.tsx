@@ -4,8 +4,7 @@ import { LemonRow, LemonRowProps } from '../LemonRow'
 import { Spinner } from '../Spinner/Spinner'
 import './LemonSwitch.scss'
 
-export interface LemonSwitchProps
-    extends Omit<LemonRowProps<'div'>, 'className' | 'alt' | 'label' | 'onChange' | 'outlined'> {
+export interface LemonSwitchProps extends Omit<LemonRowProps<'div'>, 'alt' | 'label' | 'onChange' | 'outlined'> {
     onChange: (newChecked: boolean) => void
     checked: boolean
     label?: string | JSX.Element
@@ -31,6 +30,7 @@ export function LemonSwitch({
     label,
     alt,
     type = 'default',
+    className,
     'data-attr': dataAttr,
     ...rowProps
 }: LemonSwitchProps): JSX.Element {
@@ -44,7 +44,8 @@ export function LemonSwitch({
                 'LemonSwitch',
                 checked && 'LemonSwitch--checked',
                 !disabled && isActive && 'LemonSwitch--active',
-                alt && 'LemonSwitch--alt'
+                alt && 'LemonSwitch--alt',
+                className
             )}
             disabled={disabled}
             sideIcon={
