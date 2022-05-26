@@ -8,7 +8,7 @@ from django.utils import timezone
 
 from ee.clickhouse.sql.events import EVENTS_DATA_TABLE
 from posthog.client import sync_execute
-from posthog.models import Person, PersonDistinctId, Team
+from posthog.models import Group, Person, PersonDistinctId, Team
 from posthog.test.base import _create_event, flush_persons_and_events
 
 
@@ -52,6 +52,22 @@ def journeys_for(
             )
 
         for event in events:
+
+            # Populate group properties as well
+            group_props = {}
+            for property_key, value in (event.get("properties") or {}).items():
+                if property_key.startswith("$group_"):
+                    group_type_index = property_key[-1]
+                    try:
+                        group = Group.objects.get(team_id=team.pk, group_type_index=group_type_index, group_key=value)
+                        group_property_key = f"group{group_type_index}_properties"
+                        group_props = {
+                            group_property_key: {**group.group_properties, **event.get(group_property_key, {})},
+                        }
+
+                    except Group.DoesNotExist:
+                        continue
+
             if "timestamp" not in event:
                 event["timestamp"] = datetime.now()
 
@@ -64,11 +80,11 @@ def journeys_for(
                     properties=event.get("properties", {}),
                     person_id=people[distinct_id].uuid,
                     person_properties=people[distinct_id].properties or {},
-                    group0_properties=event.get("group0_properties", {}),
-                    group1_properties=event.get("group1_properties", {}),
-                    group2_properties=event.get("group2_properties", {}),
-                    group3_properties=event.get("group3_properties", {}),
-                    group4_properties=event.get("group4_properties", {}),
+                    group0_properties=event.get("group0_properties", {}) or group_props.get("group0_properties", {}),
+                    group1_properties=event.get("group1_properties", {}) or group_props.get("group1_properties", {}),
+                    group2_properties=event.get("group2_properties", {}) or group_props.get("group2_properties", {}),
+                    group3_properties=event.get("group3_properties", {}) or group_props.get("group3_properties", {}),
+                    group4_properties=event.get("group4_properties", {}) or group_props.get("group4_properties", {}),
                 )
             )
 
@@ -83,7 +99,7 @@ def _create_all_events_raw(all_events: List[Dict]):
         data: Dict[str, Any] = {
             "properties": {},
             "timestamp": timezone.now().strftime("%Y-%m-%d %H:%M:%S.%f"),
-            "person_id": "00000000-0000-0000-0000-000000000000",
+            "person_id": str(uuid4()),
             "person_properties": {},
             "group0_properties": {},
             "group1_properties": {},

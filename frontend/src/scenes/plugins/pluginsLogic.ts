@@ -19,6 +19,7 @@ import { canGloballyManagePlugins, canInstallPlugins } from './access'
 import { teamLogic } from '../teamLogic'
 import { createDefaultPluginSource } from 'scenes/plugins/source/createDefaultPluginSource'
 import { frontendAppsLogic } from 'scenes/apps/frontendAppsLogic'
+import { urls } from 'scenes/urls'
 
 export type PluginForm = FormInstance
 
@@ -139,7 +140,7 @@ export const pluginsLogic = kea<pluginsLogicType>([
                     }
                     await api.delete(`api/organizations/@current/plugins/${editingPlugin.id}`)
                     capturePluginEvent(`plugin uninstalled`, editingPlugin)
-                    const { [editingPlugin.id]: _discard, ...rest } = plugins // eslint-disable-line
+                    const { [editingPlugin.id]: _discard, ...rest } = plugins
                     return rest
                 },
                 updatePlugin: async ({ id }) => {
@@ -740,7 +741,7 @@ export const pluginsLogic = kea<pluginsLogicType>([
     })),
 
     urlToAction(({ actions }) => ({
-        '/project/plugins': (_, { tab, name }) => {
+        [urls.projectApps()]: (_, { tab, name }) => {
             if (tab && name) {
                 actions.setSearchTerm(name)
                 actions.setPluginTab(tab as PluginTab)

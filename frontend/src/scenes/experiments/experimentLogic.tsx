@@ -658,6 +658,9 @@ export const experimentLogic = kea<experimentLogicType>({
                 return
             }
             const didPathChange = currentLocation.initial || currentLocation.pathname !== previousLocation?.pathname
+
+            actions.setEditExperiment(false)
+
             if (id && didPathChange) {
                 const parsedId = id === 'new' ? 'new' : parseInt(id)
                 if (parsedId === 'new') {
@@ -665,8 +668,6 @@ export const experimentLogic = kea<experimentLogicType>({
                     actions.resetNewExperiment()
                     actions.setSecondaryMetrics([])
                 }
-
-                actions.setEditExperiment(false)
 
                 if (parsedId !== 'new' && parsedId === values.experimentId) {
                     actions.loadExperiment()
