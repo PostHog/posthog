@@ -32,8 +32,9 @@ import {
     roundToDecimal,
     convertPropertyGroupToProperties,
     convertPropertiesToPropertyGroup,
+    calculateDays,
 } from './utils'
-import { ActionFilter, ElementType, FilterLogicalOperator, PropertyOperator, PropertyType } from '~/types'
+import { ActionFilter, ElementType, FilterLogicalOperator, PropertyOperator, PropertyType, TimeUnitType } from '~/types'
 import { dayjs } from 'lib/dayjs'
 
 describe('toParams', () => {
@@ -189,7 +190,7 @@ describe('pluralize()', () => {
         expect(pluralize(1, 'word', undefined, false)).toEqual('word')
     })
     it('handles plural cases', () => {
-        expect(pluralize(28321, 'member')).toEqual('28 321 members')
+        expect(pluralize(28321, 'member')).toEqual('28,321 members')
         expect(pluralize(99, 'bacterium', 'bacteria')).toEqual('99 bacteria')
         expect(pluralize(3, 'word', undefined, false)).toEqual('words')
     })
@@ -594,5 +595,27 @@ describe('convertPropertiesToPropertyGroup', () => {
                 },
             ],
         })
+    })
+
+    it('converts properties to one AND operator property group', () => {
+        expect(convertPropertiesToPropertyGroup(undefined)).toEqual({
+            type: FilterLogicalOperator.And,
+            values: [],
+        })
+    })
+})
+
+describe('calculateDays', () => {
+    it('1 day to 1 day', () => {
+        expect(calculateDays(1, TimeUnitType.Day)).toEqual(1)
+    })
+    it('1 week to 7 days', () => {
+        expect(calculateDays(1, TimeUnitType.Week)).toEqual(7)
+    })
+    it('1 month to 30 days', () => {
+        expect(calculateDays(1, TimeUnitType.Month)).toEqual(30)
+    })
+    it('1 year to 365 days', () => {
+        expect(calculateDays(1, TimeUnitType.Year)).toEqual(365)
     })
 })

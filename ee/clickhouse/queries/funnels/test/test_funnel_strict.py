@@ -1,7 +1,5 @@
 from datetime import datetime
 
-from constance.test import override_config
-
 from ee.clickhouse.queries.funnels.funnel_strict import ClickhouseFunnelStrict
 from ee.clickhouse.queries.funnels.funnel_strict_persons import ClickhouseFunnelStrictActors
 from ee.clickhouse.queries.funnels.test.breakdown_cases import (
@@ -15,6 +13,7 @@ from posthog.constants import INSIGHT_FUNNELS
 from posthog.models.action import Action
 from posthog.models.action_step import ActionStep
 from posthog.models.filters import Filter
+from posthog.models.instance_setting import override_instance_config
 from posthog.test.base import APIBaseTest, _create_event, _create_person
 
 FORMAT_TIME = "%Y-%m-%d 00:00:00"
@@ -252,8 +251,7 @@ class TestFunnelStrictSteps(ClickhouseTestMixin, APIBaseTest):
             self._get_actor_ids_at_step(filter, 3), [person7.uuid],
         )
 
-        with override_config(AGGREGATE_BY_DISTINCT_IDS_TEAMS=f"{self.team.pk}"):
-
+        with override_instance_config("AGGREGATE_BY_DISTINCT_IDS_TEAMS", f"{self.team.pk}"):
             result = funnel.run()
             self.assertEqual(result[0]["name"], "user signed up")
             self.assertEqual(result[1]["name"], "$pageview")
@@ -281,7 +279,7 @@ class TestFunnelStrictSteps(ClickhouseTestMixin, APIBaseTest):
             ],
             "actions": [
                 {"id": sign_up_action.id, "math": "dau", "order": 1},
-                {"id": view_action.id, "math": "wau", "order": 3},
+                {"id": view_action.id, "math": "weekly_active", "order": 3},
             ],
             "insight": INSIGHT_FUNNELS,
         }

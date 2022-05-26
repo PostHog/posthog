@@ -74,6 +74,10 @@ def parse_domain(url: Any) -> Optional[str]:
 
 @csrf_exempt
 def get_decide(request: HttpRequest):
+    # handle cors request
+    if request.method == "OPTIONS":
+        return cors_response(request, JsonResponse({"status": 1}))
+
     response = {
         "config": {"enable_collect_everything": True},
         "editorParams": {},

@@ -1,26 +1,38 @@
 @import '~/vars';
 
-.draggable-action-filter {
-    margin-top: 16px;
-    display: flex;
-
-    .action-filter-drag-handle {
-        cursor: move;
-        padding: 4px 2px 0 0;
-        color: $text_default;
-        font-size: 1.2em;
-        svg {
-            transform: rotate(90deg);
+.ActionFilter {
+    .ActionFilterRow {
+        &:not(:last-child) {
+            margin-bottom: $default_spacing / 2;
         }
     }
-    .ant-row.mt {
-        margin-top: 0;
-    }
-}
 
-.add-action-event-button:not(.ant-btn-link) {
-    border-color: $border_dark;
-    color: $primary;
-    padding-left: $default_spacing * 2.5;
-    padding-right: $default_spacing * 2.5;
+    .ActionFilterRow-filters {
+        margin: 0;
+        padding: 1em 0.5em;
+    }
+
+    &.ActionFilter--bordered {
+        border-radius: var(--radius);
+        border: 1px solid var(--border);
+
+        .ActionFilterRow {
+            margin-bottom: 0;
+
+            .ActionFilterRow-content {
+                margin-bottom: 0px;
+                padding: $default_spacing $default_spacing/2;
+                border-bottom: 1px solid var(--border);
+            }
+        }
+
+        .ActionFilter-footer {
+            padding: $default_spacing / 2;
+        }
+
+        .ActionFilterRow-filters {
+            background-color: var(--bg-side);
+            border-bottom: 1px solid var(--border);
+        }
+    }
 }

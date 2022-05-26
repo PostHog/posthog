@@ -13,7 +13,6 @@ export function getDefaultConfig(): PluginsServerConfig {
     const coreCount = os.cpus().length
 
     return {
-        CELERY_DEFAULT_QUEUE: 'celery',
         DATABASE_URL: isTestEnv
             ? 'postgres://posthog:posthog@localhost:5432/test_posthog'
             : isDevEnv
@@ -31,8 +30,8 @@ export function getDefaultConfig(): PluginsServerConfig {
         CLICKHOUSE_CA: null,
         CLICKHOUSE_SECURE: false,
         CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS: true,
-        KAFKA_ENABLED: false,
-        KAFKA_HOSTS: null,
+        KAFKA_ENABLED: true,
+        KAFKA_HOSTS: 'kafka:9092', // KEEP IN SYNC WITH posthog/settings/data_stores.py
         KAFKA_CLIENT_CERT_B64: null,
         KAFKA_CLIENT_CERT_KEY_B64: null,
         KAFKA_TRUSTED_CERT_B64: null,
@@ -44,7 +43,6 @@ export function getDefaultConfig(): PluginsServerConfig {
         KAFKA_PRODUCER_MAX_QUEUE_SIZE: isTestEnv ? 0 : 1000,
         KAFKA_MAX_MESSAGE_BATCH_SIZE: 900_000,
         KAFKA_FLUSH_FREQUENCY_MS: isTestEnv ? 5 : 500,
-        PLUGINS_CELERY_QUEUE: 'posthog-plugins',
         REDIS_URL: 'redis://127.0.0.1',
         POSTHOG_REDIS_PASSWORD: '',
         POSTHOG_REDIS_HOST: '',
@@ -66,7 +64,6 @@ export function getDefaultConfig(): PluginsServerConfig {
         DISTINCT_ID_LRU_SIZE: 10000,
         EVENT_PROPERTY_LRU_SIZE: 10000,
         INTERNAL_MMDB_SERVER_PORT: 0,
-        PLUGIN_SERVER_IDLE: false,
         JOB_QUEUES: 'graphile',
         JOB_QUEUE_GRAPHILE_URL: '',
         JOB_QUEUE_GRAPHILE_SCHEMA: 'graphile_worker',
@@ -94,14 +91,20 @@ export function getDefaultConfig(): PluginsServerConfig {
         BUFFER_CONVERSION_SECONDS: 60,
         PERSON_INFO_TO_REDIS_TEAMS: '',
         PERSON_INFO_CACHE_TTL: 5 * 60, // 5 min
+        KAFKA_HEALTHCHECK_SECONDS: 20,
         HISTORICAL_EXPORTS_ENABLED: true,
+        OBJECT_STORAGE_ENABLED: false,
+        OBJECT_STORAGE_ENDPOINT: 'http://localhost:19000',
+        OBJECT_STORAGE_ACCESS_KEY_ID: 'object_storage_root_user',
+        OBJECT_STORAGE_SECRET_ACCESS_KEY: 'object_storage_root_password',
+        OBJECT_STORAGE_SESSION_RECORDING_FOLDER: 'session_recordings',
+        OBJECT_STORAGE_BUCKET: 'posthog',
+        PLUGIN_SERVER_MODE: null,
     }
 }
 
 export function getConfigHelp(): Record<keyof PluginsServerConfig, string> {
     return {
-        CELERY_DEFAULT_QUEUE: 'Celery outgoing queue',
-        PLUGINS_CELERY_QUEUE: 'Celery incoming queue',
         DATABASE_URL: 'Postgres database URL',
         CLICKHOUSE_HOST: 'ClickHouse host',
         CLICKHOUSE_DATABASE: 'ClickHouse database',
@@ -139,7 +142,6 @@ export function getConfigHelp(): Record<keyof PluginsServerConfig, string> {
         DISTINCT_ID_LRU_SIZE: 'size of persons distinct ID LRU cache',
         EVENT_PROPERTY_LRU_SIZE: "size of the event property tracker's LRU cache (keyed by [team.id, event])",
         INTERNAL_MMDB_SERVER_PORT: 'port of the internal server used for IP location (0 means random)',
-        PLUGIN_SERVER_IDLE: 'whether to disengage the plugin server, e.g. for development',
         JOB_QUEUES: 'retry queue engine and fallback queues',
         JOB_QUEUE_GRAPHILE_URL: 'use a different postgres connection in the graphile retry queue',
         JOB_QUEUE_GRAPHILE_SCHEMA: 'the postgres schema that the graphile job queue uses',
@@ -170,6 +172,15 @@ export function getConfigHelp(): Record<keyof PluginsServerConfig, string> {
         CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS_TEAMS:
             '(advanced) a comma separated list of teams to disable clickhouse external schemas for',
         CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: '(advanced) topic to send events to for clickhouse ingestion',
+        PLUGIN_SERVER_MODE: '(advanced) plugin server mode',
+        OBJECT_STORAGE_ENABLED:
+            'Disables or enables the use of object storage. It will become mandatory to use object storage',
+        OBJECT_STORAGE_ENDPOINT: 'minio endpoint',
+        OBJECT_STORAGE_ACCESS_KEY_ID: 'access key for minio',
+        OBJECT_STORAGE_SECRET_ACCESS_KEY: 'secret key for minio',
+        OBJECT_STORAGE_SESSION_RECORDING_FOLDER:
+            'the top level folder for storing session recordings inside the storage bucket',
+        OBJECT_STORAGE_BUCKET: 'the object storage bucket name',
     }
 }
 
@@ -197,6 +208,10 @@ export function overrideWithEnv(
                 newConfig[key] = env[key]
             }
         }
+    }
+
+    if (!['ingestion', 'async', null].includes(newConfig.PLUGIN_SERVER_MODE)) {
+        throw Error(`Invalid PLUGIN_SERVER_MODE ${newConfig.PLUGIN_SERVER_MODE}`)
     }
     return newConfig
 }

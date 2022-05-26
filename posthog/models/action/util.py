@@ -18,6 +18,7 @@ def format_action_filter(
     filter_by_team=True,
     table_name: str = "",
     person_properties_mode: PersonPropertiesMode = PersonPropertiesMode.USING_SUBQUERY,
+    person_id_joined_alias: str = "person_id",
 ) -> Tuple[str, Dict]:
     # get action steps
     params = {"team_id": action.team.pk} if filter_by_team else {}
@@ -52,6 +53,7 @@ def format_action_filter(
                 prepend=f"action_props_{action.pk}_{step.pk}",
                 table_name=table_name,
                 person_properties_mode=person_properties_mode,
+                person_id_joined_alias=person_id_joined_alias,
             )
             conditions.append(prop_query.replace("AND", "", 1))
             params = {**params, **prop_params}
@@ -97,12 +99,16 @@ def filter_event(
 
 
 def format_entity_filter(
-    team_id: int, entity: Entity, prepend: str = "action", filter_by_team=True
+    team_id: int, entity: Entity, person_id_joined_alias: str, prepend: str = "action", filter_by_team=True
 ) -> Tuple[str, Dict]:
     if entity.type == TREND_FILTER_TYPE_ACTIONS:
         action = entity.get_action()
         entity_filter, params = format_action_filter(
-            team_id=team_id, action=action, prepend=prepend, filter_by_team=filter_by_team
+            team_id=team_id,
+            action=action,
+            prepend=prepend,
+            filter_by_team=filter_by_team,
+            person_id_joined_alias=person_id_joined_alias,
         )
     else:
         key = f"{prepend}_event"

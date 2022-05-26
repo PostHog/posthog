@@ -40,6 +40,7 @@ export enum Scene {
     Billing = 'Billing',
     BillingSubscribed = 'BillingSubscribed',
     Plugins = 'Plugins',
+    FrontendAppScene = 'FrontendAppScene',
     SavedInsights = 'SavedInsights',
     ToolbarLaunch = 'ToolbarLaunch',
     WebPerformance = 'WebPerformance',
@@ -51,6 +52,7 @@ export enum Scene {
     PasswordResetComplete = 'PasswordResetComplete',
     PreflightCheck = 'PreflightCheck',
     Ingestion = 'IngestionWizard',
+    OrganizationCreationConfirm = 'OrganizationCreationConfirm',
 }
 
 export type SceneProps = Record<string, any>

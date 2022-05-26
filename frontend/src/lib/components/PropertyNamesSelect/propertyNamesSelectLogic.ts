@@ -4,13 +4,13 @@ import { propertySelectLogicType } from './propertyNamesSelectLogicType'
 export const propertySelectLogic = kea<propertySelectLogicType>({
     path: (key) => ['lib', 'components', 'PropertyNamesSelect', 'propertyNamesSelectLogic', key],
     props: {
-        propertySelectLogicKey: '' as string,
-
-        properties: [] as string[],
-        initialProperties: undefined as Set<string> | undefined,
-
-        // eslint-disable-next-line @typescript-eslint/no-unused-vars, no-unused-vars
-        onChange: undefined as ((_: string[]) => void) | undefined,
+        propertySelectLogicKey: '',
+        properties: [],
+    } as {
+        propertySelectLogicKey: string
+        properties: string[]
+        initialProperties?: Set<string>
+        onChange?: (value: string[]) => void
     },
 
     key: (props) => props.propertySelectLogicKey,

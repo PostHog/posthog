@@ -5,7 +5,7 @@ import { useActions, useValues } from 'kea'
 import { personsModalLogic } from 'scenes/trends/personsModalLogic'
 import { ChartParams, GraphType, GraphDataset } from '~/types'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { capitalizeFirstLetter } from 'lib/utils'
+import { capitalizeFirstLetter, shortTimeZone } from 'lib/utils'
 import { dayjs } from 'lib/dayjs'
 import { getFormattedDate } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
 
@@ -25,6 +25,7 @@ export function FunnelLineGraph({
             datasets={steps as unknown as GraphDataset[] /* TODO: better typing */}
             labels={steps?.[0]?.labels ?? ([] as string[])}
             isInProgress={incompletenessOffsetFromEnd < 0}
+            timezone={insight.timezone}
             insightNumericId={insight.id}
             inSharedMode={!!inSharedMode}
             showPersonsModal={showPersonsModal}
@@ -35,7 +36,11 @@ export function FunnelLineGraph({
                     if (!steps?.[0]?.days) {
                         return 'Trend'
                     }
-                    return getFormattedDate(steps[0].days?.[datum.dataIndex], filters.interval)
+                    return (
+                        getFormattedDate(steps[0].days?.[datum.dataIndex], filters.interval) +
+                        ' ' +
+                        shortTimeZone(insight.timezone)
+                    )
                 },
                 renderCount: (count) => {
                     return `${count}%`

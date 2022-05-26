@@ -43,7 +43,7 @@ export class InternalMetrics {
                 uuid: new UUIDT().toString(),
             }
 
-            promises.push(piscina.run({ task: 'ingestEvent', args: { event } }))
+            promises.push(piscina.run({ task: 'runEventPipeline', args: { event } }))
         }
 
         await Promise.all(promises)

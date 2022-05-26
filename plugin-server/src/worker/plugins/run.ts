@@ -1,11 +1,11 @@
-import { PluginEvent } from '@posthog/plugin-scaffold'
+import { PluginEvent, ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 
-import { Alert, Hub, PluginConfig, PluginFunction, PluginTaskType, TeamId } from '../../types'
+import { Hub, PluginConfig, PluginTaskType } from '../../types'
 import { processError } from '../../utils/db/error'
 import { IllegalOperationError } from '../../utils/utils'
 import { Action } from './../../types'
 
-export async function runOnEvent(server: Hub, event: PluginEvent): Promise<void> {
+export async function runOnEvent(server: Hub, event: ProcessedPluginEvent): Promise<void> {
     const pluginsToRun = getPluginsForTeam(server, event.team_id)
 
     await Promise.all(
@@ -31,7 +31,7 @@ export async function runOnEvent(server: Hub, event: PluginEvent): Promise<void>
     )
 }
 
-export async function runOnAction(server: Hub, action: Action, event: PluginEvent): Promise<void> {
+export async function runOnAction(server: Hub, action: Action, event: ProcessedPluginEvent): Promise<void> {
     const pluginsToRun = getPluginsForTeam(server, event.team_id)
 
     await Promise.all(
@@ -57,7 +57,7 @@ export async function runOnAction(server: Hub, action: Action, event: PluginEven
     )
 }
 
-export async function runOnSnapshot(server: Hub, event: PluginEvent): Promise<void> {
+export async function runOnSnapshot(server: Hub, event: ProcessedPluginEvent): Promise<void> {
     const pluginsToRun = getPluginsForTeam(server, event.team_id)
 
     await Promise.all(
@@ -151,6 +151,7 @@ export async function runPluginTask(
     const timer = new Date()
     let response
     const pluginConfig = server.pluginConfigs.get(pluginConfigId)
+    const teamIdStr = pluginConfig?.team_id.toString() || '?'
     try {
         const task = await pluginConfig?.vm?.getTask(taskName, taskType)
         if (!task) {
@@ -161,10 +162,6 @@ export async function runPluginTask(
         response = await (payload ? task?.exec(payload) : task?.exec())
     } catch (error) {
         await processError(server, pluginConfig || null, error)
-        let teamIdStr = '?'
-        if (pluginConfig != null) {
-            teamIdStr = pluginConfig.team_id.toString()
-        }
 
         server.statsd?.increment(`plugin.task.ERROR`, {
             taskType: taskType,
@@ -173,44 +170,13 @@ export async function runPluginTask(
             teamId: teamIdStr,
         })
     }
+    server.statsd?.timing(`plugin.task`, timer, {
+        plugin: pluginConfig?.plugin?.name ?? '?',
+        teamId: teamIdStr,
+    })
     return response
-}
-
-export async function runHandleAlert(server: Hub, alert: Alert): Promise<void> {
-    const rootAcessTeamIds = await server.rootAccessManager.getRootAccessTeams()
-    const pluginsToRun = getPluginsForTeams(server, rootAcessTeamIds)
-
-    await Promise.all(
-        pluginsToRun.map(async (pluginConfig) => {
-            const handleAlert = await pluginConfig.vm?.getHandleAlert()
-            if (handleAlert) {
-                const timer = new Date()
-                try {
-                    await handleAlert(alert)
-                } catch (error) {
-                    await processError(server, pluginConfig, error)
-                    server.statsd?.increment(`plugin.handle_alert.ERROR`, {
-                        plugin: pluginConfig.plugin?.name ?? '?',
-                        teamId: pluginConfig.team_id.toString(),
-                    })
-                }
-                server.statsd?.timing(`plugin.handle_alert`, timer, {
-                    plugin: pluginConfig.plugin?.name ?? '?',
-                    teamId: pluginConfig.team_id.toString(),
-                })
-            }
-        })
-    )
 }
 
 function getPluginsForTeam(server: Hub, teamId: number): PluginConfig[] {
     return server.pluginConfigsPerTeam.get(teamId) || []
-}
-
-function getPluginsForTeams(server: Hub, teamIds: TeamId[]) {
-    let plugins: PluginConfig[] = []
-    for (const teamId of teamIds) {
-        plugins = plugins.concat(getPluginsForTeam(server, teamId))
-    }
-    return plugins
 }

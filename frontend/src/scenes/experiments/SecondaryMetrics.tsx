@@ -1,4 +1,4 @@
-import { Button, Card, Col, Input, Modal, Row, Form, Select } from 'antd'
+import { Button, Col, Input, Modal, Row, Form, Select } from 'antd'
 import { BindLogic, useActions, useValues } from 'kea'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import React from 'react'
@@ -95,71 +95,64 @@ export function SecondaryMetrics({ onMetricsChange, initialMetrics }: SecondaryM
                         </Select>
                     </Form.Item>
                     <Form.Item name="query" label="Query">
-                        <Card
-                            className="action-filters-bordered"
-                            style={{ width: '100%', marginRight: 8 }}
-                            bodyStyle={{ padding: 0 }}
-                        >
-                            {currentMetric.filters.insight === InsightType.FUNNELS && (
-                                <ActionFilter
-                                    filters={currentMetric.filters}
-                                    setFilters={(payload) => {
-                                        const newFilters = {
-                                            ...currentMetric.filters,
-                                            insight: InsightType.FUNNELS,
-                                            ...payload,
-                                        }
-                                        updateMetricFilters(newFilters)
-                                        setFilters(newFilters)
-                                    }}
-                                    typeKey={'funnel-preview-metric'}
-                                    mathAvailability={MathAvailability.None}
-                                    hideDeleteBtn={filterSteps.length === 1}
-                                    buttonCopy="Add funnel step"
-                                    showSeriesIndicator={!isStepsEmpty}
-                                    seriesIndicatorType="numeric"
-                                    fullWidth
-                                    sortable
-                                    showNestedArrow={true}
-                                    propertiesTaxonomicGroupTypes={[
-                                        TaxonomicFilterGroupType.EventProperties,
-                                        TaxonomicFilterGroupType.PersonProperties,
-                                        TaxonomicFilterGroupType.Cohorts,
-                                        TaxonomicFilterGroupType.Elements,
-                                    ]}
-                                    rowClassName="action-filters-bordered"
-                                />
-                            )}
-                            {currentMetric.filters.insight === InsightType.TRENDS && (
-                                <ActionFilter
-                                    entitiesLimit={1}
-                                    horizontalUI
-                                    filters={currentMetric.filters}
-                                    setFilters={(payload) => {
-                                        const newFilters = {
-                                            ...currentMetric.filters,
-                                            insight: InsightType.TRENDS,
-                                            ...payload,
-                                        }
-                                        updateMetricFilters(newFilters)
-                                        setFilters(newFilters)
-                                    }}
-                                    typeKey={'trend-preview-metric'}
-                                    buttonCopy="Add graph series"
-                                    showSeriesIndicator
-                                    propertiesTaxonomicGroupTypes={[
-                                        TaxonomicFilterGroupType.EventProperties,
-                                        TaxonomicFilterGroupType.PersonProperties,
-                                        TaxonomicFilterGroupType.Cohorts,
-                                        TaxonomicFilterGroupType.Elements,
-                                    ]}
-                                />
-                            )}
-                        </Card>
+                        {currentMetric.filters.insight === InsightType.FUNNELS && (
+                            <ActionFilter
+                                bordered
+                                filters={currentMetric.filters}
+                                setFilters={(payload) => {
+                                    const newFilters = {
+                                        ...currentMetric.filters,
+                                        insight: InsightType.FUNNELS,
+                                        ...payload,
+                                    }
+                                    updateMetricFilters(newFilters)
+                                    setFilters(newFilters)
+                                }}
+                                typeKey={'funnel-preview-metric'}
+                                mathAvailability={MathAvailability.None}
+                                hideDeleteBtn={filterSteps.length === 1}
+                                buttonCopy="Add funnel step"
+                                showSeriesIndicator={!isStepsEmpty}
+                                seriesIndicatorType="numeric"
+                                sortable
+                                showNestedArrow={true}
+                                propertiesTaxonomicGroupTypes={[
+                                    TaxonomicFilterGroupType.EventProperties,
+                                    TaxonomicFilterGroupType.PersonProperties,
+                                    TaxonomicFilterGroupType.Cohorts,
+                                    TaxonomicFilterGroupType.Elements,
+                                ]}
+                            />
+                        )}
+                        {currentMetric.filters.insight === InsightType.TRENDS && (
+                            <ActionFilter
+                                bordered
+                                entitiesLimit={1}
+                                filters={currentMetric.filters}
+                                setFilters={(payload) => {
+                                    const newFilters = {
+                                        ...currentMetric.filters,
+                                        insight: InsightType.TRENDS,
+                                        ...payload,
+                                    }
+                                    updateMetricFilters(newFilters)
+                                    setFilters(newFilters)
+                                }}
+                                typeKey={'trend-preview-metric'}
+                                buttonCopy="Add graph series"
+                                showSeriesIndicator
+                                propertiesTaxonomicGroupTypes={[
+                                    TaxonomicFilterGroupType.EventProperties,
+                                    TaxonomicFilterGroupType.PersonProperties,
+                                    TaxonomicFilterGroupType.Cohorts,
+                                    TaxonomicFilterGroupType.Elements,
+                                ]}
+                            />
+                        )}
                     </Form.Item>
                     <Form.Item name="metric-preview" label="Metric preview">
                         <BindLogic logic={insightLogic} props={insightProps}>
-                            <InsightContainer disableHeader={true} disableTable={true} />
+                            <InsightContainer disableHeader={true} disableTable={true} disableCorrelationTable={true} />
                         </BindLogic>
                     </Form.Item>
                     <Row justify="end">
@@ -185,65 +178,62 @@ export function SecondaryMetrics({ onMetricsChange, initialMetrics }: SecondaryM
                                     onClick={() => deleteMetric(idx)}
                                 />
                             </Row>
-                            <Card className="full-width" style={{ borderTop: 'none' }} bodyStyle={{ padding: 0 }}>
-                                {metric.filters.insight === InsightType.FUNNELS && (
-                                    <ActionFilter
-                                        filters={metric.filters}
-                                        setFilters={(payload) => {
-                                            const newFilters = {
-                                                ...metric.filters,
-                                                insight: InsightType.FUNNELS,
-                                                ...payload,
-                                            }
-                                            updateMetricFilters(newFilters)
-                                            setFilters(newFilters)
-                                        }}
-                                        typeKey={`funnel-preview-${idx}`}
-                                        mathAvailability={MathAvailability.None}
-                                        hideDeleteBtn={filterSteps.length === 1}
-                                        buttonCopy="Add funnel step"
-                                        showSeriesIndicator={!isStepsEmpty}
-                                        seriesIndicatorType="numeric"
-                                        fullWidth
-                                        sortable
-                                        showNestedArrow={true}
-                                        propertiesTaxonomicGroupTypes={[
-                                            TaxonomicFilterGroupType.EventProperties,
-                                            TaxonomicFilterGroupType.PersonProperties,
-                                            TaxonomicFilterGroupType.Cohorts,
-                                            TaxonomicFilterGroupType.Elements,
-                                        ]}
-                                        rowClassName="action-filters-bordered"
-                                        readOnly={true}
-                                    />
-                                )}
-                                {metric.filters.insight === InsightType.TRENDS && (
-                                    <ActionFilter
-                                        horizontalUI
-                                        filters={metric.filters}
-                                        setFilters={(payload) => {
-                                            const newFilters = {
-                                                ...metric.filters,
-                                                insight: InsightType.TRENDS,
-                                                ...payload,
-                                            }
-                                            updateMetricFilters(newFilters)
-                                            setFilters(newFilters)
-                                        }}
-                                        typeKey={`trend-preview-${idx}`}
-                                        buttonCopy="Add graph series"
-                                        showSeriesIndicator
-                                        entitiesLimit={1}
-                                        propertiesTaxonomicGroupTypes={[
-                                            TaxonomicFilterGroupType.EventProperties,
-                                            TaxonomicFilterGroupType.PersonProperties,
-                                            TaxonomicFilterGroupType.Cohorts,
-                                            TaxonomicFilterGroupType.Elements,
-                                        ]}
-                                        readOnly={true}
-                                    />
-                                )}
-                            </Card>
+                            {metric.filters.insight === InsightType.FUNNELS && (
+                                <ActionFilter
+                                    bordered
+                                    filters={metric.filters}
+                                    setFilters={(payload) => {
+                                        const newFilters = {
+                                            ...metric.filters,
+                                            insight: InsightType.FUNNELS,
+                                            ...payload,
+                                        }
+                                        updateMetricFilters(newFilters)
+                                        setFilters(newFilters)
+                                    }}
+                                    typeKey={`funnel-preview-${idx}`}
+                                    mathAvailability={MathAvailability.None}
+                                    hideDeleteBtn={filterSteps.length === 1}
+                                    buttonCopy="Add funnel step"
+                                    showSeriesIndicator={!isStepsEmpty}
+                                    seriesIndicatorType="numeric"
+                                    sortable
+                                    showNestedArrow={true}
+                                    propertiesTaxonomicGroupTypes={[
+                                        TaxonomicFilterGroupType.EventProperties,
+                                        TaxonomicFilterGroupType.PersonProperties,
+                                        TaxonomicFilterGroupType.Cohorts,
+                                        TaxonomicFilterGroupType.Elements,
+                                    ]}
+                                    readOnly={true}
+                                />
+                            )}
+                            {metric.filters.insight === InsightType.TRENDS && (
+                                <ActionFilter
+                                    bordered
+                                    filters={metric.filters}
+                                    setFilters={(payload) => {
+                                        const newFilters = {
+                                            ...metric.filters,
+                                            insight: InsightType.TRENDS,
+                                            ...payload,
+                                        }
+                                        updateMetricFilters(newFilters)
+                                        setFilters(newFilters)
+                                    }}
+                                    typeKey={`trend-preview-${idx}`}
+                                    buttonCopy="Add graph series"
+                                    showSeriesIndicator
+                                    entitiesLimit={1}
+                                    propertiesTaxonomicGroupTypes={[
+                                        TaxonomicFilterGroupType.EventProperties,
+                                        TaxonomicFilterGroupType.PersonProperties,
+                                        TaxonomicFilterGroupType.Cohorts,
+                                        TaxonomicFilterGroupType.Elements,
+                                    ]}
+                                    readOnly={true}
+                                />
+                            )}
                         </Row>
                     ))}
                     {metrics && !(metrics.length > 2) && (

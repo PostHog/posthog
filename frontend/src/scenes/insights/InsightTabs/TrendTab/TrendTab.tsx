@@ -16,11 +16,8 @@ import { Tooltip } from 'lib/components/Tooltip'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { groupsModel } from '~/models/groupsModel'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { alphabet, convertPropertiesToPropertyGroup, convertPropertyGroupToProperties } from 'lib/utils'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { alphabet, convertPropertiesToPropertyGroup } from 'lib/utils'
 import { PropertyGroupFilters } from 'lib/components/PropertyGroupFilters/PropertyGroupFilters'
-import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { MathAvailability } from 'scenes/insights/ActionFilter/ActionFilterRow/ActionFilterRow'
 
 export interface TrendTabProps {
@@ -32,7 +29,6 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
     const { filters } = useValues(trendsLogic(insightProps))
     const { setFilters, toggleLifecycle } = useActions(trendsLogic(insightProps))
     const { groupsTaxonomicTypes } = useValues(groupsModel)
-    const { featureFlags } = useValues(featureFlagLogic)
     const [isUsingFormulas, setIsUsingFormulas] = useState(filters.formula ? true : false)
     const lifecycles = [
         { name: 'new', tooltip: 'Users who were first seen on this period and did the activity during the period.' },
@@ -56,10 +52,14 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
 
     return (
         <>
-            <Row gutter={featureFlags[FEATURE_FLAGS.AND_OR_FILTERING] ? 24 : 16}>
-                <Col md={featureFlags[FEATURE_FLAGS.AND_OR_FILTERING] ? 12 : 16} xs={24}>
+            <Row gutter={24}>
+                <Col md={12} xs={24}>
+                    {filters.insight === InsightType.LIFECYCLE ? (
+                        <div className="mb-05">
+                            Showing <b>Unique users</b> who did
+                        </div>
+                    ) : undefined}
                     <ActionFilter
-                        horizontalUI
                         filters={filters}
                         setFilters={(payload: Partial<FilterType>): void => setFilters(payload)}
                         typeKey={`trends_${view}`}
@@ -84,20 +84,9 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
                             TaxonomicFilterGroupType.Cohorts,
                             TaxonomicFilterGroupType.Elements,
                         ]}
-                        customRowPrefix={
-                            filters.insight === InsightType.LIFECYCLE ? (
-                                <>
-                                    Showing <b>Unique users</b> who did
-                                </>
-                            ) : undefined
-                        }
                     />
                 </Col>
-                <Col
-                    md={featureFlags[FEATURE_FLAGS.AND_OR_FILTERING] ? 12 : 8}
-                    xs={24}
-                    style={{ marginTop: isSmallScreen ? '2rem' : 0 }}
-                >
+                <Col md={12} xs={24} style={{ marginTop: isSmallScreen ? '2rem' : 0 }}>
                     {filters.insight === InsightType.LIFECYCLE && (
                         <>
                             <GlobalFiltersTitle unit="actions/events" />
@@ -125,43 +114,23 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
                     )}
                     {filters.insight !== InsightType.LIFECYCLE && (
                         <>
-                            {featureFlags[FEATURE_FLAGS.AND_OR_FILTERING] && filters.properties ? (
-                                <PropertyGroupFilters
-                                    propertyFilters={convertPropertiesToPropertyGroup(filters.properties)}
-                                    onChange={(properties) => {
-                                        setFilters({ properties })
-                                    }}
-                                    taxonomicGroupTypes={[
-                                        TaxonomicFilterGroupType.EventProperties,
-                                        TaxonomicFilterGroupType.PersonProperties,
-                                        ...groupsTaxonomicTypes,
-                                        TaxonomicFilterGroupType.Cohorts,
-                                        TaxonomicFilterGroupType.Elements,
-                                    ]}
-                                    pageKey="trends-filters"
-                                    eventNames={allEventNames}
-                                    filters={filters}
-                                    setTestFilters={(testFilters) => setFilters(testFilters)}
-                                />
-                            ) : (
-                                <>
-                                    <GlobalFiltersTitle />
-                                    <PropertyFilters
-                                        propertyFilters={convertPropertyGroupToProperties(filters.properties)}
-                                        onChange={(properties) => setFilters({ properties })}
-                                        taxonomicGroupTypes={[
-                                            TaxonomicFilterGroupType.EventProperties,
-                                            TaxonomicFilterGroupType.PersonProperties,
-                                            ...groupsTaxonomicTypes,
-                                            TaxonomicFilterGroupType.Cohorts,
-                                            TaxonomicFilterGroupType.Elements,
-                                        ]}
-                                        pageKey="trends-filters"
-                                        eventNames={allEventNames}
-                                    />
-                                    <TestAccountFilter filters={filters} onChange={setFilters} />
-                                </>
-                            )}
+                            <PropertyGroupFilters
+                                value={convertPropertiesToPropertyGroup(filters.properties)}
+                                onChange={(properties) => {
+                                    setFilters({ properties })
+                                }}
+                                taxonomicGroupTypes={[
+                                    TaxonomicFilterGroupType.EventProperties,
+                                    TaxonomicFilterGroupType.PersonProperties,
+                                    ...groupsTaxonomicTypes,
+                                    TaxonomicFilterGroupType.Cohorts,
+                                    TaxonomicFilterGroupType.Elements,
+                                ]}
+                                pageKey="trends-filters"
+                                eventNames={allEventNames}
+                                filters={filters}
+                                setTestFilters={(testFilters) => setFilters(testFilters)}
+                            />
 
                             {formulaAvailable && (
                                 <>

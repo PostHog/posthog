@@ -25,6 +25,11 @@
         color: $warning;
     }
 
+    &.error {
+        background-color: rgba($danger, 0.09);
+        color: $danger;
+    }
+
     p {
         margin-bottom: 0.25em;
     }

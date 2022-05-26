@@ -1,7 +1,17 @@
 import { expectLogic, partial } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
 import { createEmptyInsight, insightLogic } from './insightLogic'
-import { AvailableFeature, InsightShortId, InsightType, ItemMode, PropertyOperator } from '~/types'
+import {
+    AnyPropertyFilter,
+    AvailableFeature,
+    FilterLogicalOperator,
+    InsightModel,
+    InsightShortId,
+    InsightType,
+    ItemMode,
+    PropertyGroupFilter,
+    PropertyOperator,
+} from '~/types'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { combineUrl, router } from 'kea-router'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
@@ -421,33 +431,58 @@ describe('insightLogic', () => {
     })
 
     describe('takes data from other logics if available', () => {
-        it('dashboardLogic', async () => {
-            // 1. the URL must have the dashboard and insight IDs
-            router.actions.push(urls.insightView(Insight42), {}, { fromDashboard: 33 })
+        const verifyItLoadsFromALogic = async (
+            logicUnderTest: ReturnType<typeof insightLogic.build>,
+            partialExpectedInsight: Partial<InsightModel>
+        ): Promise<void> =>
+            expectLogic(logicUnderTest)
+                .toDispatchActions(['setInsight'])
+                .toNotHaveDispatchedActions(['setFilters', 'loadResults', 'loadInsight', 'updateInsight'])
+                .toMatchValues({
+                    insight: partial(partialExpectedInsight),
+                })
 
-            // 2. the dashboard is mounted
+        const verifyItLoadsFromTheAPI = async (logicUnderTest: ReturnType<typeof insightLogic.build>): Promise<void> =>
+            expectLogic(logicUnderTest)
+                .toDispatchActions(['loadInsight'])
+                .toMatchValues({
+                    insight: partial({
+                        short_id: '42',
+                    }),
+                })
+
+        it('loads from the dashboardLogic when in dashboard context', async () => {
+            // 1. the dashboard is mounted
             const dashLogic = dashboardLogic({ id: 33 })
             dashLogic.mount()
             await expectLogic(dashLogic).toDispatchActions(['loadDashboardItemsSuccess'])
 
-            // 3. mount the insight
-            logic = insightLogic({ dashboardItemId: Insight42 })
+            // 2. mount the insight
+            logic = insightLogic({ dashboardItemId: Insight42, dashboardId: 33 })
             logic.mount()
 
-            // 4. verify it didn't make any API calls
-            await expectLogic(logic)
-                .toDispatchActions(['setInsight'])
-                .toNotHaveDispatchedActions(['setFilters', 'loadResults', 'loadInsight', 'updateInsight'])
-                .toMatchValues({
-                    insight: partial({
-                        id: 42,
-                        result: 'result!',
-                        filters: { insight: InsightType.TRENDS, interval: 'month' },
-                    }),
-                })
+            // 3. verify it didn't make any API calls
+            await verifyItLoadsFromALogic(logic, {
+                id: 42,
+                result: 'result!',
+                filters: { insight: InsightType.TRENDS, interval: 'month' },
+            })
         })
 
-        it('savedInsightLogic', async () => {
+        it('does not load from the dashboardLogic when not in that dashboard context', async () => {
+            // 1. the dashboard is mounted
+            const dashLogic = dashboardLogic({ id: 33 })
+            dashLogic.mount()
+            await expectLogic(dashLogic).toDispatchActions(['loadDashboardItemsSuccess'])
+
+            // 2. mount the insight
+            logic = insightLogic({ dashboardItemId: Insight42, dashboardId: 1 })
+            logic.mount()
+
+            await verifyItLoadsFromTheAPI(logic)
+        })
+
+        it('loads from the savedInsightLogic when not in a dashboard context', async () => {
             // 1. open saved insights
             router.actions.push(urls.savedInsights(), {}, {})
             savedInsightsLogic.mount()
@@ -459,17 +494,24 @@ describe('insightLogic', () => {
             logic = insightLogic({ dashboardItemId: Insight42 })
             logic.mount()
 
-            // 4. verify it didn't make any API calls
-            await expectLogic(logic)
-                .toDispatchActions(['setInsight'])
-                .toNotHaveDispatchedActions(['setFilters', 'loadResults', 'loadInsight', 'updateInsight'])
-                .toMatchValues({
-                    insight: partial({
-                        id: 42,
-                        result: ['result 42'],
-                        filters: API_FILTERS,
-                    }),
-                })
+            await verifyItLoadsFromALogic(logic, {
+                short_id: '42' as InsightShortId,
+            })
+        })
+
+        it('does not load from the savedInsightLogic when in a dashboard context', async () => {
+            // 1. open saved insights
+            router.actions.push(urls.savedInsights(), {}, {})
+            savedInsightsLogic.mount()
+
+            // 2. the insights are loaded
+            await expectLogic(savedInsightsLogic).toDispatchActions(['loadInsights', 'loadInsightsSuccess'])
+
+            // 3. mount the insight
+            logic = insightLogic({ dashboardItemId: Insight42, dashboardId: 33 })
+            logic.mount()
+
+            await verifyItLoadsFromTheAPI(logic)
         })
     })
 
@@ -655,5 +697,57 @@ describe('insightLogic', () => {
             new Error('Will not override empty filters in saveInsight.'),
             expect.any(Object)
         )
+    })
+
+    describe('filterPropertiesCount selector', () => {
+        const standardPropertyFilter = { value: 'lol', operator: PropertyOperator.Exact, key: 'lol', type: 'lol' }
+        const cases: {
+            properties: AnyPropertyFilter[] | PropertyGroupFilter
+            count: number
+        }[] = [
+            {
+                properties: [standardPropertyFilter],
+                count: 1,
+            },
+            {
+                properties: [standardPropertyFilter, standardPropertyFilter],
+                count: 2,
+            },
+            {
+                properties: {
+                    type: FilterLogicalOperator.And,
+                    values: [
+                        {
+                            type: FilterLogicalOperator.Or,
+                            values: [standardPropertyFilter, standardPropertyFilter],
+                        },
+                        {
+                            type: FilterLogicalOperator.And,
+                            values: [standardPropertyFilter, standardPropertyFilter, standardPropertyFilter],
+                        },
+                    ],
+                },
+                count: 5,
+            },
+        ]
+
+        it.each(cases)('returns the correct count for filter properties', ({ properties, count }) => {
+            logic = insightLogic({
+                dashboardItemId: Insight42,
+                cachedInsight: {
+                    short_id: Insight42,
+                    results: ['cached result'],
+                    filters: {
+                        insight: InsightType.TRENDS,
+                        events: [{ id: 2 }],
+                        properties,
+                    },
+                },
+            })
+            logic.mount()
+            expectLogic(logic).toMatchValues({
+                filterPropertiesCount: count,
+            })
+        })
     })
 })

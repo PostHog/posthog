@@ -16,9 +16,6 @@ import { inviteLogic } from 'scenes/organization/Settings/inviteLogic'
 import { UniversalSearchPopup } from 'lib/components/UniversalSearch/UniversalSearchPopup'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { groupsModel } from '~/models/groupsModel'
-import { SearchBox } from './SearchBox'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 export function TopBar(): JSX.Element {
     const { isSideBarShown, bareNav, mobileLayout, isCreateOrganizationModalShown, isCreateProjectModalShown } =
@@ -27,7 +24,6 @@ export function TopBar(): JSX.Element {
         useActions(navigationLogic)
     const { isInviteModalShown } = useValues(inviteLogic)
     const { hideInviteModal } = useActions(inviteLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
     const { groupNamesTaxonomicTypes } = useValues(groupsModel)
 
     return (
@@ -47,26 +43,22 @@ export function TopBar(): JSX.Element {
                         <FriendlyLogo />
                     </Link>
 
-                    {featureFlags[FEATURE_FLAGS.UNIVERSAL_SEARCH] ? (
-                        <div style={{ flexGrow: 1 }}>
-                            <UniversalSearchPopup
-                                groupType={TaxonomicFilterGroupType.Events}
-                                groupTypes={[
-                                    TaxonomicFilterGroupType.Events,
-                                    TaxonomicFilterGroupType.Actions,
-                                    TaxonomicFilterGroupType.Cohorts,
-                                    TaxonomicFilterGroupType.Insights,
-                                    TaxonomicFilterGroupType.FeatureFlags,
-                                    TaxonomicFilterGroupType.Plugins,
-                                    TaxonomicFilterGroupType.Experiments,
-                                    TaxonomicFilterGroupType.Dashboards,
-                                    ...groupNamesTaxonomicTypes,
-                                ]}
-                            />
-                        </div>
-                    ) : (
-                        <SearchBox />
-                    )}
+                    <div style={{ flexGrow: 1 }}>
+                        <UniversalSearchPopup
+                            groupType={TaxonomicFilterGroupType.Events}
+                            groupTypes={[
+                                TaxonomicFilterGroupType.Events,
+                                TaxonomicFilterGroupType.Actions,
+                                TaxonomicFilterGroupType.Cohorts,
+                                TaxonomicFilterGroupType.Insights,
+                                TaxonomicFilterGroupType.FeatureFlags,
+                                TaxonomicFilterGroupType.Plugins,
+                                TaxonomicFilterGroupType.Experiments,
+                                TaxonomicFilterGroupType.Dashboards,
+                                ...groupNamesTaxonomicTypes,
+                            ]}
+                        />
+                    </div>
                 </div>
                 <div className="TopBar__segment TopBar__segment--right">
                     <HelpButton />

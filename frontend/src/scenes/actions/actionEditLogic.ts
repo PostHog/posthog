@@ -1,16 +1,19 @@
-import { kea } from 'kea'
+import { actions, afterMount, kea, key, path, props, reducers } from 'kea'
 import api from 'lib/api'
 import { uuid } from 'lib/utils'
 import { actionsModel } from '~/models/actionsModel'
-import { actionEditLogicType } from './actionEditLogicType'
+import type { actionEditLogicType } from './actionEditLogicType'
 import { ActionType } from '~/types'
 import { lemonToast } from 'lib/components/lemonToast'
 import { duplicateActionErrorToast } from 'scenes/actions/ActionEdit'
+import { loaders } from 'kea-loaders'
+import { forms } from 'kea-forms'
 
-type NewActionType = Partial<ActionType> & Pick<ActionType, 'name' | 'post_to_slack' | 'slack_message_format' | 'steps'>
-type ActionEditType = ActionType | NewActionType
+export type NewActionType = Partial<ActionType> &
+    Pick<ActionType, 'name' | 'post_to_slack' | 'slack_message_format' | 'steps'>
+export type ActionEditType = ActionType | NewActionType
 
-interface SetActionProps {
+export interface SetActionProps {
     merge?: boolean
 }
 
@@ -21,11 +24,11 @@ export interface ActionEditLogicProps {
     onSave: (action: ActionType) => void
 }
 
-export const actionEditLogic = kea<actionEditLogicType<ActionEditLogicProps, ActionEditType, SetActionProps>>({
-    path: (key) => ['scenes', 'actions', 'actionEditLogic', key],
-    props: {} as ActionEditLogicProps,
-    key: (props) => props.id || 'new',
-    actions: () => ({
+export const actionEditLogic = kea<actionEditLogicType>([
+    path(['scenes', 'actions', 'actionEditLogic']),
+    props({} as ActionEditLogicProps),
+    key((props) => props.id || 'new'),
+    actions({
         setAction: (action: Partial<ActionEditType>, options: SetActionProps = { merge: true }) => ({
             action,
             options,
@@ -34,7 +37,7 @@ export const actionEditLogic = kea<actionEditLogicType<ActionEditLogicProps, Act
         actionAlreadyExists: (actionId: number | null) => ({ actionId }),
     }),
 
-    reducers: () => ({
+    reducers({
         createNew: [
             false,
             {
@@ -43,19 +46,19 @@ export const actionEditLogic = kea<actionEditLogicType<ActionEditLogicProps, Act
         ],
     }),
 
-    forms: ({ actions, props }) => ({
+    forms(({ actions, props }) => ({
         action: {
             defaults: { ...props.action } as ActionEditType,
-            validator: ({ name }) => ({
+            errors: ({ name }) => ({
                 name: !name ? 'You need to set a name' : null,
             }),
             submit: (action) => {
                 actions.saveAction(action)
             },
         },
-    }),
+    })),
 
-    loaders: ({ props, values }) => ({
+    loaders(({ props, values }) => ({
         actionCount: {
             loadActionCount: async () => {
                 return props.id ? await api.actions.getCount(props.id) : 0
@@ -101,15 +104,13 @@ export const actionEditLogic = kea<actionEditLogicType<ActionEditLogicProps, Act
                 },
             },
         ],
-    }),
+    })),
 
-    events: ({ actions, props }) => ({
-        afterMount: async () => {
-            if (props.id) {
-                actions.loadActionCount()
-            } else {
-                actions.setAction({ name: '', steps: [{ isNew: uuid() }] }, { merge: false })
-            }
-        },
+    afterMount(({ actions, props }) => {
+        if (props.id) {
+            actions.loadActionCount()
+        } else {
+            actions.setAction({ name: '', steps: [{ isNew: uuid() }] }, { merge: false })
+        }
     }),
-})
+])

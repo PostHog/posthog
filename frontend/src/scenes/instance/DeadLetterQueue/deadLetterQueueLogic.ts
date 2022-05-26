@@ -1,10 +1,10 @@
-import { SystemStatusSubrows } from '~/types'
 import { SystemStatusRow } from './../../../types'
 import api from 'lib/api'
-import { kea } from 'kea'
+import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
 import { userLogic } from 'scenes/userLogic'
 
-import { deadLetterQueueLogicType } from './deadLetterQueueLogicType'
+import type { deadLetterQueueLogicType } from './deadLetterQueueLogicType'
+import { loaders } from 'kea-loaders'
 export type TabName = 'overview' | 'internal_metrics'
 
 export enum DeadLetterQueueTab {
@@ -17,18 +17,18 @@ export interface DeadLetterQueueMetricRow extends SystemStatusRow {
     key: string
 }
 
-export const deadLetterQueueLogic = kea<deadLetterQueueLogicType<DeadLetterQueueMetricRow>>({
-    path: ['scenes', 'instance', 'DeadLetterQueue', 'deadLetterQueueLogic'],
+export const deadLetterQueueLogic = kea<deadLetterQueueLogicType>([
+    path(['scenes', 'instance', 'DeadLetterQueue', 'deadLetterQueueLogic']),
 
-    actions: () => ({
-        setActiveTab: (tabKey: string) => ({ tabKey }),
+    actions({
+        setActiveTab: (tabKey: DeadLetterQueueTab) => ({ tabKey }),
         loadMoreRows: (key: string) => ({ key }),
-        addRowsToMetric: (key: string, rows: SystemStatusSubrows['rows'][]) => ({ key, rows }),
+        addRowsToMetric: (key: string, rows: string[][][]) => ({ key, rows }),
     }),
 
-    reducers: {
+    reducers({
         activeTab: [
-            DeadLetterQueueTab.Metrics,
+            DeadLetterQueueTab.Metrics as DeadLetterQueueTab,
             {
                 setActiveTab: (_, { tabKey }) => tabKey,
             },
@@ -50,9 +50,9 @@ export const deadLetterQueueLogic = kea<deadLetterQueueLogicType<DeadLetterQueue
                 },
             },
         ],
-    },
+    }),
 
-    loaders: () => ({
+    loaders({
         deadLetterQueueMetrics: [
             [] as DeadLetterQueueMetricRow[],
             {
@@ -66,7 +66,7 @@ export const deadLetterQueueLogic = kea<deadLetterQueueLogicType<DeadLetterQueue
         ],
     }),
 
-    listeners: ({ values, actions }) => ({
+    listeners(({ values, actions }) => ({
         loadMoreRows: async ({ key }) => {
             const offset = values.rowsPerMetric[key]?.length + 1
             if (offset) {
@@ -74,9 +74,9 @@ export const deadLetterQueueLogic = kea<deadLetterQueueLogicType<DeadLetterQueue
                 actions.addRowsToMetric(key, res.subrows.rows)
             }
         },
-    }),
+    })),
 
-    selectors: () => ({
+    selectors({
         singleValueMetrics: [
             (s) => [s.deadLetterQueueMetrics],
             (deadLetterQueueMetrics: DeadLetterQueueMetricRow[]) =>
@@ -89,9 +89,7 @@ export const deadLetterQueueLogic = kea<deadLetterQueueLogicType<DeadLetterQueue
         ],
     }),
 
-    events: ({ actions }) => ({
-        afterMount: () => {
-            actions.loadDeadLetterQueueMetrics()
-        },
+    afterMount(({ actions }) => {
+        actions.loadDeadLetterQueueMetrics()
     }),
-})
+])

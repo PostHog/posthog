@@ -133,7 +133,6 @@ describe('eventDefinitionsTableLogic', () => {
             },
         })
         initKeaTests()
-        organizationLogic.mount()
         await expectLogic(organizationLogic)
             .toFinishAllListeners()
             .toDispatchActions(['loadCurrentOrganizationSuccess'])

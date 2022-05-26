@@ -21,9 +21,15 @@ NOTE: $medium is a SCSS var; not a keyword
     --primary-bg-active: #{$primary_bg_active};
     --success: #{$success};
     --danger: #{$danger};
+    --danger-hover: #{$danger_hover};
+    --danger-active: #{$danger_active};
     --warning: #{$warning};
     --warning-hover: #{$warning_hover};
     --warning-active: #{$warning_active};
+    --brand-blue: #{$brand_blue};
+    --brand-blue-active: #{$brand_blue_active};
+    --brand-yellow: #{$brand_yellow};
+    --brand-red: #{$brand_red};
     --bg-menu: #{$bg_menu};
     --bg-mid: #{$bg_mid};
     --bg-side: #{$bg_side};
@@ -45,7 +51,7 @@ NOTE: $medium is a SCSS var; not a keyword
     --radius: #{$radius};
     --shadow-elevation: #{$shadow_elevation};
     --opacity-disabled: #{$opacity_disabled};
-    // Used for graph series. (Note: color.ts relies on these values being hex)
+    // LEGACY data colors (e.g. insight series). Note: colors.ts relies on these values being hexadecimal
     --blue: #{$blue_500};
     --blue-light: #{$blue_300};
     --purple: #{$purple_500};
@@ -65,6 +71,21 @@ NOTE: $medium is a SCSS var; not a keyword
     --lime: #bfef45;
     --apricot: #ffd8b1;
     --brown: #9a6324;
+    // Data colors (e.g. insight series). Note: colors.ts relies on these values being hexadecimal
+    --data-ultramarine: var(--brand-blue);
+    --data-purple: #621da6;
+    --data-viridian: #42827e;
+    --data-magenta: #ce0e74;
+    --data-vermilion: #f14f58;
+    --data-brown: #7c440e;
+    --data-green: #529a0a;
+    --data-blue: #0476fb;
+    --data-pink: #fe729e;
+    --data-navy: var(--bg-navy);
+    --data-turquoise: #41cbc4;
+    --data-brick: #b64b02;
+    --data-yellow: #e4a604;
+    --data-lilac: #a56eff;
     // Lifecycle series
     --lifecycle-new: #{$lifecycle_new};
     --lifecycle-returning: #{$lifecycle_returning};
@@ -384,6 +405,36 @@ code.code {
     padding-left: $default_spacing;
 }
 
+.space-y-05 {
+    & > * + * {
+        @extend .mt-05;
+    }
+}
+
+.space-y {
+    & > * + * {
+        @extend .mt;
+    }
+}
+
+.space-x-05 {
+    & > * + * {
+        @extend .ml-05;
+    }
+}
+
+.space-x {
+    & > * + * {
+        @extend .ml;
+    }
+}
+
+.col {
+    position: relative;
+    max-width: 100%;
+    min-height: 1px;
+}
+
 .full-width {
     width: 100%;
 }
@@ -399,6 +450,18 @@ code.code {
 .space-between-items {
     display: flex;
     justify-content: space-between;
+}
+
+.items-center {
+    align-items: center;
+}
+
+.flex {
+    display: flex;
+}
+
+.flex-auto {
+    flex: auto;
 }
 
 .flex-center {
@@ -866,35 +929,6 @@ input::-ms-clear {
     color: $primary_alt !important;
     background-color: $bg_mid !important;
     border-color: $border !important;
-}
-
-// Hotkeys
-
-.hotkey {
-    width: 22px;
-    height: 22px;
-    border-radius: $radius;
-    font-weight: bold;
-    margin-left: 6px;
-    background-color: white;
-    color: $primary;
-    text-shadow: none;
-    text-transform: uppercase;
-    border: 1px solid $border_light;
-    margin-bottom: 2px;
-    font-size: 0.85rem;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-}
-
-.hotkey-plus {
-    display: inline;
-    &::after {
-        content: '+';
-        margin-left: 6px;
-        font-size: 1rem;
-    }
 }
 
 // Main app/body styles

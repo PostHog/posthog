@@ -1,6 +1,6 @@
 import json
 from functools import lru_cache
-from typing import Any, Dict, Optional, Type
+from typing import Any, Dict, List, Optional, Type
 
 import structlog
 from django.db.models import Count, OuterRef, QuerySet, Subquery
@@ -47,9 +47,10 @@ from posthog.constants import (
 )
 from posthog.decorators import cached_function
 from posthog.helpers.multi_property_breakdown import protect_old_clients_from_multi_property_default
-from posthog.models import DashboardTile, Filter, Insight, Team
+from posthog.models import DashboardTile, Filter, Insight, Team, User
 from posthog.models.activity_logging.activity_log import (
     ActivityPage,
+    Change,
     Detail,
     changes_between,
     load_activity,
@@ -61,6 +62,7 @@ from posthog.models.filters import RetentionFilter
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.insight import InsightViewed, generate_insight_cache_key
+from posthog.models.utils import UUIDT
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.queries.util import get_earliest_timestamp
 from posthog.settings import SITE_URL
@@ -76,10 +78,41 @@ from posthog.utils import (
 logger = structlog.get_logger(__name__)
 
 
-class InsightBasicSerializer(serializers.ModelSerializer):
+def log_insight_activity(
+    activity: str,
+    insight: Insight,
+    insight_id: int,
+    insight_short_id: str,
+    organization_id: UUIDT,
+    team_id: int,
+    user: User,
+    changes: Optional[List[Change]] = None,
+) -> None:
+    """
+    Insight id and short_id are passed separately as some activities (like delete) alter the Insight instance
+
+    The experiments feature creates insights without a name, this does not log those
+    """
+
+    insight_name: Optional[str] = insight.name if insight.name else insight.derived_name
+    if insight_name:
+        log_activity(
+            organization_id=organization_id,
+            team_id=team_id,
+            user=user,
+            item_id=insight_id,
+            scope="Insight",
+            activity=activity,
+            detail=Detail(name=insight_name, changes=changes, short_id=insight_short_id),
+        )
+
+
+class InsightBasicSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
     """
     Simplified serializer to speed response times when loading large amounts of objects.
     """
+
+    created_by = UserBasicSerializer(read_only=True)
 
     class Meta:
         model = Insight
@@ -93,7 +126,11 @@ class InsightBasicSerializer(serializers.ModelSerializer):
             "last_refresh",
             "refreshing",
             "saved",
+            "tags",
             "updated_at",
+            "created_by",
+            "created_at",
+            "last_modified_at",
         ]
         read_only_fields = ("short_id", "updated_at", "last_refresh", "refreshing")
 
@@ -106,7 +143,7 @@ class InsightBasicSerializer(serializers.ModelSerializer):
         return representation
 
 
-class InsightSerializer(TaggedItemSerializerMixin, InsightBasicSerializer):
+class InsightSerializer(InsightBasicSerializer):
     result = serializers.SerializerMethodField()
     last_refresh = serializers.SerializerMethodField(
         read_only=True,
@@ -120,6 +157,7 @@ class InsightSerializer(TaggedItemSerializerMixin, InsightBasicSerializer):
     created_by = UserBasicSerializer(read_only=True)
     last_modified_by = UserBasicSerializer(read_only=True)
     effective_privilege_level = serializers.SerializerMethodField()
+    timezone = serializers.SerializerMethodField(help_text="The timezone this chart is displayed in.")
     dashboards = serializers.PrimaryKeyRelatedField(
         help_text="A dashboard ID for each of the dashboards that this insight is displayed on.",
         many=True,
@@ -160,6 +198,7 @@ class InsightSerializer(TaggedItemSerializerMixin, InsightBasicSerializer):
             "is_sample",
             "effective_restriction_level",
             "effective_privilege_level",
+            "timezone",
         ]
         read_only_fields = (
             "created_at",
@@ -171,6 +210,7 @@ class InsightSerializer(TaggedItemSerializerMixin, InsightBasicSerializer):
             "is_sample",
             "effective_restriction_level",
             "effective_privilege_level",
+            "timezone",
             "refreshing",
         )
 
@@ -205,18 +245,16 @@ class InsightSerializer(TaggedItemSerializerMixin, InsightBasicSerializer):
         # Manual tag creation since this create method doesn't call super()
         self._attempt_set_tags(tags, insight)
 
-        name_for_logged_activity = (
-            insight.name if insight.name is not None and len(insight.name) > 0 else insight.derived_name
-        )
-        log_activity(
+        log_insight_activity(
+            activity="created",
+            insight=insight,
+            insight_id=insight.id,
+            insight_short_id=insight.short_id,
             organization_id=self.context["request"].user.current_organization_id,
             team_id=team.id,
             user=self.context["request"].user,
-            item_id=insight.id,
-            scope="Insight",
-            activity="created",
-            detail=Detail(name=name_for_logged_activity, short_id=insight.short_id),
         )
+
         return insight
 
     def update(self, instance: Insight, validated_data: Dict, **kwargs) -> Insight:
@@ -250,19 +288,15 @@ class InsightSerializer(TaggedItemSerializerMixin, InsightBasicSerializer):
 
         changes = changes_between("Insight", previous=before_update, current=updated_insight)
 
-        name_for_logged_activity = (
-            updated_insight.name
-            if updated_insight.name is not None and len(updated_insight.name) > 0
-            else updated_insight.derived_name
-        )
-        log_activity(
+        log_insight_activity(
+            activity="updated",
+            insight=updated_insight,
+            insight_id=updated_insight.id,
+            insight_short_id=updated_insight.short_id,
             organization_id=self.context["request"].user.current_organization_id,
             team_id=self.context["team_id"],
             user=self.context["request"].user,
-            item_id=updated_insight.id,
-            scope="Insight",
-            activity="updated",
-            detail=Detail(name=name_for_logged_activity, changes=changes, short_id=updated_insight.short_id),
+            changes=changes,
         )
 
         return updated_insight
@@ -295,6 +329,14 @@ class InsightSerializer(TaggedItemSerializerMixin, InsightBasicSerializer):
             return None
         # Data might not be defined if there is still cached results from before moving from 'results' to 'data'
         return result.get("result")
+
+    def get_timezone(self, insight: Insight):
+        if should_refresh(self.context["request"]):
+            return insight.team.timezone
+        result = get_safe_cache(insight.filters_hash)
+        if not result or result.get("task_id", None):
+            return None
+        return result.get("timezone")
 
     def get_last_refresh(self, insight: Insight):
         if should_refresh(self.context["request"]):
@@ -493,7 +535,7 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, viewsets.Mo
         if self.request.accepted_renderer.format == "csv":
             csvexport = []
             for item in result["result"]:
-                line = {"series": item["label"]}
+                line = {"series": item["action"].get("custom_name") or item["label"]}
                 for index, data in enumerate(item["data"]):
                     line[item["labels"][index]] = data
                 csvexport.append(line)
@@ -528,7 +570,7 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, viewsets.Mo
             trends_query = ClickhouseTrends()
             result = trends_query.run(filter, team)
 
-        return {"result": result}
+        return {"result": result, "timezone": team.timezone}
 
     # ******************************************
     # /projects/:id/insights/funnel
@@ -570,12 +612,18 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, viewsets.Mo
         filter = Filter(request=request, data={"insight": INSIGHT_FUNNELS}, team=self.team)
 
         if filter.funnel_viz_type == FunnelVizType.TRENDS:
-            return {"result": ClickhouseFunnelTrends(team=team, filter=filter).run()}
+            return {
+                "result": ClickhouseFunnelTrends(team=team, filter=filter).run(),
+                "timezone": team.timezone,
+            }
         elif filter.funnel_viz_type == FunnelVizType.TIME_TO_CONVERT:
-            return {"result": ClickhouseFunnelTimeToConvert(team=team, filter=filter).run()}
+            return {
+                "result": ClickhouseFunnelTimeToConvert(team=team, filter=filter).run(),
+                "timezone": team.timezone,
+            }
         else:
             funnel_order_class = get_funnel_order_class(filter)
-            return {"result": funnel_order_class(team=team, filter=filter).run()}
+            return {"result": funnel_order_class(team=team, filter=filter).run(), "timezone": team.timezone}
 
     # ******************************************
     # /projects/:id/insights/retention
@@ -597,7 +645,7 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, viewsets.Mo
         filter = RetentionFilter(data=data, request=request, team=self.team)
         base_uri = request.build_absolute_uri("/")
         result = ClickhouseRetention(base_uri=base_uri).run(filter, team)
-        return {"result": result}
+        return {"result": result, "timezone": team.timezone}
 
     # ******************************************
     # /projects/:id/insights/path
@@ -628,7 +676,7 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, viewsets.Mo
             filter = filter.with_data({PATHS_INCLUDE_EVENT_TYPES: [filter.path_type]})
         resp = ClickhousePaths(filter=filter, team=team, funnel_filter=funnel_filter).run()
 
-        return {"result": resp}
+        return {"result": resp, "timezone": team.timezone}
 
     # ******************************************
     # /projects/:id/insights/:short_id/viewed
@@ -648,17 +696,14 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, viewsets.Mo
 
         instance.delete()
 
-        name_for_logged_activity = (
-            instance.name if instance.name is not None and len(instance.name) > 0 else instance.derived_name
-        )
-        log_activity(
+        log_insight_activity(
+            activity="deleted",
+            insight=instance,
+            insight_id=instance_id,
+            insight_short_id=instance_short_id,
             organization_id=self.organization.id,
             team_id=self.team_id,
             user=request.user,
-            item_id=instance_id,
-            scope="Insight",
-            activity="deleted",
-            detail=Detail(name=name_for_logged_activity, short_id=instance_short_id),
         )
 
         return Response(status=status.HTTP_204_NO_CONTENT)

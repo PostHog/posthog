@@ -146,12 +146,14 @@
 
 .StepLegend {
     border-left: 1px solid var(--border);
-    .LemonRow {
+    white-space: nowrap;
+    > .LemonRow {
         min-height: 1.5rem;
         padding: 0 0.5rem;
         font-weight: 500;
         margin-top: 0.25rem;
         &:first-child {
+            width: fit-content;
             font-weight: 600;
             margin-top: 0;
         }
@@ -164,7 +166,7 @@
 
 .FunnelTooltip {
     width: 20rem;
-    margin: 0.25rem 0.5rem 0.25rem;
+    margin: 0.25rem 0.5rem 0.5rem;
     table {
         width: 100%;
         border-collapse: collapse;
@@ -181,5 +183,8 @@
         padding-right: 0.5rem;
         font-weight: 600;
         text-align: right;
+    }
+    .table-subtext {
+        padding-bottom: 0.25rem;
     }
 }

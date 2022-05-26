@@ -15,8 +15,8 @@
      FROM events e
      WHERE team_id = 2
        AND event = 'pageview'
-       AND timestamp >= toDateTime('2021-01-21 00:00:00', 'UTC')
-       AND timestamp <= toDateTime('2021-01-21 23:59:59', 'UTC') )
+       AND timestamp >= toDateTime('2021-01-21 00:00:00')
+       AND timestamp <= toDateTime('2021-01-21 23:59:59') )
   GROUP BY actor_id
   LIMIT 200
   OFFSET 0
@@ -49,16 +49,10 @@
         WHERE team_id = 2
         GROUP BY distinct_id
         HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-     INNER JOIN
-       (SELECT id
-        FROM person
-        WHERE team_id = 2
-        GROUP BY id
-        HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
      WHERE team_id = 2
        AND event = 'pageview'
-       AND timestamp >= toDateTime('2021-01-21 00:00:00', 'UTC')
-       AND timestamp <= toDateTime('2021-01-21 23:59:59', 'UTC') )
+       AND timestamp >= toDateTime('2021-01-21 00:00:00')
+       AND timestamp <= toDateTime('2021-01-21 23:59:59') )
   GROUP BY actor_id
   LIMIT 200
   OFFSET 0

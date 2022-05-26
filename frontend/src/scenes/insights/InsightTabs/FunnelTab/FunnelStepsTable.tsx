@@ -5,7 +5,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { LemonTable, LemonTableColumn, LemonTableColumnGroup } from 'lib/components/LemonTable'
 import { BreakdownKeyType, FlattenedFunnelStepByBreakdown } from '~/types'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
-import { getSeriesColor, getVisibilityIndex } from 'scenes/funnels/funnelUtils'
+import { getVisibilityIndex } from 'scenes/funnels/funnelUtils'
 import { getActionFilterFromFunnelStep, getSignificanceFromBreakdownStep } from './funnelStepTableUtils'
 import { formatBreakdownLabel } from 'scenes/insights/InsightsTable/InsightsTable'
 import { cohortsModel } from '~/models/cohortsModel'
@@ -13,7 +13,8 @@ import { LemonCheckbox } from 'lib/components/LemonCheckbox'
 import { Lettermark, LettermarkColor } from 'lib/components/Lettermark/Lettermark'
 import { LemonRow } from 'lib/components/LemonRow'
 import { humanFriendlyDuration, humanFriendlyNumber, percentage } from 'lib/utils'
-import { ValueInspectorButton } from 'scenes/funnels/FunnelBarGraph'
+import { ValueInspectorButton } from 'scenes/funnels/ValueInspectorButton'
+import { getSeriesColor } from 'lib/colors'
 import { IconFlag } from 'lib/components/icons'
 
 export function FunnelStepsTable(): JSX.Element | null {
@@ -92,7 +93,13 @@ export function FunnelStepsTable(): JSX.Element | null {
                     },
                 },
                 {
-                    title: 'Total conversion',
+                    title: (
+                        <>
+                            Total
+                            <br />
+                            conversion
+                        </>
+                    ),
                     render: (_: void, breakdown: FlattenedFunnelStepByBreakdown) =>
                         percentage(breakdown?.conversionRates?.total ?? 0, 1, true),
                     align: 'right',
@@ -164,7 +171,13 @@ export function FunnelStepsTable(): JSX.Element | null {
                           },
                       ]),
                 {
-                    title: 'Conversion so far',
+                    title: (
+                        <>
+                            Conversion
+                            <br />
+                            so&nbsp;far
+                        </>
+                    ),
                     render: function RenderConversionSoFar(
                         _: void,
                         breakdown: FlattenedFunnelStepByBreakdown
@@ -189,7 +202,13 @@ export function FunnelStepsTable(): JSX.Element | null {
                     ? []
                     : [
                           {
-                              title: 'Conversion from previous',
+                              title: (
+                                  <>
+                                      Conversion
+                                      <br />
+                                      from&nbsp;previous
+                                  </>
+                              ),
                               render: function RenderConversionFromPrevious(
                                   _: void,
                                   breakdown: FlattenedFunnelStepByBreakdown
@@ -220,7 +239,29 @@ export function FunnelStepsTable(): JSX.Element | null {
                               align: 'right',
                           },
                           {
-                              title: 'Avg. time',
+                              title: (
+                                  <>
+                                      Median
+                                      <br />
+                                      time
+                                  </>
+                              ),
+                              render: (_: void, breakdown: FlattenedFunnelStepByBreakdown) =>
+                                  breakdown.steps?.[step.order]?.median_conversion_time != undefined
+                                      ? humanFriendlyDuration(breakdown.steps[step.order].median_conversion_time, 3)
+                                      : '–',
+                              align: 'right',
+                              width: 0,
+                              className: 'no-wrap',
+                          },
+                          {
+                              title: (
+                                  <>
+                                      Average
+                                      <br />
+                                      time
+                                  </>
+                              ),
                               render: (_: void, breakdown: FlattenedFunnelStepByBreakdown) =>
                                   breakdown.steps?.[step.order]?.average_conversion_time != undefined
                                       ? humanFriendlyDuration(breakdown.steps[step.order].average_conversion_time, 3)
@@ -240,15 +281,8 @@ export function FunnelStepsTable(): JSX.Element | null {
             columns={columnsGrouped}
             loading={insightLoading}
             rowKey="breakdownIndex"
-            rowStatus={(record) => (record.significant ? 'highlighted' : undefined)}
-            rowRibbonColor={(series) =>
-                getSeriesColor(
-                    series?.breakdownIndex,
-                    flattenedBreakdowns.length === 1,
-                    undefined,
-                    flattenedBreakdowns.length
-                )
-            }
+            rowStatus={(record) => (record.significant ? 'highlighted' : null)}
+            rowRibbonColor={(series) => getSeriesColor(series?.breakdownIndex ?? 0)}
         />
     )
 }

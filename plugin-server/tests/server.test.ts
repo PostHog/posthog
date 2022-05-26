@@ -1,7 +1,10 @@
 import * as Sentry from '@sentry/node'
+import * as nodeSchedule from 'node-schedule'
 
-import { startPluginsServer } from '../src/main/pluginsServer'
-import { LogLevel } from '../src/types'
+import { startJobQueueConsumer } from '../src/main/job-queues/job-queue-consumer'
+import { ServerInstance, startPluginsServer } from '../src/main/pluginsServer'
+import { startPluginSchedules } from '../src/main/services/schedule'
+import { LogLevel, PluginServerCapabilities, PluginsServerConfig } from '../src/types'
 import { killProcess } from '../src/utils/kill'
 import { delay } from '../src/utils/utils'
 import { makePiscina } from '../src/worker/piscina'
@@ -10,25 +13,45 @@ import { resetTestDatabase } from './helpers/sql'
 jest.mock('@sentry/node')
 jest.mock('../src/utils/db/sql')
 jest.mock('../src/utils/kill')
+jest.mock('../src/main/services/schedule')
+jest.mock('../src/main/job-queues/job-queue-consumer')
 jest.setTimeout(60000) // 60 sec timeout
 
+function numberOfScheduledJobs() {
+    return Object.keys(nodeSchedule.scheduledJobs).length
+}
+
 describe('server', () => {
-    test('startPluginsServer', async () => {
+    let pluginsServer: ServerInstance | null = null
+
+    function createPluginServer(
+        config: Partial<PluginsServerConfig> = {},
+        capabilities: PluginServerCapabilities | null = null
+    ) {
+        return startPluginsServer(
+            {
+                WORKER_CONCURRENCY: 2,
+                LOG_LEVEL: LogLevel.Debug,
+                ...config,
+            },
+            makePiscina,
+            capabilities
+        )
+    }
+
+    afterEach(async () => {
+        await pluginsServer?.stop()
+        pluginsServer = null
+    })
+
+    test('startPluginsServer does not error', async () => {
         const testCode = `
         async function processEvent (event) {
             return event
         }
     `
         await resetTestDatabase(testCode)
-        const pluginsServer = await startPluginsServer(
-            {
-                WORKER_CONCURRENCY: 2,
-                LOG_LEVEL: LogLevel.Debug,
-            },
-            makePiscina
-        )
-
-        await pluginsServer.stop()
+        pluginsServer = await createPluginServer()
     })
 
     describe('plugin server staleness check', () => {
@@ -40,14 +63,9 @@ describe('server', () => {
         `
             await resetTestDatabase(testCode)
 
-            const pluginsServer = await startPluginsServer(
-                {
-                    WORKER_CONCURRENCY: 2,
-                    STALENESS_RESTART_SECONDS: 5,
-                    LOG_LEVEL: LogLevel.Debug,
-                },
-                makePiscina
-            )
+            pluginsServer = await createPluginServer({
+                STALENESS_RESTART_SECONDS: 5,
+            })
 
             await delay(10000)
 
@@ -66,8 +84,48 @@ describe('server', () => {
                     },
                 }
             )
+        })
+    })
 
-            await pluginsServer.stop()
+    test('starting and stopping node-schedule scheduled jobs', async () => {
+        expect(numberOfScheduledJobs()).toEqual(0)
+
+        pluginsServer = await createPluginServer()
+
+        expect(numberOfScheduledJobs()).toBeGreaterThan(1)
+
+        await pluginsServer.stop()
+        pluginsServer = null
+
+        expect(numberOfScheduledJobs()).toEqual(0)
+    })
+
+    describe('plugin-server capabilities', () => {
+        test('starts all main services by default', async () => {
+            pluginsServer = await createPluginServer()
+
+            expect(startPluginSchedules).toHaveBeenCalled()
+            expect(startJobQueueConsumer).toHaveBeenCalled()
+        })
+
+        test('disabling pluginScheduledTasks', async () => {
+            pluginsServer = await createPluginServer(
+                {},
+                { ingestion: true, pluginScheduledTasks: false, processJobs: true }
+            )
+
+            expect(startPluginSchedules).not.toHaveBeenCalled()
+            expect(startJobQueueConsumer).toHaveBeenCalled()
+        })
+
+        test('disabling processJobs', async () => {
+            pluginsServer = await createPluginServer(
+                {},
+                { ingestion: true, pluginScheduledTasks: true, processJobs: false }
+            )
+
+            expect(startPluginSchedules).toHaveBeenCalled()
+            expect(startJobQueueConsumer).not.toHaveBeenCalled()
         })
     })
 })

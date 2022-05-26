@@ -45,6 +45,7 @@ export function ActionsLineGraph({ inSharedMode = false, showPersonsModal = true
                     : undefined
             }
             isCompare={!!filters.compare}
+            timezone={insight.timezone}
             isInProgress={filters.insight !== InsightType.STICKINESS && incompletenessOffsetFromEnd < 0}
             incompletenessOffsetFromEnd={incompletenessOffsetFromEnd}
             onClick={

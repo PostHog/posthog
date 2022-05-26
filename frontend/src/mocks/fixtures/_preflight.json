@@ -1,14 +1,22 @@
 {
     "django": true,
     "redis": true,
-    "plugins": true,
+    "plugins": false,
     "celery": false,
     "db": true,
+    "clickhouse": true,
+    "kafka": true,
     "initiated": true,
     "cloud": false,
     "demo": false,
+    "object_storage": true,
     "realm": "hosted-clickhouse",
-    "available_social_auth_providers": { "github": false, "gitlab": false, "google-oauth2": false, "saml": false },
+    "available_social_auth_providers": {
+        "github": false,
+        "gitlab": false,
+        "google-oauth2": false,
+        "saml": false
+    },
     "can_create_org": false,
     "email_service_available": false,
     "db_backend": "clickhouse",
@@ -459,5 +467,8 @@
     "is_event_property_usage_enabled": true,
     "licensed_users_available": 21311,
     "site_url": "http://localhost:8000",
-    "instance_preferences": { "debug_queries": false, "disable_paid_fs": false }
+    "instance_preferences": {
+        "debug_queries": false,
+        "disable_paid_fs": false
+    }
 }

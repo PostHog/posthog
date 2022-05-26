@@ -1,4 +1,4 @@
-import { Col, Row, Form, Input, Button } from 'antd'
+import { Col, Row, Form, Input } from 'antd'
 import React, { useEffect, useRef } from 'react'
 import './Signup.scss'
 import { Link } from 'lib/components/Link'
@@ -11,9 +11,9 @@ import { Rule } from 'rc-field-form/lib/interface'
 import { ExclamationCircleFilled } from '@ant-design/icons'
 import { userLogic } from '../userLogic'
 import { WelcomeLogo } from './WelcomeLogo'
-import hedgehogMain from 'public/hedgehog-bridge-page.png'
 import { InlineMessage } from 'lib/components/InlineMessage/InlineMessage'
 import { SceneExport } from 'scenes/sceneTypes'
+import { LemonButton } from 'lib/components/LemonButton'
 
 export const scene: SceneExport = {
     component: Signup,
@@ -79,7 +79,6 @@ export function Signup(): JSX.Element | null {
         <div className="bridge-page signup">
             <Row>
                 <Col span={24} className="auth-main-content">
-                    <img src={hedgehogMain} alt="" className="main-art" />
                     <div className="inner-wrapper">
                         <WelcomeLogo view="signup" />
                         <div className="inner">
@@ -151,6 +150,7 @@ export function Signup(): JSX.Element | null {
                                 </Form.Item>
                                 {!preflight?.demo && (
                                     <PasswordInput
+                                        style={{ marginBottom: 16 }}
                                         ref={passwordInputRef}
                                         showStrengthIndicator
                                         validateStatus={
@@ -160,7 +160,7 @@ export function Signup(): JSX.Element | null {
                                             signupResponse?.errorAttribute === 'password' ? (
                                                 signupResponse.errorDetail
                                             ) : (
-                                                <span style={{ paddingBottom: 16 }}>
+                                                <span>
                                                     <ExclamationCircleFilled style={{ marginRight: 4 }} />
                                                     Passwords must be at least 8 characters
                                                 </span>
@@ -201,7 +201,23 @@ export function Signup(): JSX.Element | null {
                                     />
                                 </Form.Item>
 
-                                <Form.Item className="text-center" style={{ marginTop: 32 }}>
+                                <div className="divider" />
+
+                                <Form.Item>
+                                    <LemonButton
+                                        htmlType="submit"
+                                        type="primary"
+                                        data-attr="signup-submit"
+                                        fullWidth
+                                        center
+                                        size="large"
+                                        loading={signupResponseLoading}
+                                    >
+                                        {!preflight?.demo ? 'Create account' : 'Enter the demo environment'}
+                                    </LemonButton>
+                                </Form.Item>
+
+                                <Form.Item className="text-center terms-and-conditions-text">
                                     By {!preflight?.demo ? 'creating an account' : 'entering the demo environment'}, you
                                     agree to our{' '}
                                     <a href={`https://posthog.com/terms?${UTM_TAGS}`} target="_blank" rel="noopener">
@@ -212,17 +228,6 @@ export function Signup(): JSX.Element | null {
                                         Privacy Policy
                                     </a>
                                     .
-                                </Form.Item>
-                                <Form.Item>
-                                    <Button
-                                        className="btn-bridge"
-                                        htmlType="submit"
-                                        data-attr="signup-submit"
-                                        block
-                                        loading={signupResponseLoading}
-                                    >
-                                        {!preflight?.demo ? 'Create account' : 'Enter the demo environment'}
-                                    </Button>
                                 </Form.Item>
                             </Form>
                             {!preflight?.demo && (

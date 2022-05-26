@@ -28,7 +28,7 @@ export function DisabledPluginSection(): JSX.Element {
                             ) : (
                                 <CaretRightOutlined />
                             )}
-                            {` Installed plugins (${filteredDisabledPlugins.length})`}
+                            {` Installed apps (${filteredDisabledPlugins.length})`}
                         </>
                     }
                 />
@@ -42,7 +42,7 @@ export function DisabledPluginSection(): JSX.Element {
                             ))}
                         </Row>
                     ) : (
-                        <p style={{ margin: 10 }}>No plugins match your search.</p>
+                        <p style={{ margin: 10 }}>No apps match your search.</p>
                     )}
                 </>
             ) : null}

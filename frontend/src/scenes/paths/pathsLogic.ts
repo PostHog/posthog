@@ -1,7 +1,7 @@
 import { kea } from 'kea'
 import { router } from 'kea-router'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { pathsLogicType } from './pathsLogicType'
+import type { pathsLogicType } from './pathsLogicType'
 import { InsightLogicProps, FilterType, PathType, PropertyFilter, InsightType } from '~/types'
 import { personsModalLogic } from 'scenes/trends/personsModalLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
@@ -23,24 +23,25 @@ export const pathOptionsToProperty = {
 }
 
 const DEFAULT_PATH_LOGIC_KEY = 'default_path_key'
-interface PathResult {
+export interface PathResult {
     paths: PathNode[]
     filter: Partial<FilterType>
     error?: boolean
 }
 
-interface PathNode {
+export interface PathNode {
     target: string
     source: string
     value: number
 }
 
-export const pathsLogic = kea<pathsLogicType<PathNode>>({
+export const pathsLogic = kea<pathsLogicType>({
     path: (key) => ['scenes', 'paths', 'pathsLogic', key],
     props: {} as InsightLogicProps,
     key: keyForInsightLogicProps(DEFAULT_PATH_LOGIC_KEY),
 
     connect: (props: InsightLogicProps) => ({
+        logic: [personsModalLogic],
         values: [insightLogic(props), ['filters as filter', 'insight', 'insightLoading']],
         actions: [insightLogic(props), ['loadResultsSuccess']],
     }),

@@ -37,6 +37,11 @@ import { groupsModel } from '~/models/groupsModel'
 import { cohortsModel } from '~/models/cohortsModel'
 import { mathsLogic } from 'scenes/trends/mathsLogic'
 import { PaginationControl, usePagination } from 'lib/components/PaginationControl'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
+import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
+import { insightActivityDescriber } from 'scenes/saved-insights/activityDescriptions'
 
 const { TabPane } = Tabs
 
@@ -320,6 +325,9 @@ export function SavedInsights(): JSX.Element {
         },
     ]
 
+    const { featureFlags } = useValues(featureFlagLogic)
+    const showActivityLog = featureFlags[FEATURE_FLAGS.INSIGHT_ACTIVITY_LOG]
+
     return (
         <div className="saved-insights">
             <PageHeader title="Insights" buttons={<NewInsightButton />} />
@@ -332,133 +340,146 @@ export function SavedInsights(): JSX.Element {
                 <TabPane tab="All Insights" key={SavedInsightsTabs.All} />
                 <TabPane tab="Your Insights" key={SavedInsightsTabs.Yours} />
                 <TabPane tab="Favorites" key={SavedInsightsTabs.Favorites} />
+                {showActivityLog ? <TabPane tab="History" key={SavedInsightsTabs.History} /> : null}
             </Tabs>
-            <Row style={{ paddingBottom: 16, justifyContent: 'space-between', gap: '0.75rem' }}>
-                <Col>
-                    <Input.Search
-                        allowClear
-                        enterButton
-                        placeholder="Search for insights"
-                        style={{ width: 240 }}
-                        onChange={(e) => setSavedInsightsFilters({ search: e.target.value })}
-                        value={search || ''}
-                        onSearch={() => loadInsights()}
-                    />
-                </Col>
-                <Row style={{ gap: '0.75rem' }}>
-                    <Col>
-                        Type:
-                        <Select
-                            className="insight-type-icon-dropdown"
-                            value={insightType}
-                            style={{ paddingLeft: 8, width: 140 }}
-                            onChange={(it) => setSavedInsightsFilters({ insightType: it })}
-                        >
-                            {Object.entries({
-                                ['All types']: {
-                                    name: 'All types',
-                                    inMenu: false,
-                                } as InsightTypeMetadata,
-                                ...INSIGHT_TYPES_METADATA,
-                            }).map(([listedInsightType, listedInsightTypeMetadata], index) => (
-                                <Select.Option key={index} value={listedInsightType}>
-                                    <div className="insight-type-icon-wrapper">
-                                        {listedInsightTypeMetadata.icon ? (
-                                            <div className="icon-container">
-                                                <div className="icon-container-inner">
-                                                    {<listedInsightTypeMetadata.icon color="#747EA2" noBackground />}
-                                                </div>
-                                            </div>
-                                        ) : null}
-                                        <div>{listedInsightTypeMetadata.name}</div>
-                                    </div>
-                                </Select.Option>
-                            ))}
-                        </Select>
-                    </Col>
-                    <Col>
-                        Last modified:
-                        <DateFilter
-                            style={{ paddingLeft: 8 }}
-                            defaultValue="All time"
-                            disabled={false}
-                            bordered={true}
-                            dateFrom={dateFrom}
-                            dateTo={dateTo}
-                            onChange={(fromDate, toDate) =>
-                                setSavedInsightsFilters({ dateFrom: fromDate, dateTo: toDate })
-                            }
-                        />
-                    </Col>
-                    {tab !== SavedInsightsTabs.Yours ? (
-                        <Col>
-                            Created by:
-                            <Select
-                                value={createdBy}
-                                style={{ paddingLeft: 8, width: 140 }}
-                                onChange={(cb) => {
-                                    setSavedInsightsFilters({ createdBy: cb })
-                                }}
-                            >
-                                <Select.Option value={'All users'}>All users</Select.Option>
-                                {meFirstMembers.map((member) => (
-                                    <Select.Option key={member.user.id} value={member.user.id}>
-                                        {member.user.first_name}
-                                    </Select.Option>
-                                ))}
-                            </Select>
-                        </Col>
-                    ) : null}
-                </Row>
-            </Row>
-            <Row className="list-or-card-layout">
-                {count
-                    ? `${startCount}${endCount - startCount > 1 ? '-' + endCount : ''} of ${count} insight${
-                          count === 1 ? '' : 's'
-                      }`
-                    : 'No insights yet'}
-                <div>
-                    <Radio.Group
-                        onChange={(e) => setSavedInsightsFilters({ layoutView: e.target.value })}
-                        value={layoutView}
-                        buttonStyle="solid"
-                    >
-                        <Radio.Button value={LayoutView.List}>
-                            <UnorderedListOutlined className="mr-05" />
-                            List
-                        </Radio.Button>
-                        <Radio.Button value={LayoutView.Card}>
-                            <AppstoreFilled className="mr-05" />
-                            Cards
-                        </Radio.Button>
-                    </Radio.Group>
-                </div>
-            </Row>
-            {!insightsLoading && insights.count < 1 ? (
-                <SavedInsightsEmptyState />
+
+            {tab === SavedInsightsTabs.History && showActivityLog ? (
+                <ActivityLog scope={ActivityScope.INSIGHT} describer={insightActivityDescriber} />
             ) : (
                 <>
-                    {layoutView === LayoutView.List ? (
-                        <LemonTable
-                            loading={insightsLoading}
-                            columns={columns}
-                            dataSource={insights.results}
-                            pagination={pagination}
-                            disableSortingCancellation
-                            sorting={sorting}
-                            onSort={(newSorting) =>
-                                setSavedInsightsFilters({
-                                    order: newSorting
-                                        ? `${newSorting.order === -1 ? '-' : ''}${newSorting.columnKey}`
-                                        : undefined,
-                                })
-                            }
-                            rowKey="id"
-                            loadingSkeletonRows={15}
-                            nouns={['insight', 'insights']}
-                        />
+                    <Row style={{ paddingBottom: 16, justifyContent: 'space-between', gap: '0.75rem' }}>
+                        <Col>
+                            <Input.Search
+                                allowClear
+                                enterButton
+                                placeholder="Search for insights"
+                                style={{ width: 240 }}
+                                onChange={(e) => setSavedInsightsFilters({ search: e.target.value })}
+                                value={search || ''}
+                                onSearch={() => loadInsights()}
+                            />
+                        </Col>
+                        <Row style={{ gap: '0.75rem' }}>
+                            <Col>
+                                Type:
+                                <Select
+                                    className="insight-type-icon-dropdown"
+                                    value={insightType}
+                                    style={{ paddingLeft: 8, width: 140 }}
+                                    onChange={(it) => setSavedInsightsFilters({ insightType: it })}
+                                >
+                                    {Object.entries({
+                                        ['All types']: {
+                                            name: 'All types',
+                                            inMenu: false,
+                                        } as InsightTypeMetadata,
+                                        ...INSIGHT_TYPES_METADATA,
+                                    }).map(([listedInsightType, listedInsightTypeMetadata], index) => (
+                                        <Select.Option key={index} value={listedInsightType}>
+                                            <div className="insight-type-icon-wrapper">
+                                                {listedInsightTypeMetadata.icon ? (
+                                                    <div className="icon-container">
+                                                        <div className="icon-container-inner">
+                                                            {
+                                                                <listedInsightTypeMetadata.icon
+                                                                    color="#747EA2"
+                                                                    noBackground
+                                                                />
+                                                            }
+                                                        </div>
+                                                    </div>
+                                                ) : null}
+                                                <div>{listedInsightTypeMetadata.name}</div>
+                                            </div>
+                                        </Select.Option>
+                                    ))}
+                                </Select>
+                            </Col>
+                            <Col>
+                                Last modified:
+                                <DateFilter
+                                    style={{ paddingLeft: 8 }}
+                                    defaultValue="All time"
+                                    disabled={false}
+                                    bordered={true}
+                                    dateFrom={dateFrom}
+                                    dateTo={dateTo}
+                                    onChange={(fromDate, toDate) =>
+                                        setSavedInsightsFilters({ dateFrom: fromDate, dateTo: toDate })
+                                    }
+                                />
+                            </Col>
+                            {tab !== SavedInsightsTabs.Yours ? (
+                                <Col>
+                                    Created by:
+                                    <Select
+                                        value={createdBy}
+                                        style={{ paddingLeft: 8, width: 140 }}
+                                        onChange={(cb) => {
+                                            setSavedInsightsFilters({ createdBy: cb })
+                                        }}
+                                    >
+                                        <Select.Option value={'All users'}>All users</Select.Option>
+                                        {meFirstMembers.map((member) => (
+                                            <Select.Option key={member.user.id} value={member.user.id}>
+                                                {member.user.first_name}
+                                            </Select.Option>
+                                        ))}
+                                    </Select>
+                                </Col>
+                            ) : null}
+                        </Row>
+                    </Row>
+                    <Row className="list-or-card-layout">
+                        {count
+                            ? `${startCount}${endCount - startCount > 1 ? '-' + endCount : ''} of ${count} insight${
+                                  count === 1 ? '' : 's'
+                              }`
+                            : 'No insights yet'}
+                        <div>
+                            <Radio.Group
+                                onChange={(e) => setSavedInsightsFilters({ layoutView: e.target.value })}
+                                value={layoutView}
+                                buttonStyle="solid"
+                            >
+                                <Radio.Button value={LayoutView.List}>
+                                    <UnorderedListOutlined className="mr-05" />
+                                    List
+                                </Radio.Button>
+                                <Radio.Button value={LayoutView.Card}>
+                                    <AppstoreFilled className="mr-05" />
+                                    Cards
+                                </Radio.Button>
+                            </Radio.Group>
+                        </div>
+                    </Row>
+                    {!insightsLoading && insights.count < 1 ? (
+                        <SavedInsightsEmptyState />
                     ) : (
-                        <SavedInsightsGrid />
+                        <>
+                            {layoutView === LayoutView.List ? (
+                                <LemonTable
+                                    loading={insightsLoading}
+                                    columns={columns}
+                                    dataSource={insights.results}
+                                    pagination={pagination}
+                                    disableSortingCancellation
+                                    sorting={sorting}
+                                    onSort={(newSorting) =>
+                                        setSavedInsightsFilters({
+                                            order: newSorting
+                                                ? `${newSorting.order === -1 ? '-' : ''}${newSorting.columnKey}`
+                                                : undefined,
+                                        })
+                                    }
+                                    rowKey="id"
+                                    loadingSkeletonRows={15}
+                                    nouns={['insight', 'insights']}
+                                />
+                            ) : (
+                                <SavedInsightsGrid />
+                            )}
+                        </>
                     )}
                 </>
             )}

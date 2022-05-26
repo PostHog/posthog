@@ -22,7 +22,7 @@ from posthog.api import (
     user,
 )
 from posthog.api.decide import hostname_in_app_urls
-from posthog.demo import demo
+from posthog.demo import demo_route
 from posthog.models import User
 
 from .utils import render_template
@@ -117,7 +117,7 @@ urlpatterns = [
     re_path(r"^api.+", api_not_found),
     path("authorize_and_redirect/", login_required(authorize_and_redirect)),
     path("shared_dashboard/<str:share_token>", dashboard.shared_dashboard),
-    re_path(r"^demo.*", login_required(demo)),
+    re_path(r"^demo.*", login_required(demo_route)),
     # ingestion
     opt_slash_path("decide", decide.get_decide),
     opt_slash_path("e", capture.get_event),
@@ -130,7 +130,6 @@ urlpatterns = [
     opt_slash_path(".well-known/security.txt", security_txt),
     # auth
     path("logout", authentication.logout, name="login"),
-    path("signup/finish/", signup.finish_social_signup, name="signup_finish"),
     path(
         "login/<str:backend>/", authentication.sso_login, name="social_begin"
     ),  # overrides from `social_django.urls` to validate proper license
@@ -158,6 +157,7 @@ frontend_unauthenticated_routes = [
     r"signup\/[A-Za-z0-9\-]*",
     "reset",
     "organization/billing/subscribed",
+    "organization/confirm-creation",
     "login",
 ]
 for route in frontend_unauthenticated_routes:

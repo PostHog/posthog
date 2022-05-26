@@ -2,7 +2,7 @@ import React from 'react'
 import { ComponentStory, ComponentMeta } from '@storybook/react'
 
 import { Popup } from './Popup'
-import { Button } from 'antd'
+import { IconChevronRight } from '../icons'
 
 export default {
     title: 'Lemon UI/Popup',
@@ -11,14 +11,19 @@ export default {
 
 const Template: ComponentStory<typeof Popup> = (args) => <Popup {...args} />
 
-export const Surprise = Template.bind({})
-Surprise.args = {
+export const Popup_ = Template.bind({})
+Popup_.args = {
     visible: true,
-    children: <Button type="primary">Click here…</Button>,
+    children: (
+        <span style={{ fontSize: '1.5rem' }}>
+            <IconChevronRight />
+        </span>
+    ),
     overlay: (
         <>
-            <h3>Surprise! 😱</h3>You have been gnomed.
+            <h3>Surprise! 😱</h3>
+            <span>You have been gnomed.</span>
         </>
     ),
-    placement: 'bottom-start',
+    placement: 'right-start',
 }

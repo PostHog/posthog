@@ -1,7 +1,7 @@
 import React from 'react'
 import { kea } from 'kea'
 import { groupsModel } from '~/models/groupsModel'
-import { mathsLogicType } from './mathsLogicType'
+import type { mathsLogicType } from './mathsLogicType'
 import { EVENT_MATH_TYPE, PROPERTY_MATH_TYPE } from 'lib/constants'
 import { BaseMathType, PropertyMathType } from '~/types'
 
@@ -221,7 +221,7 @@ export function apiValueToMathType(math: string | undefined, groupTypeIndex: num
     return math || 'total'
 }
 
-export const mathsLogic = kea<mathsLogicType<MathDefinition>>({
+export const mathsLogic = kea<mathsLogicType>({
     path: ['scenes', 'trends', 'mathsLogic'],
     connect: {
         values: [groupsModel, ['groupTypes', 'aggregationLabel']],

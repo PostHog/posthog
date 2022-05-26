@@ -1,7 +1,8 @@
-import { kea } from 'kea'
+import { actions, kea, path } from 'kea'
 import api from 'lib/api'
-
 import type { kafkaInspectorLogicType } from './kafkaInspectorLogicType'
+import { forms } from 'kea-forms'
+import { loaders } from 'kea-loaders'
 export interface KafkaMessage {
     topic: string
     partition: number
@@ -11,12 +12,12 @@ export interface KafkaMessage {
     value: Record<string, any> | string
 }
 
-export const kafkaInspectorLogic = kea<kafkaInspectorLogicType<KafkaMessage>>({
-    path: ['scenes', 'instance', 'SystemStatus', 'kafkaInspectorLogic'],
-    actions: () => ({
+export const kafkaInspectorLogic = kea<kafkaInspectorLogicType>([
+    path(['scenes', 'instance', 'SystemStatus', 'kafkaInspectorLogic']),
+    actions({
         fetchKafkaMessage: (topic: string, partition: number, offset: number) => ({ topic, partition, offset }),
     }),
-    loaders: () => ({
+    loaders({
         kafkaMessage: [
             null as KafkaMessage | null,
             {
@@ -26,12 +27,12 @@ export const kafkaInspectorLogic = kea<kafkaInspectorLogicType<KafkaMessage>>({
             },
         ],
     }),
-    forms: ({ actions }) => ({
+    forms(({ actions }) => ({
         fetchKafkaMessage: {
             defaults: { topic: 'clickhouse_events_json', partition: 0, offset: 0 },
             submit: ({ topic, partition, offset }: { topic: string; partition: number; offset: number }) => {
                 actions.fetchKafkaMessage(topic, Number(partition), Number(offset))
             },
         },
-    }),
-})
+    })),
+])

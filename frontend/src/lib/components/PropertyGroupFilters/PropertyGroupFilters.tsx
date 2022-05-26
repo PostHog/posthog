@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react'
+import React from 'react'
 import { useValues, BindLogic, useActions } from 'kea'
 import '../../../scenes/actions/Actions.scss'
 import { PropertyGroupFilter, FilterLogicalOperator, PropertyGroupFilterValue, FilterType } from '~/types'
@@ -11,30 +11,32 @@ import { GlobalFiltersTitle } from 'scenes/insights/common'
 import { IconCopy, IconDelete, IconPlusMini } from '../icons'
 import { LemonButton } from '../LemonButton'
 import { TestAccountFilter } from 'scenes/insights/TestAccountFilter'
+import { LemonDivider } from '../LemonDivider'
 
 interface PropertyGroupFilters {
-    propertyFilters?: PropertyGroupFilter | null
+    value: PropertyGroupFilter
     onChange: (filters: PropertyGroupFilter) => void
     pageKey: string
     taxonomicGroupTypes?: TaxonomicFilterGroupType[]
     eventNames?: string[]
     setTestFilters: (filters: Partial<FilterType>) => void
     filters: Partial<FilterType>
+    noTitle?: boolean
 }
 
 export function PropertyGroupFilters({
-    propertyFilters = null,
+    value,
     onChange,
     pageKey,
     taxonomicGroupTypes,
     eventNames = [],
     setTestFilters,
     filters,
+    noTitle,
 }: PropertyGroupFilters): JSX.Element {
-    const logicProps = { propertyFilters, onChange, pageKey }
-    const { filtersWithNew } = useValues(propertyGroupFilterLogic(logicProps))
+    const logicProps = { value, onChange, pageKey }
+    const { propertyGroupFilter } = useValues(propertyGroupFilterLogic(logicProps))
     const {
-        setFilters,
         addFilterGroup,
         removeFilterGroup,
         setOuterPropertyGroupsType,
@@ -43,84 +45,85 @@ export function PropertyGroupFilters({
         duplicateFilterGroup,
     } = useActions(propertyGroupFilterLogic(logicProps))
 
-    // Update the logic's internal filters when the props change
-    useEffect(() => {
-        setFilters(propertyFilters ?? { type: FilterLogicalOperator.And, values: [] })
-    }, [propertyFilters])
+    const showHeader = !noTitle || (propertyGroupFilter.type && propertyGroupFilter.values.length > 1)
 
     return (
         <>
-            {filtersWithNew.values && (
+            {propertyGroupFilter.values && (
                 <div className="property-group-filters">
                     <BindLogic logic={propertyGroupFilterLogic} props={logicProps}>
-                        <Row
-                            align="middle"
-                            justify="space-between"
-                            className="pb pr mb"
-                            style={{ borderBottom: '1px solid var(--border)' }}
-                        >
-                            <GlobalFiltersTitle orFiltering={true} />
-                            {filtersWithNew.type && filtersWithNew.values.length > 1 && (
-                                <AndOrFilterSelect
-                                    value={filtersWithNew.type}
-                                    onChange={(value) => setOuterPropertyGroupsType(value)}
-                                    topLevelFilter={true}
-                                />
-                            )}
-                        </Row>
+                        {showHeader ? (
+                            <div className="flex-center space-between-items">
+                                {!noTitle ? <GlobalFiltersTitle orFiltering={true} /> : null}
+                                {propertyGroupFilter.type && propertyGroupFilter.values.length > 1 && (
+                                    <AndOrFilterSelect
+                                        value={propertyGroupFilter.type}
+                                        onChange={(value) => setOuterPropertyGroupsType(value)}
+                                        topLevelFilter={true}
+                                    />
+                                )}
+                            </div>
+                        ) : null}
+                        <LemonDivider large />
                         <TestAccountFilter filters={filters} onChange={(testFilters) => setTestFilters(testFilters)} />
-                        {filtersWithNew.values?.map((group: PropertyGroupFilterValue, propertyGroupIndex: number) => {
-                            return (
-                                <>
-                                    <div className="property-group" key={propertyGroupIndex}>
-                                        <Row justify="space-between" align="middle" className="mb-05">
-                                            <AndOrFilterSelect
-                                                onChange={(type) => setInnerPropertyGroupType(type, propertyGroupIndex)}
-                                                value={group.type}
-                                            />
-                                            <div
-                                                style={{
-                                                    marginLeft: 8,
-                                                    marginRight: 8,
-                                                    height: 1,
-                                                    background: '#d9d9d9',
-                                                    flex: 1,
-                                                }}
-                                            />
-                                            <LemonButton
-                                                icon={<IconCopy />}
-                                                type="primary-alt"
-                                                onClick={() => duplicateFilterGroup(propertyGroupIndex)}
-                                                size="small"
-                                            />
-                                            <LemonButton
-                                                icon={<IconDelete />}
-                                                type="primary-alt"
-                                                onClick={() => removeFilterGroup(propertyGroupIndex)}
-                                                size="small"
-                                            />
-                                        </Row>
-                                        <PropertyFilters
-                                            orFiltering={true}
-                                            propertyFilters={group.values}
-                                            style={{ marginBottom: 0 }}
-                                            onChange={(properties) => {
-                                                setPropertyFilters(properties, propertyGroupIndex)
-                                            }}
-                                            pageKey={`trends-filters-${propertyGroupIndex}`}
-                                            taxonomicGroupTypes={taxonomicGroupTypes}
-                                            eventNames={eventNames}
-                                            propertyGroupType={group.type}
-                                        />
-                                    </div>
-                                    {propertyGroupIndex !== filtersWithNew.values.length - 1 && (
-                                        <div className="text-small primary-alt" style={{ margin: '-0.5rem 0' }}>
-                                            <b>{filtersWithNew.type}</b>
-                                        </div>
-                                    )}
-                                </>
-                            )
-                        })}
+                        <div className="mt">
+                            {propertyGroupFilter.values?.map(
+                                (group: PropertyGroupFilterValue, propertyGroupIndex: number) => {
+                                    return (
+                                        <React.Fragment key={propertyGroupIndex}>
+                                            <div className="property-group">
+                                                <Row justify="space-between" align="middle" className="mb-05">
+                                                    <AndOrFilterSelect
+                                                        onChange={(type) =>
+                                                            setInnerPropertyGroupType(type, propertyGroupIndex)
+                                                        }
+                                                        value={group.type}
+                                                    />
+                                                    <div
+                                                        style={{
+                                                            marginLeft: 8,
+                                                            marginRight: 8,
+                                                            height: 1,
+                                                            background: '#d9d9d9',
+                                                            flex: 1,
+                                                        }}
+                                                    />
+                                                    <LemonButton
+                                                        icon={<IconCopy />}
+                                                        type="alt"
+                                                        onClick={() => duplicateFilterGroup(propertyGroupIndex)}
+                                                        size="small"
+                                                    />
+                                                    <LemonButton
+                                                        icon={<IconDelete />}
+                                                        type="alt"
+                                                        onClick={() => removeFilterGroup(propertyGroupIndex)}
+                                                        size="small"
+                                                    />
+                                                </Row>
+                                                <PropertyFilters
+                                                    orFiltering={true}
+                                                    propertyFilters={group.values}
+                                                    style={{ marginBottom: 0 }}
+                                                    onChange={(properties) => {
+                                                        setPropertyFilters(properties, propertyGroupIndex)
+                                                    }}
+                                                    pageKey={`trends-filters-${propertyGroupIndex}`}
+                                                    taxonomicGroupTypes={taxonomicGroupTypes}
+                                                    eventNames={eventNames}
+                                                    propertyGroupType={group.type}
+                                                />
+                                            </div>
+                                            {propertyGroupIndex !== propertyGroupFilter.values.length - 1 && (
+                                                <div className="property-group-and-or-separator">
+                                                    <span>{propertyGroupFilter.type}</span>
+                                                </div>
+                                            )}
+                                        </React.Fragment>
+                                    )
+                                }
+                            )}
+                        </div>
                     </BindLogic>
                 </div>
             )}
@@ -142,17 +145,25 @@ interface AndOrFilterSelectProps {
     onChange: (type: FilterLogicalOperator) => void
     value: FilterLogicalOperator
     topLevelFilter?: boolean
+    prefix?: React.ReactNode
+    suffix?: React.ReactNode
 }
 
-export function AndOrFilterSelect({ onChange, value, topLevelFilter }: AndOrFilterSelectProps): JSX.Element {
+export function AndOrFilterSelect({
+    onChange,
+    value,
+    topLevelFilter,
+    prefix = 'Match',
+    suffix = 'filters in this group',
+}: AndOrFilterSelectProps): JSX.Element {
     return (
-        <Row align="middle" className="and-or-filter">
-            <span className="ml-05">Match</span>
+        <Row align="middle" wrap={false} className="and-or-filter">
+            <span className="ml-05">{prefix}</span>
             <Select
                 optionLabelProp="label"
                 dropdownClassName="and-or-filter-select"
                 style={{ marginLeft: 8, marginRight: 8 }}
-                defaultValue={value || FilterLogicalOperator.And}
+                value={value}
                 onChange={(type) => onChange(type)}
                 dropdownMatchSelectWidth={false}
                 placement={topLevelFilter ? 'bottomRight' : 'bottomLeft'}
@@ -184,7 +195,7 @@ export function AndOrFilterSelect({ onChange, value, topLevelFilter }: AndOrFilt
                     </Row>
                 </Select.Option>
             </Select>{' '}
-            filters in this group
+            {suffix}
         </Row>
     )
 }

@@ -1,3 +1,9 @@
+.Popup__CohortField {
+    .Popup__box {
+        max-height: 30rem;
+    }
+}
+
 .CohortField__dropdown {
     min-width: 14rem;
     max-width: calc(100vw - 14rem);
@@ -15,4 +21,22 @@
 
 .CohortField__CohortNumberField {
     max-width: 4rem;
+}
+
+.CohortField__CohortPersonPropertiesValuesField {
+    min-width: 150px;
+    height: 40px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+
+    .ant-select-selector {
+        height: 100% !important;
+        border: none !important;
+
+        .ant-select-selection-search,
+        .ant-select-selection-placeholder {
+            display: flex;
+            align-items: center;
+        }
+    }
 }

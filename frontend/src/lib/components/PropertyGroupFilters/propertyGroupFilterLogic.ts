@@ -1,18 +1,24 @@
-import { kea } from 'kea'
+import { actions, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 
 import { PropertyGroupFilter, FilterLogicalOperator } from '~/types'
 import { PropertyGroupFilterLogicProps } from 'lib/components/PropertyFilters/types'
 
 import { propertyGroupFilterLogicType } from './propertyGroupFilterLogicType'
-import { convertPropertiesToPropertyGroup } from 'lib/utils'
+import { convertPropertiesToPropertyGroup, objectsEqual } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
-export const propertyGroupFilterLogic = kea<propertyGroupFilterLogicType>({
-    path: (key) => ['lib', 'components', 'PropertyGroupFilters', 'propertyGroupFilterLogic', key],
-    props: {} as PropertyGroupFilterLogicProps,
-    key: (props) => props.pageKey,
+export const propertyGroupFilterLogic = kea<propertyGroupFilterLogicType>([
+    path(['lib', 'components', 'PropertyGroupFilters', 'propertyGroupFilterLogic']),
+    props({} as PropertyGroupFilterLogicProps),
+    key((props) => props.pageKey),
 
-    actions: () => ({
+    propsChanged(({ actions, props }, oldProps) => {
+        if (props.value && !objectsEqual(props.value, oldProps.value)) {
+            actions.setFilters(props.value)
+        }
+    }),
+
+    actions({
         update: (propertyGroupIndex?: number) => ({ propertyGroupIndex }),
         setFilters: (filters: PropertyGroupFilter) => ({ filters }),
         removeFilterGroup: (filterGroup: number) => ({ filterGroup }),
@@ -23,11 +29,9 @@ export const propertyGroupFilterLogic = kea<propertyGroupFilterLogicType>({
         addFilterGroup: true,
     }),
 
-    reducers: ({ props }) => ({
+    reducers(({ props }) => ({
         filters: [
-            props.propertyFilters
-                ? convertPropertiesToPropertyGroup(props.propertyFilters)
-                : ({} as PropertyGroupFilter),
+            convertPropertiesToPropertyGroup(props.value),
             {
                 setFilters: (_, { filters }) => filters,
                 addFilterGroup: (state) => {
@@ -71,8 +75,8 @@ export const propertyGroupFilterLogic = kea<propertyGroupFilterLogicType>({
                 },
             },
         ],
-    }),
-    listeners: ({ actions, props, values }) => ({
+    })),
+    listeners(({ actions, props, values }) => ({
         setFilters: () => actions.update(),
         setPropertyFilters: () => actions.update(),
         setInnerPropertyGroupType: ({ type, index }) => {
@@ -94,10 +98,9 @@ export const propertyGroupFilterLogic = kea<propertyGroupFilterLogicType>({
         update: () => {
             props.onChange(values.filters)
         },
-    }),
+    })),
 
-    selectors: {
-        filledFilters: [(s) => [s.filters], (filters) => filters],
-        filtersWithNew: [(s) => [s.filters], (filters) => filters],
-    },
-})
+    selectors({
+        propertyGroupFilter: [(s) => [s.filters], (propertyGroupFilter) => propertyGroupFilter],
+    }),
+])

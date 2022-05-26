@@ -10,7 +10,7 @@ from posthog.version_requirement import ServiceVersionRequirement
 class TestServiceVersionRequirement(TestCase):
     def test_accepted_services(self):
         v1 = ServiceVersionRequirement(service="postgresql", supported_version="==14.0.0")
-        v2 = ServiceVersionRequirement(service="clickhouse", supported_version="==21.6.0")
+        v2 = ServiceVersionRequirement(service="clickhouse", supported_version="==22.3.0")
         v3 = ServiceVersionRequirement(service="redis", supported_version="==6.2.6")
 
         self.assertEqual(v1.service, "postgresql")
@@ -22,7 +22,7 @@ class TestServiceVersionRequirement(TestCase):
         self.assertEqual(type(v3.supported_version), SimpleSpec)
 
         self.assertEqual(str(v1.supported_version), "==14.0.0")
-        self.assertEqual(str(v2.supported_version), "==21.6.0")
+        self.assertEqual(str(v2.supported_version), "==22.3.0")
         self.assertEqual(str(v3.supported_version), "==6.2.6")
 
         try:

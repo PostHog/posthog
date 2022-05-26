@@ -1,17 +1,18 @@
 // Loads custom icons (some icons may come from a third-party library)
 import React, { CSSProperties, PropsWithChildren } from 'react'
 import './icons.scss'
+import { LemonBubble } from './LemonBubble/LemonBubble'
 
 interface IconWithCountProps {
     count: number
     showZero?: boolean
 }
 
-export function IconWithCount({ count, showZero, children }: PropsWithChildren<IconWithCountProps>): JSX.Element {
+export function IconWithCount({ count, children, showZero }: PropsWithChildren<IconWithCountProps>): JSX.Element {
     return (
         <span style={{ position: 'relative', display: 'inline-flex' }}>
             {children}
-            {count > 0 || showZero ? <div className="icon-count-bubble">{count < 10 ? count : '9+'}</div> : null}
+            <LemonBubble count={count} size="small" position="top-right" showZero={showZero} />
         </span>
     )
 }
@@ -519,6 +520,19 @@ export function IconExclamation(props: React.SVGProps<SVGSVGElement>): JSX.Eleme
         </svg>
     )
 }
+/** Material Design Push Pin icon. */
+export function IconPin(props: React.SVGProps<SVGSVGElement>): JSX.Element {
+    return (
+        <svg fill="none" width="1em" height="1em" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" {...props}>
+            <g fill="currentColor">
+                <path
+                    d="M16,9V4l1,0c0.55,0,1-0.45,1-1v0c0-0.55-0.45-1-1-1H7C6.45,2,6,2.45,6,3v0 c0,0.55,0.45,1,1,1l1,0v5c0,1.66-1.34,3-3,3h0v2h5.97v7l1,1l1-1v-7H19v-2h0C17.34,12,16,10.66,16,9z"
+                    fillRule="evenodd"
+                />
+            </g>
+        </svg>
+    )
+}
 
 /** Material Design Error Outline icon. */
 export function IconErrorOutline(props: React.SVGProps<SVGSVGElement>): JSX.Element {
@@ -621,9 +635,9 @@ export function IconArrowDropDown(props: React.SVGProps<SVGSVGElement>): JSX.Ele
 }
 
 /** Material Design Article icon. */
-export function IconArticle(): JSX.Element {
+export function IconArticle(props: React.SVGProps<SVGSVGElement>): JSX.Element {
     return (
-        <svg fill="none" width="1em" height="1em" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+        <svg fill="none" width="1em" height="1em" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" {...props}>
             <g fill="currentColor">
                 <path d="m19 5v14h-14v-14zm0-2h-14c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2v-14c0-1.1-.9-2-2-2z" />
                 <path d="m14 17h-7v-2h7zm3-4h-10v-2h10zm0-4h-10v-2h10z" />
@@ -633,9 +647,9 @@ export function IconArticle(): JSX.Element {
 }
 
 /** Material Design Question Answer icon. */
-export function IconQuestionAnswer(): JSX.Element {
+export function IconQuestionAnswer(props: React.SVGProps<SVGSVGElement>): JSX.Element {
     return (
-        <svg fill="none" width="1em" height="1em" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+        <svg fill="none" width="1em" height="1em" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" {...props}>
             <path
                 d="m15 4v7h-9.83l-1.17 1.17v-8.17zm1-2h-13c-.55 0-1 .45-1 1v14l4-4h10c.55 0 1-.45 1-1v-9c0-.55-.45-1-1-1zm5 4h-2v9h-13v2c0 .55.45 1 1 1h11l4 4v-15c0-.55-.45-1-1-1z"
                 fill="currentColor"
@@ -794,7 +808,12 @@ interface InsightIconProps {
     children?: React.ReactNode
     style: CSSProperties
 }
-function InsightIcon({ background = '#747EA2', noBackground = false, children, style }: InsightIconProps): JSX.Element {
+function InsightIcon({
+    background = 'var(--muted-alt)',
+    noBackground = false,
+    children,
+    style,
+}: InsightIconProps): JSX.Element {
     return (
         <svg width="1em" height="1em" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg" style={style}>
             {!noBackground ? <rect width="100%" height="100%" rx="4" fill={background} /> : null}
@@ -1236,7 +1255,7 @@ export function ActionStack({ width = 20, height = 20, ...props }: React.SVGProp
                 fillRule="evenodd"
                 clipRule="evenodd"
                 d="M0 4H2V18H16V20H2C0.9 20 0 19.1 0 18V4ZM6 0H18C19.1 0 20 0.9 20 2V14C20 15.1 19.1 16 18 16H6C4.9 16 4 15.1 4 14V2C4 0.9 4.9 0 6 0ZM6 14H18V2H6V14ZM10.6851 10.3414L10.1453 11.9998H8.49756L11.0082 4.72705H12.9897L15.4968 11.9998H13.8491L13.3093 10.3414H10.6851ZM11.9706 6.38898L11.0757 9.14111H12.9223L12.0274 6.38898H11.9706Z"
-                fill="#747EA2"
+                fill="currentColor"
             />
         </svg>
     )
@@ -1322,7 +1341,8 @@ export function EventStackGearIcon({ width = 24, height = 24, ...props }: React.
     )
 }
 
-export function LiveIcon({ width = 24, height = 24, ...props }: React.SVGProps<SVGSVGElement>): JSX.Element {
+/** Material Design Sensors icon. */
+export function IconLive({ width = 24, height = 24, ...props }: React.SVGProps<SVGSVGElement>): JSX.Element {
     return (
         <svg
             width={width}
@@ -1436,6 +1456,17 @@ export function IconCheckCircleOutline(props: React.SVGProps<SVGSVGElement>): JS
         <svg width="48" height="48" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg" {...props}>
             <path
                 d="M24 0.666748C11.12 0.666748 0.666626 11.1201 0.666626 24.0001C0.666626 36.8801 11.12 47.3334 24 47.3334C36.88 47.3334 47.3333 36.8801 47.3333 24.0001C47.3333 11.1201 36.88 0.666748 24 0.666748ZM24 42.6668C13.71 42.6668 5.33329 34.2901 5.33329 24.0001C5.33329 13.7101 13.71 5.33342 24 5.33342C34.29 5.33342 42.6666 13.7101 42.6666 24.0001C42.6666 34.2901 34.29 42.6668 24 42.6668ZM34.71 13.6867L19.3333 29.0634L13.29 23.0434L9.99996 26.3334L19.3333 35.6668L38 17.0001L34.71 13.6867Z"
+                fill="currentColor"
+            />
+        </svg>
+    )
+}
+
+export function IconApps(props: React.SVGProps<SVGSVGElement>): JSX.Element {
+    return (
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" {...props}>
+            <path
+                d="M1.65 3.3C1.18333 3.3 0.791667 3.14167 0.475 2.825C0.158333 2.50833 0 2.11667 0 1.65C0 1.18333 0.158333 0.791667 0.475 0.475C0.791667 0.158333 1.18333 0 1.65 0C2.11667 0 2.50833 0.158333 2.825 0.475C3.14167 0.791667 3.3 1.18333 3.3 1.65C3.3 2.11667 3.14167 2.50833 2.825 2.825C2.50833 3.14167 2.11667 3.3 1.65 3.3ZM8 16C7.53333 16 7.14167 15.8417 6.825 15.525C6.50833 15.2083 6.35 14.8167 6.35 14.35C6.35 13.8833 6.50833 13.4917 6.825 13.175C7.14167 12.8583 7.53333 12.7 8 12.7C8.46667 12.7 8.85833 12.8583 9.175 13.175C9.49167 13.4917 9.65 13.8833 9.65 14.35C9.65 14.8167 9.49167 15.2083 9.175 15.525C8.85833 15.8417 8.46667 16 8 16ZM1.65 16C1.18333 16 0.791667 15.8417 0.475 15.525C0.158333 15.2083 0 14.8167 0 14.35C0 13.8833 0.158333 13.4917 0.475 13.175C0.791667 12.8583 1.18333 12.7 1.65 12.7C2.11667 12.7 2.50833 12.8583 2.825 13.175C3.14167 13.4917 3.3 13.8833 3.3 14.35C3.3 14.8167 3.14167 15.2083 2.825 15.525C2.50833 15.8417 2.11667 16 1.65 16ZM1.65 9.65C1.18333 9.65 0.791667 9.49167 0.475 9.175C0.158333 8.85833 0 8.46667 0 8C0 7.53333 0.158333 7.14167 0.475 6.825C0.791667 6.50833 1.18333 6.35 1.65 6.35C2.11667 6.35 2.50833 6.50833 2.825 6.825C3.14167 7.14167 3.3 7.53333 3.3 8C3.3 8.46667 3.14167 8.85833 2.825 9.175C2.50833 9.49167 2.11667 9.65 1.65 9.65ZM8 9.65C7.53333 9.65 7.14167 9.49167 6.825 9.175C6.50833 8.85833 6.35 8.46667 6.35 8C6.35 7.53333 6.50833 7.14167 6.825 6.825C7.14167 6.50833 7.53333 6.35 8 6.35C8.46667 6.35 8.85833 6.50833 9.175 6.825C9.49167 7.14167 9.65 7.53333 9.65 8C9.65 8.46667 9.49167 8.85833 9.175 9.175C8.85833 9.49167 8.46667 9.65 8 9.65ZM14.35 3.3C13.8833 3.3 13.4917 3.14167 13.175 2.825C12.8583 2.50833 12.7 2.11667 12.7 1.65C12.7 1.18333 12.8583 0.791667 13.175 0.475C13.4917 0.158333 13.8833 0 14.35 0C14.8167 0 15.2083 0.158333 15.525 0.475C15.8417 0.791667 16 1.18333 16 1.65C16 2.11667 15.8417 2.50833 15.525 2.825C15.2083 3.14167 14.8167 3.3 14.35 3.3ZM8 3.3C7.53333 3.3 7.14167 3.14167 6.825 2.825C6.50833 2.50833 6.35 2.11667 6.35 1.65C6.35 1.18333 6.50833 0.791667 6.825 0.475C7.14167 0.158333 7.53333 0 8 0C8.46667 0 8.85833 0.158333 9.175 0.475C9.49167 0.791667 9.65 1.18333 9.65 1.65C9.65 2.11667 9.49167 2.50833 9.175 2.825C8.85833 3.14167 8.46667 3.3 8 3.3ZM14.35 9.65C13.8833 9.65 13.4917 9.49167 13.175 9.175C12.8583 8.85833 12.7 8.46667 12.7 8C12.7 7.53333 12.8583 7.14167 13.175 6.825C13.4917 6.50833 13.8833 6.35 14.35 6.35C14.8167 6.35 15.2083 6.50833 15.525 6.825C15.8417 7.14167 16 7.53333 16 8C16 8.46667 15.8417 8.85833 15.525 9.175C15.2083 9.49167 14.8167 9.65 14.35 9.65ZM14.35 16C13.8833 16 13.4917 15.8417 13.175 15.525C12.8583 15.2083 12.7 14.8167 12.7 14.35C12.7 13.8833 12.8583 13.4917 13.175 13.175C13.4917 12.8583 13.8833 12.7 14.35 12.7C14.8167 12.7 15.2083 12.8583 15.525 13.175C15.8417 13.4917 16 13.8833 16 14.35C16 14.8167 15.8417 15.2083 15.525 15.525C15.2083 15.8417 14.8167 16 14.35 16Z"
                 fill="currentColor"
             />
         </svg>

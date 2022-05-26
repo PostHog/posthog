@@ -1,5 +1,7 @@
 module.exports = {
-    preset: 'ts-jest',
+    transform: {
+        '^.+\\.(t|j)s$': ['@swc/jest'],
+    },
     testEnvironment: 'node',
     clearMocks: true,
     coverageProvider: 'v8',

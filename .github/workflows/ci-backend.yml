@@ -24,6 +24,10 @@ env:
     CLICKHOUSE_VERIFY: 'False'
     TEST: 1
     CLICKHOUSE_SERVER_IMAGE_VERSION: ${{ github.event.inputs.clickhouseServerVersion || '' }}
+    OBJECT_STORAGE_ENABLED: 'True'
+    OBJECT_STORAGE_ENDPOINT: 'http://localhost:19000'
+    OBJECT_STORAGE_ACCESS_KEY_ID: 'object_storage_root_user'
+    OBJECT_STORAGE_SECRET_ACCESS_KEY: 'object_storage_root_password'
 
 jobs:
     # Job to decide if we should run backend ci
@@ -128,7 +132,7 @@ jobs:
         steps:
             - uses: actions/checkout@v2
 
-            - name: Start stack with Docker Compose
+            - name: Stop/Start stack with Docker Compose
               run: |
                   docker-compose -f docker-compose.dev.yml down
                   docker-compose -f docker-compose.dev.yml up -d db &
@@ -165,17 +169,18 @@ jobs:
         needs: changes
         if: ${{ needs.changes.outputs.backend == 'true' && github.repository == 'PostHog/posthog' || github.event_name == 'workflow_dispatch' }}
 
-        name: Django tests – Py ${{ matrix.python-version }} ${{ matrix.name }}, CH ${{ matrix.clickhouse-server-image-version }} (${{matrix.group}}/${{ matrix.concurrency }})
+        name: Django tests – Py ${{ matrix.python-version }} ${{ matrix.name }}, CH ${{ matrix.clickhouse-server-image }} (${{matrix.group}}/${{ matrix.concurrency }})
         runs-on: ubuntu-latest
 
         strategy:
             fail-fast: false
             matrix:
                 python-version: ['3.8.12']
-                clickhouse-server-image-version: ['21.6.5', '21.11.11.1']
+                clickhouse-server-image: ['clickhouse/clickhouse-server:22.3']
                 ee: [true]
                 foss: [false]
                 name: ['']
+                person-on-events: [false]
                 # :NOTE: Keep concurrency and group's in sync
                 concurrency: [5]
                 group: [1, 2, 3, 4, 5]
@@ -185,21 +190,59 @@ jobs:
                       ee: false
                       foss: true
                       name: 'FOSS'
-                      clickhouse-server-image-version: '21.6.5'
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:22.3'
                       concurrency: 1
+                      group: 1
+                    # :TRICKY: Run person-on-events tests only for one CH instance
+                    # But still run in parallel
+                    - python-version: '3.8.12'
+                      ee: true
+                      foss: false
+                      person-on-events: true
+                      name: 'Person on Events'
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:22.3'
+                      concurrency: 5
                       group: 1
                     - python-version: '3.8.12'
-                      ee: false
-                      foss: true
-                      name: 'FOSS'
-                      clickhouse-server-image-version: '21.11.11.1'
-                      concurrency: 1
-                      group: 1
+                      ee: true
+                      foss: false
+                      person-on-events: true
+                      name: 'Person on Events'
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:22.3'
+                      concurrency: 5
+                      group: 2
+                    - python-version: '3.8.12'
+                      ee: true
+                      foss: false
+                      person-on-events: true
+                      name: 'Person on Events'
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:22.3'
+                      concurrency: 5
+                      group: 3
+                    - python-version: '3.8.12'
+                      ee: true
+                      foss: false
+                      person-on-events: true
+                      name: 'Person on Events'
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:22.3'
+                      concurrency: 5
+                      group: 4
+                    - python-version: '3.8.12'
+                      ee: true
+                      foss: false
+                      person-on-events: true
+                      name: 'Person on Events'
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:22.3'
+                      concurrency: 5
+                      group: 5
 
         steps:
             - uses: actions/checkout@v2
               with:
                   fetch-depth: 1
+                  repository: ${{ github.event.pull_request.head.repo.full_name }}
+                  ref: ${{ github.event.pull_request.head.ref }}
+                  token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
 
             - uses: ./.github/actions/run-backend-tests
               with:
@@ -207,9 +250,23 @@ jobs:
                   python-version: ${{ matrix.python-version }}
                   ee: ${{ matrix.ee }}
                   foss: ${{ matrix.foss }}
-                  clickhouse-server-image-version: ${{ matrix.clickhouse-server-image-version }}
+                  clickhouse-server-image: ${{ matrix.clickhouse-server-image }}
                   concurrency: ${{ matrix.concurrency }}
                   group: ${{ matrix.group }}
+                  person-on-events: ${{ matrix.person-on-events }}
+
+            - uses: EndBug/add-and-commit@v9 # You can change this to use a specific version.
+              if: ${{ matrix.clickhouse-server-image == 'clickhouse/clickhouse-server:22.3' && !matrix.person-on-events }}
+              with:
+                  # The arguments for the `git add` command (see the paragraph below for more info)
+                  # Default: '.'
+                  add: '["ee/clickhouse", "posthog/api/test/__snapshots__", "posthog/test/__snapshots__"]'
+
+                  default_author: github_actions
+
+                  # The message for the commit.
+                  # Default: 'Commit from GitHub Actions (name of the workflow)'
+                  message: 'Update snapshots'
 
     cloud:
         needs: changes
@@ -220,23 +277,28 @@ jobs:
         steps:
             - name: Fetch posthog-cloud
               run: |
-                  curl -L https://github.com/posthog/posthog-cloud/tarball/master | tar --strip-components=1 -xz --
-                  mkdir deploy/
+                  curl -u posthog-bot:${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }} -L https://github.com/posthog/posthog-cloud/tarball/master | tar --strip-components=1 -xz --
+
             - name: Checkout master
               uses: actions/checkout@v2
               with:
                   ref: 'master'
-                  path: 'deploy/'
+                  path: 'master/'
+
             - name: Link posthog-cloud at master
               run: |
-                  cp -r multi_tenancy deploy/
-                  cp -r messaging deploy/
-                  cat multi_tenancy_settings.py > deploy/posthog/settings/cloud.py
-                  cat requirements.txt >> deploy/requirements.txt
-            - name: Start stack with Docker Compose
+                  cp -r multi_tenancy master/
+                  cp -r messaging master/
+                  cat multi_tenancy_settings.py > master/posthog/settings/cloud.py
+                  cat requirements.txt >> master/requirements.txt
+
+            - name: Add kafka host to /etc/hosts for kafka connectivity
+              run: sudo echo "127.0.0.1 kafka" | sudo tee -a /etc/hosts
+
+            - name: Stop/Start stack with Docker Compose
               run: |
-                  docker-compose -f deploy/docker-compose.dev.yml down
-                  docker-compose -f deploy/docker-compose.dev.yml up -d db clickhouse zookeeper kafka redis &
+                  docker-compose -f master/docker-compose.dev.yml down
+                  docker-compose -f master/docker-compose.dev.yml up -d db clickhouse zookeeper kafka redis object_storage &
 
             - name: Set up Python 3.8.12
               uses: actions/setup-python@v2
@@ -257,52 +319,48 @@ jobs:
             - name: Install python dependencies
               if: steps.cache-backend-tests.outputs.cache-hit != 'true'
               run: |
-                  python -m pip install -r deploy/requirements-dev.txt
-                  python -m pip install -r deploy/requirements.txt
+                  python -m pip install -r master/requirements-dev.txt
+                  python -m pip install -r master/requirements.txt
 
             - name: Wait for Clickhouse & Kafka
-              run: deploy/bin/check_kafka_clickhouse_up
+              run: master/bin/check_kafka_clickhouse_up
 
             # The 2-step migration process (first master, then current branch) verifies that it'll always
             # be possible to migrate to the new version without problems in production
-            - name: Migrate initially at master, then remove master deploy code
+            - name: Run migration on master branch
               run: |
-                  python deploy/manage.py migrate
-                  rm -rf deploy
+                  python master/manage.py migrate
 
             - name: Checkout current branch
               uses: actions/checkout@v2
               with:
-                  path: 'deploy/'
+                  path: 'current/'
 
             - name: Install requirements.txt dependencies with pip at current branch
               run: |
-                  cd deploy
+                  cd current
                   python -m pip install --upgrade pip
                   python -m pip install -r requirements.txt
                   python -m pip install freezegun fakeredis pytest pytest-mock pytest-django syrupy
 
             - name: Link posthog-cloud at current branch
               run: |
-                  cp deploy/ee/conftest.py multi_tenancy/conftest.py
-                  cp deploy/ee/conftest.py messaging/conftest.py
-                  cp -r multi_tenancy deploy/
-                  cp -r messaging deploy/
-                  cat multi_tenancy_settings.py > deploy/posthog/settings/cloud.py
-                  cat requirements.txt >> deploy/requirements.txt
+                  cp current/ee/conftest.py multi_tenancy/conftest.py
+                  cp current/ee/conftest.py messaging/conftest.py
+                  cp -r multi_tenancy current/
+                  cp -r messaging current/
+                  cat multi_tenancy_settings.py > current/posthog/settings/cloud.py
+                  cat requirements.txt >> current/requirements.txt
 
             - name: Check migrations
               run: |
-                  cd deploy
+                  cd current
                   python manage.py makemigrations --check --dry-run
                   python manage.py migrate
 
-            - name: Add kafka host to /etc/hosts for kafka connectivity
-              run: sudo echo "127.0.0.1 kafka" | sudo tee -a /etc/hosts
-
             - name: Set up needed files
               run: |
-                  cd deploy
+                  cd current
                   mkdir -p frontend/dist
                   python manage.py collectstatic --noinput
                   touch frontend/dist/index.html
@@ -312,5 +370,5 @@ jobs:
             - name: Run cloud tests (posthog-cloud)
               run: |
                   source .env.template
-                  cd deploy
+                  cd current
                   pytest multi_tenancy messaging -m "not skip_on_multitenancy and not async_migrations" --durations=100 --durations-min=1.0

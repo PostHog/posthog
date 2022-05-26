@@ -1,9 +1,10 @@
-import { Button, Col, Divider, Input, Row } from 'antd'
+import { Button, Col, Divider, Row } from 'antd'
 import { useValues } from 'kea'
 import React from 'react'
 import { CodeSnippet, Language } from 'scenes/ingestion/frameworks/CodeSnippet'
 import { kafkaInspectorLogic } from './kafkaInspectorLogic'
 import { Field, Form } from 'kea-forms'
+import { LemonInput } from 'lib/components/LemonInput/LemonInput'
 
 export function KafkaInspectorTab(): JSX.Element {
     const { kafkaMessage } = useValues(kafkaInspectorLogic)
@@ -21,32 +22,22 @@ export function KafkaInspectorTab(): JSX.Element {
                         logic={kafkaInspectorLogic}
                         formKey="fetchKafkaMessage"
                         className="ant-form-horizontal ant-form-hide-required-mark"
+                        enableFormOnSubmit
                     >
                         <Row gutter={[24, 24]}>
                             <Col span={8}>
                                 <Field name="topic">
-                                    {({ value, onChange }) => (
-                                        <Input placeholder="Topic" value={value} onChange={onChange} />
-                                    )}
+                                    <LemonInput placeholder="Topic" />
                                 </Field>
                             </Col>
                             <Col span={4}>
                                 <Field name="partition">
-                                    {({ value, onChange }) => (
-                                        <Input
-                                            placeholder="Partition"
-                                            value={value}
-                                            type="number"
-                                            onChange={onChange}
-                                        />
-                                    )}
+                                    <LemonInput placeholder="Partition" type="number" />
                                 </Field>{' '}
                             </Col>
                             <Col span={4}>
                                 <Field name="offset">
-                                    {({ value, onChange }) => (
-                                        <Input placeholder="Offset" value={value} type="number" onChange={onChange} />
-                                    )}
+                                    <LemonInput placeholder="Offset" type="number" />
                                 </Field>{' '}
                             </Col>
 

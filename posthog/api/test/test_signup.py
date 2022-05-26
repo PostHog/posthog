@@ -6,7 +6,6 @@ from unittest.mock import ANY, patch
 
 import pytest
 import pytz
-from constance.test import override_config
 from django.core import mail
 from django.urls.base import reverse
 from django.utils import timezone
@@ -14,6 +13,7 @@ from rest_framework import status
 
 from posthog.constants import AvailableFeature
 from posthog.models import Dashboard, Organization, Team, User
+from posthog.models.instance_setting import override_instance_config
 from posthog.models.organization import OrganizationInvite, OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
 from posthog.test.base import APIBaseTest
@@ -300,7 +300,10 @@ class TestSignupAPI(APIBaseTest):
         with self.settings(MULTI_ORG_ENABLED=True):
             response = self.client.get(url, follow=True)
         self.assertEqual(response.status_code, status.HTTP_200_OK)  # because `follow=True`
-        self.assertRedirects(response, "/signup/finish/")  # page where user will create a new org
+        self.assertRedirects(
+            response,
+            "/organization/confirm-creation?organization_name=&first_name=John%20Doe&email=testemail%40posthog.com",
+        )  # page where user will create a new org
 
     @mock.patch("social_core.backends.base.BaseAuth.request")
     @pytest.mark.ee
@@ -335,13 +338,20 @@ class TestSignupAPI(APIBaseTest):
             response = self.client.get(reverse("social:begin", kwargs={"backend": "github"}))
         self.assertEqual(response.status_code, status.HTTP_302_FOUND)
 
+        session = self.client.session
+        session.update({"organization_name": "HogFlix"})
+        session.save()
+
         url = reverse("social:complete", kwargs={"backend": "github"})
         url += f"?code=2&state={response.client.session['github_state']}"
         mock_request.return_value.json.return_value = MOCK_GITLAB_SSO_RESPONSE
 
         response = self.client.get(url, follow=True)
         self.assertEqual(response.status_code, status.HTTP_200_OK)  # because `follow=True`
-        self.assertRedirects(response, "/signup/finish/")  # page where user will create a new org
+        self.assertRedirects(
+            response,
+            "/organization/confirm-creation?organization_name=HogFlix&first_name=John%20Doe&email=testemail%40posthog.com",
+        )  # page where user will create a new org
 
     @mock.patch("social_core.backends.base.BaseAuth.request")
     @mock.patch("posthog.api.authentication.get_instance_available_sso_providers")
@@ -552,8 +562,12 @@ class TestSignupAPI(APIBaseTest):
             response = self.client.get(url, follow=True)
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)  # because `follow=True`
-        self.assertRedirects(response, "/signup/finish/")  # page where user will create a new org
+        self.assertRedirects(
+            response,
+            "/organization/confirm-creation?organization_name=&first_name=jane&email=jane%40hogflix.posthog.com",
+        )  # page where user will create a new org
 
+        # User and org are not created
         self.assertEqual(User.objects.count(), user_count)
         self.assertEqual(Organization.objects.count(), org_count)
 
@@ -790,23 +804,24 @@ class TestInviteSignup(APIBaseTest):
 
         self.assertEqual(len(mail.outbox), 0)
 
-    @override_config(EMAIL_HOST="localhost")
     def test_api_invite_sign_up_member_joined_email_is_sent_for_next_members(self):
-        initial_user = User.objects.create_and_join(self.organization, "test+420@posthog.com", None)
+        with override_instance_config("EMAIL_HOST", "localhost"):
+            initial_user = User.objects.create_and_join(self.organization, "test+420@posthog.com", None)
 
-        invite: OrganizationInvite = OrganizationInvite.objects.create(
-            target_email="test+100@posthog.com", organization=self.organization,
-        )
-
-        with self.settings(EMAIL_ENABLED=True, SITE_URL="http://test.posthog.com"):
-            response = self.client.post(
-                f"/api/signup/{invite.id}/", {"first_name": "Alice", "password": "test_password", "email_opt_in": True},
+            invite: OrganizationInvite = OrganizationInvite.objects.create(
+                target_email="test+100@posthog.com", organization=self.organization,
             )
 
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+            with self.settings(EMAIL_ENABLED=True, SITE_URL="http://test.posthog.com"):
+                response = self.client.post(
+                    f"/api/signup/{invite.id}/",
+                    {"first_name": "Alice", "password": "test_password", "email_opt_in": True},
+                )
 
-        self.assertEqual(len(mail.outbox), 1)
-        self.assertListEqual(mail.outbox[0].to, [initial_user.email])
+            self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+            self.assertEqual(len(mail.outbox), 1)
+            self.assertListEqual(mail.outbox[0].to, [initial_user.email])
 
     def test_api_invite_sign_up_member_joined_email_is_not_sent_if_disabled(self):
         self.organization.is_member_join_email_enabled = False
@@ -1059,26 +1074,28 @@ class TestInviteSignup(APIBaseTest):
 
     def test_api_social_invite_sign_up(self):
         Organization.objects.all().delete()  # Can only create organizations in fresh instances
-
         # simulate SSO process started
         session = self.client.session
-        session.update({"backend": "google-oauth2"})
+        session.update({"backend": "google-oauth2", "email": "test_api_social_invite_sign_up@posthog.com"})
         session.save()
 
-        response = self.client.post("/api/social_signup", {"organization_name": "Tech R Us", "email_opt_in": False})
+        response = self.client.post(
+            "/api/social_signup", {"organization_name": "Org test_api_social_invite_sign_up", "first_name": "Max"}
+        )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
         self.assertEqual(response.json(), {"continue_url": "/complete/google-oauth2/"})
 
-        # Check the values were saved in the session
-        self.assertEqual(self.client.session.get("organization_name"), "Tech R Us")
-        self.assertEqual(self.client.session.get("email_opt_in"), False)
-        self.assertEqual(self.client.session.get_expiry_age(), 3600)
+        # Check the organization and user were created
+        self.assertEqual(
+            User.objects.filter(email="test_api_social_invite_sign_up@posthog.com", first_name="Max").count(), 1
+        )
+        self.assertEqual(Organization.objects.filter(name="Org test_api_social_invite_sign_up").count(), 1)
 
     def test_cannot_use_social_invite_sign_up_if_social_session_is_not_active(self):
         Organization.objects.all().delete()  # Can only create organizations in fresh instances
 
-        response = self.client.post("/api/social_signup", {"organization_name": "Tech R Us", "email_opt_in": False})
+        response = self.client.post("/api/social_signup", {"organization_name": "Tech R Us", "first_name": "Max"})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
             response.json(),

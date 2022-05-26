@@ -16,6 +16,25 @@
         }
     }
 
+    .summary-card {
+        border-radius: var(--radius);
+        border: 1px solid var(--border);
+        padding: 1rem;
+
+        .taxonomic-breakdown-filter.tag-pill {
+            font-size: 0.8125rem;
+            padding: 0;
+            border: none;
+            border-radius: 0;
+            background: none;
+            vertical-align: unset;
+        }
+
+        section:not(:last-child) {
+            margin-bottom: 0.5rem;
+        }
+    }
+
     .activity-log-row {
         display: flex;
         margin-top: $default_spacing;
@@ -34,19 +53,15 @@
             flex-grow: 1;
             margin-left: $default_spacing / 2;
 
-            .property-filters {
-                display: inline;
-                margin-left: $default_spacing / 4;
-            }
-
             .highlighted-activity {
                 background-color: $yellow_50;
+                display: inline;
             }
 
             .sentence-list {
                 display: inline;
 
-                div {
+                .sentence-part {
                     display: inline;
                 }
             }

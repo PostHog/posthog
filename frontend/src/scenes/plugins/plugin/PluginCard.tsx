@@ -13,7 +13,6 @@ import {
     InfoCircleOutlined,
     DownOutlined,
     GlobalOutlined,
-    LineChartOutlined,
 } from '@ant-design/icons'
 import { PluginImage } from './PluginImage'
 import { PluginError } from './PluginError'
@@ -81,15 +80,8 @@ export function PluginCard({
         organization_name,
     } = plugin
 
-    const {
-        editPlugin,
-        toggleEnabled,
-        installPlugin,
-        resetPluginConfigError,
-        rearrange,
-        showPluginLogs,
-        showPluginMetrics,
-    } = useActions(pluginsLogic)
+    const { editPlugin, toggleEnabled, installPlugin, resetPluginConfigError, rearrange, showPluginLogs } =
+        useActions(pluginsLogic)
     const { loading, installingPluginUrl, checkingForUpdates, pluginUrlToMaintainer } = useValues(pluginsLogic)
     const { user } = useValues(userLogic)
 
@@ -120,7 +112,7 @@ export function PluginCard({
                         </DragColumn>
                     ) : null}
                     {unorderedPlugin ? (
-                        <Tooltip title="This plugin does not do any processing in order." placement="topRight">
+                        <Tooltip title="This app does not do any processing in order." placement="topRight">
                             <Col>
                                 <Tag color="#555">-</Tag>
                             </Col>
@@ -208,20 +200,11 @@ export function PluginCard({
                                 />
                             ) : pluginId ? (
                                 <>
-                                    {Object.keys(plugin.metrics || {}).length > 0 ? (
-                                        <Space>
-                                            <Tooltip title="Metrics">
-                                                <Button onClick={() => showPluginMetrics(pluginId)}>
-                                                    <LineChartOutlined />
-                                                </Button>
-                                            </Tooltip>
-                                        </Space>
-                                    ) : null}
                                     <Tooltip
                                         title={
                                             pluginConfig?.id
                                                 ? 'Logs'
-                                                : 'Logs – enable the plugin for the first time to view them'
+                                                : 'Logs – enable the app for the first time to view them'
                                         }
                                     >
                                         <Button

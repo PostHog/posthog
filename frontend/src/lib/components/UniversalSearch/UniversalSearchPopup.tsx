@@ -100,7 +100,7 @@ function redirectOnSelectItems(
         router.actions.push(urls.experiment(value))
     } else if (groupType === TaxonomicFilterGroupType.Plugins) {
         router.actions.push(
-            combineUrl(urls.plugins(), {
+            combineUrl(urls.projectApps(), {
                 tab: (item as PluginSelectionType).tab,
                 name: (item as PluginSelectionType).name,
             }).url
@@ -169,7 +169,7 @@ export function UniversalSearchPopup({
                 modifier={{
                     name: 'offset',
                     options: {
-                        // @ts-ignore
+                        // @ts-expect-error
                         offset: ({ placement }) => {
                             if (placement === 'right-start') {
                                 return [-25, -250]

@@ -1,15 +1,17 @@
 import React, { useState } from 'react'
 import { ComponentMeta } from '@storybook/react'
 import {
-    CohortCriteriaRowBuilderProps,
     CohortCriteriaRowBuilder,
+    CohortCriteriaRowBuilderProps,
 } from 'scenes/cohorts/CohortFilters/CohortCriteriaRowBuilder'
-import { BehavioralEventType } from '~/types'
-import { BehavioralFilterType } from 'scenes/cohorts/CohortFilters/types'
 import { taxonomicFilterMocksDecorator } from 'lib/components/TaxonomicFilter/__mocks__/taxonomicFilterMocksDecorator'
 import { useMountedLogic } from 'kea'
 import { actionsModel } from '~/models/actionsModel'
 import { cohortsModel } from '~/models/cohortsModel'
+import { BehavioralFilterType } from 'scenes/cohorts/CohortFilters/types'
+import { BehavioralEventType } from '~/types'
+import { Form } from 'kea-forms'
+import { cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
 
 export default {
     title: 'Filters/Cohort Filters/Row Builder',
@@ -20,6 +22,12 @@ export default {
 export function _CohortCriteriaRowBuilder(props: CohortCriteriaRowBuilderProps): JSX.Element {
     useMountedLogic(actionsModel)
     useMountedLogic(cohortsModel)
+    useMountedLogic(cohortEditLogic({ id: 1 }))
     const [type, setType] = useState<BehavioralFilterType>(BehavioralEventType.PerformEvent)
-    return <CohortCriteriaRowBuilder {...props} type={type} onChangeType={setType} />
+
+    return (
+        <Form logic={cohortEditLogic} props={{ id: 1 }} formKey={'cohort'}>
+            <CohortCriteriaRowBuilder {...props} criteria={{}} type={type} onChangeType={setType} />
+        </Form>
+    )
 }

@@ -1,5 +1,12 @@
 import { LemonSelectOptions } from 'lib/components/LemonSelect'
-import { BehavioralCohortType, BehavioralEventType, BehavioralLifecycleType } from '~/types'
+import {
+    AnyCohortCriteriaType,
+    BehavioralCohortType,
+    BehavioralEventType,
+    BehavioralLifecycleType,
+    PropertyFilterValue,
+    PropertyOperator,
+} from '~/types'
 import { CohortFieldLogicProps } from 'scenes/cohorts/CohortFilters/cohortFieldLogic'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
@@ -10,11 +17,12 @@ export enum FilterType {
     TimeUnit = 'timeUnit',
     DateOperator = 'dateOperator',
     MathOperator = 'mathOperator',
+    EventsAndActionsMathOperator = 'eventsAndActionsMathOperator',
     Value = 'value',
     Text = 'text',
     EventsAndActions = 'eventsAndActions',
     EventProperties = 'eventProperties',
-    EventPropertyValues = 'eventPropertyValues',
+    PersonPropertyValues = 'personPropertyValues',
     EventType = 'eventType',
     Number = 'number',
     NumberTicker = 'numberTicker',
@@ -27,12 +35,14 @@ export enum FieldOptionsType {
     PropertyAggregation = 'propertyAggregation',
     Actors = 'actors',
     EventBehavioral = 'eventBehavioral',
+    PersonPropertyBehavioral = 'personPropertyBehavioral',
     CohortBehavioral = 'cohortBehavioral',
     LifecycleBehavioral = 'lifecycleBehavioral',
     TimeUnits = 'timeUnits',
     DateOperators = 'dateOperators',
     MathOperators = 'mathOperators',
     ValueOptions = 'valueOptions',
+    EventsAndActionsMathOperators = 'eventsAndActionsMathOperators',
 }
 
 export interface FieldValues {
@@ -50,24 +60,28 @@ export enum BehavioralFilterKey {
 }
 
 export interface Field {
-    key?: string
-    value?: string | number | null
+    fieldKey?: string
+    groupTypeFieldKey?: string
+    defaultValue?: string | number | null
     type: FilterType
     hide?: boolean // If field is hidden, key is included in final payload but no component is rendered
 }
 
+export interface FieldWithFieldKey extends Omit<Field, 'fieldKey'> {
+    fieldKey: string
+}
+
 export interface Row {
     type: BehavioralFilterKey
-    value: BehavioralFilterType
+    value?: BehavioralFilterType // Optional since some payloads override the value field
     fields: Field[]
-    negation?: boolean
+    negation: boolean
 }
 
 // CohortField
 
 export interface CohortFieldBaseProps extends Omit<CohortFieldLogicProps, 'cohortFilterLogicKey'> {
     cohortFilterLogicKey?: string
-    groupedValues?: Record<string, any>[] // entire row's values. contains information about other fields in row
 }
 
 export interface CohortSelectorFieldProps extends CohortFieldBaseProps {
@@ -75,20 +89,51 @@ export interface CohortSelectorFieldProps extends CohortFieldBaseProps {
 }
 
 export interface CohortTaxonomicFieldProps extends Omit<CohortFieldBaseProps, 'fieldOptionGroupTypes'> {
+    groupTypeFieldKey?: keyof AnyCohortCriteriaType
     placeholder?: string
-    taxonomicGroupType?: TaxonomicFilterGroupType
     taxonomicGroupTypes?: TaxonomicFilterGroupType[]
     fieldOptionGroupTypes: never
-    onTaxonomicGroupChange?: (group: TaxonomicFilterGroupType) => void
 }
 
-export interface CohortTextFieldProps {
+export interface CohortPersonPropertiesValuesFieldProps extends Omit<CohortFieldBaseProps, 'fieldOptionGroupTypes'> {
+    fieldOptionGroupTypes: never
+    propertyKey: PropertyFilterValue | undefined
+    operator?: PropertyOperator
+}
+
+export interface CohortTextFieldProps extends CohortFieldBaseProps {
     value: string
-    groupedValues?: Record<string, any>[]
 }
 
 export interface CohortNumberFieldProps extends Omit<CohortFieldBaseProps, 'fieldOptionGroupTypes'> {
     fieldOptionGroupTypes: never
 }
 
-export type CohortFieldProps = CohortSelectorFieldProps | CohortNumberFieldProps | CohortTaxonomicFieldProps
+export type CohortFieldProps =
+    | CohortSelectorFieldProps
+    | CohortNumberFieldProps
+    | CohortTaxonomicFieldProps
+    | CohortTextFieldProps
+    | CohortPersonPropertiesValuesFieldProps
+
+export enum CohortClientErrors {
+    NegationCriteriaMissingOther = 'Negation criteria can only be used when matching all criteria (AND), and must be accompanied by at least one positive matching criteria.',
+    NegationCriteriaCancel = 'These criteria cancel each other out, and would result in no matching persons.',
+    PeriodTimeMismatch = 'The lower bound period value must not be greater than the upper bound value.',
+    SequentialTimeMismatch = 'The lower bound period sequential time value must not be greater than the upper bound time value.',
+    EmptyEventsAndActions = 'Event or action cannot be empty.',
+    EmptyEventProperties = 'Event property cannot be empty.',
+    EmptyPersonPropertyValues = 'Person property value cannot be empty',
+    EmptyEventType = 'Event type cannot be empty.',
+    EmptyNumber = 'Period values must be at least 1 day and cannot be empty.',
+    EmptyNumberTicker = 'Number cannot be empty.',
+    EmptyTimeUnit = 'Time interval cannot be empty.',
+    EmptyMathOperator = 'Math operator cannot be empty.',
+    EmptyCohortId = 'Cohort id cannot be empty.',
+    EmptyCohortValues = 'Cohort value cannot be empty.',
+    EmptyValue = 'Event property value selector cannot be empty.',
+    EmptyDateOperator = 'Date cannot be empty or invalid.',
+    EmptyActors = 'Actors selector cannot be empty.',
+    EmptyAggregation = 'Aggregation selector cannot be empty.',
+    EmptyBehavioral = 'Behavioral selector cannot be empty.',
+}

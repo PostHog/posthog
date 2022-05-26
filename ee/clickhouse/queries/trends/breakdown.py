@@ -1,5 +1,8 @@
 import urllib.parse
+from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
+
+import pytz
 
 from ee.clickhouse.models.property import get_property_string_expr, parse_prop_grouped_clauses
 from ee.clickhouse.queries.breakdown_props import (
@@ -33,6 +36,8 @@ from posthog.constants import (
 from posthog.models.action.util import format_action_filter
 from posthog.models.entity import Entity
 from posthog.models.filters import Filter
+from posthog.models.filters.mixins.utils import cached_property
+from posthog.models.property import PropertyGroup
 from posthog.models.team import Team
 from posthog.models.utils import PersonPropertiesMode
 from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
@@ -45,7 +50,12 @@ class ClickhouseTrendsBreakdown:
     DISTINCT_ID_TABLE_ALIAS = "pdi"
 
     def __init__(
-        self, entity: Entity, filter: Filter, team: Team, column_optimizer: Optional[EnterpriseColumnOptimizer] = None
+        self,
+        entity: Entity,
+        filter: Filter,
+        team: Team,
+        column_optimizer: Optional[EnterpriseColumnOptimizer] = None,
+        using_person_on_events: bool = False,
     ):
         self.entity = entity
         self.filter = filter
@@ -53,6 +63,35 @@ class ClickhouseTrendsBreakdown:
         self.team_id = team.pk
         self.params: Dict[str, Any] = {"team_id": team.pk}
         self.column_optimizer = column_optimizer or EnterpriseColumnOptimizer(self.filter, self.team_id)
+        self.using_person_on_events = using_person_on_events
+
+    @cached_property
+    def _person_properties_mode(self) -> PersonPropertiesMode:
+        return (
+            PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN
+            if not self.using_person_on_events
+            else PersonPropertiesMode.DIRECT_ON_EVENTS
+        )
+
+    @cached_property
+    def _props_to_filter(self) -> Tuple[str, Dict]:
+        props_to_filter = self.filter.property_groups.combine_property_group(
+            PropertyOperatorType.AND, self.entity.property_groups
+        )
+
+        target_properties: Optional[PropertyGroup] = props_to_filter
+        if not self.using_person_on_events:
+            target_properties = self.column_optimizer.property_optimizer.parse_property_groups(props_to_filter).outer
+
+        return parse_prop_grouped_clauses(
+            team_id=self.team_id,
+            property_group=target_properties,
+            table_name="e",
+            person_properties_mode=self._person_properties_mode,
+            person_id_joined_alias=f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id"
+            if not self.using_person_on_events
+            else "person_id",
+        )
 
     def get_query(self) -> Tuple[str, Dict, Callable]:
         interval_annotation = get_trunc_func_ch(self.filter.interval)
@@ -61,27 +100,28 @@ class ClickhouseTrendsBreakdown:
         )
         _, parsed_date_to, date_params = parse_timestamps(filter=self.filter, team=self.team)
 
-        props_to_filter = self.filter.property_groups.combine_property_group(
-            PropertyOperatorType.AND, self.entity.property_groups
-        )
+        prop_filters, prop_filter_params = self._props_to_filter
 
-        outer_properties = self.column_optimizer.property_optimizer.parse_property_groups(props_to_filter).outer
-        prop_filters, prop_filter_params = parse_prop_grouped_clauses(
-            team_id=self.team_id,
-            property_group=outer_properties,
-            table_name="e",
-            person_properties_mode=PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
-            person_id_joined_alias=f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id",
-        )
         aggregate_operation, _, math_params = process_math(
-            self.entity, self.team, event_table_alias="e", person_id_alias=f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id"
+            self.entity,
+            self.team,
+            event_table_alias="e",
+            person_id_alias=f"person_id"
+            if self.using_person_on_events
+            else f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id",
         )
 
         action_query = ""
         action_params: Dict = {}
         if self.entity.type == TREND_FILTER_TYPE_ACTIONS:
             action = self.entity.get_action()
-            action_query, action_params = format_action_filter(team_id=self.team_id, action=action, table_name="e")
+            action_query, action_params = format_action_filter(
+                team_id=self.team_id,
+                action=action,
+                table_name="e",
+                person_properties_mode=self._person_properties_mode,
+                person_id_joined_alias=f"{self.DISTINCT_ID_TABLE_ALIAS if not self.using_person_on_events else 'e'}.person_id",
+            )
 
         self.params = {
             **self.params,
@@ -91,7 +131,7 @@ class ClickhouseTrendsBreakdown:
             "event": self.entity.id,
             "key": self.filter.breakdown,
             **date_params,
-            "timezone": self.team.timezone_for_charts,
+            "timezone": self.team.timezone,
         }
 
         breakdown_filter_params = {
@@ -99,7 +139,7 @@ class ClickhouseTrendsBreakdown:
             "parsed_date_to": parsed_date_to,
             "actions_query": "AND {}".format(action_query) if action_query else "",
             "event_filter": "AND event = %(event)s" if not action_query else "",
-            "filters": prop_filters if props_to_filter.values else "",
+            "filters": prop_filters,
         }
 
         _params, _breakdown_filter_params = {}, {}
@@ -123,9 +163,7 @@ class ClickhouseTrendsBreakdown:
             )
 
         person_join_condition, person_join_params = self._person_join_condition()
-        groups_join_condition, groups_join_params = GroupsJoinQuery(
-            self.filter, self.team_id, self.column_optimizer
-        ).get_join_query()
+        groups_join_condition, groups_join_params = self._groups_join_condition()
         self.params = {**self.params, **_params, **person_join_params, **groups_join_params}
         breakdown_filter_params = {**breakdown_filter_params, **_breakdown_filter_params}
 
@@ -159,6 +197,7 @@ class ClickhouseTrendsBreakdown:
                     breakdown_filter=breakdown_filter,
                     person_join=person_join_condition,
                     groups_join=groups_join_condition,
+                    person_id_alias=self.DISTINCT_ID_TABLE_ALIAS if not self.using_person_on_events else "e",
                     aggregate_operation=aggregate_operation,
                     interval_annotation=interval_annotation,
                     breakdown_value=breakdown_value,
@@ -172,6 +211,7 @@ class ClickhouseTrendsBreakdown:
                     breakdown_filter=breakdown_filter,
                     person_join=person_join_condition,
                     groups_join=groups_join_condition,
+                    person_id_alias=self.DISTINCT_ID_TABLE_ALIAS if not self.using_person_on_events else "e",
                     aggregate_operation=aggregate_operation,
                     interval_annotation=interval_annotation,
                     breakdown_value=breakdown_value,
@@ -216,18 +256,13 @@ class ClickhouseTrendsBreakdown:
             self.team,
             extra_params=math_params,
             column_optimizer=self.column_optimizer,
+            person_properties_mode=self._person_properties_mode,
         )
 
         # :TRICKY: We only support string breakdown for event/person properties
         assert isinstance(self.filter.breakdown, str)
 
-        if self.filter.breakdown_type == "person":
-            breakdown_value, _ = get_property_string_expr("person", self.filter.breakdown, "%(key)s", "person_props")
-        elif self.filter.breakdown_type == "group":
-            properties_field = f"group_properties_{self.filter.breakdown_group_type_index}"
-            breakdown_value, _ = get_property_string_expr("groups", self.filter.breakdown, "%(key)s", properties_field)
-        else:
-            breakdown_value, _ = get_property_string_expr("events", self.filter.breakdown, "%(key)s", "properties")
+        breakdown_value = self._get_breakdown_value(self.filter.breakdown)
 
         return (
             {"values": values_arr},
@@ -235,6 +270,30 @@ class ClickhouseTrendsBreakdown:
             {"breakdown_value_expr": breakdown_value},
             breakdown_value,
         )
+
+    def _get_breakdown_value(self, breakdown: str):
+
+        if self.using_person_on_events:
+            if self.filter.breakdown_type == "person":
+                breakdown_value, _ = get_property_string_expr("events", breakdown, "%(key)s", "person_properties")
+            elif self.filter.breakdown_type == "group":
+                properties_field = f"group{self.filter.breakdown_group_type_index}_properties"
+                breakdown_value, _ = get_property_string_expr("events", breakdown, "%(key)s", properties_field)
+            else:
+                breakdown_value, _ = get_property_string_expr("events", breakdown, "%(key)s", "properties")
+
+            return breakdown_value
+
+        else:
+            if self.filter.breakdown_type == "person":
+                breakdown_value, _ = get_property_string_expr("person", breakdown, "%(key)s", "person_props")
+            elif self.filter.breakdown_type == "group":
+                properties_field = f"group_properties_{self.filter.breakdown_group_type_index}"
+                breakdown_value, _ = get_property_string_expr("groups", breakdown, "%(key)s", properties_field)
+            else:
+                breakdown_value, _ = get_property_string_expr("events", breakdown, "%(key)s", "properties")
+
+            return breakdown_value
 
     def _parse_single_aggregate_result(
         self, filter: Filter, entity: Entity, additional_values: Dict[str, Any]
@@ -276,7 +335,7 @@ class ClickhouseTrendsBreakdown:
                 parsed_result.update(
                     {
                         "persons_urls": self._get_persons_url(
-                            filter, entity, self.team_id, parsed_result["days"], result_descriptors["breakdown_value"]
+                            filter, entity, self.team_id, stats[0], result_descriptors["breakdown_value"]
                         )
                     }
                 )
@@ -287,17 +346,26 @@ class ClickhouseTrendsBreakdown:
         return _parse
 
     def _get_persons_url(
-        self, filter: Filter, entity: Entity, team_id: int, dates: List[str], breakdown_value: Union[str, int]
+        self, filter: Filter, entity: Entity, team_id: int, dates: List[datetime], breakdown_value: Union[str, int]
     ) -> List[Dict[str, Any]]:
         persons_url = []
         for date in dates:
+            date_in_utc = datetime(
+                date.year,
+                date.month,
+                date.day,
+                getattr(date, "hour", 0),
+                getattr(date, "minute", 0),
+                getattr(date, "second", 0),
+                tzinfo=getattr(date, "tzinfo", pytz.UTC),
+            ).astimezone(pytz.UTC)
             filter_params = filter.to_params()
             extra_params = {
                 "entity_id": entity.id,
                 "entity_type": entity.type,
                 "entity_math": entity.math,
-                "date_from": filter.date_from if filter.display == TRENDS_CUMULATIVE else date,
-                "date_to": date,
+                "date_from": filter.date_from if filter.display == TRENDS_CUMULATIVE else date_in_utc,
+                "date_to": date_in_utc,
                 "breakdown_value": breakdown_value,
                 "breakdown_type": filter.breakdown_type or "event",
             }
@@ -339,6 +407,9 @@ class ClickhouseTrendsBreakdown:
             return str(value) or "none"
 
     def _person_join_condition(self) -> Tuple[str, Dict]:
+        if self.using_person_on_events:
+            return "", {}
+
         person_query = PersonQuery(self.filter, self.team_id, self.column_optimizer, entity=self.entity)
         event_join = EVENT_JOIN_PERSON_SQL.format(
             GET_TEAM_PERSON_DISTINCT_IDS=get_team_distinct_ids_query(self.team_id)
@@ -353,8 +424,16 @@ class ClickhouseTrendsBreakdown:
             """,
                 params,
             )
-        elif self.entity.math == "dau":
+        elif (
+            self.entity.math in ["dau", WEEKLY_ACTIVE, MONTHLY_ACTIVE]
+            or self.column_optimizer.is_using_cohort_propertes
+        ):
             # Only join distinct_ids
             return event_join, {}
         else:
             return "", {}
+
+    def _groups_join_condition(self) -> Tuple[str, Dict]:
+        return GroupsJoinQuery(
+            self.filter, self.team_id, self.column_optimizer, using_person_on_events=self.using_person_on_events
+        ).get_join_query()

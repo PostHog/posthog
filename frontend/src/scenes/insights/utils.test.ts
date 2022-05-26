@@ -1,4 +1,4 @@
-import { CohortType, Entity, EntityFilter, FilterType, InsightType, PathType } from '~/types'
+import { CohortType, Entity, EntityFilter, FilterLogicalOperator, FilterType, InsightType, PathType } from '~/types'
 import { extractObjectDiffKeys, getDisplayNameFromEntityFilter, summarizeInsightFilters } from 'scenes/insights/utils'
 import { BASE_MATH_DEFINITIONS, MathDefinition, PROPERTY_MATH_DEFINITIONS } from 'scenes/trends/mathsLogic'
 import { RETENTION_FIRST_TIME, RETENTION_RECURRING } from 'lib/constants'
@@ -117,6 +117,7 @@ describe('summarizeInsightFilters()', () => {
         1: {
             id: 1,
             name: 'Poles',
+            filters: { properties: { id: '1', type: FilterLogicalOperator.Or, values: [] } },
             groups: [],
         },
     }

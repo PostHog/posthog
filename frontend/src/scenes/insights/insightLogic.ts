@@ -1,12 +1,13 @@
 import { kea } from 'kea'
 import { prompt } from 'lib/logic/prompt'
-import { getEventNamesForAction, objectsEqual, toParams, uuid } from 'lib/utils'
+import { getEventNamesForAction, objectsEqual, sum, toParams, uuid } from 'lib/utils'
 import posthog from 'posthog-js'
 import { eventUsageLogic, InsightEventSource } from 'lib/utils/eventUsageLogic'
 import { insightLogicType } from './insightLogicType'
 import {
     ActionType,
     FilterType,
+    DashboardTile,
     InsightLogicProps,
     InsightModel,
     InsightShortId,
@@ -37,6 +38,7 @@ import { groupsModel } from '~/models/groupsModel'
 import { cohortsModel } from '~/models/cohortsModel'
 import { mathsLogic } from 'scenes/trends/mathsLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
+import { mergeWithDashboardTile } from 'scenes/insights/utils/dashboardTiles'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 const SHOW_TIMEOUT_MESSAGE_AFTER = 15000
@@ -52,8 +54,8 @@ function emptyFilters(filters: Partial<FilterType> | undefined): boolean {
     )
 }
 
-export const createEmptyInsight = (insightId: InsightShortId | 'new'): Partial<InsightModel> => ({
-    short_id: insightId !== 'new' ? insightId : undefined,
+export const createEmptyInsight = (insightId: InsightShortId | `new-${string}` | 'new'): Partial<InsightModel> => ({
+    short_id: insightId !== 'new' && !insightId.startsWith('new-') ? (insightId as InsightShortId) : undefined,
     name: '',
     description: '',
     tags: [],
@@ -79,7 +81,7 @@ export const insightLogic = kea<insightLogicType>({
             mathsLogic,
             ['mathDefinitions'],
         ],
-        logic: [eventUsageLogic, dashboardsModel],
+        logic: [eventUsageLogic, dashboardsModel, prompt({ key: `save-as-insight` })],
     },
 
     actions: () => ({
@@ -189,7 +191,7 @@ export const insightLogic = kea<insightLogicType>({
                         result: response.result || values.insight.result,
                     }
                     callback?.(updatedInsight)
-                    dashboardsModel.actions.updateDashboardItem(updatedInsight)
+
                     savedInsightsLogic.findMounted()?.actions.loadInsights()
                     for (const id of updatedInsight.dashboards ?? []) {
                         dashboardLogic.findMounted({ id })?.actions.loadDashboardItems()
@@ -333,6 +335,7 @@ export const insightLogic = kea<insightLogicType>({
                         ...values.insight,
                         result: response.result,
                         next: response.next,
+                        timezone: response.timezone,
                         filters,
                     } as Partial<InsightModel>
                 },
@@ -356,11 +359,17 @@ export const insightLogic = kea<insightLogicType>({
                 ...insight,
             }),
             setInsightMetadata: (state, { metadata }) => ({ ...state, ...metadata }),
-            [dashboardsModel.actionTypes.updateDashboardItem]: (state, { item }) => {
-                if (item.short_id === state.short_id) {
-                    return { ...item }
+            [dashboardsModel.actionTypes.updateDashboardItem]: (state, { item, dashboardIds }) => {
+                if (item.short_id !== state.short_id) {
+                    return state
                 }
-                return state
+
+                const updateIsForThisDashboard = props.dashboardId && (dashboardIds || []).includes(props.dashboardId)
+                if (updateIsForThisDashboard) {
+                    return { ...item }
+                } else {
+                    return mergeWithDashboardTile(item, state as DashboardTile)
+                }
             },
         },
         /* filters contains the in-flight filters, might not (yet?) be the same as insight.filters */
@@ -524,6 +533,14 @@ export const insightLogic = kea<insightLogicType>({
             ({ filters }) => {
                 // any real filter will have the `insight` key in it
                 return 'insight' in (filters ?? {})
+            },
+        ],
+        filterPropertiesCount: [
+            (s) => [s.filters],
+            (filters): number => {
+                return Array.isArray(filters.properties)
+                    ? filters.properties.length
+                    : sum(filters.properties?.values?.map((x) => x.values.length) || [])
             },
         ],
         csvExportUrl: [
@@ -819,11 +836,12 @@ export const insightLogic = kea<insightLogicType>({
     events: ({ actions, cache, props, values }) => ({
         afterMount: () => {
             if (!props.cachedInsight || !props.cachedInsight?.result || !!props.cachedInsight?.filters) {
-                if (props.dashboardItemId && props.dashboardItemId !== 'new') {
-                    const insight = findInsightFromMountedLogic(
-                        props.dashboardItemId,
-                        router.values.hashParams.fromDashboard
-                    )
+                if (
+                    props.dashboardItemId &&
+                    props.dashboardItemId !== 'new' &&
+                    !props.dashboardItemId.startsWith('new-')
+                ) {
+                    const insight = findInsightFromMountedLogic(props.dashboardItemId, props.dashboardId)
                     if (insight) {
                         actions.setInsight(insight, { overrideFilter: true, fromPersistentApi: true })
                         if (insight?.result) {
@@ -837,8 +855,12 @@ export const insightLogic = kea<insightLogicType>({
                 if (!props.doNotLoad) {
                     if (props.cachedInsight?.filters) {
                         actions.loadResults()
-                    } else if (props.dashboardItemId && props.dashboardItemId !== 'new') {
-                        actions.loadInsight(props.dashboardItemId)
+                    } else if (
+                        props.dashboardItemId &&
+                        props.dashboardItemId !== 'new' &&
+                        !props.dashboardItemId.startsWith('new-')
+                    ) {
+                        actions.loadInsight(props.dashboardItemId as InsightShortId)
                     }
                 }
             }

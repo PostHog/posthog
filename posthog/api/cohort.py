@@ -42,7 +42,6 @@ from posthog.models.cohort import get_and_update_pending_version
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
-from posthog.models.property import PropertyGroup
 from posthog.models.team import Team
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.queries.person_query import PersonQuery
@@ -104,10 +103,6 @@ class CohortSerializer(serializers.ModelSerializer):
         request = self.context["request"]
         team: Team = Team.objects.get(pk=self.context["team_id"])
         validated_data["created_by"] = request.user
-        new_filters = validated_data.get("filters")
-
-        if new_filters is not None and not team.behavioral_cohort_querying_enabled:
-            raise ValidationError("New cohort filters have not been enabled on this team")
 
         if not validated_data.get("is_static"):
             validated_data["is_calculating"] = True
@@ -153,7 +148,7 @@ class CohortSerializer(serializers.ModelSerializer):
         if not cohort.is_static and not is_deletion_change:
             cohort.is_calculating = True
 
-        if will_create_loops(cohort, new_properties=cohort.properties):
+        if will_create_loops(cohort):
             raise ValidationError("Cohorts cannot reference other cohorts in a loop.")
 
         cohort.save()
@@ -234,13 +229,19 @@ class LegacyCohortViewSet(CohortViewSet):
     legacy_team_compatibility = True
 
 
-def will_create_loops(cohort: Cohort, new_properties: PropertyGroup) -> bool:
+def will_create_loops(cohort: Cohort) -> bool:
     # Loops can only be formed when trying to update a Cohort, not when creating one
     team_id = cohort.team_id
     cohorts_seen = set([cohort.pk])
-    cohorts_queue = [property.value for property in new_properties.flat if property.type == "cohort"]
+    cohorts_queue = [property.value for property in cohort.properties.flat if property.type == "cohort"]
     while cohorts_queue:
         current_cohort_id = cohorts_queue.pop()
+
+        if current_cohort_id in cohorts_seen:
+            return True
+
+        cohorts_seen.add(current_cohort_id)
+
         try:
             current_cohort: Cohort = Cohort.objects.get(pk=current_cohort_id, team_id=team_id)
         except Cohort.DoesNotExist:
@@ -253,7 +254,6 @@ def will_create_loops(cohort: Cohort, new_properties: PropertyGroup) -> bool:
                     return True
                 else:
                     cohorts_queue.append(property.value)
-                    cohorts_seen.add(property.value)
 
     return False
 
@@ -317,12 +317,12 @@ def insert_actors_into_cohort_by_query(cohort: Cohort, query: str, params: Dict[
         cohort.is_calculating = False
         cohort.last_calculation = timezone.now()
         cohort.errors_calculating = 0
-        cohort.save()
+        cohort.save(update_fields=["errors_calculating", "last_calculation", "is_calculating"])
     except Exception as err:
 
         if settings.DEBUG:
             raise err
         cohort.is_calculating = False
         cohort.errors_calculating = F("errors_calculating") + 1
-        cohort.save()
+        cohort.save(update_fields=["errors_calculating", "is_calculating"])
         capture_exception(err)

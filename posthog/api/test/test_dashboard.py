@@ -350,6 +350,24 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         items_response = self.client.get(f"/api/projects/{self.team.id}/insights/").json()
         self.assertEqual(len(items_response["results"]), 0)
 
+    def test_dashboard_filtering_on_properties(self):
+        dashboard_id, _ = self._create_dashboard({"filters": {"date_from": "-24h"}})
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/",
+            data={"filters": {"date_from": "-24h", "properties": [{"key": "prop", "value": "val"}]}},
+        ).json()
+
+        self.assertEqual(response["filters"]["properties"], [{"key": "prop", "value": "val"}])
+
+        insight_id, _ = self._create_insight(
+            {"filters": {"hello": "test", "date_from": "-7d"}, "dashboards": [dashboard_id], "name": "some_item"}
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/").json()
+        self.assertEqual(len(response["items"]), 1)
+        self.assertEqual(response["items"][0]["name"], "some_item")
+        self.assertEqual(response["items"][0]["filters"]["properties"], [{"key": "prop", "value": "val"}])
+
     def test_dashboard_filter_is_applied_even_if_insight_is_created_before_dashboard(self):
         insight_id, _ = self._create_insight({"filters": {"hello": "test", "date_from": "-7d"}, "name": "some_item"})
 
@@ -630,6 +648,16 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         dashboard = Dashboard.objects.create(team=team2, name="dashboard", created_by=self.user)
         response = self.client.get(f"/api/projects/{team2.id}/dashboards/{dashboard.id}")
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.content)
+
+    def test_patch_api_as_form_data(self):
+        dashboard = Dashboard.objects.create(team=self.team, name="dashboard", created_by=self.user)
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard.pk}/",
+            data="name=replaced",
+            content_type="application/x-www-form-urlencoded",
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.json()["name"], "replaced")
 
     def _create_dashboard(self, data: Dict[str, Any], team_id: Optional[int] = None) -> Tuple[int, Dict[str, Any]]:
         if team_id is None:

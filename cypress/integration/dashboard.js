@@ -1,3 +1,14 @@
+function createDashboardFromTemplate(dashboardName) {
+    cy.get('[data-attr="new-dashboard"]').click()
+    cy.get('[data-attr=dashboard-name-input]').clear().type(dashboardName)
+    cy.get('[data-attr=copy-from-template]').click()
+    cy.get('[data-attr=dashboard-select-default-app]').click()
+
+    cy.get('button').contains('Create').click()
+
+    cy.contains(dashboardName).should('exist')
+}
+
 describe('Dashboard', () => {
     beforeEach(() => {
         cy.clickNavMenu('dashboards')
@@ -12,19 +23,17 @@ describe('Dashboard', () => {
         cy.get('[data-attr=breadcrumb-2]').should('have.text', 'Dashboards')
     })
 
-    it.only('Adding new insight to dashboard works', () => {
+    it('Adding new insight to dashboard works', () => {
         cy.get('[data-attr=menu-item-insight]').click() // Create a new insight
         cy.get('[data-attr="insight-save-button"]').click() // Save the insight
         cy.wait(100)
         cy.get('[data-attr="edit-prop-name"]').click({ force: true }) // Rename insight, out of view, must force
-
-        cy.get('[data-attr="insight-name"].EditableField--editing input').type('Test Insight Zeus')
-        // Save the new name
-        cy.get('[data-attr="insight-name"].EditableField--editing button').contains('Save').click()
-
+        cy.focused().clear().type('Test Insight Zeus')
+        cy.get('button').contains('Save').click() // Save the new name
         cy.get('[data-attr="save-to-dashboard-button"]').click() // Open the Save to dashboard modal
-        cy.get('button').contains('Add insight to dashboard').click() // Add the insight to a dashboard
-        cy.get('[data-attr="save-to-dashboard-button"]').click() // Go to the dashboard
+        cy.get('.modal-row button').contains('Add to dashboard').first().click({ force: true }) // Add the insight to a dashboard
+        cy.get('.modal-row button').first().contains('Added')
+        cy.get('.modal-row a').first().click({ force: true }) // Go to the dashboard
         cy.get('[data-attr="insight-name"]').should('contain', 'Test Insight Zeus') // Check if the insight is there
     })
 
@@ -46,20 +55,19 @@ describe('Dashboard', () => {
         cy.get('.SideBar__pinned-dashboards div').should('contain', 'App Analytics')
     })
 
-    it('Share dashboard', (done) => {
-        cy.get('[data-attr=dashboard-name]').contains('App Analytics').click()
+    it('Share dashboard', () => {
+        createDashboardFromTemplate('to be shared')
+
         cy.get('.InsightCard').should('exist')
 
         cy.get('[data-attr=dashboard-share-button]').click()
-        cy.get('[data-attr=share-dashboard-switch]').click()
-        cy.contains('Share dashboard publicly').should('exist')
-        cy.get('[data-attr=share-dashboard-link-button]').focus().click({ force: true })
-
+        cy.get('[data-attr=share-dashboard-switch]').click({ force: true })
+        cy.contains('Copy shared dashboard link').should('be.visible')
+        cy.get('[data-attr=share-dashboard-link-button]').click()
         cy.window().then((win) => {
             win.navigator.clipboard.readText().then((linkFromClipboard) => {
                 cy.visit(linkFromClipboard)
-                cy.get('[data-attr=dashboard-item-title]').should('contain', 'App Analytics')
-                done()
+                cy.get('[data-attr=dashboard-item-title]').should('contain', 'to be shared')
             })
         })
     })
@@ -80,14 +88,8 @@ describe('Dashboard', () => {
     it('Create dashboard from a template', () => {
         const TEST_DASHBOARD_NAME = 'XDefault'
 
-        cy.get('[data-attr="new-dashboard"]').click()
-        cy.get('[data-attr=dashboard-name-input]').clear().type(TEST_DASHBOARD_NAME)
-        cy.get('[data-attr=copy-from-template]').click()
-        cy.get('[data-attr=dashboard-select-default-app]').click()
+        createDashboardFromTemplate(TEST_DASHBOARD_NAME)
 
-        cy.get('button').contains('Create').click()
-
-        cy.contains(TEST_DASHBOARD_NAME).should('exist')
         cy.get('.InsightCard').its('length').should('be.gte', 2)
         // Breadcrumbs work
         cy.get('[data-attr=breadcrumb-0]').should('contain', 'Hogflix')

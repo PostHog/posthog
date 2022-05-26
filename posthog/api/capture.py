@@ -152,6 +152,10 @@ def _ensure_web_feature_flags_in_properties(
 
 @csrf_exempt
 def get_event(request):
+    # handle cors request
+    if request.method == "OPTIONS":
+        return cors_response(request, JsonResponse({"status": 1}))
+
     timer = statsd.timer("posthog_cloud_event_endpoint").start()
     now = timezone.now()
 

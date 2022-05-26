@@ -14,7 +14,8 @@ from posthog.models import Entity
 from posthog.models.action.util import Action, format_action_filter
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.team import Team
-from posthog.queries.util import get_trunc_func_ch
+from posthog.models.utils import PersonPropertiesMode
+from posthog.queries.util import format_ch_timestamp, get_trunc_func_ch
 
 
 class RetentionEventsQuery(EnterpriseEventQuery):
@@ -28,10 +29,14 @@ class RetentionEventsQuery(EnterpriseEventQuery):
         event_query_type: RetentionQueryType,
         team: Team,
         aggregate_users_by_distinct_id: Optional[bool] = None,
+        using_person_on_events: bool = False,
     ):
         self._event_query_type = event_query_type
         super().__init__(
-            filter=filter, team=team, override_aggregate_users_by_distinct_id=aggregate_users_by_distinct_id
+            filter=filter,
+            team=team,
+            override_aggregate_users_by_distinct_id=aggregate_users_by_distinct_id,
+            using_person_on_events=using_person_on_events,
         )
 
         self._trunc_func = get_trunc_func_ch(self._filter.period)
@@ -60,7 +65,7 @@ class RetentionEventsQuery(EnterpriseEventQuery):
                     get_aggregation_target_field(
                         self._filter.aggregation_group_type_index,
                         self.EVENT_TABLE_ALIAS,
-                        f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id",
+                        f"{self.DISTINCT_ID_TABLE_ALIAS if not self._using_person_on_events else self.EVENT_TABLE_ALIAS}.person_id",
                     )
                 )
             ]
@@ -74,14 +79,17 @@ class RetentionEventsQuery(EnterpriseEventQuery):
             # `Breakdown` type
             breakdown_type = self._filter.breakdown_type
             table = "events"
+            column = "properties"
 
             if breakdown_type == "person":
-                table = "person"
+                table = "person" if not self._using_person_on_events else "events"
+                column = "person_props" if not self._using_person_on_events else "person_properties"
 
             breakdown_values_expression = get_single_or_multi_property_string_expr(
                 breakdown=[breakdown["property"] for breakdown in self._filter.breakdowns],
                 table=cast(Union[Literal["events"], Literal["person"]], table),
                 query_alias=None,
+                column=column,
             )
 
             if self._event_query_type == RetentionQueryType.TARGET_FIRST_TIME:
@@ -128,7 +136,13 @@ class RetentionEventsQuery(EnterpriseEventQuery):
         date_query, date_params = self._get_date_filter()
         self.params.update(date_params)
 
-        prop_query, prop_params = self._get_prop_groups(self._filter.property_groups)
+        prop_query, prop_params = self._get_prop_groups(
+            self._filter.property_groups,
+            person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS
+            if self._using_person_on_events
+            else PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
+            person_id_joined_alias=f"{self.EVENT_TABLE_ALIAS if self._using_person_on_events else self.DISTINCT_ID_TABLE_ALIAS}.person_id",
+        )
 
         self.params.update(prop_params)
 
@@ -169,17 +183,32 @@ class RetentionEventsQuery(EnterpriseEventQuery):
             return f"{self._trunc_func}(toDateTime({self.EVENT_TABLE_ALIAS}.timestamp, %(timezone)s)) AS event_date"
 
     def _determine_should_join_distinct_ids(self) -> None:
-        if self._filter.aggregation_group_type_index is not None or self._aggregate_users_by_distinct_id:
+        if (
+            self._filter.aggregation_group_type_index is not None or self._aggregate_users_by_distinct_id
+        ) and not self._column_optimizer.is_using_cohort_propertes:
             self._should_join_distinct_ids = False
         else:
             self._should_join_distinct_ids = True
+
+    def _determine_should_join_persons(self) -> None:
+        EnterpriseEventQuery._determine_should_join_persons(self)
+        if self._using_person_on_events:
+            self._should_join_distinct_ids = False
+            self._should_join_persons = False
 
     def _get_entity_query(self, entity: Entity):
         prepend = self._event_query_type
         if entity.type == TREND_FILTER_TYPE_ACTIONS:
             action = Action.objects.get(pk=entity.id)
             action_query, params = format_action_filter(
-                team_id=self._team_id, action=action, prepend=prepend, use_loop=False
+                team_id=self._team_id,
+                action=action,
+                prepend=prepend,
+                use_loop=False,
+                person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS
+                if self._using_person_on_events
+                else PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
+                person_id_joined_alias=f"{self.DISTINCT_ID_TABLE_ALIAS if not self._using_person_on_events else self.EVENT_TABLE_ALIAS}.person_id",
             )
             condition = action_query
         elif entity.type == TREND_FILTER_TYPE_EVENTS:
@@ -192,18 +221,25 @@ class RetentionEventsQuery(EnterpriseEventQuery):
 
     def _get_date_filter(self):
         query = (
-            f"event_date >= toDateTime(%({self._event_query_type}_start_date)s, %(timezone)s) AND event_date <= toDateTime(%({self._event_query_type}_end_date)s, %(timezone)s)"
+            f"event_date >= toDateTime(%({self._event_query_type}_start_date)s) AND event_date <= toDateTime(%({self._event_query_type}_end_date)s)"
             if self._event_query_type == RetentionQueryType.TARGET_FIRST_TIME
-            else f"toDateTime({self.EVENT_TABLE_ALIAS}.timestamp) >= toDateTime(%({self._event_query_type}_start_date)s, %(timezone)s) AND toDateTime({self.EVENT_TABLE_ALIAS}.timestamp) <= toDateTime(%({self._event_query_type}_end_date)s, %(timezone)s)"
+            else f"toDateTime({self.EVENT_TABLE_ALIAS}.timestamp) >= toDateTime(%({self._event_query_type}_start_date)s) AND toDateTime({self.EVENT_TABLE_ALIAS}.timestamp) <= toDateTime(%({self._event_query_type}_end_date)s)"
         )
+        start_date = self._filter.date_from
+        end_date = (
+            (self._filter.date_from + self._filter.period_increment)
+            if self._filter.display == TRENDS_LINEAR and self._event_query_type == RetentionQueryType.TARGET
+            else self._filter.date_to
+        )
+        if self._filter.period != "Hour":
+            start_date = start_date.replace(hour=0, minute=0, second=0, microsecond=0)
+            end_date = end_date.replace(hour=0, minute=0, second=0, microsecond=0)
         params = {
-            f"{self._event_query_type}_start_date": self._filter.date_from.strftime(
-                "%Y-%m-%d{}".format(" %H:%M:%S" if self._filter.period == "Hour" else " 00:00:00")
+            f"{self._event_query_type}_start_date": format_ch_timestamp(
+                start_date, convert_to_timezone=self._team.timezone
             ),
-            f"{self._event_query_type}_end_date": (
-                (self._filter.date_from + self._filter.period_increment)
-                if self._filter.display == TRENDS_LINEAR and self._event_query_type == RetentionQueryType.TARGET
-                else self._filter.date_to
-            ).strftime("%Y-%m-%d{}".format(" %H:%M:%S" if self._filter.period == "Hour" else " 00:00:00")),
+            f"{self._event_query_type}_end_date": format_ch_timestamp(
+                end_date, convert_to_timezone=self._team.timezone
+            ),
         }
         return query, params

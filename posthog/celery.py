@@ -5,7 +5,6 @@ from random import randrange
 from celery import Celery
 from celery.schedules import crontab
 from celery.signals import task_postrun, task_prerun
-from constance import config
 from django.conf import settings
 from django.db import connection
 from django.utils import timezone
@@ -247,7 +246,11 @@ def clickhouse_mutation_count():
 
 
 def recompute_materialized_columns_enabled() -> bool:
-    if getattr(config, "MATERIALIZED_COLUMNS_ENABLED") and getattr(config, "COMPUTE_MATERIALIZED_COLUMNS_ENABLED"):
+    from posthog.models.instance_setting import get_instance_setting
+
+    if get_instance_setting("MATERIALIZED_COLUMNS_ENABLED") and get_instance_setting(
+        "COMPUTE_MATERIALIZED_COLUMNS_ENABLED"
+    ):
         return True
     return False
 

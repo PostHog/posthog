@@ -57,7 +57,7 @@
             box-shadow: var(--shadow-elevation);
             width: 100%;
             max-width: 400px; // 320px + 80px padding
-            padding: $default_spacing $default_spacing * 2.5;
+            padding: 1rem 2.5rem 1.75rem;
             background-color: white;
             border-radius: $radius;
         }
@@ -73,12 +73,6 @@
         text-align: center;
         img {
             height: 24px;
-        }
-    }
-
-    @media screen and (max-width: $sm) {
-        .auth-main-content {
-            align-items: flex-start;
         }
     }
 }

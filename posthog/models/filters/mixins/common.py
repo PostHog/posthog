@@ -3,8 +3,8 @@ import json
 import re
 from typing import Any, Dict, List, Literal, Optional, Union, cast
 
+import pytz
 from dateutil.relativedelta import relativedelta
-from django.db.models.query_utils import Q
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 
@@ -272,6 +272,24 @@ class DateMixin(BaseParamMixin):
     def _date_to(self) -> Optional[Union[str, datetime.datetime]]:
         return self._data.get(DATE_TO, None)
 
+    @property
+    def date_from_has_explicit_time(self) -> bool:
+        """
+        Whether date_from has an explicit time set that we want to filter on
+        """
+        if not self._date_from:
+            return False
+        return isinstance(self._date_from, datetime.datetime) or "T" in self._date_from
+
+    @property
+    def date_to_has_explicit_time(self) -> bool:
+        """
+        Whether date_to has an explicit time set that we want to filter on
+        """
+        if not self._date_to:
+            return False
+        return isinstance(self._date_to, datetime.datetime) or "T" in self._date_to
+
     @cached_property
     def date_from(self) -> Optional[datetime.datetime]:
         if self._date_from:
@@ -285,35 +303,23 @@ class DateMixin(BaseParamMixin):
 
     @cached_property
     def date_to(self) -> datetime.datetime:
-        if self._date_to:
+        if not self._date_to:
+            if self.interval == "hour":  # type: ignore
+                return timezone.now() + relativedelta(minutes=1)
+            date = timezone.now()
+        else:
             if isinstance(self._date_to, str):
-                return relative_date_parse(self._date_to)
+                try:
+                    date = datetime.datetime.strptime(self._date_to, "%Y-%m-%d").replace(tzinfo=pytz.UTC)
+                except ValueError:
+                    try:
+                        return datetime.datetime.strptime(self._date_to, "%Y-%m-%d %H:%M:%S").replace(tzinfo=pytz.UTC)
+                    except ValueError:
+                        date = relative_date_parse(self._date_to)
             else:
                 return self._date_to
-        return timezone.now()
 
-    @cached_property
-    def date_filter_Q(self) -> Q:
-        date_from = self.date_from
-        if self._date_from == "all":
-            return Q()
-        if not date_from:
-            date_from = timezone.now().replace(hour=0, minute=0, second=0, microsecond=0) - relativedelta(days=7)
-        filter = Q(timestamp__gte=date_from)
-        if self.date_to:
-            filter &= Q(timestamp__lte=self.date_to)
-        return filter
-
-    def custom_date_filter_Q(self, field: str = "timestamp") -> Q:
-        date_from = self.date_from
-        if self._date_from == "all":
-            return Q()
-        if not date_from:
-            date_from = timezone.now().replace(hour=0, minute=0, second=0, microsecond=0) - relativedelta(days=7)
-        filter = Q(**{f"{field}__gte": date_from})
-        if self.date_to:
-            filter &= Q(**{f"{field}__lte": self.date_to})
-        return filter
+        return date.replace(hour=23, minute=59, second=59, microsecond=99999)
 
     @include_dict
     def date_to_dict(self) -> Dict:
@@ -375,7 +381,9 @@ class EntitiesMixin(BaseParamMixin):
             exclusion_list = self._data.get(EXCLUSIONS, [])
             if isinstance(exclusion_list, str):
                 exclusion_list = json.loads(exclusion_list)
-            _exclusions.extend([ExclusionEntity({**entity}) for entity in exclusion_list])
+
+            _exclusions.extend([ExclusionEntity({**entity}) for entity in exclusion_list if entity])
+
         return _exclusions
 
     @include_dict

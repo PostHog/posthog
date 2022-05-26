@@ -3,13 +3,12 @@ import { useValues, useActions, useMountedLogic } from 'kea'
 import clsx from 'clsx'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { ActionFilter } from '../../ActionFilter/ActionFilter'
-import { Button, Card, Col, Row, Tag } from 'antd'
+import { Button, Col, Row, Tag } from 'antd'
 import useBreakpoint from 'antd/lib/grid/hooks/useBreakpoint'
 import { funnelCommandLogic } from './funnelCommandLogic'
 import { InfoCircleOutlined } from '@ant-design/icons'
 import { ToggleButtonChartFilter } from './ToggleButtonChartFilter'
 import { Tooltip } from 'lib/components/Tooltip'
-import { TestAccountFilter } from 'scenes/insights/TestAccountFilter'
 import { FunnelStepReference, FunnelVizType, StepOrderValue, PropertyGroupFilter } from '~/types'
 import { BreakdownFilter } from 'scenes/insights/BreakdownFilter'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -23,11 +22,8 @@ import { FunnelConversionWindowFilter } from './FunnelConversionWindowFilter'
 import { FunnelStepOrderPicker } from './FunnelStepOrderPicker'
 import { FunnelExclusionsFilter } from './FunnelExclusionsFilter'
 import { FunnelStepReferencePicker } from './FunnelStepReferencePicker'
-import { convertPropertiesToPropertyGroup, convertPropertyGroupToProperties } from 'lib/utils'
+import { convertPropertiesToPropertyGroup } from 'lib/utils'
 import { PropertyGroupFilters } from 'lib/components/PropertyGroupFilters/PropertyGroupFilters'
-import { GlobalFiltersTitle } from 'scenes/insights/common'
-import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { MathAvailability } from 'scenes/insights/ActionFilter/ActionFilterRow/ActionFilterRow'
 
 const FUNNEL_STEP_COUNT_LIMIT = 20
@@ -76,32 +72,27 @@ export function FunnelTab(): JSX.Element {
                                 </div>
                             }
                         </Row>
-                        <Card className="action-filters-bordered" bodyStyle={{ padding: 0 }}>
-                            <ActionFilter
-                                filters={filters}
-                                setFilters={setFilters}
-                                typeKey={`EditFunnel-action`}
-                                mathAvailability={MathAvailability.None}
-                                hideDeleteBtn={filterSteps.length === 1}
-                                buttonCopy="Add step"
-                                buttonType="link"
-                                showSeriesIndicator={!isStepsEmpty}
-                                seriesIndicatorType="numeric"
-                                entitiesLimit={FUNNEL_STEP_COUNT_LIMIT}
-                                fullWidth
-                                sortable
-                                showNestedArrow={true}
-                                propertiesTaxonomicGroupTypes={[
-                                    TaxonomicFilterGroupType.EventProperties,
-                                    TaxonomicFilterGroupType.PersonProperties,
-                                    ...groupsTaxonomicTypes,
-                                    TaxonomicFilterGroupType.Cohorts,
-                                    TaxonomicFilterGroupType.Elements,
-                                ]}
-                                rowClassName="action-filters-bordered"
-                            />
-                            <div className="mb-05" />
-                        </Card>
+                        <ActionFilter
+                            bordered
+                            filters={filters}
+                            setFilters={setFilters}
+                            typeKey={`EditFunnel-action`}
+                            mathAvailability={MathAvailability.None}
+                            hideDeleteBtn={filterSteps.length === 1}
+                            buttonCopy="Add step"
+                            showSeriesIndicator={!isStepsEmpty}
+                            seriesIndicatorType="numeric"
+                            entitiesLimit={FUNNEL_STEP_COUNT_LIMIT}
+                            sortable
+                            showNestedArrow={true}
+                            propertiesTaxonomicGroupTypes={[
+                                TaxonomicFilterGroupType.EventProperties,
+                                TaxonomicFilterGroupType.PersonProperties,
+                                ...groupsTaxonomicTypes,
+                                TaxonomicFilterGroupType.Cohorts,
+                                TaxonomicFilterGroupType.Elements,
+                            ]}
+                        />
                     </form>
                 </div>
                 {showGroupsOptions && (
@@ -126,53 +117,23 @@ export function FunnelTab(): JSX.Element {
             <Col xs={24} md={8} xl={24}>
                 <hr />
                 <div className="mt" />
-                {featureFlags[FEATURE_FLAGS.AND_OR_FILTERING] && filters.properties ? (
-                    <PropertyGroupFilters
-                        propertyFilters={convertPropertiesToPropertyGroup(filters.properties)}
-                        onChange={(properties: PropertyGroupFilter) => {
-                            setFilters({ properties })
-                        }}
-                        taxonomicGroupTypes={[
-                            TaxonomicFilterGroupType.EventProperties,
-                            TaxonomicFilterGroupType.PersonProperties,
-                            ...groupsTaxonomicTypes,
-                            TaxonomicFilterGroupType.Cohorts,
-                            TaxonomicFilterGroupType.Elements,
-                        ]}
-                        pageKey="EditFunnel-property"
-                        eventNames={allEventNames}
-                        filters={filters}
-                        setTestFilters={(testFilters) => setFilters(testFilters)}
-                    />
-                ) : (
-                    <>
-                        <div className="flex-center">
-                            <div style={{ flexGrow: 1 }}>
-                                <GlobalFiltersTitle unit="steps" />
-                            </div>
-                        </div>
-                        <PropertyFilters
-                            pageKey={`EditFunnel-property`}
-                            propertyFilters={convertPropertyGroupToProperties(filters.properties) || []}
-                            onChange={(anyProperties) => {
-                                setFilters({
-                                    properties: anyProperties.filter(isValidPropertyFilter),
-                                })
-                            }}
-                            taxonomicGroupTypes={[
-                                TaxonomicFilterGroupType.EventProperties,
-                                TaxonomicFilterGroupType.PersonProperties,
-                                ...groupsTaxonomicTypes,
-                                TaxonomicFilterGroupType.Cohorts,
-                                TaxonomicFilterGroupType.Elements,
-                            ]}
-                            eventNames={allEventNames}
-                        />
-                        <div style={{ marginBottom: '0.5rem' }}>
-                            <TestAccountFilter filters={filters} onChange={setFilters} />
-                        </div>
-                    </>
-                )}
+                <PropertyGroupFilters
+                    value={convertPropertiesToPropertyGroup(filters.properties)}
+                    onChange={(properties: PropertyGroupFilter) => {
+                        setFilters({ properties })
+                    }}
+                    taxonomicGroupTypes={[
+                        TaxonomicFilterGroupType.EventProperties,
+                        TaxonomicFilterGroupType.PersonProperties,
+                        ...groupsTaxonomicTypes,
+                        TaxonomicFilterGroupType.Cohorts,
+                        TaxonomicFilterGroupType.Elements,
+                    ]}
+                    pageKey="EditFunnel-property"
+                    eventNames={allEventNames}
+                    filters={filters}
+                    setTestFilters={(testFilters) => setFilters(testFilters)}
+                />
 
                 {filters.funnel_viz_type === FunnelVizType.Steps && (
                     <>

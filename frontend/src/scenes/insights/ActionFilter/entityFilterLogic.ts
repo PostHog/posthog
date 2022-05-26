@@ -1,7 +1,7 @@
 import { kea } from 'kea'
 import { actionsModel } from '~/models/actionsModel'
 import { EntityTypes, FilterType, Entity, EntityType, ActionFilter, EntityFilter, AnyPropertyFilter } from '~/types'
-import { entityFilterLogicType } from './entityFilterLogicType'
+import type { entityFilterLogicType } from './entityFilterLogicType'
 import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
 import { eventUsageLogic, GraphSeriesAddedSource } from 'lib/utils/eventUsageLogic'
 import { convertPropertyGroupToProperties } from 'lib/utils'
@@ -50,11 +50,12 @@ export interface EntityFilterProps {
     addFilterDefaultOptions?: Record<string, any>
 }
 
-export const entityFilterLogic = kea<entityFilterLogicType<BareEntity, EntityFilterProps, LocalFilter>>({
+export const entityFilterLogic = kea<entityFilterLogicType>({
     props: {} as EntityFilterProps,
     key: (props) => props.typeKey,
     path: (key) => ['scenes', 'insights', 'ActionFilter', 'entityFilterLogic', key],
     connect: {
+        logic: [eventUsageLogic],
         values: [actionsModel, ['actions']],
     },
     actions: () => ({

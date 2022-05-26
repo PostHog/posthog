@@ -2,7 +2,6 @@ import { PluginEvent, PluginMeta, RetryError } from '@posthog/plugin-scaffold'
 
 import {
     Hub,
-    MetricMathOperations,
     PluginConfig,
     PluginConfigVMInternalResponse,
     PluginLogEntrySource,
@@ -247,8 +246,6 @@ export function addHistoricalEventsExportCapability(
                 timestampCursor + EVENTS_TIME_INTERVAL
             ).toISOString()}.`
         )
-
-        incrementMetric('events_exported', events.length)
     }
 
     // initTimestampsAndCursor decides what timestamp boundaries to use before
@@ -321,21 +318,12 @@ export function addHistoricalEventsExportCapability(
         const progress = progressDenominator === 0 ? 20 : Math.round(progressNumerator / progressDenominator) * 20
 
         const progressBarCompleted = Array.from({ length: progress })
-            .map((_) => '■')
+            .map(() => '■')
             .join('')
         const progressBarRemaining = Array.from({ length: 20 - progress })
-            .map((_) => '□')
+            .map(() => '□')
             .join('')
         createLog(`Export progress: ${progressBarCompleted}${progressBarRemaining}`)
-    }
-
-    function incrementMetric(metricName: string, value: number) {
-        hub.pluginMetricsManager.updateMetric({
-            metricName,
-            value,
-            pluginConfig,
-            metricOperation: MetricMathOperations.Increment,
-        })
     }
 
     function createLog(message: string, type: PluginLogEntryType = PluginLogEntryType.Log) {

@@ -1872,6 +1872,24 @@
       "contributions": [
         "code"
       ]
+    },
+    {
+      "login": "kuberaspeaking",
+      "name": "Shruti Kuber",
+      "avatar_url": "https://avatars.githubusercontent.com/u/27010949?v=4",
+      "profile": "https://github.com/restackio",
+      "contributions": [
+        "code"
+      ]
+    },
+    {
+      "login": "utkuzih",
+      "name": "Utku Zihnioglu",
+      "avatar_url": "https://avatars.githubusercontent.com/u/7005250?v=4",
+      "profile": "https://github.com/utkuzih",
+      "contributions": [
+        "code"
+      ]
     }
   ],
   "contributorsPerLine": 7,

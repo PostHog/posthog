@@ -329,7 +329,7 @@ describe('funnelLogic', () => {
                 },
             },
         })
-        initKeaTests()
+        initKeaTests(false)
         window.POSTHOG_APP_CONTEXT = undefined // to force API request to /api/project/@current
     })
 
@@ -548,6 +548,7 @@ describe('funnelLogic', () => {
         })
 
         it('setFilters calls personsModalLogic.loadPeople', async () => {
+            personsModalLogic.mount()
             await expectLogic().toDispatchActions(preflightLogic, ['loadPreflightSuccess'])
             await expectLogic(() => {
                 router.actions.push(urls.insightEdit(Insight123))
@@ -558,6 +559,7 @@ describe('funnelLogic', () => {
                     step: {
                         action_id: '$pageview',
                         average_conversion_time: 0,
+                        median_conversion_time: 0,
                         count: 1,
                         name: '$pageview',
                         order: 0,

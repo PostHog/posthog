@@ -79,7 +79,7 @@ function PropertyCriteriaRow({
                 width: '100%',
             }}
         >
-            <div style={{ flex: 3, marginRight: 5 }}>
+            <div style={{ flex: 3, margin: '1rem 0 0' }}>
                 <PropertyFilters
                     endpoint="person"
                     pageKey={group.id}
@@ -87,11 +87,7 @@ function PropertyCriteriaRow({
                         onPropertyCriteriaChange({ properties })
                     }}
                     propertyFilters={group.properties}
-                    style={{ margin: '1rem 0 0' }}
-                    taxonomicGroupTypes={[
-                        TaxonomicFilterGroupType.PersonProperties,
-                        TaxonomicFilterGroupType.CohortsWithAllUsers,
-                    ]}
+                    taxonomicGroupTypes={[TaxonomicFilterGroupType.PersonProperties, TaxonomicFilterGroupType.Cohorts]}
                     popoverPlacement="top"
                     taxonomicPopoverPlacement="auto"
                 />

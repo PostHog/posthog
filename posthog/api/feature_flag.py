@@ -21,6 +21,7 @@ from posthog.models.activity_logging.activity_log import (
     log_activity,
 )
 from posthog.models.activity_logging.serializers import ActivityLogSerializer
+from posthog.models.cohort import Cohort
 from posthog.models.feature_flag import FeatureFlagOverride
 from posthog.models.property import Property
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
@@ -33,6 +34,11 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
     filters = serializers.DictField(source="get_filters", required=False)
     is_simple_flag = serializers.SerializerMethodField()
     rollout_percentage = serializers.SerializerMethodField()
+    name = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="contains the description for the flag (field name `name` is kept for backwards-compatibility)",
+    )
 
     class Meta:
         model = FeatureFlag
@@ -80,6 +86,12 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
         return value
 
     def validate_filters(self, filters):
+        # For some weird internal REST framework reason this field gets validated on a partial PATCH call, even if filters isn't being updatd
+        # If we see this, just return the current filters
+        if "groups" not in filters and self.context["request"].method == "PATCH":
+            # mypy cannot tell that self.instance is a FeatureFlag
+            return self.instance.filters  # type: ignore
+
         aggregation_group_type_index = filters.get("aggregation_group_type_index", None)
 
         def properties_all_match(predicate):
@@ -100,9 +112,25 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
             if not is_valid:
                 raise serializers.ValidationError("Filters are not valid (can only use group properties)")
 
+        for condition in filters["groups"]:
+            for property in condition.get("properties", []):
+                prop = Property(**property)
+                if prop.type == "cohort":
+                    try:
+                        cohort: Cohort = Cohort.objects.get(pk=prop.value, team_id=self.context["team_id"])
+                        if [prop for prop in cohort.properties.flat if prop.type == "behavioral"]:
+                            raise serializers.ValidationError(
+                                detail=f"Cohort '{cohort.name}' with behavioral filters cannot be used in feature flags.",
+                                code="behavioral_cohort_found",
+                            )
+                    except Cohort.DoesNotExist:
+                        raise serializers.ValidationError(
+                            detail=f"Cohort with id {prop.value} does not exist", code="cohort_does_not_exist"
+                        )
         return filters
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> FeatureFlag:
+
         request = self.context["request"]
         validated_data["created_by"] = request.user
         validated_data["team_id"] = self.context["team_id"]

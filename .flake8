@@ -57,18 +57,23 @@ per-file-ignores =
     ./docker-compose-config.py: T001
     ./posthog/client.py: T001
     ./ee/clickhouse/generate_local.py: T001
+    ./ee/management/commands/dry_run_matrix.py: T001
     ./ee/management/commands/migrate_clickhouse.py: T001
     ./ee/management/commands/run_async_migrations.py: T001
+    ./ee/management/commands/backfill_persons_and_groups_on_events.py: T001
     ./gunicorn.config.py: T001
     ./posthog/api/capture.py: T001
     ./posthog/apps.py: T001
     ./posthog/celery.py: T001
+    ./posthog/demo/matrix/manager.py: T001
+    ./posthog/demo/matrix/matrix.py: T001
     ./posthog/email.py: T001
     ./posthog/management/commands/api_keys.py: T001
     ./posthog/management/commands/merge_distinct_emails.py: T001
     ./posthog/management/commands/migrate_elementgroup.py: T001
     ./posthog/management/commands/notify_helm_install.py: T001 T003
     ./posthog/management/commands/partition.py: T001
+    ./posthog/management/commands/simulate_matrix.py: T001
     ./posthog/management/commands/sync_feature_flags.py: T001
     ./posthog/management/commands/test_migrations_are_safe.py: T001
     ./posthog/migrations/0027_move_elements_to_group.py: T001

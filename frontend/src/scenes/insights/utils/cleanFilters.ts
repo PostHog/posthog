@@ -172,7 +172,10 @@ export function cleanFilters(
             ...cleanedParams,
             ...getClampedStepRangeFilter({ filters: cleanedParams }),
             exclusions: (cleanedParams.exclusions || []).map((e) =>
-                getClampedStepRangeFilter({ stepRange: e, filters: cleanedParams })
+                getClampedStepRangeFilter({
+                    stepRange: e,
+                    filters: cleanedParams,
+                })
             ),
         }
     } else if (filters.insight === InsightType.PATHS) {

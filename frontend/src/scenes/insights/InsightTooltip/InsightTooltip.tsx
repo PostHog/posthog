@@ -1,5 +1,5 @@
 import './InsightTooltip.scss'
-import React from 'react'
+import React, { ReactNode } from 'react'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/components/LemonTable'
 import {
     COL_CUTOFF,
@@ -14,6 +14,8 @@ import {
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
 import { IconHandClick } from 'lib/components/icons'
+import { shortTimeZone } from 'lib/utils'
+import { humanFriendlyNumber } from 'lib/utils'
 
 export function ClickToInspectActors({
     isTruncated,
@@ -39,6 +41,7 @@ export function ClickToInspectActors({
 
 export function InsightTooltip({
     date,
+    timezone = 'UTC',
     seriesData = [],
     altTitle,
     altRightTitle,
@@ -48,7 +51,9 @@ export function InsightTooltip({
             {value}
         </>
     ),
-    renderCount = (value: React.ReactNode) => <>{value}</>,
+    renderCount = (value: number | React.ReactNode) => (
+        <>{typeof value === 'number' ? humanFriendlyNumber(value) : value}</>
+    ),
     hideColorCol = false,
     hideInspectActorsSection = false,
     forceEntitiesAsColumns = false,
@@ -63,9 +68,11 @@ export function InsightTooltip({
     const itemizeEntitiesAsColumns =
         forceEntitiesAsColumns ||
         (seriesData?.length > 1 && (seriesData?.[0]?.breakdown_value || seriesData?.[0]?.compare_label))
-    const title =
-        getTooltipTitle(seriesData, altTitle, date) ?? getFormattedDate(date, seriesData?.[0]?.filter?.interval)
-    const rightTitle = getTooltipTitle(seriesData, altRightTitle, date) ?? null
+
+    const title: ReactNode | null =
+        getTooltipTitle(seriesData, altTitle, date) ||
+        `${getFormattedDate(date, seriesData?.[0]?.filter?.interval)} (${shortTimeZone(timezone)})`
+    const rightTitle: ReactNode | null = getTooltipTitle(seriesData, altRightTitle, date) || null
 
     const renderTable = (): JSX.Element => {
         if (itemizeEntitiesAsColumns) {
@@ -149,7 +156,7 @@ export function InsightTooltip({
             key: 'datum',
             className: 'datum-label-column',
             width: 120,
-            title,
+            title: <span className="no-wrap">{title}</span>,
             sticky: true,
             render: function renderDatum(_, datum, rowIdx) {
                 return renderSeries(
@@ -186,6 +193,7 @@ export function InsightTooltip({
                     columns={columns}
                     rowKey="id"
                     size="small"
+                    className="ph-no-capture"
                     uppercaseHeader={false}
                     rowRibbonColor={hideColorCol ? undefined : (datum: SeriesDatum) => datum.color || null}
                     showHeader={showHeader}

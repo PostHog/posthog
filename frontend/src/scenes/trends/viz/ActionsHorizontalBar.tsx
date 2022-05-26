@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { LineGraph } from '../../insights/LineGraph/LineGraph'
-import { getChartColors } from 'lib/colors'
+import { getSeriesColor } from 'lib/colors'
 import { useActions, useValues } from 'kea'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { InsightEmptyState } from '../../insights/EmptyStates'
@@ -18,15 +18,11 @@ export function ActionsHorizontalBar({ showPersonsModal = true }: ChartParams): 
     const { insightProps, insight, hiddenLegendKeys } = useValues(insightLogic)
     const logic = trendsLogic(insightProps)
     const { loadPeople, loadPeopleFromUrl } = useActions(personsModalLogic)
-    const { results, labelGroupType } = useValues(logic)
+    const { indexedResults, labelGroupType } = useValues(logic)
 
     function updateData(): void {
-        const _data = [...results]
-        _data.sort((a, b) => b.aggregated_value - a.aggregated_value)
-
-        // If there are more series than colors, we reuse colors sequentially so all series are colored
-        const rawColorList = getChartColors('white', results.length)
-        const colorList = results.map((_, idx) => rawColorList[idx % rawColorList.length])
+        const _data = [...indexedResults]
+        const colorList = indexedResults.map((_, idx) => getSeriesColor(idx))
 
         setData([
             {
@@ -48,10 +44,10 @@ export function ActionsHorizontalBar({ showPersonsModal = true }: ChartParams): 
     }
 
     useEffect(() => {
-        if (results) {
+        if (indexedResults) {
             updateData()
         }
-    }, [results])
+    }, [indexedResults])
 
     return data && total > 0 ? (
         <LineGraph

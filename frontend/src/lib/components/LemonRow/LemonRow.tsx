@@ -36,15 +36,15 @@ export interface LemonRowPropsBase<T extends keyof JSX.IntrinsicElements>
     'data-attr'?: string
 }
 
-export interface LemonRowProps<T extends keyof JSX.IntrinsicElements> extends LemonRowPropsBase<T> {
-    sideIcon?: React.ReactElement | null
+export interface LemonRowProps<T extends keyof JSX.IntrinsicElements = 'div'> extends LemonRowPropsBase<T> {
+    sideIcon?: React.ReactElement | false | null
 }
 
 /** Generic UI row component. Can be exploited as a button (see LemonButton) or just as a standard row of content.
  *
  * Do NOT use for general layout if you simply need flexbox though. In that case `display: flex` is much lighter.
  */
-export const LemonRow = React.forwardRef(function LemonRowInternal<T extends keyof JSX.IntrinsicElements>(
+export const LemonRow = React.forwardRef(function LemonRowInternal<T extends keyof JSX.IntrinsicElements = 'div'>(
     {
         children,
         icon,
@@ -103,13 +103,7 @@ export const LemonRow = React.forwardRef(function LemonRowInternal<T extends key
                 )}
                 {!symbolic && <div className="LemonRow__content">{children}</div>}
                 {sideIcon && (
-                    <span
-                        className={clsx(
-                            'LemonRow__icon',
-                            'LemonRow__icon--suffix',
-                            relaxedIconWidth && 'LemonRow__icon--relaxed-width'
-                        )}
-                    >
+                    <span className={clsx('LemonRow__icon', relaxedIconWidth && 'LemonRow__icon--relaxed-width')}>
                         {sideIcon}
                     </span>
                 )}

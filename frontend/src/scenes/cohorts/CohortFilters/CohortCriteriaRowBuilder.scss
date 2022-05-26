@@ -1,9 +1,65 @@
 .CohortCriteriaRow {
-    .CohortCriteriaRow__CohortField {
-        margin: 4px 0;
+    padding: 0 0.5rem;
 
-        &:not(:last-child) {
-            margin-right: 0.5rem;
+    .CohortCriteriaRow__Criteria {
+        border-radius: var(--radius);
+        border: 1px solid transparent;
+        padding: 0.25rem 0.5rem;
+
+        &.CohortCriteriaRow__Criteria--error {
+            border: 1px solid var(--danger);
         }
+
+        .CohortCriteriaRow__Criteria__error-row {
+            margin: 0.25rem 0;
+        }
+
+        .CohortCriteriaRow__Criteria__Field {
+            margin: 0.25rem 0;
+
+            &.CohortCriteriaRow__Criteria__Field--error {
+                .CohortField {
+                    border: 1px solid var(--danger);
+                }
+            }
+
+            &:not(:last-child) {
+                margin-right: 0.5rem;
+            }
+        }
+    }
+
+    .CohortCriteriaRow__logical-divider {
+        color: var(--primary-alt);
+        font-weight: 600;
+        font-size: 12px;
+        text-transform: uppercase;
+
+        &::before,
+        &::after {
+            border-top: 1px solid var(--border);
+        }
+        &::before {
+            width: 1.5%;
+        }
+    }
+
+    .CohortCriteriaRow__inline-divider {
+        margin: 0 0.5rem;
+        height: 1px;
+        background-color: var(--border);
+        flex: 1;
+    }
+
+    .CohortCriteriaRow__Criteria__arrow {
+        color: var(--text-muted);
+        font-size: 18px;
+        font-weight: bold;
+        padding-left: 6px;
+        padding-right: 8px;
+        position: relative;
+        top: 6px;
+        user-select: none;
+        flex-shrink: 0;
     }
 }

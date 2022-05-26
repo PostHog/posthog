@@ -109,7 +109,8 @@
                            pdi.person_id as aggregation_target,
                            e.uuid AS uuid,
                            e."$session_id" as "$session_id",
-                           e."$window_id" as "$window_id"
+                           e."$window_id" as "$window_id",
+                           pdi.person_id as person_id
                     FROM events e
                     INNER JOIN
                       (SELECT distinct_id,
@@ -119,8 +120,8 @@
                        GROUP BY distinct_id
                        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     WHERE team_id = 2
-                      AND timestamp >= toDateTime('2021-01-01 00:00:00', 'UTC')
-                      AND timestamp <= toDateTime('2021-01-08 23:59:59', 'UTC') ) events
+                      AND timestamp >= toDateTime('2021-01-01 00:00:00')
+                      AND timestamp <= toDateTime('2021-01-08 23:59:59') ) events
                  WHERE (1=1) ))
            WHERE step_0 = 1 ))
      GROUP BY aggregation_target,
@@ -253,7 +254,8 @@
                            pdi.person_id as aggregation_target,
                            e.uuid AS uuid,
                            e."$session_id" as "$session_id",
-                           e."$window_id" as "$window_id"
+                           e."$window_id" as "$window_id",
+                           pdi.person_id as person_id
                     FROM events e
                     INNER JOIN
                       (SELECT distinct_id,
@@ -263,8 +265,8 @@
                        GROUP BY distinct_id
                        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     WHERE team_id = 2
-                      AND timestamp >= toDateTime('2021-01-01 00:00:00', 'UTC')
-                      AND timestamp <= toDateTime('2021-01-08 23:59:59', 'UTC') ) events
+                      AND timestamp >= toDateTime('2021-01-01 00:00:00')
+                      AND timestamp <= toDateTime('2021-01-08 23:59:59') ) events
                  WHERE (1=1) ))
            WHERE step_0 = 1 ))
      GROUP BY aggregation_target,
@@ -397,7 +399,8 @@
                            pdi.person_id as aggregation_target,
                            e.uuid AS uuid,
                            e."$session_id" as "$session_id",
-                           e."$window_id" as "$window_id"
+                           e."$window_id" as "$window_id",
+                           pdi.person_id as person_id
                     FROM events e
                     INNER JOIN
                       (SELECT distinct_id,
@@ -407,8 +410,8 @@
                        GROUP BY distinct_id
                        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     WHERE team_id = 2
-                      AND timestamp >= toDateTime('2021-01-01 00:00:00', 'UTC')
-                      AND timestamp <= toDateTime('2021-01-08 23:59:59', 'UTC') ) events
+                      AND timestamp >= toDateTime('2021-01-01 00:00:00')
+                      AND timestamp <= toDateTime('2021-01-08 23:59:59') ) events
                  WHERE (1=1) ))
            WHERE step_0 = 1 ))
      GROUP BY aggregation_target,

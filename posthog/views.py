@@ -13,6 +13,7 @@ from django.shortcuts import redirect
 from django.views.decorators.cache import never_cache
 
 from posthog.email import is_email_available
+from posthog.health import is_clickhouse_connected, is_kafka_connected
 from posthog.models import Organization, User
 from posthog.utils import (
     get_available_timezones_with_offsets,
@@ -21,6 +22,7 @@ from posthog.utils import (
     get_instance_available_sso_providers,
     get_instance_realm,
     is_celery_alive,
+    is_object_storage_available,
     is_plugin_server_alive,
     is_postgres_alive,
     is_redis_alive,
@@ -94,14 +96,17 @@ def preflight_check(request: HttpRequest) -> JsonResponse:
         "redis": is_redis_alive() or settings.TEST,
         "plugins": is_plugin_server_alive() or settings.TEST,
         "celery": is_celery_alive() or settings.TEST,
+        "clickhouse": is_clickhouse_connected() or settings.TEST,
+        "kafka": is_kafka_connected() or settings.TEST,
         "db": is_postgres_alive(),
         "initiated": Organization.objects.exists(),
         "cloud": settings.MULTI_TENANCY,
         "demo": settings.DEMO,
         "realm": get_instance_realm(),
         "available_social_auth_providers": get_instance_available_sso_providers(),
-        "can_create_org": get_can_create_org(),
+        "can_create_org": get_can_create_org(request.user),
         "email_service_available": is_email_available(with_absolute_urls=True),
+        "object_storage": is_object_storage_available(),
     }
 
     if request.user.is_authenticated:

@@ -18,12 +18,16 @@
                  first_or_random - if first replica one has higher number of errors, pick a random one from replicas with minimum number of errors.
             -->
             <load_balancing>random</load_balancing>
+
+            <allow_nondeterministic_mutations>1</allow_nondeterministic_mutations>
+
         </default>
 
         <!-- Profile that allows only read queries. -->
         <readonly>
             <readonly>1</readonly>
         </readonly>
+
     </profiles>
 
     <!-- Users and ACL. -->

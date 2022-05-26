@@ -134,7 +134,7 @@ export function EventPropertyDefinitionsTable(): JSX.Element {
                 loading={eventPropertyDefinitionsLoading}
                 rowKey="id"
                 rowStatus={(row) => {
-                    return row.id === openedDefinitionId ? 'highlighted' : undefined
+                    return row.id === openedDefinitionId ? 'highlighted' : null
                 }}
                 pagination={{
                     controlled: true,

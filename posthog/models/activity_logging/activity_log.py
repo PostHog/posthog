@@ -101,6 +101,8 @@ field_exclusions: Dict[Literal["FeatureFlag", "Person", "Insight"], List[str]] =
         "result",
         "dashboard",
         "last_refresh",
+        "saved",
+        "is_sample",
     ],
 }
 
@@ -122,6 +124,7 @@ def changes_between(
     if previous is not None:
         fields = current._meta.fields if current is not None else []
 
+        # TODO how to include tags in the fields assessed
         filtered_fields = [f.name for f in fields if f.name not in field_exclusions[model_type]]
         for field in filtered_fields:
             left = getattr(previous, field, None)
@@ -145,9 +148,10 @@ def log_activity(
     scope: str,
     activity: str,
     detail: Detail,
+    force_save: bool = False,
 ) -> None:
     try:
-        if activity == "updated" and (detail.changes is None or len(detail.changes) == 0):
+        if activity == "updated" and (detail.changes is None or len(detail.changes) == 0) and not force_save:
             logger.warn(
                 "ignore_update_activity_no_changes",
                 team_id=team_id,

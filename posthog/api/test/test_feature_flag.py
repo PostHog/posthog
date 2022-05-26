@@ -1107,8 +1107,9 @@ class TestFeatureFlag(APIBaseTest):
         )
         self.assertEqual(person_request.status_code, status.HTTP_201_CREATED)
 
+        cohort: Cohort = Cohort.objects.create(team=self.team, name="My Cohort")
         cohort_request = self._create_flag_with_properties(
-            "cohort-flag", [{"key": "id", "type": "cohort", "value": 5},]
+            "cohort-flag", [{"key": "id", "type": "cohort", "value": cohort.id},]
         )
         self.assertEqual(cohort_request.status_code, status.HTTP_201_CREATED)
 
@@ -1138,6 +1139,102 @@ class TestFeatureFlag(APIBaseTest):
                 "detail": "Filters are not valid (can only use person and cohort properties)",
                 "attr": "filters",
             },
+        )
+
+    def test_creating_feature_flag_with_non_existant_cohort(self):
+        cohort_request = self._create_flag_with_properties(
+            "cohort-flag",
+            [{"key": "id", "type": "cohort", "value": 5151},],
+            expected_status=status.HTTP_400_BAD_REQUEST,
+        )
+
+        self.assertDictContainsSubset(
+            {
+                "type": "validation_error",
+                "code": "cohort_does_not_exist",
+                "detail": "Cohort with id 5151 does not exist",
+                "attr": "filters",
+            },
+            cohort_request.json(),
+        )
+
+    def test_creating_feature_flag_with_behavioral_cohort(self):
+
+        cohort_valid_for_ff = Cohort.objects.create(
+            team=self.team,
+            groups=[{"properties": [{"key": "$some_prop", "value": "nomatchihope", "type": "person"}]}],
+            name="cohort1",
+        )
+
+        cohort_not_valid_for_ff = Cohort.objects.create(
+            team=self.team,
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "key": "$pageview",
+                            "event_type": "events",
+                            "time_value": 2,
+                            "time_interval": "week",
+                            "value": "performed_event_first_time",
+                            "type": "behavioral",
+                        },
+                        {"key": "email", "value": "test@posthog.com", "type": "person"},
+                    ],
+                }
+            },
+            name="cohort2",
+        )
+
+        cohort_request = self._create_flag_with_properties(
+            "cohort-flag",
+            [{"key": "id", "type": "cohort", "value": cohort_not_valid_for_ff.id},],
+            expected_status=status.HTTP_400_BAD_REQUEST,
+        )
+
+        self.assertDictContainsSubset(
+            {
+                "type": "validation_error",
+                "code": "behavioral_cohort_found",
+                "detail": "Cohort 'cohort2' with behavioral filters cannot be used in feature flags.",
+                "attr": "filters",
+            },
+            cohort_request.json(),
+        )
+
+        cohort_request = self._create_flag_with_properties(
+            "cohort-flag",
+            [{"key": "id", "type": "cohort", "value": cohort_valid_for_ff.id},],
+            expected_status=status.HTTP_201_CREATED,
+        )
+        flag_id = cohort_request.json()["id"]
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag_id}",
+            {
+                "name": "Updated name",
+                "filters": {
+                    "groups": [
+                        {
+                            "rollout_percentage": 65,
+                            "properties": [{"key": "id", "type": "cohort", "value": cohort_not_valid_for_ff.id}],
+                        }
+                    ]
+                },
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+        self.assertDictContainsSubset(
+            {
+                "type": "validation_error",
+                "code": "behavioral_cohort_found",
+                "detail": "Cohort 'cohort2' with behavioral filters cannot be used in feature flags.",
+                "attr": "filters",
+            },
+            response.json(),
         )
 
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
@@ -1234,4 +1331,28 @@ class TestFeatureFlag(APIBaseTest):
         self.maxDiff = None
         self.assertEqual(
             activity, expected,
+        )
+
+    def test_patch_api_as_form_data(self):
+        another_feature_flag = FeatureFlag.objects.create(
+            team=self.team,
+            name="some feature",
+            key="some-feature",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}], "multivariate": None},
+            active=True,
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{another_feature_flag.pk}/",
+            data="active=False&name=replaced",
+            content_type="application/x-www-form-urlencoded",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        updated_flag = FeatureFlag.objects.get(pk=another_feature_flag.pk)
+        self.assertEqual(updated_flag.active, False)
+        self.assertEqual(updated_flag.name, "replaced")
+        self.assertEqual(
+            updated_flag.filters, {"groups": [{"properties": [], "rollout_percentage": 100}], "multivariate": None},
         )

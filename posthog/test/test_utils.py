@@ -1,5 +1,6 @@
 from unittest.mock import call, patch
 
+from django.core.handlers.wsgi import WSGIRequest
 from django.http import HttpRequest
 from django.test import TestCase
 from django.test.client import RequestFactory
@@ -131,17 +132,39 @@ class TestDefaultEventName(BaseTest):
 
 
 class TestLoadDataFromRequest(TestCase):
+    def _create_request_with_headers(self, origin: str, referer: str) -> WSGIRequest:
+        rf = RequestFactory()
+        # the server presents any http headers in upper case with http_ as a prefix
+        # see https://docs.djangoproject.com/en/4.0/ref/request-response/#django.http.HttpRequest.META
+        headers = {"HTTP_ORIGIN": origin, "HTTP_REFERER": referer}
+        post_request = rf.post("/e/?ver=1.20.0", "content", "text/plain", False, **headers)
+        return post_request
+
     @patch("posthog.utils.configure_scope")
-    def test_pushes_debug_information_into_sentry_scope(self, patched_scope):
+    def test_pushes_debug_information_into_sentry_scope_from_origin_header(self, patched_scope):
         origin = "potato.io"
         referer = "https://" + origin
 
         mock_set_tag = mock_sentry_context_for_tagging(patched_scope)
 
-        rf = RequestFactory()
-        post_request = rf.post("/e/?ver=1.20.0", "content", "text/plain")
-        post_request.META["REMOTE_HOST"] = origin
-        post_request.META["HTTP_REFERER"] = referer
+        post_request = self._create_request_with_headers(origin, referer)
+
+        with self.assertRaises(RequestParsingError) as ctx:
+            load_data_from_request(post_request)
+
+        patched_scope.assert_called_once()
+        mock_set_tag.assert_has_calls(
+            [call("origin", origin), call("referer", referer), call("library.version", "1.20.0")]
+        )
+
+    @patch("posthog.utils.configure_scope")
+    def test_pushes_debug_information_into_sentry_scope_when_origin_header_not_present(self, patched_scope):
+        origin = "potato.io"
+        referer = "https://" + origin
+
+        mock_set_tag = mock_sentry_context_for_tagging(patched_scope)
+
+        post_request = self._create_request_with_headers(origin, referer)
 
         with self.assertRaises(RequestParsingError) as ctx:
             load_data_from_request(post_request)
@@ -192,6 +215,22 @@ class TestLoadDataFromRequest(TestCase):
             "data being loaded from the request body for decompression is the literal string 'undefined'",
             str(ctx.exception),
         )
+
+    @patch("posthog.utils.gzip")
+    def test_can_decompress_gzipped_body_received_with_no_compression_flag(self, patched_gzip):
+        # see https://sentry.io/organizations/posthog2/issues/3136510367
+        # one organization is causing a request parsing error by sending an encoded body
+        # but the empty string for the compression value
+        # this accounts for a large majority of our Sentry errors
+
+        patched_gzip.decompress.return_value = '{"what is it": "the decompressed value"}'
+
+        rf = RequestFactory()
+        # a request with no compression set
+        post_request = rf.post("/s/", "the gzip compressed string", "text/plain")
+
+        data = load_data_from_request(post_request)
+        self.assertEqual({"what is it": "the decompressed value"}, data)
 
 
 class TestShouldRefresh(TestCase):

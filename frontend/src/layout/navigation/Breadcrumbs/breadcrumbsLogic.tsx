@@ -1,4 +1,4 @@
-import { kea } from 'kea'
+import { connect, kea, path, props, selectors } from 'kea'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import './Breadcrumbs.scss'
@@ -13,13 +13,16 @@ import { ProfilePicture } from 'lib/components/ProfilePicture'
 import { ProjectSwitcherOverlay } from '~/layout/navigation/ProjectSwitcher'
 import { OrganizationSwitcherOverlay } from '~/layout/navigation/OrganizationSwitcher'
 import { Breadcrumb } from '~/types'
+import { subscriptions } from 'kea-subscriptions'
 
-export const breadcrumbsLogic = kea<breadcrumbsLogicType>({
-    path: ['layout', 'navigation', 'Breadcrumbs', 'breadcrumbsLogic'],
-    props: {} as {
-        hashParams: Record<string, any>
-    },
-    connect: () => ({
+export const breadcrumbsLogic = kea<breadcrumbsLogicType>([
+    path(['layout', 'navigation', 'Breadcrumbs', 'breadcrumbsLogic']),
+    props(
+        {} as {
+            hashParams: Record<string, any>
+        }
+    ),
+    connect(() => ({
         values: [
             preflightLogic,
             ['preflight'],
@@ -32,8 +35,8 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType>({
             teamLogic,
             ['currentTeam'],
         ],
-    }),
-    selectors: () => ({
+    })),
+    selectors(() => ({
         sceneBreadcrumbs: [
             (s) => [
                 // We're effectively passing the selector through to the scene logic, and "recalculating"
@@ -46,7 +49,7 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType>({
                         const activeLoadedScene = sceneLogic.selectors.activeLoadedScene(state, props)
                         return activeSceneLogic.selectors.breadcrumbs(
                             state,
-                            activeLoadedScene?.sceneParams?.params || props
+                            activeLoadedScene?.paramsToProps?.(activeLoadedScene?.sceneParams) || props
                         )
                     } else if (sceneConfig?.name) {
                         return [{ name: sceneConfig.name }]
@@ -58,8 +61,7 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType>({
                 },
             ],
             (crumbs): Breadcrumb[] => crumbs,
-            null, // PropTypes
-            objectsEqual,
+            { equalityCheck: objectsEqual },
         ],
         appBreadcrumbs: [
             (s) => [
@@ -159,13 +161,12 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType>({
                     'PostHog',
                 ].join(' • '),
         ],
-    }),
-
-    subscriptions: {
+    })),
+    subscriptions({
         documentTitle: (documentTitle: string) => {
             if (typeof document !== 'undefined') {
                 document.title = documentTitle
             }
         },
-    },
-})
+    }),
+])

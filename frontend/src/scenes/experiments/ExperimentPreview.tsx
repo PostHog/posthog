@@ -1,7 +1,7 @@
 import { Col, InputNumber, Row, Slider, Tooltip } from 'antd'
 import { useValues, useActions } from 'kea'
 import { InsightLabel } from 'lib/components/InsightLabel'
-import PropertyFilterButton from 'lib/components/PropertyFilters/components/PropertyFilterButton'
+import { PropertyFilterButton } from 'lib/components/PropertyFilters/components/PropertyFilterButton'
 import { dayjs } from 'lib/dayjs'
 import React from 'react'
 import { ActionFilter, AnyPropertyFilter, Experiment, InsightType, MultivariateFlagVariant } from '~/types'

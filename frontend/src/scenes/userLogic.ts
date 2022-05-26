@@ -1,26 +1,45 @@
-import { kea } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import api from 'lib/api'
-import { userLogicType } from './userLogicType'
+import type { userLogicType } from './userLogicType'
 import { AvailableFeature, OrganizationBasicType, UserType } from '~/types'
 import posthog from 'posthog-js'
 import { getAppContext } from 'lib/utils/getAppContext'
-import { teamLogic } from './teamLogic'
 import { preflightLogic } from './PreflightCheck/preflightLogic'
 import { lemonToast } from 'lib/components/lemonToast'
+import { loaders } from 'kea-loaders'
+import { forms } from 'kea-forms'
 
-export const userLogic = kea<userLogicType>({
-    path: ['scenes', 'userLogic'],
-    connect: {
+export interface UserDetailsFormType {
+    first_name: string
+}
+
+export const userLogic = kea<userLogicType>([
+    path(['scenes', 'userLogic']),
+    connect({
         values: [preflightLogic, ['preflight']],
-    },
-    actions: () => ({
+    }),
+    actions(() => ({
         loadUser: (resetOnFailure?: boolean) => ({ resetOnFailure }),
         updateCurrentTeam: (teamId: number, destination?: string) => ({ teamId, destination }),
         updateCurrentOrganization: (organizationId: string, destination?: string) => ({ organizationId, destination }),
         logout: true,
         updateUser: (user: Partial<UserType>, successCallback?: () => void) => ({ user, successCallback }),
-    }),
-    loaders: ({ values, actions }) => ({
+    })),
+    forms(({ actions }) => ({
+        userDetails: {
+            errors: ({ first_name }) => ({
+                first_name: !first_name
+                    ? 'You need to set a name'
+                    : first_name.length > 150
+                    ? 'The name you have given is too long. Please pick something shorter.'
+                    : null,
+            }),
+            submit: (user) => {
+                actions.updateUser(user)
+            },
+        },
+    })),
+    loaders(({ values, actions }) => ({
         user: [
             // TODO: Because we don't actually load the app until this request completes, `user` is never `null` (will help simplify checks across the app)
             null as UserType | null,
@@ -49,8 +68,21 @@ export const userLogic = kea<userLogicType>({
                 },
             },
         ],
+    })),
+    reducers({
+        userDetails: [
+            {} as UserDetailsFormType,
+            {
+                loadUserSuccess: (_, { user }) => ({
+                    first_name: user?.first_name || '',
+                }),
+                updateUserSuccess: (_, { user }) => ({
+                    first_name: user?.first_name || '',
+                }),
+            },
+        ],
     }),
-    listeners: ({ values }) => ({
+    listeners(({ values }) => ({
         logout: () => {
             posthog.reset()
             window.location.href = '/logout'
@@ -80,7 +112,7 @@ export const userLogic = kea<userLogicType>({
                     })
 
                     posthog.register({
-                        is_demo_project: teamLogic.values.currentTeam?.is_demo,
+                        is_demo_project: user.team?.is_demo,
                     })
 
                     if (user.team) {
@@ -129,8 +161,8 @@ export const userLogic = kea<userLogicType>({
             await api.update('api/users/@me/', { set_current_organization: organizationId })
             window.location.href = destination || '/'
         },
-    }),
-    selectors: {
+    })),
+    selectors({
         hasAvailableFeature: [
             (s) => [s.user],
             (user) => {
@@ -155,17 +187,15 @@ export const userLogic = kea<userLogicType>({
                           ) || []
                     : [],
         ],
-    },
-    events: ({ actions }) => ({
-        afterMount: () => {
-            const preloadedUser = getAppContext()?.current_user
-            if (preloadedUser) {
-                actions.loadUserSuccess(preloadedUser)
-            } else if (preloadedUser === null) {
-                actions.loadUserFailure('Logged out')
-            } else {
-                actions.loadUser()
-            }
-        },
     }),
-})
+    afterMount(({ actions }) => {
+        const preloadedUser = getAppContext()?.current_user
+        if (preloadedUser) {
+            actions.loadUserSuccess(preloadedUser)
+        } else if (preloadedUser === null) {
+            actions.loadUserFailure('Logged out')
+        } else {
+            actions.loadUser()
+        }
+    }),
+])

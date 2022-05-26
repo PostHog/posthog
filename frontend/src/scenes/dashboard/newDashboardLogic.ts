@@ -1,4 +1,4 @@
-import { kea } from 'kea'
+import { actions, connect, kea, listeners, path, reducers } from 'kea'
 import type { newDashboardLogicType } from './newDashboardLogicType'
 import { DashboardRestrictionLevel } from 'lib/constants'
 import { DashboardType } from '~/types'
@@ -7,6 +7,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
 import { dashboardsModel } from '~/models/dashboardsModel'
+import { forms } from 'kea-forms'
 
 export interface NewDashboardForm {
     name: string
@@ -22,15 +23,15 @@ const defaultFormValues: NewDashboardForm = {
     restrictionLevel: DashboardRestrictionLevel.EveryoneInProjectCanEdit,
 }
 
-export const newDashboardLogic = kea<newDashboardLogicType<NewDashboardForm>>({
-    path: ['scenes', 'dashboard', 'newDashboardLogic'],
-    connect: () => [dashboardsModel],
-    actions: {
+export const newDashboardLogic = kea<newDashboardLogicType>([
+    path(['scenes', 'dashboard', 'newDashboardLogic']),
+    connect(dashboardsModel),
+    actions({
         showNewDashboardModal: true,
         hideNewDashboardModal: true,
         addDashboard: (form: Partial<NewDashboardForm>) => ({ form }),
-    },
-    reducers: {
+    }),
+    reducers({
         newDashboardModalVisible: [
             false,
             {
@@ -38,11 +39,11 @@ export const newDashboardLogic = kea<newDashboardLogicType<NewDashboardForm>>({
                 hideNewDashboardModal: () => false,
             },
         ],
-    },
-    forms: ({ actions }) => ({
+    }),
+    forms(({ actions }) => ({
         newDashboard: {
             defaults: defaultFormValues,
-            validator: ({ name, restrictionLevel }) => ({
+            errors: ({ name, restrictionLevel }) => ({
                 name: !name ? 'Please give your dashboard a name.' : null,
                 restrictionLevel: !restrictionLevel ? 'Restriction level needs to be specified.' : null,
             }),
@@ -64,8 +65,8 @@ export const newDashboardLogic = kea<newDashboardLogicType<NewDashboardForm>>({
                 }
             },
         },
-    }),
-    listeners: ({ actions }) => ({
+    })),
+    listeners(({ actions }) => ({
         addDashboard: ({ form }) => {
             actions.resetNewDashboard()
             actions.setNewDashboardValues({ ...defaultFormValues, ...form })
@@ -74,5 +75,5 @@ export const newDashboardLogic = kea<newDashboardLogicType<NewDashboardForm>>({
         showNewDashboardModal: () => {
             actions.resetNewDashboard()
         },
-    }),
-})
+    })),
+])

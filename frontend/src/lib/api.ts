@@ -219,7 +219,15 @@ class ApiRequest {
     }
 
     public license(id: LicenseType['id']): ApiRequest {
-        return this.persons().addPathComponent(id)
+        return this.licenses().addPathComponent(id)
+    }
+
+    public insights(teamId: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('insights')
+    }
+
+    public insightsActivity(teamId: TeamType['id']): ApiRequest {
+        return this.insights(teamId).addPathComponent('activity')
     }
 
     // Request finalization
@@ -329,6 +337,9 @@ const api = {
                 },
                 [ActivityScope.PERSON]: (props) => {
                     return new ApiRequest().personActivity(props.id)
+                },
+                [ActivityScope.INSIGHT]: () => {
+                    return new ApiRequest().insightsActivity(teamId)
                 },
             }
 
@@ -549,6 +560,9 @@ const api = {
         },
         async create(key: LicenseType['key']): Promise<LicenseType> {
             return await new ApiRequest().licenses().create({ data: { key } })
+        },
+        async delete(licenseId: LicenseType['id']): Promise<LicenseType> {
+            return await new ApiRequest().license(licenseId).delete()
         },
     },
 

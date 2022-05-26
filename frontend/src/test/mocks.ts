@@ -1,5 +1,16 @@
-import { CohortType, EventDefinition, EventType, PropertyDefinition, PropertyOperator } from '~/types'
+import {
+    BehavioralEventType,
+    CohortType,
+    EventDefinition,
+    EventType,
+    FilterLogicalOperator,
+    PropertyDefinition,
+    PropertyOperator,
+    TimeUnitType,
+} from '~/types'
 import { PROPERTY_MATCH_TYPE } from 'lib/constants'
+import { BehavioralFilterKey } from 'scenes/cohorts/CohortFilters/types'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
 export const mockEvent: EventType = {
     id: 'my_id',
@@ -129,4 +140,27 @@ export const mockCohort: CohortType = {
             ],
         },
     ],
+    filters: {
+        properties: {
+            id: '39777',
+            type: FilterLogicalOperator.Or,
+            values: [
+                {
+                    id: '70427',
+                    type: FilterLogicalOperator.Or,
+                    values: [
+                        {
+                            type: BehavioralFilterKey.Behavioral,
+                            value: BehavioralEventType.PerformEvent,
+                            event_type: TaxonomicFilterGroupType.Events,
+                            time_value: 30,
+                            time_interval: TimeUnitType.Day,
+                            key: 'dashboard date range changed',
+                            negation: true,
+                        },
+                    ],
+                },
+            ],
+        },
+    },
 }

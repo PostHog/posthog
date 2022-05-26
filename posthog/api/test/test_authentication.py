@@ -2,7 +2,6 @@ import datetime
 import uuid
 from unittest.mock import ANY, patch
 
-from constance.test import override_config
 from django.contrib.auth.tokens import default_token_generator
 from django.core import mail
 from django.utils import timezone
@@ -11,6 +10,7 @@ from rest_framework import status
 from social_django.models import UserSocialAuth
 
 from posthog.models import User
+from posthog.models.instance_setting import set_instance_setting
 from posthog.models.organization_domain import OrganizationDomain
 from posthog.test.base import APIBaseTest
 
@@ -168,9 +168,10 @@ class TestPasswordResetAPI(APIBaseTest):
 
     # Password reset request
 
-    @override_config(EMAIL_HOST="localhost")
     @patch("posthoganalytics.capture")
     def test_anonymous_user_can_request_password_reset(self, mock_capture):
+        set_instance_setting("EMAIL_HOST", "localhost")
+
         with self.settings(
             CELERY_TASK_ALWAYS_EAGER=True, SITE_URL="https://my.posthog.net",
         ):
@@ -201,11 +202,12 @@ class TestPasswordResetAPI(APIBaseTest):
             )
         )
 
-    @override_config(EMAIL_HOST="localhost")
     def test_reset_with_sso_available(self):
         """
         If the user has logged in / signed up with SSO, we let them know so they don't have to reset their password.
         """
+        set_instance_setting("EMAIL_HOST", "localhost")
+
         UserSocialAuth.objects.create(
             user=self.user,
             provider="google-oauth2",
@@ -244,8 +246,9 @@ class TestPasswordResetAPI(APIBaseTest):
         self.assertIn("Google, GitHub", html_message)
         self.assertIn("https://my.posthog.net/login", html_message)  # CTA link
 
-    @override_config(EMAIL_HOST="localhost")
     def test_success_response_even_on_invalid_email(self):
+        set_instance_setting("EMAIL_HOST", "localhost")
+
         with self.settings(
             CELERY_TASK_ALWAYS_EAGER=True, SITE_URL="https://my.posthog.net",
         ):

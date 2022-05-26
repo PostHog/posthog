@@ -2,7 +2,7 @@ import React, { useState } from 'react'
 import { AnyPropertyFilter } from '~/types'
 import { Button } from 'antd'
 import { Row } from 'antd'
-import PropertyFilterButton, { FilterButton } from './PropertyFilterButton'
+import { PropertyFilterButton } from './PropertyFilterButton'
 import { TooltipPlacement } from 'antd/lib/tooltip'
 import { isValidPathCleanFilter, isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { Popup } from 'lib/components/Popup/Popup'
@@ -25,7 +25,6 @@ interface FilterRowProps {
     disablePopover?: boolean
     popoverPlacement?: TooltipPlacement | null
     taxonomicPopoverPlacement?: Placement
-    showNestedArrow?: boolean
     filterComponent: (onComplete: () => void) => JSX.Element
     label: string
     onRemove: (index: number) => void
@@ -42,7 +41,6 @@ export const FilterRow = React.memo(function FilterRow({
     totalCount,
     disablePopover = false, // use bare PropertyFilter without popover
     taxonomicPopoverPlacement = undefined,
-    showNestedArrow = false,
     filterComponent,
     label,
     onRemove,
@@ -78,7 +76,7 @@ export const FilterRow = React.memo(function FilterRow({
                         (orFiltering ? (
                             <LemonButton
                                 icon={<IconDelete />}
-                                type="primary-alt"
+                                type="alt"
                                 onClick={() => onRemove(index)}
                                 size="small"
                             />
@@ -107,11 +105,6 @@ export const FilterRow = React.memo(function FilterRow({
                         {({ setRef }) => {
                             return (
                                 <>
-                                    {showNestedArrow && (
-                                        <div className="property-filter-button-spacing">
-                                            {index === 0 ? <>&#8627;</> : ''}
-                                        </div>
-                                    )}
                                     {isValidPropertyFilter(item) ? (
                                         <PropertyFilterButton
                                             onClick={() => setOpen(!open)}
@@ -120,14 +113,14 @@ export const FilterRow = React.memo(function FilterRow({
                                             setRef={setRef}
                                         />
                                     ) : isValidPathCleanFilter(item) ? (
-                                        <FilterButton
+                                        <PropertyFilterButton
                                             item={item}
                                             onClick={() => setOpen(!open)}
                                             onClose={() => onRemove(index)}
                                             setRef={setRef}
                                         >
                                             {`${item['alias']}::${item['regex']}`}
-                                        </FilterButton>
+                                        </PropertyFilterButton>
                                     ) : useLemonButton ? (
                                         <LemonButton
                                             ref={setRef}
@@ -135,6 +128,7 @@ export const FilterRow = React.memo(function FilterRow({
                                             className="new-prop-filter"
                                             data-attr={'new-prop-filter-' + pageKey}
                                             type="secondary"
+                                            size="small"
                                             icon={<IconPlus style={{ color: 'var(--primary)' }} />}
                                         >
                                             {label}

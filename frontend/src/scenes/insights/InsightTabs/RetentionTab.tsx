@@ -23,11 +23,8 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { BreakdownFilter } from '../BreakdownFilter'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { PropertyGroupFilters } from 'lib/components/PropertyGroupFilters/PropertyGroupFilters'
-import { convertPropertiesToPropertyGroup, convertPropertyGroupToProperties } from 'lib/utils'
-import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-import { GlobalFiltersTitle } from '../common'
+import { convertPropertiesToPropertyGroup } from 'lib/utils'
 import { MathAvailability } from '../ActionFilter/ActionFilterRow/ActionFilterRow'
-import { TestAccountFilter } from 'scenes/insights/TestAccountFilter'
 
 export function RetentionTab(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
@@ -43,8 +40,8 @@ export function RetentionTab(): JSX.Element {
 
     return (
         <div data-attr="retention-tab" className="retention-tab">
-            <Row gutter={featureFlags[FEATURE_FLAGS.AND_OR_FILTERING] ? 24 : 16}>
-                <Col md={featureFlags[FEATURE_FLAGS.AND_OR_FILTERING] ? 12 : 16} xs={24}>
+            <Row gutter={24}>
+                <Col md={12} xs={24}>
                     <Row gutter={8} align="middle">
                         <Col>Show</Col>
                         <Col>
@@ -62,7 +59,6 @@ export function RetentionTab(): JSX.Element {
                         <Col>who performed event or action</Col>
                         <Col>
                             <ActionFilter
-                                horizontalUI
                                 entitiesLimit={1}
                                 mathAvailability={MathAvailability.None}
                                 hideFilter
@@ -79,7 +75,6 @@ export function RetentionTab(): JSX.Element {
                                     }
                                 }}
                                 typeKey="retention-table"
-                                customRowPrefix={<span />}
                             />
                         </Col>
                         <Col>
@@ -127,7 +122,6 @@ export function RetentionTab(): JSX.Element {
                         <Col>and then came back to perform event or action</Col>
                         <Col>
                             <ActionFilter
-                                horizontalUI
                                 entitiesLimit={1}
                                 mathAvailability={MathAvailability.None}
                                 hideFilter
@@ -144,7 +138,6 @@ export function RetentionTab(): JSX.Element {
                                     }
                                 }}
                                 typeKey="retention-table-returning"
-                                customRowPrefix={<span />}
                             />
                         </Col>
                         <Col>on any of the next {dateOptionPlurals[filters.period ?? 'Day']}</Col>
@@ -166,48 +159,24 @@ export function RetentionTab(): JSX.Element {
                         </Col>
                     </Row>
                 </Col>
-                <Col
-                    md={featureFlags[FEATURE_FLAGS.AND_OR_FILTERING] ? 12 : 8}
-                    xs={24}
-                    style={{ marginTop: isSmallScreen ? '2rem' : 0 }}
-                >
-                    {featureFlags[FEATURE_FLAGS.AND_OR_FILTERING] && filters.properties ? (
-                        <PropertyGroupFilters
-                            propertyFilters={convertPropertiesToPropertyGroup(filters.properties)}
-                            onChange={(properties: PropertyGroupFilter) => {
-                                setFilters({ properties })
-                            }}
-                            taxonomicGroupTypes={[
-                                TaxonomicFilterGroupType.EventProperties,
-                                TaxonomicFilterGroupType.PersonProperties,
-                                ...groupsTaxonomicTypes,
-                                TaxonomicFilterGroupType.Cohorts,
-                                TaxonomicFilterGroupType.Elements,
-                            ]}
-                            pageKey="insight-retention"
-                            eventNames={allEventNames}
-                            filters={filters}
-                            setTestFilters={(testFilters) => setFilters(testFilters)}
-                        />
-                    ) : (
-                        <>
-                            <GlobalFiltersTitle unit="actions/events" />
-                            <PropertyFilters
-                                propertyFilters={convertPropertyGroupToProperties(filters.properties)}
-                                onChange={(properties) => setFilters({ properties })}
-                                pageKey="insight-retention"
-                                taxonomicGroupTypes={[
-                                    TaxonomicFilterGroupType.EventProperties,
-                                    TaxonomicFilterGroupType.PersonProperties,
-                                    ...groupsTaxonomicTypes,
-                                    TaxonomicFilterGroupType.Cohorts,
-                                    TaxonomicFilterGroupType.Elements,
-                                ]}
-                                eventNames={allEventNames}
-                            />
-                            <TestAccountFilter filters={filters} onChange={setFilters} />
-                        </>
-                    )}
+                <Col md={12} xs={24} style={{ marginTop: isSmallScreen ? '2rem' : 0 }}>
+                    <PropertyGroupFilters
+                        value={convertPropertiesToPropertyGroup(filters.properties)}
+                        onChange={(properties: PropertyGroupFilter) => {
+                            setFilters({ properties })
+                        }}
+                        taxonomicGroupTypes={[
+                            TaxonomicFilterGroupType.EventProperties,
+                            TaxonomicFilterGroupType.PersonProperties,
+                            ...groupsTaxonomicTypes,
+                            TaxonomicFilterGroupType.Cohorts,
+                            TaxonomicFilterGroupType.Elements,
+                        ]}
+                        pageKey="insight-retention"
+                        eventNames={allEventNames}
+                        filters={filters}
+                        setTestFilters={(testFilters) => setFilters(testFilters)}
+                    />
 
                     {featureFlags[FEATURE_FLAGS.RETENTION_BREAKDOWN] &&
                     filters.display !== ChartDisplayType.ActionsLineGraph ? (

@@ -2,15 +2,26 @@ import http from 'http'
 
 import { startPluginsServer } from '../src/main/pluginsServer'
 import { HTTP_SERVER_PORT } from '../src/main/services/http-server'
-import { LogLevel } from '../src/types'
 import { makePiscina } from '../src/worker/piscina'
 import { resetTestDatabase } from './helpers/sql'
 
+jest.mock('../src/utils/status')
 jest.mock('../src/utils/db/sql')
+jest.mock('../src/main/utils', () => {
+    const actual = jest.requireActual('../src/main/utils')
+    return {
+        ...actual,
+        kafkaHealthcheck: async () => {
+            await Promise.resolve()
+            return [true, null]
+        },
+    }
+})
+
 jest.setTimeout(60000) // 60 sec timeout
 
 describe('http server', () => {
-    test('_ready', async () => {
+    test('_health', async () => {
         const testCode = `
             async function processEvent (event) {
                 return event
@@ -21,14 +32,13 @@ describe('http server', () => {
 
         const pluginsServer = await startPluginsServer(
             {
-                WORKER_CONCURRENCY: 2,
-                STALENESS_RESTART_SECONDS: 5,
-                LOG_LEVEL: LogLevel.Debug,
+                WORKER_CONCURRENCY: 0,
             },
-            makePiscina
+            makePiscina,
+            { http: true }
         )
 
-        http.get(`http://localhost:${HTTP_SERVER_PORT}/_ready`, (res) => {
+        http.get(`http://localhost:${HTTP_SERVER_PORT}/_health`, (res) => {
             const { statusCode } = res
             expect(statusCode).toEqual(200)
         })

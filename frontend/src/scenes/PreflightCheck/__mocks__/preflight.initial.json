@@ -20,12 +20,15 @@
                 "preflight": {
                     "django": true,
                     "redis": true,
-                    "plugins": true,
+                    "plugins": false,
                     "celery": false,
                     "db": true,
                     "initiated": false,
                     "cloud": false,
+                    "clickhouse": false,
+                    "kafka": false,
                     "realm": "hosted",
+                    "object_storage": true,
                     "available_social_auth_providers": {
                         "github": false,
                         "gitlab": false,

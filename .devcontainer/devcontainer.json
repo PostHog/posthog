@@ -4,8 +4,17 @@
 {
     "name": "PostHog codespaces development environment",
 
-    "dockerComposeFile": "docker-compose.yml",
-    "service": "app",
+    "build": {
+        "dockerfile": "Dockerfile",
+        "context": "../",
+        "cacheFrom": ""
+    },
+
+    "remoteUser": "vscode",
+    "overrideCommand": false,
+    "mounts": ["source=codespaces-linux-var-lib-docker,target=/var/lib/docker,type=volume"],
+    "runArgs": ["--cap-add=SYS_PTRACE", "--security-opt", "seccomp=unconfined", "--privileged", "--init"],
+
     "workspaceFolder": "/workspace",
 
     // Set *default* container specific settings.json values on container create.
@@ -32,14 +41,21 @@
     },
 
     // Add the IDs of extensions you want installed when the container is created.
-    "extensions": ["ms-python.python", "ms-python.vscode-pylance"],
-
-    /*
-      Life cycle commands
-    */
-    // Use initialize stage to e.g. setup env vars we need before codespaces
-    // builds the docker image
-    "postStartCommand": ".devcontainer/container_start.sh",
+    "extensions": [
+        "ms-python.python",
+        "ms-python.vscode-pylance",
+        "esbenp.prettier-vscode",
+        "ms-azuretools.vscode-docker",
+        "stkb.rewrap",
+        "GitHub.copilot",
+        "KnisterPeter.vscode-github",
+        "eamodio.gitlens",
+        "wix.vscode-import-cost",
+        "Orta.vscode-jest",
+        "ckolkman.vscode-postgres",
+        "mtxr.sqltools",
+        "ultram4rine.sqltools-clickhouse-driver"
+    ],
 
     // Use 'forwardPorts' to make a list of ports inside the container available locally.
     "forwardPorts": [8000, 5432, 6379, 8123, 8234, 9000, 9092, 9440, 9009]

@@ -1,10 +1,10 @@
-import React from 'react'
+import React, { useEffect } from 'react'
 import './IngestionWizard.scss'
+import '../authentication/bridgePagesShared.scss'
 
 import { VerificationPanel } from 'scenes/ingestion/panels/VerificationPanel'
-import { AutocapturePanel } from 'scenes/ingestion/panels/AutocapturePanel'
 import { InstructionsPanel } from 'scenes/ingestion/panels/InstructionsPanel'
-import { MOBILE, BACKEND, WEB, BOOKMARKLET } from 'scenes/ingestion/constants'
+import { MOBILE, BACKEND, WEB, BOOKMARKLET, THIRD_PARTY } from 'scenes/ingestion/constants'
 import { useValues, useActions } from 'kea'
 import { ingestionLogic } from 'scenes/ingestion/ingestionLogic'
 import { FrameworkPanel } from 'scenes/ingestion/panels/FrameworkPanel'
@@ -12,7 +12,13 @@ import { PlatformPanel } from 'scenes/ingestion/panels/PlatformPanel'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { BookmarkletPanel } from './panels/BookmarkletPanel'
-import posthogLogo from 'public/posthog-logo.png'
+import { ThirdPartyPanel } from './panels/ThirdPartyPanel'
+import { Sidebar } from './Sidebar'
+import { InviteModal } from 'scenes/organization/Settings/InviteModal'
+import { inviteLogic } from 'scenes/organization/Settings/inviteLogic'
+import { FriendlyLogo } from '~/toolbar/assets/FriendlyLogo'
+import { SitePopover } from '~/layout/navigation/TopBar/SitePopover'
+import { HelpButton } from 'lib/components/HelpButton/HelpButton'
 
 export const scene: SceneExport = {
     component: IngestionWizard,
@@ -23,6 +29,20 @@ export function IngestionWizard(): JSX.Element {
     const { platform, framework, verify } = useValues(ingestionLogic)
     const { reportIngestionLandingSeen } = useActions(eventUsageLogic)
 
+    useEffect(() => {
+        if (!platform) {
+            reportIngestionLandingSeen()
+        }
+    }, [platform])
+
+    if (!platform && !verify) {
+        return (
+            <IngestionContainer>
+                <PlatformPanel />
+            </IngestionContainer>
+        )
+    }
+
     if (verify) {
         return (
             <IngestionContainer>
@@ -31,27 +51,10 @@ export function IngestionWizard(): JSX.Element {
         )
     }
 
-    if (framework && platform !== WEB) {
+    if (framework || platform === WEB) {
         return (
             <IngestionContainer>
                 <InstructionsPanel />
-            </IngestionContainer>
-        )
-    }
-
-    if (!platform) {
-        reportIngestionLandingSeen(false)
-        return (
-            <IngestionContainer>
-                <PlatformPanel />
-            </IngestionContainer>
-        )
-    }
-
-    if (platform === WEB) {
-        return (
-            <IngestionContainer>
-                <AutocapturePanel />
             </IngestionContainer>
         )
     }
@@ -72,27 +75,49 @@ export function IngestionWizard(): JSX.Element {
         )
     }
 
+    if (platform === THIRD_PARTY) {
+        return (
+            <IngestionContainer>
+                <ThirdPartyPanel />
+            </IngestionContainer>
+        )
+    }
+
     return <></>
 }
 
 function IngestionContainer({ children }: { children: React.ReactNode }): JSX.Element {
+    const { isInviteModalShown } = useValues(inviteLogic)
+    const { hideInviteModal } = useActions(inviteLogic)
+    const { onboardingSidebarEnabled } = useValues(ingestionLogic)
+
     return (
-        <div
-            className="background"
-            style={{
-                display: 'flex',
-                width: '100vw',
-                height: '100%',
-                alignItems: 'center',
-                justifyContent: 'flex-start',
-                flexDirection: 'column',
-                paddingTop: '2rem',
-            }}
-        >
-            <div className="mb">
-                <img src={posthogLogo} style={{ width: 157, height: 30 }} />
+        <div style={{ display: 'flex', height: '100%', flexDirection: 'column' }}>
+            {onboardingSidebarEnabled && (
+                <div className="IngestionTopbar">
+                    <FriendlyLogo style={{ fontSize: '1.125rem' }} />
+                    <div style={{ display: 'flex' }}>
+                        <HelpButton />
+                        <SitePopover />
+                    </div>
+                </div>
+            )}
+            <div style={{ display: 'flex', height: '100%' }}>
+                {onboardingSidebarEnabled && (
+                    <>
+                        <InviteModal visible={isInviteModalShown} onClose={hideInviteModal} />
+                        <Sidebar />
+                    </>
+                )}
+                <div className="bridge-page IngestionContainer">
+                    {!onboardingSidebarEnabled && (
+                        <div className="mb">
+                            <FriendlyLogo style={{ fontSize: '1.125rem' }} />
+                        </div>
+                    )}
+                    {children}
+                </div>
             </div>
-            {children}
         </div>
     )
 }

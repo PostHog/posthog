@@ -23,44 +23,49 @@ def parse_timestamps(filter: FilterType, team: Team, table: str = "") -> Tuple[s
     date_to = None
     params = {}
     if filter.date_from:
-
-        date_from = f"AND {table}timestamp >= toDateTime(%(date_from)s, %(timezone)s)"
-        params.update({"date_from": format_ch_timestamp(filter.date_from, filter, timezone=team.timezone_for_charts)})
+        date_from = f"AND {table}timestamp >= toDateTime(%(date_from)s)"
+        params.update(
+            {
+                "date_from": format_ch_timestamp(
+                    filter.date_from,
+                    convert_to_timezone=team.timezone if not filter.date_from_has_explicit_time else None,
+                )
+            }
+        )
     else:
         try:
             earliest_date = get_earliest_timestamp(team.pk)
         except IndexError:
             date_from = ""
         else:
-            date_from = f"AND {table}timestamp >= toDateTime(%(date_from)s, %(timezone)s)"
-            params.update({"date_from": format_ch_timestamp(earliest_date, filter)})
+            date_from = f"AND {table}timestamp >= toDateTime(%(date_from)s)"
+            params.update({"date_from": format_ch_timestamp(earliest_date)})
 
     _date_to = filter.date_to
 
-    date_to = f"AND {table}timestamp <= toDateTime(%(date_to)s, %(timezone)s)"
-    params.update({"date_to": format_ch_timestamp(_date_to, filter, " 23:59:59")})
+    date_to = f"AND {table}timestamp <= toDateTime(%(date_to)s)"
+    params.update(
+        {
+            "date_to": format_ch_timestamp(
+                _date_to,
+                convert_to_timezone=team.timezone if filter._date_to and not filter.date_to_has_explicit_time else None,
+            )
+        }
+    )
 
     return date_from or "", date_to or "", params
 
 
-def format_ch_timestamp(
-    timestamp: datetime, filter, default_hour_min: str = " 00:00:00", timezone: Optional[str] = None
-):
-    if timezone:
+def format_ch_timestamp(timestamp: datetime, convert_to_timezone: Optional[str] = None):
+    if convert_to_timezone:
         # Here we probably get a timestamp set to the beginning of the day (00:00), in UTC
         # We need to convert that UTC timestamp to the local timestamp (00:00 in US/Pacific for example)
         # Then we convert it back to UTC (08:00 in UTC)
         if timestamp.tzinfo and timestamp.tzinfo != pytz.UTC:
             raise ValidationError(detail="You must pass a timestamp with no timezone or UTC")
-        timestamp = pytz.timezone(timezone).localize(timestamp.replace(tzinfo=None)).astimezone(pytz.UTC)
+        timestamp = pytz.timezone(convert_to_timezone).localize(timestamp.replace(tzinfo=None)).astimezone(pytz.UTC)
 
-    is_hour = (
-        (filter.interval and filter.interval.lower() == "hour")
-        or (filter._date_from == "-24h")
-        or (filter._date_from == "-48h")
-        or timezone
-    )
-    return timestamp.strftime("%Y-%m-%d{}".format(" %H:%M:%S" if is_hour else default_hour_min))
+    return timestamp.strftime("%Y-%m-%d %H:%M:%S")
 
 
 def get_earliest_timestamp(team_id: int) -> datetime:
@@ -141,7 +146,7 @@ def date_from_clause(interval_annotation: str, round_interval: bool) -> str:
             interval=interval_annotation
         )
     else:
-        return "AND timestamp >= toDateTime(%(date_from)s, %(timezone)s)"
+        return "AND timestamp >= toDateTime(%(date_from)s)"
 
 
 def deep_dump_object(params: Dict[str, Any]) -> Dict[str, Any]:

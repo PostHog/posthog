@@ -1,5 +1,5 @@
-import { kea } from 'kea'
-import { featureFlagLogicType } from './featureFlagLogicType'
+import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import type { featureFlagLogicType } from './featureFlagLogicType'
 import {
     AnyPropertyFilter,
     Breadcrumb,
@@ -17,6 +17,10 @@ import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 import { groupsModel } from '~/models/groupsModel'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { lemonToast } from 'lib/components/lemonToast'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { urlToAction } from 'kea-router'
+import { loaders } from 'kea-loaders'
+import { forms } from 'kea-forms'
 
 const NEW_FLAG: FeatureFlagType = {
     id: null,
@@ -49,14 +53,14 @@ export interface FeatureFlagLogicProps {
     id: number | 'new'
 }
 
-export const featureFlagLogic = kea<featureFlagLogicType<FeatureFlagLogicProps>>({
-    path: (key) => ['scenes', 'feature-flags', 'featureFlagLogic', key],
-    props: {} as FeatureFlagLogicProps,
-    key: ({ id }) => id ?? 'new',
-    connect: {
+export const featureFlagLogic = kea<featureFlagLogicType>([
+    path(['scenes', 'feature-flags', 'featureFlagLogic']),
+    props({} as FeatureFlagLogicProps),
+    key(({ id }) => id ?? 'new'),
+    connect({
         values: [teamLogic, ['currentTeamId'], groupsModel, ['groupTypes', 'groupsTaxonomicTypes', 'aggregationLabel']],
-    },
-    actions: {
+    }),
+    actions({
         setFeatureFlag: (featureFlag: FeatureFlagType) => ({ featureFlag }),
         addConditionSet: true,
         setAggregationGroupTypeIndex: (value: number | null) => ({ value }),
@@ -77,11 +81,11 @@ export const featureFlagLogic = kea<featureFlagLogicType<FeatureFlagLogicProps>>
         addVariant: true,
         removeVariant: (index: number) => ({ index }),
         distributeVariantsEqually: true,
-    },
-    forms: ({ actions }) => ({
+    }),
+    forms(({ actions }) => ({
         featureFlag: {
             defaults: { ...NEW_FLAG } as FeatureFlagType,
-            validator: ({ key, filters }) => ({
+            errors: ({ key, filters }) => ({
                 key: !key
                     ? 'You need to set a key'
                     : !key.match?.(/^([A-z]|[a-z]|[0-9]|-|_)+$/)
@@ -105,8 +109,8 @@ export const featureFlagLogic = kea<featureFlagLogicType<FeatureFlagLogicProps>>
                 actions.saveFeatureFlag(featureFlag)
             },
         },
-    }),
-    reducers: {
+    })),
+    reducers({
         featureFlag: [
             { ...NEW_FLAG } as FeatureFlagType,
             {
@@ -251,8 +255,8 @@ export const featureFlagLogic = kea<featureFlagLogicType<FeatureFlagLogicProps>>
                 },
             },
         ],
-    },
-    loaders: ({ values, props }) => ({
+    }),
+    loaders(({ values, props }) => ({
         featureFlag: {
             loadFeatureFlag: async () => {
                 if (props.id && props.id !== 'new') {
@@ -261,20 +265,27 @@ export const featureFlagLogic = kea<featureFlagLogicType<FeatureFlagLogicProps>>
                 return NEW_FLAG
             },
             saveFeatureFlag: async (updatedFlag: Partial<FeatureFlagType>) => {
-                // eslint-disable-next-line @typescript-eslint/no-unused-vars
                 const { created_at, id, ...flag } = updatedFlag
-                if (!updatedFlag.id) {
-                    return await api.create(`api/projects/${values.currentTeamId}/feature_flags`, flag)
-                } else {
-                    return await api.update(
-                        `api/projects/${values.currentTeamId}/feature_flags/${updatedFlag.id}`,
-                        flag
-                    )
+
+                try {
+                    if (!updatedFlag.id) {
+                        return await api.create(`api/projects/${values.currentTeamId}/feature_flags`, flag)
+                    } else {
+                        return await api.update(
+                            `api/projects/${values.currentTeamId}/feature_flags/${updatedFlag.id}`,
+                            flag
+                        )
+                    }
+                } catch (error: any) {
+                    if (error.code === 'behavioral_cohort_found' || error.code === 'cohort_does_not_exist') {
+                        eventUsageLogic.actions.reportFailedToCreateFeatureFlagWithCohort(error.code, error.detail)
+                    }
+                    throw error
                 }
             },
         },
-    }),
-    listeners: ({ actions, values }) => ({
+    })),
+    listeners(({ actions, values }) => ({
         saveFeatureFlagSuccess: ({ featureFlag }) => {
             lemonToast.success('Feature flag saved')
             featureFlagsLogic.findMounted()?.actions.updateFlag(featureFlag)
@@ -297,8 +308,8 @@ export const featureFlagLogic = kea<featureFlagLogicType<FeatureFlagLogicProps>>
                 actions.setMultivariateOptions(null)
             }
         },
-    }),
-    selectors: {
+    })),
+    selectors({
         props: [() => [(_, props) => props], (props) => props],
         multivariateEnabled: [(s) => [s.featureFlag], (featureFlag) => !!featureFlag?.filters.multivariate],
         variants: [(s) => [s.featureFlag], (featureFlag) => featureFlag?.filters.multivariate?.variants || []],
@@ -346,8 +357,8 @@ export const featureFlagLogic = kea<featureFlagLogicType<FeatureFlagLogicProps>>
                 ...(featureFlag ? [{ name: featureFlag.key || 'Unnamed' }] : []),
             ],
         ],
-    },
-    urlToAction: ({ actions, props }) => ({
+    }),
+    urlToAction(({ actions, props }) => ({
         [urls.featureFlag(props.id ?? 'new')]: (_, __, ___, { method }) => {
             // If the URL was pushed (user clicked on a link), reset the scene's data.
             // This avoids resetting form fields if you click back/forward.
@@ -359,15 +370,13 @@ export const featureFlagLogic = kea<featureFlagLogicType<FeatureFlagLogicProps>>
                 }
             }
         },
+    })),
+    afterMount(({ props, actions }) => {
+        const foundFlag = featureFlagsLogic.findMounted()?.values.featureFlags.find((flag) => flag.id === props.id)
+        if (foundFlag) {
+            actions.setFeatureFlag(foundFlag)
+        } else if (props.id !== 'new') {
+            actions.loadFeatureFlag()
+        }
     }),
-    events: ({ props, actions }) => ({
-        afterMount: () => {
-            const foundFlag = featureFlagsLogic.findMounted()?.values.featureFlags.find((flag) => flag.id === props.id)
-            if (foundFlag) {
-                actions.setFeatureFlag(foundFlag)
-            } else if (props.id !== 'new') {
-                actions.loadFeatureFlag()
-            }
-        },
-    }),
-})
+])

@@ -24,7 +24,7 @@ import {
     SignificanceCode,
     SecondaryMetricResult,
 } from '~/types'
-import { experimentLogicType } from './experimentLogicType'
+import type { experimentLogicType } from './experimentLogicType'
 import { router } from 'kea-router'
 import { experimentsLogic } from './experimentsLogic'
 import { FunnelLayout } from 'lib/constants'
@@ -43,7 +43,7 @@ export interface ExperimentLogicProps {
     experimentId?: Experiment['id']
 }
 
-export const experimentLogic = kea<experimentLogicType<ExperimentLogicProps>>({
+export const experimentLogic = kea<experimentLogicType>({
     props: {} as ExperimentLogicProps,
     key: (props) => props.experimentId || 'new',
     path: (key) => ['scenes', 'experiment', 'experimentLogic', key],
@@ -573,31 +573,31 @@ export const experimentLogic = kea<experimentLogicType<ExperimentLogicProps>>({
             (s) => [s.experimentResults],
             (experimentResults) =>
                 (variant: string, insightType: InsightType): number => {
+                    let result: number
                     // Ensures we get the right index from results, so the UI can
                     // display the right colour for the variant
                     if (!experimentResults) {
-                        return 0
-                    }
-                    let index = -1
-
-                    if (insightType === InsightType.FUNNELS) {
-                        // Funnel Insight is displayed in order of decreasing count
-                        index = ([...experimentResults?.insight] as FunnelStep[][])
-                            .sort((a, b) => b[0]?.count - a[0]?.count)
-                            .findIndex(
-                                (variantFunnel: FunnelStep[]) => variantFunnel[0]?.breakdown_value?.[0] === variant
-                            )
+                        result = 0
                     } else {
-                        index = (experimentResults?.insight as TrendResult[]).findIndex(
-                            (variantTrend: TrendResult) => variantTrend.breakdown_value === variant
-                        )
+                        let index = -1
+                        if (insightType === InsightType.FUNNELS) {
+                            // Funnel Insight is displayed in order of decreasing count
+                            index = ([...experimentResults?.insight] as FunnelStep[][])
+                                .sort((a, b) => b[0]?.count - a[0]?.count)
+                                .findIndex(
+                                    (variantFunnel: FunnelStep[]) => variantFunnel[0]?.breakdown_value?.[0] === variant
+                                )
+                        } else {
+                            index = (experimentResults?.insight as TrendResult[]).findIndex(
+                                (variantTrend: TrendResult) => variantTrend.breakdown_value === variant
+                            )
+                        }
+                        result = index === -1 ? 0 : index
                     }
-
-                    if (index === -1) {
-                        return 0
+                    if (insightType === InsightType.FUNNELS) {
+                        result++
                     }
-
-                    return index
+                    return result
                 },
         ],
         countDataForVariant: [
@@ -658,6 +658,9 @@ export const experimentLogic = kea<experimentLogicType<ExperimentLogicProps>>({
                 return
             }
             const didPathChange = currentLocation.initial || currentLocation.pathname !== previousLocation?.pathname
+
+            actions.setEditExperiment(false)
+
             if (id && didPathChange) {
                 const parsedId = id === 'new' ? 'new' : parseInt(id)
                 if (parsedId === 'new') {
@@ -665,8 +668,6 @@ export const experimentLogic = kea<experimentLogicType<ExperimentLogicProps>>({
                     actions.resetNewExperiment()
                     actions.setSecondaryMetrics([])
                 }
-
-                actions.setEditExperiment(false)
 
                 if (parsedId !== 'new' && parsedId === values.experimentId) {
                     actions.loadExperiment()

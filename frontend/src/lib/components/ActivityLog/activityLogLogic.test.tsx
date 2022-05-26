@@ -17,7 +17,6 @@ import {
 import { flagActivityDescriber } from 'scenes/feature-flags/activityDescriptions'
 import { render, RenderResult } from '@testing-library/react'
 import '@testing-library/jest-dom'
-import { teamLogic } from 'scenes/teamLogic'
 import { Provider } from 'kea'
 import React from 'react'
 import { personActivityDescriber } from 'scenes/persons/activityDescriptions'
@@ -39,7 +38,6 @@ describe('the activity log logic', () => {
                 },
             })
             initKeaTests()
-            teamLogic.mount()
             logic = activityLogLogic({ scope: ActivityScope.FEATURE_FLAG, describer: flagActivityDescriber })
             logic.mount()
         })
@@ -201,7 +199,6 @@ describe('the activity log logic', () => {
                 },
             })
             initKeaTests()
-            teamLogic.mount()
             logic = activityLogLogic({ scope, id: 7, describer })
             logic.mount()
 
@@ -226,14 +223,12 @@ describe('the activity log logic', () => {
                         type: 'Person',
                         action: 'changed',
                         field: 'properties',
-                        before: {},
-                        after: { a: 'b' },
                     },
                 ])
                 const actual = logic.values.humanizedActivity
 
                 expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent(
-                    'added property a with value: b'
+                    "edited this person's properties"
                 )
             })
 
@@ -249,7 +244,7 @@ describe('the activity log logic', () => {
                 const actual = logic.values.humanizedActivity
 
                 expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent(
-                    'merged into this person: User A, and User C'
+                    'merged into this person: User A,andUser C'
                 )
             })
 
@@ -267,7 +262,7 @@ describe('the activity log logic', () => {
                 const actual = logic.values.humanizedActivity
 
                 expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent(
-                    'split this person into a, and b'
+                    'split this person into a,andb'
                 )
             })
         })
@@ -278,6 +273,154 @@ describe('the activity log logic', () => {
                 flagActivityDescriber,
                 `/api/projects/${MOCK_TEAM_ID}/feature_flags/7/activity/`
             )
+
+            it('can handle soft deletion change', async () => {
+                await featureFlagsTestSetup('test flag', 'updated', [
+                    {
+                        type: 'FeatureFlag',
+                        action: 'changed',
+                        field: 'deleted',
+                        after: 'true',
+                    },
+                ])
+
+                const actual = logic.values.humanizedActivity
+                expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent('deleted test flag')
+            })
+
+            it('can handle soft enabling flag', async () => {
+                await featureFlagsTestSetup('test flag', 'updated', [
+                    {
+                        type: 'FeatureFlag',
+                        action: 'changed',
+                        field: 'active',
+                        after: 'true',
+                    },
+                ])
+
+                const actual = logic.values.humanizedActivity
+                expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent('enabled test flag')
+            })
+
+            it('can handle soft disabling flag', async () => {
+                await featureFlagsTestSetup('test flag', 'updated', [
+                    {
+                        type: 'FeatureFlag',
+                        action: 'changed',
+                        field: 'active',
+                        after: 'false',
+                    },
+                ])
+
+                const actual = logic.values.humanizedActivity
+                expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent('disabled test flag')
+            })
+
+            it('can handle deleting several groups from a flag', async () => {
+                await featureFlagsTestSetup('test flag', 'updated', [
+                    {
+                        type: 'FeatureFlag',
+                        action: 'changed',
+                        field: 'filters',
+                        before: {
+                            groups: [
+                                {
+                                    properties: [
+                                        {
+                                            key: 'id',
+                                            type: 'cohort',
+                                            value: 98,
+                                            operator: null,
+                                        },
+                                    ],
+                                    rollout_percentage: null,
+                                },
+                                {
+                                    properties: [],
+                                    rollout_percentage: 30,
+                                },
+                                {
+                                    properties: [],
+                                    rollout_percentage: 40,
+                                },
+                            ],
+                            multivariate: null,
+                        },
+                        after: {
+                            groups: [
+                                {
+                                    properties: [
+                                        {
+                                            key: 'id',
+                                            type: 'cohort',
+                                            value: 98,
+                                            operator: null,
+                                        },
+                                    ],
+                                    rollout_percentage: null,
+                                },
+                            ],
+                            multivariate: null,
+                        },
+                    },
+                ])
+
+                const actual = logic.values.humanizedActivity
+                expect(keaRender(<>{actual[0]?.description}</>).container).toHaveTextContent(
+                    'removed 2 release conditions on test flag'
+                )
+            })
+
+            it('can handle deleting a group from a flag', async () => {
+                await featureFlagsTestSetup('test flag', 'updated', [
+                    {
+                        type: 'FeatureFlag',
+                        action: 'changed',
+                        field: 'filters',
+                        before: {
+                            groups: [
+                                {
+                                    properties: [
+                                        {
+                                            key: 'id',
+                                            type: 'cohort',
+                                            value: 98,
+                                            operator: null,
+                                        },
+                                    ],
+                                    rollout_percentage: null,
+                                },
+                                {
+                                    properties: [],
+                                    rollout_percentage: 30,
+                                },
+                            ],
+                            multivariate: null,
+                        },
+                        after: {
+                            groups: [
+                                {
+                                    properties: [
+                                        {
+                                            key: 'id',
+                                            type: 'cohort',
+                                            value: 98,
+                                            operator: null,
+                                        },
+                                    ],
+                                    rollout_percentage: null,
+                                },
+                            ],
+                            multivariate: null,
+                        },
+                    },
+                ])
+
+                const actual = logic.values.humanizedActivity
+                expect(keaRender(<>{actual[0]?.description}</>).container).toHaveTextContent(
+                    'removed 1 release condition on test flag'
+                )
+            })
 
             it('can handle rollout percentage change', async () => {
                 await featureFlagsTestSetup('test flag', 'updated', [
@@ -293,6 +436,50 @@ describe('the activity log logic', () => {
 
                 expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent(
                     'changed rollout percentage to 36% on test flag'
+                )
+            })
+
+            it('can handle deleting the first of several groups from a flag', async () => {
+                await featureFlagsTestSetup('test flag', 'updated', [
+                    {
+                        type: 'FeatureFlag',
+                        action: 'changed',
+                        field: 'filters',
+                        before: {
+                            groups: [
+                                {
+                                    properties: [
+                                        {
+                                            key: 'id',
+                                            type: 'cohort',
+                                            value: 98,
+                                            operator: null,
+                                        },
+                                    ],
+                                    rollout_percentage: null,
+                                },
+                                {
+                                    properties: [],
+                                    rollout_percentage: 30,
+                                },
+                            ],
+                            multivariate: null,
+                        },
+                        after: {
+                            groups: [
+                                {
+                                    properties: [],
+                                    rollout_percentage: 30,
+                                },
+                            ],
+                            multivariate: null,
+                        },
+                    },
+                ])
+
+                const actual = logic.values.humanizedActivity
+                expect(keaRender(<>{actual[0]?.description}</>).container).toHaveTextContent(
+                    'removed 1 release condition on test flag'
                 )
             })
 
@@ -315,7 +502,7 @@ describe('the activity log logic', () => {
                 const actual = logic.values.humanizedActivity
 
                 expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent(
-                    'changed rollout percentage to 36%, and changed the description to "strawberry" on test flag'
+                    'changed rollout percentage to 36%,andchanged the description to "strawberry" on test flag'
                 )
             })
 
@@ -374,7 +561,7 @@ describe('the activity log logic', () => {
                 const actual = logic.values.humanizedActivity
 
                 expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent(
-                    'changed the filter conditions to apply to 100% ofID 98, and 100% ofID 411 on with cohort'
+                    'changed the filter conditions to apply to 100% ofID 98,and100% ofID 411 on with cohort'
                 )
             })
 
@@ -535,7 +722,7 @@ describe('the activity log logic', () => {
                 const actual = logic.values.humanizedActivity
 
                 expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent(
-                    'changed the filter conditions to apply to 76% ofInitial Browser = Chrome , and 99% ofInitial Browser Version = 100 on with two changes'
+                    'changed the filter conditions to apply to 76% ofInitial Browser = Chrome ,and99% ofInitial Browser Version = 100 on with two changes'
                 )
             })
         })

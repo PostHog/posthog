@@ -13,6 +13,7 @@ import { router } from 'kea-router'
 
 export const insightsModel = kea<insightsModelType>({
     path: ['models', 'insightsModel'],
+    connect: [prompt({ key: 'rename-insight' })],
     actions: () => ({
         renameInsight: (item: InsightModel) => ({ item }),
         renameInsightSuccess: (item: InsightModel) => ({ item }),
@@ -31,7 +32,7 @@ export const insightsModel = kea<insightsModelType>({
     }),
     listeners: ({ actions }) => ({
         renameInsight: async ({ item }) => {
-            prompt({ key: `rename-insight-${item.short_id}` }).actions.prompt({
+            prompt({ key: 'rename-insight' }).actions.prompt({
                 title: 'Rename insight',
                 placeholder: 'Please enter the new name',
                 value: item.name,
@@ -63,7 +64,7 @@ export const insightsModel = kea<insightsModelType>({
             const updatedItem = await api.update(`api/projects/${teamLogic.values.currentTeamId}/insights/${item.id}`, {
                 dashboards,
             })
-            dashboardsModel.actions.updateDashboardItem(updatedItem)
+            dashboardsModel.actions.updateDashboardItem(updatedItem, [fromDashboard, toDashboard])
 
             lemonToast.success(
                 <>
@@ -83,7 +84,7 @@ export const insightsModel = kea<insightsModelType>({
                                 }
                             )
                             lemonToast.success('Panel move reverted')
-                            dashboardsModel.actions.updateDashboardItem(restoredItem)
+                            dashboardsModel.actions.updateDashboardItem(restoredItem, [fromDashboard, toDashboard])
                         },
                     },
                 }
@@ -99,7 +100,7 @@ export const insightsModel = kea<insightsModelType>({
                 layouts[size] = { w, h }
             })
 
-            const { id: _discard, short_id: __discard, ...rest } = item // eslint-disable-line
+            const { id: _discard, short_id: __discard, ...rest } = item
             const newItem = dashboardId ? { ...rest, dashboards: [dashboardId], layouts } : { ...rest, layouts }
             const addedItem = await api.create(`api/projects/${teamLogic.values.currentTeamId}/insights`, newItem)
 

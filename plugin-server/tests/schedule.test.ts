@@ -1,15 +1,16 @@
 import Piscina from '@posthog/piscina'
 import { PluginEvent } from '@posthog/plugin-scaffold/src/types'
 import { Redis } from 'ioredis'
+import * as nodeSchedule from 'node-schedule'
 
 import {
     loadPluginSchedule,
     LOCKED_RESOURCE,
     runScheduleDebounced,
-    startSchedule,
+    startPluginSchedules,
     waitForTasksToFinish,
 } from '../src/main/services/schedule'
-import { Hub, LogLevel, ScheduleControl } from '../src/types'
+import { Hub, LogLevel, PluginScheduleControl } from '../src/types'
 import { createHub } from '../src/utils/db/hub'
 import { delay } from '../src/utils/utils'
 import { createPromise } from './helpers/promises'
@@ -32,6 +33,10 @@ function createEvent(index = 0): PluginEvent {
     }
 }
 
+function numberOfScheduledJobs() {
+    return Object.keys(nodeSchedule.scheduledJobs).length
+}
+
 describe('schedule', () => {
     test('runScheduleDebounced', async () => {
         const workerThreads = 1
@@ -52,13 +57,17 @@ describe('schedule', () => {
     `
         await resetTestDatabase(testCode)
         const piscina = setupPiscina(workerThreads, 10)
-        const processEvent = (event: PluginEvent) => piscina.run({ task: 'processEvent', args: { event } })
+        const ingestEvent = async (event: PluginEvent) => {
+            const result = await piscina.run({ task: 'runEventPipeline', args: { event } })
+            const resultEvent = result.args[0]
+            return resultEvent
+        }
 
         const [hub, closeHub] = await createHub({ LOG_LEVEL: LogLevel.Log })
         hub.pluginSchedule = await loadPluginSchedule(piscina)
         expect(hub.pluginSchedule).toEqual({ runEveryDay: [], runEveryHour: [], runEveryMinute: [39] })
 
-        const event1 = await processEvent(createEvent())
+        const event1 = await ingestEvent(createEvent())
         expect(event1.properties['counter']).toBe(0)
 
         runScheduleDebounced(hub, piscina, 'runEveryMinute')
@@ -66,12 +75,12 @@ describe('schedule', () => {
         runScheduleDebounced(hub, piscina, 'runEveryMinute')
         await delay(100)
 
-        const event2 = await processEvent(createEvent())
+        const event2 = await ingestEvent(createEvent())
         expect(event2.properties['counter']).toBe(0)
 
         await delay(500)
 
-        const event3 = await processEvent(createEvent())
+        const event3 = await ingestEvent(createEvent())
         expect(event3.properties['counter']).toBe(1)
 
         await waitForTasksToFinish(hub)
@@ -107,7 +116,7 @@ describe('schedule', () => {
         } catch {}
     })
 
-    describe('startSchedule', () => {
+    describe('startPluginSchedules', () => {
         let hub: Hub, piscina: Piscina, closeHub: () => Promise<void>, redis: Redis
 
         beforeEach(async () => {
@@ -141,7 +150,7 @@ describe('schedule', () => {
             let lock2 = false
             let lock3 = false
 
-            const schedule1 = await startSchedule(hub, piscina, () => {
+            const schedule1 = await startPluginSchedules(hub, piscina, () => {
                 lock1 = true
                 promises[i++].resolve()
             })
@@ -152,11 +161,11 @@ describe('schedule', () => {
             expect(lock2).toBe(false)
             expect(lock3).toBe(false)
 
-            const schedule2 = await startSchedule(hub, piscina, () => {
+            const schedule2 = await startPluginSchedules(hub, piscina, () => {
                 lock2 = true
                 promises[i++].resolve()
             })
-            const schedule3 = await startSchedule(hub, piscina, () => {
+            const schedule3 = await startPluginSchedules(hub, piscina, () => {
                 lock3 = true
                 promises[i++].resolve()
             })
@@ -181,17 +190,16 @@ describe('schedule', () => {
         })
 
         describe('loading the schedule', () => {
-            let schedule: ScheduleControl
-
-            beforeEach(async () => {
-                schedule = await startSchedule(hub, piscina)
-            })
+            let schedule: PluginScheduleControl | null = null
 
             afterEach(async () => {
-                await schedule.stopSchedule()
+                await schedule?.stopSchedule()
+                schedule = null
             })
 
             test('loads successfully', async () => {
+                schedule = await startPluginSchedules(hub, piscina)
+
                 expect(hub.pluginSchedule).toEqual({
                     runEveryMinute: [39],
                     runEveryHour: [],
@@ -211,6 +219,19 @@ describe('schedule', () => {
                     runEveryHour: [],
                     runEveryDay: [],
                 })
+            })
+
+            test('node-schedule tasks are created and removed on stop', async () => {
+                expect(numberOfScheduledJobs()).toEqual(0)
+
+                const schedule = await startPluginSchedules(hub, piscina)
+                expect(numberOfScheduledJobs()).toEqual(3)
+
+                nodeSchedule.scheduleJob('1 1 1 1 1', () => 1)
+                expect(numberOfScheduledJobs()).toEqual(4)
+
+                await schedule.stopSchedule()
+                expect(numberOfScheduledJobs()).toEqual(0)
             })
         })
     })

@@ -21,7 +21,6 @@ describe('primaryDashboardModalLogic', () => {
             },
         })
         initKeaTests()
-        teamLogic.mount()
         userLogic.mount()
         await expectLogic(teamLogic).toDispatchActions(['loadCurrentTeamSuccess'])
         router.actions.push(urls.projectHomepage())

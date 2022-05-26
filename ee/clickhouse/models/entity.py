@@ -12,13 +12,18 @@ def get_entity_filtering_params(
     table_name: str = "",
     *,
     person_properties_mode: PersonPropertiesMode = PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
+    person_id_joined_alias: str = "person_id",
 ) -> Tuple[Dict, Dict]:
     params: Dict[str, Any] = {}
     content_sql_params: Dict[str, str]
     if entity.type == TREND_FILTER_TYPE_ACTIONS:
         action = entity.get_action()
         action_query, action_params = format_action_filter(
-            team_id=team_id, action=action, table_name=table_name, person_properties_mode=person_properties_mode,
+            team_id=team_id,
+            action=action,
+            table_name=table_name,
+            person_properties_mode=person_properties_mode,
+            person_id_joined_alias=person_id_joined_alias,
         )
         params.update(action_params)
         content_sql_params = {"entity_query": f"AND {action_query}"}

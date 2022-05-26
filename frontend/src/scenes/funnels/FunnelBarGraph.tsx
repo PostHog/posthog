@@ -1,36 +1,24 @@
 import React, { ForwardRefRenderFunction, useEffect, useRef, useState } from 'react'
 import clsx from 'clsx'
-import { capitalizeFirstLetter, humanFriendlyDuration, pluralize } from 'lib/utils'
+import { capitalizeFirstLetter, humanFriendlyDuration, percentage, pluralize } from 'lib/utils'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { Button, ButtonProps, Popover } from 'antd'
-import { ArrowRightOutlined, InfoCircleOutlined } from '@ant-design/icons'
 import { SeriesGlyph } from 'lib/components/SeriesGlyph'
-import { IconTrendingFlatDown, IconInfinity } from 'lib/components/icons'
+import { IconTrendingFlatDown, IconInfinity, IconTrendingFlat, IconInfo } from 'lib/components/icons'
 import { funnelLogic } from './funnelLogic'
 import { useThrottledCallback } from 'use-debounce'
 import './FunnelBarGraph.scss'
-import { BindLogic, useActions, useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { LEGACY_InsightTooltip } from 'scenes/insights/InsightTooltip/LEGACY_InsightTooltip'
-import { FEATURE_FLAGS, FunnelLayout } from 'lib/constants'
-import {
-    formatDisplayPercentage,
-    getBreakdownMaxIndex,
-    getReferenceStep,
-    getSeriesColor,
-    getSeriesPositionName,
-    humanizeOrder,
-    humanizeStepCount,
-} from './funnelUtils'
+import { FunnelLayout } from 'lib/constants'
+import { getBreakdownMaxIndex, getReferenceStep, getSeriesPositionName } from './funnelUtils'
 import { ChartParams, FunnelStepReference, StepOrderValue } from '~/types'
 import { Tooltip } from 'lib/components/Tooltip'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { getActionFilterFromFunnelStep } from 'scenes/insights/InsightTabs/FunnelTab/funnelStepTableUtils'
-import { FunnelStepDropdown } from './FunnelStepDropdown'
-import { insightLogic } from 'scenes/insights/insightLogic'
 import { useResizeObserver } from '../../lib/hooks/useResizeObserver'
-import { FunnelBarChart } from './FunnelBarChart'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FunnelStepTable } from 'scenes/insights/InsightTabs/FunnelTab/FunnelStepTable'
+import { getSeriesColor } from 'lib/colors'
+import { FunnelStepMore } from './FunnelStepMore'
 
 interface BarProps {
     percentage: number
@@ -50,27 +38,25 @@ type LabelPosition = 'inside' | 'outside'
 
 function DuplicateStepIndicator(): JSX.Element {
     return (
-        <span style={{ marginLeft: 4 }}>
-            <Tooltip
-                title={
-                    <>
-                        <b>Sequential &amp; Repeated Events</b>
-                        <p>
-                            When an event is repeated across funnel steps, it is interpreted as a sequence. For example,
-                            a three-step funnel consisting of pageview events is interpretted as first pageview,
-                            followed by second pageview, followed by a third pageview.
-                        </p>
-                    </>
-                }
-            >
-                <InfoCircleOutlined className="info-indicator" />
-            </Tooltip>
-        </span>
+        <Tooltip
+            title={
+                <>
+                    <b>This is a repeated event in a sequence</b>
+                    <p>
+                        When an event is repeated across funnel steps, it is interpreted as a sequence. For example, a
+                        three-step funnel consisting of pageview events is interpretted as first pageview, followed by
+                        second pageview, followed by a third pageview.
+                    </p>
+                </>
+            }
+        >
+            <IconInfo style={{ marginLeft: '0.375rem', fontSize: '1.25rem', color: 'var(--muted-alt)' }} />
+        </Tooltip>
     )
 }
 
 function Bar({
-    percentage,
+    percentage: conversionPercentage,
     name,
     onBarClick,
     disabled,
@@ -141,9 +127,9 @@ function Bar({
                 ref={barRef}
                 className={`funnel-bar ${getSeriesPositionName(breakdownIndex, breakdownMaxIndex)}`}
                 style={{
-                    flex: `${percentage} 1 0`,
+                    flex: `${conversionPercentage} 1 0`,
                     cursor: cursorType,
-                    backgroundColor: getSeriesColor(breakdownIndex),
+                    backgroundColor: getSeriesColor(breakdownIndex ?? 0),
                 }}
                 onClick={() => {
                     if (!disabled && onBarClick) {
@@ -161,9 +147,9 @@ function Bar({
                         role="progressbar"
                         aria-valuemin={0}
                         aria-valuemax={100}
-                        aria-valuenow={(breakdownSumPercentage ?? percentage) * 100}
+                        aria-valuenow={(breakdownSumPercentage ?? conversionPercentage) * 100}
                     >
-                        {formatDisplayPercentage(breakdownSumPercentage ?? percentage)}%
+                        {percentage(breakdownSumPercentage ?? conversionPercentage, 1, true)}
                     </div>
                 )}
             </div>
@@ -287,31 +273,15 @@ export function MetricRow({ title, value }: { title: string; value: string | num
     )
 }
 
-/** @deprecated */
 export function FunnelBarGraph(props: ChartParams): JSX.Element {
-    const { insightProps } = useValues(insightLogic)
-    const { dashboardItemId } = insightProps
-    const logic = funnelLogic(insightProps)
     const {
         filters,
         visibleStepsWithConversionMetrics: steps,
         stepReference,
-        barGraphLayout: layout,
         aggregationTargetLabel,
         isModalActive,
-    } = useValues(logic)
-    const { openPersonsModalForStep } = useActions(logic)
-    const { featureFlags } = useValues(featureFlagLogic)
-
-    if (layout === FunnelLayout.vertical) {
-        return featureFlags[FEATURE_FLAGS.LEMON_FUNNEL_VIZ] ? (
-            <BindLogic logic={funnelLogic} props={insightProps}>
-                <FunnelBarChart {...props} />
-            </BindLogic>
-        ) : (
-            <FunnelStepTable />
-        )
-    }
+    } = useValues(funnelLogic)
+    const { openPersonsModalForStep } = useActions(funnelLogic)
 
     // Everything rendered after is a funnel in top-to-bottom mode.
     return (
@@ -345,15 +315,15 @@ export function FunnelBarGraph(props: ChartParams): JSX.Element {
                                     <IconInfinity style={{ fill: 'var(--primary_alt)', width: 14 }} />
                                 </SeriesGlyph>
                             ) : (
-                                <SeriesGlyph variant="funnel-step-glyph">{humanizeOrder(step.order)}</SeriesGlyph>
+                                <SeriesGlyph variant="funnel-step-glyph">{step.order + 1}</SeriesGlyph>
                             )}
                             <div className={`funnel-series-linebox ${showLineAfter ? 'after' : ''}`} />
                         </div>
                         <header>
-                            <div style={{ display: 'flex', maxWidth: '100%', flexGrow: 1 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', maxWidth: '100%', flexGrow: 1 }}>
                                 <div className="funnel-step-title">
                                     {filters.funnel_order_type === StepOrderValue.UNORDERED ? (
-                                        <span>Completed {humanizeOrder(step.order)} steps</span>
+                                        <span>Completed {step.order + 1} steps</span>
                                     ) : (
                                         <EntityFilterInfo filter={getActionFilterFromFunnelStep(step)} />
                                     )}
@@ -361,7 +331,7 @@ export function FunnelBarGraph(props: ChartParams): JSX.Element {
                                 {filters.funnel_order_type !== StepOrderValue.UNORDERED &&
                                     stepIndex > 0 &&
                                     step.action_id === steps[stepIndex - 1].action_id && <DuplicateStepIndicator />}
-                                <FunnelStepDropdown index={stepIndex} />
+                                <FunnelStepMore stepIndex={stepIndex} />
                             </div>
                             <div className={`funnel-step-metadata funnel-time-metadata ${FunnelLayout.horizontal}`}>
                                 {step.average_conversion_time && step.average_conversion_time >= 0 + Number.EPSILON ? (
@@ -420,19 +390,17 @@ export function FunnelBarGraph(props: ChartParams): JSX.Element {
                                                         },
                                                         {
                                                             title: 'Conversion rate (total)',
-                                                            value:
-                                                                formatDisplayPercentage(
-                                                                    breakdown.conversionRates.total
-                                                                ) + '%',
+                                                            value: percentage(breakdown.conversionRates.total, 1, true),
                                                         },
                                                         {
-                                                            title: `Conversion rate (from step ${humanizeOrder(
-                                                                previousStep.order
-                                                            )})`,
-                                                            value:
-                                                                formatDisplayPercentage(
-                                                                    breakdown.conversionRates.fromPrevious
-                                                                ) + '%',
+                                                            title: `Conversion rate (from step ${
+                                                                previousStep.order + 1
+                                                            })`,
+                                                            value: percentage(
+                                                                breakdown.conversionRates.fromPrevious,
+                                                                1,
+                                                                true
+                                                            ),
                                                             visible: step.order !== 0,
                                                         },
                                                         {
@@ -447,13 +415,12 @@ export function FunnelBarGraph(props: ChartParams): JSX.Element {
                                                                 breakdown.droppedOffFromPrevious > 0,
                                                         },
                                                         {
-                                                            title: `Dropoff rate (from step ${humanizeOrder(
-                                                                previousStep.order
-                                                            )})`,
-                                                            value:
-                                                                formatDisplayPercentage(
-                                                                    1 - breakdown.conversionRates.fromPrevious
-                                                                ) + '%',
+                                                            title: `Dropoff rate (from step ${previousStep.order + 1})`,
+                                                            value: percentage(
+                                                                1 - breakdown.conversionRates.fromPrevious,
+                                                                1,
+                                                                true
+                                                            ),
                                                             visible:
                                                                 step.order !== 0 &&
                                                                 breakdown.droppedOffFromPrevious > 0,
@@ -475,7 +442,7 @@ export function FunnelBarGraph(props: ChartParams): JSX.Element {
                                             onClick={() => openPersonsModalForStep({ step, converted: false })} // dropoff value for steps is negative
                                             style={{
                                                 flex: `${1 - breakdownSum / basisStep.count} 1 0`,
-                                                cursor: `${!dashboardItemId ? 'pointer' : ''}`,
+                                                cursor: `${!props.inCardView ? 'pointer' : ''}`,
                                             }}
                                         />
                                     </>
@@ -498,15 +465,11 @@ export function FunnelBarGraph(props: ChartParams): JSX.Element {
                                                 },
                                                 {
                                                     title: 'Conversion rate (total)',
-                                                    value: formatDisplayPercentage(step.conversionRates.total) + '%',
+                                                    value: percentage(step.conversionRates.total, 1, true),
                                                 },
                                                 {
-                                                    title: `Conversion rate (from step ${humanizeOrder(
-                                                        previousStep.order
-                                                    )})`,
-                                                    value:
-                                                        formatDisplayPercentage(step.conversionRates.fromPrevious) +
-                                                        '%',
+                                                    title: `Conversion rate (from step ${previousStep.order + 1})`,
+                                                    value: percentage(step.conversionRates.fromPrevious, 1, true),
                                                     visible: step.order !== 0,
                                                 },
                                                 {
@@ -519,12 +482,8 @@ export function FunnelBarGraph(props: ChartParams): JSX.Element {
                                                     visible: step.order !== 0 && step.droppedOffFromPrevious > 0,
                                                 },
                                                 {
-                                                    title: `Dropoff rate (from step ${humanizeOrder(
-                                                        previousStep.order
-                                                    )})`,
-                                                    value:
-                                                        formatDisplayPercentage(1 - step.conversionRates.fromPrevious) +
-                                                        '%',
+                                                    title: `Dropoff rate (from step ${previousStep.order + 1})`,
+                                                    value: percentage(1 - step.conversionRates.fromPrevious, 1, true),
                                                     visible: step.order !== 0 && step.droppedOffFromPrevious > 0,
                                                 },
                                                 {
@@ -540,7 +499,7 @@ export function FunnelBarGraph(props: ChartParams): JSX.Element {
                                             onClick={() => openPersonsModalForStep({ step, converted: false })} // dropoff value for steps is negative
                                             style={{
                                                 flex: `${1 - step.conversionRates.fromBasisStep} 1 0`,
-                                                cursor: `${!dashboardItemId ? 'pointer' : ''}`,
+                                                cursor: `${!props.inCardView ? 'pointer' : ''}`,
                                             }}
                                         />
                                     </>
@@ -553,25 +512,26 @@ export function FunnelBarGraph(props: ChartParams): JSX.Element {
                                             onClick={() => openPersonsModalForStep({ step, converted: true })}
                                             disabled={!isModalActive}
                                         >
-                                            <span className="value-inspector-button-icon">
-                                                <ArrowRightOutlined style={{ color: 'var(--success)' }} />
-                                            </span>
+                                            <IconTrendingFlat
+                                                style={{ color: 'var(--success)' }}
+                                                className="value-inspector-button-icon"
+                                            />
                                             <b>
-                                                {humanizeStepCount(step.count)}{' '}
                                                 {pluralize(
                                                     step.count,
                                                     aggregationTargetLabel.singular,
-                                                    aggregationTargetLabel.plural,
-                                                    false
+                                                    aggregationTargetLabel.plural
                                                 )}
                                             </b>
                                         </ValueInspectorButton>
                                         <span className="text-muted-alt">
                                             (
-                                            {formatDisplayPercentage(
-                                                step.order > 0 ? step.count / steps[stepIndex - 1].count : 1
+                                            {percentage(
+                                                step.order > 0 ? step.count / steps[stepIndex - 1].count : 1,
+                                                1,
+                                                true
                                             )}
-                                            %)
+                                            )
                                         </span>
                                     </div>
                                     <div className="text-muted-alt conversion-metadata-caption" style={{ flexGrow: 1 }}>
@@ -587,25 +547,26 @@ export function FunnelBarGraph(props: ChartParams): JSX.Element {
                                             onClick={() => openPersonsModalForStep({ step, converted: false })}
                                             disabled={!isModalActive}
                                         >
-                                            <span className="value-inspector-button-icon">
-                                                <IconTrendingFlatDown style={{ color: 'var(--danger)' }} />
-                                            </span>
+                                            <IconTrendingFlatDown
+                                                style={{ color: 'var(--danger)' }}
+                                                className="value-inspector-button-icon"
+                                            />
                                             <b>
-                                                {humanizeStepCount(dropOffCount)}{' '}
                                                 {pluralize(
                                                     dropOffCount,
                                                     aggregationTargetLabel.singular,
-                                                    aggregationTargetLabel.plural,
-                                                    false
+                                                    aggregationTargetLabel.plural
                                                 )}
                                             </b>
                                         </ValueInspectorButton>
                                         <span className="text-muted-alt">
                                             (
-                                            {formatDisplayPercentage(
-                                                step.order > 0 ? 1 - step.count / steps[stepIndex - 1].count : 0
+                                            {percentage(
+                                                step.order > 0 ? 1 - step.count / steps[stepIndex - 1].count : 0,
+                                                1,
+                                                true
                                             )}
-                                            %)
+                                            )
                                         </span>
                                     </div>
                                     <div className="text-muted-alt conversion-metadata-caption">dropped off</div>

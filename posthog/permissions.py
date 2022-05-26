@@ -52,8 +52,8 @@ class CanCreateOrg(BasePermission):
 
     message = "New organizations cannot be created in this instance. Contact your administrator if you think this is a mistake."
 
-    def has_permission(self, *args, **kwargs) -> bool:
-        return get_can_create_org()
+    def has_permission(self, request, *args, **kwargs) -> bool:
+        return get_can_create_org(request.user)
 
 
 class SingleTenancyOrAdmin(BasePermission):

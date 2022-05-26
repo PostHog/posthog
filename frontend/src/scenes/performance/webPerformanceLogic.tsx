@@ -1,12 +1,10 @@
 import { kea } from 'kea'
 import { Breadcrumb, EventType, MatchedRecording } from '~/types'
-
-import { getChartColors } from 'lib/colors'
-
-import { webPerformanceLogicType } from './webPerformanceLogicType'
+import type { webPerformanceLogicType } from './webPerformanceLogicType'
 import { urls } from 'scenes/urls'
 import { router } from 'kea-router'
 import api from 'lib/api'
+import { getSeriesColor } from 'lib/colors'
 
 export enum WebPerformancePage {
     TABLE = 'table',
@@ -61,31 +59,30 @@ function decompress(
     }
 }
 
-const colors = getChartColors('green')
 function colorForEntry(entryType: string): string {
     switch (entryType) {
         case 'domComplete':
-            return colors[0]
+            return getSeriesColor(1)
         case 'domInteractive':
-            return colors[2]
+            return getSeriesColor(2)
         case 'pageLoaded':
-            return colors[3]
+            return getSeriesColor(3)
         case 'firstContentfulPaint':
-            return colors[4]
+            return getSeriesColor(4)
         case 'css':
-            return colors[6]
+            return getSeriesColor(6)
         case 'xmlhttprequest':
-            return colors[7]
+            return getSeriesColor(7)
         case 'fetch':
-            return colors[8]
+            return getSeriesColor(8)
         case 'other':
-            return colors[9]
+            return getSeriesColor(9)
         case 'script':
-            return colors[10]
+            return getSeriesColor(10)
         case 'link':
-            return colors[11]
+            return getSeriesColor(11)
         default:
-            return colors[13]
+            return getSeriesColor(13)
     }
 }
 
@@ -285,7 +282,7 @@ function forWaterfallDisplay(pageViewEvent: EventType): EventPerformanceData {
     }
 }
 
-export const webPerformanceLogic = kea<webPerformanceLogicType<EventPerformanceData, WebPerformancePage>>({
+export const webPerformanceLogic = kea<webPerformanceLogicType>({
     path: ['scenes', 'performance'],
     actions: {
         setEventToDisplay: (eventToDisplay: EventType) => ({
@@ -312,7 +309,7 @@ export const webPerformanceLogic = kea<webPerformanceLogicType<EventPerformanceD
             },
         ],
         currentEvent: [null as EventType | null, { setEventToDisplay: (_, { eventToDisplay }) => eventToDisplay }],
-        currentPage: [WebPerformancePage.TABLE, { setCurrentPage: (_, { page }) => page }],
+        currentPage: [WebPerformancePage.TABLE as WebPerformancePage, { setCurrentPage: (_, { page }) => page }],
     },
     loaders: {
         event: {

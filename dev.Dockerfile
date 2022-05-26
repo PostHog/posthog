@@ -23,6 +23,7 @@ RUN apk --update --no-cache add \
     "libxml2-dev~=2.9" \
     "libxslt~=1.1" \
     "libxslt-dev~=1.1" \
+    "xmlsec~=1.2" \
     "make~=4.3" \
     "nodejs-current~=16" \
     "npm~=7" \
@@ -48,7 +49,6 @@ RUN apk --update --no-cache --virtual .build-deps add \
     "openssl-dev~=1.1" \
     "postgresql-dev~=13" \
     "libxml2-dev~=2.9" \
-    "xmlsec~=1.2" \
     "xmlsec-dev~=1.2" \
     && \
     pip install -r requirements-dev.txt --compile --no-cache-dir && \

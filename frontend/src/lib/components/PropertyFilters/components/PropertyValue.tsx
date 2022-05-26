@@ -26,6 +26,7 @@ export interface PropertyValueProps {
     type: string
     endpoint?: string // Endpoint to fetch options from
     placeholder?: string
+    className?: string
     style?: Partial<React.CSSProperties>
     bordered?: boolean
     onSet: CallableFunction
@@ -59,6 +60,7 @@ export function PropertyValue({
     type,
     endpoint = undefined,
     placeholder = undefined,
+    className,
     style = {},
     bordered = true,
     onSet,
@@ -71,27 +73,35 @@ export function PropertyValue({
     const isMultiSelect = operator && isOperatorMulti(operator)
     const isDateTimeProperty = operator && isOperatorDate(operator)
 
-    const [input, setInput] = useState(isMultiSelect ? '' : toString(value))
-    const [shouldBlur, setShouldBlur] = useState(false)
+    // what the human has typed into the box
+    const [input, setInput] = useState(Array.isArray(value) ? '' : toString(value) ?? '')
+    // options from the server for search
     const [options, setOptions] = useState({} as Record<string, Option>)
+
+    const [shouldBlur, setShouldBlur] = useState(false)
     const autoCompleteRef = useRef<HTMLElement>(null)
 
     const { formatForDisplay } = useValues(propertyDefinitionsModel)
 
     // update the input field if passed a new `value` prop
     useEffect(() => {
-        if (!value) {
+        if (value == null) {
             setInput('')
-        } else if (value !== input) {
+        } else if (!Array.isArray(value) && toString(value) !== input) {
             const valueObject = options[propertyKey]?.values?.find((v) => v.id === value)
             if (valueObject) {
                 setInput(toString(valueObject.name))
+            } else {
+                setInput(toString(value))
             }
         }
     }, [value])
 
     const loadPropertyValues = useThrottledCallback((newInput) => {
         if (type === 'cohort') {
+            return
+        }
+        if (!propertyKey) {
             return
         }
         const key = propertyKey.split('__')[0]
@@ -144,6 +154,7 @@ export function PropertyValue({
     const validationError = operator ? getValidationError(operator, value) : null
 
     const commonInputProps = {
+        className,
         style: { width: '100%', ...style },
         onSearch: (newInput: string) => {
             setInput(newInput)

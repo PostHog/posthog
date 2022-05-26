@@ -146,7 +146,7 @@ export function EventDefinitionsTable(): JSX.Element {
                 loading={eventDefinitionsLoading}
                 rowKey="id"
                 rowStatus={(row) => {
-                    return row.id === openedDefinitionId ? 'highlighted' : undefined
+                    return row.id === openedDefinitionId ? 'highlighted' : null
                 }}
                 pagination={{
                     controlled: true,

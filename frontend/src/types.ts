@@ -20,6 +20,9 @@ import { PopupProps } from 'lib/components/Popup/Popup'
 import { dayjs } from 'lib/dayjs'
 import { ChartDataset, ChartType, InteractionItem } from 'chart.js'
 import { LogLevel } from 'rrweb'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { BehavioralFilterKey, BehavioralFilterType } from 'scenes/cohorts/CohortFilters/types'
+import { LogicWrapper } from 'kea'
 
 export type Optional<T, K extends string | number | symbol> = Omit<T, K> & { [K in keyof T]?: T[K] }
 
@@ -40,6 +43,8 @@ export enum AvailableFeature {
     MULTIVARIATE_FLAGS = 'multivariate_flags',
     EXPERIMENTATION = 'experimentation',
     TAGGING = 'tagging',
+    BEHAVIORAL_COHORT_FILTERING = 'behavioral_cohort_filtering',
+    WHITE_LABELLING = 'white_labelling',
 }
 
 export enum LicensePlan {
@@ -336,18 +341,25 @@ export enum PropertyOperator {
     Regex = 'regex',
     NotRegex = 'not_regex',
     GreaterThan = 'gt',
+    GreaterThanOrEqual = 'gte',
     LessThan = 'lt',
+    LessThanOrEqual = 'lte',
     IsSet = 'is_set',
     IsNotSet = 'is_not_set',
     IsDateExact = 'is_date_exact',
     IsDateBefore = 'is_date_before',
     IsDateAfter = 'is_date_after',
+    Between = 'between',
+    NotBetween = 'not_between',
+    Minimum = 'min',
+    Maximum = 'max',
 }
 
 export enum SavedInsightsTabs {
     All = 'all',
     Yours = 'yours',
     Favorites = 'favorites',
+    History = 'history',
 }
 
 export enum ExperimentsTabs {
@@ -568,6 +580,37 @@ export interface CohortGroupType {
     name?: string
 }
 
+// Note this will eventually replace CohortGroupType once `cohort-filters` FF is released
+// Synced with `posthog/models/property.py`
+export interface CohortCriteriaType {
+    id: string // Criteria filter id
+    key: string
+    value: BehavioralFilterType
+    type: BehavioralFilterKey
+    operator?: PropertyOperator | null
+    group_type_index?: number | null
+    event_type?: TaxonomicFilterGroupType | null
+    operator_value?: PropertyFilterValue
+    time_value?: number | string | null
+    time_interval?: TimeUnitType | null
+    total_periods?: number | null
+    min_periods?: number | null
+    seq_event_type?: TaxonomicFilterGroupType | null
+    seq_event?: string | number | null
+    seq_time_value?: number | string | null
+    seq_time_interval?: TimeUnitType | null
+    negation?: boolean
+    value_property?: string | null // Transformed into 'value' for api calls
+}
+
+export type EmptyCohortGroupType = Partial<CohortGroupType>
+
+export type EmptyCohortCriteriaType = Partial<CohortCriteriaType>
+
+export type AnyCohortGroupType = CohortGroupType | EmptyCohortGroupType
+
+export type AnyCohortCriteriaType = CohortCriteriaType | EmptyCohortCriteriaType
+
 export type MatchType = typeof ENTITY_MATCH_TYPE | typeof PROPERTY_MATCH_TYPE
 
 export interface CohortType {
@@ -578,11 +621,15 @@ export interface CohortType {
     deleted?: boolean
     id: number | 'new'
     is_calculating?: boolean
+    errors_calculating?: number
     last_calculation?: string
     is_static?: boolean
     name?: string
     csv?: UploadFile
-    groups: CohortGroupType[]
+    groups: CohortGroupType[] // To be deprecated once `filter` takes over
+    filters: {
+        properties: CohortCriteriaGroupFilter
+    }
 }
 
 export interface InsightHistory {
@@ -715,7 +762,16 @@ export enum InsightColor {
     Purple = 'purple',
 }
 
-export interface InsightModel {
+export interface DashboardTile {
+    result: any | null
+    layouts: Record<string, any>
+    color: InsightColor | null
+    last_refresh: string | null
+    filters: Partial<FilterType>
+    filters_hash: string
+}
+
+export interface InsightModel extends DashboardTile {
     /** The unique key we use when communicating with the user, e.g. in URLs */
     short_id: InsightShortId
     /** The primary key in the database, used as well in API endpoints */
@@ -724,26 +780,21 @@ export interface InsightModel {
     derived_name?: string
     description?: string
     favorited?: boolean
-    filters: Partial<FilterType>
-    filters_hash: string
     order: number | null
     deleted: boolean
     saved: boolean
     created_at: string
     created_by: UserBasicType | null
-    layouts: Record<string, any>
-    color: InsightColor | null
-    last_refresh: string | null
     refreshing: boolean
     is_sample: boolean
     dashboards: number[] | null
-    result: any | null
     updated_at: string
     tags?: string[]
     last_modified_at: string
     last_modified_by: UserBasicType | null
     effective_restriction_level: DashboardRestrictionLevel
     effective_privilege_level: DashboardPrivilegeLevel
+    timezone?: string
     /** Only used in the frontend to store the next breakdown url */
     next?: string
 }
@@ -811,6 +862,27 @@ export interface PluginType {
     metrics?: Record<string, StoredMetricMathOperations>
     capabilities?: Record<'jobs' | 'methods' | 'scheduled_tasks', string[]>
     public_jobs?: Record<string, JobSpec>
+}
+
+/** Config passed to app component and logic as props. Sent in Django's app context */
+export interface FrontendAppConfig {
+    pluginId: number
+    pluginConfigId: number
+    pluginType: PluginInstallationType | null
+    name: string
+    url: string
+    config: Record<string, any>
+}
+
+/** Frontend app created after receiving a bundle via import('').getFrontendApp() */
+export interface FrontendApp {
+    id: number
+    pluginId: number
+    error?: any
+    title?: string
+    logic?: LogicWrapper
+    component?: (props: FrontendAppConfig) => JSX.Element
+    onInit?: (props: FrontendAppConfig) => void
 }
 
 export interface JobPayloadFieldOptions {
@@ -1014,6 +1086,28 @@ export interface RecordingEventsFilters {
     query: string
 }
 
+export type InsightEditorFilterGroup = {
+    title: string
+    editorFilters: InsightEditorFilter[]
+    defaultExpanded?: boolean
+    count?: number
+}
+
+export interface EditorFilterProps {
+    insight: Partial<InsightModel>
+    insightProps: InsightLogicProps
+    filters: Partial<FilterType>
+    value: any
+}
+
+export interface InsightEditorFilter {
+    key: string
+    label?: string
+    tooltip?: JSX.Element
+    valueSelector?: (insight: Partial<InsightModel>) => any
+    component?: (props: EditorFilterProps) => JSX.Element
+}
+
 export interface SystemStatusSubrows {
     columns: string[]
     rows: string[][]
@@ -1095,6 +1189,7 @@ export interface FunnelStep {
     // The type returned from the API.
     action_id: string
     average_conversion_time: number | null
+    median_conversion_time: number | null
     count: number
     name: string
     custom_name?: string
@@ -1214,7 +1309,9 @@ export interface ChartParams {
 // Shared between insightLogic, dashboardItemLogic, trendsLogic, funnelLogic, pathsLogic, retentionTableLogic
 export interface InsightLogicProps {
     /** currently persisted insight */
-    dashboardItemId?: InsightShortId | 'new' | null
+    dashboardItemId?: InsightShortId | 'new' | `new-${string}` | null
+    /** id of the dashboard the insight is on (when the insight is being displayed on a dashboard) **/
+    dashboardId?: DashboardType['id']
     /** cached insight */
     cachedInsight?: Partial<InsightModel> | null
     /** enable this to avoid API requests */
@@ -1294,6 +1391,8 @@ export interface PreflightStatus {
     plugins: boolean
     redis: boolean
     db: boolean
+    clickhouse: boolean
+    kafka: boolean
     /** An initiated instance is one that already has any organization(s). */
     initiated: boolean
     /** Org creation is allowed on Cloud OR initiated self-hosted organizations with a license and MULTI_ORG_ENABLED. */
@@ -1315,6 +1414,7 @@ export interface PreflightStatus {
     licensed_users_available?: number | null
     site_url?: string
     instance_preferences?: InstancePreferencesInterface
+    object_storage: boolean
 }
 
 export enum ItemMode { // todo: consolidate this and dashboardmode
@@ -1491,6 +1591,7 @@ export enum FilterLogicalOperator {
     And = 'AND',
     Or = 'OR',
 }
+
 export interface PropertyGroupFilter {
     type: FilterLogicalOperator
     values: PropertyGroupFilterValue[]
@@ -1499,6 +1600,12 @@ export interface PropertyGroupFilter {
 export interface PropertyGroupFilterValue {
     type: FilterLogicalOperator
     values: AnyPropertyFilter[]
+}
+
+export interface CohortCriteriaGroupFilter {
+    id?: string
+    type: FilterLogicalOperator
+    values: AnyCohortCriteriaType[] | CohortCriteriaGroupFilter[]
 }
 
 export interface SelectOptionWithChildren extends SelectOption {
@@ -1539,6 +1646,7 @@ export interface AppContext {
     default_event_name: string
     persisted_feature_flags?: string[]
     anonymous: boolean
+    frontend_apps?: Record<number, FrontendAppConfig>
     /** Whether the user was autoswitched to the current item's team. */
     switched_team: TeamType['id'] | null
 }
@@ -1754,23 +1862,6 @@ export enum DateOperatorType {
     Before = 'before',
     IsSet = 'is_set',
     IsNotSet = 'is_not_set',
-}
-
-export enum OperatorType {
-    Equals = 'equals',
-    NotEquals = 'not_equals',
-    Contains = 'contains',
-    NotContains = 'not_contains',
-    MatchesRegex = 'matches_regex',
-    NotMatchesRegex = 'not_matches_regex',
-    GreaterThan = 'gt',
-    LessThan = 'lt',
-    Set = 'set',
-    NotSet = 'not_set',
-    Between = 'between',
-    NotBetween = 'not_between',
-    Minimum = 'min',
-    Maximum = 'max',
 }
 
 export enum ValueOptionType {

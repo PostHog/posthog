@@ -46,6 +46,7 @@ class EventQuery(metaclass=ABCMeta):
         extra_event_properties: List[PropertyName] = [],
         extra_person_fields: List[ColumnName] = [],
         override_aggregate_users_by_distinct_id: Optional[bool] = None,
+        using_person_on_events: bool = False,
         **kwargs,
     ) -> None:
         self._filter = filter
@@ -54,12 +55,12 @@ class EventQuery(metaclass=ABCMeta):
         self._extra_event_properties = extra_event_properties
         self._column_optimizer = ColumnOptimizer(self._filter, self._team_id)
         self._extra_person_fields = extra_person_fields
-        self.params: Dict[str, Any] = {"team_id": self._team_id, "timezone": team.timezone_for_charts}
+        self.params: Dict[str, Any] = {"team_id": self._team_id, "timezone": team.timezone}
 
         self._should_join_distinct_ids = should_join_distinct_ids
         self._should_join_persons = should_join_persons
         self._extra_fields = extra_fields
-        self._extra_person_fields = extra_person_fields
+        self._using_person_on_events = using_person_on_events
 
         if override_aggregate_users_by_distinct_id is not None:
             self._aggregate_users_by_distinct_id = override_aggregate_users_by_distinct_id
@@ -161,18 +162,26 @@ class EventQuery(metaclass=ABCMeta):
 
         return query, date_params
 
-    def _get_prop_groups(self, prop_group: Optional[PropertyGroup]) -> Tuple[str, Dict]:
+    def _get_prop_groups(
+        self,
+        prop_group: Optional[PropertyGroup],
+        person_properties_mode=PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
+        person_id_joined_alias="person_id",
+    ) -> Tuple[str, Dict]:
         if not prop_group:
             return "", {}
 
-        outer_properties = self._column_optimizer.property_optimizer.parse_property_groups(prop_group).outer
+        if not person_properties_mode == PersonPropertiesMode.DIRECT_ON_EVENTS:
+            props_to_filter = self._column_optimizer.property_optimizer.parse_property_groups(prop_group).outer
+        else:
+            props_to_filter = prop_group
 
         return parse_prop_grouped_clauses(
             team_id=self._team_id,
-            property_group=outer_properties,
+            property_group=props_to_filter,
             prepend="global",
             table_name=self.EVENT_TABLE_ALIAS,
             allow_denormalized_props=True,
-            person_properties_mode=PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
-            person_id_joined_alias=f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id",
+            person_properties_mode=person_properties_mode,
+            person_id_joined_alias=person_id_joined_alias,
         )

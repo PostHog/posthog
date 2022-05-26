@@ -2,6 +2,7 @@ import json
 import random
 import secrets
 from datetime import timedelta
+from typing import Any, Dict, List
 
 from dateutil.relativedelta import relativedelta
 from django.utils.timezone import now
@@ -91,19 +92,6 @@ class WebDataGenerator(DataGenerator):
                 "$event_type": "click",
             },
             timestamp=now() - relativedelta(days=start_day) + relativedelta(seconds=14),
-            # elements=[
-            #     Element(
-            #         tag_name="a",
-            #         href="/demo/1",
-            #         attr_class=["btn", "btn-success"],
-            #         attr_id="sign-up",
-            #         text="Sign up",
-            #     ),
-            #     Element(tag_name="form", attr_class=["form"]),
-            #     Element(tag_name="div", attr_class=["container"]),
-            #     Element(tag_name="body"),
-            #     Element(tag_name="html"),
-            # ],
         )
 
         if index % 4 == 0:
@@ -117,13 +105,6 @@ class WebDataGenerator(DataGenerator):
                     "$event_type": "click",
                 },
                 timestamp=now() - relativedelta(days=start_day) + relativedelta(seconds=29),
-                # elements=[
-                #     Element(tag_name="button", attr_class=["btn", "btn-success"], text="Sign up!",),
-                #     Element(tag_name="form", attr_class=["form"]),
-                #     Element(tag_name="div", attr_class=["container"]),
-                #     Element(tag_name="body"),
-                #     Element(tag_name="html"),
-                # ],
             )
             self.add_event(
                 event="$pageview",
@@ -142,13 +123,6 @@ class WebDataGenerator(DataGenerator):
                         "$event_type": "click",
                     },
                     timestamp=now() - relativedelta(days=start_day) + relativedelta(seconds=59),
-                    # elements=[
-                    #     Element(tag_name="button", attr_class=["btn", "btn-success"], text="Pay $10",),
-                    #     Element(tag_name="form", attr_class=["form"]),
-                    #     Element(tag_name="div", attr_class=["container"]),
-                    #     Element(tag_name="body"),
-                    #     Element(tag_name="html"),
-                    # ],
                 )
                 self.add_event(
                     event="purchase",
@@ -192,11 +166,11 @@ class WebDataGenerator(DataGenerator):
             return super().make_person(index)
 
     @cached_property
-    def demo_data(self):
-        with open(get_absolute_path("demo/demo_data.json"), "r") as demo_data_file:
+    def demo_data(self) -> List[Dict[str, Any]]:
+        with open(get_absolute_path("demo/demo_people.json"), "r") as demo_data_file:
             return json.load(demo_data_file)
 
     @cached_property
-    def demo_recording(self):
-        with open(get_absolute_path("demo/demo_session_recording.json"), "r") as demo_session_file:
+    def demo_recording(self) -> Dict[str, Any]:
+        with open(get_absolute_path("demo/hogflix_session_recording.json"), "r") as demo_session_file:
             return json.load(demo_session_file)

@@ -7,7 +7,7 @@ import { TrendInsight } from 'scenes/trends/Trends'
 import { FunnelInsight } from 'scenes/insights/FunnelInsight'
 import { RetentionContainer } from 'scenes/retention/RetentionContainer'
 import { Paths } from 'scenes/paths/Paths'
-import { FEATURE_FLAGS, FunnelLayout } from 'lib/constants'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { BindLogic, useValues } from 'kea'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { InsightsTable } from 'scenes/insights/InsightsTable'
@@ -43,9 +43,14 @@ const VIEW_MAP = {
 }
 
 export function InsightContainer(
-    { disableHeader, disableTable }: { disableHeader?: boolean; disableTable?: boolean } = {
+    {
+        disableHeader,
+        disableTable,
+        disableCorrelationTable,
+    }: { disableHeader?: boolean; disableTable?: boolean; disableCorrelationTable?: boolean } = {
         disableHeader: false,
         disableTable: false,
+        disableCorrelationTable: false,
     }
 ): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
@@ -111,8 +116,7 @@ export function InsightContainer(
             areFiltersValid &&
             isValidFunnel &&
             filters.funnel_viz_type === FunnelVizType.Steps &&
-            !disableTable &&
-            (featureFlags[FEATURE_FLAGS.LEMON_FUNNEL_VIZ] || filters?.layout === FunnelLayout.horizontal)
+            !disableTable
         ) {
             return (
                 <>
@@ -217,7 +221,7 @@ export function InsightContainer(
                 </div>
             </Card>
             {renderTable()}
-            {!disableTable && correlationAnalysisAvailable && activeView === InsightType.FUNNELS && (
+            {!disableCorrelationTable && correlationAnalysisAvailable && activeView === InsightType.FUNNELS && (
                 <FunnelCorrelation />
             )}
         </>

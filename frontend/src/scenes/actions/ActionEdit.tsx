@@ -5,7 +5,7 @@ import { useActions, useValues } from 'kea'
 import { actionEditLogic, ActionEditLogicProps } from './actionEditLogic'
 import './Actions.scss'
 import { ActionStep } from './ActionStep'
-import { Button, Col, Input, Row } from 'antd'
+import { Button, Col, Row } from 'antd'
 import { InfoCircleOutlined, LoadingOutlined, PlusOutlined } from '@ant-design/icons'
 import { router } from 'kea-router'
 import { PageHeader } from 'lib/components/PageHeader'
@@ -22,6 +22,7 @@ import { Field } from 'lib/forms/Field'
 import { LemonButton } from 'lib/components/LemonButton'
 import { LemonCheckbox } from 'lib/components/LemonCheckbox'
 import { lemonToast } from 'lib/components/lemonToast'
+import { LemonInput } from 'lib/components/LemonInput/LemonInput'
 
 export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }: ActionEditLogicProps): JSX.Element {
     const logicProps: ActionEditLogicProps = {
@@ -75,24 +76,24 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
 
     return (
         <div className="action-edit-container">
-            <VerticalForm logic={actionEditLogic} props={logicProps} formKey="action">
+            <VerticalForm logic={actionEditLogic} props={logicProps} formKey="action" enableFormOnSubmit>
                 <PageHeader
                     title={
                         <Field name="name">
-                            {({ value, onValueChange }) => (
+                            {({ value, onChange }) => (
                                 <EditableField
                                     name="name"
                                     value={value || ''}
                                     placeholder="Name this action"
                                     onChange={
                                         !id
-                                            ? onValueChange
+                                            ? onChange
                                             : undefined /* When creating a new action, change value on type */
                                     }
                                     onSave={
                                         !id
                                             ? undefined
-                                            : onValueChange /* When not creating a new action, change value on save */
+                                            : onChange /* When not creating a new action, change value on save */
                                     }
                                     mode={!id ? 'edit' : undefined /* When creating a new action, maintain edit mode */}
                                     minLength={1}
@@ -107,7 +108,7 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
                     caption={
                         <>
                             <Field name="description" showOptional={true}>
-                                {({ value, onValueChange }) => (
+                                {({ value, onChange }) => (
                                     <EditableField
                                         multiline
                                         name="description"
@@ -115,13 +116,13 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
                                         placeholder="Description (optional)"
                                         onChange={
                                             !id
-                                                ? onValueChange
+                                                ? onChange
                                                 : undefined /* When creating a new action, change value on type */
                                         }
                                         onSave={
                                             !id
                                                 ? undefined
-                                                : onValueChange /* When not creating a new action, change value on save */
+                                                : onChange /* When not creating a new action, change value on save */
                                         }
                                         mode={
                                             !id
@@ -139,10 +140,10 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
                                 )}
                             </Field>
                             <Field name="tags" showOptional={true}>
-                                {({ value, onValueChange }) => (
+                                {({ value, onChange }) => (
                                     <ObjectTags
                                         tags={value ?? []}
-                                        onChange={(_, newTags) => onValueChange(newTags)}
+                                        onChange={(_, newTags) => onChange(newTags)}
                                         className="action-tags"
                                         saving={actionLoading}
                                     />
@@ -177,10 +178,10 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
                         </a>
                     </div>
                     <Field name="steps">
-                        {({ onValueChange }) => (
+                        {({ onChange }) => (
                             <div style={{ textAlign: 'right', marginBottom: 12 }}>
                                 <Button
-                                    onClick={() => onValueChange([...(action.steps || []), { isNew: uuid() }])}
+                                    onClick={() => onChange([...(action.steps || []), { isNew: uuid() }])}
                                     size="small"
                                 >
                                     Add another match group
@@ -189,7 +190,7 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
                         )}
                     </Field>
                     <Field name="steps">
-                        {({ value, onValueChange }) => (
+                        {({ value, onChange }) => (
                             <Row gutter={[24, 24]}>
                                 <>
                                     {value?.map((step: ActionStepType, index: number) => (
@@ -202,14 +203,14 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
                                             isOnlyStep={!!value && value.length === 1}
                                             onDelete={() => {
                                                 const identifier = step.id ? 'id' : 'isNew'
-                                                onValueChange(
+                                                onChange(
                                                     value?.filter(
                                                         (s: ActionStepType) => s[identifier] !== step[identifier]
                                                     )
                                                 )
                                             }}
                                             onChange={(newStep) => {
-                                                onValueChange(
+                                                onChange(
                                                     value?.map((s: ActionStepType) =>
                                                         (step.id && s.id == step.id) ||
                                                         (step.isNew && s.isNew === step.isNew)
@@ -230,7 +231,7 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
                                     <div
                                         className="match-group-add-skeleton"
                                         onClick={() => {
-                                            onValueChange([...(action.steps || []), { isNew: uuid() }])
+                                            onChange([...(action.steps || []), { isNew: uuid() }])
                                         }}
                                     >
                                         <PlusOutlined style={{ fontSize: 28, color: '#666666' }} />
@@ -244,11 +245,11 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
                     <div style={{ marginTop: '2rem' }}>
                         <h2 className="subtitle">Match groups</h2>
                         <Field name="post_to_slack">
-                            {({ value, onValueChange }) => (
+                            {({ value, onChange }) => (
                                 <LemonCheckbox
                                     id="webhook-checkbox"
                                     checked={!!value}
-                                    onChange={(e) => onValueChange(e.target.checked)}
+                                    onChange={(e) => onChange(e.target.checked)}
                                     rowProps={{ fullWidth: true }}
                                     disabled={!slackEnabled}
                                     label={
@@ -265,15 +266,13 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
                         {action.post_to_slack && (
                             <>
                                 <Field name="slack_message_format">
-                                    {({ value, onValueChange }) => (
+                                    {({ value, onChange }) => (
                                         <>
-                                            <Input
-                                                addonBefore="Message format (optional)"
+                                            <div>Message format (optional)</div>
+                                            <LemonInput
                                                 placeholder="Default: [action.name] triggered by [person]"
                                                 value={value}
-                                                onChange={(e) => {
-                                                    onValueChange(e.target.value)
-                                                }}
+                                                onChange={onChange}
                                                 disabled={!slackEnabled || !action.post_to_slack}
                                                 data-attr="edit-slack-message-format"
                                             />

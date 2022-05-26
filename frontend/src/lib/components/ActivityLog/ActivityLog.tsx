@@ -5,11 +5,11 @@ import { useValues } from 'kea'
 import './ActivityLog.scss'
 import { activityLogLogic } from 'lib/components/ActivityLog/activityLogLogic'
 import { Skeleton } from 'antd'
-import { Describer } from 'lib/components/ActivityLog/humanizeActivity'
+import { ActivityScope, Describer } from 'lib/components/ActivityLog/humanizeActivity'
 import { PaginationControl, usePagination } from 'lib/components/PaginationControl'
 
 export interface ActivityLogProps {
-    scope: 'FeatureFlag' | 'Person'
+    scope: ActivityScope
     // if no id is provided, the list is not scoped by id and shows all activity ordered by time
     id?: number
     describer?: Describer

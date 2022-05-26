@@ -137,17 +137,16 @@ export function mockPluginTempFolder(indexJs: string, pluginJson?: string): [Plu
     return [
         { ...plugin60, url: `file:${folder}`, archive: null },
         () => {
-            fs.rmdirSync(folder, { recursive: true })
+            fs.rmSync(folder, { recursive: true })
         },
     ]
 }
 
-export const mockPluginSourceCode = (indexJs: string): Plugin => ({
+export const mockPluginSourceCode = (): Plugin => ({
     ...plugin60,
     archive: null,
     plugin_type: 'source',
     url: undefined,
-    source: indexJs,
 })
 
 export const plugin70 = {

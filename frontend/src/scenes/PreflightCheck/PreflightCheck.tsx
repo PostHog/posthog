@@ -1,302 +1,235 @@
 import React from 'react'
 import { useValues, useActions } from 'kea'
-import { preflightLogic } from './preflightLogic'
-import { Row, Col, Card, Button, Steps } from 'antd'
-import surprisedHog from 'public/surprised-hog.png'
-import posthogLogo from 'public/posthog-logo.png'
-import {
-    CheckSquareFilled,
-    CloseSquareFilled,
-    LoadingOutlined,
-    SyncOutlined,
-    WarningFilled,
-    RocketFilled,
-    ApiTwoTone,
-} from '@ant-design/icons'
-import { router } from 'kea-router'
-import { PageHeader } from 'lib/components/PageHeader'
+import { LoadingOutlined } from '@ant-design/icons'
+import { PreflightCheckStatus, PreflightItemInterface, preflightLogic } from './preflightLogic'
+import './PreflightCheck.scss'
 import { capitalizeFirstLetter } from 'lib/utils'
-import { urls } from 'scenes/urls'
 import { SceneExport } from 'scenes/sceneTypes'
-
-const { Step } = Steps
-
-interface PreflightItemInterface {
-    name: string
-    status: boolean
-    caption?: string
-    failedState?: 'warning' | 'not-required'
-}
-
-interface CheckInterface extends PreflightItemInterface {
-    id: string
-}
+import { WelcomeLogo } from 'scenes/authentication/WelcomeLogo'
+import { LemonButton } from 'lib/components/LemonButton'
+import {
+    IconCheckCircleOutline,
+    IconErrorOutline,
+    IconUnfoldLess,
+    IconUnfoldMore,
+    IconRefresh,
+    IconWarningAmber,
+} from 'lib/components/icons'
+import clsx from 'clsx'
+import { LemonRow } from 'lib/components/LemonRow'
+import { AnimatedCollapsible } from 'lib/components/AnimatedCollapsible'
+import { LemonDivider } from 'lib/components/LemonDivider'
 
 export const scene: SceneExport = {
     component: PreflightCheck,
     logic: preflightLogic,
 }
 
-function PreflightItem({ name, status, caption, failedState }: PreflightItemInterface): JSX.Element {
-    /*
-    status === undefined -> Item still loading (no positive or negative response yet)
-    status === false -> Item not ready (fail to validate)
-    status === true -> Item ready (validated)
-    */
-    let textColor: string
+function PreflightCheckIcon({ status, loading }: { status: PreflightCheckStatus; loading?: boolean }): JSX.Element {
+    const size = {
+        height: '20px',
+        width: '20px',
+    }
+    if (loading) {
+        return <LoadingOutlined style={{ color: 'var(--primary)' }} />
+    }
+    if (status === 'validated') {
+        return <IconCheckCircleOutline {...size} />
+    } else if (status === 'warning' || status === 'optional') {
+        return <IconWarningAmber {...size} />
+    }
+    return <IconErrorOutline {...size} />
+}
+
+function PreflightItem({ name, status, caption }: PreflightItemInterface): JSX.Element {
     const { preflightLoading } = useValues(preflightLogic)
-
-    if (status) {
-        textColor = 'var(--success)'
-    } else if (status === false) {
-        if (failedState === 'warning') {
-            textColor = 'var(--warning)'
-        } else if (failedState === 'not-required') {
-            textColor = 'var(--border-dark)'
-        } else {
-            textColor = 'var(--danger)'
-        }
-    } else {
-        textColor = 'var(--border-dark)'
-    }
-
-    const icon = (): JSX.Element => {
-        if (preflightLoading) {
-            return <LoadingOutlined style={{ fontSize: 20, color: textColor }} />
-        }
-        if (status) {
-            return <CheckSquareFilled style={{ fontSize: 20, color: textColor }} />
-        } else {
-            if (failedState === 'warning') {
-                return <WarningFilled style={{ fontSize: 20, color: textColor }} />
-            } else {
-                return <CloseSquareFilled style={{ fontSize: 20, color: textColor }} />
-            }
-        }
-    }
-
     return (
-        <Col span={12} style={{ textAlign: 'left', marginBottom: 16, display: 'flex', alignItems: 'center' }}>
-            {icon()}
-            <span style={{ color: textColor, paddingLeft: 8 }}>
-                {name}{' '}
-                {caption && status === false && (
-                    <div data-attr="caption" style={{ fontSize: 12 }}>
+        <div className={clsx('PreflightItem', preflightLoading ? 'Preflight--loading' : `Preflight--${status}`)}>
+            <div className="PreflightItem__icon-container">
+                <PreflightCheckIcon status={status} loading={preflightLoading} />
+            </div>
+            <div className="PreflightItem__text-container">
+                <p className="PreflightItem__item-name">{name}</p>
+                {caption && (
+                    <p data-attr="caption" className="text-muted">
                         {caption}
-                    </div>
+                    </p>
                 )}
-            </span>
-        </Col>
+            </div>
+
+            <div>
+                <p className="Preflight__status-text" data-attr="status-text">
+                    {capitalizeFirstLetter(preflightLoading ? 'checking' : status)}
+                </p>
+            </div>
+        </div>
     )
 }
 
 export function PreflightCheck(): JSX.Element {
-    const { preflight, preflightLoading, preflightMode } = useValues(preflightLogic)
-    const { setPreflightMode } = useActions(preflightLogic)
-    const isReady =
-        preflight &&
-        preflight.django &&
-        preflight.db &&
-        preflight.redis &&
-        preflight.celery &&
-        (preflightMode === 'experimentation' || preflight.plugins)
-
-    const checks = [
-        {
-            id: 'database',
-            name: 'Database (Postgres)',
-            status: preflight?.db,
-        },
-        {
-            id: 'backend',
-            name: 'Backend server (Django)',
-            status: preflight?.django,
-        },
-        {
-            id: 'redis',
-            name: 'Cache & queue (Redis)',
-            status: preflight?.redis,
-        },
-        {
-            id: 'celery',
-            name: 'Background jobs (Celery)',
-            status: preflight?.celery,
-        },
-        {
-            id: 'plugins',
-            name: 'Plugin server (Node)',
-            status: preflight?.plugins,
-            caption: preflightMode === 'experimentation' ? 'Required in production environments' : '',
-            failedState: preflightMode === 'experimentation' ? 'warning' : 'error',
-        },
-        {
-            id: 'frontend',
-            name: 'Frontend build (Webpack)',
-            status: true, // If this code is ran, the front-end is already built
-        },
-        {
-            id: 'tls',
-            name: 'SSL/TLS certificate',
-            status: window.location.protocol === 'https:',
-            caption:
-                preflightMode === 'experimentation'
-                    ? 'Not required for development or testing'
-                    : 'Install before ingesting real user data',
-            failedState: preflightMode === 'experimentation' ? 'not-required' : 'warning',
-        },
-    ] as CheckInterface[]
-
-    const handlePreflightFinished = (): void => {
-        router.actions.push(urls.signup())
-    }
+    const { preflight, preflightLoading, preflightMode, checks, areChecksExpanded, checksSummary } =
+        useValues(preflightLogic)
+    const { setPreflightMode, handlePreflightFinished, setChecksManuallyExpanded } = useActions(preflightLogic)
 
     return (
-        <div style={{ minHeight: '100vh' }}>
-            <Row
-                style={{
-                    display: 'flex',
-                    justifyContent: 'center',
-                    paddingTop: 32,
-                    paddingBottom: 32,
-                    backgroundColor: '#eeefe9',
-                }}
-            >
-                <img src={posthogLogo} style={{ width: 157, height: 30 }} />
-            </Row>
-            <Row style={{ display: 'flex', justifyContent: 'center', paddingBottom: 16 }}>
-                <PageHeader title="Lets get started..." />
-            </Row>
-            <Row style={{ display: 'flex', justifyContent: 'center' }}>
-                <div style={{ width: 960 }}>
-                    <Steps current={0}>
-                        <Step title="Preflight check" subTitle="1 min" description="Prepare your instance" />
-                        <Step
-                            title="Event capture"
-                            subTitle="15 mins"
-                            description="Set up your app to capture events"
-                        />
-                        <Step
-                            title="Setup your team"
-                            subTitle="5 mins"
-                            description="Invite your team and start discovering insights"
-                        />
-                    </Steps>
-                </div>
-            </Row>
-            <Row style={{ display: 'flex', justifyContent: 'center' }}>
-                <div style={{ display: 'flex', alignItems: 'center', flexDirection: 'column' }}>
-                    <img src={surprisedHog} style={{ maxHeight: '100%', width: 320, padding: '20px 30px' }} />
-                    <p>Any questions?</p>
-                    <Button type="default" data-attr="support" data-source="preflight">
-                        <a href="https://posthog.com/support" target="_blank" rel="noreferrer">
-                            Get support
-                        </a>
-                    </Button>
-                </div>
-                <div
-                    style={{
-                        display: 'flex',
-                        justifyContent: 'flex-start',
-                        margin: '0 32px',
-                        flexDirection: 'column',
-                        paddingTop: 32,
-                    }}
-                >
-                    <Card style={{ width: '100%' }}>
-                        <Row style={{ display: 'flex', justifyContent: 'space-between', lineHeight: '32px' }}>
-                            {!preflightMode ? (
-                                <b style={{ fontSize: 16 }}>Select launch mode</b>
-                            ) : (
-                                <>
-                                    <b style={{ fontSize: 16 }}>
-                                        <span>
-                                            <span
-                                                style={{ color: 'var(--primary)', cursor: 'pointer' }}
-                                                onClick={() => setPreflightMode(null)}
-                                            >
-                                                Select launch mode
-                                            </span>{' '}
-                                            &gt; {capitalizeFirstLetter(preflightMode)}
-                                        </span>
-                                    </b>
-                                    <Button
-                                        type="default"
-                                        data-attr="preflight-refresh"
-                                        icon={<SyncOutlined />}
-                                        onClick={() => window.location.reload()}
-                                        disabled={preflightLoading || !preflight}
-                                    >
-                                        Refresh
-                                    </Button>
-                                </>
-                            )}
-                        </Row>
-                        {!preflightMode && (
-                            <div>We're excited to have you here. What's your plan for this installation?</div>
-                        )}
-                        <div
-                            className="text-center"
-                            style={{ padding: '24px 0', display: 'flex', justifyContent: 'center', maxWidth: 533 }}
-                        >
-                            {!preflightMode && (
-                                <>
-                                    <Button
-                                        type="default"
-                                        data-attr="preflight-experimentation"
-                                        size="large"
-                                        onClick={() => setPreflightMode('experimentation')}
-                                        icon={<ApiTwoTone />}
-                                    >
-                                        Just playing
-                                    </Button>
-                                    <Button
-                                        type="primary"
-                                        style={{ marginLeft: 16 }}
-                                        size="large"
-                                        data-attr="preflight-live"
-                                        onClick={() => setPreflightMode('live')}
-                                        icon={<RocketFilled />}
-                                    >
-                                        Live implementation
-                                    </Button>
-                                </>
-                            )}
+        <div className="bridge-page Preflight">
+            <div>
+                <WelcomeLogo view="preflight-check" />
+                {!preflightMode ? (
+                    <>
+                        <div className="Preflight__container-box">
+                            <div className="Preflight__header">
+                                <p className="Preflight__header--title-text">Select a launch mode</p>
+                                <p className="Preflight__header--secondary-text">
+                                    What's your plan for this installation? We'll make infrastructure checks
+                                    accordingly.
+                                </p>
+                            </div>
+                            <LemonButton
+                                fullWidth
+                                center
+                                type="primary"
+                                className="mt-05"
+                                size="large"
+                                data-attr="preflight-live"
+                                onClick={() => setPreflightMode('live')}
+                            >
+                                Live implementation
+                            </LemonButton>
+                            <LemonButton
+                                type="secondary"
+                                fullWidth
+                                center
+                                className="mt-05"
+                                size="large"
+                                data-attr="preflight-experimentation"
+                                onClick={() => setPreflightMode('experimentation')}
+                            >
+                                Just experimenting
+                            </LemonButton>
+                            <LemonDivider thick dashed large style={{ marginTop: 24, marginBottom: 24 }} />
+                            <p className="text-muted text-center mb-0">
+                                We will not enforce some security requirements in experimentation mode.
+                            </p>
+                        </div>
+                        <div style={{ marginTop: 16, textAlign: 'center' }}>
+                            <p className="text-muted">
+                                {`Have questions? `}
+                                <a href="https://posthog.com/support" target="_blank">
+                                    Visit support
+                                </a>
+                            </p>
+                        </div>
+                    </>
+                ) : (
+                    <>
+                        <div className="Preflight__container-box">
+                            <div className="Preflight__header">
+                                <p className="Preflight__header--title-text">Validate implementation</p>
+                                <p className="Preflight__header--secondary-text">
+                                    Validation happens immediately. You can rerun validation checks by clicking
+                                    “validate requirements”. If you get stuck, try our{' '}
+                                    <a href="https://posthog.com/docs/self-host/deploy/troubleshooting" target="_blank">
+                                        troubleshooting guide
+                                    </a>{' '}
+                                    or our{' '}
+                                    <a href="https://posthog.com/docs/self-host/runbook" target="_blank">
+                                        self host runbook
+                                    </a>
+                                    .
+                                </p>
+                            </div>
 
-                            {preflightMode && (
-                                <>
-                                    <Row>
+                            <div className="Preflight__checks-container">
+                                <div className="Preflight__check-summary">
+                                    <div
+                                        className={clsx(
+                                            'Preflight__summary-icon-container',
+                                            preflightLoading
+                                                ? 'Preflight--loading'
+                                                : `Preflight--${checksSummary.summaryStatus}`
+                                        )}
+                                    >
+                                        <PreflightCheckIcon
+                                            status={checksSummary.summaryStatus}
+                                            loading={preflightLoading}
+                                        />
+                                    </div>
+                                    <div className="Preflight__summary-text-container">
+                                        <p className="Preflight__summary-header">Validation checks</p>
+                                        <p data-attr="caption" className="text-muted Preflight__summary-description">
+                                            {checksSummary.summaryString}
+                                        </p>
+                                    </div>
+                                    <LemonButton
+                                        icon={
+                                            areChecksExpanded ? (
+                                                <IconUnfoldLess style={{ color: 'var(--muted-alt)' }} />
+                                            ) : (
+                                                <IconUnfoldMore style={{ color: 'var(--muted-alt)' }} />
+                                            )
+                                        }
+                                        onClick={() => {
+                                            setChecksManuallyExpanded(!areChecksExpanded)
+                                        }}
+                                    />
+                                </div>
+                                <AnimatedCollapsible collapsed={!areChecksExpanded}>
+                                    <>
                                         {checks.map((item) => (
                                             <PreflightItem key={item.id} {...item} />
                                         ))}
-                                    </Row>
-                                </>
-                            )}
-                        </div>
-                    </Card>
-                    {preflightMode && (
-                        <>
-                            <div className="space-top text-center" data-attr="preflightStatus">
-                                {isReady ? (
-                                    <b style={{ color: 'var(--success)' }}>All systems go!</b>
-                                ) : (
-                                    <b>Checks in progress…</b>
-                                )}
+                                    </>
+                                </AnimatedCollapsible>
+                                <LemonButton
+                                    center
+                                    fullWidth
+                                    size="large"
+                                    data-attr="preflight-refresh"
+                                    onClick={() => window.location.reload()}
+                                    disabled={preflightLoading || !preflight}
+                                    style={{ borderTopLeftRadius: 0, borderTopRightRadius: 0 }}
+                                >
+                                    <IconRefresh />
+                                    <span style={{ paddingLeft: 8 }}>Validate requirements</span>
+                                </LemonButton>
                             </div>
-                            <div className="text-center" style={{ marginBottom: 64 }}>
-                                <Button
+                            <LemonDivider thick dashed large style={{ marginTop: 24, marginBottom: 24 }} />
+                            {checksSummary.summaryStatus !== 'error' ? (
+                                <LemonButton
+                                    fullWidth
+                                    center
                                     type="primary"
+                                    className="mt-05"
+                                    size="large"
                                     data-attr="preflight-complete"
-                                    data-source={preflightMode}
-                                    disabled={!isReady}
                                     onClick={handlePreflightFinished}
                                 >
                                     Continue
-                                </Button>
-                            </div>
-                        </>
-                    )}
-                </div>
-            </Row>
+                                </LemonButton>
+                            ) : (
+                                <LemonRow fullWidth center className="mt-05 Preflight__cannot-continue" size="large">
+                                    <p className="text-center text-muted">
+                                        All required checks must pass before you can continue
+                                    </p>
+                                </LemonRow>
+                            )}
+
+                            <p className="text-center mt mb-0">
+                                Need help? Take a look at our{' '}
+                                <a href="https://posthog.com/docs/self-host/deploy/troubleshooting" target="_blank">
+                                    documentation
+                                </a>{' '}
+                                or{' '}
+                                <a href="https://posthog.com/support" target="_blank">
+                                    visit support
+                                </a>
+                                .
+                            </p>
+                        </div>
+                    </>
+                )}
+            </div>
         </div>
     )
 }

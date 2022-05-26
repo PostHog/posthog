@@ -1,8 +1,8 @@
 import './ActionsPie.scss'
 import React, { useState, useEffect } from 'react'
-import { maybeAddCommasToInteger } from 'lib/utils'
+import { humanFriendlyNumber } from 'lib/utils'
 import { LineGraph } from '../../insights/LineGraph/LineGraph'
-import { getChartColors } from 'lib/colors'
+import { getSeriesColor } from 'lib/colors'
 import { useValues, useActions } from 'kea'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { ChartParams, GraphType, GraphDataset, ActionFilter } from '~/types'
@@ -20,8 +20,7 @@ export function ActionsPie({ inSharedMode, showPersonsModal = true }: ChartParam
     function updateData(): void {
         const _data = [...indexedResults].sort((a, b) => b.aggregated_value - a.aggregated_value)
         const days = _data.length > 0 ? _data[0].days : []
-        const rawColorList = getChartColors('white', _data.length)
-        const colorList = _data.map(({ id }) => rawColorList[id])
+        const colorList = _data.map(({ id }) => getSeriesColor(id))
 
         setData([
             {
@@ -99,7 +98,7 @@ export function ActionsPie({ inSharedMode, showPersonsModal = true }: ChartParam
                 </div>
                 <h1>
                     <span className="label">Total: </span>
-                    {maybeAddCommasToInteger(total)}
+                    {humanFriendlyNumber(total)}
                 </h1>
             </div>
         ) : (

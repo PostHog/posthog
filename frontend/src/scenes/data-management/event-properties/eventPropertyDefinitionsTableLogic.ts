@@ -6,11 +6,11 @@ import {
     normalizePropertyDefinitionEndpointUrl,
     PropertyDefinitionsPaginatedResponse,
 } from 'scenes/data-management/events/eventDefinitionsTableLogic'
-import { eventPropertyDefinitionsTableLogicType } from './eventPropertyDefinitionsTableLogicType'
+import type { eventPropertyDefinitionsTableLogicType } from './eventPropertyDefinitionsTableLogicType'
 import { objectsEqual } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
-interface Filters {
+export interface Filters {
     property: string
 }
 
@@ -27,10 +27,8 @@ export interface EventPropertyDefinitionsTableLogicProps {
     key: string
 }
 
-export const eventPropertyDefinitionsTableLogic = kea<
-    eventPropertyDefinitionsTableLogicType<EventPropertyDefinitionsTableLogicProps, Filters>
->({
-    path: (key: string) => ['scenes', 'data-management', 'event-properties', 'eventPropertyDefinitionsTableLogic', key],
+export const eventPropertyDefinitionsTableLogic = kea<eventPropertyDefinitionsTableLogicType>({
+    path: ['scenes', 'data-management', 'event-properties', 'eventPropertyDefinitionsTableLogic'],
     props: {} as EventPropertyDefinitionsTableLogicProps,
     key: (props) => props.key || 'scene',
     actions: {

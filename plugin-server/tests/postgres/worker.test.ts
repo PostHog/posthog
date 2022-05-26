@@ -1,19 +1,14 @@
 import { PluginEvent } from '@posthog/plugin-scaffold/src/types'
-import IORedis from 'ioredis'
-import { mocked } from 'ts-jest/utils'
 
-import { ServerInstance, startPluginsServer } from '../../src/main/pluginsServer'
 import { loadPluginSchedule } from '../../src/main/services/schedule'
-import { Hub, LogLevel } from '../../src/types'
-import { Client } from '../../src/utils/celery/client'
+import { Hub, PreIngestionEvent } from '../../src/types'
 import { createHub } from '../../src/utils/db/hub'
 import { KafkaProducerWrapper } from '../../src/utils/db/kafka-producer-wrapper'
 import { delay, UUIDT } from '../../src/utils/utils'
 import { ActionManager } from '../../src/worker/ingestion/action-manager'
 import { ActionMatcher } from '../../src/worker/ingestion/action-matcher'
-import { ingestEvent } from '../../src/worker/ingestion/ingest-event'
-import { makePiscina } from '../../src/worker/piscina'
-import { runPluginTask, runProcessEvent } from '../../src/worker/plugins/run'
+import { EventPipelineRunner } from '../../src/worker/ingestion/event-pipeline/runner'
+import { runPluginTask } from '../../src/worker/plugins/run'
 import { loadSchedule, setupPlugins } from '../../src/worker/plugins/setup'
 import { teardownPlugins } from '../../src/worker/plugins/teardown'
 import { createTaskRunner } from '../../src/worker/worker'
@@ -24,7 +19,6 @@ jest.mock('../../src/worker/ingestion/action-manager')
 jest.mock('../../src/worker/ingestion/action-matcher')
 jest.mock('../../src/utils/db/sql')
 jest.mock('../../src/utils/status')
-jest.mock('../../src/worker/ingestion/ingest-event')
 jest.mock('../../src/worker/plugins/run')
 jest.mock('../../src/worker/plugins/setup')
 jest.mock('../../src/worker/plugins/teardown')
@@ -39,6 +33,7 @@ function createEvent(index = 0): PluginEvent {
         now: new Date().toISOString(),
         event: 'default event',
         properties: { key: 'value', index },
+        uuid: new UUIDT().toString(),
     }
 }
 
@@ -65,24 +60,31 @@ describe('worker', () => {
         await resetTestDatabase(testCode)
         const piscina = setupPiscina(workerThreads, 10)
 
-        const processEvent = (event: PluginEvent) => piscina.run({ task: 'processEvent', args: { event } })
         const runEveryDay = (pluginConfigId: number) => piscina.run({ task: 'runEveryDay', args: { pluginConfigId } })
-        const ingestEvent = (event: PluginEvent) => piscina.run({ task: 'ingestEvent', args: { event } })
+        const ingestEvent = async (event: PluginEvent) => {
+            const result = await piscina.run({ task: 'runEventPipeline', args: { event } })
+            const resultEvent = result.args[0]
+            return { ...result, event: resultEvent }
+        }
 
         const pluginSchedule = await loadPluginSchedule(piscina)
         expect(pluginSchedule).toEqual({ runEveryDay: [39], runEveryHour: [], runEveryMinute: [] })
 
-        const event = await processEvent(createEvent())
-        expect(event.properties['somewhere']).toBe('over the rainbow')
+        const ingestResponse1 = await ingestEvent(createEvent())
+        expect(ingestResponse1.event.properties['somewhere']).toBe('over the rainbow')
 
         const everyDayReturn = await runEveryDay(39)
         expect(everyDayReturn).toBe(4)
 
-        const ingestResponse1 = await ingestEvent(createEvent())
-        expect(ingestResponse1).toEqual({ error: 'Not a valid UUID: "undefined"' })
+        const ingestResponse2 = await ingestEvent(createEvent())
+        expect(ingestResponse2).toEqual({
+            lastStep: 'runAsyncHandlersStep',
+            args: expect.anything(),
+            event: expect.anything(),
+        })
 
-        const ingestResponse2 = await ingestEvent({ ...createEvent(), uuid: new UUIDT().toString() })
-        expect(ingestResponse2).toEqual({ success: true, actionMatches: [] })
+        const ingestResponse3 = await ingestEvent({ ...createEvent(), uuid: undefined })
+        expect(ingestResponse3.error).toEqual('Not a valid UUID: "undefined"')
 
         await delay(2000)
         await piscina.destroy()
@@ -99,7 +101,7 @@ describe('worker', () => {
     `
         await resetTestDatabase(testCode)
         const piscina = setupPiscina(workerThreads, tasksPerWorker)
-        const processEvent = (event: PluginEvent) => piscina.run({ task: 'processEvent', args: { event } })
+        const processEvent = (event: PluginEvent) => piscina.run({ task: '_testsRunProcessEvent', args: { event } })
         const promises: Array<Promise<any>> = []
 
         // warmup 2x
@@ -124,122 +126,6 @@ describe('worker', () => {
         } catch {}
     })
 
-    describe('queue logic', () => {
-        let pluginsServer: ServerInstance
-        let redis: IORedis.Redis
-
-        beforeEach(async () => {
-            const testCode = `
-            async function processEvent (event) {
-                await new Promise(resolve => __jestSetTimeout(resolve, 1000))
-                return event
-            }
-        `
-            await resetTestDatabase(testCode)
-            pluginsServer = await startPluginsServer(
-                {
-                    WORKER_CONCURRENCY: 2,
-                    TASKS_PER_WORKER: 2,
-                    REDIS_POOL_MIN_SIZE: 3,
-                    REDIS_POOL_MAX_SIZE: 3,
-                    PLUGINS_CELERY_QUEUE: `test-plugins-celery-queue-${new UUIDT()}`,
-                    CELERY_DEFAULT_QUEUE: `test-celery-default-queue-${new UUIDT()}`,
-                    LOG_LEVEL: LogLevel.Debug,
-                },
-                makePiscina
-            )
-
-            redis = await pluginsServer.hub.redisPool.acquire()
-
-            await redis.del(pluginsServer.hub.PLUGINS_CELERY_QUEUE)
-            await redis.del(pluginsServer.hub.CELERY_DEFAULT_QUEUE)
-        })
-
-        afterEach(async () => {
-            // :TRICKY: Ignore errors when stopping workers.
-            try {
-                await pluginsServer.hub.redisPool.release(redis)
-                await pluginsServer.stop()
-            } catch {}
-        })
-
-        it('pauses the queue if too many tasks', async () => {
-            const args = Object.values({
-                distinct_id: 'my-id',
-                ip: '127.0.0.1',
-                site_url: 'http://localhost',
-                data: {
-                    event: '$pageview',
-                    properties: {},
-                },
-                team_id: 2,
-                now: new Date().toISOString(),
-                sent_at: new Date().toISOString(),
-                uuid: new UUIDT().toString(),
-            })
-
-            await delay(1000)
-            const baseCompleted = pluginsServer.piscina.completed
-
-            expect(pluginsServer.piscina.queueSize).toBe(0)
-
-            const client = new Client(pluginsServer.hub.db, pluginsServer.hub.PLUGINS_CELERY_QUEUE)
-
-            let tasksSentSoFar = 0
-
-            for (tasksSentSoFar; tasksSentSoFar < 2; tasksSentSoFar++) {
-                client.sendTask('posthog.tasks.process_event.process_event_with_plugins', args, {})
-            }
-
-            await delay(100)
-
-            expect(pluginsServer.piscina.queueSize).toBe(0)
-            expect(pluginsServer.piscina.completed).toBe(baseCompleted)
-            expect(pluginsServer.queue.isPaused()).toBe(false)
-
-            await delay(5000)
-
-            expect(pluginsServer.piscina.queueSize).toBe(0)
-            // tasksSentSoFar * (processEvent + onEvent + ingestEvent)
-            expect(pluginsServer.piscina.completed).toBe(baseCompleted + tasksSentSoFar * 3)
-            expect(pluginsServer.queue.isPaused()).toBe(false)
-
-            // 2 tasks * 2 threads = 4 active
-            // 2 threads * 2 threads = 4 queue excess
-            for (tasksSentSoFar; tasksSentSoFar < 52; tasksSentSoFar++) {
-                client.sendTask('posthog.tasks.process_event.process_event_with_plugins', args, {})
-            }
-
-            let celerySize = 50,
-                pausedTimes = 0
-            const startTime = pluginsServer.piscina.duration
-            while (celerySize > 0 || pluginsServer.piscina.queueSize > 0) {
-                await delay(50)
-                celerySize = await redis.llen(pluginsServer.hub.PLUGINS_CELERY_QUEUE)
-
-                if (pluginsServer.queue.isPaused()) {
-                    pausedTimes++
-                    expect(pluginsServer.piscina.queueSize).toBeGreaterThan(0)
-                }
-            }
-
-            await delay(3000)
-
-            expect(pausedTimes).toBeGreaterThanOrEqual(10)
-            expect(pluginsServer.queue.isPaused()).toBe(false)
-            expect(pluginsServer.piscina.queueSize).toBe(0)
-
-            // tasksSentSoFar x (processEvent + onEvent + ingestEvent)
-            expect(pluginsServer.piscina.completed).toEqual(baseCompleted + tasksSentSoFar * 3)
-
-            const duration = pluginsServer.piscina.duration - startTime
-            const expectedTimeMs = (50 / 4) * 1000
-
-            expect(duration).toBeGreaterThanOrEqual(expectedTimeMs)
-            expect(duration).toBeLessThanOrEqual(expectedTimeMs * 1.4)
-        })
-    })
-
     describe('createTaskRunner()', () => {
         let taskRunner: any
         let hub: Hub
@@ -253,34 +139,47 @@ describe('worker', () => {
             await closeHub()
         })
 
-        it('handles `processEvent` task', async () => {
-            mocked(runProcessEvent).mockReturnValue('runProcessEvent response' as any)
-
-            expect(await taskRunner({ task: 'processEvent', args: { event: 'someEvent' } })).toEqual(
-                'runProcessEvent response'
-            )
-
-            expect(runProcessEvent).toHaveBeenCalledWith(hub, 'someEvent')
-        })
-
         it('handles `getPluginSchedule` task', async () => {
             hub.pluginSchedule = { runEveryDay: [66] }
 
             expect(await taskRunner({ task: 'getPluginSchedule' })).toEqual(hub.pluginSchedule)
         })
 
-        it('handles `ingestEvent` task', async () => {
-            mocked(ingestEvent).mockReturnValue('ingestEvent response' as any)
+        it('handles `runEventPipeline` tasks', async () => {
+            const spy = jest
+                .spyOn(EventPipelineRunner.prototype, 'runEventPipeline')
+                .mockResolvedValue('runEventPipeline result' as any)
+            const event = createEvent()
 
-            expect(await taskRunner({ task: 'ingestEvent', args: { event: 'someEvent' } })).toEqual(
-                'ingestEvent response'
+            expect(await taskRunner({ task: 'runEventPipeline', args: { event } })).toEqual('runEventPipeline result')
+
+            expect(spy).toHaveBeenCalledWith(event)
+        })
+
+        it('handles `runBufferEventPipeline` tasks', async () => {
+            const spy = jest
+                .spyOn(EventPipelineRunner.prototype, 'runBufferEventPipeline')
+                .mockResolvedValue('runBufferEventPipeline result' as any)
+            const event: PreIngestionEvent = {
+                eventUuid: 'uuid1',
+                distinctId: 'my_id',
+                ip: '127.0.0.1',
+                teamId: 2,
+                timestamp: '2020-02-23T02:15:00Z',
+                event: '$pageview',
+                properties: {},
+                elementsList: [],
+            }
+
+            expect(await taskRunner({ task: 'runBufferEventPipeline', args: { event } })).toEqual(
+                'runBufferEventPipeline result'
             )
 
-            expect(ingestEvent).toHaveBeenCalledWith(hub, 'someEvent')
+            expect(spy).toHaveBeenCalledWith(event)
         })
 
         it('handles `runEvery` tasks', async () => {
-            mocked(runPluginTask).mockImplementation((server, task, taskType, pluginId) =>
+            jest.mocked(runPluginTask).mockImplementation((server, task, taskType, pluginId) =>
                 Promise.resolve(`${task} for ${pluginId}`)
             )
 

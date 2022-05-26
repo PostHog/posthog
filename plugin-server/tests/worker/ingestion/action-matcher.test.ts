@@ -1,4 +1,3 @@
-import { PluginEvent } from '@posthog/plugin-scaffold/src/types'
 import { DateTime } from 'luxon'
 
 import {
@@ -8,6 +7,7 @@ import {
     Element,
     Hub,
     Person,
+    PreIngestionEvent,
     PropertyOperator,
     RawAction,
 } from '../../../src/types'
@@ -75,16 +75,17 @@ describe('ActionMatcher', () => {
     }
 
     /** Return a test event created on a common base using provided property overrides. */
-    function createTestEvent(overrides: Partial<PluginEvent> = {}): PluginEvent {
+    function createTestEvent(overrides: Partial<PreIngestionEvent> = {}): PreIngestionEvent {
         const url: string = overrides.properties?.$current_url ?? 'http://example.com/foo/'
         return {
-            distinct_id: 'my_id',
+            eventUuid: 'uuid1',
+            distinctId: 'my_id',
             ip: '127.0.0.1',
-            site_url: url,
-            team_id: 2,
-            now: new Date().toISOString(),
+            teamId: 2,
+            timestamp: new Date().toISOString(),
             event: '$pageview',
             properties: { $current_url: url },
+            elementsList: [],
             ...overrides,
         }
     }
@@ -110,7 +111,7 @@ describe('ActionMatcher', () => {
         it('returns no match if action has no steps', async () => {
             await createTestAction([])
 
-            const event: PluginEvent = createTestEvent()
+            const event = createTestEvent()
 
             expect(await actionMatcher.match(event)).toEqual([])
         })
@@ -127,17 +128,17 @@ describe('ActionMatcher', () => {
                 },
             ])
 
-            const eventFooBar: PluginEvent = createTestEvent({ properties: { foo: 'bar' } })
-            const eventFooBarPolPot: PluginEvent = createTestEvent({ properties: { foo: 'bar', pol: 'pot' } })
-            const eventFooBaR: PluginEvent = createTestEvent({ properties: { foo: 'baR' } })
-            const eventFooBaz: PluginEvent = createTestEvent({ properties: { foo: 'baz' } })
-            const eventFooBarabara: PluginEvent = createTestEvent({ properties: { foo: 'barabara' } })
-            const eventFooRabarbar: PluginEvent = createTestEvent({ properties: { foo: 'rabarbar' } })
-            const eventFooNumber: PluginEvent = createTestEvent({ properties: { foo: 7 } })
-            const eventNoNothing: PluginEvent = createTestEvent()
-            const eventFigNumber: PluginEvent = createTestEvent({ properties: { fig: 999 } })
-            const eventFooTrue: PluginEvent = createTestEvent({ properties: { foo: true } })
-            const eventFooNull: PluginEvent = createTestEvent({ properties: { foo: null } })
+            const eventFooBar = createTestEvent({ properties: { foo: 'bar' } })
+            const eventFooBarPolPot = createTestEvent({ properties: { foo: 'bar', pol: 'pot' } })
+            const eventFooBaR = createTestEvent({ properties: { foo: 'baR' } })
+            const eventFooBaz = createTestEvent({ properties: { foo: 'baz' } })
+            const eventFooBarabara = createTestEvent({ properties: { foo: 'barabara' } })
+            const eventFooRabarbar = createTestEvent({ properties: { foo: 'rabarbar' } })
+            const eventFooNumber = createTestEvent({ properties: { foo: 7 } })
+            const eventNoNothing = createTestEvent()
+            const eventFigNumber = createTestEvent({ properties: { fig: 999 } })
+            const eventFooTrue = createTestEvent({ properties: { foo: true } })
+            const eventFooNull = createTestEvent({ properties: { foo: null } })
 
             expect(await actionMatcher.match(eventFooBar)).toEqual([
                 actionDefinitionOpExact,
@@ -165,17 +166,17 @@ describe('ActionMatcher', () => {
                 },
             ])
 
-            const eventFooBar: PluginEvent = createTestEvent({ properties: { foo: 'bar' } })
-            const eventFooBarPolPot: PluginEvent = createTestEvent({ properties: { foo: 'bar', pol: 'pot' } })
-            const eventFooBaR: PluginEvent = createTestEvent({ properties: { foo: 'baR' } })
-            const eventFooBaz: PluginEvent = createTestEvent({ properties: { foo: 'baz' } })
-            const eventFooBarabara: PluginEvent = createTestEvent({ properties: { foo: 'barabara' } })
-            const eventFooRabarbar: PluginEvent = createTestEvent({ properties: { foo: 'rabarbar' } })
-            const eventFooNumber: PluginEvent = createTestEvent({ properties: { foo: 7 } })
-            const eventNoNothing: PluginEvent = createTestEvent()
-            const eventFigNumber: PluginEvent = createTestEvent({ properties: { fig: 999 } })
-            const eventFooTrue: PluginEvent = createTestEvent({ properties: { foo: true } })
-            const eventFooNull: PluginEvent = createTestEvent({ properties: { foo: null } })
+            const eventFooBar = createTestEvent({ properties: { foo: 'bar' } })
+            const eventFooBarPolPot = createTestEvent({ properties: { foo: 'bar', pol: 'pot' } })
+            const eventFooBaR = createTestEvent({ properties: { foo: 'baR' } })
+            const eventFooBaz = createTestEvent({ properties: { foo: 'baz' } })
+            const eventFooBarabara = createTestEvent({ properties: { foo: 'barabara' } })
+            const eventFooRabarbar = createTestEvent({ properties: { foo: 'rabarbar' } })
+            const eventFooNumber = createTestEvent({ properties: { foo: 7 } })
+            const eventNoNothing = createTestEvent()
+            const eventFigNumber = createTestEvent({ properties: { fig: 999 } })
+            const eventFooTrue = createTestEvent({ properties: { foo: true } })
+            const eventFooNull = createTestEvent({ properties: { foo: null } })
 
             expect(await actionMatcher.match(eventFooBar)).toEqual([])
             expect(await actionMatcher.match(eventFooBarPolPot)).toEqual([])
@@ -199,17 +200,17 @@ describe('ActionMatcher', () => {
                 },
             ])
 
-            const eventFooBar: PluginEvent = createTestEvent({ properties: { foo: 'bar' } })
-            const eventFooBarPolPot: PluginEvent = createTestEvent({ properties: { foo: 'bar', pol: 'pot' } })
-            const eventFooBaR: PluginEvent = createTestEvent({ properties: { foo: 'baR' } })
-            const eventFooBaz: PluginEvent = createTestEvent({ properties: { foo: 'baz' } })
-            const eventFooBarabara: PluginEvent = createTestEvent({ properties: { foo: 'barabara' } })
-            const eventFooRabarbar: PluginEvent = createTestEvent({ properties: { foo: 'rabarbar' } })
-            const eventFooNumber: PluginEvent = createTestEvent({ properties: { foo: 7 } })
-            const eventNoNothing: PluginEvent = createTestEvent()
-            const eventFigNumber: PluginEvent = createTestEvent({ properties: { fig: 999 } })
-            const eventFooTrue: PluginEvent = createTestEvent({ properties: { foo: true } })
-            const eventFooNull: PluginEvent = createTestEvent({ properties: { foo: null } })
+            const eventFooBar = createTestEvent({ properties: { foo: 'bar' } })
+            const eventFooBarPolPot = createTestEvent({ properties: { foo: 'bar', pol: 'pot' } })
+            const eventFooBaR = createTestEvent({ properties: { foo: 'baR' } })
+            const eventFooBaz = createTestEvent({ properties: { foo: 'baz' } })
+            const eventFooBarabara = createTestEvent({ properties: { foo: 'barabara' } })
+            const eventFooRabarbar = createTestEvent({ properties: { foo: 'rabarbar' } })
+            const eventFooNumber = createTestEvent({ properties: { foo: 7 } })
+            const eventNoNothing = createTestEvent()
+            const eventFigNumber = createTestEvent({ properties: { fig: 999 } })
+            const eventFooTrue = createTestEvent({ properties: { foo: true } })
+            const eventFooNull = createTestEvent({ properties: { foo: null } })
 
             expect(await actionMatcher.match(eventFooBar)).toEqual([actionDefinitionOpContains])
             expect(await actionMatcher.match(eventFooBarPolPot)).toEqual([actionDefinitionOpContains])
@@ -233,17 +234,17 @@ describe('ActionMatcher', () => {
                 },
             ])
 
-            const eventFooBar: PluginEvent = createTestEvent({ properties: { foo: 'bar' } })
-            const eventFooBarPolPot: PluginEvent = createTestEvent({ properties: { foo: 'bar', pol: 'pot' } })
-            const eventFooBaR: PluginEvent = createTestEvent({ properties: { foo: 'baR' } })
-            const eventFooBaz: PluginEvent = createTestEvent({ properties: { foo: 'baz' } })
-            const eventFooBarabara: PluginEvent = createTestEvent({ properties: { foo: 'barabara' } })
-            const eventFooRabarbar: PluginEvent = createTestEvent({ properties: { foo: 'rabarbar' } })
-            const eventFooNumber: PluginEvent = createTestEvent({ properties: { foo: 7 } })
-            const eventNoNothing: PluginEvent = createTestEvent()
-            const eventFigNumber: PluginEvent = createTestEvent({ properties: { fig: 999 } })
-            const eventFooTrue: PluginEvent = createTestEvent({ properties: { foo: true } })
-            const eventFooNull: PluginEvent = createTestEvent({ properties: { foo: null } })
+            const eventFooBar = createTestEvent({ properties: { foo: 'bar' } })
+            const eventFooBarPolPot = createTestEvent({ properties: { foo: 'bar', pol: 'pot' } })
+            const eventFooBaR = createTestEvent({ properties: { foo: 'baR' } })
+            const eventFooBaz = createTestEvent({ properties: { foo: 'baz' } })
+            const eventFooBarabara = createTestEvent({ properties: { foo: 'barabara' } })
+            const eventFooRabarbar = createTestEvent({ properties: { foo: 'rabarbar' } })
+            const eventFooNumber = createTestEvent({ properties: { foo: 7 } })
+            const eventNoNothing = createTestEvent()
+            const eventFigNumber = createTestEvent({ properties: { fig: 999 } })
+            const eventFooTrue = createTestEvent({ properties: { foo: true } })
+            const eventFooNull = createTestEvent({ properties: { foo: null } })
 
             expect(await actionMatcher.match(eventFooBar)).toEqual([])
             expect(await actionMatcher.match(eventFooBarPolPot)).toEqual([])
@@ -272,17 +273,17 @@ describe('ActionMatcher', () => {
                 },
             ])
 
-            const eventFooBar: PluginEvent = createTestEvent({ properties: { foo: 'bar' } })
-            const eventFooBarPolPot: PluginEvent = createTestEvent({ properties: { foo: 'bar', pol: 'pot' } })
-            const eventFooBaR: PluginEvent = createTestEvent({ properties: { foo: 'baR' } })
-            const eventFooBaz: PluginEvent = createTestEvent({ properties: { foo: 'baz' } })
-            const eventFooBarabara: PluginEvent = createTestEvent({ properties: { foo: 'barabara' } })
-            const eventFooRabarbar: PluginEvent = createTestEvent({ properties: { foo: 'rabarbar' } })
-            const eventFooNumber: PluginEvent = createTestEvent({ properties: { foo: 7 } })
-            const eventNoNothing: PluginEvent = createTestEvent()
-            const eventFigNumber: PluginEvent = createTestEvent({ properties: { fig: 999 } })
-            const eventFooTrue: PluginEvent = createTestEvent({ properties: { foo: true } })
-            const eventFooNull: PluginEvent = createTestEvent({ properties: { foo: null } })
+            const eventFooBar = createTestEvent({ properties: { foo: 'bar' } })
+            const eventFooBarPolPot = createTestEvent({ properties: { foo: 'bar', pol: 'pot' } })
+            const eventFooBaR = createTestEvent({ properties: { foo: 'baR' } })
+            const eventFooBaz = createTestEvent({ properties: { foo: 'baz' } })
+            const eventFooBarabara = createTestEvent({ properties: { foo: 'barabara' } })
+            const eventFooRabarbar = createTestEvent({ properties: { foo: 'rabarbar' } })
+            const eventFooNumber = createTestEvent({ properties: { foo: 7 } })
+            const eventNoNothing = createTestEvent()
+            const eventFigNumber = createTestEvent({ properties: { fig: 999 } })
+            const eventFooTrue = createTestEvent({ properties: { foo: true } })
+            const eventFooNull = createTestEvent({ properties: { foo: null } })
 
             expect(await actionMatcher.match(eventFooBar)).toEqual([actionDefinitionOpRegex1])
             expect(await actionMatcher.match(eventFooBarPolPot)).toEqual([actionDefinitionOpRegex1])
@@ -321,17 +322,17 @@ describe('ActionMatcher', () => {
                 },
             ])
 
-            const eventFooBar: PluginEvent = createTestEvent({ properties: { foo: 'bar' } })
-            const eventFooBarPolPot: PluginEvent = createTestEvent({ properties: { foo: 'bar', pol: 'pot' } })
-            const eventFooBaR: PluginEvent = createTestEvent({ properties: { foo: 'baR' } })
-            const eventFooBaz: PluginEvent = createTestEvent({ properties: { foo: 'baz' } })
-            const eventFooBarabara: PluginEvent = createTestEvent({ properties: { foo: 'barabara' } })
-            const eventFooRabarbar: PluginEvent = createTestEvent({ properties: { foo: 'rabarbar' } })
-            const eventFooNumber: PluginEvent = createTestEvent({ properties: { foo: 7 } })
-            const eventNoNothing: PluginEvent = createTestEvent()
-            const eventFigNumber: PluginEvent = createTestEvent({ properties: { fig: 999 } })
-            const eventFooTrue: PluginEvent = createTestEvent({ properties: { foo: true } })
-            const eventFooNull: PluginEvent = createTestEvent({ properties: { foo: null } })
+            const eventFooBar = createTestEvent({ properties: { foo: 'bar' } })
+            const eventFooBarPolPot = createTestEvent({ properties: { foo: 'bar', pol: 'pot' } })
+            const eventFooBaR = createTestEvent({ properties: { foo: 'baR' } })
+            const eventFooBaz = createTestEvent({ properties: { foo: 'baz' } })
+            const eventFooBarabara = createTestEvent({ properties: { foo: 'barabara' } })
+            const eventFooRabarbar = createTestEvent({ properties: { foo: 'rabarbar' } })
+            const eventFooNumber = createTestEvent({ properties: { foo: 7 } })
+            const eventNoNothing = createTestEvent()
+            const eventFigNumber = createTestEvent({ properties: { fig: 999 } })
+            const eventFooTrue = createTestEvent({ properties: { foo: true } })
+            const eventFooNull = createTestEvent({ properties: { foo: null } })
 
             expect(await actionMatcher.match(eventFooBar)).toEqual([actionDefinitionOpNotRegex2])
             expect(await actionMatcher.match(eventFooBarPolPot)).toEqual([actionDefinitionOpNotRegex2])
@@ -371,17 +372,17 @@ describe('ActionMatcher', () => {
                 },
             ])
 
-            const eventFooBar: PluginEvent = createTestEvent({ properties: { foo: 'bar' } })
-            const eventFooBarPolPot: PluginEvent = createTestEvent({ properties: { foo: 'bar', pol: 'pot' } })
-            const eventFooBaR: PluginEvent = createTestEvent({ properties: { foo: 'baR' } })
-            const eventFooBaz: PluginEvent = createTestEvent({ properties: { foo: 'baz' } })
-            const eventFooBarabara: PluginEvent = createTestEvent({ properties: { foo: 'barabara' } })
-            const eventFooRabarbar: PluginEvent = createTestEvent({ properties: { foo: 'rabarbar' } })
-            const eventFooNumber: PluginEvent = createTestEvent({ properties: { foo: 7 } })
-            const eventNoNothing: PluginEvent = createTestEvent()
-            const eventFigNumber: PluginEvent = createTestEvent({ properties: { fig: 999 } })
-            const eventFooTrue: PluginEvent = createTestEvent({ properties: { foo: true } })
-            const eventFooNull: PluginEvent = createTestEvent({ properties: { foo: null } })
+            const eventFooBar = createTestEvent({ properties: { foo: 'bar' } })
+            const eventFooBarPolPot = createTestEvent({ properties: { foo: 'bar', pol: 'pot' } })
+            const eventFooBaR = createTestEvent({ properties: { foo: 'baR' } })
+            const eventFooBaz = createTestEvent({ properties: { foo: 'baz' } })
+            const eventFooBarabara = createTestEvent({ properties: { foo: 'barabara' } })
+            const eventFooRabarbar = createTestEvent({ properties: { foo: 'rabarbar' } })
+            const eventFooNumber = createTestEvent({ properties: { foo: 7 } })
+            const eventNoNothing = createTestEvent()
+            const eventFigNumber = createTestEvent({ properties: { fig: 999 } })
+            const eventFooTrue = createTestEvent({ properties: { foo: true } })
+            const eventFooNull = createTestEvent({ properties: { foo: null } })
 
             expect(await actionMatcher.match(eventFooBar)).toEqual([actionDefinitionOpIsSet])
             expect(await actionMatcher.match(eventFooBarPolPot)).toEqual([actionDefinitionOpIsSet])
@@ -403,17 +404,17 @@ describe('ActionMatcher', () => {
                 },
             ])
 
-            const eventFooBar: PluginEvent = createTestEvent({ properties: { foo: 'bar' } })
-            const eventFooBarPolPot: PluginEvent = createTestEvent({ properties: { foo: 'bar', pol: 'pot' } })
-            const eventFooBaR: PluginEvent = createTestEvent({ properties: { foo: 'baR' } })
-            const eventFooBaz: PluginEvent = createTestEvent({ properties: { foo: 'baz' } })
-            const eventFooBarabara: PluginEvent = createTestEvent({ properties: { foo: 'barabara' } })
-            const eventFooRabarbar: PluginEvent = createTestEvent({ properties: { foo: 'rabarbar' } })
-            const eventFooNumber: PluginEvent = createTestEvent({ properties: { foo: 7 } })
-            const eventNoNothing: PluginEvent = createTestEvent()
-            const eventFigNumber: PluginEvent = createTestEvent({ properties: { fig: 999 } })
-            const eventFooTrue: PluginEvent = createTestEvent({ properties: { foo: true } })
-            const eventFooNull: PluginEvent = createTestEvent({ properties: { foo: null } })
+            const eventFooBar = createTestEvent({ properties: { foo: 'bar' } })
+            const eventFooBarPolPot = createTestEvent({ properties: { foo: 'bar', pol: 'pot' } })
+            const eventFooBaR = createTestEvent({ properties: { foo: 'baR' } })
+            const eventFooBaz = createTestEvent({ properties: { foo: 'baz' } })
+            const eventFooBarabara = createTestEvent({ properties: { foo: 'barabara' } })
+            const eventFooRabarbar = createTestEvent({ properties: { foo: 'rabarbar' } })
+            const eventFooNumber = createTestEvent({ properties: { foo: 7 } })
+            const eventNoNothing = createTestEvent()
+            const eventFigNumber = createTestEvent({ properties: { fig: 999 } })
+            const eventFooTrue = createTestEvent({ properties: { foo: true } })
+            const eventFooNull = createTestEvent({ properties: { foo: null } })
 
             expect(await actionMatcher.match(eventFooBar)).toEqual([])
             expect(await actionMatcher.match(eventFooBarPolPot)).toEqual([])
@@ -435,19 +436,19 @@ describe('ActionMatcher', () => {
                 },
             ])
 
-            const eventFooBar: PluginEvent = createTestEvent({ properties: { foo: 'bar' } })
-            const eventFooBarPolPot: PluginEvent = createTestEvent({ properties: { foo: 'bar', pol: 'pot' } })
-            const eventFooBaR: PluginEvent = createTestEvent({ properties: { foo: 'baR' } })
-            const eventFooBaz: PluginEvent = createTestEvent({ properties: { foo: 'baz' } })
-            const eventFooBarabara: PluginEvent = createTestEvent({ properties: { foo: 'barabara' } })
-            const eventFooRabarbar: PluginEvent = createTestEvent({ properties: { foo: 'rabarbar' } })
-            const eventFooNumberMinusOne: PluginEvent = createTestEvent({ properties: { foo: -1 } })
-            const eventFooNumberFive: PluginEvent = createTestEvent({ properties: { foo: 5 } })
-            const eventFooNumberSevenNines: PluginEvent = createTestEvent({ properties: { foo: 9999999 } })
-            const eventNoNothing: PluginEvent = createTestEvent()
-            const eventFigNumber: PluginEvent = createTestEvent({ properties: { fig: 999 } })
-            const eventFooTrue: PluginEvent = createTestEvent({ properties: { foo: true } })
-            const eventFooNull: PluginEvent = createTestEvent({ properties: { foo: null } })
+            const eventFooBar = createTestEvent({ properties: { foo: 'bar' } })
+            const eventFooBarPolPot = createTestEvent({ properties: { foo: 'bar', pol: 'pot' } })
+            const eventFooBaR = createTestEvent({ properties: { foo: 'baR' } })
+            const eventFooBaz = createTestEvent({ properties: { foo: 'baz' } })
+            const eventFooBarabara = createTestEvent({ properties: { foo: 'barabara' } })
+            const eventFooRabarbar = createTestEvent({ properties: { foo: 'rabarbar' } })
+            const eventFooNumberMinusOne = createTestEvent({ properties: { foo: -1 } })
+            const eventFooNumberFive = createTestEvent({ properties: { foo: 5 } })
+            const eventFooNumberSevenNines = createTestEvent({ properties: { foo: 9999999 } })
+            const eventNoNothing = createTestEvent()
+            const eventFigNumber = createTestEvent({ properties: { fig: 999 } })
+            const eventFooTrue = createTestEvent({ properties: { foo: true } })
+            const eventFooNull = createTestEvent({ properties: { foo: null } })
 
             expect(await actionMatcher.match(eventFooBar)).toEqual([])
             expect(await actionMatcher.match(eventFooBarPolPot)).toEqual([])
@@ -471,19 +472,19 @@ describe('ActionMatcher', () => {
                 },
             ])
 
-            const eventFooBar: PluginEvent = createTestEvent({ properties: { foo: 'bar' } })
-            const eventFooBarPolPot: PluginEvent = createTestEvent({ properties: { foo: 'bar', pol: 'pot' } })
-            const eventFooBaR: PluginEvent = createTestEvent({ properties: { foo: 'baR' } })
-            const eventFooBaz: PluginEvent = createTestEvent({ properties: { foo: 'baz' } })
-            const eventFooBarabara: PluginEvent = createTestEvent({ properties: { foo: 'barabara' } })
-            const eventFooRabarbar: PluginEvent = createTestEvent({ properties: { foo: 'rabarbar' } })
-            const eventFooNumberMinusOne: PluginEvent = createTestEvent({ properties: { foo: -1 } })
-            const eventFooNumberFive: PluginEvent = createTestEvent({ properties: { foo: 5 } })
-            const eventFooNumberSevenNines: PluginEvent = createTestEvent({ properties: { foo: 9999999 } })
-            const eventNoNothing: PluginEvent = createTestEvent()
-            const eventFigNumber: PluginEvent = createTestEvent({ properties: { fig: 999 } })
-            const eventFooTrue: PluginEvent = createTestEvent({ properties: { foo: true } })
-            const eventFooNull: PluginEvent = createTestEvent({ properties: { foo: null } })
+            const eventFooBar = createTestEvent({ properties: { foo: 'bar' } })
+            const eventFooBarPolPot = createTestEvent({ properties: { foo: 'bar', pol: 'pot' } })
+            const eventFooBaR = createTestEvent({ properties: { foo: 'baR' } })
+            const eventFooBaz = createTestEvent({ properties: { foo: 'baz' } })
+            const eventFooBarabara = createTestEvent({ properties: { foo: 'barabara' } })
+            const eventFooRabarbar = createTestEvent({ properties: { foo: 'rabarbar' } })
+            const eventFooNumberMinusOne = createTestEvent({ properties: { foo: -1 } })
+            const eventFooNumberFive = createTestEvent({ properties: { foo: 5 } })
+            const eventFooNumberSevenNines = createTestEvent({ properties: { foo: 9999999 } })
+            const eventNoNothing = createTestEvent()
+            const eventFigNumber = createTestEvent({ properties: { fig: 999 } })
+            const eventFooTrue = createTestEvent({ properties: { foo: true } })
+            const eventFooNull = createTestEvent({ properties: { foo: null } })
 
             expect(await actionMatcher.match(eventFooBar)).toEqual([])
             expect(await actionMatcher.match(eventFooBarPolPot)).toEqual([])
@@ -516,10 +517,10 @@ describe('ActionMatcher', () => {
                 },
             ])
 
-            const eventPosthog: PluginEvent = createTestEvent({
+            const eventPosthog = createTestEvent({
                 properties: { $current_url: 'http://posthog.com/pricing' },
             })
-            const eventExample: PluginEvent = createTestEvent({
+            const eventExample = createTestEvent({
                 properties: { $current_url: 'https://example.com/' },
             })
 
@@ -543,10 +544,10 @@ describe('ActionMatcher', () => {
                 },
             ])
 
-            const eventExample: PluginEvent = createTestEvent({
+            const eventExample = createTestEvent({
                 properties: { $current_url: 'https://example.com/' },
             })
-            const eventExampleHtml: PluginEvent = createTestEvent({
+            const eventExampleHtml = createTestEvent({
                 properties: { $current_url: 'https://example.com/index.html' },
             })
 
@@ -566,22 +567,22 @@ describe('ActionMatcher', () => {
                 },
             ])
 
-            const eventExampleOk1: PluginEvent = createTestEvent({
+            const eventExampleOk1 = createTestEvent({
                 properties: { $current_url: 'https://example.com/23/hello' },
             })
-            const eventExampleOk2: PluginEvent = createTestEvent({
+            const eventExampleOk2 = createTestEvent({
                 properties: { $current_url: 'https://example.com/3/abc/' },
             })
-            const eventExampleBad1: PluginEvent = createTestEvent({
+            const eventExampleBad1 = createTestEvent({
                 properties: { $current_url: 'https://example.com/3/xyz/' },
             })
-            const eventExampleBad2: PluginEvent = createTestEvent({
+            const eventExampleBad2 = createTestEvent({
                 properties: { $current_url: 'https://example.com/' },
             })
-            const eventExampleBad3: PluginEvent = createTestEvent({
+            const eventExampleBad3 = createTestEvent({
                 properties: { $current_url: 'https://example.com/uno/dos/' },
             })
-            const eventExampleBad4: PluginEvent = createTestEvent({
+            const eventExampleBad4 = createTestEvent({
                 properties: { $current_url: 'https://example.com/1foo/' },
             })
 
@@ -602,13 +603,13 @@ describe('ActionMatcher', () => {
                 },
             ])
 
-            const eventExampleOk: PluginEvent = createTestEvent({
+            const eventExampleOk = createTestEvent({
                 properties: { $current_url: 'https://www.mozilla.org/de/' },
             })
-            const eventExampleBad1: PluginEvent = createTestEvent({
+            const eventExampleBad1 = createTestEvent({
                 properties: { $current_url: 'https://www.mozilla.org/de' },
             })
-            const eventExampleBad2: PluginEvent = createTestEvent({
+            const eventExampleBad2 = createTestEvent({
                 properties: { $current_url: 'https://www.mozilla.org/de/firefox/' },
             })
 
@@ -624,13 +625,13 @@ describe('ActionMatcher', () => {
                 },
             ])
 
-            const eventExampleOk: PluginEvent = createTestEvent({
+            const eventExampleOk = createTestEvent({
                 event: 'meow',
             })
-            const eventExampleBad1: PluginEvent = createTestEvent({
+            const eventExampleBad1 = createTestEvent({
                 event: '$meow',
             })
-            const eventExampleBad2: PluginEvent = createTestEvent({
+            const eventExampleBad2 = createTestEvent({
                 event: 'WOOF',
             })
 
@@ -648,23 +649,23 @@ describe('ActionMatcher', () => {
                 },
             ])
 
-            const eventExampleOk1: PluginEvent = createTestEvent({
+            const eventExampleOk1 = createTestEvent({
                 event: 'meow',
                 properties: { $current_url: 'http://www.pets.com/' },
             })
-            const eventExampleOk2: PluginEvent = createTestEvent({
+            const eventExampleOk2 = createTestEvent({
                 event: 'meow',
                 properties: { $current_url: 'https://pets.com/food' },
             })
-            const eventExampleBad1: PluginEvent = createTestEvent({
+            const eventExampleBad1 = createTestEvent({
                 event: '$meow',
                 properties: { $current_url: 'https://xyz.pets.com/' },
             })
-            const eventExampleBad2: PluginEvent = createTestEvent({
+            const eventExampleBad2 = createTestEvent({
                 event: 'meow',
                 properties: { $current_url: 'https://www.pets.com.de/' },
             })
-            const eventExampleBad3: PluginEvent = createTestEvent({
+            const eventExampleBad3 = createTestEvent({
                 event: 'meow',
                 properties: { $current_url: 'https://www.pets.co' },
             })
@@ -753,35 +754,35 @@ describe('ActionMatcher', () => {
             )
             await hub.db.addPersonToCohort(testCohort.id, cohortPerson.id, testCohort.version)
 
-            const eventExamplePersonBad: PluginEvent = createTestEvent({
+            const eventExamplePersonBad = createTestEvent({
                 event: 'meow',
-                distinct_id: 'random',
+                distinctId: 'random',
             })
-            const eventExamplePersonOk: PluginEvent = createTestEvent({
+            const eventExamplePersonOk = createTestEvent({
                 event: 'meow',
-                distinct_id: 'cohort',
+                distinctId: 'cohort',
             })
-            const eventExamplePersonUnknown: PluginEvent = createTestEvent({
+            const eventExamplePersonUnknown = createTestEvent({
                 event: 'meow',
-                distinct_id: 'unknown',
+                distinctId: 'unknown',
             })
 
             expect(
                 await actionMatcher.match(
                     eventExamplePersonOk,
-                    await hub.db.fetchPerson(actionDefinition.team_id, eventExamplePersonOk.distinct_id)
+                    await hub.db.fetchPerson(actionDefinition.team_id, eventExamplePersonOk.distinctId)
                 )
             ).toEqual([actionDefinition, actionDefinitionAllUsers])
             expect(
                 await actionMatcher.match(
                     eventExamplePersonBad,
-                    await hub.db.fetchPerson(actionDefinition.team_id, eventExamplePersonBad.distinct_id)
+                    await hub.db.fetchPerson(actionDefinition.team_id, eventExamplePersonBad.distinctId)
                 )
             ).toEqual([actionDefinitionAllUsers])
             expect(
                 await actionMatcher.match(
                     eventExamplePersonUnknown,
-                    await hub.db.fetchPerson(actionDefinition.team_id, eventExamplePersonUnknown.distinct_id)
+                    await hub.db.fetchPerson(actionDefinition.team_id, eventExamplePersonUnknown.distinctId)
                 )
             ).toEqual([actionDefinitionAllUsers])
         })
@@ -802,9 +803,9 @@ describe('ActionMatcher', () => {
                 },
             ])
 
-            const eventExamplePersonOk: PluginEvent = createTestEvent({
+            const eventExamplePersonOk = createTestEvent({
                 event: 'trigger a webhook',
-                distinct_id: 'static_cohort_person',
+                distinctId: 'static_cohort_person',
             })
 
             await hub.db.createPerson(
@@ -816,7 +817,7 @@ describe('ActionMatcher', () => {
                 null,
                 true,
                 new UUIDT().toString(),
-                [eventExamplePersonOk.distinct_id]
+                [eventExamplePersonOk.distinctId]
             )
 
             hub.db.kafkaProducer = {} as KafkaProducerWrapper
@@ -834,14 +835,14 @@ describe('ActionMatcher', () => {
             expect(
                 await actionMatcher.match(
                     eventExamplePersonOk,
-                    await hub.db.fetchPerson(actionDefinition.team_id, eventExamplePersonOk.distinct_id)
+                    await hub.db.fetchPerson(actionDefinition.team_id, eventExamplePersonOk.distinctId)
                 )
             ).toEqual([actionDefinition])
 
             expect(
                 await actionMatcher.match(
                     eventExamplePersonOk,
-                    await hub.db.fetchPerson(actionDefinition.team_id, eventExamplePersonOk.distinct_id)
+                    await hub.db.fetchPerson(actionDefinition.team_id, eventExamplePersonOk.distinctId)
                 )
             ).toEqual([])
         })
@@ -987,7 +988,7 @@ describe('ActionMatcher', () => {
                 },
             ])
 
-            const eventExampleOk1: PluginEvent = createTestEvent({
+            const eventExampleOk1 = createTestEvent({
                 event: 'meow',
                 properties: {
                     insight: 'STICKINESS',

@@ -1,21 +1,23 @@
 import React, { CSSProperties, PropsWithChildren } from 'react'
 import api from './api'
 import {
-    EventType,
-    FilterType,
     ActionFilter,
-    IntervalType,
-    dateMappingOption,
-    GroupActorType,
-    ActorType,
     ActionType,
-    PropertyFilterValue,
-    PropertyType,
-    PropertyGroupFilter,
-    FilterLogicalOperator,
+    ActorType,
     AnyPropertyFilter,
-    PropertyFilter,
     CohortType,
+    dateMappingOption,
+    EventType,
+    FilterLogicalOperator,
+    FilterType,
+    GroupActorType,
+    IntervalType,
+    PropertyFilter,
+    PropertyFilterValue,
+    PropertyGroupFilter,
+    PropertyGroupFilterValue,
+    PropertyType,
+    TimeUnitType,
 } from '~/types'
 import equal from 'fast-deep-equal'
 import { tagColors } from 'lib/colors'
@@ -473,8 +475,8 @@ export function slugify(text: string): string {
 }
 
 /** Format number with space as the thousands separator. */
-export function humanFriendlyNumber(d: number): string {
-    return d.toLocaleString('en-US').replace(',', ' ') // Use space as thousands separator as it's more international
+export function humanFriendlyNumber(d: number, precision: number = 2): string {
+    return d.toLocaleString('en-US', { maximumFractionDigits: precision })
 }
 
 export function humanFriendlyDuration(d: string | number | null | undefined, maxUnits?: number): string {
@@ -1068,14 +1070,17 @@ export function endWithPunctation(text?: string | null): string {
     return trimmedText
 }
 
-export function shortTimeZone(timeZone?: string, atDate?: Date): string {
+export function shortTimeZone(timeZone?: string, atDate?: Date): string | null {
     /**
      * Return the short timezone identifier for a specific timezone (e.g. BST, EST, PDT, UTC+2).
      * @param timeZone E.g. 'America/New_York'
      * @param atDate
      */
+    if (!timeZone) {
+        return null
+    }
     const date = atDate ? new Date(atDate) : new Date()
-    const localeTimeString = date.toLocaleTimeString('en-us', { timeZoneName: 'short', timeZone })
+    const localeTimeString = date.toLocaleTimeString('en-us', { timeZoneName: 'short', timeZone }).replace('GMT', 'UTC')
     return localeTimeString.split(' ')[2]
 }
 
@@ -1097,15 +1102,6 @@ export function resolveWebhookService(webhookUrl: string): string {
         }
     }
     return 'your webhook service'
-}
-
-export function maybeAddCommasToInteger(value: any): any {
-    const isNumber = !isNaN(value)
-    if (!isNumber) {
-        return value
-    }
-    const internationalNumberFormat = new Intl.NumberFormat('en-US')
-    return internationalNumberFormat.format(value)
 }
 
 function hexToRGB(hex: string): { r: number; g: number; b: number } {
@@ -1188,13 +1184,17 @@ export function sum(input: number[]): number {
     return input.reduce((a, b) => a + b, 0)
 }
 
-export function validateJsonFormItem(_: any, value: string): Promise<string | void> {
+export function validateJson(value: string): boolean {
     try {
         JSON.parse(value)
-        return Promise.resolve()
+        return true
     } catch (error) {
-        return Promise.reject('Not valid JSON!')
+        return false
     }
+}
+
+export function validateJsonFormItem(_: any, value: string): Promise<string | void> {
+    return validateJson(value) ? Promise.resolve() : Promise.reject('Not valid JSON!')
 }
 
 export function ensureStringIsNotBlank(s?: string | null): string | null {
@@ -1248,44 +1248,17 @@ export function getEventNamesForAction(actionId: string | number, allActions: Ac
 }
 
 export function isPropertyGroup(
-    properties: PropertyGroupFilter | AnyPropertyFilter[] | undefined | AnyPropertyFilter
+    properties: PropertyGroupFilter | PropertyGroupFilterValue | AnyPropertyFilter[] | undefined | AnyPropertyFilter
 ): properties is PropertyGroupFilter {
-    if (properties) {
-        return (
-            (properties as PropertyGroupFilter).type !== undefined &&
-            (properties as PropertyGroupFilter).values !== undefined
-        )
-    }
-    return false
-}
-
-export function convertPropertiesToPropertyGroup(
-    properties: PropertyGroupFilter | AnyPropertyFilter[]
-): PropertyGroupFilter {
-    if (isPropertyGroup(properties)) {
-        return properties
-    }
-    if (properties.length > 0) {
-        return { type: FilterLogicalOperator.And, values: [{ type: FilterLogicalOperator.And, values: properties }] }
-    }
-    return { type: FilterLogicalOperator.And, values: [] }
-}
-
-export function convertPropertyGroupToProperties(
-    properties: PropertyGroupFilter | AnyPropertyFilter[] | undefined
-): PropertyFilter[] | undefined {
-    if (isPropertyGroup(properties)) {
-        return flattenPropertyGroup([], properties).filter(isValidPropertyFilter)
-    }
-    if (properties) {
-        return properties.filter(isValidPropertyFilter)
-    }
-    return properties
+    return (
+        (properties as PropertyGroupFilter)?.type !== undefined &&
+        (properties as PropertyGroupFilter)?.values !== undefined
+    )
 }
 
 export function flattenPropertyGroup(
     flattenedProperties: AnyPropertyFilter[],
-    propertyGroup: PropertyGroupFilter | AnyPropertyFilter
+    propertyGroup: PropertyGroupFilter | PropertyGroupFilterValue | AnyPropertyFilter
 ): AnyPropertyFilter[] {
     const obj: AnyPropertyFilter = {}
     Object.keys(propertyGroup).forEach(function (k) {
@@ -1300,4 +1273,57 @@ export function flattenPropertyGroup(
     return flattenedProperties
 }
 
+export function convertPropertiesToPropertyGroup(
+    properties: PropertyGroupFilter | AnyPropertyFilter[] | undefined
+): PropertyGroupFilter {
+    if (isPropertyGroup(properties)) {
+        return properties
+    }
+    if (properties && properties.length > 0) {
+        return { type: FilterLogicalOperator.And, values: [{ type: FilterLogicalOperator.And, values: properties }] }
+    }
+    return { type: FilterLogicalOperator.And, values: [] }
+}
+
+export function convertPropertyGroupToProperties(
+    properties?: PropertyGroupFilter | AnyPropertyFilter[]
+): PropertyFilter[] | undefined {
+    if (isPropertyGroup(properties)) {
+        return flattenPropertyGroup([], properties).filter(isValidPropertyFilter)
+    }
+    if (properties) {
+        return properties.filter(isValidPropertyFilter)
+    }
+    return properties
+}
+
 export const isUserLoggedIn = (): boolean => !getAppContext()?.anonymous
+
+/** Sorting function for Array.prototype.sort that works for numbers and strings automatically. */
+export const autoSorter = (a: any, b: any): number => {
+    return typeof a === 'number' && typeof b === 'number' ? a - b : String(a).localeCompare(String(b))
+}
+
+// https://stackoverflow.com/questions/175739/how-can-i-check-if-a-string-is-a-valid-number
+export function isNumeric(x: any): boolean {
+    if (typeof x === 'number') {
+        return true
+    }
+    if (typeof x != 'string') {
+        return false
+    }
+    return !isNaN(Number(x)) && !isNaN(parseFloat(x))
+}
+
+export function calculateDays(timeValue: number, timeUnit: TimeUnitType): number {
+    if (timeUnit === TimeUnitType.Year) {
+        return timeValue * 365
+    }
+    if (timeUnit === TimeUnitType.Month) {
+        return timeValue * 30
+    }
+    if (timeUnit === TimeUnitType.Week) {
+        return timeValue * 7
+    }
+    return timeValue
+}

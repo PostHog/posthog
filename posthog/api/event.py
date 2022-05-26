@@ -27,7 +27,7 @@ from ee.clickhouse.sql.events import (
 )
 from posthog.api.documentation import PropertiesSerializer, extend_schema
 from posthog.api.routing import StructuredViewSetMixin
-from posthog.client import sync_execute
+from posthog.client import query_with_columns, sync_execute
 from posthog.models import Element, Filter, Person
 from posthog.models.action import Action
 from posthog.models.action.util import format_action_filter
@@ -89,6 +89,12 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
             ),
             OpenApiParameter("person_id", OpenApiTypes.INT, description="Filter list by person id."),
             OpenApiParameter("distinct_id", OpenApiTypes.INT, description="Filter list by distinct id."),
+            OpenApiParameter(
+                "before", OpenApiTypes.DATETIME, description="Only return events with a timestamp before this time."
+            ),
+            OpenApiParameter(
+                "after", OpenApiTypes.DATETIME, description="Only return events with a timestamp after this time."
+            ),
             PropertiesSerializer(required=False),
         ],
     )
@@ -120,12 +126,12 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
 
         next_url: Optional[str] = None
         if not is_csv_request and len(query_result) > limit:
-            next_url = self._build_next_url(request, query_result[limit - 1][3])
+            next_url = self._build_next_url(request, query_result[limit - 1]["timestamp"])
 
         return response.Response({"next": next_url, "results": result})
 
     def _get_people(self, query_result: List[Dict], team: Team) -> Dict[str, Any]:
-        distinct_ids = [event[5] for event in query_result]
+        distinct_ids = [event["distinct_id"] for event in query_result]
         persons = get_persons_by_distinct_ids(team.pk, distinct_ids)
         persons = persons.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
         distinct_to_person: Dict[str, Person] = {}
@@ -137,6 +143,7 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
     def _query_events_list(
         self, filter: Filter, team: Team, request: request.Request, long_date_from: bool = False, limit: int = 100
     ) -> List:
+
         limit += 1
         limit_sql = "LIMIT %(limit)s"
         order = "DESC" if self._parse_order_by(self.request)[0] == "-timestamp" else "ASC"
@@ -161,19 +168,21 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
                 return []
             if action.steps.count() == 0:
                 return []
+
+            # NOTE: never accepts cohort parameters so no need for explicit person_id_joined_alias
             action_query, params = format_action_filter(team_id=team.pk, action=action)
             prop_filters += " AND {}".format(action_query)
             prop_filter_params = {**prop_filter_params, **params}
 
         if prop_filters != "":
-            return sync_execute(
+            return query_with_columns(
                 SELECT_EVENT_BY_TEAM_AND_CONDITIONS_FILTERS_SQL.format(
                     conditions=conditions, limit=limit_sql, filters=prop_filters, order=order
                 ),
                 {"team_id": team.pk, "limit": limit, **condition_params, **prop_filter_params},
             )
         else:
-            return sync_execute(
+            return query_with_columns(
                 SELECT_EVENT_BY_TEAM_AND_CONDITIONS_SQL.format(conditions=conditions, limit=limit_sql, order=order),
                 {"team_id": team.pk, "limit": limit, **condition_params},
             )
@@ -181,11 +190,14 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
     def retrieve(
         self, request: request.Request, pk: Optional[Union[int, str]] = None, *args: Any, **kwargs: Any
     ) -> response.Response:
+
         if not isinstance(pk, str) or not UUIDT.is_valid_uuid(pk):
             return response.Response(
                 {"detail": "Invalid UUID", "code": "invalid", "type": "validation_error",}, status=400
             )
-        query_result = sync_execute(SELECT_ONE_EVENT_SQL, {"team_id": self.team.pk, "event_id": pk.replace("-", "")})
+        query_result = query_with_columns(
+            SELECT_ONE_EVENT_SQL, {"team_id": self.team.pk, "event_id": pk.replace("-", "")}
+        )
         if len(query_result) == 0:
             raise NotFound(detail=f"No events exist for event UUID {pk}")
 

@@ -13,7 +13,7 @@ import { InlineMessage } from 'lib/components/InlineMessage/InlineMessage'
 import { WelcomeLogo } from './WelcomeLogo'
 import { SceneExport } from 'scenes/sceneTypes'
 import { SocialLoginIcon } from 'lib/components/SocialLoginButton/SocialLoginIcon'
-import { SSOProviderNames } from 'lib/constants'
+import { SSO_PROVIDER_NAMES } from 'lib/constants'
 import { SSOProviders } from '~/types'
 
 export const ERROR_MESSAGES: Record<string, string | JSX.Element> = {
@@ -64,8 +64,9 @@ function SSOLoginButton({
             block
             onClick={() => (window.location.href = `/login/${provider}/?email=${email}`)}
             style={style}
+            icon={SocialLoginIcon(provider)}
         >
-            {SocialLoginIcon(provider)} Login with {SSOProviderNames[provider]}
+            Login with {SSO_PROVIDER_NAMES[provider]}
         </Button>
     )
 }

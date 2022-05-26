@@ -27,12 +27,17 @@ import { cohortsModel } from '~/models/cohortsModel'
 import { mathsLogic } from 'scenes/trends/mathsLogic'
 import { InsightSkeleton } from 'scenes/insights/InsightSkeleton'
 import { LemonButton } from 'lib/components/LemonButton'
-import useBreakpoint from 'antd/lib/grid/hooks/useBreakpoint'
 import { useUnloadConfirmation } from 'lib/hooks/useUnloadConfirmation'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
+import useBreakpoint from 'antd/lib/grid/hooks/useBreakpoint'
+import { CSSTransition } from 'react-transition-group'
+import { EditorFilters } from './EditorFilters/EditorFilters'
 
 export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): JSX.Element {
     const { insightMode } = useValues(insightSceneLogic)
     const { setInsightMode, syncInsightChanged } = useActions(insightSceneLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const logic = insightLogic({ dashboardItemId: insightId || 'new' })
     const {
@@ -56,16 +61,13 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
     const { aggregationLabel } = useValues(groupsModel)
     const { cohortsById } = useValues(cohortsModel)
     const { mathDefinitions } = useValues(mathsLogic)
-    const screens = useBreakpoint()
 
     useEffect(() => {
         reportInsightViewedForRecentInsights()
     }, [insightId])
 
-    const isSmallScreen = !screens.xl
-
-    // Whether to display the control tab on the side instead of on top
-    const verticalLayout = !isSmallScreen && activeView === InsightType.FUNNELS
+    const screens = useBreakpoint()
+    const usingEditorPanels = featureFlags[FEATURE_FLAGS.INSIGHT_EDITOR_PANELS]
 
     useUnloadConfirmation(insightMode === ItemMode.Edit && insightChanged)
 
@@ -80,7 +82,7 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
     }
 
     /* These are insight specific filters. They each have insight specific logics */
-    const insightTab = {
+    const insightTabFilters = {
         [`${InsightType.TRENDS}`]: <TrendTab view={InsightType.TRENDS} />,
         [`${InsightType.STICKINESS}`]: <TrendTab view={InsightType.STICKINESS} />,
         [`${InsightType.LIFECYCLE}`]: <TrendTab view={InsightType.LIFECYCLE} />,
@@ -88,6 +90,11 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
         [`${InsightType.RETENTION}`]: <RetentionTab />,
         [`${InsightType.PATHS}`]: <PathTab />,
     }[activeView]
+
+    const isSmallScreen = !screens.xl
+    const verticalLayout = !isSmallScreen && activeView === InsightType.FUNNELS
+
+    const insightTab = usingEditorPanels ? <EditorFilters insightProps={insightProps} /> : insightTabFilters
 
     const insightScene = (
         <div className="insights-page">
@@ -105,8 +112,9 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                             !canEditInsight
                                 ? {
                                       icon: <IconLock />,
-                                      tooltip:
-                                          "You don't have edit permissions in the dashboard this insight belongs to. Ask a dashboard collaborator with edit access to add you.",
+                                      tooltip: featureFlags[FEATURE_FLAGS.MULTI_DASHBOARD_INSIGHTS]
+                                          ? "You don't have edit permissions on any of the dashboards this insight belongs to. Ask a dashboard collaborator with edit access to add you."
+                                          : "You don't have edit permissions in the dashboard this insight belongs to. Ask a dashboard collaborator with edit access to add you.",
                                   }
                                 : undefined
                         }
@@ -119,7 +127,9 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                                 Cancel
                             </LemonButton>
                         )}
-                        {insightMode === ItemMode.View && insight.short_id && <SaveToDashboard insight={insight} />}
+                        {insightMode === ItemMode.View && insight.short_id && (
+                            <SaveToDashboard insight={insight} canEditInsight={canEditInsight} />
+                        )}
                         {insightMode === ItemMode.View ? (
                             canEditInsight && (
                                 <LemonButton
@@ -181,49 +191,71 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                     </>
                 }
             />
-            {insightMode === ItemMode.View ? (
-                <InsightContainer />
-            ) : (
-                <>
-                    <InsightsNav />
 
-                    <div
-                        style={{
-                            display: 'flex',
-                            flexDirection: verticalLayout ? 'row' : 'column',
-                            marginBottom: verticalLayout ? 64 : 0,
-                        }}
+            {usingEditorPanels ? (
+                <div className="insights-wrapper">
+                    <CSSTransition
+                        in={insightMode === ItemMode.Edit}
+                        timeout={250}
+                        classNames="anim-"
+                        mountOnEnter
+                        unmountOnExit
                     >
-                        <div
-                            style={{
-                                width: verticalLayout ? 'min(28rem, 50%)' : 'unset',
-                                marginRight: verticalLayout ? '1rem' : 0,
-                            }}
-                        >
-                            {verticalLayout ? (
-                                insightTab
-                            ) : (
-                                <Card className="insight-controls">
-                                    <div className="tabs-inner">
-                                        {/* These are insight specific filters. They each have insight specific logics */}
-                                        {insightTab}
-                                    </div>
-                                </Card>
-                            )}
-                        </div>
-                        <div
-                            style={{
-                                flexGrow: 1,
-                                width: verticalLayout ? 'calc(100% - min(28rem, 50%) - 1rem)' : 'unset',
-                            }}
-                        >
-                            <InsightContainer />
-                        </div>
+                        <div className="insight-editor-area">{insightTab}</div>
+                    </CSSTransition>
+                    <div className="insights-container">
+                        <InsightContainer />
                     </div>
+                </div>
+            ) : (
+                // Old View mode
+                <>
+                    {insightMode === ItemMode.View ? (
+                        <InsightContainer />
+                    ) : (
+                        <>
+                            <InsightsNav />
+                            <div
+                                style={{
+                                    display: 'flex',
+                                    flexDirection: verticalLayout ? 'row' : 'column',
+                                    marginBottom: verticalLayout ? 64 : 0,
+                                }}
+                            >
+                                <div
+                                    style={{
+                                        width: verticalLayout ? 'min(28rem, 50%)' : 'unset',
+                                        marginRight: verticalLayout ? '1rem' : 0,
+                                    }}
+                                >
+                                    {verticalLayout ? (
+                                        insightTab
+                                    ) : (
+                                        <Card className="insight-controls">
+                                            <div className="tabs-inner">{insightTab}</div>
+                                        </Card>
+                                    )}
+                                </div>
+                                <div
+                                    style={{
+                                        flexGrow: 1,
+                                        width: verticalLayout ? 'calc(100% - min(28rem, 50%) - 1rem)' : 'unset',
+                                    }}
+                                >
+                                    <InsightContainer />
+                                </div>
+                            </div>
+                        </>
+                    )}
+                </>
+            )}
+
+            {insightMode !== ItemMode.View ? (
+                <>
                     <NPSPrompt />
                     <FeedbackCallCTA />
                 </>
-            )}
+            ) : null}
 
             <SaveCohortModal
                 visible={cohortModalVisible}

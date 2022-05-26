@@ -1,5 +1,4 @@
-import { useValues, getContext, useActions } from 'kea'
-import { Provider } from 'react-redux'
+import { useValues, useActions } from 'kea'
 import React, { useEffect, useRef } from 'react'
 import ReactDOM from 'react-dom'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -17,8 +16,8 @@ import { toLocalFilters } from '../ActionFilter/entityFilterLogic'
 
 /** The saturation of a country is proportional to its value BUT the saturation has a floor to improve visibility. */
 const SATURATION_FLOOR = 0.2
-/** --primary in HSL for saturation mixing */
-const PRIMARY_HSL: [number, number, number] = [228, 100, 66]
+/** --brand-blue in HSL for saturation mixing */
+const BRAND_BLUE_HSL: [number, number, number] = [228, 100, 56]
 /** The tooltip is offset by a few pixels from the cursor to give it some breathing room. */
 const WORLD_MAP_TOOLTIP_OFFSET_PX = 8
 
@@ -36,7 +35,7 @@ function useWorldMapTooltip(showPersonsModal: boolean): React.RefObject<SVGSVGEl
         const tooltipRect = tooltipEl.getBoundingClientRect()
         if (tooltipCoordinates) {
             ReactDOM.render(
-                <Provider store={getContext().store}>
+                <>
                     {currentTooltip && (
                         <InsightTooltip
                             seriesData={[
@@ -67,7 +66,7 @@ function useWorldMapTooltip(showPersonsModal: boolean): React.RefObject<SVGSVGEl
                             groupTypeLabel={aggregationLabel(toLocalFilters(filters)[0].math_group_type_index).plural}
                         />
                     )}
-                </Provider>,
+                </>,
                 tooltipEl
             )
             // Put the tooltip to the bottom right of the cursor, but flip to left if tooltip doesn't fit
@@ -136,7 +135,9 @@ const WorldMapSVG = React.memo(
                         const saturation =
                             SATURATION_FLOOR + (1 - SATURATION_FLOOR) * (aggregatedValue / maxAggregatedValue)
                         const fill = aggregatedValue
-                            ? `hsl(${PRIMARY_HSL[0]} ${PRIMARY_HSL[1]}% ${100 - (100 - PRIMARY_HSL[2]) * saturation}%)`
+                            ? `hsl(${BRAND_BLUE_HSL[0]} ${BRAND_BLUE_HSL[1]}% ${
+                                  100 - (100 - BRAND_BLUE_HSL[2]) * saturation
+                              }%)`
                             : undefined
                         return React.cloneElement(countryElement, {
                             key: countryCode,

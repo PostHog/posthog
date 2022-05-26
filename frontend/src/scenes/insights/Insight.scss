@@ -2,6 +2,8 @@
 
 $funnel_canvas_background: #fff;
 
+$editor_panel_width: min(28rem, 50%);
+
 .insights-page {
     h2 {
         font-size: 1.125rem;
@@ -110,6 +112,49 @@ $funnel_canvas_background: #fff;
         }
     }
 
+    .insights-wrapper {
+        @media screen and (min-width: $md) {
+            display: flex;
+            overflow: hidden;
+            gap: $default_spacing;
+            flex-direction: row-reverse;
+        }
+
+        .insights-container {
+            flex: 1;
+            overflow-x: auto;
+        }
+        .insight-editor-area {
+            flex-shrink: 0;
+
+            > * {
+                margin-bottom: 1em;
+            }
+
+            @media screen and (min-width: $md) {
+                width: $editor_panel_width;
+
+                &.anim--enter {
+                    width: 0px;
+                }
+
+                &.anim--enter-active {
+                    width: $editor_panel_width;
+                    transition: width 250ms;
+                }
+
+                &.anim--exit {
+                    width: $editor_panel_width;
+                }
+
+                &.anim--exit-active {
+                    width: 0px;
+                    transition: width 250ms;
+                }
+            }
+        }
+    }
+
     .insights-graph-container {
         background: #fff;
         margin-bottom: 1rem;
@@ -153,6 +198,7 @@ $funnel_canvas_background: #fff;
 
         .ant-card-body {
             padding: 0;
+            overflow-x: auto;
         }
 
         .insights-graph-container-row {
@@ -194,17 +240,6 @@ $funnel_canvas_background: #fff;
         display: flex;
         flex-wrap: nowrap;
         justify-content: flex-end;
-    }
-
-    .action-filters-bordered {
-        .draggable-action-filter {
-            border-bottom: 1px solid $border;
-            padding: $default_spacing $default_spacing / 4;
-            margin-top: 0;
-        }
-        .row-action-btn {
-            color: $primary_alt;
-        }
     }
 
     .advanced-options-dropdown {

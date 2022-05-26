@@ -1,5 +1,5 @@
-import { CacheExtension, PluginEvent, Properties } from '@posthog/plugin-scaffold'
-import { Plugin, PluginMeta } from '@posthog/plugin-scaffold'
+import { PluginEvent, Properties } from '@posthog/plugin-scaffold'
+import { Plugin } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 import { Client } from 'pg'
 
@@ -57,7 +57,7 @@ export const clickhouseEventTimestampToDate = (timestamp: string): Date => {
 }
 
 export const fetchTimestampBoundariesForTeam = async (db: DB, teamId: number): Promise<TimestampBoundaries> => {
-    if (db.kafkaProducer) {
+    if (db.KAFKA_ENABLED) {
         const clickhouseFetchTimestampsResult = await db.clickhouseQuery(`
             SELECT min(_timestamp) as min, max(_timestamp) as max
             FROM events
@@ -101,7 +101,7 @@ export const fetchEventsForInterval = async (
 ): Promise<HistoricalExportEvent[]> => {
     const timestampUpperBound = new Date(timestampLowerBound.getTime() + eventsTimeInterval)
 
-    if (db.kafkaProducer) {
+    if (db.KAFKA_ENABLED) {
         const chTimestampLower = castTimestampToClickhouseFormat(
             DateTime.fromISO(timestampLowerBound.toISOString()),
             TimestampFormat.ClickHouseSecondPrecision
@@ -122,13 +122,13 @@ export const fetchEventsForInterval = async (
             event,
             ip,
             site_url,
-            sent_at 
-        FROM events 
-        WHERE team_id = ${teamId} 
-        AND _timestamp >= '${chTimestampLower}' 
+            sent_at
+        FROM events
+        WHERE team_id = ${teamId}
+        AND _timestamp >= '${chTimestampLower}'
         AND _timestamp < '${chTimestampHigher}'
-        ORDER BY _offset 
-        LIMIT ${eventsPerRun} 
+        ORDER BY _offset
+        LIMIT ${eventsPerRun}
         OFFSET ${offset}`
 
         const clickhouseFetchEventsResult = await db.clickhouseQuery(fetchEventsQuery)
@@ -142,8 +142,8 @@ export const fetchEventsForInterval = async (
     } else {
         const postgresFetchEventsResult = await db.postgresQuery(
             `
-            SELECT 
-                event, 
+            SELECT
+                event,
                 timestamp,
                 team_id,
                 distinct_id,
@@ -151,11 +151,11 @@ export const fetchEventsForInterval = async (
                 properties,
                 elements,
                 id,
-                elements_hash 
-            FROM posthog_event 
-            WHERE team_id = $1 AND timestamp >= $2 AND timestamp < $3 
-            ORDER BY id 
-            LIMIT $4 
+                elements_hash
+            FROM posthog_event
+            WHERE team_id = $1 AND timestamp >= $2 AND timestamp < $3
+            ORDER BY id
+            LIMIT $4
             OFFSET $5`,
             [teamId, timestampLowerBound.toISOString(), timestampUpperBound.toISOString(), eventsPerRun, offset],
             'fetchEventsForInterval'
