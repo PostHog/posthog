@@ -862,6 +862,35 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         )
         self.assertCountEqual([p1.uuid, p3.uuid], [r[0] for r in result])
 
+    def test_update_cohort(self):
+        p1 = Person.objects.create(team_id=self.team.pk, distinct_ids=["1"], properties={"$some_prop": "something"},)
+
+        p2 = Person.objects.create(team_id=self.team.pk, distinct_ids=["2"], properties={"$another_prop": "something"},)
+
+        p3 = Person.objects.create(team_id=self.team.pk, distinct_ids=["3"], properties={"$another_prop": "something"},)
+
+        cohort1 = Cohort.objects.create(
+            team=self.team,
+            groups=[{"properties": [{"key": "$some_prop", "value": "something", "type": "person"},]}],
+            name="cohort1",
+        )
+
+        cohort1.calculate_people_ch(pending_version=0)
+
+        cohort1.groups = [{"properties": [{"key": "$another_prop", "value": "something", "type": "person"},]}]
+        cohort1.save()
+        cohort1.calculate_people_ch(pending_version=1)
+
+        cohort1.groups = [{"properties": [{"key": "$some_prop", "value": "something", "type": "person"},]}]
+        cohort1.save()
+        cohort1.calculate_people_ch(pending_version=2)
+
+        results = sync_execute(
+            "SELECT person_id FROM cohortpeople WHERE team_id = %(team_id)s GROUP BY person_id HAVING sum(sign) = 1",
+            {"team_id": self.team.pk},
+        )
+        self.assertEqual(len(results), 1)
+
     def test_new_and_old_aligned(self):
         p1 = Person.objects.create(team_id=self.team.pk, distinct_ids=["1"], properties={"foo": "bar"},)
 
