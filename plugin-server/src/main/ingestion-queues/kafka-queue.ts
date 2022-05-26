@@ -4,7 +4,7 @@ import { Consumer, ConsumerSubscribeTopics, EachBatchPayload, Kafka } from 'kafk
 import { Hub, WorkerMethods } from '../../types'
 import { status } from '../../utils/status'
 import { killGracefully } from '../../utils/utils'
-import { KAFKA_BUFFER, KAFKA_EVENTS_JSON } from './../../config/kafka-topics'
+import { KAFKA_BUFFER, KAFKA_EVENTS_JSON, prefix as KAFKA_PREFIX } from './../../config/kafka-topics'
 import { eachBatchAsyncHandlers } from './batch-processing/each-batch-async-handlers'
 import { eachBatchIngestion } from './batch-processing/each-batch-ingestion'
 
@@ -59,9 +59,9 @@ export class KafkaQueue {
 
     consumerGroupId(): string {
         if (this.pluginsServer.capabilities.ingestion) {
-            return 'clickhouse-ingestion'
+            return `${KAFKA_PREFIX}clickhouse-ingestion`
         } else if (this.pluginsServer.capabilities.processAsyncHandlers) {
-            return 'clickhouse-plugin-server-async'
+            return `${KAFKA_PREFIX}clickhouse-plugin-server-async`
         } else {
             throw Error('No topics to consume, KafkaQueue should not be started')
         }
