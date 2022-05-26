@@ -17,10 +17,6 @@
             "essential": true,
             "environment": [
                 {
-                    "name": "PLUGIN_SERVER_MODE",
-                    "value": "async"
-                },
-                {
                     "name": "CLICKHOUSE_DATABASE",
                     "value": "posthog"
                 },
