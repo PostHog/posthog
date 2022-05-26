@@ -5,9 +5,8 @@ import { DateTime } from 'luxon'
 import { ONE_HOUR } from '../src/config/constants'
 import { KAFKA_EVENTS_PLUGIN_INGESTION } from '../src/config/kafka-topics'
 import { startPluginsServer } from '../src/main/pluginsServer'
-import { LogLevel, PluginsServerConfig } from '../src/types'
-import { Hub } from '../src/types'
-import { delay, UUIDT } from '../src/utils/utils'
+import { Hub, LogLevel, PluginsServerConfig, TimestampFormat } from '../src/types'
+import { castTimestampOrNow, castTimestampToClickhouseFormat, delay, UUIDT } from '../src/utils/utils'
 import { makePiscina } from '../src/worker/piscina'
 import { createPosthog, DummyPostHog } from '../src/worker/vm/extensions/posthog'
 import { writeToFile } from '../src/worker/vm/extensions/test-utils'
@@ -26,6 +25,7 @@ const extraServerConfig: Partial<PluginsServerConfig> = {
     KAFKA_CONSUMPTION_TOPIC: KAFKA_EVENTS_PLUGIN_INGESTION,
     LOG_LEVEL: LogLevel.Log,
     OBJECT_STORAGE_ENABLED: true,
+    OBJECT_STORAGE_SESSION_RECORDING_ENABLED_TEAMS: `${pluginConfig39.team_id}`,
 }
 
 const indexJs = `
@@ -129,30 +129,39 @@ describe('e2e', () => {
 
             expect((await hub.db.fetchSessionRecordingEvents(sessionId)).length).toBe(0)
 
-            await posthog.capture('$snapshot', { $session_id: '1234abc', $snapshot_data: 'yes way' })
+            await posthog.capture('$snapshot', {
+                $session_id: sessionId,
+                $window_id: windowId,
+                $snapshot_data: { data: 'yes way', chunk_id: 0, chunk_index: 1 },
+            })
 
             await delayUntilEventIngested(() => hub.db.fetchSessionRecordingEvents(sessionId))
 
             await hub.kafkaProducer.flush()
-            const events = await hub.db.fetchSessionRecordingEvents()
+            const events = await hub.db.fetchSessionRecordingEvents(sessionId)
             await delay(1000)
 
             expect(events.length).toBe(1)
 
             // processEvent stored data to disk and added path to the snapshot data
-            const expectedDate = DateTime.utc().toFormat('yyyy-MM-dd')
-            const expectedOrderingTimestamp = DateTime.utc().toISO()
-            expect((events[0].snapshot_data as unknown as Record<string, any>)['object_storage_path']).toEqual(
-                [
-                    'session_recordings',
-                    expectedDate,
-                    pluginConfig39.team_id,
-                    sessionId,
-                    windowId,
-                    `${expectedOrderingTimestamp}-undefined`,
-                    'undefined',
-                ].join('/')
-            )
+            const expectedDate = castTimestampToClickhouseFormat(DateTime.utc(), TimestampFormat.DateOnly)
+            const expectedOrderingTimestamp = castTimestampOrNow(DateTime.utc(), TimestampFormat.UnixMilliseconds)
+            const fullExpectedStoragePath = [
+                'session_recordings',
+                expectedDate,
+                pluginConfig39.team_id,
+                sessionId,
+                windowId,
+                `${expectedOrderingTimestamp}-0`,
+                '1',
+            ].join('/')
+            expect(events[0].snapshot_data as unknown as Record<string, any>).toHaveProperty('object_storage_path')
+
+            // timestamp won't be the same between test and processing so chop some of it out
+            const fullActualStoragePath = events[0].snapshot_data['object_storage_path']
+            const actualStoragePath = fullActualStoragePath.slice(0, 114) + fullActualStoragePath.slice(119)
+            const expectedStoragePath = fullExpectedStoragePath.slice(0, 114) + fullExpectedStoragePath.slice(119)
+            expect(actualStoragePath).toEqual(expectedStoragePath)
 
             // onSnapshot ran
             expect(testConsole.read()).toEqual([['onSnapshot', '$snapshot']])

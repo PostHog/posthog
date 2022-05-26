@@ -827,6 +827,7 @@ export enum TimestampFormat {
     ClickHouse = 'clickhouse',
     ISO = 'iso',
     DateOnly = 'date-only',
+    UnixMilliseconds = 'unix-milliseconds',
 }
 
 export enum Database {

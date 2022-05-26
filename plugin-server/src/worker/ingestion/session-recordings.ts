@@ -32,7 +32,7 @@ export const processSnapshotData = async (
     }
 
     const dateKey = castTimestampOrNow(timestamp, TimestampFormat.DateOnly)
-    const orderingTimestamp = castTimestampOrNow(timestamp, TimestampFormat.ISO)
+    const orderingTimestamp = castTimestampOrNow(timestamp, TimestampFormat.UnixMilliseconds)
     const object_storage_path = [
         OBJECT_STORAGE_SESSION_RECORDING_FOLDER,
         dateKey,
