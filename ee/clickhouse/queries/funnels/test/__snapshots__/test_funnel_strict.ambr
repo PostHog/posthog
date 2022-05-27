@@ -19,13 +19,8 @@
        AND timestamp <= toDateTime('2020-01-08 23:59:59')
        AND (NOT has([''], "$group_0"))
      GROUP BY value
-<<<<<<< HEAD
      ORDER BY count DESC, value DESC
-     LIMIT 10
-=======
-     ORDER BY count DESC
      LIMIT 25
->>>>>>> 94144f07ffaeda4a1ff37eb8da54066f1c229496
      OFFSET 0)
   '
 ---
@@ -140,13 +135,8 @@
        AND timestamp >= toDateTime('2020-01-01 00:00:00')
        AND timestamp <= toDateTime('2020-01-08 23:59:59')
      GROUP BY value
-<<<<<<< HEAD
      ORDER BY count DESC, value DESC
-     LIMIT 10
-=======
-     ORDER BY count DESC
      LIMIT 25
->>>>>>> 94144f07ffaeda4a1ff37eb8da54066f1c229496
      OFFSET 0)
   '
 ---
@@ -267,13 +257,8 @@
        AND timestamp >= toDateTime('2020-01-01 00:00:00')
        AND timestamp <= toDateTime('2020-01-08 23:59:59')
      GROUP BY value
-<<<<<<< HEAD
      ORDER BY count DESC, value DESC
-     LIMIT 10
-=======
-     ORDER BY count DESC
      LIMIT 25
->>>>>>> 94144f07ffaeda4a1ff37eb8da54066f1c229496
      OFFSET 0)
   '
 ---
@@ -391,13 +376,8 @@
        AND timestamp >= toDateTime('2020-01-01 00:00:00')
        AND timestamp <= toDateTime('2020-01-08 23:59:59')
      GROUP BY value
-<<<<<<< HEAD
      ORDER BY count DESC, value DESC
-     LIMIT 10
-=======
-     ORDER BY count DESC
      LIMIT 25
->>>>>>> 94144f07ffaeda4a1ff37eb8da54066f1c229496
      OFFSET 0)
   '
 ---
@@ -515,13 +495,8 @@
        AND timestamp >= toDateTime('2020-01-01 00:00:00')
        AND timestamp <= toDateTime('2020-01-08 23:59:59')
      GROUP BY value
-<<<<<<< HEAD
      ORDER BY count DESC, value DESC
-     LIMIT 10
-=======
-     ORDER BY count DESC
      LIMIT 25
->>>>>>> 94144f07ffaeda4a1ff37eb8da54066f1c229496
      OFFSET 0)
   '
 ---
@@ -639,13 +614,8 @@
        AND timestamp >= toDateTime('2020-01-01 00:00:00')
        AND timestamp <= toDateTime('2020-01-08 23:59:59')
      GROUP BY value
-<<<<<<< HEAD
      ORDER BY count DESC, value DESC
-     LIMIT 10
-=======
-     ORDER BY count DESC
      LIMIT 25
->>>>>>> 94144f07ffaeda4a1ff37eb8da54066f1c229496
      OFFSET 0)
   '
 ---
