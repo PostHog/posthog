@@ -19,7 +19,6 @@ class ExportedAsset(models.Model):
         CSV = "text/csv", "text/csv"
 
     # Relations
-    # TODO: Should we delete these on Cascade? What if the image is already sent somewhere...?
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
     dashboard = models.ForeignKey("posthog.Dashboard", on_delete=models.CASCADE, null=True)
     insight = models.ForeignKey("posthog.Insight", on_delete=models.CASCADE, null=True)

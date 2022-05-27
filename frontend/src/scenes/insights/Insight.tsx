@@ -134,47 +134,49 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                     />
                 }
                 buttons={
-                    <div className="insights-tab-actions space-x-05">
+                    <div className="space-between-items items-center gap-05">
                         {insightMode === ItemMode.View && (
-                            <More
-                                overlay={
-                                    <>
-                                        {usingExportFeature && insight.short_id && (
-                                            <>
-                                                <ExportButton insightShortId={insight.short_id} fullWidth />
-                                                <LemonDivider />
-                                            </>
-                                        )}
-                                        <LemonButton
-                                            type="stealth"
-                                            onClick={() => duplicateInsight(insight as InsightModel, true)}
-                                            fullWidth
-                                        >
-                                            Duplicate
-                                        </LemonButton>
-                                        <LemonDivider />
-                                        <LemonButton
-                                            type="stealth"
-                                            status="danger"
-                                            onClick={() =>
-                                                deleteWithUndo({
-                                                    object: insight,
-                                                    endpoint: `projects/${currentTeamId}/insights`,
-                                                    callback: () => {
-                                                        loadInsights()
-                                                        push(urls.savedInsights())
-                                                    },
-                                                })
-                                            }
-                                            fullWidth
-                                        >
-                                            Delete insight
-                                        </LemonButton>
-                                    </>
-                                }
-                            />
+                            <>
+                                <More
+                                    overlay={
+                                        <>
+                                            {usingExportFeature && insight.short_id && (
+                                                <>
+                                                    <ExportButton insightShortId={insight.short_id} fullWidth />
+                                                    <LemonDivider />
+                                                </>
+                                            )}
+                                            <LemonButton
+                                                type="stealth"
+                                                onClick={() => duplicateInsight(insight as InsightModel, true)}
+                                                fullWidth
+                                            >
+                                                Duplicate
+                                            </LemonButton>
+                                            <LemonDivider />
+                                            <LemonButton
+                                                type="stealth"
+                                                status="danger"
+                                                onClick={() =>
+                                                    deleteWithUndo({
+                                                        object: insight,
+                                                        endpoint: `projects/${currentTeamId}/insights`,
+                                                        callback: () => {
+                                                            loadInsights()
+                                                            push(urls.savedInsights())
+                                                        },
+                                                    })
+                                                }
+                                                fullWidth
+                                            >
+                                                Delete insight
+                                            </LemonButton>
+                                        </>
+                                    }
+                                />
+                                <LemonDivider vertical />
+                            </>
                         )}
-
                         {insightMode === ItemMode.Edit && insight.saved && (
                             <LemonButton type="secondary" onClick={() => cancelChanges(true)}>
                                 Cancel
@@ -187,7 +189,6 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                             canEditInsight && (
                                 <LemonButton
                                     type="primary"
-                                    style={{ marginLeft: 8 }}
                                     onClick={() => setInsightMode(ItemMode.Edit, null)}
                                     data-attr="insight-edit-button"
                                 >

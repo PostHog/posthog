@@ -145,7 +145,6 @@ describe('Trends', () => {
         cy.get('[data-attr="expand-list-event_properties"]').click()
         cy.get('[data-attr=prop-filter-event_properties-1]').click({ force: true })
         cy.get('[data-attr=prop-val]').click({ force: true })
-        cy.get('[data-attr=prop-val-0]').click({ force: true })
         // cypress is odd and even though when a human clicks this the right dropdown opens
         // in the test that doesn't happen
         cy.get('body').then(($body) => {

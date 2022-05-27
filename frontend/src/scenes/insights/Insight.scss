@@ -234,15 +234,6 @@ $editor_panel_width: min(28rem, 50%);
         }
     }
 
-    .insights-tab-actions {
-        margin-left: auto;
-        padding-left: 1rem;
-        display: flex;
-        flex-wrap: nowrap;
-        justify-content: flex-end;
-        align-items: center;
-    }
-
     .advanced-options-dropdown {
         font-size: 1.4em;
         color: $primary_alt;

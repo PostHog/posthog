@@ -45,7 +45,7 @@ module.exports = (on, config) => {
     })
 
     on('task', {
-        compareToReferenceImage({ source, reference, diffThreshold = 100, ms = 10000 }) {
+        compareToReferenceImage({ source, reference, diffThreshold = 0.01, ms = 10000 }) {
             return checkFileDownloaded(source, ms).then((fileExists) => {
                 if (!fileExists) {
                     return undefined
@@ -60,13 +60,17 @@ module.exports = (on, config) => {
                     threshold: 0.1,
                 })
 
-                const imgDiffFilename = path.join(__dirname, reference + '.diff.png')
+                const imgDiffFilename = `${downloadDirectory}/${source}.diff.png`
 
                 fs.writeFileSync(imgDiffFilename, PNG.sync.write(imgDiff))
 
-                if (numDiffPixels > diffThreshold) {
+                const percentageDiff = numDiffPixels / (width * height)
+
+                if (percentageDiff > diffThreshold) {
                     throw new Error(
-                        `Reference image is off by ${numDiffPixels} pixels. See ${imgDiffFilename} for more info`
+                        `Reference image is off by ${(percentageDiff * 100).toFixed(
+                            2
+                        )}% (${numDiffPixels}) pixels. See ${imgDiffFilename} for more info`
                     )
                 }
 

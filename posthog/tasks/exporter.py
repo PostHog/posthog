@@ -21,7 +21,6 @@ logger = structlog.get_logger(__name__)
 
 TMP_DIR = "/tmp"  # NOTE: Externalise this to ENV var
 
-# TODO: This should be somehow run at build time to ensure the chrome binary is pre-downloaded
 # NOTE: We purporsefully DONT re-use the driver. It would be slightly faster but would keep an in-memory browser
 # window permanently around which is unnecessary
 def get_driver() -> webdriver.Chrome:
@@ -29,7 +28,6 @@ def get_driver() -> webdriver.Chrome:
     options.headless = True
     options.add_argument("--force-device-scale-factor=2")  # Scale factor for higher res image
     options.add_argument("--disable-dev-shm-usage")
-    # options.add_argument("--remote-debugging-port=0")
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-gpu")
     options.add_argument("--use-gl=swiftshader")

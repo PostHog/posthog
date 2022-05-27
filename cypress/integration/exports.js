@@ -36,6 +36,7 @@ describe('Exporting Insights', () => {
         cy.task('compareToReferenceImage', {
             source: expecteFileName,
             reference: `../data/exports/${expecteFileName}`,
+            diffThreshold: 0.01,
         })
     })
 })
