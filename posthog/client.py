@@ -63,6 +63,7 @@ def default_client():
     """
     return SyncClient(
         host=CLICKHOUSE_HOST,
+        database=CLICKHOUSE_DATABASE,
         secure=CLICKHOUSE_SECURE,
         user=CLICKHOUSE_USER,
         password=CLICKHOUSE_PASSWORD,
