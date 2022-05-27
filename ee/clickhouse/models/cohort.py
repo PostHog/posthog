@@ -104,7 +104,7 @@ def format_precalculated_cohort_query(
     cohort = Cohort.objects.get(pk=cohort_id)
     query = (
         GET_PERSON_ID_BY_PRECALCULATED_COHORT_ID_VERSIONED
-        if cohort.use_versioned_cohort
+        if cohort.use_new_relation_table
         else GET_PERSON_ID_BY_PRECALCULATED_COHORT_ID
     )
     filter_query = query.format(index=index, prepend=prepend)
