@@ -186,25 +186,6 @@ export class KafkaQueue {
         return emitConsumerGroupMetrics(this.consumer, this.consumerGroupMemberId, this.pluginsServer)
     }
 
-    private addMetricListeners() {
-        const listenEvents = [
-            this.consumer.events.GROUP_JOIN,
-            this.consumer.events.CONNECT,
-            this.consumer.events.DISCONNECT,
-            this.consumer.events.STOP,
-            this.consumer.events.CRASH,
-            this.consumer.events.REBALANCING,
-            this.consumer.events.RECEIVED_UNSUBSCRIBED_TOPICS,
-            this.consumer.events.REQUEST_TIMEOUT,
-        ]
-
-        listenEvents.forEach((event) => {
-            this.consumer.on(event, () => {
-                this.pluginsServer.statsd?.increment('kafka_queue_consumer_event', { event })
-            })
-        })
-    }
-
     private static buildConsumer(kafka: Kafka, groupId: string): Consumer {
         const consumer = kafka.consumer({
             // NOTE: This should never clash with the group ID specified for the kafka engine posthog/ee/clickhouse/sql/clickhouse.py
