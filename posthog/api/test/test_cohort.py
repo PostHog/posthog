@@ -5,6 +5,7 @@ from unittest.mock import patch
 
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test.client import Client
+from rest_framework import status
 from rest_framework.test import APIClient
 
 from posthog.models import Person
@@ -417,6 +418,17 @@ email@example.org,
             {"detail": "Filters must be a dictionary with a 'properties' key.", "type": "validation_error"},
             update_response.json(),
         )
+
+    @patch("posthog.api.cohort.report_user_action")
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
+    def test_hard_delete_is_forbidden(self, patch_calculate_cohort, patch_capture):
+        response_a = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={"name": "cohort A", "groups": [{"properties": {"team_id": 5}}]},
+        )
+
+        response = self.client.delete(f"/api/projects/{self.team.id}/cohorts/{response_a.json()['id']}",)
+        self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
 
 
 def create_cohort(client: Client, team_id: int, name: str, groups: List[Dict[str, Any]]):

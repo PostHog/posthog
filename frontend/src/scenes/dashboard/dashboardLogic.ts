@@ -336,7 +336,7 @@ export const dashboardLogic = kea<dashboardLogicType>({
         ],
     }),
     selectors: () => ({
-        placement: [() => [(_, props) => props.placement], (placement) => placement],
+        placement: [() => [(_, props) => props.placement], (placement) => placement ?? DashboardPlacement.Dashboard],
         items: [(s) => [s.allItems], (allItems) => allItems?.items?.filter((i) => !i.deleted)],
         itemsLoading: [
             (s) => [s.allItemsLoading, s.refreshStatus],
@@ -576,7 +576,7 @@ export const dashboardLogic = kea<dashboardLogicType>({
                     values.items?.map((item) => {
                         const layouts: Record<string, Layout> = {}
                         Object.entries(item.layouts).forEach(([layoutKey, layout]) => {
-                            const { i, ...rest } = layout // eslint-disable-line
+                            const { i, ...rest } = layout
                             layouts[layoutKey] = rest
                         })
                         return { id: item.id, layouts }

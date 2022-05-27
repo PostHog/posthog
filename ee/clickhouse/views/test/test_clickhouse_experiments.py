@@ -536,10 +536,12 @@ class TestExperimentCRUD(APILicensedTest):
         id = response.json()["id"]
 
         # Now delete the feature flag
-        response = self.client.delete(f"/api/projects/{self.team.id}/feature_flags/{created_ff.pk}/")
+        response = self.client.patch(f"/api/projects/{self.team.id}/feature_flags/{created_ff.pk}/", {"deleted": True})
 
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
-        self.assertFalse(FeatureFlag.objects.filter(pk=created_ff.pk).exists())
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        feature_flag_response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/{created_ff.pk}/")
+        self.assertEqual(feature_flag_response.json().get("deleted"), True)
 
         with self.assertRaises(Experiment.DoesNotExist):
             Experiment.objects.get(pk=id)

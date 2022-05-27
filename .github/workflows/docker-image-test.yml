@@ -1,4 +1,4 @@
-name: Docker
+name: Test Docker image build
 
 on:
     - pull_request
@@ -21,3 +21,9 @@ jobs:
               with:
                   tags: posthog/posthog:testing
                   token: ${{ secrets.DEPOT_TOKEN }}
+
+            - name: Output image info including size
+              run: |
+                  image_size_bytes=$(docker image inspect ${{ steps.docker_build.outputs.imageid }} | jq -r '.[0].Size')
+                  echo "### Build info" >> $GITHUB_STEP_SUMMARY
+                  echo "Image size: $(jq -n $image_size_bytes/1000000000)GB" >> $GITHUB_STEP_SUMMARY

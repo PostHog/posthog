@@ -48,6 +48,7 @@ export const personsLogic = kea<personsLogicType>({
         loadPersons: (url: string | null = '') => ({ url }),
         setListFilters: (payload: PersonFilters) => ({ payload }),
         editProperty: (key: string, newValue?: string | number | boolean | null) => ({ key, newValue }),
+        deleteProperty: (key: string) => ({ key }),
         navigateToCohort: (cohort: CohortType) => ({ cohort }),
         navigateToTab: (tab: PersonsTabType) => ({ tab }),
         setSplitMergeModalShown: (shown: boolean) => ({ shown }),
@@ -173,12 +174,14 @@ export const personsLogic = kea<personsLogicType>({
                     action = 'added'
                 } else {
                     person.properties[key] = parsedValue
-                    action = parsedValue !== undefined ? 'updated' : 'removed'
+                    action = 'updated'
                 }
 
-                actions.setPerson(person) // To update the UI immediately while the request is being processed
-                const response = await api.update(`api/person/${person.id}`, person)
-                actions.setPerson(response)
+                actions.setPerson({ ...person }) // To update the UI immediately while the request is being processed
+                // :KLUDGE: Person properties are updated asynchronosly in the plugin server - the response won't reflect
+                //      the 'updated' properties yet.
+                await api.update(`api/person/${person.id}`, person)
+                lemonToast.success(`Person property ${action}`)
 
                 eventUsageLogic.actions.reportPersonPropertyUpdated(
                     action,
@@ -186,6 +189,20 @@ export const personsLogic = kea<personsLogicType>({
                     oldPropertyType,
                     newPropertyType
                 )
+            }
+        },
+        deleteProperty: async ({ key }) => {
+            const person = values.person
+
+            if (person) {
+                const updatedProperties = { ...person.properties }
+                delete updatedProperties[key]
+
+                actions.setPerson({ ...person, properties: updatedProperties })
+                await api.create(`api/person/${person.id}/delete_property`, { $unset: key })
+                lemonToast.success(`Person property deleted`)
+
+                eventUsageLogic.actions.reportPersonPropertyUpdated('removed', 1, undefined, undefined)
             }
         },
         navigateToCohort: ({ cohort }) => {
