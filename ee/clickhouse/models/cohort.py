@@ -288,7 +288,7 @@ def format_cohort_subquery(
 ) -> Tuple[str, Dict[str, Any]]:
     is_precalculated = is_precalculated_query(cohort)
     person_query, params = (
-        format_precalculated_cohort_query(cohort, index, custom_match_field=custom_match_field)
+        format_precalculated_cohort_query(cohort.pk, index, custom_match_field=custom_match_field)
         if is_precalculated
         else format_person_query(cohort, index, custom_match_field=custom_match_field, using_new_query=using_new_query,)
     )
