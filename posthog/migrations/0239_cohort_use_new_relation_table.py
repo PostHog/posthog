@@ -6,7 +6,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("posthog", "0237_remove_timezone_from_teams"),
+        ("posthog", "0238_exportedasset"),
     ]
 
     operations = [

@@ -25,6 +25,7 @@ from posthog.models import Action, ActionStep, Filter, Person
 from posthog.models.action.util import format_action_filter
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 
+from .forbid_destroy_model import ForbidDestroyModel
 from .person import get_person_name
 from .tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 
@@ -153,7 +154,7 @@ class ActionSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedModelSe
         return instance
 
 
-class ActionViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, viewsets.ModelViewSet):
+class ActionViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     renderer_classes = tuple(api_settings.DEFAULT_RENDERER_CLASSES) + (csvrenderers.PaginatedCSVRenderer,)
     queryset = Action.objects.all()
     serializer_class = ActionSerializer

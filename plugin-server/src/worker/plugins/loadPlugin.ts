@@ -40,7 +40,7 @@ export async function loadPlugin(hub: Hub, pluginConfig: PluginConfig): Promise<
             await processError(
                 hub,
                 pluginConfig,
-                `Plugin ${pluginDigest(plugin)} is not a local, remote or source plugin. Can not load.`
+                `Plugin ${pluginDigest(plugin)} is not a local, remote or source plugin. Cannot load.`
             )
             return false
         }

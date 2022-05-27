@@ -214,6 +214,16 @@ def get_git_commit() -> Optional[str]:
         return None
 
 
+def get_js_url(request: HttpRequest) -> str:
+    """
+    As the web app may be loaded from a non-localhost url (e.g. from the worker container calling the web container)
+    it is necessary to set the JS_URL host based on the calling origin
+    """
+    if settings.DEBUG and settings.JS_URL == "http://localhost:8234":
+        return f"http://{request.get_host().split(':')[0]}:8234"
+    return settings.JS_URL
+
+
 def render_template(template_name: str, request: HttpRequest, context: Dict = {}) -> HttpResponse:
     from loginas.utils import is_impersonated_session
 
@@ -244,7 +254,7 @@ def render_template(template_name: str, request: HttpRequest, context: Dict = {}
         context["js_posthog_host"] = "'https://app.posthog.com'"
 
     context["js_capture_internal_metrics"] = settings.CAPTURE_INTERNAL_METRICS
-    context["js_url"] = settings.JS_URL
+    context["js_url"] = get_js_url(request)
 
     posthog_app_context: Dict[str, Any] = {
         "persisted_feature_flags": settings.PERSISTED_FEATURE_FLAGS,
@@ -840,6 +850,7 @@ def get_available_timezones_with_offsets() -> Dict[str, float]:
 def should_refresh(request: Request) -> bool:
     query_param = request.query_params.get("refresh")
     data_value = request.data.get("refresh")
+
     return (query_param is not None and (query_param == "" or query_param.lower() == "true")) or data_value is True
 
 

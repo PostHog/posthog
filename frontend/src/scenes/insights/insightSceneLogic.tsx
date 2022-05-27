@@ -138,13 +138,19 @@ export const insightSceneLogic = kea<insightSceneLogicType>({
             const insightMode = mode === 'edit' || shortId === 'new' ? ItemMode.Edit : ItemMode.View
             const insightId = String(shortId) as InsightShortId
 
-            // If navigating from an unsaved insight to a different insight within the scene, prompt the user
+            const currentScene = sceneLogic.findMounted()?.values
+
             if (
-                sceneLogic.findMounted()?.values.scene === Scene.Insight &&
-                method === 'PUSH' &&
-                (values.insightId === 'new' || insightId !== values.insightId) &&
-                preventDiscardingInsightChanges()
+                currentScene?.activeScene === Scene.Insight &&
+                currentScene.activeSceneLogic?.values.insightId === insightId &&
+                currentScene.activeSceneLogic?.values.mode === mode
             ) {
+                // If nothing about the scene has changed, don't do anything
+                return
+            }
+
+            // If navigating from an unsaved insight to a different insight within the scene, prompt the user
+            if (preventDiscardingInsightChanges()) {
                 return
             }
 
