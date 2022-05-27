@@ -50,6 +50,10 @@ export function normalizePropertyDefinitionEndpointUrl(
     })
 }
 
+export function createDefinitionKey(event?: EventDefinition, property?: PropertyDefinition): string {
+    return `${event?.id ?? 'event'}-${property?.id ?? 'property'}`
+}
+
 function normalizeEventDefinitionEndpointUrl(
     url: string | null | undefined,
     searchParams: Record<string, any> = {},
