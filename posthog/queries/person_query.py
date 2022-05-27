@@ -2,7 +2,11 @@ from typing import Dict, List, Optional, Set, Tuple, Union
 
 from ee.clickhouse.materialized_columns.columns import ColumnName
 from ee.clickhouse.models.property import extract_tables_and_properties, parse_prop_grouped_clauses
-from ee.clickhouse.sql.cohort import GET_COHORTPEOPLE_BY_COHORT_ID, GET_STATIC_COHORTPEOPLE_BY_COHORT_ID
+from ee.clickhouse.sql.cohort import (
+    GET_COHORTPEOPLE_BY_COHORT_ID,
+    GET_COHORTPEOPLE_BY_COHORT_ID_VERSIONED,
+    GET_STATIC_COHORTPEOPLE_BY_COHORT_ID,
+)
 from posthog.constants import PropertyOperatorType
 from posthog.models import Filter
 from posthog.models.cohort import Cohort
@@ -131,9 +135,12 @@ class PersonQuery:
     def _get_cohort_query(self) -> Tuple[str, Dict]:
 
         if self._cohort:
-            cohort_table = (
-                GET_STATIC_COHORTPEOPLE_BY_COHORT_ID if self._cohort.is_static else GET_COHORTPEOPLE_BY_COHORT_ID
+            dynamic_query = (
+                GET_COHORTPEOPLE_BY_COHORT_ID_VERSIONED
+                if self._cohort.use_new_relation_table
+                else GET_COHORTPEOPLE_BY_COHORT_ID
             )
+            cohort_table = GET_STATIC_COHORTPEOPLE_BY_COHORT_ID if self._cohort.is_static else dynamic_query
             return (
                 f"""
             INNER JOIN (
@@ -141,7 +148,7 @@ class PersonQuery:
             ) {self.COHORT_TABLE_ALIAS}
             ON {self.COHORT_TABLE_ALIAS}.person_id = person.id
             """,
-                {"team_id": self._team_id, "cohort_id": self._cohort.pk},
+                {"team_id": self._team_id, "cohort_id": self._cohort.pk, "version": self._cohort.version},
             )
         else:
             return "", {}

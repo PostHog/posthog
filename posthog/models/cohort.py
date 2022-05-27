@@ -90,6 +90,7 @@ class Cohort(models.Model):
     errors_calculating: models.IntegerField = models.IntegerField(default=0)
 
     is_static: models.BooleanField = models.BooleanField(default=False)
+    use_new_relation_table: models.BooleanField = models.BooleanField(default=False, null=True, blank=True)
 
     objects = CohortManager()
 
@@ -134,7 +135,7 @@ class Cohort(models.Model):
                                 Property(
                                     key=key,
                                     type="behavioral",
-                                    value="performed_event_multiple" if count else "performed_event",
+                                    value="performed_event_multiple" if count is not None else "performed_event",
                                     event_type=event_type,
                                     time_interval="day",
                                     time_value=group.get("days") or 365,
@@ -226,16 +227,15 @@ class Cohort(models.Model):
         try:
             count = recalculate_cohortpeople(self, pending_version)
 
+            # Every calculation going forward should set this as true
+            # TODO: clean up this field when it's no longer useful
+            self.use_new_relation_table = True
+
             # only precalculate if used in feature flag
             ids = get_cohort_ids_in_feature_flags()
 
             if self.pk in ids:
                 self.calculate_people(new_version=pending_version)
-                # Update filter to match pending version if still valid
-                Cohort.objects.filter(pk=self.pk).filter(
-                    Q(version__lt=pending_version) | Q(version__isnull=True)
-                ).update(version=pending_version, count=count)
-                self.refresh_from_db()
             else:
                 self.count = count
 
@@ -254,6 +254,12 @@ class Cohort(models.Model):
         finally:
             self.is_calculating = False
             self.save()
+
+        # Update filter to match pending version if still valid
+        Cohort.objects.filter(pk=self.pk).filter(Q(version__lt=pending_version) | Q(version__isnull=True)).update(
+            version=pending_version, count=count
+        )
+        self.refresh_from_db()
 
         logger.info(
             "cohort_calculation_completed",
