@@ -1388,10 +1388,7 @@ export class DB {
         })
 
         try {
-            await this.kafkaProducer.queueMessage({
-                topic: KAFKA_PLUGIN_LOG_ENTRIES,
-                messages: [{ key: parsedEntry.id, value: Buffer.from(JSON.stringify(parsedEntry)) }],
-            })
+            await this.kafkaProducer.queueSingleJsonMessage(KAFKA_PLUGIN_LOG_ENTRIES, parsedEntry.id, parsedEntry)
         } catch (e) {
             captureException(e)
             console.error(e)
