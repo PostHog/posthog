@@ -71,7 +71,7 @@ export function EditorFilters({ insightProps }: EditorFiltersProps): JSX.Element
 
     const editorFilters: InsightEditorFilterGroup[] = [
         {
-            title: 'General',
+            // title: 'General',
             editorFilters: filterFalsy([
                 {
                     key: 'insight',

@@ -33,6 +33,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import useBreakpoint from 'antd/lib/grid/hooks/useBreakpoint'
 import { CSSTransition } from 'react-transition-group'
 import { EditorFilters } from './EditorFilters/EditorFilters'
+import clsx from 'clsx'
 
 export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): JSX.Element {
     const { insightMode } = useValues(insightSceneLogic)
@@ -95,7 +96,20 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
     const verticalLayout = !isSmallScreen && activeView === InsightType.FUNNELS
 
     const insightScene = (
-        <div className="insights-page">
+        <div
+            className={clsx('insights-page', {
+                'editor-panels-showing': insightMode === ItemMode.Edit,
+            })}
+        >
+            <CSSTransition
+                in={insightMode === ItemMode.Edit}
+                timeout={250}
+                classNames="anim-"
+                mountOnEnter
+                unmountOnExit
+            >
+                <div className="insight-editor-area">{<EditorFilters insightProps={insightProps} />}</div>
+            </CSSTransition>
             <PageHeader
                 title={
                     <EditableField
@@ -191,20 +205,7 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
             />
 
             {usingEditorPanels ? (
-                <div className="insights-wrapper">
-                    <CSSTransition
-                        in={insightMode === ItemMode.Edit}
-                        timeout={250}
-                        classNames="anim-"
-                        mountOnEnter
-                        unmountOnExit
-                    >
-                        <div className="insight-editor-area">{<EditorFilters insightProps={insightProps} />}</div>
-                    </CSSTransition>
-                    <div className="insights-container">
-                        <InsightContainer />
-                    </div>
-                </div>
+                <InsightContainer />
             ) : (
                 // Old View mode
                 <>
