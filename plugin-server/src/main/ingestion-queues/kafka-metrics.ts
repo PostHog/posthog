@@ -36,8 +36,10 @@ export async function emitConsumerGroupMetrics(
         (assignment) => assignment.memberId === consumerGroupMemberId
     )
 
+    let isLive = false
     if (consumerDescription) {
         consumerDescription.assignment.partitionAssignments.forEach(({ topic, partitions }) => {
+            isLive = isLive || partitions.length > 0
             pluginsServer.statsd?.gauge('kafka_consumer_group_assigned_partitions', partitions.length, {
                 topic,
                 memberId: consumerGroupMemberId || 'unknown',
@@ -45,13 +47,13 @@ export async function emitConsumerGroupMetrics(
                 instanceId: pluginsServer.instanceId.toString(),
             })
         })
-    } else {
-        pluginsServer.statsd?.increment('kafka_consumer_group_idle', {
-            memberId: consumerGroupMemberId || 'unknown',
-            groupId: description.groupId,
-            instanceId: pluginsServer.instanceId.toString(),
-        })
     }
+
+    pluginsServer.statsd?.increment(isLive ? 'kafka_consumer_live' : 'kafka_consumer_group_idle', {
+        memberId: consumerGroupMemberId || 'unknown',
+        groupId: description.groupId,
+        instanceId: pluginsServer.instanceId.toString(),
+    })
 }
 
 export function addMetricsEventListeners(consumer: Consumer, statsd: StatsD | undefined): void {
