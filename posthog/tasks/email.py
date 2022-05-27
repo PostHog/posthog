@@ -1,8 +1,9 @@
 import uuid
-from datetime import timedelta, timezone
+from datetime import datetime, timedelta
 
 import structlog
 from django.conf import settings
+from django.utils import timezone
 
 from posthog.celery import app
 from posthog.email import EmailMessage, is_email_available
@@ -98,14 +99,14 @@ def send_async_migration_errored_email(migration_key: str, time: str, error: str
     send_message_to_all_staff_users(message)
 
 
-def get_users_for_orgs_with_no_ingested_events(org_created_from, org_created_to):
+def get_users_for_orgs_with_no_ingested_events(org_created_from: datetime, org_created_to: datetime) -> list[User]:
     # Get all users for organization that haven't ingested any events
     users = []
-    recently_created_organization = Organization.object.filter(
+    recently_created_organizations = Organization.objects.filter(
         created_at__gte=org_created_from, created_at__lte=org_created_to,
     )
 
-    for organization in recently_created_organization:
+    for organization in recently_created_organizations:
         orgs_teams = Team.objects.filter(organization=organization)
         have_ingested = orgs_teams.filter(ingested_event=True).exists()
         if not have_ingested:
