@@ -1,3 +1,4 @@
+import * as Sentry from '@sentry/node'
 import { StatsD } from 'hot-shots'
 import { Consumer } from 'kafkajs'
 
@@ -19,41 +20,52 @@ export async function emitConsumerGroupMetrics(
     consumerGroupMemberId: string | null,
     pluginsServer: Hub
 ): Promise<void> {
-    const description = await consumer.describeGroup()
+    try {
+        const timer = new Date()
+        const description = await consumer.describeGroup()
+        pluginsServer.statsd?.timing('kafka_consumer_emit_describe', timer)
 
-    pluginsServer.statsd?.increment('kafka_consumer_group_state', {
-        state: description.state,
-        groupId: description.groupId,
-        instanceId: pluginsServer.instanceId.toString(),
-    })
-
-    const descriptionWithAssignment = description.members.map((member) => ({
-        ...member,
-        assignment: parseMemberAssignment(member.memberAssignment),
-    }))
-
-    const consumerDescription = descriptionWithAssignment.find(
-        (assignment) => assignment.memberId === consumerGroupMemberId
-    )
-
-    let isLive = false
-    if (consumerDescription) {
-        consumerDescription.assignment.partitionAssignments.forEach(({ topic, partitions }) => {
-            isLive = isLive || partitions.length > 0
-            pluginsServer.statsd?.gauge('kafka_consumer_group_assigned_partitions', partitions.length, {
-                topic,
-                memberId: consumerGroupMemberId || 'unknown',
-                groupId: description.groupId,
-                instanceId: pluginsServer.instanceId.toString(),
-            })
+        pluginsServer.statsd?.increment('kafka_consumer_group_state', {
+            state: description.state,
+            groupId: description.groupId,
+            instanceId: pluginsServer.instanceId.toString(),
         })
-    }
 
-    pluginsServer.statsd?.increment(isLive ? 'kafka_consumer_live' : 'kafka_consumer_group_idle', {
-        memberId: consumerGroupMemberId || 'unknown',
-        groupId: description.groupId,
-        instanceId: pluginsServer.instanceId.toString(),
-    })
+        const descriptionWithAssignment = description.members.map((member) => ({
+            ...member,
+            assignment: parseMemberAssignment(member.memberAssignment),
+        }))
+
+        const consumerDescription = descriptionWithAssignment.find(
+            (assignment) => assignment.memberId === consumerGroupMemberId
+        )
+
+        let isLive = false
+        if (consumerDescription) {
+            consumerDescription.assignment.partitionAssignments.forEach(({ topic, partitions }) => {
+                isLive = isLive || partitions.length > 0
+                pluginsServer.statsd?.gauge('kafka_consumer_group_assigned_partitions', partitions.length, {
+                    topic,
+                    memberId: consumerGroupMemberId || 'unknown',
+                    groupId: description.groupId,
+                    instanceId: pluginsServer.instanceId.toString(),
+                })
+            })
+        }
+
+        pluginsServer.statsd?.increment(isLive ? 'kafka_consumer_live' : 'kafka_consumer_group_idle', {
+            memberId: consumerGroupMemberId || 'unknown',
+            groupId: description.groupId,
+            instanceId: pluginsServer.instanceId.toString(),
+        })
+    } catch (error) {
+        pluginsServer.statsd?.increment('kafka_consumer_emit_describe_failure', {
+            memberId: consumerGroupMemberId || 'unknown',
+            instanceId: pluginsServer.instanceId.toString(),
+        })
+
+        Sentry.captureException(error)
+    }
 }
 
 export function addMetricsEventListeners(consumer: Consumer, statsd: StatsD | undefined): void {
