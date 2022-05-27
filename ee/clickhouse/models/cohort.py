@@ -11,13 +11,16 @@ from rest_framework.exceptions import ValidationError
 from ee.clickhouse.sql.cohort import (
     CALCULATE_COHORT_PEOPLE_SQL,
     GET_COHORT_SIZE_SQL,
+    GET_COHORT_SIZE_VERSIONED_SQL,
     GET_COHORTS_BY_PERSON_UUID,
     GET_DISTINCT_ID_BY_ENTITY_SQL,
     GET_PERSON_ID_BY_ENTITY_COUNT_SQL,
     GET_PERSON_ID_BY_PRECALCULATED_COHORT_ID,
     GET_STATIC_COHORTPEOPLE_BY_PERSON_UUID,
+    INSERT_PEOPLE_MATCHING_COHORT_2_SQL,
     INSERT_PEOPLE_MATCHING_COHORT_ID_SQL,
     REMOVE_PEOPLE_NOT_MATCHING_COHORT_ID_SQL,
+    REMOVE_PEOPLE_OLD_COHORT_VERSION_2_SQL,
 )
 from ee.clickhouse.sql.person import (
     GET_LATEST_PERSON_ID_SQL,
@@ -34,6 +37,8 @@ from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
 
 # temporary marker to denote when cohortpeople table started being populated
 TEMP_PRECALCULATED_MARKER = parser.parse("2021-06-07T15:00:00+00:00")
+
+TEMP_NEW_COHORTPEOPLE_MARKER = parser.parse("2022-05-28T15:00:00+00:00")
 
 logger = structlog.get_logger(__name__)
 
@@ -340,7 +345,7 @@ def recalculate_cohortpeople_with_new_query(cohort: Cohort) -> Optional[int]:
     return count
 
 
-def recalculate_cohortpeople(cohort: Cohort) -> Optional[int]:
+def recalculate_cohortpeople(cohort: Cohort, pending_version: int) -> Optional[int]:
 
     # use the new query if
     # 1: testing
@@ -349,11 +354,21 @@ def recalculate_cohortpeople(cohort: Cohort) -> Optional[int]:
     should_use_new_query = (
         settings.TEST or (cohort.has_complex_behavioral_filter) or cohort.team.behavioral_cohort_querying_enabled
     )
+
+    should_use_versioned = timezone.now() > TEMP_NEW_COHORTPEOPLE_MARKER
+    insert_query = INSERT_PEOPLE_MATCHING_COHORT_2_SQL if should_use_versioned else INSERT_PEOPLE_MATCHING_COHORT_ID_SQL
+    remove_query = (
+        REMOVE_PEOPLE_OLD_COHORT_VERSION_2_SQL if should_use_versioned else REMOVE_PEOPLE_NOT_MATCHING_COHORT_ID_SQL
+    )
+    count_query = GET_COHORT_SIZE_VERSIONED_SQL if should_use_versioned else GET_COHORT_SIZE_SQL
+
     cohort_filter, cohort_params = format_person_query(
         cohort, 0, custom_match_field="id", using_new_query=should_use_new_query
     )
 
-    before_count = sync_execute(GET_COHORT_SIZE_SQL, {"cohort_id": cohort.pk, "team_id": cohort.team_id})
+    before_count = sync_execute(
+        count_query, {"cohort_id": cohort.pk, "team_id": cohort.team_id, "version": pending_version - 1}
+    )
     logger.info(
         "Recalculating cohortpeople starting",
         team_id=cohort.team_id,
@@ -369,13 +384,21 @@ def recalculate_cohortpeople(cohort: Cohort) -> Optional[int]:
         GET_TEAM_PERSON_DISTINCT_IDS=get_team_distinct_ids_query(cohort.team_id),
     )
 
-    insert_cohortpeople_sql = INSERT_PEOPLE_MATCHING_COHORT_ID_SQL.format(cohort_filter=cohort_filter)
-    sync_execute(insert_cohortpeople_sql, {**cohort_params, "cohort_id": cohort.pk, "team_id": cohort.team_id})
+    insert_cohortpeople_sql = insert_query.format(cohort_filter=cohort_filter)
+    sync_execute(
+        insert_cohortpeople_sql,
+        {**cohort_params, "cohort_id": cohort.pk, "team_id": cohort.team_id, "version": pending_version},
+    )
 
-    remove_cohortpeople_sql = REMOVE_PEOPLE_NOT_MATCHING_COHORT_ID_SQL.format(cohort_filter=cohort_filter)
-    sync_execute(remove_cohortpeople_sql, {**cohort_params, "cohort_id": cohort.pk, "team_id": cohort.team_id})
+    remove_cohortpeople_sql = remove_query.format(cohort_filter=cohort_filter)
+    sync_execute(
+        remove_cohortpeople_sql,
+        {**cohort_params, "cohort_id": cohort.pk, "team_id": cohort.team_id, "version": pending_version - 1},
+    )
 
-    count_result = sync_execute(GET_COHORT_SIZE_SQL, {"cohort_id": cohort.pk, "team_id": cohort.team_id})
+    count_result = sync_execute(
+        count_query, {"cohort_id": cohort.pk, "team_id": cohort.team_id, "version": pending_version}
+    )
 
     if count_result and len(count_result) and len(count_result[0]):
         count = count_result[0][0]

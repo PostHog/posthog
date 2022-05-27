@@ -57,12 +57,30 @@ AND
     )
 """
 
+REMOVE_PEOPLE_OLD_COHORT_VERSION_2_SQL = """
+INSERT INTO cohortpeople2
+SELECT person_id, cohort_id, team_id, -1 as sign, version
+FROM cohortpeople2
+WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s AND version = %(version)s AND sign = 1
+"""
+
 GET_COHORT_SIZE_SQL = """
 SELECT count(*)
 FROM (
     SELECT 1
     FROM cohortpeople
     WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s
+    GROUP BY person_id, cohort_id, team_id
+    HAVING sum(sign) > 0
+)
+"""
+
+GET_COHORT_SIZE_VERSIONED_SQL = """
+SELECT count(*)
+FROM (
+    SELECT 1
+    FROM cohortpeople2
+    WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s AND version = %(version)s
     GROUP BY person_id, cohort_id, team_id
     HAVING sum(sign) > 0
 )
@@ -80,6 +98,16 @@ INSERT INTO cohortpeople
     WHERE (cohortpeople.person_id = '00000000-0000-0000-0000-000000000000' OR sign = 0)
     AND person.is_deleted = 0
     AND id IN ({cohort_filter})
+"""
+
+INSERT_PEOPLE_MATCHING_COHORT_2_SQL = """
+INSERT INTO cohortpeople2
+SELECT id, %(cohort_id)s as cohort_id, %(team_id)s as team_id, 1 AS sign, %(version)s AS version
+FROM (
+    SELECT id, argMax(properties, person._timestamp) as properties, sum(is_deleted) as is_deleted FROM person WHERE team_id = %(team_id)s GROUP BY id
+) as person
+WHERE person.is_deleted = 0
+AND id IN ({cohort_filter})
 """
 
 GET_DISTINCT_ID_BY_ENTITY_SQL = """

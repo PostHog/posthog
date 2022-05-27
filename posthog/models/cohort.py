@@ -224,7 +224,7 @@ class Cohort(models.Model):
         start_time = time.monotonic()
 
         try:
-            count = recalculate_cohortpeople(self)
+            count = recalculate_cohortpeople(self, pending_version)
 
             # only precalculate if used in feature flag
             ids = get_cohort_ids_in_feature_flags()
