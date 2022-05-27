@@ -13,6 +13,7 @@ CREATE TABLE IF NOT EXISTS cohortpeople ON CLUSTER '{cluster}'
     person_id UUID,
     cohort_id Int64,
     team_id Int64,
+    random_string UUID,
     sign Int8
 ) ENGINE = {engine}
 Order By (team_id, cohort_id, person_id)
@@ -45,7 +46,7 @@ TRUNCATE_COHORTPEOPLE2_TABLE_SQL = f"TRUNCATE TABLE IF EXISTS cohortpeople2 ON C
 
 REMOVE_PEOPLE_NOT_MATCHING_COHORT_ID_SQL = """
 INSERT INTO cohortpeople
-SELECT person_id, cohort_id, %(team_id)s as team_id,  -1 as _sign
+SELECT person_id, cohort_id, %(team_id)s as team_id, generateUUIDv4() as random_string, -1 as _sign
 FROM cohortpeople
 JOIN (
     SELECT id, argMax(properties, person._timestamp) as properties, sum(is_deleted) as is_deleted FROM person WHERE team_id = %(team_id)s GROUP BY id
@@ -70,7 +71,7 @@ FROM (
 
 INSERT_PEOPLE_MATCHING_COHORT_ID_SQL = """
 INSERT INTO cohortpeople
-    SELECT id, %(cohort_id)s as cohort_id, %(team_id)s as team_id, 1 as _sign
+    SELECT id, %(cohort_id)s as cohort_id, %(team_id)s as team_id, generateUUIDv4() as random_string, 1 as _sign
     FROM (
         SELECT id, argMax(properties, person._timestamp) as properties, sum(is_deleted) as is_deleted FROM person WHERE team_id = %(team_id)s GROUP BY id
     ) as person
