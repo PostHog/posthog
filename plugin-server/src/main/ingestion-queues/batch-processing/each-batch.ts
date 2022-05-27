@@ -17,7 +17,7 @@ export async function eachBatch(
         try {
             await heartbeat()
         } catch (error) {
-            if (error.message && !error.message.includes('The coordinator is not aware of this member')) {
+            if (error.type === 'UNKNOWN_MEMBER_ID') {
                 queue.pluginsServer.statsd?.increment('kafka_queue_heartbeat_failure_coordinator_not_aware')
             } else {
                 // This will reach sentry
@@ -26,8 +26,6 @@ export async function eachBatch(
         }
     }
 
-    // :KLUDGE: We're seeing some kafka consumers sitting idly. Commit heartbeats more frequently.
-    const heartbeatInterval = setInterval(() => tryHeartBeat(), 1000)
     await tryHeartBeat()
 
     try {
@@ -65,7 +63,6 @@ export async function eachBatch(
             }ms (${loggingKey})`
         )
     } finally {
-        clearInterval(heartbeatInterval)
         queue.pluginsServer.statsd?.timing(`kafka_queue.${loggingKey}`, batchStartTimer)
     }
 }
