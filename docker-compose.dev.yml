@@ -83,6 +83,7 @@ services:
             PGHOST: db
             PGUSER: posthog
             PGPASSWORD: posthog
+            SITE_URL: http://web:8000
         depends_on:
             - db
             - redis

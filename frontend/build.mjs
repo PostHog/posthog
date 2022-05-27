@@ -44,6 +44,10 @@ export function writeSharedDashboardHtml(chunks = {}, entrypoints = []) {
     copyIndexHtml('src/shared_dashboard.html', 'dist/shared_dashboard.html', 'shared_dashboard', chunks, entrypoints)
 }
 
+export function writeExporterHtml(chunks = {}, entrypoints = []) {
+    copyIndexHtml('src/exporter.html', 'dist/exporter.html', 'exporter', chunks, entrypoints)
+}
+
 startDevServer()
 copyPublicFolder()
 writeSourceCodeEditorTypes()
@@ -67,6 +71,13 @@ buildInParallel(
             bundle: true,
             format: 'iife',
             outfile: path.resolve(__dirname, 'dist', 'shared_dashboard.js'),
+        },
+        {
+            name: 'Exporter',
+            entryPoints: ['src/exporter/ExportViewer.tsx'],
+            bundle: true,
+            format: 'iife',
+            outfile: path.resolve(__dirname, 'dist', 'exporter.js'),
         },
         {
             name: 'Toolbar',
@@ -98,6 +109,10 @@ buildInParallel(
 
             if (config.name === 'Shared Dashboard') {
                 writeSharedDashboardHtml(chunks, entrypoints)
+            }
+
+            if (config.name === 'Exporter') {
+                writeExporterHtml(chunks, entrypoints)
             }
 
             createHashlessEntrypoints(entrypoints)

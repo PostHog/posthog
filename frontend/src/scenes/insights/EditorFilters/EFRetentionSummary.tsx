@@ -78,7 +78,7 @@ export function EFRetentionSummary({ insightProps }: EditorFilterProps): JSX.Ele
                     type="tel" /* type="tel" shows a numpad on a phone, and hides the undebouncable up/down arrows you get with "number" */
                     style={{ width: 80 }}
                     value={String((filters.total_intervals ?? 11) - 1)}
-                    onChange={(e) => setFilters({ total_intervals: parseInt(e.target.value) + 1 })}
+                    onChange={(e) => setFilters({ total_intervals: parseInt(e.target.value || '0') + 1 })}
                 />{' '}
                 <Select
                     value={filters.period}

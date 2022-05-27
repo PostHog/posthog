@@ -5,10 +5,12 @@ from unittest.mock import patch
 
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test.client import Client
+from rest_framework import status
 from rest_framework.test import APIClient
 
 from posthog.models import Person
 from posthog.models.cohort import Cohort
+from posthog.models.instance_setting import override_instance_config
 from posthog.test.base import APIBaseTest, _create_event, _create_person, flush_persons_and_events
 
 
@@ -324,38 +326,73 @@ email@example.org,
 
         flush_persons_and_events()
 
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/cohorts",
-            data={
-                "name": "cohort A",
-                "filters": {
-                    "properties": {
-                        "type": "OR",
-                        "values": [
-                            {"key": "$some_prop", "value": "something", "type": "person"},
-                            {
-                                "key": "$pageview",
-                                "event_type": "events",
-                                "time_value": 1,
-                                "time_interval": "day",
-                                "value": "performed_event",
-                                "type": "behavioral",
-                            },
-                        ],
-                    }
+        with override_instance_config("NEW_COHORT_QUERY_TEAMS", f"{self.team.pk}"):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/cohorts",
+                data={
+                    "name": "cohort A",
+                    "filters": {
+                        "properties": {
+                            "type": "OR",
+                            "values": [
+                                {"key": "$some_prop", "value": "something", "type": "person"},
+                                {
+                                    "key": "$pageview",
+                                    "event_type": "events",
+                                    "time_value": 1,
+                                    "time_interval": "day",
+                                    "value": "performed_event",
+                                    "type": "behavioral",
+                                },
+                            ],
+                        }
+                    },
                 },
-            },
-        )
-        self.assertEqual(response.status_code, 201, response.content)
+            )
+            self.assertEqual(response.status_code, 201, response.content)
 
-        cohort_id = response.json()["id"]
+            cohort_id = response.json()["id"]
 
-        while response.json()["is_calculating"]:
-            response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort_id}")
+            while response.json()["is_calculating"]:
+                response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort_id}")
 
-        response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort_id}/persons/?cohort={cohort_id}")
-        self.assertEqual(response.status_code, 200, response.content)
-        self.assertEqual(2, len(response.json()["results"]))
+            response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort_id}/persons/?cohort={cohort_id}")
+            self.assertEqual(response.status_code, 200, response.content)
+            self.assertEqual(2, len(response.json()["results"]))
+
+        with override_instance_config("NEW_COHORT_QUERY_TEAMS", f"{self.team.pk}"):
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/cohorts/{cohort_id}",
+                data={
+                    "name": "cohort A",
+                    "filters": {
+                        "properties": {
+                            "type": "OR",
+                            "values": [
+                                {"key": "$some_prop", "value": "something", "type": "person"},
+                                {
+                                    "key": "$pageview",
+                                    "event_type": "events",
+                                    "time_value": 2,
+                                    "time_interval": "week",
+                                    "value": "performed_event",
+                                    "type": "behavioral",
+                                },
+                            ],
+                        }
+                    },
+                },
+            )
+            self.assertEqual(response.status_code, 200, response.content)
+
+            cohort_id = response.json()["id"]
+
+            while response.json()["is_calculating"]:
+                response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort_id}")
+
+            response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort_id}/persons/?cohort={cohort_id}")
+            self.assertEqual(response.status_code, 200, response.content)
+            self.assertEqual(3, len(response.json()["results"]))
 
     @patch("posthog.api.cohort.report_user_action")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
@@ -381,6 +418,17 @@ email@example.org,
             {"detail": "Filters must be a dictionary with a 'properties' key.", "type": "validation_error"},
             update_response.json(),
         )
+
+    @patch("posthog.api.cohort.report_user_action")
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
+    def test_hard_delete_is_forbidden(self, patch_calculate_cohort, patch_capture):
+        response_a = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={"name": "cohort A", "groups": [{"properties": {"team_id": 5}}]},
+        )
+
+        response = self.client.delete(f"/api/projects/{self.team.id}/cohorts/{response_a.json()['id']}",)
+        self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
 
 
 def create_cohort(client: Client, team_id: int, name: str, groups: List[Dict[str, Any]]):
