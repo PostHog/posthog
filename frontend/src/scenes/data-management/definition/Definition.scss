@@ -1,0 +1,30 @@
+.definition-page {
+    &.definition-view-page {
+        .definition-tags {
+            margin-top: 0.25rem;
+            margin-bottom: 0.25rem;
+        }
+
+        .definition-popup-timemeta {
+            display: inline;
+            margin-top: 0.25rem;
+            margin-bottom: 0.25rem;
+
+            .definition-popup-timemeta-user {
+                display: inline-flex;
+            }
+
+            .definition-popup-timemeta-spacer {
+                margin-right: 4px;
+            }
+        }
+    }
+
+    &.definition-edit-page {
+        .definition-footer-buttons {
+            display: flex;
+            flex-direction: row;
+            justify-content: flex-end;
+        }
+    }
+}

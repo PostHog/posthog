@@ -86,7 +86,6 @@ interface SharedDefinitionHeaderProps {
     hideView?: boolean
     hideEdit?: boolean
     asLink?: boolean
-    openDetailInNewTab?: boolean
     updateRemoteItem?: (definition: TaxonomicDefinitionTypes) => void
 }
 
@@ -100,7 +99,6 @@ function RawDefinitionHeader({
     hideView = false,
     hideEdit = false,
     asLink = false,
-    openDetailInNewTab = true,
 }: {
     definition: EventDefinition | PropertyDefinition
     definitionKey: string
@@ -136,7 +134,7 @@ function RawDefinitionHeader({
         </span>
     )
     const linkedInnerContent = isLink ? (
-        <Link target={openDetailInNewTab ? '_blank' : undefined} to={fullDetailUrl} preventClick={!fullDetailUrl}>
+        <Link to={fullDetailUrl} preventClick={!fullDetailUrl}>
             {innerContent}
         </Link>
     ) : (
@@ -165,7 +163,7 @@ function RawDefinitionHeader({
                                 updateRemoteItem={updateRemoteItem}
                                 hideView={hideView}
                                 hideEdit={hideEdit}
-                                openDetailInNewTab={openDetailInNewTab}
+                                openDetailInNewTab
                             >
                                 {linkedInnerContent}
                             </DefinitionPopupContents>
@@ -196,6 +194,7 @@ export function EventDefinitionHeader({
                 type: TaxonomicFilterGroupType.Events,
                 getName: (eventDefinition: EventDefinition) => eventDefinition.name,
                 getValue: (eventDefinition: EventDefinition) => eventDefinition.name,
+                getFullDetailUrl: (eventDefinition: EventDefinition) => urls.eventDefinition(eventDefinition.id),
                 ...eventTaxonomicGroupProps,
             }}
             {...props}

@@ -22,6 +22,8 @@ const sceneNavAlias: Partial<Record<Scene, Scene>> = {
     [Scene.Actions]: Scene.DataManagement,
     [Scene.EventDefinitions]: Scene.DataManagement,
     [Scene.EventPropertyDefinitions]: Scene.DataManagement,
+    [Scene.EventDefinition]: Scene.DataManagement,
+    [Scene.EventPropertyDefinition]: Scene.DataManagement,
     [Scene.Person]: Scene.Persons,
     [Scene.Cohort]: Scene.Cohorts,
     [Scene.Groups]: Scene.Persons,

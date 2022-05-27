@@ -52,6 +52,7 @@ export function EventDefinitionsTable(): JSX.Element {
                         definition={definition}
                         hideView
                         hideIcon
+                        asLink
                         updateRemoteItem={(nextEventDefinition) =>
                             setLocalEventDefinition(nextEventDefinition as EventDefinition)
                         }

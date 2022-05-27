@@ -52,7 +52,7 @@ export function EventPropertyDefinitionsTable(): JSX.Element {
                         definition={definition}
                         hideIcon
                         hideView
-                        openDetailInNewTab={false}
+                        asLink
                         updateRemoteItem={(nextPropertyDefinition) => {
                             setLocalEventPropertyDefinition(nextPropertyDefinition as PropertyDefinition)
                         }}

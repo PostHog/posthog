@@ -7,20 +7,24 @@ import { lemonToast } from 'lib/components/lemonToast'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
 import { definitionLogic, DefinitionLogicProps } from 'scenes/data-management/definition/definitionLogic'
-
 import type { definitionEditLogicType } from './definitionEditLogicType'
+import { capitalizeFirstLetter } from 'lib/utils'
+
+interface DefinitionEditLogicProps extends DefinitionLogicProps {
+    definition: Definition
+}
 
 export const definitionEditLogic = kea<definitionEditLogicType>([
     path(['scenes', 'data-management', 'definition', 'definitionDetailLogic']),
-    props({} as DefinitionLogicProps),
+    props({} as DefinitionEditLogicProps),
     key((props) => props.id || 'new'),
-    connect((props: DefinitionLogicProps) => ({
-        values: [definitionLogic(props), ['definition', 'isEvent']],
-        actions: [definitionLogic(props), ['setDefinition']],
+    connect(({ id }: DefinitionEditLogicProps) => ({
+        values: [definitionLogic({ id }), ['isEvent', 'singular', 'mode']],
+        actions: [definitionLogic({ id }), ['setDefinition', 'setPageMode']],
     })),
-    forms(({ actions, values }) => ({
+    forms(({ actions, props }) => ({
         action: {
-            defaults: { ...values.definition } as Definition,
+            defaults: { ...props.definition } as Definition,
             errors: ({ name }) => ({
                 name: !name ? 'You need to set a name' : null,
             }),
@@ -29,12 +33,12 @@ export const definitionEditLogic = kea<definitionEditLogicType>([
             },
         },
     })),
-    loaders(({ values }) => ({
+    loaders(({ values, props }) => ({
         definition: [
-            { ...values.definition } as Definition,
+            { ...props.definition } as Definition,
             {
-                saveDefinition: async (updatedDefinition: Definition, breakpoint) => {
-                    let definition = { ...updatedDefinition }
+                saveDefinition: async (_, breakpoint) => {
+                    let definition = { ...values.definition }
 
                     try {
                         if (values.isEvent) {
@@ -67,7 +71,7 @@ export const definitionEditLogic = kea<definitionEditLogicType>([
                         throw response
                     }
 
-                    lemonToast.success(`${values.isEvent ? 'Event' : 'Event property'} saved`)
+                    lemonToast.success(`${capitalizeFirstLetter(values.singular)} saved`)
                     eventDefinitionsModel.actions.loadEventDefinitions() // reload definitions so they are immediately available
                     return definition
                 },

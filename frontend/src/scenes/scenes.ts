@@ -62,7 +62,15 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
         projectBased: true,
         name: 'Data Management',
     },
+    [Scene.EventDefinition]: {
+        projectBased: true,
+        name: 'Data Management',
+    },
     [Scene.EventPropertyDefinitions]: {
+        projectBased: true,
+        name: 'Data Management',
+    },
+    [Scene.EventPropertyDefinition]: {
         projectBased: true,
         name: 'Data Management',
     },
