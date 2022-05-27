@@ -70,8 +70,7 @@ export class KafkaProducerWrapper {
         }
     }
 
-    // eslint-disable-next-line @typescript-eslint/explicit-module-boundary-types
-    async queueSingleJsonMessage(topic: string, key: Message['key'], object: any): Promise<void> {
+    async queueSingleJsonMessage(topic: string, key: Message['key'], object: Record<string, any>): Promise<void> {
         await this.queueMessage({
             topic,
             messages: [{ key, value: Buffer.from(JSON.stringify(object)) }],
