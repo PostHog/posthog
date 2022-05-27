@@ -1,4 +1,6 @@
 import Piscina from '@posthog/piscina'
+import { killProcess } from 'utils/kill'
+import { logOrThrowJobQueueError } from 'utils/utils'
 
 import { Hub, JobQueueConsumerControl, OnJobCallback } from '../../types'
 import { status } from '../../utils/status'
@@ -17,7 +19,16 @@ export async function startJobQueueConsumer(server: Hub, piscina: Piscina): Prom
         }
     }
 
-    await server.jobQueueManager.startConsumer(onJob)
+    status.info('🔄', 'Job queue consumer starting')
+    try {
+        await server.jobQueueManager.startConsumer(onJob)
+    } catch (error) {
+        try {
+            logOrThrowJobQueueError(server, error, `Can not start job queue consumer!`)
+        } catch {
+            killProcess()
+        }
+    }
 
     const stop = async () => {
         status.info('🔄', 'Stopping job queue consumer')
