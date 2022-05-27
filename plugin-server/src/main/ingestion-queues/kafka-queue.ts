@@ -82,6 +82,7 @@ export class KafkaQueue {
             status.info('⏬', `Connecting Kafka consumer to ${this.pluginsServer.KAFKA_HOSTS}...`)
             this.wasConsumerRan = true
 
+            await this.consumer.connect()
             await this.consumer.subscribe(this.topics())
 
             // KafkaJS batching: https://kafka.js.org/docs/consuming#a-name-each-batch-a-eachbatch
