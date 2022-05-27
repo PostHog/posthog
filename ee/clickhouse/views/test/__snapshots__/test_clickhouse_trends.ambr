@@ -224,7 +224,7 @@
        AND timestamp >= toDateTime('2012-01-01 00:00:00')
        AND timestamp <= toDateTime('2012-01-15 23:59:59')
      GROUP BY value
-     ORDER BY count DESC
+     ORDER BY count DESC, value DESC
      LIMIT 25
      OFFSET 0)
   '
