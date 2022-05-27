@@ -17,7 +17,7 @@ export async function eachBatch(
         try {
             await heartbeat()
         } catch (error) {
-            if (error.message && !error.message.includes('The coordinator is not aware of this member')) {
+            if (error.type === 'UNKNOWN_MEMBER_ID') {
                 queue.pluginsServer.statsd?.increment('kafka_queue_heartbeat_failure_coordinator_not_aware')
             } else {
                 // This will reach sentry
