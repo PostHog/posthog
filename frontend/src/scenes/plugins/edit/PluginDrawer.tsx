@@ -10,12 +10,12 @@ import { LocalPluginTag } from 'scenes/plugins/plugin/LocalPluginTag'
 import { defaultConfigForPlugin, doFieldRequirementsMatch, getConfigSchemaArray } from 'scenes/plugins/utils'
 import ReactMarkdown from 'react-markdown'
 import { SourcePluginTag } from 'scenes/plugins/plugin/SourcePluginTag'
-import { PluginSource } from './PluginSource'
+import { PluginSource } from '../source/PluginSource'
 import { PluginConfigChoice, PluginConfigSchema } from '@posthog/plugin-scaffold'
 import { PluginField } from 'scenes/plugins/edit/PluginField'
 import { endWithPunctation } from 'lib/utils'
 import { canGloballyManagePlugins, canInstallPlugins } from '../access'
-import { preflightLogic } from 'scenes/PreflightCheck/logic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { capabilitiesInfo } from './CapabilitiesInfo'
 import { Tooltip } from 'lib/components/Tooltip'
 import { PluginJobOptions } from './interface-jobs/PluginJobOptions'
@@ -145,7 +145,7 @@ export function PluginDrawer(): JSX.Element {
                                 canInstallPlugins(user?.organization, editingPlugin.organization_id) && (
                                     <Popconfirm
                                         placement="topLeft"
-                                        title="Are you sure you wish to uninstall this plugin completely?"
+                                        title="Are you sure you wish to uninstall this app completely?"
                                         onConfirm={() => uninstallPlugin(editingPlugin.name)}
                                         okText="Uninstall"
                                         cancelText="Cancel"
@@ -168,8 +168,8 @@ export function PluginDrawer(): JSX.Element {
                                     <Tooltip
                                         title={
                                             <>
-                                                This plugin can currently be used by other organizations in this
-                                                instance of PostHog. This action will <b>disable and hide it</b> for all
+                                                This app can currently be used by other organizations in this instance
+                                                of PostHog. This action will <b>disable and hide it</b> for all
                                                 organizations other than yours.
                                             </>
                                         }
@@ -187,8 +187,8 @@ export function PluginDrawer(): JSX.Element {
                                     <Tooltip
                                         title={
                                             <>
-                                                This action will mark this plugin as installed for{' '}
-                                                <b>all organizations</b> in this instance of PostHog.
+                                                This action will mark this app as installed for <b>all organizations</b>{' '}
+                                                in this instance of PostHog.
                                             </>
                                         }
                                     >
@@ -255,7 +255,7 @@ export function PluginDrawer(): JSX.Element {
                                 </div>
                             </div>
 
-                            {editingPlugin.plugin_type === 'source' ? (
+                            {editingPlugin.plugin_type === 'source' && canGloballyManagePlugins(user?.organization) ? (
                                 <div>
                                     <Button
                                         type={editingSource ? 'default' : 'primary'}
@@ -307,7 +307,7 @@ export function PluginDrawer(): JSX.Element {
                                 Configuration
                             </h3>
                             {getConfigSchemaArray(editingPlugin.config_schema).length === 0 ? (
-                                <div>This plugin is not configurable.</div>
+                                <div>This app is not configurable.</div>
                             ) : null}
                             {getConfigSchemaArray(editingPlugin.config_schema).map((fieldConfig, index) => (
                                 <React.Fragment key={fieldConfig.key || `__key__${index}`}>
@@ -365,7 +365,14 @@ export function PluginDrawer(): JSX.Element {
                     ) : null}
                 </Form>
             </Drawer>
-            {editingPlugin?.plugin_type === 'source' ? <PluginSource /> : null}
+            {editingPlugin?.plugin_type === 'source' && editingPlugin.id ? (
+                <PluginSource
+                    visible={editingSource}
+                    close={() => setEditingSource(false)}
+                    pluginId={editingPlugin.id}
+                    pluginConfigId={editingPlugin.pluginConfig?.id}
+                />
+            ) : null}
         </>
     )
 }

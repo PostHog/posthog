@@ -1,4 +1,4 @@
-import dataclasses
+from dataclasses import asdict, dataclass
 from datetime import datetime
 from functools import lru_cache
 from math import exp, lgamma, log
@@ -23,7 +23,7 @@ Probability = float
 P_VALUE_SIGNIFICANCE_LEVEL = 0.05
 
 
-@dataclasses.dataclass
+@dataclass(frozen=True)
 class Variant:
     key: str
     count: int
@@ -75,6 +75,7 @@ class ClickhouseTrendExperimentResult:
             {
                 "date_from": experiment_start_date,
                 "date_to": experiment_end_date,
+                "display": TRENDS_CUMULATIVE,
                 ACTIONS: [],
                 EVENTS: [
                     {
@@ -119,6 +120,7 @@ class ClickhouseTrendExperimentResult:
             "filters": self.query_filter.to_dict(),
             "significance_code": significance_code,
             "p_value": p_value,
+            "variants": [asdict(variant) for variant in [control_variant, *test_variants]],
         }
 
     def get_variants(self, insight_results, exposure_results):
@@ -166,10 +168,10 @@ class ClickhouseTrendExperimentResult:
     def calculate_results(control_variant: Variant, test_variants: List[Variant]) -> List[Probability]:
         """
         Calculates probability that A is better than B. First variant is control, rest are test variants.
-        
+
         Supports maximum 4 variants today
 
-        For each variant, we create a Gamma distribution of arrival rates, 
+        For each variant, we create a Gamma distribution of arrival rates,
         where alpha (shape parameter) = count of variant + 1
         beta (exposure parameter) = 1
         """
@@ -245,12 +247,16 @@ def calculate_probability_of_winning_for_each(variants: List[Variant]) -> List[P
     if len(variants) == 2:
         # simple case
         probability = simulate_winning_variant_for_arrival_rates(variants[1], [variants[0]])
-        return [1 - probability, probability]
+        return [max(0, 1 - probability), probability]
 
     elif len(variants) == 3:
         probability_third_wins = simulate_winning_variant_for_arrival_rates(variants[2], [variants[0], variants[1]])
         probability_second_wins = simulate_winning_variant_for_arrival_rates(variants[1], [variants[0], variants[2]])
-        return [1 - probability_third_wins - probability_second_wins, probability_second_wins, probability_third_wins]
+        return [
+            max(0, 1 - probability_third_wins - probability_second_wins),
+            probability_second_wins,
+            probability_third_wins,
+        ]
 
     elif len(variants) == 4:
         probability_fourth_wins = simulate_winning_variant_for_arrival_rates(
@@ -263,7 +269,7 @@ def calculate_probability_of_winning_for_each(variants: List[Variant]) -> List[P
             variants[1], [variants[0], variants[2], variants[3]]
         )
         return [
-            1 - probability_fourth_wins - probability_third_wins - probability_second_wins,
+            max(0, 1 - probability_fourth_wins - probability_third_wins - probability_second_wins),
             probability_second_wins,
             probability_third_wins,
             probability_fourth_wins,

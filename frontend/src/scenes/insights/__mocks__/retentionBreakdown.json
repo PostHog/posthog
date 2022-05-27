@@ -1,0 +1,227 @@
+{
+    "id": 51,
+    "short_id": "jEAIVJnV",
+    "name": "",
+    "derived_name": "Retention of users based on doing Pageview for the first time and returning with the same event",
+    "filters": {
+        "period": "Day",
+        "display": "ActionsTable",
+        "insight": "RETENTION",
+        "breakdowns": [
+            {
+                "type": "event",
+                "property": "$browser_version"
+            }
+        ],
+        "properties": {
+            "type": "AND",
+            "values": []
+        },
+        "target_entity": {
+            "id": "$pageview",
+            "name": "$pageview",
+            "type": "events"
+        },
+        "breakdown_type": "event",
+        "retention_type": "retention_first_time",
+        "returning_entity": {
+            "id": "$pageview",
+            "name": "$pageview",
+            "type": "events"
+        }
+    },
+    "filters_hash": "cache_130feb1ffe08b6f492fe26feb70524f9",
+    "order": null,
+    "deleted": false,
+    "dashboard": null,
+    "layouts": {},
+    "color": null,
+    "last_refresh": null,
+    "refreshing": false,
+    "result": [
+        {
+            "values": [
+                {
+                    "count": 1,
+                    "people": [],
+                    "people_url": "http://localhost:8000/api/person/retention/?breakdowns=%5B%7B%22property%22%3A+%22%24browser_version%22%2C+%22type%22%3A+%22event%22%7D%5D&breakdown_type=event&breakdown_values=%5B%2298%22%5D&date_from=-11d&display=ActionsTable&insight=RETENTION&period=Day&retention_type=retention_first_time&returning_entity=%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D&target_entity=%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D&total_intervals=11"
+                },
+                {
+                    "count": 0,
+                    "people": []
+                },
+                {
+                    "count": 0,
+                    "people": []
+                },
+                {
+                    "count": 1,
+                    "people": [],
+                    "people_url": "http://localhost:8000/api/person/retention/?breakdowns=%5B%7B%22property%22%3A+%22%24browser_version%22%2C+%22type%22%3A+%22event%22%7D%5D&breakdown_type=event&breakdown_values=%5B%2298%22%5D&date_from=-11d&display=ActionsTable&insight=RETENTION&period=Day&retention_type=retention_first_time&returning_entity=%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D&selected_interval=3&target_entity=%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D&total_intervals=11"
+                },
+                {
+                    "count": 0,
+                    "people": []
+                },
+                {
+                    "count": 0,
+                    "people": []
+                },
+                {
+                    "count": 0,
+                    "people": []
+                },
+                {
+                    "count": 0,
+                    "people": []
+                },
+                {
+                    "count": 0,
+                    "people": []
+                },
+                {
+                    "count": 0,
+                    "people": []
+                },
+                {
+                    "count": 0,
+                    "people": []
+                }
+            ],
+            "label": "98",
+            "breakdown_values": ["98"],
+            "people_url": "/api/person/retention/?breakdowns=%5B%7B%22property%22%3A+%22%24browser_version%22%2C+%22type%22%3A+%22event%22%7D%5D&breakdown_type=event&breakdown_values=%5B%2298%22%5D&date_from=-11d&display=ActionsTable&insight=RETENTION&period=Day&retention_type=retention_first_time&returning_entity=%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D&target_entity=%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D&total_intervals=11"
+        },
+        {
+            "values": [
+                {
+                    "count": 26293,
+                    "people": [],
+                    "people_url": "http://localhost:8000/api/person/retention/?breakdowns=%5B%7B%22property%22%3A+%22%24browser_version%22%2C+%22type%22%3A+%22event%22%7D%5D&breakdown_type=event&breakdown_values=%5B%22100%22%5D&date_from=-11d&display=ActionsTable&insight=RETENTION&period=Day&retention_type=retention_first_time&returning_entity=%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D&target_entity=%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D&total_intervals=11"
+                },
+                {
+                    "count": 74,
+                    "people": [],
+                    "people_url": "http://localhost:8000/api/person/retention/?breakdowns=%5B%7B%22property%22%3A+%22%24browser_version%22%2C+%22type%22%3A+%22event%22%7D%5D&breakdown_type=event&breakdown_values=%5B%22100%22%5D&date_from=-11d&display=ActionsTable&insight=RETENTION&period=Day&retention_type=retention_first_time&returning_entity=%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D&selected_interval=1&target_entity=%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D&total_intervals=11"
+                },
+                {
+                    "count": 31,
+                    "people": [],
+                    "people_url": "http://localhost:8000/api/person/retention/?breakdowns=%5B%7B%22property%22%3A+%22%24browser_version%22%2C+%22type%22%3A+%22event%22%7D%5D&breakdown_type=event&breakdown_values=%5B%22100%22%5D&date_from=-11d&display=ActionsTable&insight=RETENTION&period=Day&retention_type=retention_first_time&returning_entity=%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D&selected_interval=2&target_entity=%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D&total_intervals=11"
+                },
+                {
+                    "count": 9,
+                    "people": [],
+                    "people_url": "http://localhost:8000/api/person/retention/?breakdowns=%5B%7B%22property%22%3A+%22%24browser_version%22%2C+%22type%22%3A+%22event%22%7D%5D&breakdown_type=event&breakdown_values=%5B%22100%22%5D&date_from=-11d&display=ActionsTable&insight=RETENTION&period=Day&retention_type=retention_first_time&returning_entity=%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D&selected_interval=3&target_entity=%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D&total_intervals=11"
+                },
+                {
+                    "count": 0,
+                    "people": []
+                },
+                {
+                    "count": 0,
+                    "people": []
+                },
+                {
+                    "count": 0,
+                    "people": []
+                },
+                {
+                    "count": 0,
+                    "people": []
+                },
+                {
+                    "count": 0,
+                    "people": []
+                },
+                {
+                    "count": 0,
+                    "people": []
+                },
+                {
+                    "count": 0,
+                    "people": []
+                }
+            ],
+            "label": "100",
+            "breakdown_values": ["100"],
+            "people_url": "/api/person/retention/?breakdowns=%5B%7B%22property%22%3A+%22%24browser_version%22%2C+%22type%22%3A+%22event%22%7D%5D&breakdown_type=event&breakdown_values=%5B%22100%22%5D&date_from=-11d&display=ActionsTable&insight=RETENTION&period=Day&retention_type=retention_first_time&returning_entity=%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D&target_entity=%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D&total_intervals=11"
+        },
+        {
+            "values": [
+                {
+                    "count": 597,
+                    "people": [],
+                    "people_url": "http://localhost:8000/api/person/retention/?breakdowns=%5B%7B%22property%22%3A+%22%24browser_version%22%2C+%22type%22%3A+%22event%22%7D%5D&breakdown_type=event&breakdown_values=%5B%2292%22%5D&date_from=-11d&display=ActionsTable&insight=RETENTION&period=Day&retention_type=retention_first_time&returning_entity=%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D&target_entity=%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D&total_intervals=11"
+                },
+                {
+                    "count": 0,
+                    "people": []
+                },
+                {
+                    "count": 0,
+                    "people": []
+                },
+                {
+                    "count": 0,
+                    "people": []
+                },
+                {
+                    "count": 0,
+                    "people": []
+                },
+                {
+                    "count": 0,
+                    "people": []
+                },
+                {
+                    "count": 0,
+                    "people": []
+                },
+                {
+                    "count": 0,
+                    "people": []
+                },
+                {
+                    "count": 0,
+                    "people": []
+                },
+                {
+                    "count": 0,
+                    "people": []
+                },
+                {
+                    "count": 0,
+                    "people": []
+                }
+            ],
+            "label": "92",
+            "breakdown_values": ["92"],
+            "people_url": "/api/person/retention/?breakdowns=%5B%7B%22property%22%3A+%22%24browser_version%22%2C+%22type%22%3A+%22event%22%7D%5D&breakdown_type=event&breakdown_values=%5B%2292%22%5D&date_from=-11d&display=ActionsTable&insight=RETENTION&period=Day&retention_type=retention_first_time&returning_entity=%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D&target_entity=%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D&total_intervals=11"
+        }
+    ],
+    "created_at": "2022-03-15T21:31:00.192917Z",
+    "created_by": {
+        "id": 1,
+        "uuid": "017f7913-c1ee-0000-faff-0fe5ace3849a",
+        "distinct_id": "Q1OD2NmnqqbqrLR45mYm2p1VNNbSO9DBFsMig90GWkK",
+        "first_name": "Marius",
+        "email": "marius@posthog.com"
+    },
+    "description": "",
+    "updated_at": "2022-03-15T21:49:45.429288Z",
+    "tags": [],
+    "favorited": false,
+    "saved": true,
+    "last_modified_at": "2022-03-15T21:49:45.419714Z",
+    "last_modified_by": {
+        "id": 1,
+        "uuid": "017f7913-c1ee-0000-faff-0fe5ace3849a",
+        "distinct_id": "Q1OD2NmnqqbqrLR45mYm2p1VNNbSO9DBFsMig90GWkK",
+        "first_name": "Marius",
+        "email": "marius@posthog.com"
+    },
+    "is_sample": false,
+    "effective_restriction_level": 21,
+    "effective_privilege_level": 37
+}

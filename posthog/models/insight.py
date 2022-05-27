@@ -8,6 +8,7 @@ from django.db.models.signals import pre_save
 from django.dispatch import receiver
 from django.utils import timezone
 from django_deprecate_fields import deprecate_field
+from rest_framework.exceptions import ValidationError
 
 from posthog.models.dashboard import Dashboard
 from posthog.models.filters.utils import get_filter
@@ -25,11 +26,8 @@ class Insight(models.Model):
     reports or part of a dashboard.
     """
 
-    dashboard: models.ForeignKey = models.ForeignKey(
-        "Dashboard", related_name="items", on_delete=models.CASCADE, null=True, blank=True
-    )
-    dive_dashboard: models.ForeignKey = models.ForeignKey("Dashboard", on_delete=models.SET_NULL, null=True, blank=True)
     name: models.CharField = models.CharField(max_length=400, null=True, blank=True)
+    derived_name: models.CharField = models.CharField(max_length=400, null=True, blank=True)
     description: models.CharField = models.CharField(max_length=400, null=True, blank=True)
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
     filters: models.JSONField = models.JSONField(default=dict)
@@ -38,8 +36,6 @@ class Insight(models.Model):
     deleted: models.BooleanField = models.BooleanField(default=False)
     saved: models.BooleanField = models.BooleanField(default=False)
     created_at: models.DateTimeField = models.DateTimeField(null=True, blank=True, auto_now_add=True)
-    layouts: models.JSONField = models.JSONField(default=dict)
-    color: models.CharField = models.CharField(max_length=400, null=True, blank=True)
     last_refresh: models.DateTimeField = models.DateTimeField(blank=True, null=True)
     refreshing: models.BooleanField = models.BooleanField(default=False)
     created_by: models.ForeignKey = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)
@@ -49,20 +45,37 @@ class Insight(models.Model):
     short_id: models.CharField = models.CharField(
         max_length=12, blank=True, default=generate_short_id,
     )
-    tags: ArrayField = ArrayField(models.CharField(max_length=32), blank=True, default=list)
     favorited: models.BooleanField = models.BooleanField(default=False)
     refresh_attempt: models.IntegerField = models.IntegerField(null=True, blank=True)
     last_modified_at: models.DateTimeField = models.DateTimeField(default=timezone.now)
     last_modified_by: models.ForeignKey = models.ForeignKey(
-        "User", on_delete=models.SET_NULL, null=True, blank=True, related_name="modified_insights"
+        "User", on_delete=models.SET_NULL, null=True, blank=True, related_name="modified_insights",
     )
 
+    # DEPRECATED: using the new "dashboards" relation instead
+    dashboard: models.ForeignKey = models.ForeignKey(
+        "Dashboard", related_name="items", on_delete=models.CASCADE, null=True, blank=True,
+    )
+    # DEPRECATED: on dashboard_insight now
+    layouts: models.JSONField = models.JSONField(default=dict)
+    # DEPRECATED: on dashboard_insight now
+    color: models.CharField = models.CharField(max_length=400, null=True, blank=True)
+    # DEPRECATED: dive dashboards were never shipped
+    dive_dashboard: models.ForeignKey = models.ForeignKey("Dashboard", on_delete=models.SET_NULL, null=True, blank=True)
     # DEPRECATED: in practically all cases field `last_modified_at` should be used instead
     updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
     # DEPRECATED: use `display` property of the Filter object instead
     type: models.CharField = deprecate_field(models.CharField(max_length=400, null=True, blank=True))
     # DEPRECATED: we don't store funnels as a separate model any more
     funnel: models.IntegerField = deprecate_field(models.IntegerField(null=True, blank=True))
+    # DEPRECATED: now using app-wide tagging model. See EnterpriseTaggedItem
+    deprecated_tags: ArrayField = deprecate_field(
+        ArrayField(models.CharField(max_length=32), blank=True, default=list), return_instead=[],
+    )
+    # DEPRECATED: now using app-wide tagging model. See EnterpriseTaggedItem
+    tags: ArrayField = deprecate_field(
+        ArrayField(models.CharField(max_length=32), blank=True, default=None), return_instead=[],
+    )
 
     # Changing these fields materially alters the Insight, so these count for the "last_modified_*" fields
     MATERIAL_INSIGHT_FIELDS = {"name", "description", "filters"}
@@ -75,39 +88,88 @@ class Insight(models.Model):
         )
 
     def dashboard_filters(self, dashboard: Optional[Dashboard] = None):
-        if dashboard is None:
-            dashboard = self.dashboard
         if dashboard:
-            return {**self.filters, **dashboard.filters}
+            dashboard_filters = {**dashboard.filters}
+            dashboard_properties = dashboard_filters.pop("properties") if dashboard_filters.get("properties") else None
+
+            filters = {**self.filters, **dashboard_filters}
+            if dashboard_properties:
+                if isinstance(self.filters.get("properties"), list):
+                    filters["properties"] = {
+                        "type": "AND",
+                        "values": [
+                            {"type": "AND", "values": self.filters["properties"],},
+                            {"type": "AND", "values": dashboard_properties},
+                        ],
+                    }
+                elif self.filters.get("properties", {}).get("type"):
+                    filters["properties"] = {
+                        "type": "AND",
+                        "values": [self.filters["properties"], {"type": "AND", "values": dashboard_properties}],
+                    }
+                elif not self.filters.get("properties"):
+                    filters["properties"] = dashboard_properties
+                else:
+                    raise ValidationError("Unrecognized property format: ", self.filters["properties"])
+
+            return filters
         else:
             return self.filters
 
     @property
     def effective_restriction_level(self) -> Dashboard.RestrictionLevel:
-        return (
-            self.dashboard.effective_restriction_level
-            if self.dashboard is not None
-            else Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT
+        dashboards = list(self.dashboards.all())
+        if not dashboards:
+            return Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT
+
+        restrictions = [d.effective_restriction_level for d in dashboards]
+        restriction_set_to_only_collaborators = next(
+            (x for x in restrictions if x == Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT), None
         )
+        if restriction_set_to_only_collaborators:
+            return Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
+        else:
+            return Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT
 
     def get_effective_privilege_level(self, user_id: int) -> Dashboard.PrivilegeLevel:
-        return (
-            self.dashboard.get_effective_privilege_level(user_id)
-            if self.dashboard is not None
-            else Dashboard.PrivilegeLevel.CAN_EDIT
-        )
+        if self.dashboards.count() == 0:
+            return Dashboard.PrivilegeLevel.CAN_EDIT
+
+        edit_permissions = [d.can_user_edit(user_id) for d in self.dashboards.all()]
+        if any(edit_permissions):
+            return Dashboard.PrivilegeLevel.CAN_EDIT
+        else:
+            return Dashboard.PrivilegeLevel.CAN_VIEW
 
 
-@receiver(pre_save, sender=Dashboard)
-def dashboard_saved(sender, instance: Dashboard, **kwargs):
-    for item in instance.items.all():
-        dashboard_item_saved(sender, item, dashboard=instance, **kwargs)
-        item.save()
+class InsightViewed(models.Model):
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["team", "user", "insight"], name="posthog_unique_insightviewed"),
+        ]
+        indexes = [
+            models.Index(fields=["team_id", "user_id", "-last_viewed_at"]),
+        ]
+
+    team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
+    user: models.ForeignKey = models.ForeignKey("User", on_delete=models.CASCADE)
+    insight: models.ForeignKey = models.ForeignKey(Insight, on_delete=models.CASCADE)
+    last_viewed_at: models.DateTimeField = models.DateTimeField()
 
 
 @receiver(pre_save, sender=Insight)
-def dashboard_item_saved(sender, instance: Insight, dashboard=None, **kwargs):
-    if instance.filters and instance.filters != {}:
-        filter = get_filter(data=instance.dashboard_filters(dashboard=dashboard), team=instance.team)
+def insight_saving(sender, instance: Insight, **kwargs):
+    update_fields = kwargs.get("update_fields")
+    if update_fields in [frozenset({"filters_hash"}), frozenset({"last_refresh"}), frozenset({"filters"})]:
+        # Don't always update the filters_hash
+        return
 
-        instance.filters_hash = generate_cache_key("{}_{}".format(filter.toJSON(), instance.team_id))
+    # ensure there's a filters hash
+    if instance.filters and instance.filters != {}:
+        instance.filters_hash = generate_insight_cache_key(instance, None)
+
+
+def generate_insight_cache_key(insight: Insight, dashboard: Optional[Dashboard]) -> str:
+    dashboard_insight_filter = get_filter(data=insight.dashboard_filters(dashboard=dashboard), team=insight.team)
+    candidate_filters_hash = generate_cache_key("{}_{}".format(dashboard_insight_filter.toJSON(), insight.team_id))
+    return candidate_filters_hash

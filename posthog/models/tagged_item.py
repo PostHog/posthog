@@ -2,21 +2,29 @@ from typing import List, Union
 
 from django.core.exceptions import ValidationError
 from django.db import models
-from django.db.models import Q
+from django.db.models import Q, UniqueConstraint
 
 from posthog.models.utils import UUIDModel
 
-RELATED_OBJECTS = ("action",)
+RELATED_OBJECTS = ("dashboard", "insight", "event_definition", "property_definition", "action")
 
 
+# Checks that exactly one object field is populated
 def build_check():
     built_check_list: List[Union[Q, Q]] = []
-    # Only one object field can be populated
-    for o_field in RELATED_OBJECTS:
+    for field in RELATED_OBJECTS:
         built_check_list.append(
-            Q(*[(f"{_o_field}__isnull", _o_field != o_field) for _o_field in RELATED_OBJECTS], _connector="AND")
+            Q(*[(f"{other_field}__isnull", other_field != field) for other_field in RELATED_OBJECTS], _connector="AND")
         )
     return Q(*built_check_list, _connector="OR")
+
+
+# Enforces uniqueness on tag_{object_field}. All permutations of null columns must be explicit as Postgres ignores
+# uniqueness across null columns.
+def build_partial_uniqueness_constraint(field: str):
+    return UniqueConstraint(
+        fields=["tag", field], name=f"unique_{field}_tagged_item", condition=Q((f"{field}__isnull", False)),
+    )
 
 
 class TaggedItem(UUIDModel):
@@ -38,14 +46,29 @@ class TaggedItem(UUIDModel):
 
     # When adding a new taggeditem-model relationship, make sure to add the foreign key field and append field name to
     # the `RELATED_OBJECTS` tuple above.
+    dashboard: models.ForeignKey = models.ForeignKey(
+        "Dashboard", on_delete=models.CASCADE, null=True, blank=True, related_name="tagged_items"
+    )
+    insight: models.ForeignKey = models.ForeignKey(
+        "Insight", on_delete=models.CASCADE, null=True, blank=True, related_name="tagged_items"
+    )
+    event_definition: models.ForeignKey = models.ForeignKey(
+        "EventDefinition", on_delete=models.CASCADE, null=True, blank=True, related_name="tagged_items"
+    )
+    property_definition: models.ForeignKey = models.ForeignKey(
+        "PropertyDefinition", on_delete=models.CASCADE, null=True, blank=True, related_name="tagged_items"
+    )
     action: models.ForeignKey = models.ForeignKey(
         "Action", on_delete=models.CASCADE, null=True, blank=True, related_name="tagged_items"
     )
 
     class Meta:
-        # Make sure to add new key to uniqueness constraint when extending tag functionality to new model
         unique_together = ("tag",) + RELATED_OBJECTS
-        constraints = [models.CheckConstraint(check=build_check(), name="exactly_one_related_object",)]
+        # Make sure to add new key to uniqueness constraint when extending tag functionality to new model
+        constraints = [
+            *[build_partial_uniqueness_constraint(field=field) for field in RELATED_OBJECTS],
+            models.CheckConstraint(check=build_check(), name="exactly_one_related_object",),
+        ]
 
     def clean(self):
         super().clean()

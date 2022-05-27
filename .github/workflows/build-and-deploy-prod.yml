@@ -1,10 +1,15 @@
 name: Build & Deploy Production Containers
 
+#
+# Comment the `on:` section below if you want to stop deploys
+#
 on:
     push:
         branches:
             - master
             - main
+
+concurrency: 'prod_deploy' # Ensure only one of this runs at a time
 
 jobs:
     build:
@@ -25,7 +30,7 @@ jobs:
 
             - name: Fetch posthog-cloud
               run: |
-                  curl -L https://github.com/posthog/posthog-cloud/tarball/master | tar --strip-components=1 -xz --
+                  curl -u posthog-bot:${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }} -L https://github.com/posthog/posthog-cloud/tarball/master | tar --strip-components=1 -xz --
                   mkdir deploy/
 
             - name: Checkout master
@@ -43,8 +48,8 @@ jobs:
                   ECR_REPOSITORY: posthog-production
                   IMAGE_TAG: ${{ github.sha }}
               run: |
-                  docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG -f prod.web.Dockerfile .
-                  docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+                  docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG -t $ECR_REGISTRY/$ECR_REPOSITORY:latest -f prod.web.Dockerfile .
+                  docker push --all-tags $ECR_REGISTRY/$ECR_REPOSITORY
                   echo "::set-output name=image::$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
 
             - name: Extract and push the static assets to AWS S3
@@ -87,8 +92,16 @@ jobs:
               id: task-def-plugins
               uses: aws-actions/amazon-ecs-render-task-definition@v1
               with:
-                  task-definition: deploy/task-definition.plugins.json
+                  task-definition: deploy/task-definition.plugins-ingestion.json
                   container-name: posthog-production-plugins
+                  image: ${{ steps.build-image.outputs.image }}
+
+            - name: Fill in the new plugins-async image ID in the Amazon ECS task definition
+              id: task-def-plugins-async
+              uses: aws-actions/amazon-ecs-render-task-definition@v1
+              with:
+                  task-definition: deploy/task-definition.plugins-async.json
+                  container-name: posthog-production-plugins-async
                   image: ${{ steps.build-image.outputs.image }}
 
             - name: Fill in the new migration image ID in the Amazon ECS task definition
@@ -142,6 +155,13 @@ jobs:
                   service: posthog-production-plugins
                   cluster: posthog-production-cluster
 
+            - name: Deploy Amazon ECS plugins-async task definition
+              uses: aws-actions/amazon-ecs-deploy-task-definition@v1
+              with:
+                  task-definition: ${{ steps.task-def-plugins-async.outputs.task-definition }}
+                  service: posthog-production-plugins-async
+                  cluster: posthog-production-cluster
+
             - name: Notify Platform team on slack
               uses: rtCamp/action-slack-notify@v2
               env:
@@ -160,6 +180,21 @@ jobs:
                   apiToken: ${{ secrets.GRAFANA_API_KEY }}
                   text: Prod deployment of ${{ github.sha }} - ${{ github.event.head_commit.message }}
                   tags: deployment,github
+
+            - name: Trigger PostHog Cloud deployment
+              uses: mvasigh/dispatch-action@main
+              with:
+                  # TODO: find a way to avoid using a personal access token. An
+                  # option: push something to SQS (using WebIdentity) -> lambda
+                  # function to trigger the workflow via webhook
+                  token: ${{ secrets.POSTHOG_CLOUD_ACCESS_TOKEN }}
+                  repo: posthog-cloud-infra
+                  owner: PostHog
+                  event_type: deploy_app_version
+                  message: |
+                      {
+                        "image_tag": "${{ github.sha }}"
+                      }
 
     slack:
         name: Notify Slack of start of deploy

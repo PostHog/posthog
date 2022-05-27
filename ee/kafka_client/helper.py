@@ -43,7 +43,7 @@ def get_kafka_ssl_context():
     # existing for the shortest amount of time.  As extra caution password
     # protect/encrypt the client key
     with NamedTemporaryFile(suffix=".crt") as cert_file, NamedTemporaryFile(
-        suffix=".key"
+        suffix=".key",
     ) as key_file, NamedTemporaryFile(suffix=".crt") as trust_file:
         cert_file.write(base64.b64decode(os.environ["KAFKA_CLIENT_CERT_B64"].encode("utf-8")))
         cert_file.flush()
@@ -109,7 +109,7 @@ def get_kafka_producer(acks="all", value_serializer=lambda v: json.dumps(v).enco
         ssl_context=get_kafka_ssl_context(),
         value_serializer=value_serializer,
         acks=acks,
-        **kwargs
+        **kwargs,
     )
 
     return producer
@@ -123,12 +123,14 @@ def get_kafka_consumer(topic=None, value_deserializer=lambda v: json.loads(v.dec
     # Create the KafkaConsumer connected to the specified brokers. Use the
     # SSLContext that is created with create_ssl_context.
     consumer = KafkaConsumer(
-        topic,
         bootstrap_servers=get_kafka_brokers(),
         security_protocol="SSL",
         ssl_context=get_kafka_ssl_context(),
         value_deserializer=value_deserializer,
-        **kwargs
+        **kwargs,
     )
+
+    if topic:
+        consumer.subscribe([topic])
 
     return consumer

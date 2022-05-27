@@ -4,6 +4,8 @@ import { compactNumber } from 'lib/utils'
 import React from 'react'
 import { billingLogic } from './billingLogic'
 import { Tooltip } from 'lib/components/Tooltip'
+import { LemonTable, LemonTableColumns } from 'lib/components/LemonTable'
+import { BillingTierType } from '~/types'
 
 export function CurrentUsage(): JSX.Element | null {
     const { eventAllocation, percentage, strokeColor, billing } = useValues(billingLogic)
@@ -12,6 +14,35 @@ export function CurrentUsage(): JSX.Element | null {
     if (!billing) {
         return null
     }
+
+    const columns: LemonTableColumns<BillingTierType> = [
+        {
+            title: 'Tier',
+            dataIndex: 'name',
+        },
+        {
+            title: 'Price per event',
+            render: function Render(_, billingTier: BillingTierType): JSX.Element {
+                return <div>${billingTier.price_per_event}</div>
+            },
+        },
+        {
+            title: 'Number of events',
+            dataIndex: 'number_of_events',
+        },
+        {
+            title: 'Sub-total',
+            render: function Render(_, billingTier: BillingTierType): JSX.Element {
+                return <div>${billingTier.subtotal}</div>
+            },
+        },
+        {
+            title: 'Running total',
+            render: function Render(_, billingTier: BillingTierType): JSX.Element {
+                return <div>${billingTier.running_total}</div>
+            },
+        },
+    ]
 
     return (
         <>
@@ -29,6 +60,7 @@ export function CurrentUsage(): JSX.Element | null {
                                 <div className="bill-amount">
                                     {`$${billing?.current_bill_amount?.toLocaleString()}`}
                                 </div>
+                                <LemonTable columns={columns} dataSource={billing.tiers || []} />
                             </>
                         ) : (
                             <>

@@ -1,24 +1,13 @@
-from datetime import datetime
-from uuid import uuid4
-
-import pytz
-
-from ee.clickhouse.models.event import create_event
 from ee.clickhouse.models.group import create_group
 from ee.clickhouse.queries.retention.clickhouse_retention import ClickhouseRetention
 from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
 from posthog.models.action import Action
 from posthog.models.action_step import ActionStep
-from posthog.models.filters import Filter
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.person import Person
 from posthog.queries.test.test_retention import retention_test_factory
-
-
-def _create_event(**kwargs):
-    kwargs.update({"event_uuid": uuid4()})
-    create_event(**kwargs)
+from posthog.test.base import _create_event, _create_person
 
 
 def _create_action(**kwargs):
@@ -27,11 +16,6 @@ def _create_action(**kwargs):
     action = Action.objects.create(team=team, name=name)
     ActionStep.objects.create(action=action, event=name)
     return action
-
-
-def _create_person(**kwargs):
-    person = Person.objects.create(**kwargs)
-    return person
 
 
 class TestClickhouseRetention(ClickhouseTestMixin, retention_test_factory(ClickhouseRetention, _create_event, _create_person, _create_action)):  # type: ignore

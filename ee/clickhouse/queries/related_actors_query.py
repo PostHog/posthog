@@ -4,7 +4,6 @@ from typing import List, Optional, Union
 
 from django.utils.timezone import now
 
-from ee.clickhouse.client import sync_execute
 from ee.clickhouse.queries.actor_base_query import (
     SerializedActor,
     SerializedGroup,
@@ -12,13 +11,16 @@ from ee.clickhouse.queries.actor_base_query import (
     get_groups,
     get_people,
 )
-from ee.clickhouse.queries.person_distinct_id_query import get_team_distinct_ids_query
+from posthog.client import sync_execute
 from posthog.models.filters.utils import validate_group_type_index
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.property import GroupTypeIndex
+from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
 
 
 class RelatedActorsQuery:
+    DISTINCT_ID_TABLE_ALIAS = "pdi"
+
     """
     This query calculates other groups and persons that are related to a person or a group.
 
@@ -49,7 +51,7 @@ class RelatedActorsQuery:
         person_ids = self._take_first(
             sync_execute(
                 f"""
-            SELECT DISTINCT person_id
+            SELECT DISTINCT {self.DISTINCT_ID_TABLE_ALIAS}.person_id
             FROM events e
             {self._distinct_ids_join}
             WHERE team_id = %(team_id)s
@@ -102,11 +104,11 @@ class RelatedActorsQuery:
         if self.is_aggregating_by_groups:
             return f"$group_{self.group_type_index} = %(id)s"
         else:
-            return "person_id = %(id)s"
+            return f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id = %(id)s"
 
     @property
     def _distinct_ids_join(self):
-        return f"JOIN ({get_team_distinct_ids_query(self.team_id)}) pdi on e.distinct_id = pdi.distinct_id"
+        return f"JOIN ({get_team_distinct_ids_query(self.team_id)}) {self.DISTINCT_ID_TABLE_ALIAS} on e.distinct_id = {self.DISTINCT_ID_TABLE_ALIAS}.distinct_id"
 
     @cached_property
     def _params(self):

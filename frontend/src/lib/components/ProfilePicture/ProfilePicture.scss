@@ -53,6 +53,9 @@
 .ProfileBubbles {
     display: flex;
     align-items: center;
+    > * {
+        outline: 0.125rem solid #fff;
+    }
     > :not(:first-child) {
         margin-left: -0.125rem;
     }
@@ -69,6 +72,6 @@
     color: #fff;
     font-size: 0.625rem;
     font-weight: 600;
-    letter-spacing: -0.025em;
+    letter-spacing: -0.05em;
     user-select: none;
 }

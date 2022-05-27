@@ -9,9 +9,9 @@ Object {
     },
     "borderRadius": 4,
     "gridlineTickSize": 445,
-    "height": 500,
+    "height": 352,
     "inner": Object {
-      "height": 460,
+      "height": 312,
       "width": 440,
     },
     "layout": "vertical",
@@ -27,7 +27,7 @@ Object {
         480,
       ],
       "y": Array [
-        480,
+        332,
         20,
       ],
     },
@@ -40,7 +40,7 @@ Object {
       "yLabel": 5,
     },
     "transforms": Object {
-      "x": "translate(0,480)",
+      "x": "translate(0,332)",
       "y": "translate(40,0)",
       "yGrid": "translate(35,0)",
     },

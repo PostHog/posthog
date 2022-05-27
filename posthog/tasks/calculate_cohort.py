@@ -5,7 +5,7 @@ import structlog
 from celery import shared_task
 from dateutil.relativedelta import relativedelta
 from django.conf import settings
-from django.db.models import Case, F, When
+from django.db.models import F
 from django.utils import timezone
 
 from posthog.models import Cohort
@@ -31,9 +31,12 @@ def calculate_cohorts() -> None:
     ):
 
         cohort = Cohort.objects.filter(pk=cohort.pk).get()
-        pending_version = get_and_update_pending_version(cohort)
+        update_cohort(cohort)
 
-        calculate_cohort_ch.delay(cohort.id, pending_version)
+
+def update_cohort(cohort: Cohort) -> None:
+    pending_version = get_and_update_pending_version(cohort)
+    calculate_cohort_ch.delay(cohort.id, pending_version)
 
 
 @shared_task(ignore_result=True, max_retries=2)

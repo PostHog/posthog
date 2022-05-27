@@ -1,30 +1,32 @@
 import json
-from typing import List, Tuple
+from datetime import datetime
+from typing import Dict, List, Optional, Tuple, Union
 
-from django.utils import timezone
 from freezegun import freeze_time
 
-from posthog.constants import (
-    ENTITY_ID,
-    ENTITY_TYPE,
-    TREND_FILTER_TYPE_EVENTS,
-    TRENDS_BAR_VALUE,
-    TRENDS_LIFECYCLE,
-    TRENDS_TABLE,
-)
-from posthog.models import (
-    Action,
-    ActionStep,
-    Cohort,
-    Entity,
-    Event,
-    Filter,
-    Organization,
-    Person,
-)
-from posthog.queries.trends import Trends, breakdown_label
-from posthog.test.base import APIBaseTest, test_with_materialized_columns
-from posthog.utils import generate_cache_key, relative_date_parse
+from ee.clickhouse.test.test_journeys import journeys_for
+from ee.clickhouse.util import snapshot_clickhouse_queries
+from posthog.constants import ENTITY_ID, ENTITY_TYPE, TREND_FILTER_TYPE_EVENTS, TRENDS_BAR_VALUE, TRENDS_TABLE
+from posthog.models import Action, ActionStep, Cohort, Entity, Filter, Organization, Person
+from posthog.models.instance_setting import override_instance_config
+from posthog.test.base import APIBaseTest, flush_persons_and_events, test_with_materialized_columns
+
+
+def breakdown_label(entity: Entity, value: Union[str, int]) -> Dict[str, Optional[Union[str, int]]]:
+    ret_dict: Dict[str, Optional[Union[str, int]]] = {}
+    if not value or not isinstance(value, str) or "cohort_" not in value:
+        label = value if (value or type(value) == bool) and value != "None" and value != "nan" else "Other"
+        ret_dict["label"] = f"{entity.name} - {label}"
+        ret_dict["breakdown_value"] = label
+    else:
+        if value == "cohort_all":
+            ret_dict["label"] = f"{entity.name} - all users"
+            ret_dict["breakdown_value"] = "all"
+        else:
+            cohort = Cohort.objects.get(pk=value.replace("cohort_", ""))
+            ret_dict["label"] = f"{entity.name} - {cohort.name}"
+            ret_dict["breakdown_value"] = cohort.pk
+    return ret_dict
 
 
 # parameterize tests to reuse in EE
@@ -543,12 +545,38 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
             self.assertEqual(response[0]["data"][4], 3.0)
             self.assertEqual(response[0]["labels"][5], "day 5")
             self.assertEqual(response[0]["data"][5], 1.0)
+            self.assertEqual(
+                response[0]["days"],
+                [
+                    "2019-12-28",
+                    "2019-12-29",
+                    "2019-12-30",
+                    "2019-12-31",
+                    "2020-01-01",
+                    "2020-01-02",
+                    "2020-01-03",
+                    "2020-01-04",
+                ],
+            )
 
+            self.assertEqual(
+                response[1]["days"],
+                [
+                    "2019-12-21",
+                    "2019-12-22",
+                    "2019-12-23",
+                    "2019-12-24",
+                    "2019-12-25",
+                    "2019-12-26",
+                    "2019-12-27",
+                    "2019-12-28",
+                ],
+            )
             self.assertEqual(response[1]["label"], "sign up")
+            self.assertEqual(response[1]["labels"][3], "day 3")
+            self.assertEqual(response[1]["data"][3], 1.0)
             self.assertEqual(response[1]["labels"][4], "day 4")
-            self.assertEqual(response[1]["data"][4], 1.0)
-            self.assertEqual(response[1]["labels"][5], "day 5")
-            self.assertEqual(response[1]["data"][5], 0.0)
+            self.assertEqual(response[1]["data"][4], 0.0)
 
             with freeze_time("2020-01-04T13:00:01Z"):
                 no_compare_response = trends().run(
@@ -578,8 +606,8 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                 response = trends().run(Filter(data={**filter_params, "events": [{"id": "event_name"}]}), self.team,)
 
             self.assertEqual(result[0]["count"], response[0]["count"])
-            self.assertEqual(result[0]["data"], response[0]["data"])
             self.assertEqual(result[0]["labels"], response[0]["labels"])
+            self.assertEqual(result[0]["data"], response[0]["data"])
             self.assertEqual(result[0]["days"], response[0]["days"])
 
         def test_hour_interval(self):
@@ -587,7 +615,7 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                 dates=["2020-11-01 13:00:00", "2020-11-01 13:20:00", "2020-11-01 17:00:00"],
                 interval="hour",
                 date_from="2020-11-01 12:00:00",
-                date_to="2020-11-01 18:00:00",
+                query_time="2020-11-01 23:00:00",
                 result=[
                     {
                         "action": {
@@ -603,7 +631,7 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                         },
                         "label": "event_name",
                         "count": 3.0,
-                        "data": [0.0, 2.0, 0.0, 0.0, 0.0, 1.0, 0.0],
+                        "data": [0.0, 2.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0, 0, 0, 0, 0],
                         "labels": [
                             "1-Nov-2020 12:00",
                             "1-Nov-2020 13:00",
@@ -612,6 +640,11 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                             "1-Nov-2020 16:00",
                             "1-Nov-2020 17:00",
                             "1-Nov-2020 18:00",
+                            "1-Nov-2020 19:00",
+                            "1-Nov-2020 20:00",
+                            "1-Nov-2020 21:00",
+                            "1-Nov-2020 22:00",
+                            "1-Nov-2020 23:00",
                         ],
                         "days": [
                             "2020-11-01 12:00:00",
@@ -621,6 +654,11 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                             "2020-11-01 16:00:00",
                             "2020-11-01 17:00:00",
                             "2020-11-01 18:00:00",
+                            "2020-11-01 19:00:00",
+                            "2020-11-01 20:00:00",
+                            "2020-11-01 21:00:00",
+                            "2020-11-01 22:00:00",
+                            "2020-11-01 23:00:00",
                         ],
                     }
                 ],
@@ -1310,6 +1348,7 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
 
         def test_response_empty_if_no_events(self):
             self._create_events()
+            flush_persons_and_events()
             response = trends().run(Filter(data={"date_from": "2012-12-12"}), self.team)
             self.assertEqual(response, [])
 
@@ -1566,7 +1605,6 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                 event="$pageview",
                 properties=[{"key": "bar", "type": "person", "value": "a", "operator": "icontains"}],
             )
-            event_filtering_action.calculate_events()
 
             with freeze_time("2020-01-04T13:01:01Z"):
                 response = trends().run(Filter({"actions": [{"id": event_filtering_action.id}],}), self.team)
@@ -1592,8 +1630,6 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
             with freeze_time("2020-01-02"):
                 person_factory(team_id=self.team.pk, distinct_ids=["someone_else"])
                 event_factory(team=self.team, event="sign up", distinct_id="someone_else")
-
-            sign_up_action.calculate_events()
 
             with freeze_time("2020-01-04"):
                 action_response = trends().run(
@@ -1737,73 +1773,35 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
 
         def _create_multiple_people(self):
             person1 = person_factory(team_id=self.team.pk, distinct_ids=["person1"], properties={"name": "person1"})
-            event_factory(
-                team=self.team,
-                event="watched movie",
-                distinct_id="person1",
-                timestamp="2020-01-01T12:00:00Z",
-                properties={"order": "1"},
-            )
-
             person2 = person_factory(team_id=self.team.pk, distinct_ids=["person2"], properties={"name": "person2"})
-            event_factory(
-                team=self.team,
-                event="watched movie",
-                distinct_id="person2",
-                timestamp="2020-01-01T12:00:00Z",
-                properties={"order": "1"},
-            )
-            event_factory(
-                team=self.team,
-                event="watched movie",
-                distinct_id="person2",
-                timestamp="2020-01-02T12:00:00Z",
-                properties={"order": "2"},
-            )
-            # same day
-            event_factory(
-                team=self.team,
-                event="watched movie",
-                distinct_id="person2",
-                timestamp="2020-01-02T12:00:00Z",
-                properties={"order": "2"},
-            )
-
             person3 = person_factory(team_id=self.team.pk, distinct_ids=["person3"], properties={"name": "person3"})
-            event_factory(
-                team=self.team,
-                event="watched movie",
-                distinct_id="person3",
-                timestamp="2020-01-01T12:00:00Z",
-                properties={"order": "1"},
-            )
-            event_factory(
-                team=self.team,
-                event="watched movie",
-                distinct_id="person3",
-                timestamp="2020-01-02T12:00:00Z",
-                properties={"order": "2"},
-            )
-            event_factory(
-                team=self.team,
-                event="watched movie",
-                distinct_id="person3",
-                timestamp="2020-01-03T12:00:00Z",
-                properties={"order": "2"},
-            )
-
             person4 = person_factory(team_id=self.team.pk, distinct_ids=["person4"], properties={"name": "person4"})
-            event_factory(
-                team=self.team,
-                event="watched movie",
-                distinct_id="person4",
-                timestamp="2020-01-05T12:00:00Z",
-                properties={"order": "1"},
-            )
+
+            journey = {
+                "person1": [
+                    {"event": "watched movie", "timestamp": datetime(2020, 1, 1, 12), "properties": {"order": "1"},},
+                ],
+                "person2": [
+                    {"event": "watched movie", "timestamp": datetime(2020, 1, 1, 12), "properties": {"order": "1"},},
+                    {"event": "watched movie", "timestamp": datetime(2020, 1, 2, 12), "properties": {"order": "2"},},
+                    {"event": "watched movie", "timestamp": datetime(2020, 1, 2, 12), "properties": {"order": "2"},},
+                ],
+                "person3": [
+                    {"event": "watched movie", "timestamp": datetime(2020, 1, 1, 12), "properties": {"order": "1"},},
+                    {"event": "watched movie", "timestamp": datetime(2020, 1, 2, 12), "properties": {"order": "2"},},
+                    {"event": "watched movie", "timestamp": datetime(2020, 1, 3, 12), "properties": {"order": "2"},},
+                ],
+                "person4": [
+                    {"event": "watched movie", "timestamp": datetime(2020, 1, 5, 12), "properties": {"order": "1"},},
+                ],
+            }
+
+            journeys_for(events_by_person=journey, team=self.team)
 
             return (person1, person2, person3, person4)
 
         @test_with_materialized_columns(person_properties=["name"])
+        @snapshot_clickhouse_queries
         def test_person_property_filtering(self):
             self._create_multiple_people()
             with freeze_time("2020-01-04"):
@@ -1816,6 +1814,7 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                     ),
                     self.team,
                 )
+
             self.assertEqual(response[0]["labels"][4], "1-Jan-2020")
             self.assertEqual(response[0]["data"][4], 1.0)
             self.assertEqual(response[0]["labels"][5], "2-Jan-2020")
@@ -1868,15 +1867,25 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
         @test_with_materialized_columns(person_properties=["name"], verify_no_jsonextract=False)
         def test_breakdown_by_cohort(self):
             person1, person2, person3, person4 = self._create_multiple_people()
-            cohort = cohort_factory(name="cohort1", team=self.team, groups=[{"properties": {"name": "person1"}}])
-            cohort2 = cohort_factory(name="cohort2", team=self.team, groups=[{"properties": {"name": "person2"}}])
+            cohort = cohort_factory(
+                name="cohort1",
+                team=self.team,
+                groups=[{"properties": [{"key": "name", "value": "person1", "type": "person",}]}],
+            )
+            cohort2 = cohort_factory(
+                name="cohort2",
+                team=self.team,
+                groups=[{"properties": [{"key": "name", "value": "person2", "type": "person",}]}],
+            )
             cohort3 = cohort_factory(
                 name="cohort3",
                 team=self.team,
-                groups=[{"properties": {"name": "person1"}}, {"properties": {"name": "person2"}},],
+                groups=[
+                    {"properties": [{"key": "name", "value": "person1", "type": "person"}]},
+                    {"properties": [{"key": "name", "value": "person2", "type": "person"}]},
+                ],
             )
             action = action_factory(name="watched movie", team=self.team)
-            action.calculate_events()
 
             with freeze_time("2020-01-04T13:01:01Z"):
                 action_response = trends().run(
@@ -2348,5 +2357,81 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                     "2020-01-04",
                 ],
             )
+
+        def test_trends_aggregate_by_distinct_id(self):
+            # Stopgap until https://github.com/PostHog/meta/pull/39 is implemented
+
+            person = person_factory(
+                team_id=self.team.pk, distinct_ids=["blabla", "anonymous_id"], properties={"$some_prop": "some_val"}
+            )
+            person_factory(team_id=self.team.pk, distinct_ids=["third"])
+
+            with freeze_time("2019-12-24 03:45:34"):
+                event_factory(
+                    team=self.team, event="sign up", distinct_id="blabla",
+                )
+                event_factory(
+                    team=self.team, event="sign up", distinct_id="blabla",
+                )  # aggregated by distinctID, so this should be ignored
+                event_factory(
+                    team=self.team, event="sign up", distinct_id="anonymous_id",
+                )
+                event_factory(
+                    team=self.team, event="sign up", distinct_id="third",
+                )
+
+            with override_instance_config("AGGREGATE_BY_DISTINCT_IDS_TEAMS", f"{self.team.pk},4"):
+                with freeze_time("2019-12-31T13:00:01Z"):
+                    daily_response = trends().run(
+                        Filter(data={"interval": "day", "events": [{"id": "sign up", "math": "dau"}],}), self.team,
+                    )
+
+                self.assertEqual(daily_response[0]["data"][0], 3)
+
+                with freeze_time("2019-12-31T13:00:01Z"):
+                    daily_response = trends().run(
+                        Filter(
+                            data={
+                                "interval": "day",
+                                "events": [{"id": "sign up", "math": "dau"}],
+                                "properties": [{"key": "$some_prop", "value": "some_val", "type": "person"}],
+                            }
+                        ),
+                        self.team,
+                    )
+                self.assertEqual(daily_response[0]["data"][0], 2)
+
+                # breakdown person props
+                with freeze_time("2019-12-31T13:00:01Z"):
+                    daily_response = trends().run(
+                        Filter(
+                            data={
+                                "interval": "day",
+                                "events": [{"id": "sign up", "math": "dau"}],
+                                "breakdown_type": "person",
+                                "breakdown": "$some_prop",
+                            }
+                        ),
+                        self.team,
+                    )
+                self.assertEqual(daily_response[0]["data"][0], 1)
+                self.assertEqual(daily_response[0]["label"], "sign up - none")
+                self.assertEqual(daily_response[1]["data"][0], 2)
+                self.assertEqual(daily_response[1]["label"], "sign up - some_val")
+
+                # MAU
+                with freeze_time("2019-12-31T13:00:01Z"):
+                    monthly_response = trends().run(
+                        Filter(data={"interval": "day", "events": [{"id": "sign up", "math": "monthly_active"}],}),
+                        self.team,
+                    )
+                self.assertEqual(monthly_response[0]["data"][0], 3)  # this would be 2 without the aggregate hack
+
+                with freeze_time("2019-12-31T13:00:01Z"):
+                    weekly_response = trends().run(
+                        Filter(data={"interval": "day", "events": [{"id": "sign up", "math": "weekly_active"}],}),
+                        self.team,
+                    )
+                self.assertEqual(weekly_response[0]["data"][0], 3)  # this would be 2 without the aggregate hack
 
     return TestTrends

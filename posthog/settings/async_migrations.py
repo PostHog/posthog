@@ -7,3 +7,7 @@ _default_skip_async_migrations_setup = TEST or E2E_TESTING or SKIP_SERVICE_VERSI
 SKIP_ASYNC_MIGRATIONS_SETUP = get_from_env(
     "SKIP_ASYNC_MIGRATIONS_SETUP", _default_skip_async_migrations_setup, type_cast=str_to_bool
 )
+
+ASYNC_MIGRATIONS_DEFAULT_TIMEOUT_SECONDS = get_from_env(
+    "ASYNC_MIGRATIONS_DEFAULT_TIMEOUT_SECONDS", 60 * 30, type_cast=int
+)

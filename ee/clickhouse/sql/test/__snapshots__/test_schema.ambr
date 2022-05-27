@@ -1,7 +1,7 @@
 # name: test_create_kafka_events_with_disabled_protobuf
   '
   
-  CREATE TABLE IF NOT EXISTS kafka_events ON CLUSTER posthog
+  CREATE TABLE IF NOT EXISTS kafka_events ON CLUSTER 'posthog'
   (
       uuid UUID,
       event VARCHAR,
@@ -10,17 +10,24 @@
       team_id Int64,
       distinct_id VARCHAR,
       elements_chain VARCHAR,
-      created_at DateTime64(6, 'UTC')
+      created_at DateTime64(6, 'UTC'),
+      person_id UUID,
+      person_properties VARCHAR,
+      group0_properties VARCHAR,
+      group1_properties VARCHAR,
+      group2_properties VARCHAR,
+      group3_properties VARCHAR,
+      group4_properties VARCHAR
       
       
-  ) ENGINE = Kafka('kafka', 'clickhouse_events_proto_test', 'group1', 'JSONEachRow')
+  ) ENGINE = Kafka('kafka:9092', 'clickhouse_events_proto_test', 'group1', 'JSONEachRow')
   
   '
 ---
-# name: test_create_kafka_table_with_different_kafka_host[\nCREATE TABLE IF NOT EXISTS kafka_events ON CLUSTER posthog\n(\n    uuid UUID,\n    event VARCHAR,\n    properties VARCHAR,\n    timestamp DateTime64(6, 'UTC'),\n    team_id Int64,\n    distinct_id VARCHAR,\n    elements_chain VARCHAR,\n    created_at DateTime64(6, 'UTC')\n    \n    \n) ENGINE = \n    Kafka () SETTINGS\n    kafka_broker_list = 'kafka',\n    kafka_topic_list = 'clickhouse_events_proto_test',\n    kafka_group_name = 'group1',\n    kafka_format = 'Protobuf',\n    kafka_schema = 'events:Event',\n    kafka_skip_broken_messages = 100\n    \n]
+# name: test_create_kafka_table_with_different_kafka_host[kafka_events]
   '
   
-  CREATE TABLE IF NOT EXISTS kafka_events ON CLUSTER posthog
+  CREATE TABLE IF NOT EXISTS kafka_events ON CLUSTER 'posthog'
   (
       uuid UUID,
       event VARCHAR,
@@ -29,7 +36,14 @@
       team_id Int64,
       distinct_id VARCHAR,
       elements_chain VARCHAR,
-      created_at DateTime64(6, 'UTC')
+      created_at DateTime64(6, 'UTC'),
+      person_id UUID,
+      person_properties VARCHAR,
+      group0_properties VARCHAR,
+      group1_properties VARCHAR,
+      group2_properties VARCHAR,
+      group3_properties VARCHAR,
+      group4_properties VARCHAR
       
       
   ) ENGINE = 
@@ -44,10 +58,10 @@
   
   '
 ---
-# name: test_create_kafka_table_with_different_kafka_host[\nCREATE TABLE IF NOT EXISTS kafka_events_dead_letter_queue ON CLUSTER posthog\n(\n    id UUID,\n    event_uuid UUID,\n    event VARCHAR,\n    properties VARCHAR,\n    distinct_id VARCHAR,\n    team_id Int64,\n    elements_chain VARCHAR,\n    created_at DateTime64(6, 'UTC'),\n    ip VARCHAR,\n    site_url VARCHAR,\n    now DateTime64(6, 'UTC'),\n    raw_payload VARCHAR,\n    error_timestamp DateTime64(6, 'UTC'),\n    error_location VARCHAR,\n    error VARCHAR,\n    tags Array(VARCHAR)\n    \n) ENGINE = Kafka('kafka', 'events_dead_letter_queue_test', 'group1', 'JSONEachRow')\n]
+# name: test_create_kafka_table_with_different_kafka_host[kafka_events_dead_letter_queue]
   '
   
-  CREATE TABLE IF NOT EXISTS kafka_events_dead_letter_queue ON CLUSTER posthog
+  CREATE TABLE IF NOT EXISTS kafka_events_dead_letter_queue ON CLUSTER 'posthog'
   (
       id UUID,
       event_uuid UUID,
@@ -67,13 +81,41 @@
       tags Array(VARCHAR)
       
   ) ENGINE = Kafka('test.kafka.broker:9092', 'events_dead_letter_queue_test', 'group1', 'JSONEachRow')
+   SETTINGS kafka_skip_broken_messages=1000
+  '
+---
+# name: test_create_kafka_table_with_different_kafka_host[kafka_events_json]
+  '
+  
+  CREATE TABLE IF NOT EXISTS kafka_events_json ON CLUSTER 'posthog'
+  (
+      uuid UUID,
+      event VARCHAR,
+      properties VARCHAR,
+      timestamp DateTime64(6, 'UTC'),
+      team_id Int64,
+      distinct_id VARCHAR,
+      elements_chain VARCHAR,
+      created_at DateTime64(6, 'UTC'),
+      person_id UUID,
+      person_properties VARCHAR,
+      group0_properties VARCHAR,
+      group1_properties VARCHAR,
+      group2_properties VARCHAR,
+      group3_properties VARCHAR,
+      group4_properties VARCHAR
+      
+      
+  ) ENGINE = Kafka('test.kafka.broker:9092', 'clickhouse_events_json_test', 'group1', 'JSONEachRow')
+  
+      SETTINGS kafka_skip_broken_messages = 100
   
   '
 ---
-# name: test_create_kafka_table_with_different_kafka_host[\nCREATE TABLE IF NOT EXISTS kafka_groups ON CLUSTER posthog\n(\n    group_type_index UInt8,\n    group_key VARCHAR,\n    created_at DateTime64,\n    team_id Int64,\n    group_properties VARCHAR\n    \n) ENGINE = Kafka('kafka', 'clickhouse_groups_test', 'group1', 'JSONEachRow')\n]
+# name: test_create_kafka_table_with_different_kafka_host[kafka_groups]
   '
   
-  CREATE TABLE IF NOT EXISTS kafka_groups ON CLUSTER posthog
+  CREATE TABLE IF NOT EXISTS kafka_groups ON CLUSTER 'posthog'
   (
       group_type_index UInt8,
       group_key VARCHAR,
@@ -85,41 +127,55 @@
   
   '
 ---
-# name: test_create_kafka_table_with_different_kafka_host[\nCREATE TABLE IF NOT EXISTS kafka_person ON CLUSTER posthog\n(\n    id UUID,\n    created_at DateTime64,\n    team_id Int64,\n    properties VARCHAR,\n    is_identified Boolean,\n    is_deleted Boolean DEFAULT 0\n    \n) ENGINE = Kafka('kafka', 'clickhouse_person_test', 'group1', 'JSONEachRow')\n]
+# name: test_create_kafka_table_with_different_kafka_host[kafka_person]
   '
   
-  CREATE TABLE IF NOT EXISTS kafka_person ON CLUSTER posthog
+  CREATE TABLE IF NOT EXISTS kafka_person ON CLUSTER 'posthog'
   (
       id UUID,
       created_at DateTime64,
       team_id Int64,
       properties VARCHAR,
-      is_identified Boolean,
-      is_deleted Boolean DEFAULT 0
+      is_identified Int8,
+      is_deleted Int8 DEFAULT 0
       
   ) ENGINE = Kafka('test.kafka.broker:9092', 'clickhouse_person_test', 'group1', 'JSONEachRow')
   
   '
 ---
-# name: test_create_kafka_table_with_different_kafka_host[\nCREATE TABLE IF NOT EXISTS kafka_person_distinct_id2 ON CLUSTER posthog\n(\n    team_id Int64,\n    distinct_id VARCHAR,\n    person_id UUID,\n    is_deleted Boolean,\n    version Int64 DEFAULT 1\n    \n) ENGINE = Kafka('kafka', 'clickhouse_person_distinct_id_test', 'group1', 'JSONEachRow')\n]
+# name: test_create_kafka_table_with_different_kafka_host[kafka_person_distinct_id2]
   '
   
-  CREATE TABLE IF NOT EXISTS kafka_person_distinct_id2 ON CLUSTER posthog
+  CREATE TABLE IF NOT EXISTS kafka_person_distinct_id2 ON CLUSTER 'posthog'
   (
       team_id Int64,
       distinct_id VARCHAR,
       person_id UUID,
-      is_deleted Boolean,
+      is_deleted Int8,
       version Int64 DEFAULT 1
       
   ) ENGINE = Kafka('test.kafka.broker:9092', 'clickhouse_person_distinct_id_test', 'group1', 'JSONEachRow')
   
   '
 ---
-# name: test_create_kafka_table_with_different_kafka_host[\nCREATE TABLE IF NOT EXISTS kafka_plugin_log_entries ON CLUSTER posthog\n(\n    id UUID,\n    team_id Int64,\n    plugin_id Int64,\n    plugin_config_id Int64,\n    timestamp DateTime64(6, 'UTC'),\n    source VARCHAR,\n    type VARCHAR,\n    message VARCHAR,\n    instance_id UUID\n    \n) ENGINE = Kafka('kafka', 'plugin_log_entries_test', 'group1', 'JSONEachRow')\n]
+# name: test_create_kafka_table_with_different_kafka_host[kafka_person_distinct_id]
   '
   
-  CREATE TABLE IF NOT EXISTS kafka_plugin_log_entries ON CLUSTER posthog
+  CREATE TABLE kafka_person_distinct_id ON CLUSTER 'posthog'
+  (
+      distinct_id VARCHAR,
+      person_id UUID,
+      team_id Int64,
+      _sign Nullable(Int8),
+      is_deleted Nullable(Int8)
+  ) ENGINE = Kafka('test.kafka.broker:9092', 'clickhouse_person_unique_id_test', 'group1', 'JSONEachRow')
+  
+  '
+---
+# name: test_create_kafka_table_with_different_kafka_host[kafka_plugin_log_entries]
+  '
+  
+  CREATE TABLE IF NOT EXISTS kafka_plugin_log_entries ON CLUSTER 'posthog'
   (
       id UUID,
       team_id Int64,
@@ -135,10 +191,10 @@
   
   '
 ---
-# name: test_create_kafka_table_with_different_kafka_host[\nCREATE TABLE IF NOT EXISTS kafka_session_recording_events ON CLUSTER posthog\n(\n    uuid UUID,\n    timestamp DateTime64(6, 'UTC'),\n    team_id Int64,\n    distinct_id VARCHAR,\n    session_id VARCHAR,\n    window_id VARCHAR,\n    snapshot_data VARCHAR,\n    created_at DateTime64(6, 'UTC')\n    \n    \n) ENGINE = Kafka('kafka', 'clickhouse_session_recording_events_test', 'group1', 'JSONEachRow')\n]
+# name: test_create_kafka_table_with_different_kafka_host[kafka_session_recording_events]
   '
   
-  CREATE TABLE IF NOT EXISTS kafka_session_recording_events ON CLUSTER posthog
+  CREATE TABLE IF NOT EXISTS kafka_session_recording_events ON CLUSTER 'posthog'
   (
       uuid UUID,
       timestamp DateTime64(6, 'UTC'),
@@ -154,24 +210,94 @@
   
   '
 ---
-# name: test_create_kafka_table_with_different_kafka_host[\nCREATE TABLE kafka_person_distinct_id ON CLUSTER posthog\n(\n    distinct_id VARCHAR,\n    person_id UUID,\n    team_id Int64,\n    _sign Nullable(Int8),\n    is_deleted Nullable(Int8)\n) ENGINE = Kafka('kafka', 'clickhouse_person_unique_id_test', 'group1', 'JSONEachRow')\n]
+# name: test_create_table_query[cohortpeople]
   '
   
-  CREATE TABLE kafka_person_distinct_id ON CLUSTER posthog
+  CREATE TABLE IF NOT EXISTS cohortpeople ON CLUSTER 'posthog'
   (
-      distinct_id VARCHAR,
       person_id UUID,
+      cohort_id Int64,
       team_id Int64,
-      _sign Nullable(Int8),
-      is_deleted Nullable(Int8)
-  ) ENGINE = Kafka('test.kafka.broker:9092', 'clickhouse_person_unique_id_test', 'group1', 'JSONEachRow')
+      sign Int8
+  ) ENGINE = CollapsingMergeTree(sign)
+  Order By (team_id, cohort_id, person_id)
+  
   
   '
 ---
-# name: test_create_table_query[\nCREATE MATERIALIZED VIEW IF NOT EXISTS events_dead_letter_queue_mv ON CLUSTER posthog\nTO posthog_test.events_dead_letter_queue\nAS SELECT\nid,\nevent_uuid,\nevent,\nproperties,\ndistinct_id,\nteam_id,\nelements_chain,\ncreated_at,\nip,\nsite_url,\nnow,\nraw_payload,\nerror_timestamp,\nerror_location,\nerror,\ntags,\n_timestamp,\n_offset\nFROM posthog_test.kafka_events_dead_letter_queue\n]
+# name: test_create_table_query[events]
   '
   
-  CREATE MATERIALIZED VIEW IF NOT EXISTS events_dead_letter_queue_mv ON CLUSTER posthog
+  CREATE TABLE IF NOT EXISTS events ON CLUSTER 'posthog'
+  (
+      uuid UUID,
+      event VARCHAR,
+      properties VARCHAR,
+      timestamp DateTime64(6, 'UTC'),
+      team_id Int64,
+      distinct_id VARCHAR,
+      elements_chain VARCHAR,
+      created_at DateTime64(6, 'UTC'),
+      person_id UUID,
+      person_properties VARCHAR,
+      group0_properties VARCHAR,
+      group1_properties VARCHAR,
+      group2_properties VARCHAR,
+      group3_properties VARCHAR,
+      group4_properties VARCHAR
+      
+      , $group_0 VARCHAR COMMENT 'column_materializer::$group_0'
+      , $group_1 VARCHAR COMMENT 'column_materializer::$group_1'
+      , $group_2 VARCHAR COMMENT 'column_materializer::$group_2'
+      , $group_3 VARCHAR COMMENT 'column_materializer::$group_3'
+      , $group_4 VARCHAR COMMENT 'column_materializer::$group_4'
+      , $window_id VARCHAR COMMENT 'column_materializer::$window_id'
+      , $session_id VARCHAR COMMENT 'column_materializer::$session_id'
+  
+      
+  , _timestamp DateTime
+  , _offset UInt64
+  
+  ) ENGINE = Distributed('posthog', 'posthog_test', 'events', sipHash64(distinct_id))
+  
+  '
+---
+# name: test_create_table_query[events_dead_letter_queue]
+  '
+  
+  CREATE TABLE IF NOT EXISTS events_dead_letter_queue ON CLUSTER 'posthog'
+  (
+      id UUID,
+      event_uuid UUID,
+      event VARCHAR,
+      properties VARCHAR,
+      distinct_id VARCHAR,
+      team_id Int64,
+      elements_chain VARCHAR,
+      created_at DateTime64(6, 'UTC'),
+      ip VARCHAR,
+      site_url VARCHAR,
+      now DateTime64(6, 'UTC'),
+      raw_payload VARCHAR,
+      error_timestamp DateTime64(6, 'UTC'),
+      error_location VARCHAR,
+      error VARCHAR,
+      tags Array(VARCHAR)
+      
+  , _timestamp DateTime
+  , _offset UInt64
+  
+  ) ENGINE = ReplacingMergeTree(_timestamp)
+  ORDER BY (id, event_uuid, distinct_id, team_id)
+  
+  SETTINGS index_granularity=512
+  
+  '
+---
+# name: test_create_table_query[events_dead_letter_queue_mv]
+  '
+  
+  CREATE MATERIALIZED VIEW IF NOT EXISTS events_dead_letter_queue_mv ON CLUSTER 'posthog'
   TO posthog_test.events_dead_letter_queue
   AS SELECT
   id,
@@ -196,10 +322,37 @@
   
   '
 ---
-# name: test_create_table_query[\nCREATE MATERIALIZED VIEW events_mv ON CLUSTER posthog\nTO posthog_test.events\nAS SELECT\nuuid,\nevent,\nproperties,\ntimestamp,\nteam_id,\ndistinct_id,\nelements_chain,\ncreated_at,\n_timestamp,\n_offset\nFROM posthog_test.kafka_events\n]
+# name: test_create_table_query[events_json_mv]
   '
   
-  CREATE MATERIALIZED VIEW events_mv ON CLUSTER posthog
+  CREATE MATERIALIZED VIEW events_json_mv ON CLUSTER 'posthog'
+  TO posthog_test.events
+  AS SELECT
+  uuid,
+  event,
+  properties,
+  timestamp,
+  team_id,
+  distinct_id,
+  elements_chain,
+  created_at,
+  person_id,
+  person_properties,
+  group0_properties,
+  group1_properties,
+  group2_properties,
+  group3_properties,
+  group4_properties,
+  _timestamp,
+  _offset
+  FROM posthog_test.kafka_events_json
+  
+  '
+---
+# name: test_create_table_query[events_mv]
+  '
+  
+  CREATE MATERIALIZED VIEW events_mv ON CLUSTER 'posthog'
   TO posthog_test.events
   AS SELECT
   uuid,
@@ -216,10 +369,30 @@
   
   '
 ---
-# name: test_create_table_query[\nCREATE MATERIALIZED VIEW groups_mv ON CLUSTER posthog\nTO posthog_test.groups\nAS SELECT\ngroup_type_index,\ngroup_key,\ncreated_at,\nteam_id,\ngroup_properties,\n_timestamp,\n_offset\nFROM posthog_test.kafka_groups\n]
+# name: test_create_table_query[groups]
   '
   
-  CREATE MATERIALIZED VIEW groups_mv ON CLUSTER posthog
+  CREATE TABLE IF NOT EXISTS groups ON CLUSTER 'posthog'
+  (
+      group_type_index UInt8,
+      group_key VARCHAR,
+      created_at DateTime64,
+      team_id Int64,
+      group_properties VARCHAR
+      
+  , _timestamp DateTime
+  , _offset UInt64
+  
+  ) ENGINE = ReplacingMergeTree(_timestamp)
+  Order By (team_id, group_type_index, group_key)
+  
+  
+  '
+---
+# name: test_create_table_query[groups_mv]
+  '
+  
+  CREATE MATERIALIZED VIEW groups_mv ON CLUSTER 'posthog'
   TO posthog_test.groups
   AS SELECT
   group_type_index,
@@ -233,10 +406,239 @@
   
   '
 ---
-# name: test_create_table_query[\nCREATE MATERIALIZED VIEW person_distinct_id2_mv ON CLUSTER posthog\nTO posthog_test.person_distinct_id2\nAS SELECT\nteam_id,\ndistinct_id,\nperson_id,\nis_deleted,\nversion,\n_timestamp,\n_offset,\n_partition\nFROM posthog_test.kafka_person_distinct_id2\n]
+# name: test_create_table_query[kafka_events]
   '
   
-  CREATE MATERIALIZED VIEW person_distinct_id2_mv ON CLUSTER posthog
+  CREATE TABLE IF NOT EXISTS kafka_events ON CLUSTER 'posthog'
+  (
+      uuid UUID,
+      event VARCHAR,
+      properties VARCHAR,
+      timestamp DateTime64(6, 'UTC'),
+      team_id Int64,
+      distinct_id VARCHAR,
+      elements_chain VARCHAR,
+      created_at DateTime64(6, 'UTC'),
+      person_id UUID,
+      person_properties VARCHAR,
+      group0_properties VARCHAR,
+      group1_properties VARCHAR,
+      group2_properties VARCHAR,
+      group3_properties VARCHAR,
+      group4_properties VARCHAR
+      
+      
+  ) ENGINE = 
+      Kafka () SETTINGS
+      kafka_broker_list = 'kafka:9092',
+      kafka_topic_list = 'clickhouse_events_proto_test',
+      kafka_group_name = 'group1',
+      kafka_format = 'Protobuf',
+      kafka_schema = 'events:Event',
+      kafka_skip_broken_messages = 100
+      
+  
+  '
+---
+# name: test_create_table_query[kafka_events_dead_letter_queue]
+  '
+  
+  CREATE TABLE IF NOT EXISTS kafka_events_dead_letter_queue ON CLUSTER 'posthog'
+  (
+      id UUID,
+      event_uuid UUID,
+      event VARCHAR,
+      properties VARCHAR,
+      distinct_id VARCHAR,
+      team_id Int64,
+      elements_chain VARCHAR,
+      created_at DateTime64(6, 'UTC'),
+      ip VARCHAR,
+      site_url VARCHAR,
+      now DateTime64(6, 'UTC'),
+      raw_payload VARCHAR,
+      error_timestamp DateTime64(6, 'UTC'),
+      error_location VARCHAR,
+      error VARCHAR,
+      tags Array(VARCHAR)
+      
+  ) ENGINE = Kafka('kafka:9092', 'events_dead_letter_queue_test', 'group1', 'JSONEachRow')
+   SETTINGS kafka_skip_broken_messages=1000
+  '
+---
+# name: test_create_table_query[kafka_events_json]
+  '
+  
+  CREATE TABLE IF NOT EXISTS kafka_events_json ON CLUSTER 'posthog'
+  (
+      uuid UUID,
+      event VARCHAR,
+      properties VARCHAR,
+      timestamp DateTime64(6, 'UTC'),
+      team_id Int64,
+      distinct_id VARCHAR,
+      elements_chain VARCHAR,
+      created_at DateTime64(6, 'UTC'),
+      person_id UUID,
+      person_properties VARCHAR,
+      group0_properties VARCHAR,
+      group1_properties VARCHAR,
+      group2_properties VARCHAR,
+      group3_properties VARCHAR,
+      group4_properties VARCHAR
+      
+      
+  ) ENGINE = Kafka('kafka:9092', 'clickhouse_events_json_test', 'group1', 'JSONEachRow')
+  
+      SETTINGS kafka_skip_broken_messages = 100
+  
+  '
+---
+# name: test_create_table_query[kafka_groups]
+  '
+  
+  CREATE TABLE IF NOT EXISTS kafka_groups ON CLUSTER 'posthog'
+  (
+      group_type_index UInt8,
+      group_key VARCHAR,
+      created_at DateTime64,
+      team_id Int64,
+      group_properties VARCHAR
+      
+  ) ENGINE = Kafka('kafka:9092', 'clickhouse_groups_test', 'group1', 'JSONEachRow')
+  
+  '
+---
+# name: test_create_table_query[kafka_person]
+  '
+  
+  CREATE TABLE IF NOT EXISTS kafka_person ON CLUSTER 'posthog'
+  (
+      id UUID,
+      created_at DateTime64,
+      team_id Int64,
+      properties VARCHAR,
+      is_identified Int8,
+      is_deleted Int8 DEFAULT 0
+      
+  ) ENGINE = Kafka('kafka:9092', 'clickhouse_person_test', 'group1', 'JSONEachRow')
+  
+  '
+---
+# name: test_create_table_query[kafka_person_distinct_id2]
+  '
+  
+  CREATE TABLE IF NOT EXISTS kafka_person_distinct_id2 ON CLUSTER 'posthog'
+  (
+      team_id Int64,
+      distinct_id VARCHAR,
+      person_id UUID,
+      is_deleted Int8,
+      version Int64 DEFAULT 1
+      
+  ) ENGINE = Kafka('kafka:9092', 'clickhouse_person_distinct_id_test', 'group1', 'JSONEachRow')
+  
+  '
+---
+# name: test_create_table_query[kafka_person_distinct_id]
+  '
+  
+  CREATE TABLE kafka_person_distinct_id ON CLUSTER 'posthog'
+  (
+      distinct_id VARCHAR,
+      person_id UUID,
+      team_id Int64,
+      _sign Nullable(Int8),
+      is_deleted Nullable(Int8)
+  ) ENGINE = Kafka('kafka:9092', 'clickhouse_person_unique_id_test', 'group1', 'JSONEachRow')
+  
+  '
+---
+# name: test_create_table_query[kafka_plugin_log_entries]
+  '
+  
+  CREATE TABLE IF NOT EXISTS kafka_plugin_log_entries ON CLUSTER 'posthog'
+  (
+      id UUID,
+      team_id Int64,
+      plugin_id Int64,
+      plugin_config_id Int64,
+      timestamp DateTime64(6, 'UTC'),
+      source VARCHAR,
+      type VARCHAR,
+      message VARCHAR,
+      instance_id UUID
+      
+  ) ENGINE = Kafka('kafka:9092', 'plugin_log_entries_test', 'group1', 'JSONEachRow')
+  
+  '
+---
+# name: test_create_table_query[kafka_session_recording_events]
+  '
+  
+  CREATE TABLE IF NOT EXISTS kafka_session_recording_events ON CLUSTER 'posthog'
+  (
+      uuid UUID,
+      timestamp DateTime64(6, 'UTC'),
+      team_id Int64,
+      distinct_id VARCHAR,
+      session_id VARCHAR,
+      window_id VARCHAR,
+      snapshot_data VARCHAR,
+      created_at DateTime64(6, 'UTC')
+      
+      
+  ) ENGINE = Kafka('kafka:9092', 'clickhouse_session_recording_events_test', 'group1', 'JSONEachRow')
+  
+  '
+---
+# name: test_create_table_query[person]
+  '
+  
+  CREATE TABLE IF NOT EXISTS person ON CLUSTER 'posthog'
+  (
+      id UUID,
+      created_at DateTime64,
+      team_id Int64,
+      properties VARCHAR,
+      is_identified Int8,
+      is_deleted Int8 DEFAULT 0
+      
+  , _timestamp DateTime
+  , _offset UInt64
+  
+  ) ENGINE = ReplacingMergeTree(_timestamp)
+  Order By (team_id, id)
+  
+  
+  '
+---
+# name: test_create_table_query[person_distinct_id2]
+  '
+  
+  CREATE TABLE IF NOT EXISTS person_distinct_id2 ON CLUSTER 'posthog'
+  (
+      team_id Int64,
+      distinct_id VARCHAR,
+      person_id UUID,
+      is_deleted Int8,
+      version Int64 DEFAULT 1
+      
+  , _timestamp DateTime
+  , _offset UInt64
+  
+  , _partition UInt64
+  ) ENGINE = ReplacingMergeTree(version)
+  
+      ORDER BY (team_id, distinct_id)
+      SETTINGS index_granularity = 512
+      
+  '
+---
+# name: test_create_table_query[person_distinct_id2_mv]
+  '
+  
+  CREATE MATERIALIZED VIEW person_distinct_id2_mv ON CLUSTER 'posthog'
   TO posthog_test.person_distinct_id2
   AS SELECT
   team_id,
@@ -251,10 +653,30 @@
   
   '
 ---
-# name: test_create_table_query[\nCREATE MATERIALIZED VIEW person_distinct_id_mv ON CLUSTER posthog\nTO posthog_test.person_distinct_id\nAS SELECT\ndistinct_id,\nperson_id,\nteam_id,\ncoalesce(_sign, if(is_deleted==0, 1, -1)) AS _sign,\n_timestamp,\n_offset\nFROM posthog_test.kafka_person_distinct_id\n]
+# name: test_create_table_query[person_distinct_id]
   '
   
-  CREATE MATERIALIZED VIEW person_distinct_id_mv ON CLUSTER posthog
+  CREATE TABLE IF NOT EXISTS person_distinct_id ON CLUSTER 'posthog'
+  (
+      distinct_id VARCHAR,
+      person_id UUID,
+      team_id Int64,
+      _sign Int8 DEFAULT 1,
+      is_deleted Int8 ALIAS if(_sign==-1, 1, 0)
+      
+  , _timestamp DateTime
+  , _offset UInt64
+  
+  ) ENGINE = CollapsingMergeTree(_sign)
+  Order By (team_id, distinct_id, person_id)
+  
+  
+  '
+---
+# name: test_create_table_query[person_distinct_id_mv]
+  '
+  
+  CREATE MATERIALIZED VIEW person_distinct_id_mv ON CLUSTER 'posthog'
   TO posthog_test.person_distinct_id
   AS SELECT
   distinct_id,
@@ -267,10 +689,10 @@
   
   '
 ---
-# name: test_create_table_query[\nCREATE MATERIALIZED VIEW person_mv ON CLUSTER posthog\nTO posthog_test.person\nAS SELECT\nid,\ncreated_at,\nteam_id,\nproperties,\nis_identified,\nis_deleted,\n_timestamp,\n_offset\nFROM posthog_test.kafka_person\n]
+# name: test_create_table_query[person_mv]
   '
   
-  CREATE MATERIALIZED VIEW person_mv ON CLUSTER posthog
+  CREATE MATERIALIZED VIEW person_mv ON CLUSTER 'posthog'
   TO posthog_test.person
   AS SELECT
   id,
@@ -285,10 +707,54 @@
   
   '
 ---
-# name: test_create_table_query[\nCREATE MATERIALIZED VIEW plugin_log_entries_mv ON CLUSTER posthog\nTO posthog_test.plugin_log_entries\nAS SELECT\nid,\nteam_id,\nplugin_id,\nplugin_config_id,\ntimestamp,\nsource,\ntype,\nmessage,\ninstance_id,\n_timestamp,\n_offset\nFROM posthog_test.kafka_plugin_log_entries\n]
+# name: test_create_table_query[person_static_cohort]
   '
   
-  CREATE MATERIALIZED VIEW plugin_log_entries_mv ON CLUSTER posthog
+  CREATE TABLE IF NOT EXISTS person_static_cohort ON CLUSTER 'posthog'
+  (
+      id UUID,
+      person_id UUID,
+      cohort_id Int64,
+      team_id Int64
+      
+  , _timestamp DateTime
+  , _offset UInt64
+  
+  ) ENGINE = ReplacingMergeTree(_timestamp)
+  Order By (team_id, cohort_id, person_id, id)
+  
+  
+  '
+---
+# name: test_create_table_query[plugin_log_entries]
+  '
+  
+  CREATE TABLE IF NOT EXISTS plugin_log_entries ON CLUSTER 'posthog'
+  (
+      id UUID,
+      team_id Int64,
+      plugin_id Int64,
+      plugin_config_id Int64,
+      timestamp DateTime64(6, 'UTC'),
+      source VARCHAR,
+      type VARCHAR,
+      message VARCHAR,
+      instance_id UUID
+      
+  , _timestamp DateTime
+  , _offset UInt64
+  
+  ) ENGINE = ReplacingMergeTree(_timestamp)
+  PARTITION BY plugin_id ORDER BY (team_id, id)
+  
+  SETTINGS index_granularity=512
+  
+  '
+---
+# name: test_create_table_query[plugin_log_entries_mv]
+  '
+  
+  CREATE MATERIALIZED VIEW plugin_log_entries_mv ON CLUSTER 'posthog'
   TO posthog_test.plugin_log_entries
   AS SELECT
   id,
@@ -306,10 +772,34 @@
   
   '
 ---
-# name: test_create_table_query[\nCREATE MATERIALIZED VIEW session_recording_events_mv ON CLUSTER posthog\nTO posthog_test.session_recording_events\nAS SELECT\nuuid,\ntimestamp,\nteam_id,\ndistinct_id,\nsession_id,\nwindow_id,\nsnapshot_data,\ncreated_at,\n_timestamp,\n_offset\nFROM posthog_test.kafka_session_recording_events\n]
+# name: test_create_table_query[session_recording_events]
   '
   
-  CREATE MATERIALIZED VIEW session_recording_events_mv ON CLUSTER posthog
+  CREATE TABLE IF NOT EXISTS session_recording_events ON CLUSTER 'posthog'
+  (
+      uuid UUID,
+      timestamp DateTime64(6, 'UTC'),
+      team_id Int64,
+      distinct_id VARCHAR,
+      session_id VARCHAR,
+      window_id VARCHAR,
+      snapshot_data VARCHAR,
+      created_at DateTime64(6, 'UTC')
+      
+      , has_full_snapshot Int8 COMMENT 'column_materializer::has_full_snapshot'
+  
+      
+  , _timestamp DateTime
+  , _offset UInt64
+  
+  ) ENGINE = Distributed('posthog', 'posthog_test', 'session_recording_events', sipHash64(distinct_id))
+  
+  '
+---
+# name: test_create_table_query[session_recording_events_mv]
+  '
+  
+  CREATE MATERIALIZED VIEW session_recording_events_mv ON CLUSTER 'posthog'
   TO posthog_test.session_recording_events
   AS SELECT
   uuid,
@@ -326,25 +816,10 @@
   
   '
 ---
-# name: test_create_table_query[\nCREATE TABLE IF NOT EXISTS cohortpeople ON CLUSTER posthog\n(\n    person_id UUID,\n    cohort_id Int64,\n    team_id Int64,\n    sign Int8\n) ENGINE = CollapsingMergeTree(sign)\nOrder By (team_id, cohort_id, person_id)\n\n]
+# name: test_create_table_query[sharded_events]
   '
   
-  CREATE TABLE IF NOT EXISTS cohortpeople ON CLUSTER posthog
-  (
-      person_id UUID,
-      cohort_id Int64,
-      team_id Int64,
-      sign Int8
-  ) ENGINE = CollapsingMergeTree(sign)
-  Order By (team_id, cohort_id, person_id)
-  
-  
-  '
----
-# name: test_create_table_query[\nCREATE TABLE IF NOT EXISTS events ON CLUSTER posthog\n(\n    uuid UUID,\n    event VARCHAR,\n    properties VARCHAR,\n    timestamp DateTime64(6, 'UTC'),\n    team_id Int64,\n    distinct_id VARCHAR,\n    elements_chain VARCHAR,\n    created_at DateTime64(6, 'UTC')\n    \n    , $group_0 VARCHAR materialized trim(BOTH '"' FROM JSONExtractRaw(properties, '$group_0')) COMMENT 'column_materializer.$group_0'\n    , $group_1 VARCHAR materialized trim(BOTH '"' FROM JSONExtractRaw(properties, '$group_1')) COMMENT 'column_materializer.$group_1'\n    , $group_2 VARCHAR materialized trim(BOTH '"' FROM JSONExtractRaw(properties, '$group_2')) COMMENT 'column_materializer.$group_2'\n    , $group_3 VARCHAR materialized trim(BOTH '"' FROM JSONExtractRaw(properties, '$group_3')) COMMENT 'column_materializer.$group_3'\n    , $group_4 VARCHAR materialized trim(BOTH '"' FROM JSONExtractRaw(properties, '$group_4')) COMMENT 'column_materializer.test_create_table_query[\nCREATE TABLE IF NOT EXISTS events ON CLUSTER posthog\n(\n    uuid UUID,\n    event VARCHAR,\n    properties VARCHAR,\n    timestamp DateTime64(6, 'UTC'),\n    team_id Int64,\n    distinct_id VARCHAR,\n    elements_chain VARCHAR,\n    created_at DateTime64(6, 'UTC')\n    \n    , $group_0 VARCHAR materialized trim(BOTH '"' FROM JSONExtractRaw(properties, '$group_0')) COMMENT 'column_materializer::$group_0'\n    , $group_1 VARCHAR materialized trim(BOTH '"' FROM JSONExtractRaw(properties, '$group_1')) COMMENT 'column_materializer::$group_1'\n    , $group_2 VARCHAR materialized trim(BOTH '"' FROM JSONExtractRaw(properties, '$group_2')) COMMENT 'column_materializer::$group_2'\n    , $group_3 VARCHAR materialized trim(BOTH '"' FROM JSONExtractRaw(properties, '$group_3')) COMMENT 'column_materializer::$group_3'\n    , $group_4 VARCHAR materialized trim(BOTH '"' FROM JSONExtractRaw(properties, '$group_4')) COMMENT 'column_materializer::$group_4'\n\n    \n, _timestamp DateTime\n, _offset UInt64\n\n) ENGINE = ReplacingMergeTree(_timestamp)\nPARTITION BY toYYYYMM(timestamp)\nORDER BY (team_id, toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid))\n\n\n]
-  '
-  
-  CREATE TABLE IF NOT EXISTS events ON CLUSTER posthog
+  CREATE TABLE IF NOT EXISTS events ON CLUSTER 'posthog'
   (
       uuid UUID,
       event VARCHAR,
@@ -353,13 +828,22 @@
       team_id Int64,
       distinct_id VARCHAR,
       elements_chain VARCHAR,
-      created_at DateTime64(6, 'UTC')
+      created_at DateTime64(6, 'UTC'),
+      person_id UUID,
+      person_properties VARCHAR,
+      group0_properties VARCHAR,
+      group1_properties VARCHAR,
+      group2_properties VARCHAR,
+      group3_properties VARCHAR,
+      group4_properties VARCHAR
       
-      , $group_0 VARCHAR materialized trim(BOTH '"' FROM JSONExtractRaw(properties, '$group_0')) COMMENT 'column_materializer::$group_0'
-      , $group_1 VARCHAR materialized trim(BOTH '"' FROM JSONExtractRaw(properties, '$group_1')) COMMENT 'column_materializer::$group_1'
-      , $group_2 VARCHAR materialized trim(BOTH '"' FROM JSONExtractRaw(properties, '$group_2')) COMMENT 'column_materializer::$group_2'
-      , $group_3 VARCHAR materialized trim(BOTH '"' FROM JSONExtractRaw(properties, '$group_3')) COMMENT 'column_materializer::$group_3'
-      , $group_4 VARCHAR materialized trim(BOTH '"' FROM JSONExtractRaw(properties, '$group_4')) COMMENT 'column_materializer::$group_4'
+      , $group_0 VARCHAR MATERIALIZED replaceRegexpAll(JSONExtractRaw(properties, '$group_0'), '^"|"$', '') COMMENT 'column_materializer::$group_0'
+      , $group_1 VARCHAR MATERIALIZED replaceRegexpAll(JSONExtractRaw(properties, '$group_1'), '^"|"$', '') COMMENT 'column_materializer::$group_1'
+      , $group_2 VARCHAR MATERIALIZED replaceRegexpAll(JSONExtractRaw(properties, '$group_2'), '^"|"$', '') COMMENT 'column_materializer::$group_2'
+      , $group_3 VARCHAR MATERIALIZED replaceRegexpAll(JSONExtractRaw(properties, '$group_3'), '^"|"$', '') COMMENT 'column_materializer::$group_3'
+      , $group_4 VARCHAR MATERIALIZED replaceRegexpAll(JSONExtractRaw(properties, '$group_4'), '^"|"$', '') COMMENT 'column_materializer::$group_4'
+      , $window_id VARCHAR MATERIALIZED replaceRegexpAll(JSONExtractRaw(properties, '$window_id'), '^"|"$', '') COMMENT 'column_materializer::$window_id'
+      , $session_id VARCHAR MATERIALIZED replaceRegexpAll(JSONExtractRaw(properties, '$session_id'), '^"|"$', '') COMMENT 'column_materializer::$session_id'
   
       
   , _timestamp DateTime
@@ -368,185 +852,15 @@
   ) ENGINE = ReplacingMergeTree(_timestamp)
   PARTITION BY toYYYYMM(timestamp)
   ORDER BY (team_id, toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid))
-  
-  
-  
-  '
----
-# name: test_create_table_query[\nCREATE TABLE IF NOT EXISTS events_dead_letter_queue ON CLUSTER posthog\n(\n    id UUID,\n    event_uuid UUID,\n    event VARCHAR,\n    properties VARCHAR,\n    distinct_id VARCHAR,\n    team_id Int64,\n    elements_chain VARCHAR,\n    created_at DateTime64(6, 'UTC'),\n    ip VARCHAR,\n    site_url VARCHAR,\n    now DateTime64(6, 'UTC'),\n    raw_payload VARCHAR,\n    error_timestamp DateTime64(6, 'UTC'),\n    error_location VARCHAR,\n    error VARCHAR,\n    tags Array(VARCHAR)\n    \n, _timestamp DateTime\n, _offset UInt64\n\n) ENGINE = ReplacingMergeTree(_timestamp)\nORDER BY (id, event_uuid, distinct_id, team_id)\n\nSETTINGS index_granularity=512\n]
-  '
-  
-  CREATE TABLE IF NOT EXISTS events_dead_letter_queue ON CLUSTER posthog
-  (
-      id UUID,
-      event_uuid UUID,
-      event VARCHAR,
-      properties VARCHAR,
-      distinct_id VARCHAR,
-      team_id Int64,
-      elements_chain VARCHAR,
-      created_at DateTime64(6, 'UTC'),
-      ip VARCHAR,
-      site_url VARCHAR,
-      now DateTime64(6, 'UTC'),
-      raw_payload VARCHAR,
-      error_timestamp DateTime64(6, 'UTC'),
-      error_location VARCHAR,
-      error VARCHAR,
-      tags Array(VARCHAR)
-      
-  , _timestamp DateTime
-  , _offset UInt64
-  
-  ) ENGINE = ReplacingMergeTree(_timestamp)
-  ORDER BY (id, event_uuid, distinct_id, team_id)
-  
-  SETTINGS index_granularity=512
-  
-  '
----
-# name: test_create_table_query[\nCREATE TABLE IF NOT EXISTS groups ON CLUSTER posthog\n(\n    group_type_index UInt8,\n    group_key VARCHAR,\n    created_at DateTime64,\n    team_id Int64,\n    group_properties VARCHAR\n    \n, _timestamp DateTime\n, _offset UInt64\n\n) ENGINE = ReplacingMergeTree(_timestamp)\nOrder By (team_id, group_type_index, group_key)\n\n]
-  '
-  
-  CREATE TABLE IF NOT EXISTS groups ON CLUSTER posthog
-  (
-      group_type_index UInt8,
-      group_key VARCHAR,
-      created_at DateTime64,
-      team_id Int64,
-      group_properties VARCHAR
-      
-  , _timestamp DateTime
-  , _offset UInt64
-  
-  ) ENGINE = ReplacingMergeTree(_timestamp)
-  Order By (team_id, group_type_index, group_key)
+  SAMPLE BY cityHash64(distinct_id)
   
   
   '
 ---
-# name: test_create_table_query[\nCREATE TABLE IF NOT EXISTS kafka_events ON CLUSTER posthog\n(\n    uuid UUID,\n    event VARCHAR,\n    properties VARCHAR,\n    timestamp DateTime64(6, 'UTC'),\n    team_id Int64,\n    distinct_id VARCHAR,\n    elements_chain VARCHAR,\n    created_at DateTime64(6, 'UTC')\n    \n    \n) ENGINE = \n    Kafka () SETTINGS\n    kafka_broker_list = 'kafka',\n    kafka_topic_list = 'clickhouse_events_proto_test',\n    kafka_group_name = 'group1',\n    kafka_format = 'Protobuf',\n    kafka_schema = 'events:Event',\n    kafka_skip_broken_messages = 100\n    \n]
+# name: test_create_table_query[sharded_session_recording_events]
   '
   
-  CREATE TABLE IF NOT EXISTS kafka_events ON CLUSTER posthog
-  (
-      uuid UUID,
-      event VARCHAR,
-      properties VARCHAR,
-      timestamp DateTime64(6, 'UTC'),
-      team_id Int64,
-      distinct_id VARCHAR,
-      elements_chain VARCHAR,
-      created_at DateTime64(6, 'UTC')
-      
-      
-  ) ENGINE = 
-      Kafka () SETTINGS
-      kafka_broker_list = 'kafka',
-      kafka_topic_list = 'clickhouse_events_proto_test',
-      kafka_group_name = 'group1',
-      kafka_format = 'Protobuf',
-      kafka_schema = 'events:Event',
-      kafka_skip_broken_messages = 100
-      
-  
-  '
----
-# name: test_create_table_query[\nCREATE TABLE IF NOT EXISTS kafka_events_dead_letter_queue ON CLUSTER posthog\n(\n    id UUID,\n    event_uuid UUID,\n    event VARCHAR,\n    properties VARCHAR,\n    distinct_id VARCHAR,\n    team_id Int64,\n    elements_chain VARCHAR,\n    created_at DateTime64(6, 'UTC'),\n    ip VARCHAR,\n    site_url VARCHAR,\n    now DateTime64(6, 'UTC'),\n    raw_payload VARCHAR,\n    error_timestamp DateTime64(6, 'UTC'),\n    error_location VARCHAR,\n    error VARCHAR,\n    tags Array(VARCHAR)\n    \n) ENGINE = Kafka('kafka', 'events_dead_letter_queue_test', 'group1', 'JSONEachRow')\n]
-  '
-  
-  CREATE TABLE IF NOT EXISTS kafka_events_dead_letter_queue ON CLUSTER posthog
-  (
-      id UUID,
-      event_uuid UUID,
-      event VARCHAR,
-      properties VARCHAR,
-      distinct_id VARCHAR,
-      team_id Int64,
-      elements_chain VARCHAR,
-      created_at DateTime64(6, 'UTC'),
-      ip VARCHAR,
-      site_url VARCHAR,
-      now DateTime64(6, 'UTC'),
-      raw_payload VARCHAR,
-      error_timestamp DateTime64(6, 'UTC'),
-      error_location VARCHAR,
-      error VARCHAR,
-      tags Array(VARCHAR)
-      
-  ) ENGINE = Kafka('kafka', 'events_dead_letter_queue_test', 'group1', 'JSONEachRow')
-  
-  '
----
-# name: test_create_table_query[\nCREATE TABLE IF NOT EXISTS kafka_groups ON CLUSTER posthog\n(\n    group_type_index UInt8,\n    group_key VARCHAR,\n    created_at DateTime64,\n    team_id Int64,\n    group_properties VARCHAR\n    \n) ENGINE = Kafka('kafka', 'clickhouse_groups_test', 'group1', 'JSONEachRow')\n]
-  '
-  
-  CREATE TABLE IF NOT EXISTS kafka_groups ON CLUSTER posthog
-  (
-      group_type_index UInt8,
-      group_key VARCHAR,
-      created_at DateTime64,
-      team_id Int64,
-      group_properties VARCHAR
-      
-  ) ENGINE = Kafka('kafka', 'clickhouse_groups_test', 'group1', 'JSONEachRow')
-  
-  '
----
-# name: test_create_table_query[\nCREATE TABLE IF NOT EXISTS kafka_person ON CLUSTER posthog\n(\n    id UUID,\n    created_at DateTime64,\n    team_id Int64,\n    properties VARCHAR,\n    is_identified Boolean,\n    is_deleted Boolean DEFAULT 0\n    \n) ENGINE = Kafka('kafka', 'clickhouse_person_test', 'group1', 'JSONEachRow')\n]
-  '
-  
-  CREATE TABLE IF NOT EXISTS kafka_person ON CLUSTER posthog
-  (
-      id UUID,
-      created_at DateTime64,
-      team_id Int64,
-      properties VARCHAR,
-      is_identified Boolean,
-      is_deleted Boolean DEFAULT 0
-      
-  ) ENGINE = Kafka('kafka', 'clickhouse_person_test', 'group1', 'JSONEachRow')
-  
-  '
----
-# name: test_create_table_query[\nCREATE TABLE IF NOT EXISTS kafka_person_distinct_id2 ON CLUSTER posthog\n(\n    team_id Int64,\n    distinct_id VARCHAR,\n    person_id UUID,\n    is_deleted Boolean,\n    version Int64 DEFAULT 1\n    \n) ENGINE = Kafka('kafka', 'clickhouse_person_distinct_id_test', 'group1', 'JSONEachRow')\n]
-  '
-  
-  CREATE TABLE IF NOT EXISTS kafka_person_distinct_id2 ON CLUSTER posthog
-  (
-      team_id Int64,
-      distinct_id VARCHAR,
-      person_id UUID,
-      is_deleted Boolean,
-      version Int64 DEFAULT 1
-      
-  ) ENGINE = Kafka('kafka', 'clickhouse_person_distinct_id_test', 'group1', 'JSONEachRow')
-  
-  '
----
-# name: test_create_table_query[\nCREATE TABLE IF NOT EXISTS kafka_plugin_log_entries ON CLUSTER posthog\n(\n    id UUID,\n    team_id Int64,\n    plugin_id Int64,\n    plugin_config_id Int64,\n    timestamp DateTime64(6, 'UTC'),\n    source VARCHAR,\n    type VARCHAR,\n    message VARCHAR,\n    instance_id UUID\n    \n) ENGINE = Kafka('kafka', 'plugin_log_entries_test', 'group1', 'JSONEachRow')\n]
-  '
-  
-  CREATE TABLE IF NOT EXISTS kafka_plugin_log_entries ON CLUSTER posthog
-  (
-      id UUID,
-      team_id Int64,
-      plugin_id Int64,
-      plugin_config_id Int64,
-      timestamp DateTime64(6, 'UTC'),
-      source VARCHAR,
-      type VARCHAR,
-      message VARCHAR,
-      instance_id UUID
-      
-  ) ENGINE = Kafka('kafka', 'plugin_log_entries_test', 'group1', 'JSONEachRow')
-  
-  '
----
-# name: test_create_table_query[\nCREATE TABLE IF NOT EXISTS kafka_session_recording_events ON CLUSTER posthog\n(\n    uuid UUID,\n    timestamp DateTime64(6, 'UTC'),\n    team_id Int64,\n    distinct_id VARCHAR,\n    session_id VARCHAR,\n    window_id VARCHAR,\n    snapshot_data VARCHAR,\n    created_at DateTime64(6, 'UTC')\n    \n    \n) ENGINE = Kafka('kafka', 'clickhouse_session_recording_events_test', 'group1', 'JSONEachRow')\n]
-  '
-  
-  CREATE TABLE IF NOT EXISTS kafka_session_recording_events ON CLUSTER posthog
+  CREATE TABLE IF NOT EXISTS session_recording_events ON CLUSTER 'posthog'
   (
       uuid UUID,
       timestamp DateTime64(6, 'UTC'),
@@ -557,133 +871,7 @@
       snapshot_data VARCHAR,
       created_at DateTime64(6, 'UTC')
       
-      
-  ) ENGINE = Kafka('kafka', 'clickhouse_session_recording_events_test', 'group1', 'JSONEachRow')
-  
-  '
----
-# name: test_create_table_query[\nCREATE TABLE IF NOT EXISTS person ON CLUSTER posthog\n(\n    id UUID,\n    created_at DateTime64,\n    team_id Int64,\n    properties VARCHAR,\n    is_identified Boolean,\n    is_deleted Boolean DEFAULT 0\n    \n, _timestamp DateTime\n, _offset UInt64\n\n) ENGINE = ReplacingMergeTree(_timestamp)\nOrder By (team_id, id)\n\n]
-  '
-  
-  CREATE TABLE IF NOT EXISTS person ON CLUSTER posthog
-  (
-      id UUID,
-      created_at DateTime64,
-      team_id Int64,
-      properties VARCHAR,
-      is_identified Boolean,
-      is_deleted Boolean DEFAULT 0
-      
-  , _timestamp DateTime
-  , _offset UInt64
-  
-  ) ENGINE = ReplacingMergeTree(_timestamp)
-  Order By (team_id, id)
-  
-  
-  '
----
-# name: test_create_table_query[\nCREATE TABLE IF NOT EXISTS person_distinct_id ON CLUSTER posthog\n(\n    distinct_id VARCHAR,\n    person_id UUID,\n    team_id Int64,\n    _sign Int8 DEFAULT 1,\n    is_deleted Int8 ALIAS if(_sign==-1, 1, 0)\n    \n, _timestamp DateTime\n, _offset UInt64\n\n) ENGINE = CollapsingMergeTree(_sign)\nOrder By (team_id, distinct_id, person_id)\n\n]
-  '
-  
-  CREATE TABLE IF NOT EXISTS person_distinct_id ON CLUSTER posthog
-  (
-      distinct_id VARCHAR,
-      person_id UUID,
-      team_id Int64,
-      _sign Int8 DEFAULT 1,
-      is_deleted Int8 ALIAS if(_sign==-1, 1, 0)
-      
-  , _timestamp DateTime
-  , _offset UInt64
-  
-  ) ENGINE = CollapsingMergeTree(_sign)
-  Order By (team_id, distinct_id, person_id)
-  
-  
-  '
----
-# name: test_create_table_query[\nCREATE TABLE IF NOT EXISTS person_distinct_id2 ON CLUSTER posthog\n(\n    team_id Int64,\n    distinct_id VARCHAR,\n    person_id UUID,\n    is_deleted Boolean,\n    version Int64 DEFAULT 1\n    \n, _timestamp DateTime\n, _offset UInt64\n\n, _partition UInt64\n) ENGINE = ReplacingMergeTree(version)\n\n    ORDER BY (team_id, distinct_id)\n    SETTINGS index_granularity = 512\n    ]
-  '
-  
-  CREATE TABLE IF NOT EXISTS person_distinct_id2 ON CLUSTER posthog
-  (
-      team_id Int64,
-      distinct_id VARCHAR,
-      person_id UUID,
-      is_deleted Boolean,
-      version Int64 DEFAULT 1
-      
-  , _timestamp DateTime
-  , _offset UInt64
-  
-  , _partition UInt64
-  ) ENGINE = ReplacingMergeTree(version)
-  
-      ORDER BY (team_id, distinct_id)
-      SETTINGS index_granularity = 512
-      
-  '
----
-# name: test_create_table_query[\nCREATE TABLE IF NOT EXISTS person_static_cohort ON CLUSTER posthog\n(\n    id UUID,\n    person_id UUID,\n    cohort_id Int64,\n    team_id Int64\n    \n, _timestamp DateTime\n, _offset UInt64\n\n) ENGINE = ReplacingMergeTree(_timestamp)\nOrder By (team_id, cohort_id, person_id, id)\n\n]
-  '
-  
-  CREATE TABLE IF NOT EXISTS person_static_cohort ON CLUSTER posthog
-  (
-      id UUID,
-      person_id UUID,
-      cohort_id Int64,
-      team_id Int64
-      
-  , _timestamp DateTime
-  , _offset UInt64
-  
-  ) ENGINE = ReplacingMergeTree(_timestamp)
-  Order By (team_id, cohort_id, person_id, id)
-  
-  
-  '
----
-# name: test_create_table_query[\nCREATE TABLE IF NOT EXISTS plugin_log_entries ON CLUSTER posthog\n(\n    id UUID,\n    team_id Int64,\n    plugin_id Int64,\n    plugin_config_id Int64,\n    timestamp DateTime64(6, 'UTC'),\n    source VARCHAR,\n    type VARCHAR,\n    message VARCHAR,\n    instance_id UUID\n    \n, _timestamp DateTime\n, _offset UInt64\n\n) ENGINE = ReplacingMergeTree(_timestamp)\nPARTITION BY plugin_id ORDER BY (team_id, id)\n\nSETTINGS index_granularity=512\n]
-  '
-  
-  CREATE TABLE IF NOT EXISTS plugin_log_entries ON CLUSTER posthog
-  (
-      id UUID,
-      team_id Int64,
-      plugin_id Int64,
-      plugin_config_id Int64,
-      timestamp DateTime64(6, 'UTC'),
-      source VARCHAR,
-      type VARCHAR,
-      message VARCHAR,
-      instance_id UUID
-      
-  , _timestamp DateTime
-  , _offset UInt64
-  
-  ) ENGINE = ReplacingMergeTree(_timestamp)
-  PARTITION BY plugin_id ORDER BY (team_id, id)
-  
-  SETTINGS index_granularity=512
-  
-  '
----
-# name: test_create_table_query[\nCREATE TABLE IF NOT EXISTS session_recording_events ON CLUSTER posthog\n(\n    uuid UUID,\n    timestamp DateTime64(6, 'UTC'),\n    team_id Int64,\n    distinct_id VARCHAR,\n    session_id VARCHAR,\n    window_id VARCHAR,\n    snapshot_data VARCHAR,\n    created_at DateTime64(6, 'UTC')\n    \n    , has_full_snapshot BOOLEAN materialized JSONExtractBool(snapshot_data, 'has_full_snapshot')\n\n    \n, _timestamp DateTime\n, _offset UInt64\n\n) ENGINE = ReplacingMergeTree(_timestamp)\nPARTITION BY toYYYYMMDD(timestamp)\nORDER BY (team_id, toHour(timestamp), session_id, timestamp, uuid)\n\nSETTINGS index_granularity=512\n]
-  '
-  
-  CREATE TABLE IF NOT EXISTS session_recording_events ON CLUSTER posthog
-  (
-      uuid UUID,
-      timestamp DateTime64(6, 'UTC'),
-      team_id Int64,
-      distinct_id VARCHAR,
-      session_id VARCHAR,
-      window_id VARCHAR,
-      snapshot_data VARCHAR,
-      created_at DateTime64(6, 'UTC')
-      
-      , has_full_snapshot BOOLEAN materialized JSONExtractBool(snapshot_data, 'has_full_snapshot')
+      , has_full_snapshot Int8 MATERIALIZED JSONExtractBool(snapshot_data, 'has_full_snapshot') COMMENT 'column_materializer::has_full_snapshot'
   
       
   , _timestamp DateTime
@@ -697,39 +885,10 @@
   
   '
 ---
-# name: test_create_table_query[\nCREATE TABLE kafka_person_distinct_id ON CLUSTER posthog\n(\n    distinct_id VARCHAR,\n    person_id UUID,\n    team_id Int64,\n    _sign Nullable(Int8),\n    is_deleted Nullable(Int8)\n) ENGINE = Kafka('kafka', 'clickhouse_person_unique_id_test', 'group1', 'JSONEachRow')\n]
+# name: test_create_table_query[writable_events]
   '
   
-  CREATE TABLE kafka_person_distinct_id ON CLUSTER posthog
-  (
-      distinct_id VARCHAR,
-      person_id UUID,
-      team_id Int64,
-      _sign Nullable(Int8),
-      is_deleted Nullable(Int8)
-  ) ENGINE = Kafka('kafka', 'clickhouse_person_unique_id_test', 'group1', 'JSONEachRow')
-  
-  '
----
-# name: test_create_table_query_replicated_and_storage[\nCREATE TABLE IF NOT EXISTS cohortpeople ON CLUSTER posthog\n(\n    person_id UUID,\n    cohort_id Int64,\n    team_id Int64,\n    sign Int8\n) ENGINE = CollapsingMergeTree(sign)\nOrder By (team_id, cohort_id, person_id)\n\n]
-  '
-  
-  CREATE TABLE IF NOT EXISTS cohortpeople ON CLUSTER posthog
-  (
-      person_id UUID,
-      cohort_id Int64,
-      team_id Int64,
-      sign Int8
-  ) ENGINE = ReplicatedCollapsingMergeTree('/clickhouse/tables/noshard/posthog.cohortpeople', '{replica}-{shard}', sign)
-  Order By (team_id, cohort_id, person_id)
-  
-  
-  '
----
-# name: test_create_table_query_replicated_and_storage[\nCREATE TABLE IF NOT EXISTS events ON CLUSTER posthog\n(\n    uuid UUID,\n    event VARCHAR,\n    properties VARCHAR,\n    timestamp DateTime64(6, 'UTC'),\n    team_id Int64,\n    distinct_id VARCHAR,\n    elements_chain VARCHAR,\n    created_at DateTime64(6, 'UTC')\n    \n    , $group_0 VARCHAR materialized trim(BOTH '"' FROM JSONExtractRaw(properties, '$group_0')) COMMENT 'column_materializer.$group_0'\n    , $group_1 VARCHAR materialized trim(BOTH '"' FROM JSONExtractRaw(properties, '$group_1')) COMMENT 'column_materializer.$group_1'\n    , $group_2 VARCHAR materialized trim(BOTH '"' FROM JSONExtractRaw(properties, '$group_2')) COMMENT 'column_materializer.$group_2'\n    , $group_3 VARCHAR materialized trim(BOTH '"' FROM JSONExtractRaw(properties, '$group_3')) COMMENT 'column_materializer.$group_3'\n    , $group_4 VARCHAR materialized trim(BOTH '"' FROM JSONExtractRaw(properties, '$group_4')) COMMENT 'column_materializer.test_create_table_query_replicated_and_storage[\nCREATE TABLE IF NOT EXISTS events ON CLUSTER posthog\n(\n    uuid UUID,\n    event VARCHAR,\n    properties VARCHAR,\n    timestamp DateTime64(6, 'UTC'),\n    team_id Int64,\n    distinct_id VARCHAR,\n    elements_chain VARCHAR,\n    created_at DateTime64(6, 'UTC')\n    \n    , $group_0 VARCHAR materialized trim(BOTH '"' FROM JSONExtractRaw(properties, '$group_0')) COMMENT 'column_materializer::$group_0'\n    , $group_1 VARCHAR materialized trim(BOTH '"' FROM JSONExtractRaw(properties, '$group_1')) COMMENT 'column_materializer::$group_1'\n    , $group_2 VARCHAR materialized trim(BOTH '"' FROM JSONExtractRaw(properties, '$group_2')) COMMENT 'column_materializer::$group_2'\n    , $group_3 VARCHAR materialized trim(BOTH '"' FROM JSONExtractRaw(properties, '$group_3')) COMMENT 'column_materializer::$group_3'\n    , $group_4 VARCHAR materialized trim(BOTH '"' FROM JSONExtractRaw(properties, '$group_4')) COMMENT 'column_materializer::$group_4'\n\n    \n, _timestamp DateTime\n, _offset UInt64\n\n) ENGINE = ReplacingMergeTree(_timestamp)\nPARTITION BY toYYYYMM(timestamp)\nORDER BY (team_id, toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid))\n\n\n]
-  '
-  
-  CREATE TABLE IF NOT EXISTS events ON CLUSTER posthog
+  CREATE TABLE IF NOT EXISTS writable_events ON CLUSTER 'posthog'
   (
       uuid UUID,
       event VARCHAR,
@@ -738,30 +897,64 @@
       team_id Int64,
       distinct_id VARCHAR,
       elements_chain VARCHAR,
-      created_at DateTime64(6, 'UTC')
+      created_at DateTime64(6, 'UTC'),
+      person_id UUID,
+      person_properties VARCHAR,
+      group0_properties VARCHAR,
+      group1_properties VARCHAR,
+      group2_properties VARCHAR,
+      group3_properties VARCHAR,
+      group4_properties VARCHAR
       
-      , $group_0 VARCHAR materialized trim(BOTH '"' FROM JSONExtractRaw(properties, '$group_0')) COMMENT 'column_materializer::$group_0'
-      , $group_1 VARCHAR materialized trim(BOTH '"' FROM JSONExtractRaw(properties, '$group_1')) COMMENT 'column_materializer::$group_1'
-      , $group_2 VARCHAR materialized trim(BOTH '"' FROM JSONExtractRaw(properties, '$group_2')) COMMENT 'column_materializer::$group_2'
-      , $group_3 VARCHAR materialized trim(BOTH '"' FROM JSONExtractRaw(properties, '$group_3')) COMMENT 'column_materializer::$group_3'
-      , $group_4 VARCHAR materialized trim(BOTH '"' FROM JSONExtractRaw(properties, '$group_4')) COMMENT 'column_materializer::$group_4'
-  
       
   , _timestamp DateTime
   , _offset UInt64
   
-  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/{shard}/posthog.events', '{replica}', _timestamp)
-  PARTITION BY toYYYYMM(timestamp)
-  ORDER BY (team_id, toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid))
-  
-  SETTINGS storage_policy = 'hot_to_cold'
+  ) ENGINE = Distributed('posthog', 'posthog_test', 'events', sipHash64(distinct_id))
   
   '
 ---
-# name: test_create_table_query_replicated_and_storage[\nCREATE TABLE IF NOT EXISTS events_dead_letter_queue ON CLUSTER posthog\n(\n    id UUID,\n    event_uuid UUID,\n    event VARCHAR,\n    properties VARCHAR,\n    distinct_id VARCHAR,\n    team_id Int64,\n    elements_chain VARCHAR,\n    created_at DateTime64(6, 'UTC'),\n    ip VARCHAR,\n    site_url VARCHAR,\n    now DateTime64(6, 'UTC'),\n    raw_payload VARCHAR,\n    error_timestamp DateTime64(6, 'UTC'),\n    error_location VARCHAR,\n    error VARCHAR,\n    tags Array(VARCHAR)\n    \n, _timestamp DateTime\n, _offset UInt64\n\n) ENGINE = ReplacingMergeTree(_timestamp)\nORDER BY (id, event_uuid, distinct_id, team_id)\n\nSETTINGS index_granularity=512\n]
+# name: test_create_table_query[writable_session_recording_events]
   '
   
-  CREATE TABLE IF NOT EXISTS events_dead_letter_queue ON CLUSTER posthog
+  CREATE TABLE IF NOT EXISTS writable_session_recording_events ON CLUSTER 'posthog'
+  (
+      uuid UUID,
+      timestamp DateTime64(6, 'UTC'),
+      team_id Int64,
+      distinct_id VARCHAR,
+      session_id VARCHAR,
+      window_id VARCHAR,
+      snapshot_data VARCHAR,
+      created_at DateTime64(6, 'UTC')
+      
+      
+  , _timestamp DateTime
+  , _offset UInt64
+  
+  ) ENGINE = Distributed('posthog', 'posthog_test', 'session_recording_events', sipHash64(distinct_id))
+  
+  '
+---
+# name: test_create_table_query_replicated_and_storage[cohortpeople]
+  '
+  
+  CREATE TABLE IF NOT EXISTS cohortpeople ON CLUSTER 'posthog'
+  (
+      person_id UUID,
+      cohort_id Int64,
+      team_id Int64,
+      sign Int8
+  ) ENGINE = ReplicatedCollapsingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.cohortpeople', '{replica}-{shard}', sign)
+  Order By (team_id, cohort_id, person_id)
+  
+  
+  '
+---
+# name: test_create_table_query_replicated_and_storage[events_dead_letter_queue]
+  '
+  
+  CREATE TABLE IF NOT EXISTS events_dead_letter_queue ON CLUSTER 'posthog'
   (
       id UUID,
       event_uuid UUID,
@@ -783,17 +976,17 @@
   , _timestamp DateTime
   , _offset UInt64
   
-  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/{shard}/posthog.events_dead_letter_queue', '{replica}', _timestamp)
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.events_dead_letter_queue', '{replica}-{shard}', _timestamp)
   ORDER BY (id, event_uuid, distinct_id, team_id)
   
   SETTINGS index_granularity=512
   
   '
 ---
-# name: test_create_table_query_replicated_and_storage[\nCREATE TABLE IF NOT EXISTS groups ON CLUSTER posthog\n(\n    group_type_index UInt8,\n    group_key VARCHAR,\n    created_at DateTime64,\n    team_id Int64,\n    group_properties VARCHAR\n    \n, _timestamp DateTime\n, _offset UInt64\n\n) ENGINE = ReplacingMergeTree(_timestamp)\nOrder By (team_id, group_type_index, group_key)\n\n]
+# name: test_create_table_query_replicated_and_storage[groups]
   '
   
-  CREATE TABLE IF NOT EXISTS groups ON CLUSTER posthog
+  CREATE TABLE IF NOT EXISTS groups ON CLUSTER 'posthog'
   (
       group_type_index UInt8,
       group_key VARCHAR,
@@ -804,37 +997,59 @@
   , _timestamp DateTime
   , _offset UInt64
   
-  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/{shard}/posthog.groups', '{replica}', _timestamp)
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.groups', '{replica}-{shard}', _timestamp)
   Order By (team_id, group_type_index, group_key)
   SETTINGS storage_policy = 'hot_to_cold'
   
   '
 ---
-# name: test_create_table_query_replicated_and_storage[\nCREATE TABLE IF NOT EXISTS person ON CLUSTER posthog\n(\n    id UUID,\n    created_at DateTime64,\n    team_id Int64,\n    properties VARCHAR,\n    is_identified Boolean,\n    is_deleted Boolean DEFAULT 0\n    \n, _timestamp DateTime\n, _offset UInt64\n\n) ENGINE = ReplacingMergeTree(_timestamp)\nOrder By (team_id, id)\n\n]
+# name: test_create_table_query_replicated_and_storage[person]
   '
   
-  CREATE TABLE IF NOT EXISTS person ON CLUSTER posthog
+  CREATE TABLE IF NOT EXISTS person ON CLUSTER 'posthog'
   (
       id UUID,
       created_at DateTime64,
       team_id Int64,
       properties VARCHAR,
-      is_identified Boolean,
-      is_deleted Boolean DEFAULT 0
+      is_identified Int8,
+      is_deleted Int8 DEFAULT 0
       
   , _timestamp DateTime
   , _offset UInt64
   
-  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/{shard}/posthog.person', '{replica}', _timestamp)
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.person', '{replica}-{shard}', _timestamp)
   Order By (team_id, id)
   SETTINGS storage_policy = 'hot_to_cold'
   
   '
 ---
-# name: test_create_table_query_replicated_and_storage[\nCREATE TABLE IF NOT EXISTS person_distinct_id ON CLUSTER posthog\n(\n    distinct_id VARCHAR,\n    person_id UUID,\n    team_id Int64,\n    _sign Int8 DEFAULT 1,\n    is_deleted Int8 ALIAS if(_sign==-1, 1, 0)\n    \n, _timestamp DateTime\n, _offset UInt64\n\n) ENGINE = CollapsingMergeTree(_sign)\nOrder By (team_id, distinct_id, person_id)\n\n]
+# name: test_create_table_query_replicated_and_storage[person_distinct_id2]
   '
   
-  CREATE TABLE IF NOT EXISTS person_distinct_id ON CLUSTER posthog
+  CREATE TABLE IF NOT EXISTS person_distinct_id2 ON CLUSTER 'posthog'
+  (
+      team_id Int64,
+      distinct_id VARCHAR,
+      person_id UUID,
+      is_deleted Int8,
+      version Int64 DEFAULT 1
+      
+  , _timestamp DateTime
+  , _offset UInt64
+  
+  , _partition UInt64
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.person_distinct_id2', '{replica}-{shard}', version)
+  
+      ORDER BY (team_id, distinct_id)
+      SETTINGS index_granularity = 512
+      
+  '
+---
+# name: test_create_table_query_replicated_and_storage[person_distinct_id]
+  '
+  
+  CREATE TABLE IF NOT EXISTS person_distinct_id ON CLUSTER 'posthog'
   (
       distinct_id VARCHAR,
       person_id UUID,
@@ -845,38 +1060,16 @@
   , _timestamp DateTime
   , _offset UInt64
   
-  ) ENGINE = ReplicatedCollapsingMergeTree('/clickhouse/tables/noshard/posthog.person_distinct_id', '{replica}-{shard}', _sign)
+  ) ENGINE = ReplicatedCollapsingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.person_distinct_id', '{replica}-{shard}', _sign)
   Order By (team_id, distinct_id, person_id)
   SETTINGS storage_policy = 'hot_to_cold'
   
   '
 ---
-# name: test_create_table_query_replicated_and_storage[\nCREATE TABLE IF NOT EXISTS person_distinct_id2 ON CLUSTER posthog\n(\n    team_id Int64,\n    distinct_id VARCHAR,\n    person_id UUID,\n    is_deleted Boolean,\n    version Int64 DEFAULT 1\n    \n, _timestamp DateTime\n, _offset UInt64\n\n, _partition UInt64\n) ENGINE = ReplacingMergeTree(version)\n\n    ORDER BY (team_id, distinct_id)\n    SETTINGS index_granularity = 512\n    ]
+# name: test_create_table_query_replicated_and_storage[person_static_cohort]
   '
   
-  CREATE TABLE IF NOT EXISTS person_distinct_id2 ON CLUSTER posthog
-  (
-      team_id Int64,
-      distinct_id VARCHAR,
-      person_id UUID,
-      is_deleted Boolean,
-      version Int64 DEFAULT 1
-      
-  , _timestamp DateTime
-  , _offset UInt64
-  
-  , _partition UInt64
-  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog.person_distinct_id2', '{replica}-{shard}', version)
-  
-      ORDER BY (team_id, distinct_id)
-      SETTINGS index_granularity = 512
-      
-  '
----
-# name: test_create_table_query_replicated_and_storage[\nCREATE TABLE IF NOT EXISTS person_static_cohort ON CLUSTER posthog\n(\n    id UUID,\n    person_id UUID,\n    cohort_id Int64,\n    team_id Int64\n    \n, _timestamp DateTime\n, _offset UInt64\n\n) ENGINE = ReplacingMergeTree(_timestamp)\nOrder By (team_id, cohort_id, person_id, id)\n\n]
-  '
-  
-  CREATE TABLE IF NOT EXISTS person_static_cohort ON CLUSTER posthog
+  CREATE TABLE IF NOT EXISTS person_static_cohort ON CLUSTER 'posthog'
   (
       id UUID,
       person_id UUID,
@@ -886,16 +1079,16 @@
   , _timestamp DateTime
   , _offset UInt64
   
-  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/{shard}/posthog.person_static_cohort', '{replica}', _timestamp)
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.person_static_cohort', '{replica}-{shard}', _timestamp)
   Order By (team_id, cohort_id, person_id, id)
   SETTINGS storage_policy = 'hot_to_cold'
   
   '
 ---
-# name: test_create_table_query_replicated_and_storage[\nCREATE TABLE IF NOT EXISTS plugin_log_entries ON CLUSTER posthog\n(\n    id UUID,\n    team_id Int64,\n    plugin_id Int64,\n    plugin_config_id Int64,\n    timestamp DateTime64(6, 'UTC'),\n    source VARCHAR,\n    type VARCHAR,\n    message VARCHAR,\n    instance_id UUID\n    \n, _timestamp DateTime\n, _offset UInt64\n\n) ENGINE = ReplacingMergeTree(_timestamp)\nPARTITION BY plugin_id ORDER BY (team_id, id)\n\nSETTINGS index_granularity=512\n]
+# name: test_create_table_query_replicated_and_storage[plugin_log_entries]
   '
   
-  CREATE TABLE IF NOT EXISTS plugin_log_entries ON CLUSTER posthog
+  CREATE TABLE IF NOT EXISTS plugin_log_entries ON CLUSTER 'posthog'
   (
       id UUID,
       team_id Int64,
@@ -910,17 +1103,58 @@
   , _timestamp DateTime
   , _offset UInt64
   
-  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/{shard}/posthog.plugin_log_entries', '{replica}', _timestamp)
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.plugin_log_entries', '{replica}-{shard}', _timestamp)
   PARTITION BY plugin_id ORDER BY (team_id, id)
   
   SETTINGS index_granularity=512
   
   '
 ---
-# name: test_create_table_query_replicated_and_storage[\nCREATE TABLE IF NOT EXISTS session_recording_events ON CLUSTER posthog\n(\n    uuid UUID,\n    timestamp DateTime64(6, 'UTC'),\n    team_id Int64,\n    distinct_id VARCHAR,\n    session_id VARCHAR,\n    window_id VARCHAR,\n    snapshot_data VARCHAR,\n    created_at DateTime64(6, 'UTC')\n    \n    , has_full_snapshot BOOLEAN materialized JSONExtractBool(snapshot_data, 'has_full_snapshot')\n\n    \n, _timestamp DateTime\n, _offset UInt64\n\n) ENGINE = ReplacingMergeTree(_timestamp)\nPARTITION BY toYYYYMMDD(timestamp)\nORDER BY (team_id, toHour(timestamp), session_id, timestamp, uuid)\n\nSETTINGS index_granularity=512\n]
+# name: test_create_table_query_replicated_and_storage[sharded_events]
   '
   
-  CREATE TABLE IF NOT EXISTS session_recording_events ON CLUSTER posthog
+  CREATE TABLE IF NOT EXISTS sharded_events ON CLUSTER 'posthog'
+  (
+      uuid UUID,
+      event VARCHAR,
+      properties VARCHAR,
+      timestamp DateTime64(6, 'UTC'),
+      team_id Int64,
+      distinct_id VARCHAR,
+      elements_chain VARCHAR,
+      created_at DateTime64(6, 'UTC'),
+      person_id UUID,
+      person_properties VARCHAR,
+      group0_properties VARCHAR,
+      group1_properties VARCHAR,
+      group2_properties VARCHAR,
+      group3_properties VARCHAR,
+      group4_properties VARCHAR
+      
+      , $group_0 VARCHAR MATERIALIZED replaceRegexpAll(JSONExtractRaw(properties, '$group_0'), '^"|"$', '') COMMENT 'column_materializer::$group_0'
+      , $group_1 VARCHAR MATERIALIZED replaceRegexpAll(JSONExtractRaw(properties, '$group_1'), '^"|"$', '') COMMENT 'column_materializer::$group_1'
+      , $group_2 VARCHAR MATERIALIZED replaceRegexpAll(JSONExtractRaw(properties, '$group_2'), '^"|"$', '') COMMENT 'column_materializer::$group_2'
+      , $group_3 VARCHAR MATERIALIZED replaceRegexpAll(JSONExtractRaw(properties, '$group_3'), '^"|"$', '') COMMENT 'column_materializer::$group_3'
+      , $group_4 VARCHAR MATERIALIZED replaceRegexpAll(JSONExtractRaw(properties, '$group_4'), '^"|"$', '') COMMENT 'column_materializer::$group_4'
+      , $window_id VARCHAR MATERIALIZED replaceRegexpAll(JSONExtractRaw(properties, '$window_id'), '^"|"$', '') COMMENT 'column_materializer::$window_id'
+      , $session_id VARCHAR MATERIALIZED replaceRegexpAll(JSONExtractRaw(properties, '$session_id'), '^"|"$', '') COMMENT 'column_materializer::$session_id'
+  
+      
+  , _timestamp DateTime
+  , _offset UInt64
+  
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.events', '{replica}', _timestamp)
+  PARTITION BY toYYYYMM(timestamp)
+  ORDER BY (team_id, toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid))
+  SAMPLE BY cityHash64(distinct_id)
+  SETTINGS storage_policy = 'hot_to_cold'
+  
+  '
+---
+# name: test_create_table_query_replicated_and_storage[sharded_session_recording_events]
+  '
+  
+  CREATE TABLE IF NOT EXISTS sharded_session_recording_events ON CLUSTER 'posthog'
   (
       uuid UUID,
       timestamp DateTime64(6, 'UTC'),
@@ -931,13 +1165,13 @@
       snapshot_data VARCHAR,
       created_at DateTime64(6, 'UTC')
       
-      , has_full_snapshot BOOLEAN materialized JSONExtractBool(snapshot_data, 'has_full_snapshot')
+      , has_full_snapshot Int8 MATERIALIZED JSONExtractBool(snapshot_data, 'has_full_snapshot') COMMENT 'column_materializer::has_full_snapshot'
   
       
   , _timestamp DateTime
   , _offset UInt64
   
-  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/{shard}/posthog.session_recording_events', '{replica}', _timestamp)
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.session_recording_events', '{replica}', _timestamp)
   PARTITION BY toYYYYMMDD(timestamp)
   ORDER BY (team_id, toHour(timestamp), session_id, timestamp, uuid)
   

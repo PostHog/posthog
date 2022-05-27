@@ -4,7 +4,6 @@ from dateutil.relativedelta import relativedelta
 from django.utils import timezone
 from freezegun.api import freeze_time
 
-from ee.clickhouse.models.event import create_event
 from ee.clickhouse.models.group import create_group
 from ee.clickhouse.models.session_recording_event import create_session_recording_event
 from ee.clickhouse.queries.trends.person import ClickhouseTrendsActors
@@ -12,18 +11,7 @@ from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
 from posthog.models.entity import Entity
 from posthog.models.filters import Filter
 from posthog.models.group_type_mapping import GroupTypeMapping
-from posthog.models.person import Person
-from posthog.test.base import APIBaseTest, test_with_materialized_columns
-
-
-def _create_person(**kwargs):
-    person = Person.objects.create(**kwargs)
-    return Person(id=person.uuid, uuid=person.uuid)
-
-
-def _create_event(uuid=None, **kwargs):
-    kwargs.update({"event_uuid": uuid if uuid else uuid4()})
-    create_event(**kwargs)
+from posthog.test.base import APIBaseTest, _create_event, _create_person
 
 
 def _create_session_recording_event(team_id, distinct_id, session_id, timestamp, window_id="", has_full_snapshot=True):
@@ -42,7 +30,6 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
 
     # Note: not using `@snapshot_clickhouse_queries` here because the ordering of the session_ids in the recording
     # query is not guaranteed, so adding it would lead to a flaky test.
-    @test_with_materialized_columns(event_properties=["$session_id", "$window_id"])
     @freeze_time("2021-01-21T20:00:00.000Z")
     def test_person_query_includes_recording_events(self):
         _create_person(team_id=self.team.pk, distinct_ids=["u1"], properties={"email": "bla"})
@@ -65,7 +52,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
             timestamp=timezone.now() + relativedelta(hours=2),
             properties={"$session_id": "s1", "$window_id": "w1"},
-            uuid="b06e5a5e-e001-4293-af81-ac73e194569d",
+            event_uuid="b06e5a5e-e001-4293-af81-ac73e194569d",
         )
         _create_event(
             event="pageview",
@@ -73,7 +60,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
             timestamp=timezone.now() + relativedelta(hours=3),
             properties={"$session_id": "s1", "$window_id": "w1"},
-            uuid="206e5a5e-e001-4293-af81-ac73e194569d",
+            event_uuid="206e5a5e-e001-4293-af81-ac73e194569d",
         )
         event = {
             "id": "pageview",
@@ -132,7 +119,6 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(serialized_actors[0].get("matched_recordings"), None)
 
     @snapshot_clickhouse_queries
-    @test_with_materialized_columns(event_properties=["$session_id", "$window_id"])
     @freeze_time("2021-01-21T20:00:00.000Z")
     def test_group_query_includes_recording_events(self):
         GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
@@ -153,7 +139,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
             timestamp=timezone.now() + relativedelta(hours=2),
             properties={"$session_id": "s1", "$window_id": "w1", "$group_0": "bla"},
-            uuid="b06e5a5e-e001-4293-af81-ac73e194569d",
+            event_uuid="b06e5a5e-e001-4293-af81-ac73e194569d",
         )
 
         event = {

@@ -10,7 +10,7 @@ export class PersonManager {
     constructor(serverConfig: PluginsServerConfig) {
         this.personSeen = new LRU({
             max: serverConfig.DISTINCT_ID_LRU_SIZE,
-            maxAge: ONE_HOUR,
+            maxAge: 4 * ONE_HOUR,
             updateAgeOnGet: true,
         })
     }

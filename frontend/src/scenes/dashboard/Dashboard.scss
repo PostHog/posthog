@@ -3,35 +3,20 @@
 .dashboard {
     margin-top: 1rem;
 
-    .dashboard-items-actions {
-        margin-bottom: $default_spacing;
-        display: flex;
+    .dashboard-items-action-icon {
+        margin-right: 6px;
+    }
 
-        .left-item {
-            flex-grow: 1;
+    .dashboard-items-action-refresh-text {
+        visibility: visible;
 
-            .dashboard-items-action-icon {
-                margin-right: 6px;
-            }
-
-            .dashboard-items-action-refresh-text {
-                visibility: visible;
-
-                &.hidden {
-                    visibility: hidden;
-                }
-
-                &.completed {
-                    position: absolute;
-                    left: 30px;
-                }
-            }
+        &.hidden {
+            visibility: hidden;
         }
 
-        .right-item {
-            .ant-btn {
-                padding-left: 4px !important;
-            }
+        &.completed {
+            position: absolute;
+            left: 30px;
         }
     }
 
@@ -62,8 +47,6 @@
             margin-top: $default_spacing;
             align-items: flex-end;
             .bar-el {
-                background-color: rgba(190, 190, 190, 0.2);
-                border-radius: $radius;
                 width: 12.5%;
                 margin-left: 4px;
                 height: 100px;

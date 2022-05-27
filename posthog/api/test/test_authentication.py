@@ -2,8 +2,6 @@ import datetime
 import uuid
 from unittest.mock import ANY, patch
 
-import pytest
-from constance.test import override_config
 from django.contrib.auth.tokens import default_token_generator
 from django.core import mail
 from django.utils import timezone
@@ -12,10 +10,49 @@ from rest_framework import status
 from social_django.models import UserSocialAuth
 
 from posthog.models import User
+from posthog.models.instance_setting import set_instance_setting
+from posthog.models.organization_domain import OrganizationDomain
 from posthog.test.base import APIBaseTest
 
 
-class TestAuthenticationAPI(APIBaseTest):
+class TestLoginPrecheckAPI(APIBaseTest):
+    """
+    Tests the login precheck API.
+    Please note additional login tests are included in ee/api/test/test_authentication.py
+    """
+
+    CONFIG_AUTO_LOGIN = False
+
+    def test_login_precheck_with_unenforced_sso(self):
+        OrganizationDomain.objects.create(
+            domain="witw.app", organization=self.organization, verified_at=timezone.now(),
+        )
+
+        response = self.client.post("/api/login/precheck", {"email": "any_user_name_here@witw.app"})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"sso_enforcement": None, "saml_available": False})
+
+    def test_login_precheck_with_sso_enforced_with_invalid_license(self):
+        # Note no Enterprise license can be found
+        OrganizationDomain.objects.create(
+            domain="witw.app",
+            organization=self.organization,
+            verified_at=timezone.now(),
+            sso_enforcement="google-oauth2",
+        )
+        User.objects.create_and_join(self.organization, "spain@witw.app", self.CONFIG_PASSWORD)
+
+        response = self.client.post("/api/login/precheck", {"email": "spain@witw.app"})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"sso_enforcement": None, "saml_available": False})
+
+
+class TestLoginAPI(APIBaseTest):
+    """
+    Tests the general password login API.
+    Please note additional login tests are included in ee/api/test/test_authentication.py (e.g. testing SSO enforcement)
+    """
+
     CONFIG_AUTO_LOGIN = False
 
     @patch("posthoganalytics.capture")
@@ -120,7 +157,7 @@ class TestAuthenticationAPI(APIBaseTest):
                 {
                     "type": "authentication_error",
                     "code": "too_many_failed_attempts",
-                    "detail": "Too many failed login attempts. Please try again in 15 minutes.",
+                    "detail": "Too many failed login attempts. Please try again in 10 minutes.",
                     "attr": None,
                 },
             )
@@ -131,9 +168,10 @@ class TestPasswordResetAPI(APIBaseTest):
 
     # Password reset request
 
-    @override_config(EMAIL_HOST="localhost")
     @patch("posthoganalytics.capture")
     def test_anonymous_user_can_request_password_reset(self, mock_capture):
+        set_instance_setting("EMAIL_HOST", "localhost")
+
         with self.settings(
             CELERY_TASK_ALWAYS_EAGER=True, SITE_URL="https://my.posthog.net",
         ):
@@ -164,11 +202,12 @@ class TestPasswordResetAPI(APIBaseTest):
             )
         )
 
-    @override_config(EMAIL_HOST="localhost")
     def test_reset_with_sso_available(self):
         """
         If the user has logged in / signed up with SSO, we let them know so they don't have to reset their password.
         """
+        set_instance_setting("EMAIL_HOST", "localhost")
+
         UserSocialAuth.objects.create(
             user=self.user,
             provider="google-oauth2",
@@ -207,8 +246,9 @@ class TestPasswordResetAPI(APIBaseTest):
         self.assertIn("Google, GitHub", html_message)
         self.assertIn("https://my.posthog.net/login", html_message)  # CTA link
 
-    @override_config(EMAIL_HOST="localhost")
     def test_success_response_even_on_invalid_email(self):
+        set_instance_setting("EMAIL_HOST", "localhost")
+
         with self.settings(
             CELERY_TASK_ALWAYS_EAGER=True, SITE_URL="https://my.posthog.net",
         ):
@@ -217,29 +257,6 @@ class TestPasswordResetAPI(APIBaseTest):
 
         # No emails should be sent
         self.assertEqual(len(mail.outbox), 0)
-
-    @pytest.mark.ee
-    def test_cant_reset_with_saml_enforced(self):
-        with self.settings(
-            CELERY_TASK_ALWAYS_EAGER=True,
-            EMAIL_HOST="localhost",
-            SITE_URL="https://my.posthog.net",
-            SAML_ENTITY_ID="entityID",
-            SAML_ACS_URL="https://saml.posthog.com",
-            SAML_X509_CERT="certificate",
-            SAML_ENFORCED=True,
-        ):
-            response = self.client.post("/api/reset/", {"email": "i_dont_exist@posthog.com"})
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(
-            response.json(),
-            {
-                "type": "validation_error",
-                "code": "saml_enforced",
-                "detail": "Password reset is disabled because SAML login is enforced.",
-                "attr": None,
-            },
-        )
 
     def test_cant_reset_if_email_is_not_configured(self):
         with self.settings(CELERY_TASK_ALWAYS_EAGER=True):

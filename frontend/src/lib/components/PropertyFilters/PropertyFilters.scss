@@ -1,0 +1,21 @@
+@import '~/vars';
+
+.PropertyFilters {
+    display: flex;
+    gap: 0.5rem;
+
+    .PropertyFilters-content {
+        flex: 1;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+        overflow: hidden;
+    }
+
+    .PropertyFilters-prefix {
+        color: #c4c4c4;
+        font-size: 18px;
+        user-select: none;
+        padding: 0px 5px;
+    }
+}

@@ -1,6 +1,4 @@
-/* eslint-disable @typescript-eslint/no-var-requires */
 /* global module */
-
 module.exports = {
     ignorePatterns: ['node_modules', 'plugin-server'],
     env: {
@@ -13,7 +11,13 @@ module.exports = {
             version: 'detect',
         },
     },
-    extends: ['plugin:@typescript-eslint/recommended', 'plugin:react/recommended', 'prettier'],
+    extends: [
+        'plugin:@typescript-eslint/recommended',
+        'plugin:react/recommended',
+        'plugin:eslint-comments/recommended',
+        'plugin:storybook/recommended',
+        'prettier',
+    ],
     globals: {
         Atomics: 'readonly',
         SharedArrayBuffer: 'readonly',
@@ -38,13 +42,19 @@ module.exports = {
                 html: true,
             },
         ],
-        'no-unused-vars': ['error', { ignoreRestSiblings: true }],
+        'no-unused-vars': 'off',
+        '@typescript-eslint/no-unused-vars': [
+            'error',
+            {
+                ignoreRestSiblings: true,
+            },
+        ],
+        '@typescript-eslint/prefer-ts-expect-error': 'error',
         '@typescript-eslint/explicit-function-return-type': 'off',
         '@typescript-eslint/explicit-module-boundary-types': 'off',
         '@typescript-eslint/no-empty-function': 'off',
         '@typescript-eslint/no-inferrable-types': 'off',
         '@typescript-eslint/ban-ts-comment': 'off',
-        'no-shadow': 'error',
         '@typescript-eslint/no-non-null-assertion': 'error',
         curly: 'error',
         'no-restricted-imports': [
@@ -94,4 +104,5 @@ module.exports = {
             },
         },
     ],
+    reportUnusedDisableDirectives: true,
 }

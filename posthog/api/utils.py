@@ -1,3 +1,5 @@
+import json
+import re
 from dataclasses import dataclass
 from enum import Enum, auto
 from typing import Any, List, Optional, Tuple, Union, cast
@@ -154,7 +156,7 @@ def get_data(request):
     return data, None
 
 
-@dataclass
+@dataclass(frozen=True)
 class EventIngestionContext:
     """
     Specifies the data needed to process inbound `Event`s. Specifically we need
@@ -281,3 +283,28 @@ def get_event_ingestion_context_for_personal_api_key(
         return EventIngestionContext(team_id=team_id, anonymize_ips=anonymize_ips)
     except Team.DoesNotExist:
         return None
+
+
+def check_definition_ids_inclusion_field_sql(
+    raw_included_definition_ids: Optional[str], is_property: bool, named_key: str
+):
+
+    # Create conditional field based on whether id exists in included_properties
+    if is_property:
+        included_definitions_sql = f"(posthog_propertydefinition.id = ANY (%({named_key})s::uuid[]))"
+    else:
+        included_definitions_sql = f"(posthog_eventdefinition.id = ANY (%({named_key})s::uuid[]))"
+
+    if not raw_included_definition_ids:
+        return included_definitions_sql, []
+
+    return included_definitions_sql, list(set(json.loads(raw_included_definition_ids)))
+
+
+# keep in sync with posthog/plugin-server/src/utils/db/utils.ts::safeClickhouseString
+def safe_clickhouse_string(s: str) -> str:
+    surrogate_regex = re.compile("([\ud800-\udfff])")
+    matches = re.findall(surrogate_regex, s or "")
+    for match in matches:
+        s = s.replace(match, match.encode("unicode_escape").decode("utf8"))
+    return s

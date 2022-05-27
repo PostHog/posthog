@@ -7,9 +7,10 @@ from rest_framework.exceptions import NotFound
 from rest_framework.pagination import CursorPagination
 from rest_framework.permissions import IsAuthenticated
 
-from ee.clickhouse.client import sync_execute
 from ee.clickhouse.queries.related_actors_query import RelatedActorsQuery
+from ee.clickhouse.sql.clickhouse import trim_quotes_expr
 from posthog.api.routing import StructuredViewSetMixin
+from posthog.client import sync_execute
 from posthog.models.group import Group
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
@@ -61,7 +62,14 @@ class ClickhouseGroupsView(StructuredViewSetMixin, mixins.ListModelMixin, viewse
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
 
     def get_queryset(self):
-        return super().get_queryset().filter(group_type_index=self.request.GET["group_type_index"])
+        return (
+            super()
+            .get_queryset()
+            .filter(
+                group_type_index=self.request.GET["group_type_index"],
+                group_key__icontains=self.request.GET.get("group_key", ""),
+            )
+        )
 
     @action(methods=["GET"], detail=False)
     def find(self, request: request.Request, **kw) -> response.Response:
@@ -104,7 +112,7 @@ class ClickhouseGroupsView(StructuredViewSetMixin, mixins.ListModelMixin, viewse
     def property_values(self, request: request.Request, **kw):
         rows = sync_execute(
             f"""
-            SELECT trim(BOTH '"' FROM tupleElement(keysAndValues, 2)) as value
+            SELECT {trim_quotes_expr("tupleElement(keysAndValues, 2)")} as value
             FROM groups
             ARRAY JOIN JSONExtractKeysAndValuesRaw(group_properties) as keysAndValues
             WHERE team_id = %(team_id)s AND group_type_index = %(group_type_index)s AND tupleElement(keysAndValues, 1) = %(key)s

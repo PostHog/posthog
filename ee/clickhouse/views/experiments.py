@@ -1,6 +1,6 @@
 from typing import Any, Type, Union
 
-from rest_framework import request, serializers, viewsets
+from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import IsAuthenticated
@@ -249,7 +249,7 @@ class ClickhouseExperimentsViewSet(StructuredViewSetMixin, viewsets.ModelViewSet
         if parsed_id > len(experiment.secondary_metrics):
             raise ValidationError("Invalid metric ID")
 
-        filter = Filter(experiment.secondary_metrics[parsed_id])
+        filter = Filter(experiment.secondary_metrics[parsed_id]["filters"])
 
         result = ClickhouseSecondaryExperimentResult(
             filter, self.team, experiment.feature_flag, experiment.start_date, experiment.end_date,

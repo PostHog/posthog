@@ -1,12 +1,12 @@
 from typing import Dict, Optional
 
-from constance import config
 from django.core.exceptions import ImproperlyConfigured
 from infi.clickhouse_orm.utils import import_submodules
 from semantic_version.base import Version
 
 from posthog.async_migrations.definition import AsyncMigrationDefinition
 from posthog.models.async_migration import AsyncMigration, get_all_completed_async_migrations
+from posthog.models.instance_setting import get_instance_setting
 from posthog.settings import TEST
 from posthog.version import VERSION
 
@@ -32,7 +32,7 @@ for name, module in all_migrations.items():
 def setup_async_migrations(ignore_posthog_version: bool = False):
     """
     Execute the necessary setup for async migrations to work:
-    1. Import all the migration definitions 
+    1. Import all the migration definitions
     2. Create a database record for each
     3. Check if all migrations necessary for this PostHog version have completed (else don't start)
     4. Populate a dependencies map and in-memory record of migration definitions
@@ -74,7 +74,7 @@ def setup_async_migrations(ignore_posthog_version: bool = False):
     for key, val in ASYNC_MIGRATION_TO_DEPENDENCY.items():
         DEPENDENCY_TO_ASYNC_MIGRATION[val] = key
 
-    if getattr(config, "AUTO_START_ASYNC_MIGRATIONS") and first_migration:
+    if get_instance_setting("AUTO_START_ASYNC_MIGRATIONS") and first_migration:
         kickstart_migration_if_possible(first_migration, applied_migrations)
 
 

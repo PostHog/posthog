@@ -1,33 +1,23 @@
 import { tableConfigLogic } from 'lib/components/ResizableTable/tableConfigLogic'
 import { expectLogic } from 'kea-test-utils'
-import { initKeaTestLogic } from '~/test/init'
+import { initKeaTests } from '~/test/init'
 import { router } from 'kea-router'
-import { mockAPI } from 'lib/api.mock'
-
-jest.mock('lib/api')
 
 describe('tableConfigLogic', () => {
     let logic: ReturnType<typeof tableConfigLogic.build>
 
-    mockAPI(async ({ pathname, searchParams, method }) => {
-        throw new Error(`Unmocked ${method} fetch to: ${pathname} with params: ${JSON.stringify(searchParams)}`)
-    })
+    const startingColumns = 'DEFAULT'
 
-    const defaultColumns = ['a', 'b']
-    const availableColumns = [...defaultColumns, 'c', 'd', 'e']
-
-    initKeaTestLogic({
-        logic: tableConfigLogic,
-        props: { defaultColumns, availableColumns },
-        onLogic: (l) => {
-            logic = l
-        },
+    beforeEach(() => {
+        initKeaTests()
+        logic = tableConfigLogic({ startingColumns })
+        logic.mount()
     })
 
     it('starts with expected defaults', async () => {
         await expectLogic(logic).toMatchValues({
             modalVisible: false,
-            selectedColumns: 'DEFAULT',
+            selectedColumns: startingColumns,
             tableWidth: 7,
         })
     })

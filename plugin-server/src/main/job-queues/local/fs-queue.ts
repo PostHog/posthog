@@ -1,4 +1,4 @@
-import { EnqueuedJob, JobQueue, OnJobCallback } from '../../../types'
+import { EnqueuedJob, OnJobCallback } from '../../../types'
 import Timeout = NodeJS.Timeout
 import * as fs from 'fs'
 import * as path from 'path'
@@ -15,7 +15,7 @@ export class FsQueue extends JobQueueBase {
         super()
 
         if (process.env.NODE_ENV !== 'test') {
-            throw new Error('Can not use FsQueue outside tests')
+            throw new Error('Cannot use FsQueue outside tests')
         }
         this.paused = false
         this.started = false

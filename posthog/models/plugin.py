@@ -22,7 +22,7 @@ from posthog.version import VERSION
 from .utils import UUIDModel, sane_repr
 
 try:
-    from ee.clickhouse.client import sync_execute
+    from posthog.client import sync_execute
 except ImportError:
     pass
 
@@ -55,7 +55,6 @@ def update_validated_data_from_url(validated_data: Dict[str, Any], url: str) -> 
         validated_data["description"] = json.get("description", "")
         validated_data["config_schema"] = json.get("config", [])
         validated_data["public_jobs"] = json.get("publicJobs", {})
-        validated_data["source"] = None
         posthog_version = json.get("posthogVersion", None)
         validated_data["is_stateless"] = json.get("stateless", False)
     else:
@@ -71,7 +70,6 @@ def update_validated_data_from_url(validated_data: Dict[str, Any], url: str) -> 
             validated_data["description"] = plugin_json.get("description", "")
             validated_data["config_schema"] = plugin_json.get("config", [])
             validated_data["public_jobs"] = plugin_json.get("publicJobs", {})
-            validated_data["source"] = None
             posthog_version = plugin_json.get("posthogVersion", None)
             validated_data["is_stateless"] = plugin_json.get("stateless", False)
 
@@ -138,7 +136,6 @@ class Plugin(models.Model):
     config_schema: models.JSONField = models.JSONField(default=dict)
     tag: models.CharField = models.CharField(max_length=200, null=True, blank=True)
     archive: models.BinaryField = models.BinaryField(blank=True, null=True)
-    source: models.TextField = models.TextField(blank=True, null=True)
     latest_tag: models.CharField = models.CharField(max_length=800, null=True, blank=True)
     latest_tag_checked_at: models.DateTimeField = models.DateTimeField(null=True, blank=True)
     capabilities: models.JSONField = models.JSONField(default=dict)
@@ -147,12 +144,16 @@ class Plugin(models.Model):
 
     # DEPRECATED: not used for anything, all install and config errors are in PluginConfig.error
     error: models.JSONField = models.JSONField(default=None, null=True)
-    # DEPRECATED: these were used when syncing posthog.json with the db on app start
+    # DEPRECATED: this was used when syncing posthog.json with the db on app start
     from_json: models.BooleanField = models.BooleanField(default=False)
+    # DEPRECATED: this was used when syncing posthog.json with the db on app start
     from_web: models.BooleanField = models.BooleanField(default=False)
+    # DEPRECATED: using PluginSourceFile model instead
+    source: models.TextField = models.TextField(blank=True, null=True)
 
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True)
     updated_at: models.DateTimeField = models.DateTimeField(null=True, blank=True)
+    log_level: models.IntegerField = models.IntegerField(null=True, blank=True)
 
     objects: PluginManager = PluginManager()
 
@@ -243,7 +244,29 @@ class PluginLogEntry(UUIDModel):
     __repr__ = sane_repr("plugin_config_id", "timestamp", "source", "type", "message")
 
 
-@dataclass
+class PluginSourceFile(UUIDModel):
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(name="unique_filename_for_plugin", fields=("plugin_id", "filename")),
+        ]
+
+    class Status(models.TextChoices):
+        LOCKED = "LOCKED", "locked"
+        TRANSPILED = "TRANSPILED", "transpiled"
+        ERROR = "ERROR", "error"
+
+    plugin: models.ForeignKey = models.ForeignKey("Plugin", on_delete=models.CASCADE)
+    filename: models.CharField = models.CharField(max_length=200, blank=False)
+    # "source" can be null if we're only using this model to cache transpiled code from a ".zip"
+    source: models.TextField = models.TextField(blank=True, null=True)
+    status: models.CharField = models.CharField(max_length=20, choices=Status.choices, null=True)
+    transpiled: models.TextField = models.TextField(blank=True, null=True)
+    error: models.TextField = models.TextField(blank=True, null=True)
+
+    __repr__ = sane_repr("plugin_id", "filename", "status")
+
+
+@dataclass(frozen=True)
 class PluginLogEntryRaw:
     id: UUID
     team_id: int

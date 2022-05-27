@@ -5,7 +5,6 @@ from random import randrange
 from celery import Celery
 from celery.schedules import crontab
 from celery.signals import task_postrun, task_prerun
-from constance import config
 from django.conf import settings
 from django.db import connection
 from django.utils import timezone
@@ -43,6 +42,9 @@ UPDATE_CACHED_DASHBOARD_ITEMS_INTERVAL_SECONDS = settings.UPDATE_CACHED_DASHBOAR
 
 @app.on_after_configure.connect
 def setup_periodic_tasks(sender: Celery, **kwargs):
+    # Monitoring tasks
+    sender.add_periodic_task(60.0, monitoring_check_clickhouse_schema_drift.s(), name="Monitor ClickHouse schema drift")
+
     if not settings.DEBUG:
         sender.add_periodic_task(1.0, redis_celery_queue_depth.s(), name="1 sec queue probe", priority=0)
     # Heartbeat every 10sec to make sure the worker is alive
@@ -60,9 +62,6 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
     # Cloud (posthog-cloud) cron jobs
     if getattr(settings, "MULTI_TENANCY", False):
         sender.add_periodic_task(crontab(hour=0, minute=0), calculate_billing_daily_usage.s())  # every day midnight UTC
-
-    # Send weekly email report (~ 8:00 SF / 16:00 UK / 17:00 EU)
-    sender.add_periodic_task(crontab(day_of_week="mon", hour=15, minute=0), send_weekly_email_report.s())
 
     sender.add_periodic_task(crontab(day_of_week="fri", hour=0, minute=0), clean_stale_partials.s())
 
@@ -90,6 +89,8 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
     sender.add_periodic_task(120, clickhouse_row_count.s(), name="clickhouse events table row count")
     sender.add_periodic_task(120, clickhouse_part_count.s(), name="clickhouse table parts count")
     sender.add_periodic_task(120, clickhouse_mutation_count.s(), name="clickhouse table mutations count")
+
+    sender.add_periodic_task(crontab(minute=0, hour="*"), calculate_cohort_ids_in_feature_flags_task.s())
 
     sender.add_periodic_task(
         crontab(hour=0, minute=randrange(0, 40)), clickhouse_send_license_usage.s()
@@ -133,14 +134,14 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
 # Set up clickhouse query instrumentation
 @task_prerun.connect
 def set_up_instrumentation(task_id, task, **kwargs):
-    from ee.clickhouse import client
+    from posthog import client
 
     client._request_information = {"kind": "celery", "id": task.name}
 
 
 @task_postrun.connect
 def teardown_instrumentation(task_id, task, **kwargs):
-    from ee.clickhouse import client
+    from posthog import client
 
     client._request_information = None
 
@@ -148,6 +149,21 @@ def teardown_instrumentation(task_id, task, **kwargs):
 @app.task(ignore_result=True)
 def redis_heartbeat():
     get_client().set("POSTHOG_HEARTBEAT", int(time.time()))
+
+
+@app.task(ignore_result=True, bind=True)
+def enqueue_clickhouse_execute_with_progress(
+    self, team_id, query_id, query, args=None, settings=None, with_column_types=False
+):
+    """
+    Kick off query with progress reporting
+    Iterate over the progress status
+    Save status to redis
+    Once complete save results to redis
+    """
+    from posthog.client import execute_with_progress
+
+    execute_with_progress(team_id, query_id, query, args, settings, with_column_types, task_id=self.request.id)
 
 
 CLICKHOUSE_TABLES = [
@@ -160,13 +176,13 @@ CLICKHOUSE_TABLES = [
 
 if settings.CLICKHOUSE_REPLICATION:
     CLICKHOUSE_TABLES.extend(
-        ["sharded_events", "sharded_person", "sharded_person_distinct_id", "sharded_session_recording_events",]
+        ["sharded_events", "sharded_session_recording_events",]
     )
 
 
 @app.task(ignore_result=True)
 def clickhouse_lag():
-    from ee.clickhouse.client import sync_execute
+    from posthog.client import sync_execute
     from posthog.internal_metrics import gauge
 
     for table in CLICKHOUSE_TABLES:
@@ -181,7 +197,7 @@ def clickhouse_lag():
 
 @app.task(ignore_result=True)
 def clickhouse_row_count():
-    from ee.clickhouse.client import sync_execute
+    from posthog.client import sync_execute
     from posthog.internal_metrics import gauge
 
     for table in CLICKHOUSE_TABLES:
@@ -196,7 +212,7 @@ def clickhouse_row_count():
 
 @app.task(ignore_result=True)
 def clickhouse_part_count():
-    from ee.clickhouse.client import sync_execute
+    from posthog.client import sync_execute
     from posthog.internal_metrics import gauge
 
     QUERY = """
@@ -212,7 +228,7 @@ def clickhouse_part_count():
 
 @app.task(ignore_result=True)
 def clickhouse_mutation_count():
-    from ee.clickhouse.client import sync_execute
+    from posthog.client import sync_execute
     from posthog.internal_metrics import gauge
 
     QUERY = """
@@ -230,7 +246,11 @@ def clickhouse_mutation_count():
 
 
 def recompute_materialized_columns_enabled() -> bool:
-    if getattr(config, "MATERIALIZED_COLUMNS_ENABLED") and getattr(config, "COMPUTE_MATERIALIZED_COLUMNS_ENABLED"):
+    from posthog.models.instance_setting import get_instance_setting
+
+    if get_instance_setting("MATERIALIZED_COLUMNS_ENABLED") and get_instance_setting(
+        "COMPUTE_MATERIALIZED_COLUMNS_ENABLED"
+    ):
         return True
     return False
 
@@ -303,6 +323,13 @@ def status_report():
 
 
 @app.task(ignore_result=True)
+def monitoring_check_clickhouse_schema_drift():
+    from posthog.tasks.check_clickhouse_schema_drift import check_clickhouse_schema_drift
+
+    check_clickhouse_schema_drift()
+
+
+@app.task(ignore_result=True)
 def calculate_cohort():
     from posthog.tasks.calculate_cohort import calculate_cohorts
 
@@ -324,11 +351,10 @@ def update_cache_item_task(key: str, cache_type, payload: dict) -> None:
 
 
 @app.task(ignore_result=True)
-def send_weekly_email_report():
-    if settings.EMAIL_REPORTS_ENABLED:
-        from posthog.tasks.email import send_weekly_email_reports
+def calculate_cohort_ids_in_feature_flags_task():
+    from posthog.tasks.cohorts_in_feature_flag import calculate_cohort_ids_in_feature_flags
 
-        send_weekly_email_reports()
+    calculate_cohort_ids_in_feature_flags()
 
 
 @app.task(ignore_result=True, bind=True)

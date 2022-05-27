@@ -1,3 +1,4 @@
+import urllib.parse
 from typing import cast
 
 import dateutil.parser
@@ -7,6 +8,7 @@ from rest_framework import status
 
 from ee.models.event_definition import EnterpriseEventDefinition
 from ee.models.license import License, LicenseManager
+from posthog.models import Tag
 from posthog.models.event_definition import EventDefinition
 from posthog.test.base import APIBaseTest
 
@@ -16,9 +18,9 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
             plan="enterprise", valid_until=timezone.datetime(2500, 1, 19, 3, 14, 7)
         )
-        event = EnterpriseEventDefinition.objects.create(
-            team=self.team, name="enterprise event", owner=self.user, tags=["deprecated"]
-        )
+        event = EnterpriseEventDefinition.objects.create(team=self.team, name="enterprise event", owner=self.user)
+        tag = Tag.objects.create(name="deprecated", team_id=self.team.id)
+        event.tagged_items.create(tag_id=tag.id)
         response = self.client.get(f"/api/projects/@current/event_definitions/{event.id}")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
@@ -49,12 +51,13 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
             plan="enterprise", valid_until=timezone.datetime(2500, 1, 19, 3, 14, 7)
         )
-        EnterpriseEventDefinition.objects.create(
-            team=self.team, name="enterprise event", owner=self.user, tags=["deprecated"]
+        enterprise_property = EnterpriseEventDefinition.objects.create(
+            team=self.team, name="enterprise event", owner=self.user
         )
-        EnterpriseEventDefinition.objects.create(
-            team=self.team, name="regular event", owner=self.user, tags=["deprecated"]
-        )
+        tag = Tag.objects.create(name="deprecated", team_id=self.team.id)
+        enterprise_property.tagged_items.create(tag_id=tag.id)
+        regular_event = EnterpriseEventDefinition.objects.create(team=self.team, name="regular event", owner=self.user)
+        regular_event.tagged_items.create(tag_id=tag.id)
 
         response = self.client.get(f"/api/projects/@current/event_definitions/?search=enter")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -93,11 +96,11 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         response_data = response.json()
         self.assertEqual(response_data["description"], "This is a description.")
         self.assertEqual(response_data["updated_by"]["first_name"], self.user.first_name)
-        self.assertEqual(response_data["tags"], ["official", "internal"])
+        self.assertEqual(set(response_data["tags"]), {"official", "internal"})
 
         event.refresh_from_db()
         self.assertEqual(event.description, "This is a description.")
-        self.assertEqual(event.tags, ["official", "internal"])
+        self.assertEqual(set(event.tagged_items.values_list("tag__name", flat=True)), {"official", "internal"})
 
     def test_update_event_without_license(self):
         event = EnterpriseEventDefinition.objects.create(team=self.team, name="enterprise event")
@@ -127,9 +130,9 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         response = self.client.get(f"/api/projects/@current/event_definitions/{event.id}")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-        assert response.json()["verified"] == False
-        assert response.json()["verified_by"] == None
-        assert response.json()["verified_at"] == None
+        assert response.json()["verified"] is False
+        assert response.json()["verified_by"] is None
+        assert response.json()["verified_at"] is None
         assert response.json()["updated_at"] == "2021-08-25T22:09:14.252000Z"
 
         query_list_response = self.client.get(f"/api/projects/@current/event_definitions")
@@ -145,16 +148,16 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         response = self.client.get(f"/api/projects/@current/event_definitions/{event.id}")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-        assert response.json()["verified"] == False
-        assert response.json()["verified_by"] == None
-        assert response.json()["verified_at"] == None
+        assert response.json()["verified"] is False
+        assert response.json()["verified_by"] is None
+        assert response.json()["verified_at"] is None
 
         # Verify the event
         self.client.patch(f"/api/projects/@current/event_definitions/{event.id}", {"verified": True})
         response = self.client.get(f"/api/projects/@current/event_definitions/{event.id}")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-        assert response.json()["verified"] == True
+        assert response.json()["verified"] is True
         assert response.json()["verified_by"]["id"] == self.user.id
         assert response.json()["verified_at"] == "2021-08-25T22:09:14.252000Z"
 
@@ -163,9 +166,9 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         response = self.client.get(f"/api/projects/@current/event_definitions/{event.id}")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-        assert response.json()["verified"] == False
-        assert response.json()["verified_by"] == None
-        assert response.json()["verified_at"] == None
+        assert response.json()["verified"] is False
+        assert response.json()["verified_by"] is None
+        assert response.json()["verified_at"] is None
 
     def test_verify_then_verify_again_no_change(self):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
@@ -175,16 +178,16 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         response = self.client.get(f"/api/projects/@current/event_definitions/{event.id}")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-        assert response.json()["verified"] == False
-        assert response.json()["verified_by"] == None
-        assert response.json()["verified_at"] == None
+        assert response.json()["verified"] is False
+        assert response.json()["verified_by"] is None
+        assert response.json()["verified_at"] is None
 
         with freeze_time("2021-08-25T22:09:14.252Z"):
             self.client.patch(f"/api/projects/@current/event_definitions/{event.id}", {"verified": True})
             response = self.client.get(f"/api/projects/@current/event_definitions/{event.id}")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-        assert response.json()["verified"] == True
+        assert response.json()["verified"] is True
         assert response.json()["verified_by"]["id"] == self.user.id
         assert response.json()["verified_at"] == "2021-08-25T22:09:14.252000Z"
         assert response.json()["updated_at"] == "2021-08-25T22:09:14.252000Z"
@@ -194,7 +197,7 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
             response = self.client.get(f"/api/projects/@current/event_definitions/{event.id}")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-        assert response.json()["verified"] == True
+        assert response.json()["verified"] is True
         assert response.json()["verified_by"]["id"] == self.user.id
         assert response.json()["verified_at"] == "2021-08-25T22:09:14.252000Z"  # Note `verified_at` did not change
         # updated_at automatically updates on every patch request
@@ -209,9 +212,9 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         response = self.client.get(f"/api/projects/@current/event_definitions/{event.id}")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-        assert response.json()["verified"] == False
-        assert response.json()["verified_by"] == None
-        assert response.json()["verified_at"] == None
+        assert response.json()["verified"] is False
+        assert response.json()["verified_by"] is None
+        assert response.json()["verified_at"] is None
 
         with freeze_time("2021-08-25T22:09:14.252Z"):
             self.client.patch(
@@ -224,6 +227,115 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
             response = self.client.get(f"/api/projects/@current/event_definitions/{event.id}")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-        assert response.json()["verified"] == False
-        assert response.json()["verified_by"] == None
-        assert response.json()["verified_at"] == None
+        assert response.json()["verified"] is False
+        assert response.json()["verified_by"] is None
+        assert response.json()["verified_at"] is None
+
+    def test_event_definition_no_duplicate_tags(self):
+        from ee.models.license import License, LicenseManager
+
+        super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            key="key_123", plan="enterprise", valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7), max_users=3,
+        )
+        event = EnterpriseEventDefinition.objects.create(team=self.team, name="enterprise event")
+        response = self.client.patch(
+            f"/api/projects/@current/event_definitions/{str(event.id)}", data={"tags": ["a", "b", "a"]},
+        )
+
+        self.assertListEqual(sorted(response.json()["tags"]), ["a", "b"])
+
+    def test_order_ids_first_filter(self):
+        super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            plan="enterprise", valid_until=timezone.datetime(2500, 1, 19, 3, 14, 7)
+        )
+        # rated_app, installed_app
+        rated_app_event = EnterpriseEventDefinition.objects.create(team=self.team, name="rated_app")
+        installed_app_event = EnterpriseEventDefinition.objects.create(team=self.team, name="installed_app")
+        ids = [rated_app_event.id, installed_app_event.id]
+
+        response = self.client.get("/api/projects/@current/event_definitions/?search=app")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 2)  # installed_app, rated_app
+        self.assertEqual(response.json()["results"][0]["name"], "installed_app")
+        self.assertEqual(response.json()["results"][1]["name"], "rated_app")
+
+        order_ids_first_str = f'["{str(ids[0])}"]'
+        response = self.client.get(
+            f'/api/projects/@current/event_definitions/?search=app&{urllib.parse.urlencode({"order_ids_first": order_ids_first_str})}'
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 2)
+        self.assertEqual(response.json()["results"][0]["id"], str(ids[0]))  # Test that included id is first item
+        self.assertEqual(response.json()["results"][0]["name"], "rated_app")
+
+        response = self.client.get(
+            f'/api/projects/@current/event_definitions/?search=app&{urllib.parse.urlencode({"order_ids_first": []})}'
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 2)  # installed_app, rated_app
+        self.assertEqual(response.json()["results"][0]["name"], "installed_app")
+        self.assertEqual(response.json()["results"][1]["name"], "rated_app")
+
+    def test_excluded_ids_filter(self):
+        super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            plan="enterprise", valid_until=timezone.datetime(2500, 1, 19, 3, 14, 7)
+        )
+        # rated_app, installed_app
+        rated_app_event = EnterpriseEventDefinition.objects.create(team=self.team, name="rated_app")
+        installed_app_event = EnterpriseEventDefinition.objects.create(team=self.team, name="installed_app")
+        ids = [rated_app_event.id, installed_app_event.id]
+
+        response = self.client.get("/api/projects/@current/event_definitions/?search=app")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 2)  # installed_app, rated_app
+        self.assertEqual(response.json()["results"][0]["name"], "installed_app")
+        self.assertEqual(response.json()["results"][1]["name"], "rated_app")
+
+        excluded_ids_str = f'["{str(ids[0])}"]'
+        response = self.client.get(
+            f'/api/projects/@current/event_definitions/?search=app&{urllib.parse.urlencode({"excluded_ids": excluded_ids_str})}'
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 1)
+        self.assertEqual(response.json()["results"][0]["id"], str(ids[1]))
+        self.assertEqual(response.json()["results"][0]["name"], "installed_app")
+
+        response = self.client.get(
+            f'/api/projects/@current/event_definitions/?search=app&{urllib.parse.urlencode({"excluded_ids": []})}'
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 2)  # installed_app, rated_app
+        self.assertEqual(response.json()["results"][0]["name"], "installed_app")
+        self.assertEqual(response.json()["results"][1]["name"], "rated_app")
+
+    def test_order_ids_first_overrides_excluded_ids_filter(self):
+        super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            plan="enterprise", valid_until=timezone.datetime(2500, 1, 19, 3, 14, 7)
+        )
+        # rated_app, installed_app
+        rated_app_event = EnterpriseEventDefinition.objects.create(team=self.team, name="rated_app")
+        installed_app_event = EnterpriseEventDefinition.objects.create(team=self.team, name="installed_app")
+        ids = [rated_app_event.id, installed_app_event.id]
+
+        response = self.client.get("/api/projects/@current/event_definitions/?search=app")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 2)  # installed_app, rated_app
+        self.assertEqual(response.json()["results"][0]["name"], "installed_app")
+        self.assertEqual(response.json()["results"][1]["name"], "rated_app")
+
+        ids_str = f'["{str(ids[0])}"]'
+        response = self.client.get(
+            f'/api/projects/@current/event_definitions/?search=app&{urllib.parse.urlencode({"excluded_ids": ids_str, "order_ids_first": ids_str})}'
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 2)
+        self.assertEqual(response.json()["results"][0]["id"], str(ids[0]))
+        self.assertEqual(response.json()["results"][0]["name"], "rated_app")
+
+        response = self.client.get(
+            f'/api/projects/@current/event_definitions/?search=app&{urllib.parse.urlencode({"excluded_ids": [], "order_ids_first": []})}'
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 2)  # installed_app, rated_app
+        self.assertEqual(response.json()["results"][0]["name"], "installed_app")
+        self.assertEqual(response.json()["results"][1]["name"], "rated_app")

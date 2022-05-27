@@ -6,11 +6,11 @@ from typing import Union
 import structlog
 from sentry_sdk import capture_exception
 
-from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.util import cast_timestamp_or_now
 from ee.clickhouse.sql.session_recording_events import INSERT_SESSION_RECORDING_EVENT_SQL
 from ee.kafka_client.client import ClickhouseProducer
 from ee.kafka_client.topics import KAFKA_SESSION_RECORDING_EVENTS
+from posthog.client import sync_execute
 
 logger = structlog.get_logger(__name__)
 
@@ -42,9 +42,9 @@ def create_session_recording_event(
     }
     if len(snapshot_data_json) <= MAX_KAFKA_MESSAGE_LENGTH:
         p = ClickhouseProducer()
-        p.produce(sql=INSERT_SESSION_RECORDING_EVENT_SQL, topic=KAFKA_SESSION_RECORDING_EVENTS, data=data)
+        p.produce(sql=INSERT_SESSION_RECORDING_EVENT_SQL(), topic=KAFKA_SESSION_RECORDING_EVENTS, data=data)
     elif len(snapshot_data_json) <= MAX_INSERT_LENGTH:
-        sync_execute(INSERT_SESSION_RECORDING_EVENT_SQL, data, settings={"max_query_size": MAX_INSERT_LENGTH})
+        sync_execute(INSERT_SESSION_RECORDING_EVENT_SQL(), data, settings={"max_query_size": MAX_INSERT_LENGTH})
     else:
         capture_exception(Exception(f"Session recording event data too large - {len(snapshot_data_json)}"))
 

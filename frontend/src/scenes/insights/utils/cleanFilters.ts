@@ -2,11 +2,13 @@ import { ChartDisplayType, Entity, EntityTypes, FilterType, FunnelVizType, Insig
 import { deepCleanFunnelExclusionEvents, getClampedStepRangeFilter, isStepsUndefined } from 'scenes/funnels/funnelUtils'
 import { getDefaultEventName } from 'lib/utils/getAppContext'
 import { defaultFilterTestAccounts } from 'scenes/insights/insightLogic'
-import { BinCountAuto, FEATURE_FLAGS, RETENTION_FIRST_TIME, ShownAsValue } from 'lib/constants'
+import { BIN_COUNT_AUTO, FEATURE_FLAGS, RETENTION_FIRST_TIME, ShownAsValue } from 'lib/constants'
 import { autocorrectInterval } from 'lib/utils'
 import { DEFAULT_STEP_LIMIT } from 'scenes/paths/pathsLogic'
 import { isTrendsInsight } from 'scenes/insights/sharedUtils'
 import { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
+import { smoothingOptions } from 'lib/components/SmoothingFilter/smoothings'
+import { LocalFilter, toLocalFilters } from '../ActionFilter/entityFilterLogic'
 
 export function getDefaultEvent(): Entity {
     const event = getDefaultEventName()
@@ -18,13 +20,27 @@ export function getDefaultEvent(): Entity {
     }
 }
 
+/** Take the first series from filters and, based on it, apply the most relevant breakdown type to cleanedParams. */
+const useMostRelevantBreakdownType = (cleanedParams: Partial<FilterType>, filters: Partial<FilterType>): void => {
+    const series: LocalFilter | undefined = toLocalFilters(filters)[0]
+    cleanedParams['breakdown_type'] =
+        (series?.math &&
+            (series.math === 'unique_group'
+                ? 'group'
+                : ['dau', 'weekly_active', 'monthly_active'].includes(series.math)
+                ? 'person'
+                : null)) ||
+        'event'
+    cleanedParams['breakdown_group_type_index'] = series?.math_group_type_index
+}
+
 const cleanBreakdownParams = (
     cleanedParams: Partial<FilterType>,
     filters: Partial<FilterType>,
     featureFlags: Record<string, any>
 ): void => {
     const isStepsFunnel = filters.insight === InsightType.FUNNELS && filters.funnel_viz_type === FunnelVizType.Steps
-    const isTrends = filters.insight === InsightType.TRENDS
+    const isTrends = !filters.insight || filters.insight === InsightType.TRENDS
     const canBreakdown = isStepsFunnel || isTrends
 
     const canMultiPropertyBreakdown = isStepsFunnel
@@ -33,7 +49,13 @@ const cleanBreakdownParams = (
     cleanedParams['breakdown'] = undefined
     cleanedParams['breakdown_type'] = undefined
     cleanedParams['breakdown_group_type_index'] = undefined
-
+    if (isTrends && filters.display === ChartDisplayType.WorldMap) {
+        // For the map, make sure we are breaking down by country
+        // Support automatic switching to country code breakdown both from no breakdown and from country name breakdown
+        cleanedParams['breakdown'] = '$geoip_country_code'
+        useMostRelevantBreakdownType(cleanedParams, filters)
+        return
+    }
     if (canBreakdown) {
         if (filters.breakdown_type && (filters.breakdown || filters.breakdowns)) {
             cleanedParams['breakdown_type'] = filters.breakdown_type
@@ -88,6 +110,7 @@ export function cleanFilters(
             retention_reference: filters.retention_reference,
             display: insightChanged ? ChartDisplayType.ActionsTable : filters.display || ChartDisplayType.ActionsTable,
             properties: filters.properties || [],
+            total_intervals: Math.min(Math.max(filters.total_intervals ?? 11, 0), 100),
             ...(filters.filter_test_accounts ? { filter_test_accounts: filters.filter_test_accounts } : {}),
             ...(filters.aggregation_group_type_index != undefined
                 ? { aggregation_group_type_index: filters.aggregation_group_type_index }
@@ -118,7 +141,7 @@ export function cleanFilters(
             ...(filters.funnel_step_breakdown !== undefined
                 ? { funnel_step_breakdown: filters.funnel_step_breakdown }
                 : {}),
-            ...(filters.bin_count && filters.bin_count !== BinCountAuto ? { bin_count: filters.bin_count } : {}),
+            ...(filters.bin_count && filters.bin_count !== BIN_COUNT_AUTO ? { bin_count: filters.bin_count } : {}),
             ...(filters.funnel_window_interval_unit
                 ? { funnel_window_interval_unit: filters.funnel_window_interval_unit }
                 : {}),
@@ -149,7 +172,10 @@ export function cleanFilters(
             ...cleanedParams,
             ...getClampedStepRangeFilter({ filters: cleanedParams }),
             exclusions: (cleanedParams.exclusions || []).map((e) =>
-                getClampedStepRangeFilter({ stepRange: e, filters: cleanedParams })
+                getClampedStepRangeFilter({
+                    stepRange: e,
+                    filters: cleanedParams,
+                })
             ),
         }
     } else if (filters.insight === InsightType.PATHS) {
@@ -211,6 +237,18 @@ export function cleanFilters(
 
         if (filters.date_from === 'all' || filters.insight === InsightType.LIFECYCLE) {
             cleanSearchParams['compare'] = false
+        }
+
+        if (cleanSearchParams.interval && cleanSearchParams.smoothing_intervals) {
+            if (
+                !smoothingOptions[cleanSearchParams.interval].find(
+                    (option) => option.value === cleanSearchParams.smoothing_intervals
+                )
+            ) {
+                if (cleanSearchParams.smoothing_intervals !== 1) {
+                    cleanSearchParams.smoothing_intervals = 1
+                }
+            }
         }
 
         if (cleanSearchParams.insight === InsightType.LIFECYCLE) {

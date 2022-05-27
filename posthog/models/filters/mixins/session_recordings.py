@@ -2,7 +2,6 @@ import json
 from typing import Optional
 
 from posthog.constants import PERSON_UUID_FILTER, SESSION_RECORDINGS_FILTER_TYPE_DURATION
-from posthog.models.entity import Entity
 from posthog.models.filters.mixins.common import BaseParamMixin
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.property import Property

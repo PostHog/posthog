@@ -1,13 +1,13 @@
 import React from 'react'
 import { CohortType } from '~/types'
 import { DefinitionPopup } from 'lib/components/DefinitionPopup/DefinitionPopup'
-import { COHORT_MATCHING_DAYS } from 'scenes/cohorts/CohortMatchingCriteriaSection/MatchCriteriaSelector'
 import {
     eventToHumanName,
     genericOperatorToHumanName,
     operatorToHumanName,
     propertyValueToHumanName,
 } from 'lib/components/DefinitionPopup/utils'
+import { COHORT_MATCHING_DAYS } from 'scenes/cohorts/MatchCriteriaSelector'
 
 export function CohortPopupInfo({ entity }: { entity: CohortType }): JSX.Element | null {
     if (!entity) {

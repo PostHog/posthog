@@ -1,15 +1,206 @@
 import React from 'react'
 import { kea } from 'kea'
 import { groupsModel } from '~/models/groupsModel'
-
-import { mathsLogicType } from './mathsLogicType'
+import type { mathsLogicType } from './mathsLogicType'
 import { EVENT_MATH_TYPE, PROPERTY_MATH_TYPE } from 'lib/constants'
+import { BaseMathType, PropertyMathType } from '~/types'
 
 export interface MathDefinition {
     name: string
+    /** Lowercase name variant for definitions where the full names is too verbose for summaries. */
+    shortName: string
     description: string | JSX.Element
     onProperty: boolean
+    actor: boolean
     type: 'property' | 'event'
+}
+
+export const BASE_MATH_DEFINITIONS: Record<BaseMathType, MathDefinition> = {
+    [BaseMathType.Total]: {
+        name: 'Total count',
+        shortName: 'count',
+        description: (
+            <>
+                Total event count. Total number of times the event was performed by any user.
+                <br />
+                <br />
+                <i>Example: If a user performs an event 3 times in the given period, it counts as 3.</i>
+            </>
+        ),
+        onProperty: false,
+        actor: false,
+        type: EVENT_MATH_TYPE,
+    },
+    [BaseMathType.DailyActive]: {
+        name: 'Unique users',
+        shortName: 'unique users',
+        description: (
+            <>
+                Number of unique users who performed the event in the specified period.
+                <br />
+                <br />
+                <i>
+                    Example: If a single user performs an event 3 times in a given day/week/month, it counts only as 1.
+                </i>
+            </>
+        ),
+        onProperty: false,
+        actor: true,
+        type: EVENT_MATH_TYPE,
+    },
+    [BaseMathType.WeeklyActive]: {
+        name: 'Weekly active',
+        shortName: 'WAUs',
+        description: (
+            <>
+                Users active in the past week (7 days).
+                <br />
+                This is a trailing count that aggregates distinct users in the past 7 days for each day in the time
+                series
+            </>
+        ),
+        onProperty: false,
+        actor: false,
+        type: EVENT_MATH_TYPE,
+    },
+    [BaseMathType.MonthlyActive]: {
+        name: 'Monthly active',
+        shortName: 'MAUs',
+        description: (
+            <>
+                Users active in the past month (30 days).
+                <br />
+                This is a trailing count that aggregates distinct users in the past 30 days for each day in the time
+                series
+            </>
+        ),
+        onProperty: false,
+        actor: false,
+        type: EVENT_MATH_TYPE,
+    },
+}
+
+export const PROPERTY_MATH_DEFINITIONS: Record<PropertyMathType, MathDefinition> = {
+    [PropertyMathType.Average]: {
+        name: 'Average',
+        shortName: 'average',
+        description: (
+            <>
+                Average of a property value within an event or action.
+                <br />
+                <br />
+                For example 3 events captured with property <code>amount</code> equal to 10, 12 and 20, result in 14.
+            </>
+        ),
+        onProperty: true,
+        actor: false,
+        type: PROPERTY_MATH_TYPE,
+    },
+    [PropertyMathType.Sum]: {
+        name: 'Sum',
+        shortName: 'sum',
+        description: (
+            <>
+                Sum of property values within an event or action.
+                <br />
+                <br />
+                For example 3 events captured with property <code>amount</code> equal to 10, 12 and 20, result in 42.
+            </>
+        ),
+        onProperty: true,
+        actor: false,
+        type: PROPERTY_MATH_TYPE,
+    },
+    [PropertyMathType.Minimum]: {
+        name: 'Minimum',
+        shortName: 'minimum',
+        description: (
+            <>
+                Event property minimum.
+                <br />
+                <br />
+                For example 3 events captured with property <code>amount</code> equal to 10, 12 and 20, result in 10.
+            </>
+        ),
+        onProperty: true,
+        actor: false,
+        type: PROPERTY_MATH_TYPE,
+    },
+    [PropertyMathType.Maximum]: {
+        name: 'Maximum',
+        shortName: 'maximum',
+        description: (
+            <>
+                Event property maximum.
+                <br />
+                <br />
+                For example 3 events captured with property <code>amount</code> equal to 10, 12 and 20, result in 20.
+            </>
+        ),
+        onProperty: true,
+        actor: false,
+        type: PROPERTY_MATH_TYPE,
+    },
+    [PropertyMathType.Median]: {
+        name: 'Median',
+        shortName: 'median',
+        description: (
+            <>
+                Event property median (50th percentile).
+                <br />
+                <br />
+                For example 100 events captured with property <code>amount</code> equal to 101..200, result in 150.
+            </>
+        ),
+        onProperty: true,
+        actor: false,
+        type: PROPERTY_MATH_TYPE,
+    },
+    [PropertyMathType.P90]: {
+        name: '90th percentile',
+        shortName: '90th percentile',
+        description: (
+            <>
+                Event property 90th percentile.
+                <br />
+                <br />
+                For example 100 events captured with property <code>amount</code> equal to 101..200, result in 190.
+            </>
+        ),
+        onProperty: true,
+        actor: false,
+        type: 'property',
+    },
+    [PropertyMathType.P95]: {
+        name: '95th percentile',
+        shortName: '95th percentile',
+        description: (
+            <>
+                Event property 95th percentile.
+                <br />
+                <br />
+                For example 100 events captured with property <code>amount</code> equal to 101..200, result in 195.
+            </>
+        ),
+        onProperty: true,
+        actor: false,
+        type: PROPERTY_MATH_TYPE,
+    },
+    [PropertyMathType.P99]: {
+        name: '99th percentile',
+        shortName: '99th percentile',
+        description: (
+            <>
+                Event property 90th percentile.
+                <br />
+                <br />
+                For example 100 events captured with property <code>amount</code> equal to 101..200, result in 199.
+            </>
+        ),
+        onProperty: true,
+        actor: false,
+        type: PROPERTY_MATH_TYPE,
+    },
 }
 
 export function mathTypeToApiValues(mathType: string): {
@@ -30,7 +221,7 @@ export function apiValueToMathType(math: string | undefined, groupTypeIndex: num
     return math || 'total'
 }
 
-export const mathsLogic = kea<mathsLogicType<MathDefinition>>({
+export const mathsLogic = kea<mathsLogicType>({
     path: ['scenes', 'trends', 'mathsLogic'],
     connect: {
         values: [groupsModel, ['groupTypes', 'aggregationLabel']],
@@ -47,174 +238,9 @@ export const mathsLogic = kea<mathsLogicType<MathDefinition>>({
         mathDefinitions: [
             (s) => [s.groupsMathDefinitions],
             (groupOptions): Record<string, MathDefinition> => ({
-                total: {
-                    name: 'Total count',
-                    description: (
-                        <>
-                            Total event count. Total number of times the event was performed by any user.
-                            <br />
-                            <br />
-                            <i>Example: If a user performs an event 3 times in the given period, it counts as 3.</i>
-                        </>
-                    ),
-                    onProperty: false,
-                    type: EVENT_MATH_TYPE,
-                },
-                dau: {
-                    name: 'Unique users',
-                    description: (
-                        <>
-                            Number of unique users who performed the event in the specified period.
-                            <br />
-                            <br />
-                            <i>
-                                Example: If a single user performs an event 3 times in a given day/week/month, it counts
-                                only as 1.
-                            </i>
-                        </>
-                    ),
-                    onProperty: false,
-                    type: EVENT_MATH_TYPE,
-                },
-                weekly_active: {
-                    name: 'Weekly active',
-                    description: (
-                        <>
-                            Users active in the past week (7 days).
-                            <br />
-                            This is a trailing count that aggregates distinct users in the past 7 days for each day in
-                            the time series
-                        </>
-                    ),
-                    onProperty: false,
-                    type: EVENT_MATH_TYPE,
-                },
-                monthly_active: {
-                    name: 'Monthly active',
-                    description: (
-                        <>
-                            Users active in the past month (30 days).
-                            <br />
-                            This is a trailing count that aggregates distinct users in the past 30 days for each day in
-                            the time series
-                        </>
-                    ),
-                    onProperty: false,
-                    type: EVENT_MATH_TYPE,
-                },
+                ...BASE_MATH_DEFINITIONS,
                 ...groupOptions,
-                avg: {
-                    name: 'Average',
-                    description: (
-                        <>
-                            Average of a property value within an event or action.
-                            <br />
-                            <br />
-                            For example 3 events captured with property <code>amount</code> equal to 10, 12 and 20,
-                            result in 14.
-                        </>
-                    ),
-                    onProperty: true,
-                    type: PROPERTY_MATH_TYPE,
-                },
-                sum: {
-                    name: 'Sum',
-                    description: (
-                        <>
-                            Sum of property values within an event or action.
-                            <br />
-                            <br />
-                            For example 3 events captured with property <code>amount</code> equal to 10, 12 and 20,
-                            result in 42.
-                        </>
-                    ),
-                    onProperty: true,
-                    type: PROPERTY_MATH_TYPE,
-                },
-                min: {
-                    name: 'Minimum',
-                    description: (
-                        <>
-                            Event property minimum.
-                            <br />
-                            <br />
-                            For example 3 events captured with property <code>amount</code> equal to 10, 12 and 20,
-                            result in 10.
-                        </>
-                    ),
-                    onProperty: true,
-                    type: PROPERTY_MATH_TYPE,
-                },
-                max: {
-                    name: 'Maximum',
-                    description: (
-                        <>
-                            Event property maximum.
-                            <br />
-                            <br />
-                            For example 3 events captured with property <code>amount</code> equal to 10, 12 and 20,
-                            result in 20.
-                        </>
-                    ),
-                    onProperty: true,
-                    type: PROPERTY_MATH_TYPE,
-                },
-                median: {
-                    name: 'Median',
-                    description: (
-                        <>
-                            Event property median (50th percentile).
-                            <br />
-                            <br />
-                            For example 100 events captured with property <code>amount</code> equal to 101..200, result
-                            in 150.
-                        </>
-                    ),
-                    onProperty: true,
-                    type: PROPERTY_MATH_TYPE,
-                },
-                p90: {
-                    name: '90th percentile',
-                    description: (
-                        <>
-                            Event property 90th percentile.
-                            <br />
-                            <br />
-                            For example 100 events captured with property <code>amount</code> equal to 101..200, result
-                            in 190.
-                        </>
-                    ),
-                    onProperty: true,
-                    type: 'property',
-                },
-                p95: {
-                    name: '95th percentile',
-                    description: (
-                        <>
-                            Event property 95th percentile.
-                            <br />
-                            <br />
-                            For example 100 events captured with property <code>amount</code> equal to 101..200, result
-                            in 195.
-                        </>
-                    ),
-                    onProperty: true,
-                    type: PROPERTY_MATH_TYPE,
-                },
-                p99: {
-                    name: '99th percentile',
-                    description: (
-                        <>
-                            Event property 90th percentile.
-                            <br />
-                            <br />
-                            For example 100 events captured with property <code>amount</code> equal to 101..200, result
-                            in 199.
-                        </>
-                    ),
-                    onProperty: true,
-                    type: PROPERTY_MATH_TYPE,
-                },
+                ...PROPERTY_MATH_DEFINITIONS,
             }),
         ],
         groupsMathDefinitions: [
@@ -225,6 +251,7 @@ export const mathsLogic = kea<mathsLogicType<MathDefinition>>({
                         apiValueToMathType('unique_group', groupType.group_type_index),
                         {
                             name: `Unique ${aggregationLabel(groupType.group_type_index).plural}`,
+                            shortName: `unique ${aggregationLabel(groupType.group_type_index).plural}`,
                             description: (
                                 <>
                                     Number of unique {aggregationLabel(groupType.group_type_index).plural} who performed
@@ -238,8 +265,9 @@ export const mathsLogic = kea<mathsLogicType<MathDefinition>>({
                                 </>
                             ),
                             onProperty: false,
+                            actor: true,
                             type: EVENT_MATH_TYPE,
-                        },
+                        } as MathDefinition,
                     ])
                 ),
         ],

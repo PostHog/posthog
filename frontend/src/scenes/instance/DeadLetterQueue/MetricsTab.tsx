@@ -1,5 +1,5 @@
 import React from 'react'
-import { Col, Divider, Row, Statistic } from 'antd'
+import { Button, Col, Divider, Row, Statistic } from 'antd'
 import { useValues, useActions } from 'kea'
 import { deadLetterQueueLogic } from './deadLetterQueueLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -8,10 +8,14 @@ import { LemonButton } from 'lib/components/LemonButton'
 import { Spinner } from 'lib/components/Spinner/Spinner'
 import { IconRefresh } from 'lib/components/icons'
 
+// keep in sync with posthog/api/dead_letter_queue.py
+const ROWS_LIMIT = 10
+
 export function MetricsTab(): JSX.Element {
     const { user } = useValues(userLogic)
-    const { singleValueMetrics, tableMetrics, deadLetterQueueMetricsLoading } = useValues(deadLetterQueueLogic)
-    const { loadDeadLetterQueueMetrics } = useActions(deadLetterQueueLogic)
+    const { singleValueMetrics, tableMetrics, deadLetterQueueMetricsLoading, rowsPerMetric } =
+        useValues(deadLetterQueueLogic)
+    const { loadDeadLetterQueueMetrics, loadMoreRows } = useActions(deadLetterQueueLogic)
 
     if (!user?.is_staff) {
         return <></>
@@ -26,7 +30,7 @@ export function MetricsTab(): JSX.Element {
                     icon={deadLetterQueueMetricsLoading ? <Spinner size="sm" /> : <IconRefresh />}
                     onClick={loadDeadLetterQueueMetrics}
                     type="secondary"
-                    compact
+                    size="small"
                 >
                     Refresh
                 </LemonButton>
@@ -60,7 +64,7 @@ export function MetricsTab(): JSX.Element {
                                 dataIndex: 'value',
                             },
                         ]}
-                        dataSource={row.subrows?.rows.map(([key, value]) => ({ key, value })) || []}
+                        dataSource={rowsPerMetric[row.key].map(([key, value]) => ({ key, value })) || []}
                         loading={deadLetterQueueMetricsLoading}
                         defaultSorting={{
                             columnKey: 'value',
@@ -68,7 +72,19 @@ export function MetricsTab(): JSX.Element {
                         }}
                         embedded
                     />
-
+                    <div
+                        style={{
+                            margin: '1rem',
+                            textAlign: 'center',
+                        }}
+                    >
+                        <Button
+                            disabled={rowsPerMetric[row.key].length % ROWS_LIMIT !== 0}
+                            onClick={() => loadMoreRows(row.key)}
+                        >
+                            Load more values
+                        </Button>
+                    </div>
                     <Divider />
                 </div>
             ))}

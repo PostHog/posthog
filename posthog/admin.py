@@ -7,9 +7,9 @@ from posthog.models import (
     Action,
     ActionStep,
     Element,
-    Event,
     FeatureFlag,
     Insight,
+    InstanceSetting,
     Organization,
     Person,
     Plugin,
@@ -24,6 +24,7 @@ admin.site.register(FeatureFlag)
 admin.site.register(Action)
 admin.site.register(ActionStep)
 admin.site.register(Insight)
+admin.site.register(InstanceSetting)
 
 
 @admin.register(Plugin)
@@ -57,20 +58,6 @@ class PluginConfigAdmin(admin.ModelAdmin):
         "team_id",
     )
     ordering = ("-created_at",)
-
-
-@admin.register(Event)
-class EventAdmin(admin.ModelAdmin):
-    readonly_fields = ("timestamp",)
-    list_display = (
-        "timestamp",
-        "event",
-        "id",
-    )
-
-    def get_queryset(self, request):
-        qs = super().get_queryset(request)
-        return qs.order_by("-timestamp")
 
 
 @admin.register(User)
@@ -154,8 +141,6 @@ class OrganizationTeamInline(admin.TabularInline):
 class OrganizationAdmin(admin.ModelAdmin):
     fields = [
         "name",
-        "personalization",
-        "setup_section_2_completed",
         "created_at",
         "updated_at",
         "plugins_access_level",

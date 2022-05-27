@@ -1,0 +1,94 @@
+@import '~/vars';
+
+.LemonBubble {
+    --lemon-counter-size: 1.2rem;
+    --lemon-counter-font-size: 0.6rem;
+    --scale-small: 0.8;
+    --scale-large: 1.2;
+    --position-offset: 0.5rem;
+
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--white);
+    background: var(--primary);
+    border: 2px solid var(--bg-light);
+    width: var(--lemon-counter-size);
+    height: var(--lemon-counter-size);
+    font-size: var(--lemon-counter-font-size);
+    line-height: var(--lemon-counter-size);
+    border-radius: 100%;
+    box-sizing: content-box;
+    user-select: none;
+    pointer-events: none;
+    position: absolute;
+    font-weight: 700;
+
+    &.LemonBubble--position-none {
+        position: relative;
+    }
+
+    &.LemonBubble--position-top-left {
+        top: calc(var(--position-offset) * -1);
+        left: calc(var(--position-offset) * -1);
+    }
+
+    &.LemonBubble--position-top-right {
+        top: calc(var(--position-offset) * -1);
+        right: calc(var(--position-offset) * -1);
+    }
+
+    &.LemonBubble--position-bottom-left {
+        bottom: calc(var(--position-offset) * -1);
+        left: calc(var(--position-offset) * -1);
+    }
+
+    &.LemonBubble--position-bottom-right {
+        bottom: calc(var(--position-offset) * -1);
+        right: calc(var(--position-offset) * -1);
+    }
+
+    &.LemonBubble--small {
+        width: calc(var(--lemon-counter-size) * var(--scale-small));
+        height: calc(var(--lemon-counter-size) * var(--scale-small));
+        font-size: calc(var(--lemon-counter-font-size) * var(--scale-small));
+        line-height: calc(var(--lemon-counter-size) * var(--scale-small));
+    }
+
+    &.LemonBubble--large {
+        width: calc(var(--lemon-counter-size) * var(--scale-large));
+        height: calc(var(--lemon-counter-size) * var(--scale-large));
+        font-size: calc(var(--lemon-counter-font-size) * var(--scale-large));
+        line-height: calc(var(--lemon-counter-size) * var(--scale-large));
+    }
+
+    &.LemonBubble--large {
+        width: calc(var(--lemon-counter-size) * var(--scale-large));
+        height: calc(var(--lemon-counter-size) * var(--scale-large));
+        font-size: calc(var(--lemon-counter-font-size) * var(--scale-large));
+        line-height: calc(var(--lemon-counter-size) * var(--scale-large));
+    }
+
+    &.LemonBubble--enter {
+        transform: scale(0.5);
+        opacity: 0;
+    }
+
+    &.LemonBubble--enter-active {
+        transform: scale(1);
+        opacity: 1;
+        transition: all 150ms ease-out;
+    }
+
+    &.LemonBubble--exit {
+        transform: scale(1);
+        opacity: 1;
+    }
+
+    &.LemonBubble--exit-active {
+        transform: scale(0.5);
+        opacity: 0;
+        transition: all 150ms ease-in;
+    }
+}

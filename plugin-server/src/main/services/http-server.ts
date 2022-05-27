@@ -1,24 +1,43 @@
+import * as Sentry from '@sentry/node'
 import { createServer, IncomingMessage, Server, ServerResponse } from 'http'
 
-import { healthcheck } from '../../healthcheck'
 import { status } from '../../utils/status'
-import { stalenessCheck } from '../../utils/utils'
+import { ServerInstance } from '../pluginsServer'
+import { kafkaHealthcheck } from '../utils'
 import { Hub, PluginsServerConfig } from './../../types'
 
-const HTTP_SERVER_PORT = 6738
+export const HTTP_SERVER_PORT = 6738
 
-export function createHttpServer(hub: Hub | undefined, serverConfig: PluginsServerConfig): Server {
+export function createHttpServer(hub: Hub, serverInstance: ServerInstance, serverConfig: PluginsServerConfig): Server {
     const server = createServer(async (req: IncomingMessage, res: ServerResponse) => {
         if (req.url === '/_health' && req.method === 'GET') {
-            const status = await healthcheck()
-            const ok = status ? !stalenessCheck(hub, serverConfig.HEALTHCHECK_MAX_STALE_SECONDS).isServerStale : false
-            if (ok) {
+            let serverHealthy = true
+
+            if (hub.KAFKA_ENABLED && serverInstance.kafkaHealthcheckConsumer) {
+                const [kafkaHealthy, error] = await kafkaHealthcheck(
+                    hub.kafkaProducer,
+                    serverInstance.kafkaHealthcheckConsumer,
+                    hub.statsd,
+                    serverConfig.KAFKA_HEALTHCHECK_SECONDS * 1000
+                )
+                if (kafkaHealthy) {
+                    status.info('💚', `Kafka healthcheck succeeded`)
+                } else {
+                    serverHealthy = false
+                    Sentry.captureException(error, { tags: { context: 'healthcheck' } })
+                    status.info('💔', `Kafka healthcheck failed with error: ${error?.message || 'unknown error'}.`)
+                }
+            }
+
+            if (serverHealthy) {
+                status.info('💚', 'Server healthcheck succeeded')
                 const responseBody = {
                     status: 'ok',
                 }
                 res.statusCode = 200
                 res.end(JSON.stringify(responseBody))
             } else {
+                status.info('💔', 'Server healthcheck failed')
                 const responseBody = {
                     status: 'error',
                 }

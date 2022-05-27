@@ -11,27 +11,35 @@
 # understand what leaning into codespaces looks like first.
 FROM mcr.microsoft.com/vscode/devcontainers/python:3.9-bullseye
 
-WORKDIR /workspace
-
 # Make sure all exit codes on pipes cause failures
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+
+# Set up docker in docker as per
+# https://github.com/microsoft/vscode-dev-containers/blob/main/script-library/docs/docker-in-docker.md 
+COPY .devcontainer/library-scripts /tmp/library-scripts
+
+ENV DOCKER_BUILDKIT=1
+RUN /tmp/library-scripts/docker-in-docker-debian.sh
+ENTRYPOINT ["/usr/local/share/docker-init.sh"]
+VOLUME [ "/var/lib/docker" ]
+CMD ["sleep", "infinity"]
 
 # Add in some useful dev cli tools
 # hadolint ignore=DL3008
 RUN apt-get update \
     && apt-get -y install --no-install-recommends \
-    # Add docker cli so we can do things like `docker logs`, and build images
-    "docker.io=20.*" \
     # Add in useful db debugging tools
     "postgresql-client=13+*" \
     && rm -rf /var/lib/apt/lists/*
 
 # Install node
-RUN curl -fsSL https://deb.nodesource.com/setup_14.x | bash - \
-    && apt-get -y install --no-install-recommends "nodejs=14.*" \
-    && rm -rf /var/lib/apt/lists/*
+# [Choice] Node.js version: none, lts/*, 16, 14, 12, 10
+ARG NODE_VERSION="16"
+RUN if [ "${NODE_VERSION}" != "none" ]; then su vscode -c "umask 0002 && . /usr/local/share/nvm/nvm.sh && nvm install ${NODE_VERSION} 2>&1"; fi
 
 # NOTE: the below is mostly just a copy of /dev.Dockerfile
+
+WORKDIR /workspace
 
 # Compile and install Python dependencies.
 #
@@ -45,37 +53,3 @@ RUN curl -fsSL https://deb.nodesource.com/setup_14.x | bash - \
 COPY requirements.txt requirements-dev.txt ./
 RUN pip install -r requirements-dev.txt --compile --no-cache-dir && \
     pip install -r requirements.txt --compile --no-cache-dir
-
-# Compile and install Yarn dependencies.
-#
-# Notes:
-#
-# - we explicitly COPY the files so that we don't need to rebuild
-#   the container every time a dependency changes
-#
-# - we need few additional OS packages for this. Let's install
-#   and then uninstall them when the compilation is completed.
-COPY package.json yarn.lock ./
-RUN yarn install --frozen-lockfile && \
-    yarn cache clean
-
-COPY ./plugin-server/package.json ./plugin-server/yarn.lock ./plugin-server/
-RUN yarn install --frozen-lockfile && \
-    yarn cache clean
-
-# Install SAML dependencies
-#
-# Notes:
-#
-# - please add in this section runtime dependences only.
-#   If you temporary need a package to build a Python or npm
-#   dependency take a look at the sections below.
-#
-# - we would like to include those dependencies + 'python3-saml'
-#   directly in the requirements.txt file but due to our CI/CD
-#   setup this is currently not possible. More context at:
-#   https://github.com/PostHog/posthog/pull/5870
-#   https://github.com/PostHog/posthog/pull/6575#discussion_r733457836
-#   https://github.com/PostHog/posthog/pull/6607
-#
-RUN pip install python3-saml==1.12.0 --compile --no-cache-dir

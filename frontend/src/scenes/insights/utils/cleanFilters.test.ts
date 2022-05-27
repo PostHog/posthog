@@ -225,4 +225,19 @@ describe('cleanFilters', () => {
         expect(cleanedFilters).toHaveProperty('breakdown_type', 'event')
         expect(cleanedFilters).toHaveProperty('breakdown_group_type_index', undefined)
     })
+
+    it('reads "smoothing_intervals" and "interval" from URL when viewing and corrects bad pairings', () => {
+        const cleanedFilters = cleanFilters(
+            {
+                interval: 'day',
+                smoothing_intervals: 4,
+            },
+            {
+                interval: 'day',
+                smoothing_intervals: 3,
+            }
+        )
+
+        expect(cleanedFilters).toHaveProperty('smoothing_intervals', 1)
+    })
 })

@@ -4,18 +4,18 @@ import { dayjs, now } from 'lib/dayjs'
 import { deleteWithUndo, determineDifferenceType, groupBy, toParams } from '~/lib/utils'
 import { annotationsModel } from '~/models/annotationsModel'
 import { getNextKey } from './utils'
-import { annotationsLogicType } from './annotationsLogicType'
+import type { annotationsLogicType } from './annotationsLogicType'
 import { AnnotationScope, AnnotationType } from '~/types'
 import { teamLogic } from 'scenes/teamLogic'
 
-interface AnnotationsLogicProps {
-    insightId?: number
+export interface AnnotationsLogicProps {
+    insightNumericId?: number
 }
 
-export const annotationsLogic = kea<annotationsLogicType<AnnotationsLogicProps>>({
+export const annotationsLogic = kea<annotationsLogicType>({
     path: (key) => ['lib', 'components', 'Annotations', 'annotationsLogic', key],
     props: {} as AnnotationsLogicProps,
-    key: (props) => String(props.insightId || 'default'),
+    key: (props) => String(props.insightNumericId || 'default'),
     connect: {
         actions: [annotationsModel, ['deleteGlobalAnnotation', 'createGlobalAnnotation']],
         values: [annotationsModel, ['activeGlobalAnnotations']],
@@ -35,12 +35,13 @@ export const annotationsLogic = kea<annotationsLogicType<AnnotationsLogicProps>>
         annotations: {
             __default: [] as AnnotationType[],
             loadAnnotations: async () => {
-                if (!props.insightId) {
-                    throw new Error('Can only load annotations for insight whose id is known.')
+                if (!props.insightNumericId) {
+                    // insight.id (numeric ID) not known yet
+                    return []
                 }
 
                 const params = {
-                    ...(props.insightId ? { dashboardItemId: props.insightId } : {}),
+                    ...(props.insightNumericId ? { dashboardItemId: props.insightNumericId } : {}),
                     scope: AnnotationScope.Insight,
                     deleted: false,
                 }
@@ -96,7 +97,7 @@ export const annotationsLogic = kea<annotationsLogicType<AnnotationsLogicProps>>
     }),
     listeners: ({ actions, props }) => ({
         createAnnotation: async ({ content, date_marker, created_at, scope }) => {
-            if (!props.insightId) {
+            if (!props.insightNumericId) {
                 throw new Error('Can only create annotations for insights whose id is known.')
             }
 
@@ -104,7 +105,7 @@ export const annotationsLogic = kea<annotationsLogicType<AnnotationsLogicProps>>
                 content,
                 date_marker: dayjs(date_marker).toISOString(),
                 created_at: created_at.toISOString(),
-                dashboard_item: props.insightId,
+                dashboard_item: props.insightNumericId,
                 scope,
             } as Partial<AnnotationType>)
             actions.loadAnnotations()

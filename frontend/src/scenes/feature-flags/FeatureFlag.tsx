@@ -1,49 +1,37 @@
-import React, { useEffect, useState } from 'react'
-import {
-    Input,
-    Button,
-    Form,
-    Switch,
-    Slider,
-    Card,
-    Row,
-    Col,
-    Collapse,
-    Radio,
-    InputNumber,
-    Popconfirm,
-    Select,
-} from 'antd'
+import React, { useState } from 'react'
+import { Group } from 'kea-forms'
+import { Button, Slider, Card, Row, Col, Collapse, Radio, InputNumber, Popconfirm, Select } from 'antd'
 import { useActions, useValues } from 'kea'
-import { capitalizeFirstLetter, SceneLoading } from 'lib/utils'
+import { capitalizeFirstLetter, Loading } from 'lib/utils'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-import {
-    DeleteOutlined,
-    CopyOutlined,
-    SaveOutlined,
-    PlusOutlined,
-    ApiFilled,
-    MergeCellsOutlined,
-    LockOutlined,
-} from '@ant-design/icons'
+import { DeleteOutlined, ApiFilled, MergeCellsOutlined, LockOutlined } from '@ant-design/icons'
 import { featureFlagLogic } from './featureFlagLogic'
 import { PageHeader } from 'lib/components/PageHeader'
 import './FeatureFlag.scss'
-import { IconOpenInNew, IconJavascript, IconPython } from 'lib/components/icons'
+import { IconOpenInNew, IconJavascript, IconPython, IconCopy, IconDelete } from 'lib/components/icons'
 import { Tooltip } from 'lib/components/Tooltip'
 import { SceneExport } from 'scenes/sceneTypes'
 import { APISnippet, JSSnippet, PythonSnippet, UTM_TAGS } from 'scenes/feature-flags/FeatureFlagSnippets'
-import { LemonSpacer } from 'lib/components/LemonRow'
+import { LemonDivider } from 'lib/components/LemonDivider'
 import { groupsModel } from '~/models/groupsModel'
 import { GroupsIntroductionOption } from 'lib/introductions/GroupsIntroductionOption'
 import { LemonTag } from 'lib/components/LemonTag/LemonTag'
 import { userLogic } from 'scenes/userLogic'
 import { AvailableFeature } from '~/types'
 import { Link } from 'lib/components/Link'
+import { LemonButton } from 'lib/components/LemonButton'
+import { LemonSwitch } from 'lib/components/LemonSwitch/LemonSwitch'
+import { Field } from 'lib/forms/Field'
+import { VerticalForm } from 'lib/forms/VerticalForm'
+import { LemonTextArea } from 'lib/components/LemonTextArea/LemonTextArea'
+import { LemonInput } from 'lib/components/LemonInput/LemonInput'
 
 export const scene: SceneExport = {
     component: FeatureFlag,
     logic: featureFlagLogic,
+    paramsToProps: ({ params: { id } }): typeof featureFlagLogic['props'] => ({
+        id: id && id !== 'new' ? parseInt(id) : 'new',
+    }),
 }
 
 function focusVariantKeyField(index: number): void {
@@ -53,11 +41,10 @@ function focusVariantKeyField(index: number): void {
     )
 }
 
-export function FeatureFlag(): JSX.Element {
-    const [form] = Form.useForm()
+export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
     const {
+        props,
         featureFlag,
-        featureFlagId,
         multivariateEnabled,
         variants,
         nonEmptyVariants,
@@ -66,20 +53,18 @@ export function FeatureFlag(): JSX.Element {
         groupTypes,
         aggregationTargetName,
         taxonomicGroupTypes,
+        featureFlagLoading,
     } = useValues(featureFlagLogic)
     const {
         addConditionSet,
         updateConditionSet,
         removeConditionSet,
         duplicateConditionSet,
-        saveFeatureFlag,
         deleteFeatureFlag,
         setMultivariateEnabled,
         addVariant,
-        updateVariant,
         removeVariant,
         distributeVariantsEqually,
-        setFeatureFlag,
         setAggregationGroupTypeIndex,
     } = useActions(featureFlagLogic)
     const { showGroupsOptions, aggregationLabel } = useValues(groupsModel)
@@ -90,84 +75,53 @@ export function FeatureFlag(): JSX.Element {
     // whether to warn the user that their variants will be lost
     const [showVariantDiscardWarning, setShowVariantDiscardWarning] = useState(false)
 
-    useEffect(() => {
-        form.setFieldsValue({ ...featureFlag })
-    }, [featureFlag])
-
     // :KLUDGE: Match by select only allows Select.Option as children, so render groups option directly rather than as a child
     const matchByGroupsIntroductionOption = GroupsIntroductionOption({ value: -2 })
 
     return (
         <div className="feature-flag">
             {featureFlag ? (
-                <Form
-                    layout="vertical"
-                    form={form}
-                    initialValues={{ name: featureFlag.name, key: featureFlag.key, active: featureFlag.active }}
-                    onValuesChange={(newValues) => {
-                        if (featureFlagId !== 'new' && newValues.key) {
-                            setHasKeyChanged(newValues.key !== featureFlag.key)
-                        }
-                        setFeatureFlag({ ...featureFlag, ...newValues })
-                    }}
-                    onFinish={(values) =>
-                        saveFeatureFlag({
-                            ...featureFlag,
-                            ...values,
-                            filters: featureFlag.filters,
-                        })
-                    }
-                    requiredMark={false}
-                    scrollToFirstError
-                >
+                <VerticalForm logic={featureFlagLogic} props={props} formKey="featureFlag" enableFormOnSubmit>
                     <PageHeader
                         title="Feature Flag"
                         buttons={
-                            <div style={{ display: 'flex' }}>
-                                <Form.Item className="enabled-switch">
-                                    <Form.Item
-                                        shouldUpdate={(prevValues, currentValues) =>
-                                            prevValues.active !== currentValues.active
-                                        }
-                                        style={{ marginBottom: 0, marginRight: 6 }}
-                                    >
-                                        {({ getFieldValue }) => {
-                                            return (
-                                                <span className="ant-form-item-label" style={{ lineHeight: '1.5rem' }}>
-                                                    {getFieldValue('active') ? (
-                                                        <span className="text-success">Enabled</span>
-                                                    ) : (
-                                                        <span className="text-danger">Disabled</span>
-                                                    )}
-                                                </span>
-                                            )
-                                        }}
-                                    </Form.Item>
-                                    <Form.Item name="active" noStyle valuePropName="checked">
-                                        <Switch />
-                                    </Form.Item>
-                                </Form.Item>
-                                {featureFlagId !== 'new' && (
-                                    <Button
+                            <div className="flex-center">
+                                <Field name="active">
+                                    {({ value, onChange }) => (
+                                        <LemonSwitch
+                                            checked={value}
+                                            onChange={onChange}
+                                            label={
+                                                value ? (
+                                                    <span className="text-success">Enabled</span>
+                                                ) : (
+                                                    <span className="text-danger">Disabled</span>
+                                                )
+                                            }
+                                        />
+                                    )}
+                                </Field>
+                                {featureFlag?.id && (
+                                    <LemonButton
                                         data-attr="delete-flag"
-                                        danger
-                                        icon={<DeleteOutlined />}
+                                        status="danger"
+                                        type="secondary"
                                         onClick={() => {
                                             deleteFeatureFlag(featureFlag)
                                         }}
                                         style={{ marginRight: 16 }}
                                     >
                                         Delete
-                                    </Button>
+                                    </LemonButton>
                                 )}
-                                <Button
-                                    icon={<SaveOutlined />}
+                                <LemonButton
                                     type="primary"
                                     data-attr="feature-flag-submit"
+                                    loading={featureFlagLoading}
                                     htmlType="submit"
                                 >
                                     Save changes
-                                </Button>
+                                </LemonButton>
                             </div>
                         }
                     />
@@ -177,19 +131,12 @@ export function FeatureFlag(): JSX.Element {
                     </div>
                     <Row gutter={16} style={{ marginBottom: 32 }}>
                         <Col span={12}>
-                            <Form.Item
+                            <Field
                                 name="key"
                                 label="Key (must be unique)"
-                                rules={[
-                                    { required: true, message: 'You need to set a key.' },
-                                    {
-                                        pattern: /^([A-z]|[a-z]|[0-9]|-|_)+$/,
-                                        message: 'Only letters, numbers, hyphens (-) & underscores (_) are allowed.',
-                                    },
-                                ]}
                                 validateStatus={hasKeyChanged ? 'warning' : undefined}
-                                help={
-                                    hasKeyChanged ? (
+                                hint={
+                                    hasKeyChanged && id !== 'new' ? (
                                         <small>
                                             <b>Warning! </b>Changing this key will
                                             <a
@@ -204,25 +151,34 @@ export function FeatureFlag(): JSX.Element {
                                     ) : undefined
                                 }
                             >
-                                <Input
-                                    data-attr="feature-flag-key"
-                                    className="ph-ignore-input"
-                                    autoFocus
-                                    placeholder="examples: new-landing-page, betaFeature, ab_test_1"
-                                    autoComplete="off"
-                                    autoCapitalize="off"
-                                    autoCorrect="off"
-                                    spellCheck={false}
-                                />
-                            </Form.Item>
+                                {({ value, onChange }) => (
+                                    <LemonInput
+                                        value={value}
+                                        onChange={(v) => {
+                                            if (v !== value) {
+                                                setHasKeyChanged(true)
+                                            }
+                                            onChange(v)
+                                        }}
+                                        data-attr="feature-flag-key"
+                                        className="ph-ignore-input"
+                                        autoFocus
+                                        placeholder="examples: new-landing-page, betaFeature, ab_test_1"
+                                        autoComplete="off"
+                                        autoCapitalize="off"
+                                        autoCorrect="off"
+                                        spellCheck={false}
+                                    />
+                                )}
+                            </Field>
 
-                            <Form.Item name="name" label="Description">
-                                <Input.TextArea
+                            <Field name="name" label="Description">
+                                <LemonTextArea
                                     className="ph-ignore-input"
                                     data-attr="feature-flag-description"
                                     placeholder="Adding a helpful description can ensure others know what this feature is for."
                                 />
-                            </Form.Item>
+                            </Field>
                         </Col>
                         <Col span={12} style={{ paddingTop: 31 }}>
                             <Collapse>
@@ -235,13 +191,7 @@ export function FeatureFlag(): JSX.Element {
                                     }
                                     key="js"
                                 >
-                                    <Form.Item
-                                        shouldUpdate={(prevValues, currentValues) =>
-                                            prevValues.key !== currentValues.key
-                                        }
-                                    >
-                                        {({ getFieldValue }) => <JSSnippet flagKey={getFieldValue('key')} />}
-                                    </Form.Item>
+                                    <JSSnippet flagKey={featureFlag.key || 'my-flag'} />
                                 </Collapse.Panel>
                                 <Collapse.Panel
                                     header={
@@ -251,13 +201,7 @@ export function FeatureFlag(): JSX.Element {
                                     }
                                     key="python"
                                 >
-                                    <Form.Item
-                                        shouldUpdate={(prevValues, currentValues) =>
-                                            prevValues.key !== currentValues.key
-                                        }
-                                    >
-                                        {({ getFieldValue }) => <PythonSnippet flagKey={getFieldValue('key')} />}
-                                    </Form.Item>
+                                    <PythonSnippet flagKey={featureFlag.key || 'my-flag'} />
                                 </Collapse.Panel>
                                 <Collapse.Panel
                                     header={
@@ -267,13 +211,7 @@ export function FeatureFlag(): JSX.Element {
                                     }
                                     key="api"
                                 >
-                                    <Form.Item
-                                        shouldUpdate={(prevValues, currentValues) =>
-                                            prevValues.key !== currentValues.key
-                                        }
-                                    >
-                                        <APISnippet />
-                                    </Form.Item>
+                                    <APISnippet />
                                 </Collapse.Panel>
                             </Collapse>
                         </Col>
@@ -371,27 +309,12 @@ export function FeatureFlag(): JSX.Element {
                                         </Button>
                                     </Col>
                                 </Row>
-                                {variants.map(({ rollout_percentage }, index) => (
-                                    <Form
-                                        key={index}
-                                        onValuesChange={(changedValues) => updateVariant(index, changedValues)}
-                                        initialValues={variants[index]}
-                                        validateTrigger={['onChange', 'onBlur']}
-                                    >
+                                {variants.map((_, index) => (
+                                    <Group key={index} name={['filters', 'multivariate', 'variants', index]}>
                                         <Row gutter={8}>
                                             <Col span={7}>
-                                                <Form.Item
-                                                    name="key"
-                                                    rules={[
-                                                        { required: true, message: 'Key should not be empty.' },
-                                                        {
-                                                            pattern: /^([A-z]|[a-z]|[0-9]|-|_)+$/,
-                                                            message:
-                                                                'Only letters, numbers, hyphens (-) & underscores (_) are allowed.',
-                                                        },
-                                                    ]}
-                                                >
-                                                    <Input
+                                                <Field name="key">
+                                                    <LemonInput
                                                         data-attr="feature-flag-variant-key"
                                                         data-key-index={index.toString()}
                                                         className="ph-ignore-input"
@@ -401,48 +324,49 @@ export function FeatureFlag(): JSX.Element {
                                                         autoCorrect="off"
                                                         spellCheck={false}
                                                     />
-                                                </Form.Item>
+                                                </Field>
                                             </Col>
                                             <Col span={7}>
-                                                <Form.Item name="name">
-                                                    <Input
+                                                <Field name="name">
+                                                    <LemonInput
                                                         data-attr="feature-flag-variant-name"
                                                         className="ph-ignore-input"
                                                         placeholder="Description"
                                                     />
-                                                </Form.Item>
+                                                </Field>
                                             </Col>
                                             <Col span={7}>
-                                                <Slider
-                                                    tooltipPlacement="top"
-                                                    value={rollout_percentage}
-                                                    onChange={(value: number) =>
-                                                        updateVariant(index, { rollout_percentage: value })
-                                                    }
-                                                />
+                                                <Field name="rollout_percentage">
+                                                    <Slider tooltipPlacement="top" />
+                                                </Field>
                                             </Col>
                                             <Col span={2}>
-                                                <InputNumber
-                                                    min={0}
-                                                    max={100}
-                                                    value={rollout_percentage}
-                                                    onChange={(value) => {
-                                                        if (value !== null && value !== undefined) {
-                                                            const valueInt = parseInt(value.toString())
-                                                            if (!isNaN(valueInt)) {
-                                                                updateVariant(index, {
-                                                                    rollout_percentage: valueInt,
-                                                                })
-                                                            }
-                                                        }
-                                                    }}
-                                                    style={{
-                                                        width: '100%',
-                                                        borderColor: areVariantRolloutsValid
-                                                            ? undefined
-                                                            : 'var(--danger)',
-                                                    }}
-                                                />
+                                                <Field name="rollout_percentage">
+                                                    {({ value, onChange }) => (
+                                                        <InputNumber
+                                                            min={0}
+                                                            max={100}
+                                                            value={value}
+                                                            onChange={(changedValue) => {
+                                                                if (
+                                                                    changedValue !== null &&
+                                                                    changedValue !== undefined
+                                                                ) {
+                                                                    const valueInt = parseInt(changedValue.toString())
+                                                                    if (!isNaN(valueInt)) {
+                                                                        onChange(valueInt)
+                                                                    }
+                                                                }
+                                                            }}
+                                                            style={{
+                                                                width: '100%',
+                                                                borderColor: areVariantRolloutsValid
+                                                                    ? undefined
+                                                                    : 'var(--danger)',
+                                                            }}
+                                                        />
+                                                    )}
+                                                </Field>
                                             </Col>
                                             {variants.length > 1 && (
                                                 <Col span={1}>
@@ -457,7 +381,7 @@ export function FeatureFlag(): JSX.Element {
                                                 </Col>
                                             )}
                                         </Row>
-                                    </Form>
+                                    </Group>
                                 ))}
                                 {variants.length > 0 && !areVariantRolloutsValid && (
                                     <p className="text-danger">
@@ -465,19 +389,20 @@ export function FeatureFlag(): JSX.Element {
                                         ).
                                     </p>
                                 )}
-                                <Button
-                                    type="dashed"
-                                    block
-                                    icon={<PlusOutlined />}
+                                <LemonButton
+                                    type="secondary"
                                     onClick={() => {
                                         const newIndex = variants.length
                                         addVariant()
                                         focusVariantKeyField(newIndex)
                                     }}
-                                    style={{ marginBottom: 16 }}
+                                    style={{ margin: '1rem 0' }}
+                                    size="small"
+                                    fullWidth
+                                    center
                                 >
-                                    Add Variant
-                                </Button>
+                                    Add variant
+                                </LemonButton>
                             </div>
                         )}
                     </div>
@@ -495,8 +420,8 @@ export function FeatureFlag(): JSX.Element {
                                 Match by
                                 <Select
                                     value={
-                                        featureFlag.filters.aggregation_group_type_index != null
-                                            ? featureFlag.filters.aggregation_group_type_index
+                                        featureFlag.filters?.aggregation_group_type_index != null
+                                            ? featureFlag.filters?.aggregation_group_type_index
                                             : -1
                                     }
                                     onChange={(value) => {
@@ -551,40 +476,41 @@ export function FeatureFlag(): JSX.Element {
                                                 </>
                                             )}
                                         </div>
-                                        <div>
+                                        <Row align="middle">
                                             <Tooltip title="Duplicate this condition set" placement="bottomLeft">
-                                                <Button
-                                                    type="link"
-                                                    icon={<CopyOutlined />}
-                                                    style={{ width: 24, height: 24 }}
+                                                <LemonButton
+                                                    icon={<IconCopy />}
+                                                    size="small"
                                                     onClick={() => duplicateConditionSet(index)}
                                                 />
                                             </Tooltip>
                                             {featureFlag.filters.groups.length > 1 && (
                                                 <Tooltip title="Delete this condition set" placement="bottomLeft">
-                                                    <Button
-                                                        type="link"
-                                                        icon={<DeleteOutlined />}
-                                                        style={{ width: 24, height: 24 }}
+                                                    <LemonButton
+                                                        icon={<IconDelete />}
+                                                        size="small"
                                                         onClick={() => removeConditionSet(index)}
                                                     />
                                                 </Tooltip>
                                             )}
-                                        </div>
+                                        </Row>
                                     </div>
 
-                                    <LemonSpacer large />
-                                    <PropertyFilters
-                                        style={{ marginLeft: 15 }}
-                                        pageKey={`feature-flag-${featureFlag.id}-${index}-${
-                                            featureFlag.filters.groups.length
-                                        }-${featureFlag.filters.aggregation_group_type_index ?? ''}`}
-                                        propertyFilters={group?.properties}
-                                        onChange={(properties) => updateConditionSet(index, undefined, properties)}
-                                        taxonomicGroupTypes={taxonomicGroupTypes}
-                                        showConditionBadge
-                                    />
-                                    <LemonSpacer large />
+                                    <LemonDivider large />
+                                    <div className="ml">
+                                        <PropertyFilters
+                                            pageKey={`feature-flag-${featureFlag.id}-${index}-${
+                                                featureFlag.filters.groups.length
+                                            }-${featureFlag.filters.aggregation_group_type_index ?? ''}`}
+                                            propertyFilters={group?.properties}
+                                            onChange={(properties) => updateConditionSet(index, undefined, properties)}
+                                            taxonomicGroupTypes={taxonomicGroupTypes}
+                                            showConditionBadge
+                                            useLemonButton
+                                        />
+                                    </div>
+
+                                    <LemonDivider large />
 
                                     <div className="feature-flag-form-row">
                                         <div className="centered">
@@ -609,24 +535,19 @@ export function FeatureFlag(): JSX.Element {
                         ))}
                     </Row>
                     <Card size="small" style={{ marginBottom: 16 }}>
-                        <Button type="link" onClick={addConditionSet} style={{ marginLeft: 5 }}>
-                            <PlusOutlined style={{ marginRight: 15 }} /> Add condition set
-                        </Button>
+                        <LemonButton onClick={addConditionSet} fullWidth>
+                            Add condition set
+                        </LemonButton>
                     </Card>
-                    <Form.Item className="text-right">
-                        <Button
-                            icon={<SaveOutlined />}
-                            htmlType="submit"
-                            type="primary"
-                            data-attr="feature-flag-submit-bottom"
-                        >
+                    <div className="text-right">
+                        <LemonButton htmlType="submit" type="primary" data-attr="feature-flag-submit-bottom">
                             Save changes
-                        </Button>
-                    </Form.Item>
-                </Form>
+                        </LemonButton>
+                    </div>
+                </VerticalForm>
             ) : (
                 // TODO: This should be skeleton loaders
-                <SceneLoading />
+                <Loading />
             )}
         </div>
     )

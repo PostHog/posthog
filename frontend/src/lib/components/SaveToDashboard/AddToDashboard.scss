@@ -1,0 +1,19 @@
+.add-to-dashboard-modal {
+    .modal-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+    }
+
+    .list-wrapper {
+        min-height: 420px;
+    }
+
+    .existing-links-info {
+        color: var(--muted-alt);
+
+        strong {
+            color: var(--text-default);
+        }
+    }
+}

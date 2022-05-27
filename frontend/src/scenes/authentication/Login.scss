@@ -3,28 +3,33 @@
 
 .bridge-page.login {
     .helper-links {
+        display: flex;
+        gap: 0.5rem;
+        align-items: center;
+        justify-content: space-between;
         text-align: center;
-        .lhs {
-            float: left;
-        }
-        &.cloud {
-            .rhs {
-                float: right;
-            }
-        }
+        padding-top: $default_spacing;
     }
 
     @media screen and (max-width: $sm) {
         .helper-links {
-            .lhs,
-            .rhs {
-                float: unset;
-            }
+            flex-direction: column;
             a {
                 display: block;
                 width: 100%;
-                padding-top: 4px;
+                a {
+                    flex-grow: 1;
+                }
             }
+        }
+    }
+
+    .password-wrapper {
+        overflow: hidden;
+        transition: max-height 0.8s ease-in-out;
+        max-height: 1000px;
+        &.hidden {
+            max-height: 0;
         }
     }
 }

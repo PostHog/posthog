@@ -1,15 +1,15 @@
-from typing import Any, Dict
+from typing import Any
 from unittest.mock import patch
 
 import pytest
 from celery import states
 from celery.result import AsyncResult
 
-from posthog.async_migrations.examples.test import Migration
+from posthog.async_migrations.examples.test_migration import Migration
 from posthog.async_migrations.runner import run_async_migration_next_op, run_async_migration_operations
-from posthog.async_migrations.setup import get_async_migration_definition
 from posthog.async_migrations.test.util import create_async_migration
 from posthog.models.async_migration import AsyncMigration, MigrationStatus
+from posthog.models.instance_setting import set_instance_setting
 from posthog.tasks.async_migrations import check_async_migration_health
 from posthog.test.base import BaseTest
 
@@ -39,7 +39,7 @@ def run_async_migration_mock(migration_name: str, _: Any) -> TaskMock:
 
 class TestAsyncMigrations(BaseTest):
     def setUp(self) -> None:
-        create_async_migration(name="test", description=TEST_MIGRATION_DESCRIPTION)
+        create_async_migration(name="test_migration", description=TEST_MIGRATION_DESCRIPTION)
         return super().setUp()
 
     @pytest.mark.ee
@@ -53,17 +53,17 @@ class TestAsyncMigrations(BaseTest):
         Given the op is resumable, we would expect check_async_migration_health to re-trigger the migration
         from where we left off
         """
+        set_instance_setting("ASYNC_MIGRATIONS_AUTO_CONTINUE", True)
 
-        sm = AsyncMigration.objects.get(name="test")
+        sm = AsyncMigration.objects.get(name="test_migration")
         sm.status = MigrationStatus.Running
         sm.save()
 
-        run_async_migration_next_op("test", sm)
-        run_async_migration_next_op("test", sm)
-        run_async_migration_next_op("test", sm)
+        run_async_migration_next_op("test_migration", sm)
+        run_async_migration_next_op("test_migration", sm)
+        run_async_migration_next_op("test_migration", sm)
 
         sm.refresh_from_db()
-        self.assertTrue(get_async_migration_definition("test").operations[sm.current_operation_index].resumable)
 
         check_async_migration_health()
 
@@ -83,15 +83,16 @@ class TestAsyncMigrations(BaseTest):
         Given the op is not resumable, we would expect check_async_migration_health to *not* re-trigger the migration
         and instead roll it back.
         """
+        set_instance_setting("ASYNC_MIGRATIONS_AUTO_CONTINUE", False)
+        set_instance_setting("ASYNC_MIGRATIONS_DISABLE_AUTO_ROLLBACK", False)
 
-        sm = AsyncMigration.objects.get(name="test")
+        sm = AsyncMigration.objects.get(name="test_migration")
         sm.status = MigrationStatus.Running
         sm.save()
 
-        run_async_migration_next_op("test", sm)
+        run_async_migration_next_op("test_migration", sm)
 
         sm.refresh_from_db()
-        self.assertFalse(get_async_migration_definition("test").operations[sm.current_operation_index].resumable)
 
         check_async_migration_health()
 

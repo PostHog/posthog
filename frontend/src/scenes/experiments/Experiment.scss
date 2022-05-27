@@ -2,28 +2,16 @@
 
 .experiment-form {
     .metrics-selection {
-        width: 100%;
         border-top: 1px solid $border;
         padding-top: $default_spacing;
-        margin-top: $default_spacing;
 
-        .action-filters-bordered {
-            .draggable-action-filter {
-                border-bottom: 1px solid $border;
-                padding: $default_spacing $default_spacing / 4;
-                margin-top: 0;
-            }
-            .row-action-btn {
-                color: $primary_alt;
-            }
-        }
+        width: 100%;
     }
 
     .person-selection {
         width: 100%;
         border-top: 1px solid $border;
         padding-top: $default_spacing;
-        margin-top: $default_spacing;
         align-items: center;
         justify-content: space-between;
     }
@@ -82,10 +70,8 @@
         }
 
         .graph-container {
-            // hacky because container not respecting position: relative;
-            width: calc(100% - 48px);
-            height: calc(100% - 48px);
-            margin-top: $default_spacing * 2;
+            width: calc(100% - 2rem);
+            height: calc(100% - 3rem);
         }
     }
 
@@ -113,17 +99,65 @@
     }
 
     .variants {
-        border: 1px solid $border;
-        border-radius: 4px;
-        padding-left: $default_spacing;
         margin-top: $default_spacing / 2;
-        margin-bottom: $default_spacing;
+        padding-bottom: 1rem;
+        .ant-form-horizontal {
+            min-height: 32px;
+        }
+
+        .border-top {
+            border-top-left-radius: 4px;
+            border-top-right-radius: 4px;
+        }
+
+        .border-bottom {
+            border-bottom-left-radius: 4px;
+            border-bottom-right-radius: 4px;
+        }
+
         .feature-flag-variant {
-            margin-top: 20px;
+            display: flex;
+            align-items: center;
+            height: 3.5rem;
+            padding: 0 0.5rem;
+            background: #ffffff;
+            border-width: 1px;
+            border-color: $border;
+            border-top-style: solid;
+            border-left-style: solid;
+            border-right-style: solid;
+
             .ant-form-item-explain-error {
-                padding-top: $default_spacing / 2;
+                margin-top: $default_spacing / 2;
+                color: $error_red;
+            }
+
+            .ant-form-item-label {
+                padding: 0px;
             }
         }
+
+        .variant-label {
+            display: flex;
+            flex-direction: row;
+            justify-content: center;
+            align-items: center;
+            border-radius: 4px;
+            color: #ffffff;
+            min-width: 52px;
+            padding: 2px 6px;
+            margin-right: 8px;
+            font-size: 12px;
+            font-weight: 500;
+            letter-spacing: 0.01em;
+        }
+    }
+
+    .secondary-metrics {
+        margin-top: $default_spacing;
+        padding-top: $default_spacing;
+        border-top: 1px solid $border;
+        margin-bottom: $default_spacing;
     }
 
     .ant-input-number-disabled {
@@ -139,15 +173,6 @@
     .draft-header {
         margin-bottom: $default_spacing;
         border-bottom: 1px solid $border;
-    }
-
-    .stop-experiment {
-        background-color: $danger;
-        color: white;
-    }
-
-    .archive-experiment {
-        color: $danger;
     }
 
     .exp-description {
@@ -207,6 +232,50 @@
         border-radius: 4px;
         margin-bottom: $default_spacing;
     }
+
+    .ant-collapse-content-box {
+        display: flex;
+        flex-flow: column;
+    }
+
+    .secondary-progress {
+        margin-top: $default_spacing / 2;
+
+        li::before {
+            content: '\2022';
+            display: inline-block;
+            font-weight: 900;
+            margin-right: 4px;
+        }
+
+        .ant-progress-inner {
+            border-radius: 4px;
+
+            .ant-progress-bg {
+                border-radius: 4px;
+            }
+        }
+    }
+
+    .no-experiment-results {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        margin-top: $default_spacing;
+        background-color: $bg_side;
+        border: 1px solid $border;
+        width: 100%;
+        min-height: 320px;
+        font-size: 24px;
+    }
+
+    .end-experiment-btn {
+        background: $success;
+        color: white;
+        &:hover {
+            color: black;
+        }
+    }
 }
 
 .preview-conversion-goal-num {
@@ -238,6 +307,7 @@
     flex: 1;
 }
 
+.experiment-implementation-details,
 .experiment-workflow {
     border-color: $dark-grey;
     .ant-card-head {

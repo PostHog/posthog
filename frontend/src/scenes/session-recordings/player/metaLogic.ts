@@ -16,7 +16,7 @@ const getPersonProperties = (person: Partial<PersonType>, keys: string[]): strin
 
 export const metaLogic = kea<metaLogicType>({
     path: ['scenes', 'session-recordings', 'player', 'metaLogic'],
-    connect: {
+    connect: () => ({
         values: [
             sessionRecordingLogic,
             ['sessionPlayerData'],
@@ -24,7 +24,7 @@ export const metaLogic = kea<metaLogicType>({
             ['currentPlayerPosition', 'scale'],
         ],
         actions: [sessionRecordingLogic, ['loadRecordingMetaSuccess']],
-    },
+    }),
     reducers: {
         loading: [
             true,
@@ -37,7 +37,7 @@ export const metaLogic = kea<metaLogicType>({
         sessionPerson: [
             (selectors) => [selectors.sessionPlayerData],
             (playerData): Partial<PersonType> => {
-                return playerData?.person
+                return playerData?.person ?? {}
             },
         ],
         description: [
@@ -72,8 +72,8 @@ export const metaLogic = kea<metaLogicType>({
                 }
                 const snapshot = snapshots[currIndex]
                 return {
-                    width: snapshot.data.width,
-                    height: snapshot.data.height,
+                    width: snapshot.data['width'],
+                    height: snapshot.data['height'],
                 }
             },
         ],

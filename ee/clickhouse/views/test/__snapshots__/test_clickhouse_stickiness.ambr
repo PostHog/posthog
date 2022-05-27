@@ -4,8 +4,8 @@
   SELECT countDistinct(aggregation_target),
          num_intervals
   FROM
-    (SELECT e.$group_0 AS aggregation_target,
-            countDistinct(toStartOfWeek(toDateTime(timestamp))) as num_intervals
+    (SELECT e."$group_0" AS aggregation_target,
+            countDistinct(toStartOfWeek(toDateTime(timestamp, 'UTC'))) as num_intervals
      FROM events e
      INNER JOIN
        (SELECT distinct_id,
@@ -15,14 +15,14 @@
         GROUP BY distinct_id
         HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
      WHERE team_id = 2
-       AND timestamp >= '2020-01-01 00:00:00'
-       AND timestamp <= '2020-02-15 23:59:59'
+       AND timestamp >= toDateTime('2020-01-01 00:00:00')
+       AND timestamp <= toDateTime('2020-02-15 23:59:59')
        AND event = 'watched movie'
-       AND (NOT has([''], $group_0))
+       AND (NOT has([''], "$group_0"))
      GROUP BY aggregation_target)
   WHERE num_intervals <= 8
   GROUP BY num_intervals
-  ORDER BY num_intervals
+  ORDER BY num_intervals SETTINGS optimize_move_to_prewhere = 0
   '
 ---
 # name: TestClickhouseStickiness.test_aggregate_by_groups.1
@@ -30,8 +30,8 @@
   /* request:api_person_stickiness_?$ (LegacyPersonViewSet) */
   SELECT DISTINCT aggregation_target AS actor_id
   FROM
-    (SELECT e.$group_0 AS aggregation_target,
-            countDistinct(toStartOfWeek(toDateTime(timestamp))) as num_intervals
+    (SELECT e."$group_0" AS aggregation_target,
+            countDistinct(toStartOfWeek(toDateTime(timestamp, 'UTC'))) as num_intervals
      FROM events e
      INNER JOIN
        (SELECT distinct_id,
@@ -41,15 +41,15 @@
         GROUP BY distinct_id
         HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
      WHERE team_id = 2
-       AND timestamp >= '2020-01-01 00:00:00'
-       AND timestamp <= '2020-02-15 23:59:59'
+       AND timestamp >= toDateTime('2020-01-01 00:00:00')
+       AND timestamp <= toDateTime('2020-02-15 23:59:59')
        AND event = 'watched movie'
-       AND (NOT has([''], $group_0))
-       AND (NOT has([''], $group_0))
+       AND (NOT has([''], "$group_0")
+            AND NOT has([''], "$group_0"))
      GROUP BY aggregation_target)
   WHERE num_intervals = 1
   LIMIT 100
-  OFFSET 0
+  OFFSET 0 SETTINGS optimize_move_to_prewhere = 0
   '
 ---
 # name: TestClickhouseStickiness.test_aggregate_by_groups.2
@@ -57,8 +57,8 @@
   /* request:api_person_stickiness_?$ (LegacyPersonViewSet) */
   SELECT DISTINCT aggregation_target AS actor_id
   FROM
-    (SELECT e.$group_0 AS aggregation_target,
-            countDistinct(toStartOfWeek(toDateTime(timestamp))) as num_intervals
+    (SELECT e."$group_0" AS aggregation_target,
+            countDistinct(toStartOfWeek(toDateTime(timestamp, 'UTC'))) as num_intervals
      FROM events e
      INNER JOIN
        (SELECT distinct_id,
@@ -68,15 +68,15 @@
         GROUP BY distinct_id
         HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
      WHERE team_id = 2
-       AND timestamp >= '2020-01-01 00:00:00'
-       AND timestamp <= '2020-02-15 23:59:59'
+       AND timestamp >= toDateTime('2020-01-01 00:00:00')
+       AND timestamp <= toDateTime('2020-02-15 23:59:59')
        AND event = 'watched movie'
-       AND (NOT has([''], $group_0))
-       AND (NOT has([''], $group_0))
+       AND (NOT has([''], "$group_0")
+            AND NOT has([''], "$group_0"))
      GROUP BY aggregation_target)
   WHERE num_intervals = 2
   LIMIT 100
-  OFFSET 0
+  OFFSET 0 SETTINGS optimize_move_to_prewhere = 0
   '
 ---
 # name: TestClickhouseStickiness.test_aggregate_by_groups.3
@@ -84,8 +84,8 @@
   /* request:api_person_stickiness_?$ (LegacyPersonViewSet) */
   SELECT DISTINCT aggregation_target AS actor_id
   FROM
-    (SELECT e.$group_0 AS aggregation_target,
-            countDistinct(toStartOfWeek(toDateTime(timestamp))) as num_intervals
+    (SELECT e."$group_0" AS aggregation_target,
+            countDistinct(toStartOfWeek(toDateTime(timestamp, 'UTC'))) as num_intervals
      FROM events e
      INNER JOIN
        (SELECT distinct_id,
@@ -95,15 +95,15 @@
         GROUP BY distinct_id
         HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
      WHERE team_id = 2
-       AND timestamp >= '2020-01-01 00:00:00'
-       AND timestamp <= '2020-02-15 23:59:59'
+       AND timestamp >= toDateTime('2020-01-01 00:00:00')
+       AND timestamp <= toDateTime('2020-02-15 23:59:59')
        AND event = 'watched movie'
-       AND (NOT has([''], $group_0))
-       AND (NOT has([''], $group_0))
+       AND (NOT has([''], "$group_0")
+            AND NOT has([''], "$group_0"))
      GROUP BY aggregation_target)
   WHERE num_intervals = 3
   LIMIT 100
-  OFFSET 0
+  OFFSET 0 SETTINGS optimize_move_to_prewhere = 0
   '
 ---
 # name: TestClickhouseStickiness.test_filter_by_group_properties
@@ -113,7 +113,7 @@
          num_intervals
   FROM
     (SELECT pdi.person_id AS aggregation_target,
-            countDistinct(toStartOfWeek(toDateTime(timestamp))) as num_intervals
+            countDistinct(toStartOfWeek(toDateTime(timestamp, 'UTC'))) as num_intervals
      FROM events e
      INNER JOIN
        (SELECT distinct_id,
@@ -128,17 +128,16 @@
         FROM groups
         WHERE team_id = 2
           AND group_type_index = 0
-        GROUP BY group_key) groups_0 ON $group_0 == groups_0.group_key
+        GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
      WHERE team_id = 2
-       AND timestamp >= '2020-01-01 00:00:00'
-       AND timestamp <= '2020-02-15 23:59:59'
+       AND timestamp >= toDateTime('2020-01-01 00:00:00')
+       AND timestamp <= toDateTime('2020-02-15 23:59:59')
        AND event = 'watched movie'
-       AND (has(['technology'], trim(BOTH '"'
-                                     FROM JSONExtractRaw(group_properties_0, 'industry'))))
+       AND (has(['technology'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
      GROUP BY aggregation_target)
   WHERE num_intervals <= 8
   GROUP BY num_intervals
-  ORDER BY num_intervals
+  ORDER BY num_intervals SETTINGS optimize_move_to_prewhere = 0
   '
 ---
 # name: TestClickhouseStickiness.test_filter_by_group_properties.1
@@ -147,7 +146,7 @@
   SELECT DISTINCT aggregation_target AS actor_id
   FROM
     (SELECT pdi.person_id AS aggregation_target,
-            countDistinct(toStartOfWeek(toDateTime(timestamp))) as num_intervals
+            countDistinct(toStartOfWeek(toDateTime(timestamp, 'UTC'))) as num_intervals
      FROM events e
      INNER JOIN
        (SELECT distinct_id,
@@ -162,17 +161,16 @@
         FROM groups
         WHERE team_id = 2
           AND group_type_index = 0
-        GROUP BY group_key) groups_0 ON $group_0 == groups_0.group_key
+        GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
      WHERE team_id = 2
-       AND timestamp >= '2020-01-01 00:00:00'
-       AND timestamp <= '2020-02-15 23:59:59'
+       AND timestamp >= toDateTime('2020-01-01 00:00:00')
+       AND timestamp <= toDateTime('2020-02-15 23:59:59')
        AND event = 'watched movie'
-       AND (has(['technology'], trim(BOTH '"'
-                                     FROM JSONExtractRaw(group_properties_0, 'industry'))))
+       AND (has(['technology'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
      GROUP BY aggregation_target)
   WHERE num_intervals = 1
   LIMIT 100
-  OFFSET 0
+  OFFSET 0 SETTINGS optimize_move_to_prewhere = 0
   '
 ---
 # name: TestClickhouseStickiness.test_filter_by_group_properties.2
@@ -181,7 +179,7 @@
   SELECT DISTINCT aggregation_target AS actor_id
   FROM
     (SELECT pdi.person_id AS aggregation_target,
-            countDistinct(toStartOfWeek(toDateTime(timestamp))) as num_intervals
+            countDistinct(toStartOfWeek(toDateTime(timestamp, 'UTC'))) as num_intervals
      FROM events e
      INNER JOIN
        (SELECT distinct_id,
@@ -196,17 +194,16 @@
         FROM groups
         WHERE team_id = 2
           AND group_type_index = 0
-        GROUP BY group_key) groups_0 ON $group_0 == groups_0.group_key
+        GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
      WHERE team_id = 2
-       AND timestamp >= '2020-01-01 00:00:00'
-       AND timestamp <= '2020-02-15 23:59:59'
+       AND timestamp >= toDateTime('2020-01-01 00:00:00')
+       AND timestamp <= toDateTime('2020-02-15 23:59:59')
        AND event = 'watched movie'
-       AND (has(['technology'], trim(BOTH '"'
-                                     FROM JSONExtractRaw(group_properties_0, 'industry'))))
+       AND (has(['technology'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
      GROUP BY aggregation_target)
   WHERE num_intervals = 2
   LIMIT 100
-  OFFSET 0
+  OFFSET 0 SETTINGS optimize_move_to_prewhere = 0
   '
 ---
 # name: TestClickhouseStickiness.test_filter_by_group_properties.3
@@ -215,7 +212,7 @@
   SELECT DISTINCT aggregation_target AS actor_id
   FROM
     (SELECT pdi.person_id AS aggregation_target,
-            countDistinct(toStartOfWeek(toDateTime(timestamp))) as num_intervals
+            countDistinct(toStartOfWeek(toDateTime(timestamp, 'UTC'))) as num_intervals
      FROM events e
      INNER JOIN
        (SELECT distinct_id,
@@ -230,16 +227,67 @@
         FROM groups
         WHERE team_id = 2
           AND group_type_index = 0
-        GROUP BY group_key) groups_0 ON $group_0 == groups_0.group_key
+        GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
      WHERE team_id = 2
-       AND timestamp >= '2020-01-01 00:00:00'
-       AND timestamp <= '2020-02-15 23:59:59'
+       AND timestamp >= toDateTime('2020-01-01 00:00:00')
+       AND timestamp <= toDateTime('2020-02-15 23:59:59')
        AND event = 'watched movie'
-       AND (has(['technology'], trim(BOTH '"'
-                                     FROM JSONExtractRaw(group_properties_0, 'industry'))))
+       AND (has(['technology'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
      GROUP BY aggregation_target)
   WHERE num_intervals = 3
   LIMIT 100
-  OFFSET 0
+  OFFSET 0 SETTINGS optimize_move_to_prewhere = 0
+  '
+---
+# name: TestClickhouseStickiness.test_timezones
+  '
+  
+  SELECT countDistinct(aggregation_target),
+         num_intervals
+  FROM
+    (SELECT pdi.person_id AS aggregation_target,
+            countDistinct(toStartOfDay(toDateTime(timestamp, 'UTC'))) as num_intervals
+     FROM events e
+     INNER JOIN
+       (SELECT distinct_id,
+               argMax(person_id, version) as person_id
+        FROM person_distinct_id2
+        WHERE team_id = 2
+        GROUP BY distinct_id
+        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+     WHERE team_id = 2
+       AND timestamp >= toDateTime('2021-05-01 00:00:00')
+       AND timestamp <= toDateTime('2021-05-15 23:59:59')
+       AND event = '$pageview'
+     GROUP BY aggregation_target)
+  WHERE num_intervals <= 16
+  GROUP BY num_intervals
+  ORDER BY num_intervals SETTINGS optimize_move_to_prewhere = 0
+  '
+---
+# name: TestClickhouseStickiness.test_timezones.1
+  '
+  
+  SELECT countDistinct(aggregation_target),
+         num_intervals
+  FROM
+    (SELECT pdi.person_id AS aggregation_target,
+            countDistinct(toStartOfDay(toDateTime(timestamp, 'US/Pacific'))) as num_intervals
+     FROM events e
+     INNER JOIN
+       (SELECT distinct_id,
+               argMax(person_id, version) as person_id
+        FROM person_distinct_id2
+        WHERE team_id = 2
+        GROUP BY distinct_id
+        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+     WHERE team_id = 2
+       AND timestamp >= toDateTime('2021-05-01 07:00:00')
+       AND timestamp <= toDateTime('2021-05-16 06:59:59')
+       AND event = '$pageview'
+     GROUP BY aggregation_target)
+  WHERE num_intervals <= 16
+  GROUP BY num_intervals
+  ORDER BY num_intervals SETTINGS optimize_move_to_prewhere = 0
   '
 ---

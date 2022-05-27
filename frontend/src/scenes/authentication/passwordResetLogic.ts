@@ -1,25 +1,23 @@
 import { kea } from 'kea'
 import api from 'lib/api'
-import { successToast } from 'lib/utils'
+import { lemonToast } from 'lib/components/lemonToast'
+import type { passwordResetLogicType } from './passwordResetLogicType'
 
-import { passwordResetLogicType } from './passwordResetLogicType'
-interface ResponseType {
+export interface ResponseType {
     success: boolean
     errorCode?: string
     errorDetail?: string
 }
-interface ResetResponseType extends ResponseType {
+export interface ResetResponseType extends ResponseType {
     email?: string
 }
 
-interface ValidatedTokenResponseType extends ResponseType {
+export interface ValidatedTokenResponseType extends ResponseType {
     token?: string
     uuid?: string
 }
 
-export const passwordResetLogic = kea<
-    passwordResetLogicType<ResetResponseType, ResponseType, ValidatedTokenResponseType>
->({
+export const passwordResetLogic = kea<passwordResetLogicType>({
     path: ['scenes', 'authentication', 'passwordResetLogic'],
     loaders: ({ values }) => ({
         resetResponse: [
@@ -29,7 +27,7 @@ export const passwordResetLogic = kea<
                     try {
                         await api.create('api/reset/', { email })
                         return { success: true, email }
-                    } catch (e) {
+                    } catch (e: any) {
                         return { success: false, errorCode: e.code, errorDetail: e.detail }
                     }
                 },
@@ -42,7 +40,7 @@ export const passwordResetLogic = kea<
                     try {
                         await api.get(`api/reset/${uuid}/?token=${token}`)
                         return { success: true, token, uuid }
-                    } catch (e) {
+                    } catch (e: any) {
                         return { success: false, errorCode: e.code, errorDetail: e.detail }
                     }
                 },
@@ -78,7 +76,7 @@ export const passwordResetLogic = kea<
                             token: values.validatedResetToken.token,
                         })
                         return { success: true }
-                    } catch (e) {
+                    } catch (e: any) {
                         return { success: false, errorCode: e.code, errorDetail: e.detail }
                     }
                 },
@@ -88,10 +86,7 @@ export const passwordResetLogic = kea<
     listeners: {
         updatePasswordSuccess: async ({ newPasswordResponse }, breakpoint) => {
             if (newPasswordResponse.success) {
-                successToast(
-                    'Password changed successfully',
-                    'Your password was successfully changed. Redirecting you...'
-                )
+                lemonToast.success('Your password has been changed. Redirecting…')
                 await breakpoint(3000)
                 window.location.href = '/' // We need the refresh
             }

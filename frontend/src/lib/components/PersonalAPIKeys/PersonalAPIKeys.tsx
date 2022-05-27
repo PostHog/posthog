@@ -1,13 +1,13 @@
 import React, { useState, useRef, useCallback, Dispatch, SetStateAction } from 'react'
-import { Table, Modal, Button, Input, Alert, Popconfirm } from 'antd'
+import { Table, Modal, Input, Alert, Popconfirm } from 'antd'
 import { useActions, useValues } from 'kea'
 import { ExclamationCircleOutlined } from '@ant-design/icons'
-import { red } from '@ant-design/colors'
 import { personalAPIKeysLogic } from './personalAPIKeysLogic'
 import { PersonalAPIKeyType } from '~/types'
 import { humanFriendlyDetailedTime } from 'lib/utils'
 import { CopyToClipboardInline } from '../CopyToClipboard'
 import { ColumnsType } from 'antd/lib/table'
+import { LemonButton } from '../LemonButton'
 
 function CreateKeyModal({
     isVisible,
@@ -81,7 +81,7 @@ function RowActionsCreator(
                 title={`Permanently delete key "${personalAPIKey.label}"?`}
                 okText="Delete Key"
                 okType="danger"
-                icon={<ExclamationCircleOutlined style={{ color: red.primary }} />}
+                icon={<ExclamationCircleOutlined style={{ color: 'var(--danger)' }} />}
                 placement="left"
                 onConfirm={() => {
                     deleteKey(personalAPIKey)
@@ -158,14 +158,14 @@ export function PersonalAPIKeys(): JSX.Element {
                     More about API authentication in PostHog Docs.
                 </a>
             </p>
-            <Button
+            <LemonButton
                 type="primary"
                 onClick={() => {
                     setIsCreateKeyModalVisible(true)
                 }}
             >
-                + Create Personal API Key
-            </Button>
+                + Create personal API key
+            </LemonButton>
             <CreateKeyModal isVisible={isCreateKeyModalVisible} setIsVisible={setIsCreateKeyModalVisible} />
             <PersonalAPIKeysTable />
         </>

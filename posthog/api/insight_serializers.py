@@ -9,6 +9,7 @@ from posthog.api.documentation import (
     OpenApiTypes,
     PropertySerializer,
     extend_schema_field,
+    property_help_text,
 )
 from posthog.constants import (
     ACTIONS,
@@ -20,6 +21,7 @@ from posthog.constants import (
     FunnelOrderType,
     FunnelVizType,
 )
+from posthog.models.team import TIMEZONES
 
 
 class GenericInsightsSerializer(serializers.Serializer):
@@ -51,7 +53,7 @@ class GenericInsightsSerializer(serializers.Serializer):
     actions = FilterActionSerializer(
         required=False, many=True, help_text="Actions to filter on. One of `events` or `actions` is required."
     )
-    properties = PropertySerializer(many=True, required=False)
+    properties = PropertySerializer(required=False, help_text=property_help_text)
     filter_test_accounts = serializers.BooleanField(
         help_text='Whether to filter out internal and test accounts. See "project settings" in your PostHog account for the filters.',
         default=False,
@@ -80,7 +82,10 @@ class BreakdownField(serializers.Field):
 class BreakdownMixin(serializers.Serializer):
     breakdown = BreakdownField(
         required=False,
-        help_text="A property or cohort to break down on. You can select the type of the property with breakdown_type.\n- **event** (default): A property key\n- **person**: A person property key\n- **cohort**: An array of cohort IDs (ie [9581,5812])",
+        help_text="""A property or cohort to break down on. You can select the type of the property with breakdown_type.
+- `event` (default): a property key
+- `person`: a person property key
+- `cohort`: an array of cohort IDs (ie `[9581,5812]`)""",
     )
     breakdown_type = serializers.ChoiceField(
         choices=get_args(BREAKDOWN_TYPES),
@@ -114,6 +119,7 @@ class ResultsMixin(serializers.Serializer):
         help_text="Whether the result is cached. To force a refresh, pass ?refresh=true"
     )
     last_refresh = serializers.DateTimeField(help_text="If the result is cached, when it was last refreshed.")
+    timezone = serializers.ChoiceField(choices=TIMEZONES, default="UTC", help_text="Timezone the chart is displayed in")
 
 
 class TrendResultSerializer(serializers.Serializer):
@@ -145,6 +151,7 @@ class TrendSerializer(GenericInsightsSerializer, BreakdownMixin):
     formula = serializers.CharField(
         required=False,
         help_text="Combine the result of events or actions into a single number. For example `A + B` or `(A-B)/B`. The letters correspond to the order of the `events` or `actions` lists.",
+        allow_blank=True,
     )
     compare = serializers.BooleanField(
         help_text="For each returned result show the current period and the previous period. The result will contain `compare:true` and a `compare_label` with either `current` or `previous`.",
@@ -154,7 +161,7 @@ class TrendSerializer(GenericInsightsSerializer, BreakdownMixin):
 
 class FunnelExclusionSerializer(serializers.Serializer):
     id = serializers.CharField(help_text="Name of the event to filter on. For example `$pageview` or `user sign up`.")
-    properties = PropertySerializer(many=True, required=False)
+    properties = PropertySerializer(required=False, help_text=property_help_text)
     funnel_from_step = serializers.IntegerField(default=0, required=False)
     funnel_to_step = serializers.IntegerField(default=1, required=False)
 

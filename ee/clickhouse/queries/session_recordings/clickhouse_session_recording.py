@@ -1,7 +1,7 @@
 import json
 from typing import List
 
-from ee.clickhouse.client import sync_execute
+from posthog.client import sync_execute
 from posthog.models import SessionRecordingEvent
 from posthog.queries.session_recordings.session_recording import SessionRecording
 

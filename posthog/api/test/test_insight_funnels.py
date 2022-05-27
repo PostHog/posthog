@@ -5,7 +5,7 @@ from django.test.client import Client
 from rest_framework import status
 
 from ee.clickhouse.test.test_journeys import journeys_for
-from ee.clickhouse.util import ClickhouseTestMixin
+from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
 from posthog.test.base import APIBaseTest
 
 
@@ -405,6 +405,7 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response["result"][0]["count"], 7)
         self.assertEqual(response["result"][0]["data"], [100, 50, 0, 0, 0, 0, 0])
 
+    @snapshot_clickhouse_queries
     def test_funnel_time_to_convert_auto_bins(self):
         journeys_for(
             {
@@ -454,6 +455,7 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
             response_data,
             {
                 "is_cached": False,
+                "timezone": "UTC",
                 "result": {
                     "bins": [[2220.0, 2], [29080.0, 0], [55940.0, 0], [82800.0, 1]],
                     "average_conversion_time": 29540.0,
@@ -461,6 +463,7 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
             },
         )
 
+    @snapshot_clickhouse_queries
     def test_funnel_time_to_convert_auto_bins_strict(self):
         journeys_for(
             {
@@ -510,6 +513,7 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
             response_data,
             {
                 "is_cached": False,
+                "timezone": "UTC",
                 "result": {
                     "bins": [[2220.0, 2], [29080.0, 0], [55940.0, 0], [82800.0, 1]],
                     "average_conversion_time": 29540.0,
@@ -517,6 +521,7 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
             },
         )
 
+    @snapshot_clickhouse_queries
     def test_funnel_time_to_convert_auto_bins_unordered(self):
         journeys_for(
             {
@@ -566,6 +571,7 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
             response_data,
             {
                 "is_cached": False,
+                "timezone": "UTC",
                 "result": {
                     "bins": [[2220.0, 2], [29080.0, 0], [55940.0, 0], [82800.0, 1]],
                     "average_conversion_time": 29540.0,

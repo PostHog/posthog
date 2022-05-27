@@ -1,33 +1,26 @@
 import './ActionsPie.scss'
 import React, { useState, useEffect } from 'react'
-import { maybeAddCommasToInteger } from 'lib/utils'
+import { humanFriendlyNumber } from 'lib/utils'
 import { LineGraph } from '../../insights/LineGraph/LineGraph'
-import { getChartColors } from 'lib/colors'
+import { getSeriesColor } from 'lib/colors'
 import { useValues, useActions } from 'kea'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { ChartParams, GraphType, GraphDataset, ActionFilter } from '~/types'
 import { personsModalLogic } from '../personsModalLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
-export function ActionsPie({
-    filters: filtersParam,
-    color = 'white',
-    inSharedMode,
-    showPersonsModal = true,
-}: ChartParams): JSX.Element | null {
+export function ActionsPie({ inSharedMode, showPersonsModal = true }: ChartParams): JSX.Element | null {
     const [data, setData] = useState<GraphDataset[] | null>(null)
     const [total, setTotal] = useState(0)
     const { insightProps, insight } = useValues(insightLogic)
     const logic = trendsLogic(insightProps)
     const { loadPeople, loadPeopleFromUrl } = useActions(personsModalLogic)
-    const { results, labelGroupType, hiddenLegendKeys } = useValues(logic)
+    const { indexedResults, labelGroupType, hiddenLegendKeys } = useValues(logic)
 
     function updateData(): void {
-        const _data = [...results]
-        _data.sort((a, b) => b.aggregated_value - a.aggregated_value)
-        const days = results.length > 0 ? results[0].days : []
-
-        const colorList = getChartColors(color, results.length)
+        const _data = [...indexedResults].sort((a, b) => b.aggregated_value - a.aggregated_value)
+        const days = _data.length > 0 ? _data[0].days : []
+        const colorList = _data.map(({ id }) => getSeriesColor(id))
 
         setData([
             {
@@ -50,10 +43,10 @@ export function ActionsPie({
     }
 
     useEffect(() => {
-        if (results) {
+        if (indexedResults) {
             updateData()
         }
-    }, [results, color, hiddenLegendKeys])
+    }, [indexedResults, hiddenLegendKeys])
 
     return data ? (
         data[0] && data[0].labels ? (
@@ -61,25 +54,24 @@ export function ActionsPie({
                 <div className="pie-chart">
                     <LineGraph
                         data-attr="trend-pie-graph"
-                        color={color}
                         hiddenLegendKeys={hiddenLegendKeys}
                         type={GraphType.Pie}
                         datasets={data}
                         labels={data[0].labels}
                         labelGroupType={labelGroupType}
                         inSharedMode={!!inSharedMode}
-                        insightId={insight.id}
+                        insightNumericId={insight.id}
                         showPersonsModal={showPersonsModal}
                         onClick={
-                            !showPersonsModal || filtersParam.formula
+                            !showPersonsModal || insight.filters?.formula
                                 ? undefined
                                 : (payload) => {
                                       const { points, index, seriesId } = payload
                                       const dataset = points.referencePoint.dataset
                                       const action = dataset.actions?.[index]
                                       const label = dataset.labels?.[index]
-                                      const date_from = filtersParam.date_from || ''
-                                      const date_to = filtersParam.date_to || ''
+                                      const date_from = insight.filters?.date_from || ''
+                                      const date_to = insight.filters?.date_to || ''
                                       const breakdown_value = dataset.breakdownValues?.[index]
                                           ? dataset.breakdownValues[index]
                                           : null
@@ -88,7 +80,7 @@ export function ActionsPie({
                                           label: label ?? '',
                                           date_from,
                                           date_to,
-                                          filters: filtersParam,
+                                          filters: insight.filters ?? {},
                                           seriesId,
                                           breakdown_value: breakdown_value ?? '',
                                       }
@@ -106,7 +98,7 @@ export function ActionsPie({
                 </div>
                 <h1>
                     <span className="label">Total: </span>
-                    {maybeAddCommasToInteger(total)}
+                    {humanFriendlyNumber(total)}
                 </h1>
             </div>
         ) : (

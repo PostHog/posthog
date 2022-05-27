@@ -3,11 +3,16 @@ from unittest.mock import Mock, patch
 
 import pytest
 import pytz
+from dateutil.relativedelta import relativedelta
 from django.utils import timezone
+from django.utils.timezone import now
+from freezegun import freeze_time
 from rest_framework import status
 
 from ee.api.test.base import APILicensedTest
 from ee.models.license import License
+from posthog.models.organization import Organization
+from posthog.models.team import Team
 
 
 class TestLicenseAPI(APILicensedTest):
@@ -29,10 +34,9 @@ class TestLicenseAPI(APILicensedTest):
         self.assertEqual(retrieve_response.status_code, status.HTTP_200_OK)
         self.assertEqual(retrieve_response.json(), response_data["results"][0])
 
-    @patch("ee.models.license.requests.post")
+    @patch("ee.api.license.requests.post")
     @pytest.mark.skip_on_multitenancy
     def test_can_create_license(self, patch_post):
-
         valid_until = timezone.now() + datetime.timedelta(days=10)
         mock = Mock()
         mock.json.return_value = {
@@ -55,7 +59,7 @@ class TestLicenseAPI(APILicensedTest):
         self.assertEqual(license.key, "newer_license_1")
         self.assertEqual(license.valid_until, valid_until)
 
-    @patch("ee.models.license.requests.post")
+    @patch("ee.api.license.requests.post")
     @pytest.mark.skip_on_multitenancy
     def test_friendly_error_when_license_key_is_invalid(self, patch_post):
         mock = Mock()
@@ -77,3 +81,73 @@ class TestLicenseAPI(APILicensedTest):
         )
 
         self.assertEqual(License.objects.count(), count)
+
+    @pytest.mark.skip_on_multitenancy
+    def test_highest_activated_license_is_used_after_upgrade(self):
+        with freeze_time("2022-06-01T12:00:00.000Z"):
+            License.objects.create(
+                key="old", plan="scale", valid_until=timezone.datetime.now() + timezone.timedelta(days=30)
+            )
+        with freeze_time("2022-06-03T12:00:00.000Z"):
+            License.objects.create(
+                key="new", plan="enterprise", valid_until=timezone.datetime.now() + timezone.timedelta(days=30)
+            )
+
+        with freeze_time("2022-06-03T13:00:00.000Z"):
+            first_valid = License.objects.first_valid()
+
+            self.assertIsInstance(first_valid, License)
+            self.assertEqual(first_valid.plan, "enterprise")  # type: ignore
+
+    @pytest.mark.skip_on_multitenancy
+    def test_highest_activated_license_is_used_after_renewal_to_lower(self):
+        with freeze_time("2022-06-01T12:00:00.000Z"):
+            License.objects.create(
+                key="new", plan="enterprise", valid_until=timezone.datetime.now() + timezone.timedelta(days=30)
+            )
+        with freeze_time("2022-06-27T12:00:00.000Z"):
+            License.objects.create(
+                key="old", plan="scale", valid_until=timezone.datetime.now() + timezone.timedelta(days=30)
+            )
+
+        with freeze_time("2022-06-27T13:00:00.000Z"):
+            first_valid = License.objects.first_valid()
+
+            self.assertIsInstance(first_valid, License)
+            self.assertEqual(first_valid.plan, "enterprise")  # type: ignore
+
+    @pytest.mark.skip_on_multitenancy
+    @patch("ee.api.license.requests.post")
+    def test_can_cancel_license(self, patch_post):
+        Team.objects.create(organization=self.organization)
+        Team.objects.create(organization=self.organization, is_demo=True)  # don't delete
+        other_org = Organization.objects.create()
+        Team.objects.create(organization=other_org)
+
+        mock = Mock()
+        mock.json.return_value = {"ok": True}
+        patch_post.return_value = mock
+        response = self.client.delete(f"/api/license/{self.license.pk}/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertEqual(Team.objects.count(), 2)
+        self.assertEqual(Team.objects.all()[0].pk, self.team.pk)
+        self.assertEqual(Organization.objects.count(), 1)
+
+    @pytest.mark.skip_on_multitenancy
+    @patch("ee.api.license.requests.post")
+    def test_can_cancel_license_with_another_valid_license(self, patch_post):
+        # In this case we won't delete projects as there's another valid license
+        License.objects.create(valid_until=now() + relativedelta(years=1), plan="enterprise")
+        Team.objects.create(organization=self.organization)
+        Team.objects.create(organization=self.organization, is_demo=True)  # don't delete
+        other_org = Organization.objects.create()
+        Team.objects.create(organization=other_org)
+
+        mock = Mock()
+        mock.json.return_value = {"ok": True}
+        patch_post.return_value = mock
+        response = self.client.delete(f"/api/license/{self.license.pk}/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertEqual(Team.objects.count(), 4)
+        self.assertEqual(Team.objects.all().order_by("pk")[0].pk, self.team.pk)
+        self.assertEqual(Organization.objects.count(), 2)

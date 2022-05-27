@@ -1,16 +1,13 @@
 import json
-from unittest.mock import patch
 from uuid import uuid4
 
 from freezegun import freeze_time
-from rest_framework import status
 
-from ee.clickhouse.models.event import create_event
 from ee.clickhouse.models.session_recording_event import create_session_recording_event
 from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
 from posthog.constants import ENTITY_ID, ENTITY_MATH, ENTITY_TYPE, TRENDS_CUMULATIVE
-from posthog.models import Action, ActionStep, Cohort, Organization, Person
-from posthog.test.base import APIBaseTest
+from posthog.models import Action, ActionStep, Cohort, Organization
+from posthog.test.base import APIBaseTest, _create_event, _create_person, flush_persons_and_events
 
 
 def _create_action(**kwargs):
@@ -27,16 +24,6 @@ def _create_cohort(**kwargs):
     groups = kwargs.pop("groups")
     cohort = Cohort.objects.create(team=team, name=name, groups=groups)
     return cohort
-
-
-def _create_person(**kwargs):
-    person = Person.objects.create(**kwargs)
-    return Person(id=str(person.uuid))
-
-
-def _create_event(uuid=None, **kwargs):
-    kwargs.update({"event_uuid": uuid if uuid else uuid4()})
-    create_event(**kwargs)
 
 
 def _create_session_recording_event(team_id, distinct_id, session_id, timestamp, window_id="", has_full_snapshot=True):
@@ -95,6 +82,8 @@ class TestActionPeople(ClickhouseTestMixin, APIBaseTest):
             _create_event(
                 team=secondTeam, event="sign up", distinct_id="blabla", properties={"$some_property": "other_value"},
             )
+
+        flush_persons_and_events()
         return sign_up_action, person
 
     def test_people_cumulative(self):
@@ -157,6 +146,8 @@ class TestActionPeople(ClickhouseTestMixin, APIBaseTest):
                     team=self.team, event="sign up", distinct_id="blabla", properties={"$some_property": i},
                 )
 
+        flush_persons_and_events()
+
     def test_people_endpoint_paginated(self):
 
         for index in range(0, 150):
@@ -212,6 +203,7 @@ class TestActionPeople(ClickhouseTestMixin, APIBaseTest):
             team=self.team, event="sign up", distinct_id="person1", timestamp="2019-11-27T16:50:00Z",
         )
 
+        flush_persons_and_events()
         return person1, person2, person3, person4, person5, person6, person7
 
     def test_hour_interval(self):
@@ -247,7 +239,7 @@ class TestActionPeople(ClickhouseTestMixin, APIBaseTest):
                 ENTITY_ID: "sign up",
             },
         ).json()
-        self.assertEqual(str(action_response["results"][0]["people"][0]["id"]), str(person1.pk))
+        self.assertEqual(str(action_response["results"][0]["people"][0]["id"]), str(person1.uuid))
         self.assertEqual(len(action_response["results"][0]["people"]), 1)
         self.assertEntityResponseEqual(action_response["results"], event_response["results"], remove=[])
 
@@ -273,7 +265,7 @@ class TestActionPeople(ClickhouseTestMixin, APIBaseTest):
             },
         ).json()
         all_people_ids = [str(person["id"]) for person in hour_grouped_action_response["results"][0]["people"]]
-        self.assertListEqual(sorted(all_people_ids), sorted([str(person2.pk), str(person3.pk)]))
+        self.assertListEqual(sorted(all_people_ids), sorted([str(person2.uuid), str(person3.uuid)]))
         self.assertEqual(len(all_people_ids), 2)
         self.assertEntityResponseEqual(
             hour_grouped_action_response["results"], hour_grouped_grevent_response["results"], remove=[],
@@ -320,7 +312,7 @@ class TestActionPeople(ClickhouseTestMixin, APIBaseTest):
         ).json()
 
         self.assertEqual(len(action_response["results"][0]["people"]), 1)
-        self.assertEqual(str(action_response["results"][0]["people"][0]["id"]), str(person1.pk))
+        self.assertEqual(str(action_response["results"][0]["people"][0]["id"]), str(person1.uuid))
         self.assertEntityResponseEqual(action_response["results"], event_response["results"], remove=[])
 
     def test_day_interval_cumulative(self):
@@ -366,7 +358,8 @@ class TestActionPeople(ClickhouseTestMixin, APIBaseTest):
         ).json()
         self.assertEqual(len(action_response["results"][0]["people"]), 2)
         self.assertEqual(
-            sorted(p["id"] for p in action_response["results"][0]["people"]), sorted([person1.pk, person2.pk])
+            sorted(p["id"] for p in action_response["results"][0]["people"]),
+            sorted([str(person1.uuid), str(person2.uuid)]),
         )
         self.assertEntityResponseEqual(action_response["results"], event_response["results"], remove=[])
 
@@ -407,7 +400,7 @@ class TestActionPeople(ClickhouseTestMixin, APIBaseTest):
         self.maxDiff = None
         all_people_ids = [str(person["id"]) for person in week_grouped_action_response["results"][0]["people"]]
         self.assertEqual(len(all_people_ids), 2)
-        self.assertListEqual(sorted(all_people_ids), sorted([str(person6.pk), str(person7.pk)]))
+        self.assertListEqual(sorted(all_people_ids), sorted([str(person6.uuid), str(person7.uuid)]))
 
         self.assertEntityResponseEqual(
             week_grouped_action_response["results"], week_grouped_grevent_response["results"], remove=[],
@@ -449,7 +442,7 @@ class TestActionPeople(ClickhouseTestMixin, APIBaseTest):
 
         all_people_ids = [str(person["id"]) for person in month_group_action_response["results"][0]["people"]]
         self.assertEqual(len(all_people_ids), 3)
-        self.assertListEqual(sorted(all_people_ids), sorted([str(person6.pk), str(person7.pk), str(person1.pk)]))
+        self.assertListEqual(sorted(all_people_ids), sorted([str(person6.uuid), str(person7.uuid), str(person1.uuid)]))
 
         self.assertEntityResponseEqual(
             month_group_action_response["results"], month_group_grevent_response["results"], remove=[],
@@ -523,6 +516,7 @@ class TestActionPeople(ClickhouseTestMixin, APIBaseTest):
             timestamp="2020-01-05T12:00:00Z",
             properties={"event_prop": "prop3"},
         )
+        flush_persons_and_events()
         return (person1, person2, person3, person4)
 
     def test_people_csv(self):
@@ -547,7 +541,11 @@ class TestActionPeople(ClickhouseTestMixin, APIBaseTest):
 
     def test_breakdown_by_cohort_people_endpoint(self):
         person1, _, _, _ = self._create_multiple_people()
-        cohort = _create_cohort(name="cohort1", team=self.team, groups=[{"properties": {"name": "person1"}}])
+        cohort = _create_cohort(
+            name="cohort1",
+            team=self.team,
+            groups=[{"properties": [{"key": "name", "value": "person1", "type": "person"}]}],
+        )
         _create_cohort(name="cohort2", team=self.team, groups=[{"properties": {"name": "person2"}}])
         _create_cohort(
             name="cohort3",
@@ -572,7 +570,7 @@ class TestActionPeople(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(len(people["results"][0]["people"]), 1)
         ordered_people = sorted(people["results"][0]["people"], key=lambda i: i["id"])
-        self.assertEqual(ordered_people[0]["id"], person1.pk)
+        self.assertEqual(ordered_people[0]["id"], str(person1.uuid))
 
         # all people
         people = self.client.get(
@@ -590,8 +588,8 @@ class TestActionPeople(ClickhouseTestMixin, APIBaseTest):
         ).json()
 
         self.assertEqual(len(people["results"][0]["people"]), 4)
-        ordered_people = sorted(people["results"][0]["people"], key=lambda i: i["id"])
-        self.assertEqual(ordered_people[0]["id"], person1.pk)
+        ordered_people = sorted(people["results"][0]["people"], key=lambda i: i["created_at"])
+        self.assertEqual(ordered_people[0]["id"], str(person1.uuid))
 
     def test_breakdown_by_person_property_people_endpoint(self):
         person1, person2, person3, person4 = self._create_multiple_people()
@@ -611,7 +609,7 @@ class TestActionPeople(ClickhouseTestMixin, APIBaseTest):
             },
         ).json()
         self.assertEqual(len(people["results"][0]["people"]), 1)
-        self.assertEqual(people["results"][0]["people"][0]["id"], person3.pk)
+        self.assertEqual(people["results"][0]["people"][0]["id"], str(person3.uuid))
 
     def test_breakdown_by_event_property_people_endpoint(self):
         person1, person2, person3, person4 = self._create_multiple_people()
@@ -633,7 +631,7 @@ class TestActionPeople(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(len(people["results"][0]["people"]), 2)
         ordered_people = sorted(p["id"] for p in people["results"][0]["people"])
-        self.assertEqual(ordered_people, sorted([person1.pk, person2.pk]))
+        self.assertEqual(ordered_people, sorted([str(person1.uuid), str(person2.uuid)]))
 
     def test_filtering_by_person_properties(self):
         person1, person2, person3, person4 = self._create_multiple_people()
@@ -650,28 +648,7 @@ class TestActionPeople(ClickhouseTestMixin, APIBaseTest):
         ).json()
 
         self.assertEqual(len(people["results"][0]["people"]), 1)
-        self.assertEqual(people["results"][0]["people"][0]["id"], person2.pk)
-
-    @patch("posthog.models.action.Action.calculate_events")
-    def test_is_calculating_always_false(self, calculate_events):
-        create_response_wrapper = self.client.post(f"/api/projects/{self.team.id}/actions/", {"name": "ooh"})
-        create_response = create_response_wrapper.json()
-        self.assertEqual(create_response_wrapper.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(create_response["is_calculating"], False)
-        self.assertFalse(calculate_events.called)
-
-        response = self.client.get(f"/api/projects/{self.team.id}/actions/").json()
-        self.assertEqual(response["results"][0]["is_calculating"], False)
-
-        response = self.client.get(f"/api/projects/{self.team.id}/actions/{create_response['id']}/").json()
-        self.assertEqual(response["is_calculating"], False)
-
-        # Make sure we're not re-calculating actions
-        response = self.client.patch(f"/api/projects/{self.team.id}/actions/{create_response['id']}/", {"name": "ooh"})
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["name"], "ooh")
-        self.assertEqual(response.json()["is_calculating"], False)
-        self.assertFalse(calculate_events.called)
+        self.assertEqual(people["results"][0]["people"][0]["id"], str(person2.uuid))
 
     def test_active_user_weekly_people(self):
         p1 = _create_person(team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "p1"})
@@ -873,7 +850,7 @@ class TestActionPeople(ClickhouseTestMixin, APIBaseTest):
             team=self.team, event="$pageview", distinct_id="p1", timestamp="2020-01-09T14:00:00Z",
         )
         _create_event(
-            uuid="693402ed-590e-4737-ba26-93ebf18121bd",
+            event_uuid="693402ed-590e-4737-ba26-93ebf18121bd",
             team=self.team,
             event="$pageview",
             distinct_id="p1",

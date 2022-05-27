@@ -11,10 +11,12 @@ from posthog.api.test.test_capture import mocked_get_ingest_context_from_token
 from posthog.api.utils import (
     EventIngestionContext,
     PaginationMode,
+    check_definition_ids_inclusion_field_sql,
     format_paginated_url,
     get_data,
     get_event_ingestion_context,
     get_target_entity,
+    safe_clickhouse_string,
 )
 from posthog.models.filters.filter import Filter
 from posthog.test.base import BaseTest
@@ -118,7 +120,7 @@ class TestUtils(BaseTest):
 
         assert entity.id == "$pageview"
         assert entity.type == "events"
-        assert entity.math == None
+        assert entity.math is None
 
         filter = Filter(
             data={
@@ -136,3 +138,64 @@ class TestUtils(BaseTest):
         assert entity.id == "$pageview"
         assert entity.type == "events"
         assert entity.math == "unique_group"
+
+    def test_check_definition_ids_inclusion_field_sql(self):
+
+        definition_ids = [
+            "",
+            None,
+            '["1fcefbef-7ea1-42fd-abca-4848b53133c0", "c8452399-8a10-4142-864d-6f2ca8c65154"]',
+        ]
+
+        expected_ids_list = [[], [], ["1fcefbef-7ea1-42fd-abca-4848b53133c0", "c8452399-8a10-4142-864d-6f2ca8c65154"]]
+
+        for raw_ids, expected_ids in zip(definition_ids, expected_ids_list):
+            ordered_expected_ids = list(set(expected_ids))  # type: ignore
+            # Property
+            query, ids = check_definition_ids_inclusion_field_sql(raw_ids, True, "named_key")
+            assert query == "(posthog_{table}.id = ANY (%(named_key)s::uuid[]))".format(table="propertydefinition",)
+            assert ids == ordered_expected_ids
+
+            # Event
+            query, ids = check_definition_ids_inclusion_field_sql(raw_ids, False, "named_key")
+            assert query == "(posthog_{table}.id = ANY (%(named_key)s::uuid[]))".format(table="eventdefinition")
+            assert ids == ordered_expected_ids
+
+    # keep in sync with posthog/plugin-server/tests/utils.test.ts::safeClickhouseString
+    def test_safe_clickhouse_string_valid_strings(self):
+        valid_strings = [
+            "$autocapture",
+            "correlation analyzed",
+            "docs_search_used",
+            "$$plugin_metrics",
+            "996f3e2f-830b-42f0-b2b8-df42bb7f7144",
+            "some?819)389**^371=2++211!!@==-''''..,,weird___id",
+            """
+                form.form-signin:attr__action="/signup"attr__class="form-signin"attr__method="post"nth-child="1"nth-of-type="1";body:nth-child="2"nth-of-type="1"
+            """,
+            """
+                a:attr__href="/signup"href="/signup"nth-child="1"nth-of-type="1"text="Create one here.";p:nth-child="8"nth-of-type="1";form.form-signin:attr__action="/login"attr__class="form-signin"attr__method="post"nth-child="1"nth-of-type="1";body:nth-child="2"nth-of-type="1"
+            """,
+            """
+                input:nth-child="7"nth-of-type="3";form.form-signin:attr__action="/signup"attr__class="form-signin"attr__method="post"nth-child="1"nth-of-type="1";body:nth-child="2"nth-of-type="1"
+            """,
+            """
+                a.nav-link:attr__class="nav-link"attr__href="/actions"href="/actions"nth-child="1"nth-of-type="1"text="Actions";li:nth-child="2"nth-of-type="2";ul.flex-sm-column.nav:attr__class="nav flex-sm-column"nth-child="1"nth-of-type="1";div.bg-light.col-md-2.col-sm-3.flex-shrink-1.pt-3.sidebar:attr__class="col-sm-3 col-md-2 sidebar flex-shrink-1 bg-light pt-3"attr__style="min-height: 100vh;"nth-child="1"nth-of-type="1";div.flex-column.flex-fill.flex-sm-row.row:attr__class="row flex-fill flex-column flex-sm-row"nth-child="1"nth-of-type="1";div.container-fluid.d-flex.flex-grow-1:attr__class="container-fluid flex-grow-1 d-flex"nth-child="1"nth-of-type="1";div:attr__id="root"attr_id="root"nth-child="1"nth-of-type="1";body:nth-child="2"nth-of-type="1"
+            """,
+        ]
+
+        for s in valid_strings:
+            self.assertEqual(safe_clickhouse_string(s), s)
+
+    # keep in sync with posthog/plugin-server/tests/utils.test.ts::safeClickhouseString
+    def test_safe_clickhouse_string_surrogates(self):
+        # flake8: noqa
+        self.assertEqual(safe_clickhouse_string("foo \ud83d\ bar"), "foo \\ud83d\\ bar")
+        self.assertEqual(safe_clickhouse_string("\ud83d\ bar"), "\\ud83d\\ bar")
+        self.assertEqual(safe_clickhouse_string("\ud800\ \ud803\ "), "\\ud800\\ \\ud803\\ ")
+
+    # keep in sync with posthog/plugin-server/tests/utils.test.ts::safeClickhouseString
+    def test_safe_clickhouse_string_unicode_non_surrogates(self):
+        self.assertEqual(safe_clickhouse_string("✨"), "✨")
+        self.assertEqual(safe_clickhouse_string("foo \u2728\ bar"), "foo \u2728\ bar")
+        self.assertEqual(safe_clickhouse_string("💜 \u1f49c\ 💜"), "💜 \u1f49c\ 💜")

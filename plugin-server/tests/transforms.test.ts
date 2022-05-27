@@ -4,65 +4,66 @@ import { code } from '../src/utils/utils'
 import { transformCode } from '../src/worker/vm/transforms'
 import { resetTestDatabase } from './helpers/sql'
 
-let hub: Hub
-let closeHub: () => Promise<void>
+describe('transforms', () => {
+    let hub: Hub
+    let closeHub: () => Promise<void>
 
-beforeEach(async () => {
-    ;[hub, closeHub] = await createHub()
-    await resetTestDatabase(`const processEvent = event => event`)
-})
+    beforeEach(async () => {
+        ;[hub, closeHub] = await createHub()
+        await resetTestDatabase(`const processEvent = event => event`)
+    })
 
-afterEach(async () => {
-    await closeHub()
-})
+    afterEach(async () => {
+        await closeHub()
+    })
 
-describe('transformCode', () => {
-    it('secures awaits by wrapping promises in __asyncGuard', () => {
-        const rawCode = code`
+    describe('transformCode', () => {
+        it('secures awaits by wrapping promises in __asyncGuard', () => {
+            const rawCode = code`
             async function x() {
               await console.log()
             }
         `
 
-        const transformedCode = transformCode(rawCode, hub)
+            const transformedCode = transformCode(rawCode, hub)
 
-        expect(transformedCode).toStrictEqual(code`
+            expect(transformedCode).toStrictEqual(code`
             "use strict";
 
             async function x() {
               await __asyncGuard(console.log(), console.log);
             }
         `)
-    })
+        })
 
-    it('attaches caller information to awaits', () => {
-        const rawCode = code`
+        it('attaches caller information to awaits', () => {
+            const rawCode = code`
             async function x() {
               await anotherAsyncFunction('arg1', 'arg2')
             }
         `
 
-        const transformedCode = transformCode(rawCode, hub)
+            const transformedCode = transformCode(rawCode, hub)
 
-        expect(transformedCode).toStrictEqual(code`
+            expect(transformedCode).toStrictEqual(code`
             "use strict";
 
             async function x() {
               await __asyncGuard(anotherAsyncFunction('arg1', 'arg2'), anotherAsyncFunction);
             }
         `)
-    })
+        })
 
-    it('attaches caller information to awaits for anonymous functions', () => {
-        const rawCode = code`
+        it('attaches caller information to awaits for anonymous functions', () => {
+            const rawCode = code`
             async function x() {
               await (async () => {console.log()})
             }
         `
 
-        const transformedCode = transformCode(rawCode, hub)
+            const transformedCode = transformCode(rawCode, hub)
 
-        expect(transformedCode).toStrictEqual(code`
+            expect(transformedCode).toStrictEqual(code`
             "use strict";
 
             async function x() {
@@ -73,35 +74,35 @@ describe('transformCode', () => {
               });
             }
         `)
-    })
+        })
 
-    it('secures then calls by wrapping promises in __asyncGuard', () => {
-        const rawCode = code`
+        it('secures then calls by wrapping promises in __asyncGuard', () => {
+            const rawCode = code`
             async function x() {}
             x.then(() => null)
         `
 
-        const transformedCode = transformCode(rawCode, hub)
+            const transformedCode = transformCode(rawCode, hub)
 
-        expect(transformedCode).toStrictEqual(code`
+            expect(transformedCode).toStrictEqual(code`
             "use strict";
 
             async function x() {}
 
             __asyncGuard(x).then(() => null);
         `)
-    })
+        })
 
-    it('secures block for loops with timeouts', () => {
-        const rawCode = code`
+        it('secures block for loops with timeouts', () => {
+            const rawCode = code`
             for (let i = 0; i < i + 1; i++) {
                 console.log(i)
             }
         `
 
-        const transformedCode = transformCode(rawCode, hub)
+            const transformedCode = transformCode(rawCode, hub)
 
-        expect(transformedCode).toStrictEqual(code`
+            expect(transformedCode).toStrictEqual(code`
             "use strict";
 
             const _LP = Date.now();
@@ -111,16 +112,16 @@ describe('transformCode', () => {
               console.log(i);
             }
         `)
-    })
+        })
 
-    it('secures inline for loops with timeouts', () => {
-        const rawCode = code`
+        it('secures inline for loops with timeouts', () => {
+            const rawCode = code`
             for (let i = 0; i < i + 1; i++) console.log(i)
         `
 
-        const transformedCode = transformCode(rawCode, hub)
+            const transformedCode = transformCode(rawCode, hub)
 
-        expect(transformedCode).toStrictEqual(code`
+            expect(transformedCode).toStrictEqual(code`
             "use strict";
 
             const _LP = Date.now();
@@ -130,10 +131,10 @@ describe('transformCode', () => {
               console.log(i);
             }
         `)
-    })
+        })
 
-    it('secures block for loops with timeouts avoiding _LP collision', () => {
-        const rawCode = code`
+        it('secures block for loops with timeouts avoiding _LP collision', () => {
+            const rawCode = code`
             const _LP = 0
 
             for (let i = 0; i < i + 1; i++) {
@@ -141,9 +142,9 @@ describe('transformCode', () => {
             }
         `
 
-        const transformedCode = transformCode(rawCode, hub)
+            const transformedCode = transformCode(rawCode, hub)
 
-        expect(transformedCode).toStrictEqual(code`
+            expect(transformedCode).toStrictEqual(code`
             "use strict";
 
             const _LP = 0;
@@ -155,10 +156,10 @@ describe('transformCode', () => {
               console.log(i);
             }
         `)
-    })
+        })
 
-    it('transforms TypeScript to plain JavaScript', () => {
-        const rawCode = code`
+        it('transforms TypeScript to plain JavaScript', () => {
+            const rawCode = code`
             interface Y {
               a: int
               b: string
@@ -172,9 +173,9 @@ describe('transformCode', () => {
             console.log(k({ a, b: 'tomato' }))
         `
 
-        const transformedCode = transformCode(rawCode, hub)
+            const transformedCode = transformCode(rawCode, hub)
 
-        expect(transformedCode).toStrictEqual(code`
+            expect(transformedCode).toStrictEqual(code`
             "use strict";
 
             function k({
@@ -190,19 +191,19 @@ describe('transformCode', () => {
               b: 'tomato'
             }));
         `)
-    })
+        })
 
-    it('replaces imports', () => {
-        const rawCode = code`
+        it('replaces imports', () => {
+            const rawCode = code`
             import { bla, bla2, bla3 as bla4 } from 'node-fetch'
             import fetch1 from 'node-fetch'
             import * as fetch2 from 'node-fetch'
             console.log(bla, bla2, bla4, fetch1, fetch2);
         `
 
-        const transformedCode = transformCode(rawCode, hub, { 'node-fetch': { bla: () => true } })
+            const transformedCode = transformCode(rawCode, hub, { 'node-fetch': { bla: () => true } })
 
-        expect(transformedCode).toStrictEqual(code`
+            expect(transformedCode).toStrictEqual(code`
             "use strict";
 
             const bla = __pluginHostImports["node-fetch"]["bla"],
@@ -212,32 +213,32 @@ describe('transformCode', () => {
             const fetch2 = __pluginHostImports["node-fetch"];
             console.log(bla, bla2, bla4, fetch1, fetch2);
         `)
-    })
+        })
 
-    it('only replaces provided imports', () => {
-        const rawCode = code`
+        it('only replaces provided imports', () => {
+            const rawCode = code`
             import { kea } from 'kea'
             console.log(kea)
         `
 
-        expect(() => {
-            transformCode(rawCode, hub, { 'node-fetch': { default: () => true } })
-        }).toThrow("/index.ts: Cannot import 'kea'! This package is not provided by PostHog in plugins.")
-    })
+            expect(() => {
+                transformCode(rawCode, hub, { 'node-fetch': { default: () => true } })
+            }).toThrow("/index.ts: Cannot import 'kea'! This package is not provided by PostHog in plugins.")
+        })
 
-    it('replaces requires', () => {
-        const rawCode = code`
+        it('replaces requires', () => {
+            const rawCode = code`
             const fetch = require('node-fetch')
             const { BigQuery } = require('@google-cloud/bigquery')
             console.log(fetch, BigQuery);
         `
 
-        const transformedCode = transformCode(rawCode, hub, {
-            'node-fetch': { bla: () => true },
-            '@google-cloud/bigquery': { BigQuery: () => true },
-        })
+            const transformedCode = transformCode(rawCode, hub, {
+                'node-fetch': { bla: () => true },
+                '@google-cloud/bigquery': { BigQuery: () => true },
+            })
 
-        expect(transformedCode).toStrictEqual(code`
+            expect(transformedCode).toStrictEqual(code`
             "use strict";
 
             const fetch = __pluginHostImports["node-fetch"];
@@ -246,16 +247,17 @@ describe('transformCode', () => {
             } = __pluginHostImports["@google-cloud/bigquery"];
             console.log(fetch, BigQuery);
         `)
-    })
+        })
 
-    it('only replaces provided requires', () => {
-        const rawCode = code`
+        it('only replaces provided requires', () => {
+            const rawCode = code`
             const { kea } = require('kea')
             console.log(kea)
         `
 
-        expect(() => {
-            transformCode(rawCode, hub, { 'node-fetch': { default: () => true } })
-        }).toThrow("/index.ts: Cannot import 'kea'! This package is not provided by PostHog in plugins.")
+            expect(() => {
+                transformCode(rawCode, hub, { 'node-fetch': { default: () => true } })
+            }).toThrow("/index.ts: Cannot import 'kea'! This package is not provided by PostHog in plugins.")
+        })
     })
 })

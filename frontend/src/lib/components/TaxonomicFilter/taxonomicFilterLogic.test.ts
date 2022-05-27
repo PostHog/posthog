@@ -1,42 +1,42 @@
 import { infiniteListLogic } from './infiniteListLogic'
 import { TaxonomicFilterGroupType, TaxonomicFilterLogicProps } from 'lib/components/TaxonomicFilter/types'
-import { mockAPI, MOCK_TEAM_ID } from 'lib/api.mock'
+import { MOCK_TEAM_ID } from 'lib/api.mock'
 import { expectLogic } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
 import { mockEventDefinitions } from '~/test/mocks'
-import { teamLogic } from 'scenes/teamLogic'
 import { AppContext } from '~/types'
 import { taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
 import { groupsModel } from '~/models/groupsModel'
 import { actionsModel } from '~/models/actionsModel'
-
-jest.mock('lib/api')
+import { useMocks } from '~/mocks/jest'
 
 window.POSTHOG_APP_CONTEXT = { current_team: { id: MOCK_TEAM_ID } } as unknown as AppContext
 
 describe('taxonomicFilterLogic', () => {
     let logic: ReturnType<typeof taxonomicFilterLogic.build>
 
-    mockAPI(async ({ pathname, searchParams }) => {
-        if (pathname === `api/projects/${MOCK_TEAM_ID}/event_definitions`) {
-            const results = searchParams.search
-                ? mockEventDefinitions.filter((e) => e.name.includes(searchParams.search))
-                : mockEventDefinitions
-            return {
-                results,
-                count: results.length,
-            }
-        }
-    })
-
     beforeEach(() => {
+        useMocks({
+            get: {
+                '/api/projects/:team/event_definitions': (res) => {
+                    const search = res.url.searchParams.get('search')
+                    const results = search
+                        ? mockEventDefinitions.filter((e) => e.name.includes(search))
+                        : mockEventDefinitions
+                    return [
+                        200,
+                        {
+                            results,
+                            count: results.length,
+                        },
+                    ]
+                },
+            },
+        })
         initKeaTests()
-        teamLogic.mount()
         actionsModel.mount()
         groupsModel.mount()
-    })
 
-    beforeEach(() => {
         const logicProps: TaxonomicFilterLogicProps = {
             taxonomicFilterLogicKey: 'testList',
             taxonomicGroupTypes: [
@@ -65,10 +65,10 @@ describe('taxonomicFilterLogic', () => {
         ).toBeFalsy()
     })
 
-    it('keeps totalCounts in sync', async () => {
+    it('keeps infiniteListCounts in sync', async () => {
         await expectLogic(logic)
             .toMatchValues({
-                totalCounts: {
+                infiniteListCounts: {
                     [TaxonomicFilterGroupType.Events]: 0,
                     [TaxonomicFilterGroupType.Actions]: 0,
                     [TaxonomicFilterGroupType.Elements]: 4,
@@ -78,7 +78,7 @@ describe('taxonomicFilterLogic', () => {
             .delay(1)
             .clearHistory()
             .toMatchValues({
-                totalCounts: {
+                infiniteListCounts: {
                     [TaxonomicFilterGroupType.Events]: 56,
                     [TaxonomicFilterGroupType.Actions]: 0, // not mocked
                     [TaxonomicFilterGroupType.Elements]: 4,
@@ -100,7 +100,7 @@ describe('taxonomicFilterLogic', () => {
             .toMatchValues({
                 searchQuery: 'event',
                 activeTab: TaxonomicFilterGroupType.Events,
-                totalCounts: {
+                infiniteListCounts: {
                     [TaxonomicFilterGroupType.Events]: 3,
                     [TaxonomicFilterGroupType.Actions]: 0,
                     [TaxonomicFilterGroupType.Elements]: 0,
@@ -116,7 +116,7 @@ describe('taxonomicFilterLogic', () => {
             .toMatchValues({
                 searchQuery: 'selector',
                 activeTab: TaxonomicFilterGroupType.Elements, // tab changed!
-                totalCounts: {
+                infiniteListCounts: {
                     [TaxonomicFilterGroupType.Events]: 0,
                     [TaxonomicFilterGroupType.Actions]: 0,
                     [TaxonomicFilterGroupType.Elements]: 1,
@@ -132,7 +132,7 @@ describe('taxonomicFilterLogic', () => {
             .toMatchValues({
                 searchQuery: 'this is not found',
                 activeTab: TaxonomicFilterGroupType.Elements, // no change
-                totalCounts: {
+                infiniteListCounts: {
                     [TaxonomicFilterGroupType.Events]: 0,
                     [TaxonomicFilterGroupType.Actions]: 0,
                     [TaxonomicFilterGroupType.Elements]: 0,
@@ -148,7 +148,7 @@ describe('taxonomicFilterLogic', () => {
             .toMatchValues({
                 searchQuery: '',
                 activeTab: TaxonomicFilterGroupType.Elements, // no change
-                totalCounts: {
+                infiniteListCounts: {
                     [TaxonomicFilterGroupType.Events]: 56,
                     [TaxonomicFilterGroupType.Actions]: 0,
                     [TaxonomicFilterGroupType.Elements]: 4,
@@ -181,7 +181,7 @@ describe('taxonomicFilterLogic', () => {
             .toMatchValues({
                 searchQuery: 'event',
                 activeTab: TaxonomicFilterGroupType.Events, // changed!
-                totalCounts: {
+                infiniteListCounts: {
                     [TaxonomicFilterGroupType.Events]: 3,
                     [TaxonomicFilterGroupType.Actions]: 0,
                     [TaxonomicFilterGroupType.Elements]: 0,

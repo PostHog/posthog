@@ -29,7 +29,7 @@ FROM (
         period,
         created_at,
         if(
-            dateTrunc(%(interval)s, created_at) = period,
+            dateTrunc(%(interval)s, toDateTime(created_at, %(timezone)s)) = period,
             'new',
             if(
                 previous_activity + INTERVAL 1 {interval_expr} = period,
@@ -65,7 +65,7 @@ WITH
         SELECT dateSub(
             {{interval_expr}},
             number,
-            dateTrunc(selected_period, toDateTime(%(date_to)s))
+            dateTrunc(selected_period, toDateTime(%(date_to)s, %(timezone)s))
         ) AS start_of_period
         FROM numbers(
             dateDiff(
@@ -106,8 +106,8 @@ FROM (
 
         SELECT start_of_period, count(DISTINCT person_id) counts, status
         FROM ({_LIFECYCLE_EVENTS_QUERY})
-        WHERE start_of_period <= dateTrunc(%(interval)s, toDateTime(%(date_to)s))
-          AND start_of_period >= dateTrunc(%(interval)s, toDateTime(%(date_from)s))
+        WHERE start_of_period <= dateTrunc(%(interval)s, toDateTime(%(date_to)s, %(timezone)s))
+          AND start_of_period >= dateTrunc(%(interval)s, toDateTime(%(date_from)s, %(timezone)s))
         GROUP BY start_of_period, status
     )
     GROUP BY start_of_period, status
@@ -120,6 +120,6 @@ LIFECYCLE_PEOPLE_SQL = f"""
 SELECT person_id
 FROM ({_LIFECYCLE_EVENTS_QUERY}) e
 WHERE status = %(status)s
-AND dateTrunc(%(interval)s, toDateTime(%(target_date)s)) = start_of_period
+AND dateTrunc(%(interval)s, toDateTime(%(target_date)s, %(timezone)s)) = start_of_period
 LIMIT %(limit)s OFFSET %(offset)s
 """

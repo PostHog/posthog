@@ -8,7 +8,7 @@ from rest_framework import status
 
 from posthog.api.session_recording import DEFAULT_RECORDING_CHUNK_LIMIT
 from posthog.helpers.session_recording import Event, compress_and_chunk_snapshots
-from posthog.models import Organization, Person, SessionRecordingEvent
+from posthog.models import Organization, Person
 from posthog.models.session_recording_event import SessionRecordingViewed
 from posthog.models.team import Team
 from posthog.test.base import APIBaseTest
@@ -27,7 +27,7 @@ def factory_test_session_recordings_api(session_recording_event_factory):
             has_full_snapshot=True,
             type=2,
         ):
-            if team_id == None:
+            if team_id is None:
                 team_id = self.team.pk
             session_recording_event_factory(
                 team_id=team_id,

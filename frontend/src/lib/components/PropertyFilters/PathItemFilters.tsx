@@ -6,7 +6,7 @@ import { AnyPropertyFilter } from '~/types'
 import { PathItemSelector } from './components/PathItemSelector'
 import { Button, Row } from 'antd'
 import { PlusCircleOutlined } from '@ant-design/icons'
-import { FilterButton } from './components/PropertyFilterButton'
+import { PropertyFilterButton } from './components/PropertyFilterButton'
 import { CloseButton } from '../CloseButton'
 import { SimpleOption, TaxonomicFilterGroupType } from '../TaxonomicFilter/types'
 import { objectsEqual } from 'lib/utils'
@@ -43,7 +43,7 @@ export function PathItemFilters({
         <div className="mb" style={style}>
             <BindLogic logic={propertyFilterLogic} props={logicProps}>
                 {filtersWithNew?.length &&
-                    filtersWithNew.map((filter, index) => {
+                    filtersWithNew.map((filter: AnyPropertyFilter, index: number) => {
                         return (
                             <div key={index} style={{ margin: '0.25rem 0', padding: '0.25rem 0' }}>
                                 <PathItemSelector
@@ -65,7 +65,9 @@ export function PathItemFilters({
                                         </Button>
                                     ) : (
                                         <Row align="middle">
-                                            <FilterButton>{filter.value as string}</FilterButton>
+                                            <PropertyFilterButton item={filter}>
+                                                {filter.value as string}
+                                            </PropertyFilterButton>
                                             {!!Object.keys(filtersWithNew[index]).length && (
                                                 <CloseButton
                                                     onClick={(e: Event) => {

@@ -6,7 +6,6 @@ import { humanFriendlyDetailedTime } from '~/lib/utils'
 import { DeleteOutlined, PlusOutlined, ProjectOutlined, DeploymentUnitOutlined, CloseOutlined } from '@ant-design/icons'
 import { annotationsLogic } from './annotationsLogic'
 import { useEscapeKey } from 'lib/hooks/useEscapeKey'
-import { dashboardColors } from 'lib/colors'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { Tooltip } from 'lib/components/Tooltip'
 import { AnnotationScope, AnnotationType } from '~/types'
@@ -44,10 +43,9 @@ interface AnnotationMarkerProps {
     size?: number
     color: string | null
     accessoryColor: string | null
-    insightId?: number
+    insightNumericId?: number
     currentDateMarker?: string | null
     dynamic?: boolean
-    graphColor: string | null
     index?: number
     getPopupContainer?: () => HTMLElement
 }
@@ -64,12 +62,11 @@ export function AnnotationMarker({
     size = 25,
     color,
     accessoryColor,
-    insightId,
+    insightNumericId,
     currentDateMarker,
     onClose,
     dynamic,
     onCreateAnnotation,
-    graphColor,
     index,
     getPopupContainer,
 }: AnnotationMarkerProps): JSX.Element | null {
@@ -95,7 +92,7 @@ export function AnnotationMarker({
     const { user } = useValues(userLogic)
     const { currentTeam } = useValues(teamLogic)
     const { currentOrganization } = useValues(organizationLogic)
-    const { diffType, groupedAnnotations } = useValues(annotationsLogic({ insightId }))
+    const { diffType, groupedAnnotations } = useValues(annotationsLogic({ insightNumericId }))
 
     function closePopup(): void {
         setFocused(false)
@@ -300,10 +297,7 @@ export function AnnotationMarker({
                     display: 'flex',
                     justifyContent: 'center',
                     alignItems: 'center',
-                    backgroundColor:
-                        focused || dynamic || hovered || elementId === currentDateMarker
-                            ? _color
-                            : (graphColor ? dashboardColors[graphColor] : null) || 'white',
+                    backgroundColor: focused || dynamic || hovered || elementId === currentDateMarker ? _color : '#fff',
                     borderRadius: 5,
                     cursor: 'pointer',
                     border: dynamic ? undefined : '1px solid ' + _color,

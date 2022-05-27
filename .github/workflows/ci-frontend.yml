@@ -10,10 +10,10 @@ jobs:
         steps:
             - uses: actions/checkout@v1
 
-            - name: Set up Node 14
+            - name: Set up Node 16
               uses: actions/setup-node@v1
               with:
-                  node-version: 14
+                  node-version: 16
 
             - uses: actions/cache@v2
               id: node-modules-cache
@@ -38,17 +38,44 @@ jobs:
               run: |
                   ./bin/check-typescript-strict
 
+    jest-setup:
+        # Split the tests into multiple chunks
+        runs-on: ubuntu-latest
+        outputs:
+            test-chunks: ${{ steps['set-test-chunks'].outputs['test-chunks'] }}
+            test-chunk-ids: ${{ steps['set-test-chunk-ids'].outputs['test-chunk-ids'] }}
+        steps:
+            - uses: actions/checkout@v1
+            - run: yarn install --frozen-lockfile
+            - id: set-test-chunks
+              name: Set Chunks
+              # Looks at the output of 'yarn test --listTests --json'
+              # Take the 3rd line of the output (the first two are yarn non-sense)
+              # Split the test into 3 parts. To increase the number split change the denominator in `length / 3`
+              run: echo "::set-output name=test-chunks::$(yarn test --listTests --json | sed -n 3p | jq -cM '[_nwise(length / 3 | ceil)]')"
+            - id: set-test-chunk-ids
+              name: Set Chunk IDs
+              run: echo "::set-output name=test-chunk-ids::$(echo $CHUNKS | jq -cM 'to_entries | map(.key)')"
+              env:
+                  CHUNKS: ${{ steps['set-test-chunks'].outputs['test-chunks'] }}
+
     jest:
-        name: Jest tests
         runs-on: ubuntu-20.04
+        name: Jest test (${{ matrix.chunk }})
+        needs: [jest-setup]
+
+        strategy:
+            # If one test fails, still run the others
+            fail-fast: false
+            matrix:
+                chunk: ${{fromJson(needs.jest-setup.outputs['test-chunk-ids'])}}
 
         steps:
             - uses: actions/checkout@v1
-
-            - name: Set up Node 14
+            - name: Set up Node 16
               uses: actions/setup-node@v1
               with:
-                  node-version: 14
+                  node-version: 16
 
             - uses: actions/cache@v2
               id: node-modules-cache
@@ -64,4 +91,6 @@ jobs:
               run: yarn install --frozen-lockfile
 
             - name: Test with Jest
-              run: yarn test
+              run: echo $CHUNKS | jq '.[${{ matrix.chunk }}] | .[] | @text' | xargs yarn test
+              env:
+                  CHUNKS: ${{ needs.jest-setup.outputs['test-chunks'] }}

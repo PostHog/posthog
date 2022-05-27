@@ -1,6 +1,6 @@
 import { kea } from 'kea'
 import { objectsEqual } from 'lib/utils'
-import { InsightLogicProps, InsightType } from '~/types'
+import { ChartDisplayType, InsightLogicProps, InsightType } from '~/types'
 import { compareFilterLogicType } from './compareFilterLogicType'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -23,8 +23,11 @@ export const compareFilterLogic = kea<compareFilterLogicType>({
         compare: [(s) => [s.filters], (filters) => !!filters?.compare],
         disabled: [
             (s) => [s.filters, s.canEditInsight],
-            ({ insight, date_from }, canEditInsight) =>
-                !canEditInsight || insight === InsightType.LIFECYCLE || date_from === 'all',
+            ({ insight, date_from, display }, canEditInsight) =>
+                !canEditInsight ||
+                insight === InsightType.LIFECYCLE ||
+                display === ChartDisplayType.WorldMap ||
+                date_from === 'all',
         ],
     },
 

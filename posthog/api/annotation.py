@@ -1,17 +1,16 @@
 from typing import Any, Dict
 
-import posthoganalytics
 from django.db.models import QuerySet
 from django.db.models.signals import post_save
 from django.dispatch import receiver
-from rest_framework import request, serializers, viewsets
+from rest_framework import filters, request, serializers, viewsets
 from rest_framework.permissions import IsAuthenticated
 from rest_hooks.signals import raw_hook_event
 
+from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import report_user_action
-from posthog.mixins import AnalyticsDestroyModelMixin
 from posthog.models import Annotation, Team
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.utils import str_to_bool
@@ -51,7 +50,7 @@ class AnnotationSerializer(serializers.ModelSerializer):
         return annotation
 
 
-class AnnotationsViewSet(StructuredViewSetMixin, AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
+class AnnotationsViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     """
     Create, Read, Update and Delete annotations. [See docs](https://posthog.com/docs/user-guides/annotations) for more information on annotations.
     """
@@ -59,6 +58,8 @@ class AnnotationsViewSet(StructuredViewSetMixin, AnalyticsDestroyModelMixin, vie
     queryset = Annotation.objects.all()
     serializer_class = AnnotationSerializer
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
+    filter_backends = [filters.SearchFilter]
+    search_fields = ["content"]
 
     def get_queryset(self) -> QuerySet:
         queryset = super().get_queryset()

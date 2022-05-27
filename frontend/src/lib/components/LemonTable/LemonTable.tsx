@@ -1,26 +1,26 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import React, { HTMLProps, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useResizeObserver } from '../../hooks/useResizeObserver'
-import { IconChevronLeft, IconChevronRight } from '../icons'
-import { LemonButton } from '../LemonButton'
+import React, { HTMLProps, useCallback, useEffect, useMemo } from 'react'
 import { Tooltip } from '../Tooltip'
 import { TableRow } from './TableRow'
 import './LemonTable.scss'
 import { Sorting, SortingIndicator, getNextSorting } from './sorting'
-import { ExpandableConfig, LemonTableColumn, LemonTableColumns, PaginationAuto, PaginationManual } from './types'
+import { ExpandableConfig, LemonTableColumn, LemonTableColumnGroup, LemonTableColumns } from './types'
+import { PaginationAuto, PaginationControl, PaginationManual, usePagination } from '../PaginationControl'
+import { Skeleton } from 'antd'
+import { useScrollable } from 'lib/hooks/useScrollable'
 
 /**
  * Determine the column's key, using `dataIndex` as fallback.
- * If `obligation` is specified, will throw an error if the key can't be determined.
- * */
-function determineColumnKey(column: LemonTableColumn<any, any>, obligation: string): string
-function determineColumnKey(column: LemonTableColumn<any, any>, obligation?: undefined): string | null
-function determineColumnKey(column: LemonTableColumn<any, any>, obligation?: string): string | null {
+ * If `obligationReason` is specified, will throw an error if the key can't be determined.
+ */
+function determineColumnKey(column: LemonTableColumn<any, any>, obligationReason: string): string
+function determineColumnKey(column: LemonTableColumn<any, any>, obligationReason?: undefined): string | null
+function determineColumnKey(column: LemonTableColumn<any, any>, obligationReason?: string): string | null {
     const columnKey = column.key || column.dataIndex
-    if (obligation && !columnKey) {
-        throw new Error(`LemonTable: Column \`key\` or \`dataIndex\` must be defined for ${obligation}`)
+    if (obligationReason && !columnKey) {
+        throw new Error(`Column \`key\` or \`dataIndex\` must be defined for ${obligationReason}`)
     }
     return columnKey
 }
@@ -32,11 +32,15 @@ export interface LemonTableProps<T extends Record<string, any>> {
     dataSource: T[]
     /** Which column to use for the row key, as an alternative to the default row index mechanism. */
     rowKey?: keyof T | ((record: T) => string | number)
-    /** Class name to append to each row */
-    rowClassName?: string | ((record: T) => string)
+    /** Class to append to each row. */
+    rowClassName?: string | ((record: T) => string | null)
+    /** Color to mark each row with. */
+    rowRibbonColor?: string | ((record: T) => string | null)
+    /** Status of each row. Defaults no status. */
+    rowStatus?: 'highlighted' | ((record: T) => 'highlighted' | null)
     /** Function that for each row determines what props should its `tr` element have based on the row's record. */
     onRow?: (record: T) => Omit<HTMLProps<HTMLTableRowElement>, 'key'>
-    /** Whether the header should be shown. The default value is `"middle"`. */
+    /** How tall should rows be. The default value is `"middle"`. */
     size?: 'small' | 'middle'
     /** An embedded table has no border around it and no background. This way it blends better into other components. */
     embedded?: boolean
@@ -57,6 +61,8 @@ export interface LemonTableProps<T extends Record<string, any>> {
     sorting?: Sorting | null
     /** Sorting change handler for controlled sort order. */
     onSort?: (newSorting: Sorting | null) => void
+    /** How many skeleton rows should be used for the empty loading state. The default value is 1. */
+    loadingSkeletonRows?: number
     /** What to show when there's no data. */
     emptyState?: React.ReactNode
     /** What to describe the entries as, singular and plural. The default value is `['entry', 'entries']`. */
@@ -68,10 +74,12 @@ export interface LemonTableProps<T extends Record<string, any>> {
 
 export function LemonTable<T extends Record<string, any>>({
     id,
-    columns,
+    columns: rawColumns,
     dataSource = [],
     rowKey,
     rowClassName,
+    rowRibbonColor,
+    rowStatus,
     onRow,
     size,
     embedded = false,
@@ -84,28 +92,19 @@ export function LemonTable<T extends Record<string, any>>({
     defaultSorting = null,
     sorting,
     onSort,
+    loadingSkeletonRows = 1,
     emptyState,
     nouns = ['entry', 'entries'],
     className,
     style,
     'data-attr': dataAttr,
 }: LemonTableProps<T>): JSX.Element {
-    /** Search param that will be used for storing and syncing the current page */
-    const currentPageParam = id ? `${id}_page` : 'page'
     /** Search param that will be used for storing and syncing sorting */
     const currentSortingParam = id ? `${id}_order` : 'order'
 
     const { location, searchParams, hashParams } = useValues(router)
     const { push } = useActions(router)
 
-    // A tuple signaling scrollability, on the left and on the right respectively
-    const [isScrollable, setIsScrollable] = useState([false, false])
-
-    /** Push a new browing history item to keep track of the current page */
-    const setLocalCurrentPage = useCallback(
-        (newPage: number) => push(location.pathname, { ...searchParams, [currentPageParam]: newPage }, hashParams),
-        [location, searchParams, hashParams, push]
-    )
     /** Replace the current browsing history item to change sorting */
     const setLocalSorting = useCallback(
         (newSorting: Sorting | null) =>
@@ -122,30 +121,18 @@ export function LemonTable<T extends Record<string, any>>({
         [location, searchParams, hashParams, push]
     )
 
-    const scrollRef = useRef<HTMLDivElement>(null)
-    const updateIsScrollable = useCallback(() => {
-        const element = scrollRef.current
-        if (element) {
-            const left = element.scrollLeft > 0
-            const right =
-                element.scrollWidth > element.clientWidth &&
-                element.scrollWidth > element.scrollLeft + element.clientWidth
-            if (left !== isScrollable[0] || right !== isScrollable[1]) {
-                setIsScrollable([left, right])
-            }
-        }
-    }, [isScrollable[0], isScrollable[1]])
-    const { width } = useResizeObserver({
-        ref: scrollRef,
-    })
-    useEffect(updateIsScrollable, [updateIsScrollable, width])
-    useEffect(() => {
-        const element = scrollRef.current
-        if (element) {
-            element.addEventListener('scroll', updateIsScrollable)
-            return () => element.removeEventListener('scroll', updateIsScrollable)
-        }
-    }, [updateIsScrollable])
+    const columnGroups = (
+        'children' in rawColumns[0]
+            ? rawColumns
+            : [
+                  {
+                      children: rawColumns,
+                  },
+              ]
+    ) as LemonTableColumnGroup<T>[]
+    const columns = columnGroups.flatMap((group) => group.children)
+
+    const [scrollRef, scrollableClassNames] = useScrollable()
 
     /** Sorting. */
     const currentSorting =
@@ -161,50 +148,21 @@ export function LemonTable<T extends Record<string, any>>({
                       order: 1,
                   }
             : defaultSorting)
-    /** Number of entries in total. */
-    const entryCount: number | null = pagination?.controlled ? pagination.entryCount || null : dataSource.length
-    /** Number of pages. */
-    const pageCount: number | null =
-        entryCount && (pagination ? (pagination.pageSize ? Math.ceil(entryCount / pagination.pageSize) : 1) : null)
-    /** Page adjusted for `pageCount` possibly having gotten smaller since last page param update. */
-    // Note: `pageCount` can logically only be null if pagination is controlled
-    const currentPage: number | null = pagination?.controlled
-        ? pagination.currentPage || null
-        : Math.min(parseInt(searchParams[currentPageParam]) || 1, pageCount as number)
-    /** Whether pages previous and next are available. */
-    const isPreviousAvailable: boolean =
-        currentPage !== null ? currentPage > 1 : !!(pagination?.controlled && pagination.onBackward)
-    const isNextAvailable: boolean =
-        currentPage !== null && pageCount !== null
-            ? currentPage < pageCount
-            : !!(pagination?.controlled && pagination.onForward)
-    /** Whether there's reason to show pagination. */
-    const showPagination: boolean = isPreviousAvailable || isNextAvailable || pagination?.hideOnSinglePage === false
 
-    const { currentFrame, currentStartIndex, currentEndIndex } = useMemo(() => {
-        let processedDataSource = dataSource
+    const sortedDataSource = useMemo(() => {
         if (currentSorting) {
             const { columnKey: sortColumnKey, order: sortOrder } = currentSorting
             const sorter = columns.find(
                 (searchColumn) => searchColumn.sorter && determineColumnKey(searchColumn, 'sorting') === sortColumnKey
             )?.sorter
             if (typeof sorter === 'function') {
-                processedDataSource = processedDataSource.slice().sort((a, b) => sortOrder * sorter(a, b))
+                return dataSource.slice().sort((a, b) => sortOrder * sorter(a, b))
             }
         }
-        const calculatedStartIndex =
-            pagination && currentPage && pagination.pageSize ? (currentPage - 1) * pagination.pageSize : 0
-        const calculatedFrame =
-            pagination && !pagination.controlled
-                ? processedDataSource.slice(calculatedStartIndex, calculatedStartIndex + pagination.pageSize)
-                : processedDataSource
-        const calculatedEndIndex = calculatedStartIndex + calculatedFrame.length
-        return {
-            currentFrame: calculatedFrame,
-            currentStartIndex: calculatedStartIndex,
-            currentEndIndex: calculatedEndIndex,
-        }
-    }, [currentPage, pageCount, pagination, dataSource, currentSorting])
+        return dataSource
+    }, [dataSource, currentSorting])
+
+    const paginationState = usePagination(sortedDataSource, pagination, id)
 
     useEffect(() => {
         // When the current page changes, scroll back to the top of the table
@@ -215,7 +173,7 @@ export function LemonTable<T extends Record<string, any>>({
                 window.scrollTo(window.scrollX, window.scrollY + realTableOffsetTop)
             }
         }
-    }, [currentPage, scrollRef.current])
+    }, [paginationState.currentPage, scrollRef.current])
 
     return (
         <div
@@ -225,165 +183,179 @@ export function LemonTable<T extends Record<string, any>>({
                 size && size !== 'middle' && `LemonTable--${size}`,
                 loading && 'LemonTable--loading',
                 embedded && 'LemonTable--embedded',
-                showPagination && 'LemonTable--paginated',
-                isScrollable[0] && 'LemonTable--scrollable-left',
-                isScrollable[1] && 'LemonTable--scrollable-right',
+                ...scrollableClassNames,
                 className
             )}
             style={style}
             data-attr={dataAttr}
         >
-            <div className="LemonTable__scroll" ref={scrollRef}>
+            <div className="scrollable__inner" ref={scrollRef}>
                 <div className="LemonTable__content">
                     <table>
                         <colgroup>
-                            {expandable && <col style={{ width: 0 }} />}
+                            {!!rowRibbonColor && <col style={{ width: 4 }} /> /* Ribbon column */}
+                            {!!expandable && <col style={{ width: 0 }} /> /* Expand/collapse column */}
                             {columns.map((column, index) => (
-                                <col key={index} style={{ width: column.width }} />
+                                <col key={`LemonTable-col-${index}`} style={{ width: column.width }} />
                             ))}
                         </colgroup>
                         {showHeader && (
-                            <thead style={uppercaseHeader ? { textTransform: 'uppercase' } : {}}>
+                            <thead
+                                style={
+                                    !uppercaseHeader ? { textTransform: 'none', letterSpacing: 'normal' } : undefined
+                                }
+                            >
+                                {columnGroups.some((group) => group.title) && (
+                                    <tr className="LemonTable__row--grouping">
+                                        {!!rowRibbonColor && <th className="LemonTable__ribbon" /> /* Ribbon column */}
+                                        {!!expandable && <th /> /* Expand/collapse column */}
+                                        {columnGroups.map((columnGroup, columnGroupIndex) => (
+                                            <th
+                                                key={`LemonTable-th-group-${columnGroupIndex}`}
+                                                colSpan={columnGroup.children.length}
+                                                className="LemonTable__boundary"
+                                            >
+                                                {columnGroup.title}
+                                            </th>
+                                        ))}
+                                    </tr>
+                                )}
                                 <tr>
-                                    {expandable && <th />}
-                                    {columns.map((column, columnIndex) => (
-                                        <th
-                                            key={determineColumnKey(column) || columnIndex}
-                                            className={clsx(
-                                                column.sorter && 'LemonTable__header--actionable',
-                                                column.className
-                                            )}
-                                            style={{ textAlign: column.align }}
-                                            onClick={
-                                                column.sorter
-                                                    ? () => {
-                                                          const nextSorting = getNextSorting(
-                                                              currentSorting,
-                                                              determineColumnKey(column, 'sorting'),
-                                                              disableSortingCancellation
-                                                          )
-                                                          setLocalSorting(nextSorting)
-                                                          onSort?.(nextSorting)
-                                                      }
-                                                    : undefined
-                                            }
-                                        >
-                                            <Tooltip
-                                                title={
-                                                    column.sorter &&
-                                                    (() => {
-                                                        const nextSorting = getNextSorting(
-                                                            currentSorting,
-                                                            determineColumnKey(column, 'sorting'),
-                                                            disableSortingCancellation
-                                                        )
-                                                        return `Click to ${
-                                                            nextSorting
-                                                                ? nextSorting.order === 1
-                                                                    ? 'sort ascending'
-                                                                    : 'sort descending'
-                                                                : 'cancel sorting'
-                                                        }`
-                                                    })
+                                    {!!rowRibbonColor && <th className="LemonTable__ribbon" /> /* Ribbon column */}
+                                    {!!expandable && <th /> /* Expand/collapse column */}
+                                    {columnGroups.flatMap((columnGroup, columnGroupIndex) =>
+                                        columnGroup.children.map((column, columnIndex) => (
+                                            <th
+                                                key={`LemonTable-th-${columnGroupIndex}-${
+                                                    determineColumnKey(column) || columnIndex
+                                                }`}
+                                                className={clsx(
+                                                    column.sorter && 'LemonTable__header--actionable',
+                                                    columnIndex === columnGroup.children.length - 1 &&
+                                                        'LemonTable__boundary',
+                                                    column.className
+                                                )}
+                                                style={{ textAlign: column.align }}
+                                                onClick={
+                                                    column.sorter
+                                                        ? () => {
+                                                              const nextSorting = getNextSorting(
+                                                                  currentSorting,
+                                                                  determineColumnKey(column, 'sorting'),
+                                                                  disableSortingCancellation
+                                                              )
+                                                              setLocalSorting(nextSorting)
+                                                              onSort?.(nextSorting)
+                                                          }
+                                                        : undefined
                                                 }
                                             >
-                                                <div
-                                                    className="LemonTable__header-content"
-                                                    style={{ justifyContent: column.align }}
+                                                <Tooltip
+                                                    title={
+                                                        column.sorter &&
+                                                        (() => {
+                                                            const nextSorting = getNextSorting(
+                                                                currentSorting,
+                                                                determineColumnKey(column, 'sorting'),
+                                                                disableSortingCancellation
+                                                            )
+                                                            return `Click to ${
+                                                                nextSorting
+                                                                    ? nextSorting.order === 1
+                                                                        ? 'sort ascending'
+                                                                        : 'sort descending'
+                                                                    : 'cancel sorting'
+                                                            }`
+                                                        })
+                                                    }
                                                 >
-                                                    {column.title}
-                                                    {column.sorter && (
-                                                        <SortingIndicator
-                                                            order={
-                                                                currentSorting?.columnKey ===
-                                                                determineColumnKey(column, 'sorting')
-                                                                    ? currentSorting.order
-                                                                    : null
-                                                            }
-                                                        />
-                                                    )}
-                                                </div>
-                                            </Tooltip>
-                                        </th>
-                                    ))}
+                                                    <div
+                                                        className="LemonTable__header-content"
+                                                        style={{ justifyContent: column.align }}
+                                                    >
+                                                        {column.title}
+                                                        {column.sorter && (
+                                                            <SortingIndicator
+                                                                order={
+                                                                    currentSorting?.columnKey ===
+                                                                    determineColumnKey(column, 'sorting')
+                                                                        ? currentSorting.order
+                                                                        : null
+                                                                }
+                                                            />
+                                                        )}
+                                                    </div>
+                                                </Tooltip>
+                                            </th>
+                                        ))
+                                    )}
                                 </tr>
+                                <tr className="LemonTable__loader" />
                             </thead>
                         )}
                         <tbody>
-                            {currentFrame.length ? (
-                                currentFrame.map((record, rowIndex) => {
+                            {paginationState.dataSourcePage.length ? (
+                                paginationState.dataSourcePage.map((record, rowIndex) => {
                                     const rowKeyDetermined = rowKey
                                         ? typeof rowKey === 'function'
                                             ? rowKey(record)
-                                            : record[rowKey]
-                                        : currentStartIndex + rowIndex
+                                            : record[rowKey] ?? rowIndex
+                                        : paginationState.currentStartIndex + rowIndex
                                     const rowClassNameDetermined =
                                         typeof rowClassName === 'function' ? rowClassName(record) : rowClassName
+                                    const rowRibbonColorDetermined =
+                                        typeof rowRibbonColor === 'function'
+                                            ? rowRibbonColor(record) || 'var(--border-light)'
+                                            : rowRibbonColor
+                                    const rowStatusDetermined =
+                                        typeof rowStatus === 'function' ? rowStatus(record) : rowStatus
                                     return (
                                         <TableRow
-                                            key={`LemonTable-row-${rowKeyDetermined}`}
+                                            key={`LemonTable-tr-${rowKeyDetermined}`}
                                             record={record}
-                                            recordIndex={currentStartIndex + rowIndex}
+                                            recordIndex={paginationState.currentStartIndex + rowIndex}
                                             rowKeyDetermined={rowKeyDetermined}
                                             rowClassNameDetermined={rowClassNameDetermined}
-                                            columns={columns}
+                                            rowRibbonColorDetermined={rowRibbonColorDetermined}
+                                            rowStatusDetermined={rowStatusDetermined}
+                                            columnGroups={columnGroups}
                                             onRow={onRow}
                                             expandable={expandable}
                                         />
                                     )
                                 })
+                            ) : loading ? (
+                                Array(loadingSkeletonRows)
+                                    .fill(null)
+                                    .map((_, rowIndex) => (
+                                        <tr key={`LemonTable-tr-${rowIndex} ph-no-capture`}>
+                                            {columnGroups.flatMap((columnGroup, columnGroupIndex) =>
+                                                columnGroup.children.map((column, columnIndex) => (
+                                                    <td
+                                                        key={`LemonTable-td-${columnGroupIndex}-${columnIndex}`}
+                                                        className={clsx(
+                                                            columnIndex === columnGroup.children.length - 1 &&
+                                                                'LemonTable__boundary',
+                                                            column.className
+                                                        )}
+                                                    >
+                                                        <Skeleton title paragraph={false} active />
+                                                    </td>
+                                                ))
+                                            )}
+                                        </tr>
+                                    ))
                             ) : (
                                 <tr className="LemonTable__empty-state">
                                     <td colSpan={columns.length + Number(!!expandable)}>
-                                        {!loading ? emptyState || `No ${nouns[1]}` : `Loading ${nouns[1]}…`}
+                                        {emptyState || `No ${nouns[1]}`}
                                     </td>
                                 </tr>
                             )}
                         </tbody>
                     </table>
-                    {showPagination && (
-                        <div className="LemonTable__pagination">
-                            <span className="LemonTable__locator">
-                                {currentFrame.length === 0
-                                    ? `No ${nouns[1]}`
-                                    : entryCount === null
-                                    ? `${currentFrame.length} ${
-                                          currentFrame.length === 1 ? nouns[0] : nouns[1]
-                                      } on this page`
-                                    : currentFrame.length === 1
-                                    ? `${currentEndIndex} of ${entryCount} ${entryCount === 1 ? nouns[0] : nouns[1]}`
-                                    : `${currentStartIndex + 1}-${currentEndIndex} of ${entryCount} ${nouns[1]}`}
-                            </span>
-                            <LemonButton
-                                icon={<IconChevronLeft />}
-                                type="stealth"
-                                disabled={!isPreviousAvailable}
-                                onClick={
-                                    pagination?.controlled
-                                        ? pagination.onBackward
-                                        : () =>
-                                              setLocalCurrentPage(
-                                                  Math.max(1, Math.min(pageCount as number, currentPage as number) - 1)
-                                              )
-                                }
-                            />
-                            <LemonButton
-                                icon={<IconChevronRight />}
-                                type="stealth"
-                                disabled={!isNextAvailable}
-                                onClick={
-                                    pagination?.controlled
-                                        ? pagination.onForward
-                                        : () =>
-                                              setLocalCurrentPage(
-                                                  Math.min(pageCount as number, (currentPage as number) + 1)
-                                              )
-                                }
-                            />
-                        </div>
-                    )}
+                    <PaginationControl {...paginationState} nouns={nouns} />
                     <div className="LemonTable__overlay" />
-                    <div className="LemonTable__loader" />
                 </div>
             </div>
         </div>

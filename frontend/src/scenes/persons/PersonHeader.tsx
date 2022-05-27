@@ -4,6 +4,8 @@ import './PersonHeader.scss'
 import { Link } from 'lib/components/Link'
 import { urls } from 'scenes/urls'
 import { ProfilePicture } from 'lib/components/ProfilePicture'
+import { teamLogic } from 'scenes/teamLogic'
+import { PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES } from 'lib/constants'
 
 export interface PersonHeaderProps {
     person?: Partial<Pick<PersonType, 'properties' | 'distinct_ids'>> | null
@@ -13,9 +15,13 @@ export interface PersonHeaderProps {
 
 export const asDisplay = (person: Partial<PersonType> | PersonActorType | null | undefined): string => {
     let displayId
-    const propertyIdentifier = person?.properties
-        ? person.properties.email || person.properties.name || person.properties.username
-        : 'ID-less user'
+
+    const team = teamLogic.findMounted()?.values?.currentTeam
+    const personDisplayNameProperties = team?.person_display_name_properties ?? PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
+
+    const customPropertyKey = personDisplayNameProperties.find((x) => person?.properties?.[x])
+    const propertyIdentifier = customPropertyKey ? person?.properties?.[customPropertyKey] : undefined
+
     const customIdentifier =
         typeof propertyIdentifier === 'object' ? JSON.stringify(propertyIdentifier) : propertyIdentifier
 

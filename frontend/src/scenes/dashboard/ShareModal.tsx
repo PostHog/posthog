@@ -9,16 +9,15 @@ import { LemonModal } from 'lib/components/LemonModal/LemonModal'
 import { LemonButton } from 'lib/components/LemonButton'
 import { copyToClipboard } from 'lib/utils'
 import { IconCancel, IconCopy, IconLock, IconLockOpen } from 'lib/components/icons'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { userLogic } from 'scenes/userLogic'
 import { AvailableFeature, DashboardType, FusedDashboardCollaboratorType, UserType } from '~/types'
-import { FEATURE_FLAGS, DashboardRestrictionLevel, privilegeLevelToName } from 'lib/constants'
+import { DashboardRestrictionLevel, privilegeLevelToName, DashboardPrivilegeLevel } from 'lib/constants'
 import { LemonSelect, LemonSelectOptions } from 'lib/components/LemonSelect'
 import { dashboardCollaboratorsLogic } from './dashboardCollaboratorsLogic'
 import { ProfilePicture } from 'lib/components/ProfilePicture'
 import { Button, Select } from 'antd'
 import { Tooltip } from 'lib/components/Tooltip'
-import { InfoMessage } from 'lib/components/InfoMessage/InfoMessage'
+import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
+import { AlertMessage } from 'lib/components/AlertMessage'
 
 export const DASHBOARD_RESTRICTION_OPTIONS: LemonSelectOptions = {
     [DashboardRestrictionLevel.EveryoneInProjectCanEdit]: {
@@ -40,13 +39,12 @@ export function ShareModal({ visible, onCancel }: ShareModalProps): JSX.Element 
     const { dashboardLoading } = useValues(dashboardsModel)
     const { dashboard, canEditDashboard } = useValues(dashboardLogic)
     const { setIsSharedDashboard } = useActions(dashboardLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     const shareLink = dashboard ? window.location.origin + urls.sharedDashboard(dashboard.share_token) : ''
 
     return dashboard ? (
         <LemonModal visible={visible} onCancel={onCancel}>
-            {featureFlags[FEATURE_FLAGS.DASHBOARD_PERMISSIONS] && <DashboardCollaboration dashboardId={dashboard.id} />}
+            {<DashboardCollaboration dashboardId={dashboard.id} />}
             <section>
                 <h5>External sharing</h5>
                 <LemonSwitch
@@ -60,6 +58,7 @@ export function ShareModal({ visible, onCancel }: ShareModalProps): JSX.Element 
                     }}
                     type="primary"
                     disabled={!canEditDashboard}
+                    style={{ width: '100%', height: '3rem', fontWeight: 600 }}
                 />
                 {dashboard.is_shared ? (
                     <>
@@ -93,52 +92,39 @@ function DashboardCollaboration({ dashboardId }: { dashboardId: DashboardType['i
     const { deleteExplicitCollaborator, setExplicitCollaboratorsToBeAdded, addExplicitCollaborators } = useActions(
         dashboardCollaboratorsLogic({ dashboardId })
     )
-    const { hasAvailableFeature } = useValues(userLogic)
-
-    const dashboardCollaborationAvailable = hasAvailableFeature(AvailableFeature.DASHBOARD_COLLABORATION)
-
-    const restrictionOptions: LemonSelectOptions = Object.fromEntries(
-        Object.entries(DASHBOARD_RESTRICTION_OPTIONS).map(([key, option]) => [
-            key,
-            {
-                ...option,
-                disabled: !dashboardCollaborationAvailable,
-            },
-        ])
-    )
 
     return (
         dashboard && (
             <>
-                <section>
-                    <h5>Dashboard restrictions</h5>
-                    {(!canEditDashboard || !canRestrictDashboard) && (
-                        <InfoMessage>
-                            {canEditDashboard
-                                ? "You aren't allowed to change the restriction level – only the dashboard owner and project admins can."
-                                : "You aren't allowed to change sharing settings – only dashboard collaborators with edit settings can."}
-                        </InfoMessage>
-                    )}
-                    <LemonSelect
-                        value={dashboard.effective_restriction_level}
-                        onChange={(newValue) =>
-                            triggerDashboardUpdate({
-                                restriction_level: newValue,
-                            })
-                        }
-                        options={restrictionOptions}
-                        loading={dashboardLoading}
-                        type="stealth"
-                        outlined
-                        style={{
-                            height: '3rem',
-                            width: '100%',
-                        }}
-                        disabled={!canRestrictDashboard}
-                    />
-                </section>
-                {dashboardCollaborationAvailable &&
-                    dashboard.restriction_level > DashboardRestrictionLevel.EveryoneInProjectCanEdit && (
+                <h5>Collaboration settings</h5>
+                <PayGateMini feature={AvailableFeature.DASHBOARD_PERMISSIONING} style={{ marginTop: '0.75rem' }}>
+                    <section>
+                        {(!canEditDashboard || !canRestrictDashboard) && (
+                            <AlertMessage type="info">
+                                {canEditDashboard
+                                    ? "You aren't allowed to change the restriction level – only the dashboard owner and project admins can."
+                                    : "You aren't allowed to change sharing settings – only dashboard collaborators with edit settings can."}
+                            </AlertMessage>
+                        )}
+                        <LemonSelect
+                            value={dashboard.effective_restriction_level}
+                            onChange={(newValue) =>
+                                triggerDashboardUpdate({
+                                    restriction_level: newValue,
+                                })
+                            }
+                            options={DASHBOARD_RESTRICTION_OPTIONS}
+                            loading={dashboardLoading}
+                            type="stealth"
+                            outlined
+                            style={{
+                                height: '3rem',
+                                width: '100%',
+                            }}
+                            disabled={!canRestrictDashboard}
+                        />
+                    </section>
+                    {dashboard.restriction_level > DashboardRestrictionLevel.EveryoneInProjectCanEdit && (
                         <section>
                             <h5>Collaborators</h5>
                             {canEditDashboard && (
@@ -190,6 +176,7 @@ function DashboardCollaboration({ dashboardId }: { dashboardId: DashboardType['i
                             ))}
                         </section>
                     )}
+                </PayGateMini>
             </>
         )
     )
@@ -204,8 +191,8 @@ function CollaboratorRow({
 }): JSX.Element {
     const { user, level } = collaborator
 
-    const wasInvited = typeof level === 'number'
-    const privilegeLevelName = privilegeLevelToName(level)
+    const wasInvited = level <= DashboardPrivilegeLevel.CanEdit // Higher levels come from implicit privileges
+    const privilegeLevelName = privilegeLevelToName[level]
 
     return (
         <div className="CollaboratorRow">
@@ -214,7 +201,9 @@ function CollaboratorRow({
                 title={
                     !wasInvited
                         ? `${user.first_name || 'This person'} ${
-                              level === 'owner' ? 'created the dashboard' : 'is a project administrator'
+                              level === DashboardPrivilegeLevel._Owner
+                                  ? 'created the dashboard'
+                                  : 'is a project administrator'
                           }`
                         : null
                 }
@@ -230,7 +219,7 @@ function CollaboratorRow({
                             tooltip={wasInvited ? 'Remove invited collaborator' : null}
                             disabled={!wasInvited}
                             status="danger"
-                            compact
+                            size="small"
                         />
                     )}
                 </div>

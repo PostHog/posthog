@@ -4,19 +4,18 @@ from typing import Callable, Dict, List, Tuple
 from django.db.models.query import Prefetch
 from rest_framework.request import Request
 
-from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.entity import get_entity_filtering_params
 from ee.clickhouse.models.person import get_persons_by_uuids
-from ee.clickhouse.queries.event_query import ClickhouseEventQuery
-from ee.clickhouse.queries.person_distinct_id_query import get_team_distinct_ids_query
-from ee.clickhouse.queries.person_query import ClickhousePersonQuery
+from ee.clickhouse.queries.event_query import EnterpriseEventQuery
 from ee.clickhouse.queries.trends.util import parse_response
-from ee.clickhouse.queries.util import get_earliest_timestamp, parse_timestamps
 from ee.clickhouse.sql.trends.lifecycle import LIFECYCLE_PEOPLE_SQL, LIFECYCLE_SQL
+from posthog.client import sync_execute
 from posthog.models.entity import Entity
 from posthog.models.filters import Filter
 from posthog.models.filters.mixins.utils import cached_property
-from posthog.queries.lifecycle import LifecycleTrend
+from posthog.models.team import Team
+from posthog.queries.person_query import PersonQuery
+from posthog.queries.util import parse_timestamps
 
 # Lifecycle takes an event/action, time range, interval and for every period, splits the users who did the action into 4:
 #
@@ -29,23 +28,23 @@ from posthog.queries.lifecycle import LifecycleTrend
 # during that period and their creation dates.
 
 
-class ClickhouseLifecycle(LifecycleTrend):
-    def _format_lifecycle_query(self, entity: Entity, filter: Filter, team_id: int) -> Tuple[str, Dict, Callable]:
-        event_query, event_params = LifecycleEventQuery(team_id=team_id, filter=filter).get_query()
+class ClickhouseLifecycle:
+    def _format_lifecycle_query(self, entity: Entity, filter: Filter, team: Team) -> Tuple[str, Dict, Callable]:
+        event_query, event_params = LifecycleEventQuery(team=team, filter=filter).get_query()
 
         return (
             LIFECYCLE_SQL.format(events_query=event_query, interval_expr=filter.interval),
             event_params,
-            self._parse_result(filter, entity),
+            self._parse_result(filter, entity, team),
         )
 
-    def _parse_result(self, filter: Filter, entity: Entity) -> Callable:
+    def _parse_result(self, filter: Filter, entity: Entity, team: Team) -> Callable:
         def _parse(result: List) -> List:
             res = []
             for val in result:
                 label = "{} - {}".format(entity.name, val[2])
                 additional_values = {"label": label, "status": val[2]}
-                parsed_result = parse_response(val, filter, additional_values)
+                parsed_result = parse_response(val, filter, additional_values=additional_values)
                 res.append(parsed_result)
 
             return res
@@ -55,13 +54,13 @@ class ClickhouseLifecycle(LifecycleTrend):
     def get_people(
         self,
         filter: Filter,
-        team_id: int,
+        team: Team,
         target_date: datetime,
         lifecycle_type: str,
         request: Request,
         limit: int = 100,
     ):
-        event_query, event_params = LifecycleEventQuery(team_id=team_id, filter=filter).get_query()
+        event_query, event_params = LifecycleEventQuery(team=team, filter=filter).get_query()
 
         result = sync_execute(
             LIFECYCLE_PEOPLE_SQL.format(events_query=event_query, interval_expr=filter.interval),
@@ -73,7 +72,7 @@ class ClickhouseLifecycle(LifecycleTrend):
                 "limit": limit,
             },
         )
-        people = get_persons_by_uuids(team_id=team_id, uuids=[p[0] for p in result])
+        people = get_persons_by_uuids(team=team, uuids=[p[0] for p in result])
         people = people.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
 
         from posthog.api.person import PersonSerializer
@@ -81,14 +80,17 @@ class ClickhouseLifecycle(LifecycleTrend):
         return PersonSerializer(people, many=True).data
 
 
-class LifecycleEventQuery(ClickhouseEventQuery):
+class LifecycleEventQuery(EnterpriseEventQuery):
     _filter: Filter
 
     def get_query(self):
         date_query, date_params = self._get_date_filter()
         self.params.update(date_params)
 
-        prop_query, prop_params = self._get_props(self._filter.properties)
+        prop_query, prop_params = self._get_prop_groups(
+            self._filter.property_groups, person_id_joined_alias=f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id"
+        )
+
         self.params.update(prop_params)
 
         person_query, person_params = self._get_person_query()
@@ -98,16 +100,16 @@ class LifecycleEventQuery(ClickhouseEventQuery):
         self.params.update(groups_params)
 
         entity_params, entity_format_params = get_entity_filtering_params(
-            self._filter.entities[0], self._team_id, table_name=self.EVENT_TABLE_ALIAS
+            entity=self._filter.entities[0], team_id=self._team_id, table_name=self.EVENT_TABLE_ALIAS
         )
         self.params.update(entity_params)
 
         return (
             f"""
             SELECT DISTINCT
-                person_id,
-                toDateTime(dateTrunc(%(interval)s, events.timestamp)) AS period,
-                person.created_at AS created_at
+                {self.DISTINCT_ID_TABLE_ALIAS}.person_id as person_id,
+                dateTrunc(%(interval)s, toDateTime(events.timestamp, %(timezone)s)) AS period,
+                toDateTime(person.created_at, %(timezone)s) AS created_at
             FROM events AS {self.EVENT_TABLE_ALIAS}
             {self._get_distinct_id_query()}
             {person_query}
@@ -122,10 +124,10 @@ class LifecycleEventQuery(ClickhouseEventQuery):
 
     @cached_property
     def _person_query(self):
-        return ClickhousePersonQuery(self._filter, self._team_id, self._column_optimizer, extra_fields=["created_at"],)
+        return PersonQuery(self._filter, self._team_id, self._column_optimizer, extra_fields=["created_at"],)
 
     def _get_date_filter(self):
-        _, _, date_params = parse_timestamps(filter=self._filter, team_id=self._team_id)
+        _, _, date_params = parse_timestamps(filter=self._filter, team=self._team)
         params = {**date_params, "interval": self._filter.interval}
         # :TRICKY: We fetch all data even for the period before the graph starts up until the end of the last period
         return (

@@ -85,23 +85,6 @@ def report_user_logged_in(
     )
 
 
-def report_onboarding_completed(organization: Organization, current_user: User) -> None:
-    """
-    Reports that the `new-onboarding-2822` has been completed.
-    """
-
-    team_members_count = organization.members.count()
-
-    # TODO: This should be $set_once as user props.
-    posthoganalytics.identify(current_user.distinct_id, {"onboarding_completed": True})
-    posthoganalytics.capture(
-        current_user.distinct_id,
-        "onboarding completed",
-        properties={"team_members_count": team_members_count},
-        groups=groups(organization, current_user.current_team),
-    )
-
-
 def report_user_updated(user: User, updated_attrs: List[str]) -> None:
     """
     Reports a user has been updated. This includes current_team, current_organization & password.

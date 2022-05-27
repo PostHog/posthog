@@ -1,11 +1,8 @@
 import React, { HTMLProps } from 'react'
-import { Input } from 'antd'
-import { CopyOutlined } from '@ant-design/icons'
 import { copyToClipboard } from 'lib/utils'
 import { Tooltip } from 'lib/components/Tooltip'
 import { IconCopy } from './icons'
 import { LemonButton } from './LemonButton'
-import clsx from 'clsx'
 
 interface InlineProps extends HTMLProps<HTMLSpanElement> {
     children?: JSX.Element | string
@@ -18,14 +15,6 @@ interface InlineProps extends HTMLProps<HTMLSpanElement> {
     iconStyle?: Record<string, string | number>
     iconPosition?: 'end' | 'start'
     style?: React.CSSProperties
-}
-
-interface InputProps {
-    value: string
-    placeholder?: string
-    description?: string
-    isValueSensitive?: boolean
-    className?: string
 }
 
 export function CopyToClipboardInline({
@@ -60,7 +49,7 @@ export function CopyToClipboardInline({
         >
             <span style={iconPosition === 'start' ? { flexGrow: 1 } : {}}>{children}</span>
             <LemonButton
-                compact
+                size="small"
                 icon={<IconCopy />}
                 className="copy-icon"
                 onClick={!selectable ? undefined : copy}
@@ -75,36 +64,5 @@ export function CopyToClipboardInline({
         <Tooltip title={tooltipMessage || 'Click to copy'}>{content}</Tooltip>
     ) : (
         <>{content}</>
-    )
-}
-
-export function CopyToClipboardInput({
-    value,
-    placeholder,
-    description,
-    isValueSensitive = false,
-    className,
-    ...props
-}: InputProps): JSX.Element {
-    return (
-        <Input
-            className={clsx(isValueSensitive && 'ph-no-capture', className)}
-            type="text"
-            value={value}
-            placeholder={placeholder || 'nothing to show here'}
-            disabled={!value}
-            suffix={
-                value ? (
-                    <Tooltip title="Copy to Clipboard">
-                        <CopyOutlined
-                            onClick={() => {
-                                copyToClipboard(value, description)
-                            }}
-                        />
-                    </Tooltip>
-                ) : null
-            }
-            {...props}
-        />
     )
 }

@@ -1,6 +1,5 @@
-from typing import Any, List, Optional, cast
+from typing import List, Optional
 
-import requests
 from django.contrib.auth import get_user_model
 from django.db import models
 from django.db.models.signals import post_save
@@ -10,6 +9,7 @@ from rest_framework import exceptions, status
 
 from posthog.celery import sync_all_organization_available_features
 from posthog.constants import AvailableFeature
+from posthog.models.utils import sane_repr
 
 
 class LicenseError(exceptions.APIException):
@@ -28,19 +28,13 @@ class LicenseError(exceptions.APIException):
 
 
 class LicenseManager(models.Manager):
-    def create(self, *args: Any, **kwargs: Any) -> "License":
-        validate = requests.post("https://license.posthog.com/licenses/activate", data={"key": kwargs["key"]})
-        resp = validate.json()
-        if not validate.ok:
-            raise LicenseError(resp["code"], resp["detail"])
-
-        kwargs["valid_until"] = resp["valid_until"]
-        kwargs["plan"] = resp["plan"]
-        kwargs["max_users"] = resp.get("max_users", 0)
-        return cast(License, super().create(*args, **kwargs))
-
     def first_valid(self) -> Optional["License"]:
-        return cast(Optional[License], (self.filter(valid_until__gte=timezone.now()).first()))
+        """Return the highest valid license."""
+        # KEEP IN SYNC WITH licenseLogic.selectors.relevantLicense FOR THE ACTIVE LICENSE
+        valid_licenses = list(self.filter(valid_until__gte=timezone.now()))
+        if not valid_licenses:
+            return None
+        return max(valid_licenses, key=lambda license: License.PLAN_TO_SORTING_VALUE.get(license.plan, 0))
 
 
 class License(models.Model):
@@ -65,18 +59,26 @@ class License(models.Model):
         AvailableFeature.MULTIVARIATE_FLAGS,
         AvailableFeature.EXPERIMENTATION,
         AvailableFeature.TAGGING,
+        AvailableFeature.BEHAVIORAL_COHORT_FILTERING,
+        AvailableFeature.WHITE_LABELLING,
     ]
 
     ENTERPRISE_PLAN = "enterprise"
     ENTERPRISE_FEATURES = SCALE_FEATURES + [
+        AvailableFeature.DASHBOARD_PERMISSIONING,
         AvailableFeature.PROJECT_BASED_PERMISSIONING,
         AvailableFeature.SAML,
+        AvailableFeature.SSO_ENFORCEMENT,
     ]
     PLANS = {SCALE_PLAN: SCALE_FEATURES, ENTERPRISE_PLAN: ENTERPRISE_FEATURES}
+    # The higher the plan, the higher its sorting value - sync with front-end licenseLogic
+    PLAN_TO_SORTING_VALUE = {SCALE_PLAN: 10, ENTERPRISE_PLAN: 20}
 
     @property
     def available_features(self) -> List[AvailableFeature]:
         return self.PLANS.get(self.plan, [])
+
+    __repr__ = sane_repr("key", "plan", "valid_until")
 
 
 def get_licensed_users_available() -> Optional[int]:

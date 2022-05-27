@@ -1,15 +1,21 @@
-import { Alert } from 'antd'
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { capitalizeFirstLetter, dateFilterToText, Loading } from 'lib/utils'
 import React, { useEffect, useState } from 'react'
 import { Layout } from 'react-grid-layout'
-import { UNNAMED_INSIGHT_NAME } from 'scenes/insights/EmptyStates'
+import {
+    FunnelInvalidExclusionState,
+    FunnelSingleStepState,
+    InsightEmptyState,
+    InsightErrorState,
+    InsightTimeoutState,
+} from 'scenes/insights/EmptyStates'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { urls } from 'scenes/urls'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import {
     ChartDisplayType,
+    ChartParams,
     DashboardType,
     FilterType,
     InsightColor,
@@ -20,9 +26,9 @@ import {
 import { Splotch, SplotchColor } from '../icons/Splotch'
 import { LemonButton, LemonButtonWithPopup } from '../LemonButton'
 import { More } from '../LemonButton/More'
-import { LemonSpacer } from '../LemonRow'
+import { LemonDivider } from '../LemonDivider'
 import { Link } from '../Link'
-import { ObjectTags } from '../ObjectTags'
+import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { ResizeHandle1D, ResizeHandle2D } from './handles'
 import { LastModified } from './LastModified'
 import './InsightCard.scss'
@@ -31,13 +37,21 @@ import { IconSubtitles, IconSubtitlesOff } from '../icons'
 import { CSSTransition, Transition } from 'react-transition-group'
 import { InsightDetails } from './InsightDetails'
 import { INSIGHT_TYPES_METADATA } from 'scenes/saved-insights/SavedInsights'
-import { DashboardPrivilegeLevel } from 'lib/constants'
+import { DashboardPrivilegeLevel, FEATURE_FLAGS } from 'lib/constants'
+import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { ActionsHorizontalBar, ActionsLineGraph, ActionsPie } from 'scenes/trends/viz'
 import { DashboardInsightsTable } from 'scenes/insights/InsightsTable/InsightsTable'
 import { Funnel } from 'scenes/funnels/Funnel'
 import { RetentionContainer } from 'scenes/retention/RetentionContainer'
 import { Paths } from 'scenes/paths/Paths'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { summarizeInsightFilters } from 'scenes/insights/utils'
+import { groupsModel } from '~/models/groupsModel'
+import { cohortsModel } from '~/models/cohortsModel'
+import { mathsLogic } from 'scenes/trends/mathsLogic'
+import { WorldMap } from 'scenes/insights/WorldMap'
+import { AlertMessage } from '../AlertMessage'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 // TODO: Add support for Retention to InsightDetails
 const INSIGHT_TYPES_WHERE_DETAILS_UNSUPPORTED: InsightType[] = [InsightType.RETENTION]
@@ -48,7 +62,7 @@ const displayMap: Record<
     DisplayedType,
     {
         className: string
-        element: (props: any) => JSX.Element | null
+        element: (props: ChartParams) => JSX.Element | null
     }
 > = {
     ActionsLineGraph: {
@@ -87,6 +101,10 @@ const displayMap: Record<
         className: 'paths-viz',
         element: Paths,
     },
+    WorldMap: {
+        className: 'world-map',
+        element: WorldMap,
+    },
 }
 
 function getDisplayedType(filters: Partial<FilterType>): DisplayedType {
@@ -104,13 +122,18 @@ function getDisplayedType(filters: Partial<FilterType>): DisplayedType {
 export interface InsightCardProps extends React.HTMLAttributes<HTMLDivElement> {
     /** Insight to display. */
     insight: InsightModel
+    /** id of the dashboard the card is on (when the card is being displayed on a dashboard) **/
+    dashboardId?: DashboardType['id']
     /** Whether the insight is loading. */
     loading?: boolean
-    /** Whether loading the insight resulted in an error. */
-    apiError?: boolean
+    /** Whether an error occurred on the server. */
+    apiErrored?: boolean
     /** Whether the card should be highlighted with a blue border. */
     highlighted?: boolean
+    /** Whether loading timed out. */
+    timedOut?: boolean
     showResizeHandles?: boolean
+    canResizeWidth?: boolean
     /** Layout of the card on a grid. */
     layout?: Layout
     updateColor?: (newColor: InsightModel['color']) => void
@@ -119,7 +142,8 @@ export interface InsightCardProps extends React.HTMLAttributes<HTMLDivElement> {
     refresh?: () => void
     rename: () => void
     duplicate: () => void
-    moveToDashboard?: (dashboardId: DashboardType['id']) => void
+    moveToDashboardOld?: (dashboardId: DashboardType['id']) => void
+    moveToDashboard?: (dashboard: DashboardType) => void
 }
 
 interface InsightMetaProps
@@ -132,6 +156,7 @@ interface InsightMetaProps
         | 'refresh'
         | 'rename'
         | 'duplicate'
+        | 'moveToDashboardOld'
         | 'moveToDashboard'
     > {
     /**
@@ -151,20 +176,24 @@ function InsightMeta({
     refresh,
     rename,
     duplicate,
+    moveToDashboardOld,
     moveToDashboard,
     setPrimaryHeight,
     areDetailsShown,
     setAreDetailsShown,
 }: InsightMetaProps): JSX.Element {
-    const { short_id, name, description, tags, color, filters, dashboard } = insight
+    const { short_id, name, description, tags, color, filters, dashboards } = insight
 
     const { reportDashboardItemRefreshed } = useActions(eventUsageLogic)
+    const { aggregationLabel } = useValues(groupsModel)
+    const { cohortsById } = useValues(cohortsModel)
     const { nameSortedDashboards } = useValues(dashboardsModel)
-    const otherDashboards: DashboardType[] = nameSortedDashboards.filter((d: DashboardType) => d.id !== dashboard)
-
-    const areDetailsSupported = !INSIGHT_TYPES_WHERE_DETAILS_UNSUPPORTED.includes(
-        insight.filters.insight || InsightType.TRENDS
+    const { mathDefinitions } = useValues(mathsLogic)
+    const otherDashboards: DashboardType[] = nameSortedDashboards.filter(
+        (d: DashboardType) => !dashboards?.includes(d.id)
     )
+
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const { ref: primaryRef, height: primaryHeight, width: primaryWidth } = useResizeObserver()
     const { ref: detailsRef, height: detailsHeight } = useResizeObserver()
@@ -173,21 +202,26 @@ function InsightMeta({
         setPrimaryHeight?.(primaryHeight)
     }, [primaryHeight])
 
+    const areDetailsSupported = !INSIGHT_TYPES_WHERE_DETAILS_UNSUPPORTED.includes(
+        insight.filters.insight || InsightType.TRENDS
+    )
+    const showDetailsButtonLabel = !!primaryWidth && primaryWidth > 480
+
     const editable = insight.effective_privilege_level >= DashboardPrivilegeLevel.CanEdit
+    const foldedHeight = `calc(${primaryHeight}px + 2rem /* margins */ + 1px /* border */)`
+    const unfoldedHeight = `calc(${primaryHeight}px + ${
+        detailsHeight || 0
+    }px + 3.5rem /* margins */ + 3px /* border and spacer */)`
     const transitionStyles = primaryHeight
         ? {
               entering: {
-                  height: `calc(${primaryHeight}px + ${
-                      detailsHeight || 0
-                  }px + 3.5rem /* margins */ + 2px /* border and spacer */)`,
+                  height: unfoldedHeight,
               },
               entered: {
-                  height: `calc(${primaryHeight}px + ${
-                      detailsHeight || 0
-                  }px + 3.5rem /* margins */ + 2px /* border and spacer */)`,
+                  height: unfoldedHeight,
               },
-              exiting: { height: `calc(${primaryHeight}px + 2rem /* margins */ + 1px /* border */)` },
-              exited: { height: `calc(${primaryHeight}px + 2rem /* margins */ + 1px /* border */)` },
+              exiting: { height: foldedHeight },
+              exited: { height: foldedHeight },
           }
         : {}
 
@@ -219,11 +253,9 @@ function InsightMeta({
                                             icon={!areDetailsShown ? <IconSubtitles /> : <IconSubtitlesOff />}
                                             onClick={() => setAreDetailsShown((state) => !state)}
                                             type="tertiary"
-                                            compact
+                                            size={showDetailsButtonLabel ? 'small' : undefined}
                                         >
-                                            {primaryWidth &&
-                                                primaryWidth > 480 &&
-                                                `${!areDetailsShown ? 'Show' : 'Hide'} details`}
+                                            {showDetailsButtonLabel && `${!areDetailsShown ? 'Show' : 'Hide'} details`}
                                         </LemonButton>
                                     )}
                                     <More
@@ -285,30 +317,39 @@ function InsightMeta({
                                                         Set color
                                                     </LemonButtonWithPopup>
                                                 )}
-                                                {editable && moveToDashboard && otherDashboards.length > 0 && (
-                                                    <LemonButtonWithPopup
-                                                        type="stealth"
-                                                        popup={{
-                                                            overlay: otherDashboards.map((otherDashboard) => (
-                                                                <LemonButton
-                                                                    key={otherDashboard.id}
-                                                                    type="stealth"
-                                                                    onClick={() => moveToDashboard(otherDashboard.id)}
-                                                                    fullWidth
-                                                                >
-                                                                    {otherDashboard.name || <i>Untitled</i>}
-                                                                </LemonButton>
-                                                            )),
-                                                            placement: 'right-start',
-                                                            fallbackPlacements: ['left-start'],
-                                                            actionable: true,
-                                                        }}
-                                                        fullWidth
-                                                    >
-                                                        Move to
-                                                    </LemonButtonWithPopup>
-                                                )}
-                                                <LemonSpacer />
+                                                {editable &&
+                                                    moveToDashboardOld &&
+                                                    moveToDashboard &&
+                                                    otherDashboards.length > 0 && (
+                                                        <LemonButtonWithPopup
+                                                            type="stealth"
+                                                            popup={{
+                                                                overlay: otherDashboards.map((otherDashboard) => (
+                                                                    <LemonButton
+                                                                        key={otherDashboard.id}
+                                                                        type="stealth"
+                                                                        onClick={() => {
+                                                                            !!featureFlags[
+                                                                                FEATURE_FLAGS.MULTI_DASHBOARD_INSIGHTS
+                                                                            ]
+                                                                                ? moveToDashboard(otherDashboard)
+                                                                                : moveToDashboardOld(otherDashboard.id)
+                                                                        }}
+                                                                        fullWidth
+                                                                    >
+                                                                        {otherDashboard.name || <i>Untitled</i>}
+                                                                    </LemonButton>
+                                                                )),
+                                                                placement: 'right-start',
+                                                                fallbackPlacements: ['left-start'],
+                                                                actionable: true,
+                                                            }}
+                                                            fullWidth
+                                                        >
+                                                            Move to
+                                                        </LemonButtonWithPopup>
+                                                    )}
+                                                <LemonDivider />
                                                 {editable && (
                                                     <LemonButton
                                                         type="stealth"
@@ -328,7 +369,7 @@ function InsightMeta({
                                                 </LemonButton>
                                                 {editable && (
                                                     <>
-                                                        <LemonSpacer />
+                                                        <LemonDivider />
                                                         {removeFromDashboard ? (
                                                             <LemonButton
                                                                 type="stealth"
@@ -357,15 +398,24 @@ function InsightMeta({
                             </div>
                             <Link to={urls.insightView(short_id)}>
                                 <h4 title={name} data-attr="insight-card-title">
-                                    {name || <i>{UNNAMED_INSIGHT_NAME}</i>}
+                                    {name || (
+                                        <i>
+                                            {summarizeInsightFilters(
+                                                filters,
+                                                aggregationLabel,
+                                                cohortsById,
+                                                mathDefinitions
+                                            )}
+                                        </i>
+                                    )}
                                 </h4>
                             </Link>
                             <div className="InsightMeta__description">{description || <i>No description</i>}</div>
-                            {tags.length > 0 && <ObjectTags tags={tags} staticOnly />}
+                            {tags && tags.length > 0 && <ObjectTags tags={tags} staticOnly />}
                             <LastModified at={insight.last_modified_at} by={insight.last_modified_by} />
                         </div>
                     </div>
-                    <LemonSpacer />
+                    <LemonDivider />
                     <Transition in={areDetailsShown} timeout={200} mountOnEnter unmountOnExit>
                         <InsightDetails insight={insight} ref={detailsRef} />
                     </Transition>
@@ -375,15 +425,35 @@ function InsightMeta({
     )
 }
 
-interface InsightVizProps extends Pick<InsightCardProps, 'insight' | 'loading' | 'apiError' | 'style'> {
+function VizComponentFallback(): JSX.Element {
+    return (
+        <AlertMessage type="warning" style={{ alignSelf: 'center' }}>
+            Unknown insight display type
+        </AlertMessage>
+    )
+}
+
+export interface InsightVizProps
+    extends Pick<InsightCardProps, 'insight' | 'loading' | 'apiErrored' | 'timedOut' | 'style'> {
+    tooFewFunnelSteps?: boolean
+    invalidFunnelExclusion?: boolean
+    empty?: boolean
     setAreDetailsShown?: React.Dispatch<React.SetStateAction<boolean>>
 }
 
-function InsightViz({ insight, loading, setAreDetailsShown, style }: InsightVizProps): JSX.Element {
-    const { short_id, filters, result: cachedResults } = insight
-
-    const displayedType = getDisplayedType(filters)
-    const VizComponent = displayMap[displayedType].element
+export function InsightViz({
+    insight,
+    loading,
+    setAreDetailsShown,
+    style,
+    apiErrored,
+    timedOut,
+    empty,
+    tooFewFunnelSteps,
+    invalidFunnelExclusion,
+}: InsightVizProps): JSX.Element {
+    const displayedType = getDisplayedType(insight.filters)
+    const VizComponent = displayMap[displayedType]?.element || VizComponentFallback
 
     return (
         <div
@@ -397,15 +467,20 @@ function InsightViz({ insight, loading, setAreDetailsShown, style }: InsightVizP
                     : undefined
             }
         >
-            {loading && <Loading />}
-            <Alert.ErrorBoundary message="Insight visualization errored. We're sorry for the interruption.">
-                <VizComponent
-                    dashboardItemId={short_id}
-                    cachedResults={cachedResults}
-                    filters={filters}
-                    showPersonsModal={false}
-                />
-            </Alert.ErrorBoundary>
+            {loading && !timedOut && <Loading />}
+            {tooFewFunnelSteps ? (
+                <FunnelSingleStepState actionable={false} />
+            ) : invalidFunnelExclusion ? (
+                <FunnelInvalidExclusionState />
+            ) : empty ? (
+                <InsightEmptyState />
+            ) : timedOut ? (
+                <InsightTimeoutState isLoading={!!loading} />
+            ) : apiErrored && !loading ? (
+                <InsightErrorState excludeDetail />
+            ) : (
+                !apiErrored && <VizComponent inCardView={true} showPersonsModal={false} />
+            )}
         </div>
     )
 }
@@ -413,16 +488,20 @@ function InsightViz({ insight, loading, setAreDetailsShown, style }: InsightVizP
 function InsightCardInternal(
     {
         insight,
+        dashboardId,
         loading,
-        apiError,
+        apiErrored,
+        timedOut,
         highlighted,
         showResizeHandles,
+        canResizeWidth,
         updateColor,
         removeFromDashboard,
         deleteWithUndo,
         refresh,
         rename,
         duplicate,
+        moveToDashboardOld,
         moveToDashboard,
         className,
         children,
@@ -430,13 +509,37 @@ function InsightCardInternal(
     }: InsightCardProps,
     ref: React.Ref<HTMLDivElement>
 ): JSX.Element {
-    const { short_id, filters, result: cachedResults } = insight
-
     const insightLogicProps: InsightLogicProps = {
-        dashboardItemId: short_id,
-        filters,
-        cachedResults,
+        dashboardItemId: insight.short_id,
+        dashboardId: dashboardId,
+        cachedInsight: insight,
         doNotLoad: true,
+    }
+
+    const { showTimeoutMessage, showErrorMessage, insightLoading } = useValues(insightLogic(insightLogicProps))
+    const { areFiltersValid, isValidFunnel, areExclusionFiltersValid } = useValues(funnelLogic(insightLogicProps))
+
+    let tooFewFunnelSteps = false
+    let invalidFunnelExclusion = false
+    let empty = false
+    if (insight.filters.insight === InsightType.FUNNELS) {
+        if (!areFiltersValid) {
+            tooFewFunnelSteps = true
+        } else if (!areExclusionFiltersValid) {
+            invalidFunnelExclusion = true
+        }
+        if (!isValidFunnel) {
+            empty = true
+        }
+    }
+    if (insightLoading) {
+        loading = true
+    }
+    if (showErrorMessage) {
+        apiErrored = true
+    }
+    if (showTimeoutMessage) {
+        timedOut = true
     }
 
     const [metaPrimaryHeight, setMetaPrimaryHeight] = useState<number | undefined>(undefined)
@@ -458,6 +561,7 @@ function InsightCardInternal(
                     refresh={refresh}
                     rename={rename}
                     duplicate={duplicate}
+                    moveToDashboardOld={moveToDashboardOld}
                     moveToDashboard={moveToDashboard}
                     setPrimaryHeight={setMetaPrimaryHeight}
                     areDetailsShown={areDetailsShown}
@@ -466,7 +570,11 @@ function InsightCardInternal(
                 <InsightViz
                     insight={insight}
                     loading={loading}
-                    apiError={apiError}
+                    apiErrored={apiErrored}
+                    timedOut={timedOut}
+                    empty={empty}
+                    tooFewFunnelSteps={tooFewFunnelSteps}
+                    invalidFunnelExclusion={invalidFunnelExclusion}
                     style={
                         metaPrimaryHeight
                             ? { height: `calc(100% - ${metaPrimaryHeight}px - 2rem /* margins */ - 1px /* border */)` }
@@ -477,9 +585,9 @@ function InsightCardInternal(
             </BindLogic>
             {showResizeHandles && (
                 <>
-                    <ResizeHandle1D orientation="vertical" />
+                    {canResizeWidth ? <ResizeHandle1D orientation="vertical" /> : null}
                     <ResizeHandle1D orientation="horizontal" />
-                    <ResizeHandle2D />
+                    {canResizeWidth ? <ResizeHandle2D /> : null}
                 </>
             )}
             {children /* Extras, such as resize handles */}

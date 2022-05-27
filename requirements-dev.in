@@ -1,42 +1,47 @@
-# pip-compile requirements-dev.in
-
+# In order to add, delete or modify a dependency, please update
+# the reference here and then run:
+#
+# - `pip-compile --rebuild requirements.in`
+# - `pip-compile --rebuild requirements-dev.in`
+#
 # Make sure we use production deps for constraining installed dev packages. This
 # is important as otherwise we could be running tests with different versions
 # than production.
+#
 
 -c requirements.txt
 
 flake8>=3.8 # match minimum version to oldest Python version that PostHog currently supports
-flake8-bugbear
-flake8-colors
-flake8-commas
-flake8-comprehensions
-flake8-import-order
-flake8-logging-format
-flake8-print
-pip-tools
-mypy>=0.930
-mypy-extensions
-djangorestframework-stubs
-django-stubs
-fakeredis
-freezegun
-packaging
+flake8-bugbear==20.1.4
+flake8-colors==0.1.6
+flake8-comprehensions==3.2.2
+flake8-import-order==0.18.1
+flake8-logging-format==0.6.0
+flake8-print==3.1.4
+pip-tools==6.6.1
+mypy==0.931
+mypy-extensions==0.4.3
+djangorestframework-stubs==1.4.0
+django-stubs==1.8.0
+fakeredis==1.4.5
+freezegun==0.3.15
+packaging==21.3
 black==19.10b0
-types-Markdown
-types-PyYAML
-types-freezegun
-types-protobuf
-types-python-dateutil
-types-pytz
-types-redis
-types-requests
-isort
-pytest
-pytest-django
-pytest-env
-pytest-mock
-pytest-cov
-pytest-split
-syrupy
-numpy
+types-markdown==3.3.9
+types-PyYAML==6.0.1
+types-freezegun==1.1.3
+types-protobuf==3.18.2
+types-python-dateutil==2.8.3
+types-pytz==2021.3.2
+types-redis==4.0.3
+types-requests==2.26.1
+isort==5.2.2
+pytest==6.2.2
+pytest-django==4.1.0
+pytest-env==0.6.2
+pytest-mock==3.5.1
+pytest-cov==2.12.1
+pytest-split==0.6.0
+syrupy==1.4.6
+numpy==1.21.4
+flaky==3.7.0

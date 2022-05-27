@@ -1,30 +1,5 @@
 import { HTMLProps, ReactNode } from 'react'
 
-export interface PaginationBase {
-    /** By default pagination is only shown when there are multiple pages, but will always shown if this is `false`. */
-    hideOnSinglePage?: boolean
-}
-
-export interface PaginationAuto extends PaginationBase {
-    controlled?: false
-    /** Size of each page (except the last one which can be smaller)/ */
-    pageSize: number
-}
-
-export interface PaginationManual extends PaginationBase {
-    controlled: true
-    /** Size of each page (except the last one which can be smaller)/ */
-    pageSize?: number
-    /** Page currently on display. */
-    currentPage?: number
-    /** Total entry count for determining current position using `currentPage`. If not set, position is not shown. */
-    entryCount?: number
-    /** Next page navigation handler. */
-    onForward?: () => void
-    /** Previous page navigation handler. */
-    onBackward?: () => void
-}
-
 export interface TableCellRepresentation {
     children?: any
     props?: HTMLProps<HTMLTableCellElement>
@@ -55,7 +30,13 @@ export interface LemonTableColumn<T extends Record<string, any>, D extends keyof
     /** Set width. */
     width?: string | number
 }
-export type LemonTableColumns<T extends Record<string, any>> = LemonTableColumn<T, keyof T | undefined>[]
+export interface LemonTableColumnGroup<T extends Record<string, any>> {
+    title?: string | React.ReactNode
+    children: LemonTableColumn<T, keyof T | undefined>[]
+}
+export type LemonTableColumns<T extends Record<string, any>> =
+    | LemonTableColumn<T, keyof T | undefined>[]
+    | LemonTableColumnGroup<T>[]
 
 export interface ExpandableConfig<T extends Record<string, any>> {
     /** Row expansion render function. */
@@ -69,4 +50,15 @@ export interface ExpandableConfig<T extends Record<string, any>> {
     rowExpandable?: (record: T) => boolean | number
     /** Called when row is expanded */
     onRowExpand?: (record: T) => void
+    /** Called when row is collapsed */
+    onRowCollapse?: (record: T) => void
+    /** Disable indentation */
+    noIndent?: boolean
+    /**
+     * Callback that checks if a row expandable state should be overridden
+     * A positive value (like true or 1) means that the row is expanded.
+     * A zero (like 0 or false) means that the row is collapsed.
+     * A negative value (like -1) means that the row is uncontrolled.
+     */
+    isRowExpanded?: (record: T) => boolean | number
 }

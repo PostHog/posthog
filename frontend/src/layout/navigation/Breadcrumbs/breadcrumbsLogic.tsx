@@ -1,11 +1,11 @@
-import { kea } from 'kea'
+import { connect, kea, path, props, selectors } from 'kea'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import './Breadcrumbs.scss'
 import { breadcrumbsLogicType } from './breadcrumbsLogicType'
 import { sceneLogic } from 'scenes/sceneLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/logic'
-import { identifierToHuman, stripHTTP } from 'lib/utils'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { identifierToHuman, objectsEqual, stripHTTP } from 'lib/utils'
 import { userLogic } from 'scenes/userLogic'
 import React from 'react'
 import { Lettermark } from 'lib/components/Lettermark/Lettermark'
@@ -13,13 +13,16 @@ import { ProfilePicture } from 'lib/components/ProfilePicture'
 import { ProjectSwitcherOverlay } from '~/layout/navigation/ProjectSwitcher'
 import { OrganizationSwitcherOverlay } from '~/layout/navigation/OrganizationSwitcher'
 import { Breadcrumb } from '~/types'
+import { subscriptions } from 'kea-subscriptions'
 
-export const breadcrumbsLogic = kea<breadcrumbsLogicType>({
-    path: ['layout', 'navigation', 'Breadcrumbs', 'breadcrumbsLogic'],
-    props: {} as {
-        hashParams: Record<string, any>
-    },
-    connect: () => ({
+export const breadcrumbsLogic = kea<breadcrumbsLogicType>([
+    path(['layout', 'navigation', 'Breadcrumbs', 'breadcrumbsLogic']),
+    props(
+        {} as {
+            hashParams: Record<string, any>
+        }
+    ),
+    connect(() => ({
         values: [
             preflightLogic,
             ['preflight'],
@@ -32,26 +35,33 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType>({
             teamLogic,
             ['currentTeam'],
         ],
-    }),
-    selectors: () => ({
+    })),
+    selectors(() => ({
         sceneBreadcrumbs: [
-            () => [
+            (s) => [
                 // We're effectively passing the selector through to the scene logic, and "recalculating"
                 // this every time it's rendered. Caching will happen within the scene's breadcrumb selector.
                 (state, props) => {
                     const activeSceneLogic = sceneLogic.selectors.activeSceneLogic(state, props)
+                    const activeScene = s.activeScene(state, props)
+                    const sceneConfig = s.sceneConfig(state, props)
                     if (activeSceneLogic && 'breadcrumbs' in activeSceneLogic.selectors) {
                         const activeLoadedScene = sceneLogic.selectors.activeLoadedScene(state, props)
                         return activeSceneLogic.selectors.breadcrumbs(
                             state,
-                            activeLoadedScene?.sceneParams?.params || props
+                            activeLoadedScene?.paramsToProps?.(activeLoadedScene?.sceneParams) || props
                         )
+                    } else if (sceneConfig?.name) {
+                        return [{ name: sceneConfig.name }]
+                    } else if (activeScene) {
+                        return [{ name: identifierToHuman(activeScene) }]
                     } else {
                         return []
                     }
                 },
             ],
             (crumbs): Breadcrumb[] => crumbs,
+            { equalityCheck: objectsEqual },
         ],
         appBreadcrumbs: [
             (s) => [
@@ -123,17 +133,9 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType>({
             },
         ],
         breadcrumbs: [
-            (s) => [s.activeScene, s.sceneConfig, s.appBreadcrumbs, s.sceneBreadcrumbs],
-            (activeScene, sceneConfig, appBreadcrumbs, sceneBreadcrumbs) => {
-                if (sceneBreadcrumbs && sceneBreadcrumbs.length > 0) {
-                    return [...appBreadcrumbs, ...sceneBreadcrumbs]
-                } else if (sceneConfig?.name) {
-                    return [...appBreadcrumbs, { name: sceneConfig.name }]
-                } else if (activeScene) {
-                    return [...appBreadcrumbs, { name: identifierToHuman(activeScene) }]
-                } else {
-                    return appBreadcrumbs
-                }
+            (s) => [s.appBreadcrumbs, s.sceneBreadcrumbs],
+            (appBreadcrumbs, sceneBreadcrumbs) => {
+                return [...appBreadcrumbs, ...sceneBreadcrumbs]
             },
         ],
         firstBreadcrumb: [(s) => [s.breadcrumbs], (breadcrumbs) => breadcrumbs[0]],
@@ -148,5 +150,23 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType>({
                 return tailBreadcrumbs
             },
         ],
+        documentTitle: [
+            (s) => [s.sceneBreadcrumbs],
+            (sceneBreadcrumbs): string =>
+                [
+                    ...sceneBreadcrumbs
+                        .filter((breadcrumb) => !!breadcrumb.name)
+                        .map((breadcrumb) => breadcrumb.name as string)
+                        .reverse(),
+                    'PostHog',
+                ].join(' • '),
+        ],
+    })),
+    subscriptions({
+        documentTitle: (documentTitle: string) => {
+            if (typeof document !== 'undefined') {
+                document.title = documentTitle
+            }
+        },
     }),
-})
+])

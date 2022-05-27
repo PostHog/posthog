@@ -1,9 +1,10 @@
 import { SystemStatusRow } from './../../../types'
 import api from 'lib/api'
-import { kea } from 'kea'
+import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
 import { userLogic } from 'scenes/userLogic'
 
-import { deadLetterQueueLogicType } from './deadLetterQueueLogicType'
+import type { deadLetterQueueLogicType } from './deadLetterQueueLogicType'
+import { loaders } from 'kea-loaders'
 export type TabName = 'overview' | 'internal_metrics'
 
 export enum DeadLetterQueueTab {
@@ -12,50 +13,83 @@ export enum DeadLetterQueueTab {
     Settings = 'settings',
 }
 
-export const deadLetterQueueLogic = kea<deadLetterQueueLogicType>({
-    path: ['scenes', 'instance', 'DeadLetterQueue', 'deadLetterQueueLogic'],
+export interface DeadLetterQueueMetricRow extends SystemStatusRow {
+    key: string
+}
 
-    actions: () => ({
-        setActiveTab: (tabKey: string) => ({ tabKey }),
+export const deadLetterQueueLogic = kea<deadLetterQueueLogicType>([
+    path(['scenes', 'instance', 'DeadLetterQueue', 'deadLetterQueueLogic']),
+
+    actions({
+        setActiveTab: (tabKey: DeadLetterQueueTab) => ({ tabKey }),
+        loadMoreRows: (key: string) => ({ key }),
+        addRowsToMetric: (key: string, rows: string[][][]) => ({ key, rows }),
     }),
 
-    reducers: () => ({
+    reducers({
         activeTab: [
-            DeadLetterQueueTab.Metrics,
+            DeadLetterQueueTab.Metrics as DeadLetterQueueTab,
             {
                 setActiveTab: (_, { tabKey }) => tabKey,
             },
         ],
-    }),
-
-    loaders: () => ({
-        deadLetterQueueMetrics: [
-            [] as SystemStatusRow[],
+        rowsPerMetric: [
+            {} as Record<string, string[][][]>,
             {
-                loadDeadLetterQueueMetrics: async () => {
-                    if (!userLogic.values.user?.is_staff) {
-                        return []
+                addRowsToMetric: (state: Record<string, string[][][]>, { key, rows }) => {
+                    return { ...state, [key]: [...(state[key] || []), ...rows] }
+                },
+                loadDeadLetterQueueMetricsSuccess: (_, { deadLetterQueueMetrics }) => {
+                    const rowsPerMetric = {}
+                    for (const metric of deadLetterQueueMetrics) {
+                        if (metric.subrows) {
+                            rowsPerMetric[metric.key] = metric.subrows.rows
+                        }
                     }
-                    return (await api.get('api/dead_letter_queue')).results?.overview
+                    return rowsPerMetric
                 },
             },
         ],
     }),
 
-    selectors: () => ({
-        singleValueMetrics: [
-            (s) => [s.deadLetterQueueMetrics],
-            (deadLetterQueueMetrics) => deadLetterQueueMetrics.filter((metric) => !metric.subrows),
-        ],
-        tableMetrics: [
-            (s) => [s.deadLetterQueueMetrics],
-            (deadLetterQueueMetrics) => deadLetterQueueMetrics.filter((metric) => !!metric.subrows),
+    loaders({
+        deadLetterQueueMetrics: [
+            [] as DeadLetterQueueMetricRow[],
+            {
+                loadDeadLetterQueueMetrics: async () => {
+                    if (!userLogic.values.user?.is_staff) {
+                        return []
+                    }
+                    return (await api.get('api/dead_letter_queue')).results
+                },
+            },
         ],
     }),
 
-    events: ({ actions }) => ({
-        afterMount: () => {
-            actions.loadDeadLetterQueueMetrics()
+    listeners(({ values, actions }) => ({
+        loadMoreRows: async ({ key }) => {
+            const offset = values.rowsPerMetric[key]?.length + 1
+            if (offset) {
+                const res = await api.get(`api/dead_letter_queue/${key}?offset=${offset}`)
+                actions.addRowsToMetric(key, res.subrows.rows)
+            }
         },
+    })),
+
+    selectors({
+        singleValueMetrics: [
+            (s) => [s.deadLetterQueueMetrics],
+            (deadLetterQueueMetrics: DeadLetterQueueMetricRow[]) =>
+                deadLetterQueueMetrics.filter((metric) => !metric.subrows),
+        ],
+        tableMetrics: [
+            (s) => [s.deadLetterQueueMetrics],
+            (deadLetterQueueMetrics: DeadLetterQueueMetricRow[]) =>
+                deadLetterQueueMetrics.filter((metric) => !!metric.subrows),
+        ],
     }),
-})
+
+    afterMount(({ actions }) => {
+        actions.loadDeadLetterQueueMetrics()
+    }),
+])

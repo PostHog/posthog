@@ -31,9 +31,7 @@
             "args": ["src/index.ts"],
             "env": {
                 "NODE_ENV": "dev",
-                "BASE_DIR": "${workspaceFolder}/../posthog",
-                "KAFKA_ENABLED": "1",
-                "KAFKA_HOSTS": "kafka:9092"
+                "BASE_DIR": "${workspaceFolder}/../posthog"
             }
         },
         {

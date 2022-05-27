@@ -2,7 +2,6 @@ import React from 'react'
 import { useActions, useValues } from 'kea'
 import { Alert, Button } from 'antd'
 import { StarOutlined, SettingOutlined, UserAddOutlined } from '@ant-design/icons'
-import { userLogic } from 'scenes/userLogic'
 import { LinkButton } from 'lib/components/LinkButton'
 import { Link } from 'lib/components/Link'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -18,71 +17,17 @@ interface WarningInterface {
 }
 
 interface WarningsInterface {
-    welcome: WarningInterface
-    incomplete_setup_on_demo_project: WarningInterface
-    incomplete_setup_on_real_project: WarningInterface
     demo_project: WarningInterface
     real_project_with_no_events: WarningInterface
     invite_teammates: WarningInterface
 }
 
 export function DemoWarnings(): JSX.Element | null {
-    const { user } = useValues(userLogic)
     const { demoWarning } = useValues(navigationLogic)
     const { reportDemoWarningDismissed } = useActions(eventUsageLogic)
     const { showInviteModal } = useActions(inviteLogic)
 
     const WARNINGS: WarningsInterface = {
-        welcome: {
-            message: `Welcome ${user?.first_name}! Ready to explore?`,
-            description: (
-                <span>
-                    We want you to try all the power of PostHog right away. Explore everything in this full-fledged demo
-                    environment. When you're ready, head over to setup to use some real data.
-                </span>
-            ),
-            action: (
-                <LinkButton to="/setup" data-attr="demo-warning-cta" data-message="welcome-setup">
-                    <SettingOutlined /> Go to setup
-                </LinkButton>
-            ),
-            type: 'info',
-        },
-        incomplete_setup_on_demo_project: {
-            message: `Get started using Posthog, ${user?.first_name}!`,
-            description: (
-                <span>
-                    You're currently viewing <b>demo data</b>. Go to <Link to="/setup">setup</Link> to start sending
-                    your own data
-                </span>
-            ),
-            action: (
-                <LinkButton
-                    to="/setup"
-                    data-attr="demo-warning-cta"
-                    data-message="incomplete_setup_on_demo_project-setup"
-                >
-                    <SettingOutlined /> Go to setup
-                </LinkButton>
-            ),
-        },
-        incomplete_setup_on_real_project: {
-            message: `Finish setting up Posthog, ${user?.first_name}!`,
-            description: (
-                <span>
-                    You're very close. Go to <Link to="/setup">setup</Link> to finish up configuring PostHog.
-                </span>
-            ),
-            action: (
-                <LinkButton
-                    to="/setup"
-                    data-attr="demo-warning-cta"
-                    data-message="incomplete_setup_on_real_project-setup"
-                >
-                    <SettingOutlined /> Go to setup
-                </LinkButton>
-            ),
-        },
         demo_project: {
             message: "You're viewing demo data.",
             description: <span>This is a demo project with dummy data.</span>,
@@ -140,7 +85,7 @@ export function DemoWarnings(): JSX.Element | null {
                 showIcon
                 action={WARNINGS[demoWarning].action}
                 closable
-                style={{ marginTop: 32 }}
+                style={{ marginTop: '1.5rem' }}
                 onClose={() => reportDemoWarningDismissed(demoWarning)}
             />
         </>

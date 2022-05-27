@@ -25,17 +25,22 @@ function CategoryPill({
 }): JSX.Element {
     const logic = infiniteListLogic({ ...taxonomicFilterLogicProps, listGroupType: groupType })
     const { taxonomicGroups } = useValues(taxonomicFilterLogic)
-    const { totalCount } = useValues(logic)
+    const { totalResultCount, totalListCount } = useValues(logic)
 
     const group = taxonomicGroups.find((g) => g.type === groupType)
+
+    // :TRICKY: use `totalListCount` (results + extra) to toggle interactivity, while showing `totalResultCount`
+    const canInteract = totalListCount > 0
 
     return (
         <Tag
             data-attr={`taxonomic-tab-${groupType}`}
-            className={clsx({ 'taxonomic-pill-active': isActive, 'taxonomic-count-zero': totalCount === 0 })}
-            onClick={totalCount > 0 ? onClick : undefined}
+            className={clsx({ 'taxonomic-pill-active': isActive, 'taxonomic-count-zero': !canInteract })}
+            onClick={canInteract ? onClick : undefined}
         >
-            {group?.name}: {totalCount || 0}
+            {group?.name}
+            {': '}
+            {totalResultCount ?? '...'}
         </Tag>
     )
 }
@@ -83,7 +88,7 @@ export function InfiniteSelectResults({
             </div>
             {taxonomicGroupTypes.map((groupType) => {
                 return (
-                    <div key={groupType} style={{ display: groupType === openTab ? 'block' : 'none' }}>
+                    <div key={groupType} style={{ display: groupType === openTab ? 'block' : 'none', marginTop: 8 }}>
                         <BindLogic
                             logic={infiniteListLogic}
                             props={{ ...taxonomicFilterLogicProps, listGroupType: groupType }}

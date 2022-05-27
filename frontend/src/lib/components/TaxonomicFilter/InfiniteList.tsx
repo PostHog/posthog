@@ -4,30 +4,25 @@ import React, { useState } from 'react'
 import { Empty, Skeleton, Tag } from 'antd'
 import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
 import { List, ListRowProps, ListRowRenderer } from 'react-virtualized/dist/es/List'
-import {
-    getKeyMapping,
-    PropertyKeyDescription,
-    PropertyKeyInfo,
-    PropertyKeyTitle,
-} from 'lib/components/PropertyKeyInfo'
-import { Provider, useActions, useValues } from 'kea'
-import { infiniteListLogic } from './infiniteListLogic'
+import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import { BindLogic, Provider, useActions, useValues } from 'kea'
+import { infiniteListLogic, NO_ITEM_SELECTED } from './infiniteListLogic'
 import { taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
-import { TaxonomicFilterGroup, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import {
+    TaxonomicDefinitionTypes,
+    TaxonomicFilterGroup,
+    TaxonomicFilterGroupType,
+} from 'lib/components/TaxonomicFilter/types'
 import ReactDOM from 'react-dom'
 import { usePopper } from 'react-popper'
-import { ActionType, AvailableFeature, CohortType, EventDefinition, KeyMapping, PropertyDefinition } from '~/types'
-import { AimOutlined } from '@ant-design/icons'
-import { Link } from 'lib/components/Link'
-import { ActionSelectInfo } from 'scenes/insights/ActionSelectInfo'
-import { urls } from 'scenes/urls'
+import { EventDefinition, PropertyDefinition } from '~/types'
 import { dayjs } from 'lib/dayjs'
-import { FEATURE_FLAGS, STALE_EVENT_SECONDS } from 'lib/constants'
+import { STALE_EVENT_SECONDS } from 'lib/constants'
 import { Tooltip } from '../Tooltip'
 import clsx from 'clsx'
-import { featureFlagLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
-import { userLogic } from 'scenes/userLogic'
-import { renderItemPopup } from 'lib/components/DefinitionPopup/DefinitionPopup'
+import { definitionPopupLogic } from 'lib/components/DefinitionPopup/definitionPopupLogic'
+import { ControlledDefinitionPopupContents } from 'lib/components/DefinitionPopup/DefinitionPopupContents'
+import { pluralize } from 'lib/utils'
 
 enum ListTooltip {
     None = 0,
@@ -93,27 +88,26 @@ const unusedIndicator = (eventNames: string[]): JSX.Element => {
 const renderItemContents = ({
     item,
     listGroupType,
-    featureFlags,
+    group,
     eventNames,
 }: {
-    item: EventDefinition | PropertyDefinition | CohortType
+    item: TaxonomicDefinitionTypes
     listGroupType: TaxonomicFilterGroupType
-    featureFlags: FeatureFlagsSet
+    group: TaxonomicFilterGroup
     eventNames: string[]
 }): JSX.Element | string => {
     const parsedLastSeen = (item as EventDefinition).last_seen_at ? dayjs((item as EventDefinition).last_seen_at) : null
     const isStale =
-        (featureFlags[FEATURE_FLAGS.STALE_EVENTS] &&
-            listGroupType === TaxonomicFilterGroupType.Events &&
-            !parsedLastSeen) ||
+        (listGroupType === TaxonomicFilterGroupType.Events && !parsedLastSeen) ||
         dayjs().diff(parsedLastSeen, 'seconds') > STALE_EVENT_SECONDS
 
     const isUnusedEventProperty =
-        featureFlags[FEATURE_FLAGS.UNSEEN_EVENT_PROPERTIES] &&
         (listGroupType === TaxonomicFilterGroupType.NumericalEventProperties ||
             listGroupType === TaxonomicFilterGroupType.EventProperties) &&
         (item as PropertyDefinition).is_event_property !== null &&
         !(item as PropertyDefinition).is_event_property
+
+    const icon = <div className="taxonomic-list-row-contents-icon">{group.getIcon?.(item)}</div>
 
     return listGroupType === TaxonomicFilterGroupType.EventProperties ||
         listGroupType === TaxonomicFilterGroupType.NumericalEventProperties ||
@@ -122,120 +116,49 @@ const renderItemContents = ({
         listGroupType === TaxonomicFilterGroupType.CustomEvents ||
         listGroupType.startsWith(TaxonomicFilterGroupType.GroupsPrefix) ? (
         <>
-            <div className={clsx(isStale && 'text-muted')}>
-                <PropertyKeyInfo value={item.name ?? ''} disablePopover />
+            <div className={clsx('taxonomic-list-row-contents', isStale && 'text-muted')}>
+                {icon}
+                <PropertyKeyInfo value={item.name ?? ''} disablePopover disableIcon style={{ maxWidth: '100%' }} />
             </div>
             {isStale && staleIndicator(parsedLastSeen)}
             {isUnusedEventProperty && unusedIndicator(eventNames)}
         </>
-    ) : listGroupType === TaxonomicFilterGroupType.Elements ? (
-        <PropertyKeyInfo type="element" value={item.name ?? ''} disablePopover />
     ) : (
-        item.name ?? ''
+        <div className="taxonomic-list-row-contents">
+            {listGroupType === TaxonomicFilterGroupType.Elements ? (
+                <PropertyKeyInfo type="element" value={item.name ?? ''} disablePopover style={{ maxWidth: '100%' }} />
+            ) : (
+                <>
+                    {group.getIcon ? icon : null}
+                    {group.getName(item) || item.name || ''}
+                </>
+            )}
+        </div>
     )
 }
 
-const renderItemPopupWithoutTaxonomy = (
-    item: PropertyDefinition | CohortType | ActionType,
-    listGroupType: TaxonomicFilterGroupType,
-    group: TaxonomicFilterGroup
-): JSX.Element | string => {
-    const width = 265
-    let data: KeyMapping | null = null
-    const value = group.getValue(item)
-
-    if (value) {
-        if (listGroupType === TaxonomicFilterGroupType.Actions && 'id' in item) {
-            return (
-                <div style={{ width, overflowWrap: 'break-word' }}>
-                    <AimOutlined /> Actions
-                    <Link to={urls.action(item.id)} style={{ float: 'right' }} tabIndex={-1}>
-                        edit
-                    </Link>
-                    <br />
-                    <h3>
-                        <PropertyKeyInfo value={item.name ?? ''} />
-                    </h3>
-                    {item && <ActionSelectInfo entity={item as ActionType} />}
-                </div>
-            )
-        }
-
-        if (
-            // NB: also update "selectedItemHasPopup" below
-            listGroupType === TaxonomicFilterGroupType.Events ||
-            listGroupType === TaxonomicFilterGroupType.EventProperties ||
-            listGroupType === TaxonomicFilterGroupType.PersonProperties
-        ) {
-            data = getKeyMapping(value.toString(), 'event')
-        } else if (listGroupType === TaxonomicFilterGroupType.Elements) {
-            data = getKeyMapping(value.toString(), 'element')
-        }
-
-        if (data) {
-            return (
-                <div style={{ width, overflowWrap: 'break-word' }}>
-                    <PropertyKeyTitle data={data} />
-                    {data.description ? <hr /> : null}
-                    <PropertyKeyDescription data={data} value={value.toString()} />
-
-                    {'volume_30_day' in item && (item.volume_30_day || 0) > 0 ? (
-                        <p>
-                            Seen <strong>{item.volume_30_day}</strong> times.{' '}
-                        </p>
-                    ) : null}
-                    {'query_usage_30_day' in item && (item.query_usage_30_day || 0) > 0 ? (
-                        <p>
-                            Used in <strong>{item.query_usage_30_day}</strong> queries.
-                        </p>
-                    ) : null}
-                </div>
-            )
-        }
-    }
-
-    return item.name ?? ''
-}
-
 const selectedItemHasPopup = (
-    item?: PropertyDefinition | CohortType,
+    item?: TaxonomicDefinitionTypes,
     listGroupType?: TaxonomicFilterGroupType,
-    group?: TaxonomicFilterGroup,
-    showNewPopups: boolean = false
+    group?: TaxonomicFilterGroup
 ): boolean => {
-    if (showNewPopups) {
-        return (
-            // NB: also update "renderItemPopup" above
-            !!item &&
-            !!group?.getValue(item) &&
-            !!listGroupType &&
-            ([
-                TaxonomicFilterGroupType.Actions,
-                TaxonomicFilterGroupType.Elements,
-                TaxonomicFilterGroupType.Events,
-                TaxonomicFilterGroupType.CustomEvents,
-                TaxonomicFilterGroupType.EventProperties,
-                TaxonomicFilterGroupType.PersonProperties,
-                TaxonomicFilterGroupType.Cohorts,
-                TaxonomicFilterGroupType.CohortsWithAllUsers,
-            ].includes(listGroupType) ||
-                listGroupType.startsWith(TaxonomicFilterGroupType.GroupsPrefix))
-        )
-    }
-
     return (
         // NB: also update "renderItemPopup" above
         !!item &&
         !!group?.getValue(item) &&
-        (listGroupType === TaxonomicFilterGroupType.Actions ||
-            ((listGroupType === TaxonomicFilterGroupType.Elements ||
-                listGroupType === TaxonomicFilterGroupType.Events ||
-                listGroupType === TaxonomicFilterGroupType.EventProperties ||
-                listGroupType === TaxonomicFilterGroupType.PersonProperties) &&
-                !!getKeyMapping(
-                    group?.getValue(item),
-                    listGroupType === TaxonomicFilterGroupType.Elements ? 'element' : 'event'
-                )))
+        !!listGroupType &&
+        ([
+            TaxonomicFilterGroupType.Actions,
+            TaxonomicFilterGroupType.Elements,
+            TaxonomicFilterGroupType.Events,
+            TaxonomicFilterGroupType.CustomEvents,
+            TaxonomicFilterGroupType.EventProperties,
+            TaxonomicFilterGroupType.NumericalEventProperties,
+            TaxonomicFilterGroupType.PersonProperties,
+            TaxonomicFilterGroupType.Cohorts,
+            TaxonomicFilterGroupType.CohortsWithAllUsers,
+        ].includes(listGroupType) ||
+            listGroupType.startsWith(TaxonomicFilterGroupType.GroupsPrefix))
     )
 }
 
@@ -243,27 +166,42 @@ export function InfiniteList(): JSX.Element {
     const { mouseInteractionsEnabled, activeTab, searchQuery, value, groupType, eventNames } =
         useValues(taxonomicFilterLogic)
     const { selectItem } = useActions(taxonomicFilterLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
-    const { hasAvailableFeature } = useValues(userLogic)
 
-    const { isLoading, results, totalCount, index, listGroupType, group, selectedItem, selectedItemInView } =
-        useValues(infiniteListLogic)
-    const { onRowsRendered, setIndex } = useActions(infiniteListLogic)
+    const {
+        isLoading,
+        results,
+        index,
+        listGroupType,
+        group,
+        selectedItem,
+        selectedItemInView,
+        isExpandable,
+        totalResultCount,
+        totalListCount,
+        expandedCount,
+        showPopover,
+    } = useValues(infiniteListLogic)
+    const { onRowsRendered, setIndex, expand, updateRemoteItem } = useActions(infiniteListLogic)
 
     const isActiveTab = listGroupType === activeTab
-    const showEmptyState = totalCount === 0 && !isLoading
-    const showNewPopups = !!featureFlags[FEATURE_FLAGS.COLLABORATIONS_TAXONOMY]
+    const showEmptyState = totalListCount === 0 && !isLoading
 
     const [referenceElement, setReferenceElement] = useState<HTMLDivElement | null>(null)
     const [popperElement, setPopperElement] = useState<HTMLDivElement | null>(null)
 
-    const { styles, attributes } = usePopper(referenceElement, popperElement, {
+    const { styles, attributes, forceUpdate } = usePopper(referenceElement, popperElement, {
         placement: 'right',
         modifiers: [
             {
                 name: 'offset',
                 options: {
                     offset: [0, 10],
+                },
+            },
+            {
+                name: 'preventOverflow',
+                options: {
+                    padding: 10,
                 },
             },
         ],
@@ -275,29 +213,52 @@ export function InfiniteList(): JSX.Element {
         const isSelected = listGroupType === groupType && itemValue === value
         const isHighlighted = rowIndex === index && isActiveTab
 
+        const commonDivProps: React.HTMLProps<HTMLDivElement> = {
+            key: `item_${rowIndex}`,
+            className: clsx(
+                'taxonomic-list-row',
+                rowIndex === index && mouseInteractionsEnabled && 'hover',
+                isSelected && 'selected'
+            ),
+            onMouseOver: () => (mouseInteractionsEnabled ? setIndex(rowIndex) : setIndex(NO_ITEM_SELECTED)),
+            // if the popover is not enabled then don't leave the row selected when the mouse leaves it
+            onMouseLeave: () => (mouseInteractionsEnabled && !showPopover ? setIndex(NO_ITEM_SELECTED) : null),
+            style: style,
+            ref: isHighlighted ? setReferenceElement : null,
+        }
+
         return item && group ? (
             <div
-                key={`item_${rowIndex}`}
-                className={`taxonomic-list-row${rowIndex === index ? ' hover' : ''}${isSelected ? ' selected' : ''}`}
-                onClick={() => selectItem(group, itemValue ?? null, item)}
-                onMouseOver={() => (mouseInteractionsEnabled ? setIndex(rowIndex) : null)}
-                style={style}
+                {...commonDivProps}
                 data-attr={`prop-filter-${listGroupType}-${rowIndex}`}
-                ref={isHighlighted ? setReferenceElement : null}
+                onClick={() => selectItem(group, itemValue ?? null, item)}
             >
                 {renderItemContents({
                     item,
                     listGroupType,
-                    featureFlags,
+                    group,
                     eventNames,
                 })}
             </div>
+        ) : !item && rowIndex === totalListCount - 1 && isExpandable && !isLoading ? (
+            <div
+                {...commonDivProps}
+                className={`${commonDivProps.className} expand-row`}
+                data-attr={`expand-list-${listGroupType}`}
+                onClick={expand}
+            >
+                {group.expandLabel?.({ count: totalResultCount, expandedCount }) ??
+                    `Click here to see ${expandedCount - totalResultCount} more ${pluralize(
+                        expandedCount - totalResultCount,
+                        'row',
+                        'rows',
+                        false
+                    )}`}
+            </div>
         ) : (
             <div
-                key={`skeleton_${rowIndex}`}
-                className={`taxonomic-list-row skeleton-row${rowIndex === index ? ' hover' : ''}`}
-                onMouseOver={() => mouseInteractionsEnabled && setIndex(rowIndex)}
-                style={style}
+                {...commonDivProps}
+                className={`${commonDivProps.className} skeleton-row`}
                 data-attr={`prop-skeleton-${listGroupType}-${rowIndex}`}
             >
                 <Skeleton active title={false} paragraph={{ rows: 1 }} />
@@ -306,7 +267,10 @@ export function InfiniteList(): JSX.Element {
     }
 
     return (
-        <div className={`taxonomic-infinite-list${showEmptyState ? ' empty-infinite-list' : ''}`}>
+        <div
+            className={clsx('taxonomic-infinite-list', showEmptyState && 'empty-infinite-list')}
+            style={{ flexGrow: 1 }}
+        >
             {showEmptyState ? (
                 <div className="no-infinite-results">
                     <Empty
@@ -329,9 +293,9 @@ export function InfiniteList(): JSX.Element {
                         <List
                             width={width}
                             height={height}
-                            rowCount={isLoading && totalCount === 0 ? 7 : totalCount}
+                            rowCount={isLoading && totalListCount === 0 ? 7 : totalListCount}
                             overscanRowCount={100}
-                            rowHeight={32}
+                            rowHeight={36} // LemonRow heights
                             rowRenderer={renderItem}
                             onRowsRendered={onRowsRendered}
                             scrollToIndex={index}
@@ -341,31 +305,36 @@ export function InfiniteList(): JSX.Element {
             )}
             {isActiveTab &&
             selectedItemInView &&
-            selectedItemHasPopup(selectedItem, listGroupType, group, showNewPopups) &&
-            tooltipDesiredState(referenceElement) !== ListTooltip.None
-                ? ReactDOM.createPortal(
-                      <Provider>
-                          <div
-                              className="popper-tooltip click-outside-block Popup Popup__box"
-                              ref={setPopperElement}
-                              style={{ ...styles.popper, transition: 'none' }}
-                              {...attributes.popper}
-                          >
-                              {selectedItem && group
-                                  ? showNewPopups
-                                      ? renderItemPopup(
-                                            selectedItem,
-                                            listGroupType,
-                                            group,
-                                            hasAvailableFeature(AvailableFeature.INGESTION_TAXONOMY)
-                                        )
-                                      : renderItemPopupWithoutTaxonomy(selectedItem, listGroupType, group)
-                                  : null}
-                          </div>
-                      </Provider>,
-                      document.querySelector('body') as HTMLElement
-                  )
-                : null}
+            selectedItemHasPopup(selectedItem, listGroupType, group) &&
+            tooltipDesiredState(referenceElement) !== ListTooltip.None &&
+            showPopover ? (
+                <Provider>
+                    {ReactDOM.createPortal(
+                        selectedItem && group ? (
+                            <BindLogic
+                                logic={definitionPopupLogic}
+                                props={{
+                                    type: listGroupType,
+                                    updateRemoteItem,
+                                }}
+                            >
+                                <ControlledDefinitionPopupContents
+                                    item={selectedItem}
+                                    group={group}
+                                    popper={{
+                                        styles: styles.popper,
+                                        attributes: attributes.popper,
+                                        forceUpdate,
+                                        setRef: setPopperElement,
+                                        ref: popperElement,
+                                    }}
+                                />
+                            </BindLogic>
+                        ) : null,
+                        document.querySelector('body') as HTMLElement
+                    )}
+                </Provider>
+            ) : null}
         </div>
     )
 }

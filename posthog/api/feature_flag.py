@@ -7,15 +7,26 @@ from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
+from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.auth import PersonalAPIKeyAuthentication, TemporaryTokenAuthentication
 from posthog.event_usage import report_user_action
 from posthog.mixins import AnalyticsDestroyModelMixin
-from posthog.models import FeatureFlag
+from posthog.models import Experiment, FeatureFlag
+from posthog.models.activity_logging.activity_log import (
+    ActivityPage,
+    Detail,
+    changes_between,
+    load_activity,
+    log_activity,
+)
+from posthog.models.activity_logging.serializers import ActivityLogSerializer
+from posthog.models.cohort import Cohort
 from posthog.models.feature_flag import FeatureFlagOverride
 from posthog.models.property import Property
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
+from posthog.utils import format_query_params_absolute_url
 
 
 class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
@@ -24,6 +35,11 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
     filters = serializers.DictField(source="get_filters", required=False)
     is_simple_flag = serializers.SerializerMethodField()
     rollout_percentage = serializers.SerializerMethodField()
+    name = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="contains the description for the flag (field name `name` is kept for backwards-compatibility)",
+    )
 
     class Meta:
         model = FeatureFlag
@@ -71,6 +87,12 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
         return value
 
     def validate_filters(self, filters):
+        # For some weird internal REST framework reason this field gets validated on a partial PATCH call, even if filters isn't being updatd
+        # If we see this, just return the current filters
+        if "groups" not in filters and self.context["request"].method == "PATCH":
+            # mypy cannot tell that self.instance is a FeatureFlag
+            return self.instance.filters  # type: ignore
+
         aggregation_group_type_index = filters.get("aggregation_group_type_index", None)
 
         def properties_all_match(predicate):
@@ -91,9 +113,25 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
             if not is_valid:
                 raise serializers.ValidationError("Filters are not valid (can only use group properties)")
 
+        for condition in filters["groups"]:
+            for property in condition.get("properties", []):
+                prop = Property(**property)
+                if prop.type == "cohort":
+                    try:
+                        cohort: Cohort = Cohort.objects.get(pk=prop.value, team_id=self.context["team_id"])
+                        if [prop for prop in cohort.properties.flat if prop.type == "behavioral"]:
+                            raise serializers.ValidationError(
+                                detail=f"Cohort '{cohort.name}' with behavioral filters cannot be used in feature flags.",
+                                code="behavioral_cohort_found",
+                            )
+                    except Cohort.DoesNotExist:
+                        raise serializers.ValidationError(
+                            detail=f"Cohort with id {prop.value} does not exist", code="cohort_does_not_exist"
+                        )
         return filters
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> FeatureFlag:
+
         request = self.context["request"]
         validated_data["created_by"] = request.user
         validated_data["team_id"] = self.context["team_id"]
@@ -110,7 +148,8 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
             )
 
         FeatureFlag.objects.filter(key=validated_data["key"], team=self.context["team_id"], deleted=True).delete()
-        instance = super().create(validated_data)
+        instance: FeatureFlag = super().create(validated_data)
+        instance.update_cohorts()
 
         report_user_action(
             request.user, "feature flag created", instance.get_analytics_metadata(),
@@ -125,6 +164,10 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
             FeatureFlag.objects.filter(key=validated_key, team=instance.team, deleted=True).delete()
         self._update_filters(validated_data)
         instance = super().update(instance, validated_data)
+        instance.update_cohorts()
+
+        if validated_data.get("deleted", False):
+            Experiment.objects.filter(feature_flag=instance).delete()
 
         report_user_action(
             request.user, "feature flag updated", instance.get_analytics_metadata(),
@@ -136,9 +179,11 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
             validated_data["filters"] = validated_data.pop("get_filters")
 
 
-class FeatureFlagViewSet(StructuredViewSetMixin, AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
+class FeatureFlagViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     """
     Create, read, update and delete feature flags. [See docs](https://posthog.com/docs/user-guides/feature-flags) for more information on feature flags.
+
+    If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
     """
 
     queryset = FeatureFlag.objects.all()
@@ -192,6 +237,79 @@ class FeatureFlagViewSet(StructuredViewSetMixin, AnalyticsDestroyModelMixin, vie
                 }
             )
         return Response(flags)
+
+    @action(methods=["GET"], url_path="activity", detail=False)
+    def all_activity(self, request: request.Request, **kwargs):
+        limit = int(request.query_params.get("limit", "10"))
+        page = int(request.query_params.get("page", "1"))
+
+        activity_page = load_activity(scope="FeatureFlag", team_id=self.team_id, limit=limit, page=page)
+
+        return self._return_activity_page(activity_page, limit, page, request)
+
+    @action(methods=["GET"], detail=True)
+    def activity(self, request: request.Request, **kwargs):
+        limit = int(request.query_params.get("limit", "10"))
+        page = int(request.query_params.get("page", "1"))
+
+        item_id = kwargs["pk"]
+        if not FeatureFlag.objects.filter(id=item_id, team_id=self.team_id).exists():
+            return Response("", status=status.HTTP_404_NOT_FOUND)
+
+        activity_page = load_activity(
+            scope="FeatureFlag", team_id=self.team_id, item_id=item_id, limit=limit, page=page
+        )
+        return self._return_activity_page(activity_page, limit, page, request)
+
+    @staticmethod
+    def _return_activity_page(activity_page: ActivityPage, limit: int, page: int, request: request.Request) -> Response:
+        return Response(
+            {
+                "results": ActivityLogSerializer(activity_page.results, many=True,).data,
+                "next": format_query_params_absolute_url(request, page + 1, limit, offset_alias="page")
+                if activity_page.has_next
+                else None,
+                "previous": format_query_params_absolute_url(request, page - 1, limit, offset_alias="page")
+                if activity_page.has_previous
+                else None,
+                "total_count": activity_page.total_count,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    def perform_create(self, serializer):
+        serializer.save()
+        log_activity(
+            organization_id=self.organization.id,
+            team_id=self.team_id,
+            user=serializer.context["request"].user,
+            item_id=serializer.instance.id,
+            scope="FeatureFlag",
+            activity="created",
+            detail=Detail(name=serializer.instance.key),
+        )
+
+    def perform_update(self, serializer):
+        instance_id = serializer.instance.id
+
+        try:
+            before_update = FeatureFlag.objects.get(pk=instance_id)
+        except FeatureFlag.DoesNotExist:
+            before_update = None
+
+        serializer.save()
+
+        changes = changes_between("FeatureFlag", previous=before_update, current=serializer.instance)
+
+        log_activity(
+            organization_id=self.organization.id,
+            team_id=self.team_id,
+            user=serializer.context["request"].user,
+            item_id=instance_id,
+            scope="FeatureFlag",
+            activity="updated",
+            detail=Detail(changes=changes, name=serializer.instance.key),
+        )
 
 
 class FeatureFlagOverrideSerializer(serializers.ModelSerializer):

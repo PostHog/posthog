@@ -30,7 +30,7 @@ function processOneEvent(
 async function processCountEvents(piscina: ReturnType<typeof makePiscina>, count: number, batchSize = 1) {
     const maxPromises = 1000
     const promises = Array(maxPromises)
-    const processEvent = (event: PluginEvent) => piscina.run({ task: 'processEvent', args: { event } })
+    const processEvent = (event: PluginEvent) => piscina.run({ task: '_testsRunProcessEvent', args: { event } })
 
     const groups = Math.ceil((count * batchSize) / maxPromises)
     for (let j = 0; j < groups; j++) {

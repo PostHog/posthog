@@ -5,7 +5,6 @@ from typing import Dict, Generator, List, Optional, Set, Tuple
 
 import structlog
 
-from ee.clickhouse.client import sync_execute
 from ee.clickhouse.materialized_columns.columns import (
     backfill_materialized_columns,
     get_materialized_columns,
@@ -19,6 +18,7 @@ from ee.settings import (
     MATERIALIZE_COLUMNS_MAX_AT_ONCE,
     MATERIALIZE_COLUMNS_MINIMUM_QUERY_TIME,
 )
+from posthog.client import sync_execute
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.property import PropertyName, TableWithProperties
 from posthog.models.property_definition import PropertyDefinition

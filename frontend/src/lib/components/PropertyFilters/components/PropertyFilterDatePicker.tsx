@@ -1,10 +1,9 @@
 import generatePicker from 'antd/lib/date-picker/generatePicker'
-import { dayjs, now } from 'lib/dayjs'
-import dayjsGenerateConfig from 'rc-picker/es/generate/dayjs'
+import { dayjs } from 'lib/dayjs'
+import dayjsGenerateConfig from 'rc-picker/lib/generate/dayjs'
 import React, { useEffect, useState } from 'react'
-import { dateMapping, isOperatorDate } from 'lib/utils'
+import { isOperatorDate } from 'lib/utils'
 import { LemonSwitch } from 'lib/components/LemonSwitch/LemonSwitch'
-import { Select } from 'antd'
 import { PropertyOperator } from '~/types'
 import { PropertyValueProps } from 'lib/components/PropertyFilters/components/PropertyValue'
 
@@ -41,7 +40,7 @@ export function PropertyFilterDatePicker({
     const valueIsYYYYMMDD = narrowToString(value) && value?.length === 10
 
     const [datePickerOpen, setDatePickerOpen] = useState(operator && isOperatorDate(operator) && autoFocus)
-    const [datePickerStartingValue] = useState(dayJSMightParse(value) ? dayjs(value) : null)
+    const [datePickerValue, setDatePickerValue] = useState(dayJSMightParse(value) ? dayjs(value) : undefined)
     const [includeTimeInFilter, setIncludeTimeInFilter] = useState(!!value && !valueIsYYYYMMDD)
     const [dateFormat, setDateFormat] = useState(valueIsYYYYMMDD ? onlyDateFormat : dateAndTimeFormat)
 
@@ -61,10 +60,11 @@ export function PropertyFilterDatePicker({
             showTime={includeTimeInFilter}
             showNow={false}
             showToday={false}
-            value={datePickerStartingValue}
+            value={datePickerValue}
             onFocus={() => setDatePickerOpen(true)}
             onBlur={() => setDatePickerOpen(false)}
             onOk={(selectedDate) => {
+                setDatePickerValue(selectedDate)
                 setValue(selectedDate.format(dateFormat))
                 setDatePickerOpen(false)
             }}
@@ -75,6 +75,7 @@ export function PropertyFilterDatePicker({
                 if (includeTimeInFilter) {
                     return // we wait for a click on OK
                 }
+                setDatePickerValue(selectedDate)
                 setValue(selectedDate.format(dateFormat))
                 setDatePickerOpen(false)
             }}
@@ -83,41 +84,13 @@ export function PropertyFilterDatePicker({
                 return container ?? document.body
             }}
             renderExtraFooter={() => (
-                <>
-                    <LemonSwitch
-                        label="Include time?"
-                        checked={includeTimeInFilter}
-                        onChange={(active) => {
-                            setIncludeTimeInFilter(active)
-                        }}
-                    />
-                    <span>Quick choices: </span>{' '}
-                    <Select
-                        bordered={true}
-                        style={{ width: '100%', paddingBottom: '1rem' }}
-                        onSelect={(selectedRelativeRange) => {
-                            const matchedMapping = dateMapping[String(selectedRelativeRange)]
-                            const formattedForDateFilter =
-                                matchedMapping?.getFormattedDate && matchedMapping?.getFormattedDate(now(), dateFormat)
-                            setValue(formattedForDateFilter?.split(' - ')[0])
-                        }}
-                        placeholder={'e.g. 7 days ago'}
-                    >
-                        {[
-                            ...Object.entries(dateMapping).map(([key, { inactive }]) => {
-                                if (key === 'Custom' || key == 'All time' || inactive) {
-                                    return null
-                                }
-
-                                return (
-                                    <Select.Option key={key} value={key}>
-                                        {key.startsWith('Last') ? key.replace('Last ', '') + ' ago' : key}
-                                    </Select.Option>
-                                )
-                            }),
-                        ]}
-                    </Select>
-                </>
+                <LemonSwitch
+                    label="Include time?"
+                    checked={includeTimeInFilter}
+                    onChange={(active) => {
+                        setIncludeTimeInFilter(active)
+                    }}
+                />
             )}
         />
     )

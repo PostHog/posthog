@@ -1,0 +1,116 @@
+# name: TagsTestCase.test_backfill_primary_dashboard
+  '
+  
+  SELECT c.relname,
+         CASE
+             WHEN c.relispartition THEN 'p'
+             WHEN c.relkind IN ('m',
+                                'v') THEN 'v'
+             ELSE 't'
+         END
+  FROM pg_catalog.pg_class c
+  LEFT JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+  WHERE c.relkind IN ('f',
+                      'm',
+                      'p',
+                      'r',
+                      'v')
+    AND n.nspname NOT IN ('pg_catalog',
+                          'pg_toast')
+    AND pg_catalog.pg_table_is_visible(c.oid)
+  '
+---
+# name: TagsTestCase.test_backfill_primary_dashboard.1
+  '
+  
+  SELECT posthog_team.id,
+         COALESCE(MIN(CASE
+                          WHEN posthog_dashboard.pinned THEN posthog_dashboard.id
+                          ELSE NULL
+                      END), MIN(CASE
+                                    WHEN NOT posthog_dashboard.pinned THEN posthog_dashboard.id
+                                    ELSE NULL
+                                END)) AS primary_dashboard_id
+  FROM posthog_team
+  INNER JOIN posthog_dashboard ON posthog_dashboard.team_id = posthog_team.id
+  WHERE posthog_team.primary_dashboard_id IS NULL
+  GROUP BY posthog_team.id
+  '
+---
+# name: TagsTestCase.test_backfill_primary_dashboard.2
+  '
+  SELECT "posthog_team"."id",
+         "posthog_team"."primary_dashboard_id"
+  FROM "posthog_team"
+  WHERE "posthog_team"."id" IN (1,
+                                2,
+                                3,
+                                4,
+                                5 /* ... */)
+  '
+---
+# name: TagsTestCase.test_backfill_primary_dashboard.3
+  '
+  SELECT "posthog_team"."id",
+         "posthog_team"."primary_dashboard_id"
+  FROM "posthog_team"
+  WHERE "posthog_team"."id" IN (1,
+                                2,
+                                3,
+                                4,
+                                5 /* ... */)
+  '
+---
+# name: TagsTestCase.test_backfill_primary_dashboard.4
+  '
+  
+  SELECT c.relname,
+         CASE
+             WHEN c.relispartition THEN 'p'
+             WHEN c.relkind IN ('m',
+                                'v') THEN 'v'
+             ELSE 't'
+         END
+  FROM pg_catalog.pg_class c
+  LEFT JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+  WHERE c.relkind IN ('f',
+                      'm',
+                      'p',
+                      'r',
+                      'v')
+    AND n.nspname NOT IN ('pg_catalog',
+                          'pg_toast')
+    AND pg_catalog.pg_table_is_visible(c.oid)
+  '
+---
+# name: TagsTestCase.test_backfill_primary_dashboard.5
+  '
+  
+  SELECT c.relname,
+         CASE
+             WHEN c.relispartition THEN 'p'
+             WHEN c.relkind IN ('m',
+                                'v') THEN 'v'
+             ELSE 't'
+         END
+  FROM pg_catalog.pg_class c
+  LEFT JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+  WHERE c.relkind IN ('f',
+                      'm',
+                      'p',
+                      'r',
+                      'v')
+    AND n.nspname NOT IN ('pg_catalog',
+                          'pg_toast')
+    AND pg_catalog.pg_table_is_visible(c.oid)
+  '
+---
+# name: TagsTestCase.test_backfill_primary_dashboard.6
+  '
+  SELECT "django_migrations"."id",
+         "django_migrations"."app",
+         "django_migrations"."name",
+         "django_migrations"."applied"
+  FROM "django_migrations"
+  '
+---

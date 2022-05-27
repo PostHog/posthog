@@ -1,7 +1,5 @@
 @import '~/vars';
 
-// TODO: Clean up unused styles after `5730-funnel-horizontal-ui` & `5733-funnel-vertical-breakdown` are released or discarded.
-
 $label_position_offset: 8px;
 $series_container_width: 3rem;
 $glyph_margin_top: 10px;
@@ -33,13 +31,35 @@ $funnel_canvas_background: #fff;
         }
     }
 
-    // Layout: horizontal bars
     .funnel-step {
         position: relative;
         padding-left: $series_container_width;
 
+        .step-stat {
+            display: flex;
+            align-items: baseline;
+        }
+
         .graph-series-glyph {
             z-index: 2;
+        }
+
+        .funnel-conversion-metadata {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+
+            .funnel-inspect-button {
+                padding: 0 4px 0 0;
+                .value-inspector-button-icon {
+                    font-size: 1.5rem;
+                    margin-right: 0.25rem;
+                    vertical-align: -0.25em;
+                }
+            }
+            .conversion-metadata-caption {
+                padding-left: 3px;
+            }
         }
 
         .funnel-series-container {
@@ -156,6 +176,10 @@ $funnel_canvas_background: #fff;
             .property-key-info {
                 flex-wrap: wrap;
             }
+
+            button {
+                margin-left: 0.375rem;
+            }
         }
     }
 
@@ -199,152 +223,6 @@ $funnel_canvas_background: #fff;
                 &.outside {
                     left: calc(100% + #{$label_position_offset});
                     color: $funnel_default;
-                }
-            }
-        }
-    }
-
-    // Layout: vertical bars (inherits and overrides horizontal styles)
-    &.vertical {
-        display: flex;
-        overflow-x: auto;
-
-        .funnel-step {
-            width: 30%;
-            min-width: 200px;
-            display: flex;
-            flex-direction: column;
-
-            .funnel-inner-viz {
-                // Moves the series metadata (numbers) on top of the bars
-                display: flex;
-                flex-direction: column-reverse;
-                flex-grow: 1;
-            }
-
-            .funnel-series-container {
-                position: absolute;
-                left: 0;
-                top: 0;
-                height: 100%;
-                width: $series_container_width;
-                display: flex;
-                flex-direction: column;
-                align-items: center;
-
-                .funnel-series-linebox.after {
-                    height: calc(100% - #{$glyph_margin_top} - #{$glyph_height} / 2);
-                }
-            }
-
-            .funnel-conversion-metadata {
-                font-size: 1rem;
-                display: block;
-                margin-bottom: $default_spacing / 2;
-
-                .funnel-inspect-button {
-                    font-size: 1.1rem;
-                    margin-left: -2em;
-
-                    .value-inspector-button-icon {
-                        background-color: $funnel_canvas_background; // Ensures the series line gets cut off
-                        padding: 4px 0;
-                        margin-right: 1rem;
-                    }
-                }
-
-                .conversion-metadata-caption {
-                    font-size: 0.75em;
-                }
-            }
-
-            .funnel-step-metadata {
-                line-height: 1;
-                align-items: flex-start;
-                justify-content: flex-start;
-
-                .ant-btn.funnel-inspect-button {
-                    padding: 0;
-                    height: unset;
-                    padding-right: 0.25rem;
-                }
-            }
-
-            header,
-            footer {
-                min-height: 0;
-            }
-
-            header {
-                flex-wrap: wrap;
-                margin: 0.4em 0;
-                height: 3.4em;
-                align-items: flex-start;
-
-                .property-key-info {
-                    margin-bottom: 0.5em;
-                }
-            }
-        }
-
-        .funnel-bar-wrapper {
-            width: 164px;
-            max-width: 100%;
-            flex-grow: 1;
-            position: relative;
-            flex-direction: column-reverse;
-
-            .funnel-bar {
-                height: unset;
-                width: 100%;
-
-                &.first {
-                    border-radius: 0 0 4px 4px;
-                }
-
-                &.last {
-                    border-radius: 4px 4px 0 0;
-                }
-
-                .funnel-bar-percentage {
-                    top: unset;
-                    width: 100%;
-                    text-align: center;
-
-                    &.inside {
-                        right: unset;
-                        top: $label_position_offset;
-                    }
-
-                    &.outside {
-                        left: unset;
-                        bottom: calc(100% + #{$label_position_offset});
-                    }
-                }
-            }
-        }
-    }
-
-    &.horizontal {
-        .funnel-step {
-            .step-stat {
-                display: flex;
-                align-items: baseline;
-            }
-
-            .funnel-conversion-metadata {
-                display: flex;
-                align-items: center;
-                justify-content: space-between;
-
-                .funnel-inspect-button {
-                    padding: 0 4px 0 0;
-                    .value-inspector-button-icon {
-                        padding-right: 8px;
-                    }
-                }
-                .conversion-metadata-caption {
-                    padding-left: 3px;
                 }
             }
         }

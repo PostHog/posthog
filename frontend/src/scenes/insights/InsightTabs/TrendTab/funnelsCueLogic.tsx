@@ -5,7 +5,6 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import posthog from 'posthog-js'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { toParams } from 'lib/utils'
 import { funnelsCueLogicType } from './funnelsCueLogicType'
 
 export const funnelsCueLogic = kea<funnelsCueLogicType>({
@@ -17,18 +16,11 @@ export const funnelsCueLogic = kea<funnelsCueLogicType>({
         actions: [insightLogic(props), ['setFilters'], featureFlagLogic, ['setFeatureFlags']],
     }),
     actions: {
-        setDestPath: (path: string) => ({ path }),
         optOut: (userOptedOut: boolean) => ({ userOptedOut }),
         setShouldShow: (show: boolean) => ({ show }),
         setPermanentOptOut: true,
     },
     reducers: {
-        destPath: [
-            '',
-            {
-                setDestPath: (_, { path }) => path,
-            },
-        ],
         _shouldShow: [
             false,
             {
@@ -50,9 +42,6 @@ export const funnelsCueLogic = kea<funnelsCueLogicType>({
             actions.setPermanentOptOut()
         },
         setFilters: async ({ filters }) => {
-            if (!values.featureFlags[FEATURE_FLAGS.FUNNELS_CUE_ENABLED]) {
-                return
-            }
             const step_count = (filters.events?.length ?? 0) + (filters.actions?.length ?? 0)
             if (!values.isFirstLoad && filters.insight === InsightType.TRENDS && step_count >= 3) {
                 actions.setShouldShow(true)
@@ -80,16 +69,6 @@ export const funnelsCueLogic = kea<funnelsCueLogicType>({
             if (values.featureFlags[FEATURE_FLAGS.FUNNELS_CUE_OPT_OUT]) {
                 actions.setPermanentOptOut()
             }
-        },
-    }),
-    urlToAction: ({ actions }) => ({
-        '/insights': (_: any, searchParams: Record<string, any>, hashParams: Record<string, any>) => {
-            actions.setDestPath(
-                `/insights?${toParams({ ...searchParams, insight: InsightType.FUNNELS })}#${toParams({
-                    ...hashParams,
-                    funnelCue: '7301',
-                })}`
-            )
         },
     }),
 })

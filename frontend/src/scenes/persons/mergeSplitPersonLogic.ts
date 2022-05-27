@@ -1,10 +1,10 @@
 import { kea } from 'kea'
 import { router } from 'kea-router'
 import api from 'lib/api'
-import { successToast } from 'lib/utils'
+import { lemonToast } from 'lib/components/lemonToast'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { PersonType } from '~/types'
-import { mergeSplitPersonLogicType } from './mergeSplitPersonLogicType'
+import type { mergeSplitPersonLogicType } from './mergeSplitPersonLogicType'
 import { personsLogic } from './personsLogic'
 
 export enum ActivityType {
@@ -12,16 +12,16 @@ export enum ActivityType {
     MERGE = 'merge',
 }
 
-interface SplitPersonLogicProps {
+export interface SplitPersonLogicProps {
     person: PersonType
 }
 
-type PersonIds = NonNullable<PersonType['id']>[]
+export type PersonIds = NonNullable<PersonType['id']>[]
 
-export const mergeSplitPersonLogic = kea<mergeSplitPersonLogicType<ActivityType, PersonIds, SplitPersonLogicProps>>({
+export const mergeSplitPersonLogic = kea<mergeSplitPersonLogicType>({
     props: {} as SplitPersonLogicProps,
-    key: (props) => props.person.id,
-    path: (key) => ['scenes', 'persons', 'mergeSplitPersonLogic', key || 'new'],
+    key: (props) => props.person.id ?? 'new',
+    path: (key) => ['scenes', 'persons', 'mergeSplitPersonLogic', key],
     connect: () => ({
         actions: [
             personsLogic({ syncWithUrl: true }),
@@ -37,7 +37,7 @@ export const mergeSplitPersonLogic = kea<mergeSplitPersonLogicType<ActivityType,
     },
     reducers: ({ props }) => ({
         activity: [
-            ActivityType.MERGE,
+            ActivityType.MERGE as ActivityType,
             {
                 setActivity: (_, { activity }) => activity,
             },
@@ -76,10 +76,7 @@ export const mergeSplitPersonLogic = kea<mergeSplitPersonLogicType<ActivityType,
                             ids: values.selectedPersonsToMerge,
                         })
                         if (newPerson.id) {
-                            successToast(
-                                'Persons succesfully merged.',
-                                'All users have been succesfully merged. Changes should take effect immediately.'
-                            )
+                            lemonToast.success('Persons have been merged')
                             eventUsageLogic.actions.reportPersonMerged(values.selectedPersonsToMerge.length)
                             actions.setSplitMergeModalShown(false)
                             actions.setPerson(newPerson)
@@ -92,9 +89,8 @@ export const mergeSplitPersonLogic = kea<mergeSplitPersonLogicType<ActivityType,
                                 : {}),
                         })
                         if (splitAction.success) {
-                            successToast(
-                                'Person succesfully split.',
-                                'We are in the process of splitting this person. It may take up to a couple of minutes to complete.'
+                            lemonToast.success(
+                                'Person succesfully split. This may take up to a couple of minutes to complete'
                             )
                             eventUsageLogic.actions.reportPersonSplit(values.person.distinct_ids.length)
                             actions.setSplitMergeModalShown(false)

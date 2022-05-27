@@ -42,6 +42,6 @@ describe('Signup', () => {
         cy.get('[data-attr=signup-organization-name]').type('Hogflix SpinOff').should('have.value', 'Hogflix SpinOff')
         cy.get('[data-attr=signup-submit]').click()
 
-        cy.location('pathname').should('match', /(\/personalization)|(\/ingestion)/)
+        cy.location('pathname').should('eq', '/ingestion')
     })
 })

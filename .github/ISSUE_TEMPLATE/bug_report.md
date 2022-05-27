@@ -9,10 +9,6 @@ labels: bug
 *Please describe.*  
 *If this affects the front-end, screenshots would be of great help.*  
 
-## Expected behavior
-
-
-
 ## How to reproduce
 
 1.

@@ -1,5 +1,5 @@
-import React, { useState } from 'react'
-import { Row, Table } from 'antd'
+import React, { useEffect, useState } from 'react'
+import { Col, Row, Table } from 'antd'
 import Column from 'antd/lib/table/Column'
 import { useActions, useValues } from 'kea'
 import { RiseOutlined, FallOutlined, EllipsisOutlined, InfoCircleOutlined } from '@ant-design/icons'
@@ -7,7 +7,7 @@ import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { FunnelCorrelation, FunnelCorrelationResultsType, FunnelCorrelationType } from '~/types'
 import Checkbox from 'antd/lib/checkbox/Checkbox'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { ValueInspectorButton } from 'scenes/funnels/FunnelBarGraph'
+import { ValueInspectorButton } from 'scenes/funnels/ValueInspectorButton'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { PropertyNamesSelect } from 'lib/components/PropertyNamesSelect/PropertyNamesSelect'
 import { IconSelectProperties } from 'lib/components/icons'
@@ -37,9 +37,18 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
         aggregationTargetLabel,
     } = useValues(logic)
 
-    const { setPropertyCorrelationTypes, setPropertyNames, openCorrelationPersonsModal } = useActions(logic)
+    const { setPropertyCorrelationTypes, setPropertyNames, openCorrelationPersonsModal, loadPropertyCorrelations } =
+        useActions(logic)
 
     const { reportCorrelationInteraction } = useActions(eventUsageLogic)
+
+    // Load correlations only if this component is mounted, and then reload if filters change
+    useEffect(() => {
+        if (propertyNames.length === 0) {
+            setPropertyNames(allProperties)
+        }
+        loadPropertyCorrelations({})
+    }, [filters])
 
     const onClickCorrelationType = (correlationType: FunnelCorrelationType): void => {
         if (propertyCorrelationTypes) {
@@ -123,66 +132,72 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
     return stepsWithCount.length > 1 ? (
         <VisibilitySensor offset={150} id={`${correlationPropKey}-properties`}>
             <div className="funnel-correlation-table">
-                <span className="funnel-correlation-header">
-                    <span className="table-header">
+                <Row className="funnel-correlation-header">
+                    <Col className="table-header">
                         <IconSelectProperties style={{ marginRight: 4, opacity: 0.5, fontSize: 24 }} />
                         CORRELATED PROPERTIES
-                    </span>
-                    <span className="table-options">
-                        {allProperties.length > 0 && (
-                            <>
-                                <p className="title">PROPERTIES </p>
-                                <PropertyNamesSelect
-                                    value={new Set(propertyNames)}
-                                    onChange={(selectedProperties: string[]) => setPropertyNames(selectedProperties)}
-                                    allProperties={inversePropertyNames(excludedPropertyNames || [])}
-                                />
-                            </>
-                        )}
-                        <p className="title" style={{ marginLeft: 8 }}>
-                            CORRELATION
-                        </p>
-                        <div
-                            className="tab-btn ant-btn"
-                            style={{
-                                paddingTop: '1px',
-                                paddingBottom: '1px',
-                                borderTopRightRadius: 0,
-                                borderBottomRightRadius: 0,
-                            }}
-                            onClick={() => onClickCorrelationType(FunnelCorrelationType.Success)}
-                        >
-                            <Checkbox
-                                checked={propertyCorrelationTypes.includes(FunnelCorrelationType.Success)}
+                    </Col>
+                    <Col className="table-options">
+                        <Row style={{ display: 'contents' }}>
+                            {allProperties.length > 0 && (
+                                <>
+                                    <p className="title">PROPERTIES </p>
+                                    <PropertyNamesSelect
+                                        value={new Set(propertyNames)}
+                                        onChange={(selectedProperties: string[]) =>
+                                            setPropertyNames(selectedProperties)
+                                        }
+                                        allProperties={inversePropertyNames(excludedPropertyNames || [])}
+                                    />
+                                </>
+                            )}
+                        </Row>
+                        <Row style={{ display: 'contents' }}>
+                            <p className="title" style={{ marginLeft: 8 }}>
+                                CORRELATION
+                            </p>
+                            <div
+                                className="tab-btn ant-btn"
                                 style={{
-                                    pointerEvents: 'none',
+                                    paddingTop: '1px',
+                                    paddingBottom: '1px',
+                                    borderTopRightRadius: 0,
+                                    borderBottomRightRadius: 0,
                                 }}
+                                onClick={() => onClickCorrelationType(FunnelCorrelationType.Success)}
                             >
-                                Success
-                            </Checkbox>
-                        </div>
-                        <div
-                            className="tab-btn ant-btn"
-                            style={{
-                                marginRight: '8px',
-                                paddingTop: '1px',
-                                paddingBottom: '1px',
-                                borderTopLeftRadius: 0,
-                                borderBottomLeftRadius: 0,
-                            }}
-                            onClick={() => onClickCorrelationType(FunnelCorrelationType.Failure)}
-                        >
-                            <Checkbox
-                                checked={propertyCorrelationTypes.includes(FunnelCorrelationType.Failure)}
+                                <Checkbox
+                                    checked={propertyCorrelationTypes.includes(FunnelCorrelationType.Success)}
+                                    style={{
+                                        pointerEvents: 'none',
+                                    }}
+                                >
+                                    Success
+                                </Checkbox>
+                            </div>
+                            <div
+                                className="tab-btn ant-btn"
                                 style={{
-                                    pointerEvents: 'none',
+                                    marginRight: '8px',
+                                    paddingTop: '1px',
+                                    paddingBottom: '1px',
+                                    borderTopLeftRadius: 0,
+                                    borderBottomLeftRadius: 0,
                                 }}
+                                onClick={() => onClickCorrelationType(FunnelCorrelationType.Failure)}
                             >
-                                Dropoff
-                            </Checkbox>
-                        </div>
-                    </span>
-                </span>
+                                <Checkbox
+                                    checked={propertyCorrelationTypes.includes(FunnelCorrelationType.Failure)}
+                                    style={{
+                                        pointerEvents: 'none',
+                                    }}
+                                >
+                                    Dropoff
+                                </Checkbox>
+                            </div>
+                        </Row>
+                    </Col>
+                </Row>
                 <Table
                     dataSource={propertyCorrelationValues}
                     loading={propertyCorrelationsLoading}

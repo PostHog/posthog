@@ -1,6 +1,7 @@
 import { kea } from 'kea'
 import api from 'lib/api'
-import { errorToast } from 'lib/utils'
+import { lemonToast } from 'lib/components/lemonToast'
+import { capitalizeFirstLetter } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { webhookIntegrationLogicType } from './webhookIntegrationLogicType'
 
@@ -28,7 +29,7 @@ export const webhookIntegrationLogic = kea<webhookIntegrationLogicType>({
                             } else {
                                 actions.testWebhookFailure(response.error)
                             }
-                        } catch (error) {
+                        } catch (error: any) {
                             actions.testWebhookFailure(error.message)
                         }
                     }
@@ -53,7 +54,7 @@ export const webhookIntegrationLogic = kea<webhookIntegrationLogicType>({
             }
         },
         testWebhookFailure: ({ error }) => {
-            errorToast('Error validating your webhook', 'Your webhook returned the following error response:', error)
+            lemonToast.error(capitalizeFirstLetter(error))
         },
     }),
     selectors: {

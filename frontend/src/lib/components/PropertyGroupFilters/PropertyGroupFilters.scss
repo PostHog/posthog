@@ -1,0 +1,84 @@
+@import '~/vars';
+
+.property-group-filters {
+    .property-group {
+        background-color: $bg_side;
+        padding: $default_spacing / 2;
+        border-radius: 4px;
+    }
+
+    .property-group-and-or-separator {
+        color: $primary_alt;
+        padding: $default_spacing / 2 0px;
+        font-size: 12px;
+        font-weight: 600;
+        position: relative;
+
+        &:before {
+            position: absolute;
+            left: 17px;
+            top: 0;
+            width: 2px;
+            height: 100%;
+            background-color: $border_light;
+            content: ' ';
+        }
+
+        > span {
+            position: relative;
+            display: inline-block;
+            z-index: 1;
+            background-color: var(--bg-light);
+            padding: $default_spacing / 4;
+            width: 35px;
+            text-align: center;
+        }
+    }
+}
+
+.property-group-title {
+    margin-bottom: 0;
+    font-weight: 600;
+    font-size: 12px;
+    color: black;
+}
+
+.and-or-filter {
+    font-weight: 500;
+}
+
+.and-or-filter-select {
+    padding-top: $default_spacing / 2;
+    padding-bottom: $default_spacing / 2;
+
+    .condition-text {
+        font-weight: 700;
+        display: flex;
+        width: 40px;
+        height: 40px;
+        margin-right: 12px;
+        justify-content: center;
+        align-items: center;
+        border-radius: 4px;
+        background-color: $light-grey;
+        color: $primary_alt;
+        font-size: 12px;
+
+        &.selected {
+            background-color: $primary;
+            color: white;
+        }
+    }
+
+    .condition-option {
+        background-color: white;
+        padding: $default_spacing / 2;
+        margin-left: $default_spacing / 2;
+        margin-right: $default_spacing / 2;
+        border-radius: 4px;
+    }
+
+    .ant-select-item-option-active:not(.ant-select-item-option-disabled) {
+        background: #e5ebff;
+    }
+}

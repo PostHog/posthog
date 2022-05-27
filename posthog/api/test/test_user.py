@@ -5,7 +5,7 @@ import pytest
 from django.utils.text import slugify
 from rest_framework import status
 
-from posthog.models import Team, User
+from posthog.models import Tag, Team, User
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.test.base import APIBaseTest
 
@@ -96,22 +96,27 @@ class TestUserAPI(APIBaseTest):
 
         from ee.models import EnterpriseEventDefinition, EnterprisePropertyDefinition
 
-        EnterpriseEventDefinition.objects.create(
-            team=self.team, name="enterprise event", owner=self.user, tags=["deprecated"]
+        enterprise_event = EnterpriseEventDefinition.objects.create(
+            team=self.team, name="enterprise event", owner=self.user
         )
+        tag = Tag.objects.create(name="deprecated", team_id=self.team.id)
+        enterprise_event.tagged_items.create(tag_id=tag.id)
         EnterpriseEventDefinition.objects.create(
             team=self.team, name="a new event", owner=self.user  # I shouldn't be counted
         )
-        EnterprisePropertyDefinition.objects.create(
-            team=self.team,
-            name="a timestamp",
-            property_type="DateTime",
-            description="This is a cool timestamp.",
-            tags=["test", "official"],
+        timestamp_property = EnterprisePropertyDefinition.objects.create(
+            team=self.team, name="a timestamp", property_type="DateTime", description="This is a cool timestamp.",
         )
+        tag_test = Tag.objects.create(name="test", team_id=self.team.id)
+        tag_official = Tag.objects.create(name="official", team_id=self.team.id)
+        timestamp_property.tagged_items.create(tag_id=tag_test.id)
+        timestamp_property.tagged_items.create(tag_id=tag_official.id)
         EnterprisePropertyDefinition.objects.create(
             team=self.team, name="plan", description="The current membership plan the user has active.",
         )
+        tagged_property = EnterprisePropertyDefinition.objects.create(team=self.team, name="property")
+        tag_test2 = Tag.objects.create(name="test2", team_id=self.team.id)
+        tagged_property.tagged_items.create(tag_id=tag_test2.id)
         EnterprisePropertyDefinition.objects.create(
             team=self.team, name="some_prop",  # I shouldn't be counted
         )
@@ -121,7 +126,7 @@ class TestUserAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
         self.assertEqual(response_data["organization"]["metadata"]["taxonomy_set_events_count"], 1)
-        self.assertEqual(response_data["organization"]["metadata"]["taxonomy_set_properties_count"], 2)
+        self.assertEqual(response_data["organization"]["metadata"]["taxonomy_set_properties_count"], 3)
 
     def test_can_only_list_yourself(self):
         """
@@ -546,6 +551,24 @@ class TestUserAPI(APIBaseTest):
         self.assertEqual(response.json(), self.method_not_allowed_response("DELETE"))
 
         self.user.refresh_from_db()
+
+    @patch("posthog.api.user.secrets.token_urlsafe")
+    def test_redirect_user_to_site_with_toolbar(self, patched_token):
+        patched_token.return_value = "tokenvalue"
+
+        response = self.client.get(
+            "/api/user/redirect_to_site/?userIntent=add-action&appUrl=http%3A%2F%2F127.0.0.1%3A8000"
+        )
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        locationHeader = response.headers.get("location", "not found")
+        self.assertIn(
+            "%22jsURL%22%3A%20%22http%3A%2F%2Flocalhost%3A8234%22", locationHeader,
+        )
+        self.maxDiff = None
+        self.assertEqual(
+            locationHeader,
+            "http://127.0.0.1:8000#__posthog=%7B%22action%22%3A%20%22ph_authorize%22%2C%20%22token%22%3A%20%22token123%22%2C%20%22temporaryToken%22%3A%20%22tokenvalue%22%2C%20%22actionId%22%3A%20null%2C%20%22userIntent%22%3A%20%22add-action%22%2C%20%22toolbarVersion%22%3A%20%22toolbar%22%2C%20%22dataAttributes%22%3A%20%5B%22data-attr%22%5D%2C%20%22jsURL%22%3A%20%22http%3A%2F%2Flocalhost%3A8234%22%7D",
+        )
 
 
 class TestUserSlackWebhook(APIBaseTest):

@@ -21,8 +21,8 @@ export interface DateFilterProps {
 }
 
 interface RawDateFilterProps extends DateFilterProps {
-    dateFrom?: string | dayjs.Dayjs
-    dateTo?: string | dayjs.Dayjs
+    dateFrom?: string | null | dayjs.Dayjs
+    dateTo?: string | null | dayjs.Dayjs
 }
 
 export function DateFilter({

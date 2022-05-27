@@ -1,14 +1,10 @@
-from uuid import uuid4
-
-from django.utils import timezone
 from freezegun import freeze_time
 
-from ee.clickhouse.client import sync_execute
 from ee.clickhouse.materialized_columns import materialize
-from ee.clickhouse.models.event import create_event
 from ee.clickhouse.models.group import create_group
 from ee.clickhouse.queries.trends.trend_event_query import TrendsEventQuery
 from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
+from posthog.client import sync_execute
 from posthog.models import Action, ActionStep
 from posthog.models.cohort import Cohort
 from posthog.models.element import Element
@@ -16,17 +12,7 @@ from posthog.models.entity import Entity
 from posthog.models.filters import Filter
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.person import Person
-from posthog.test.base import APIBaseTest
-
-
-def _create_person(**kwargs):
-    person = Person.objects.create(**kwargs)
-    return Person(id=person.uuid, uuid=person.uuid)
-
-
-def _create_event(**kwargs):
-    kwargs.update({"event_uuid": uuid4()})
-    create_event(**kwargs)
+from posthog.test.base import APIBaseTest, _create_event, _create_person
 
 
 def _create_cohort(**kwargs):
@@ -52,7 +38,12 @@ class TestEventQuery(ClickhouseTestMixin, APIBaseTest):
     def _run_query(self, filter: Filter, entity=None):
         entity = entity or filter.entities[0]
 
-        query, params = TrendsEventQuery(filter=filter, entity=entity, team_id=self.team.pk).get_query()
+        query, params = TrendsEventQuery(
+            filter=filter,
+            entity=entity,
+            team=self.team,
+            using_person_on_events=self.team.actor_on_events_querying_enabled,
+        ).get_query()
 
         result = sync_execute(query, params)
 
@@ -140,7 +131,11 @@ class TestEventQuery(ClickhouseTestMixin, APIBaseTest):
     # just smoke test making sure query runs because no new functions are used here
     @snapshot_clickhouse_queries
     def test_cohort_filter(self):
-        cohort = _create_cohort(team=self.team, name="cohort1", groups=[{"properties": {"name": "test"}}])
+        cohort = _create_cohort(
+            team=self.team,
+            name="cohort1",
+            groups=[{"properties": [{"key": "name", "value": "test", "type": "person"}]}],
+        )
 
         filter = Filter(
             data={
@@ -156,7 +151,11 @@ class TestEventQuery(ClickhouseTestMixin, APIBaseTest):
     # just smoke test making sure query runs because no new functions are used here
     @snapshot_clickhouse_queries
     def test_entity_filtered_by_cohort(self):
-        cohort = _create_cohort(team=self.team, name="cohort1", groups=[{"properties": {"name": "test"}}])
+        cohort = _create_cohort(
+            team=self.team,
+            name="cohort1",
+            groups=[{"properties": [{"key": "name", "value": "test", "type": "person"}]}],
+        )
 
         filter = Filter(
             data={
@@ -207,7 +206,11 @@ class TestEventQuery(ClickhouseTestMixin, APIBaseTest):
         _create_event(event="event_name", team=self.team, distinct_id="person_2")
         _create_event(event="event_name", team=self.team, distinct_id="person_2")
 
-        cohort = Cohort.objects.create(team=self.team, name="cohort1", groups=[{"properties": {"name": "Jane"}}])
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="cohort1",
+            groups=[{"properties": [{"key": "name", "value": "Jane", "type": "person"}]}],
+        )
         cohort.calculate_people_ch(pending_version=0)
 
         self.team.test_account_filters = [{"key": "id", "value": cohort.pk, "type": "cohort"}]

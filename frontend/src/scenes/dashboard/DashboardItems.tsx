@@ -12,15 +12,15 @@ import { InsightCard } from 'lib/components/InsightCard'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 
 export function DashboardItems(): JSX.Element {
-    const { items, layouts, dashboardMode, isRefreshing, highlightedInsightId, refreshStatus } =
+    const { dashboard, items, layouts, dashboardMode, isRefreshing, highlightedInsightId, refreshStatus } =
         useValues(dashboardLogic)
     const { updateLayouts, updateContainerWidth, updateItemColor, removeItem, refreshAllDashboardItems } =
         useActions(dashboardLogic)
-    const { duplicateInsight, renameInsight } = useActions(insightsModel)
+    const { duplicateInsight, renameInsight, moveToDashboard } = useActions(insightsModel)
 
     const [resizingItem, setResizingItem] = useState<any>(null)
 
-    // can not click links when dragging and 250ms after
+    // cannot click links when dragging and 250ms after
     const isDragging = useRef(false)
     const dragEndTimeout = useRef<number | null>(null)
     const className = clsx({
@@ -29,6 +29,7 @@ export function DashboardItems(): JSX.Element {
     })
 
     const { width: gridWrapperWidth, ref: gridWrapperRef } = useResizeObserver()
+    const canResizeWidth = !gridWrapperWidth || gridWrapperWidth > BREAKPOINTS['sm']
 
     return (
         <div className="dashboard-items-wrapper" ref={gridWrapperRef}>
@@ -42,13 +43,15 @@ export function DashboardItems(): JSX.Element {
                 margin={[16, 16]}
                 containerPadding={[0, 0]}
                 onLayoutChange={(_, newLayouts) => {
-                    updateLayouts(newLayouts)
+                    if (dashboardMode === DashboardMode.Edit) {
+                        updateLayouts(newLayouts)
+                    }
                 }}
                 onWidthChange={(containerWidth, _, newCols) => {
                     updateContainerWidth(containerWidth, newCols)
                 }}
                 breakpoints={BREAKPOINTS}
-                resizeHandles={['s', 'e', 'se']}
+                resizeHandles={canResizeWidth ? ['s', 'e', 'se'] : ['s']}
                 cols={BREAKPOINT_COLUMN_COUNTS}
                 onResize={(_layout: any, _oldItem: any, newItem: any) => {
                     if (!resizingItem || resizingItem.w !== newItem.w || resizingItem.h !== newItem.h) {
@@ -78,18 +81,26 @@ export function DashboardItems(): JSX.Element {
                     <InsightCard
                         key={item.short_id}
                         insight={item}
+                        dashboardId={dashboard?.id}
                         loading={isRefreshing(item.short_id)}
-                        apiError={refreshStatus[item.short_id]?.error || false}
+                        apiErrored={refreshStatus[item.short_id]?.error || false}
                         highlighted={highlightedInsightId && item.short_id === highlightedInsightId}
                         showResizeHandles={dashboardMode === DashboardMode.Edit}
+                        canResizeWidth={canResizeWidth}
                         updateColor={(color) => updateItemColor(item.id, color)}
-                        removeFromDashboard={() => removeItem(item.id)}
+                        removeFromDashboard={() => removeItem(item)}
                         refresh={() => refreshAllDashboardItems([item])}
                         rename={() => renameInsight(item)}
                         duplicate={() => duplicateInsight(item)}
-                        moveToDashboard={(dashboardId: DashboardType['id']) =>
+                        moveToDashboardOld={(dashboardId: DashboardType['id']) =>
                             duplicateInsight(item, dashboardId, true)
                         }
+                        moveToDashboard={({ id, name }: Pick<DashboardType, 'id' | 'name'>) => {
+                            if (!dashboard) {
+                                throw new Error('must be on a dashboard to move an insight')
+                            }
+                            moveToDashboard(item, dashboard.id, id, name)
+                        }}
                     />
                 ))}
             </ReactGridLayout>

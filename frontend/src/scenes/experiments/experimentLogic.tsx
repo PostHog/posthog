@@ -2,9 +2,6 @@ import { kea } from 'kea'
 import React, { ReactElement } from 'react'
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
-import { errorToast } from 'lib/utils'
-import { generateRandomAnimal } from 'lib/utils/randomAnimal'
-import { toast } from 'react-toastify'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { teamLogic } from 'scenes/teamLogic'
@@ -25,8 +22,9 @@ import {
     SecondaryExperimentMetric,
     AvailableFeature,
     SignificanceCode,
+    SecondaryMetricResult,
 } from '~/types'
-import { experimentLogicType } from './experimentLogicType'
+import type { experimentLogicType } from './experimentLogicType'
 import { router } from 'kea-router'
 import { experimentsLogic } from './experimentsLogic'
 import { FunnelLayout } from 'lib/constants'
@@ -37,11 +35,19 @@ import { Tooltip } from 'lib/components/Tooltip'
 import { InfoCircleOutlined } from '@ant-design/icons'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { groupsModel } from '~/models/groupsModel'
+import { lemonToast } from 'lib/components/lemonToast'
 
 const DEFAULT_DURATION = 14 // days
 
+export interface ExperimentLogicProps {
+    experimentId?: Experiment['id']
+}
+
 export const experimentLogic = kea<experimentLogicType>({
-    path: ['scenes', 'experiment', 'experimentLogic'],
+    props: {} as ExperimentLogicProps,
+    key: (props) => props.experimentId || 'new',
+    path: (key) => ['scenes', 'experiment', 'experimentLogic', key],
+
     connect: {
         values: [
             teamLogic,
@@ -63,9 +69,8 @@ export const experimentLogic = kea<experimentLogicType>({
         setExperimentInsightId: (shortId: InsightShortId) => ({ shortId }),
         createNewExperimentInsight: (filters?: Partial<FilterType>) => ({ filters }),
         setFilters: (filters: Partial<FilterType>) => ({ filters }),
-        setExperimentId: (experimentId: number | 'new') => ({ experimentId }),
         setNewExperimentData: (experimentData: Partial<Experiment>) => ({ experimentData }),
-        updateExperimentGroup: (variant: MultivariateFlagVariant, idx: number) => ({ variant, idx }),
+        updateExperimentGroup: (variant: Partial<MultivariateFlagVariant>, idx: number) => ({ variant, idx }),
         removeExperimentGroup: (idx: number) => ({ idx }),
         setExperimentInsightType: (insightType: InsightType) => ({ insightType }),
         setEditExperiment: (editing: boolean) => ({ editing }),
@@ -77,12 +82,6 @@ export const experimentLogic = kea<experimentLogicType>({
         archiveExperiment: true,
     },
     reducers: {
-        experimentId: [
-            null as number | 'new' | null,
-            {
-                setExperimentId: (_, { experimentId }) => experimentId,
-            },
-        ],
         newExperimentData: [
             null as Partial<Experiment> | null,
             {
@@ -174,7 +173,7 @@ export const experimentLogic = kea<experimentLogicType>({
             },
         ],
         experimentInsightType: [
-            InsightType.FUNNELS as InsightType,
+            InsightType.TRENDS as InsightType,
             {
                 setExperimentInsightType: (_, { insightType }) => insightType,
             },
@@ -195,15 +194,15 @@ export const experimentLogic = kea<experimentLogicType>({
     listeners: ({ values, actions }) => ({
         createExperiment: async ({ draft, runningTime, sampleSize }) => {
             let response: Experiment | null = null
-            const isUpdate = !!values.newExperimentData?.id
+            const isUpdate = !!values.experimentId && values.experimentId !== 'new'
             try {
-                if (values.newExperimentData?.id) {
+                if (isUpdate) {
                     response = await api.update(
                         `api/projects/${values.currentTeamId}/experiments/${values.experimentId}`,
                         {
                             ...values.newExperimentData,
                             parameters: {
-                                ...values.newExperimentData.parameters,
+                                ...values.newExperimentData?.parameters,
                                 recommended_running_time: runningTime,
                                 recommended_sample_size: sampleSize,
                             },
@@ -227,15 +226,8 @@ export const experimentLogic = kea<experimentLogicType>({
                     })
                     response && eventUsageLogic.actions.reportExperimentCreated(response)
                 }
-            } catch (error) {
-                errorToast(
-                    'Error creating your experiment',
-                    'Attempting to create this experiment returned an error:',
-                    error.status !== 0
-                        ? error.detail
-                        : "Check your internet connection and make sure you don't have an extension blocking our requests.",
-                    error.code
-                )
+            } catch (error: any) {
+                lemonToast.error(error.detail || 'Failed to create experiment')
                 return
             }
 
@@ -243,21 +235,14 @@ export const experimentLogic = kea<experimentLogicType>({
                 const experimentId = response.id
                 router.actions.push(urls.experiment(experimentId))
                 actions.addToExperiments(response)
-                toast.success(
-                    <div data-attr="success-toast">
-                        <h1>Experiment {isUpdate ? 'updated' : 'created'} successfully!</h1>
-                        {!isUpdate && <p>Click here to view this experiment.</p>}
-                    </div>,
-                    {
-                        onClick: () => {
+                lemonToast.success(`Experiment ${isUpdate ? 'updated' : 'created'}`, {
+                    button: {
+                        label: 'View it',
+                        action: () => {
                             router.actions.push(urls.experiment(experimentId))
                         },
-                        closeOnClick: true,
-                        onClose: () => {
-                            router.actions.push(urls.experiment(experimentId))
-                        },
-                    }
-                )
+                    },
+                })
             }
         },
         createNewExperimentInsight: async ({ filters }) => {
@@ -282,7 +267,7 @@ export const experimentLogic = kea<experimentLogicType>({
             }
 
             const newInsight = {
-                name: generateRandomAnimal(),
+                name: ``,
                 description: '',
                 tags: [],
                 filters: newInsightFilters,
@@ -313,6 +298,7 @@ export const experimentLogic = kea<experimentLogicType>({
             } else {
                 actions.resetNewExperiment()
                 actions.loadExperimentResults()
+                actions.loadSecondaryMetricResults()
             }
         },
         launchExperiment: async () => {
@@ -343,17 +329,29 @@ export const experimentLogic = kea<experimentLogicType>({
                 actions.createNewExperimentInsight(values.experimentData?.filters)
             }
         },
+        updateExperimentSuccess: async ({ experimentData }) => {
+            actions.updateExperiments(experimentData)
+        },
     }),
-    loaders: ({ values, actions }) => ({
+    loaders: ({ values }) => ({
         experimentData: [
             null as Experiment | null,
             {
                 loadExperiment: async () => {
                     if (values.experimentId && values.experimentId !== 'new') {
-                        const response = await api.get(
-                            `api/projects/${values.currentTeamId}/experiments/${values.experimentId}`
-                        )
-                        return response as Experiment
+                        try {
+                            const response = await api.get(
+                                `api/projects/${values.currentTeamId}/experiments/${values.experimentId}`
+                            )
+                            return response as Experiment
+                        } catch (error: any) {
+                            if (error.status === 404) {
+                                router.actions.push(urls.experiments())
+                            } else {
+                                lemonToast.error(`Failed to load experiment ${values.experimentId}`)
+                                throw new Error(`Failed to load experiment ${values.experimentId}`)
+                            }
+                        }
                     }
                     return null
                 },
@@ -362,7 +360,6 @@ export const experimentLogic = kea<experimentLogicType>({
                         `api/projects/${values.currentTeamId}/experiments/${values.experimentId}`,
                         update
                     )
-                    actions.setExperimentId(response.id || 'new')
                     return response
                 },
             },
@@ -376,27 +373,42 @@ export const experimentLogic = kea<experimentLogicType>({
                             `api/projects/${values.currentTeamId}/experiments/${values.experimentId}/results`
                         )
                         return { ...response, itemID: Math.random().toString(36).substring(2, 15) }
-                    } catch (error) {
+                    } catch (error: any) {
                         if (error.code === 'no_data') {
                             return null
                         }
 
-                        errorToast(
-                            'Error loading experiment results',
-                            'Attempting to load results returned an error:',
-                            error.status !== 0
-                                ? error.detail
-                                : "Check your internet connection and make sure you don't have an extension blocking our requests.",
-                            error.code
-                        )
+                        lemonToast.error(error.detail || 'Failed to load experiment results')
                         return null
                     }
                 },
-                emptyExperimentResults: () => null,
+            },
+        ],
+        secondaryMetricResults: [
+            null as SecondaryMetricResult[] | null,
+            {
+                loadSecondaryMetricResults: async () => {
+                    return await Promise.all(
+                        (values.experimentData?.secondary_metrics || []).map(async (_, index) => {
+                            try {
+                                const secResults = await api.get(
+                                    `api/projects/${values.currentTeamId}/experiments/${values.experimentId}/secondary_results?id=${index}`
+                                )
+                                return secResults.result
+                            } catch (error) {
+                                return {}
+                            }
+                        })
+                    )
+                },
             },
         ],
     }),
     selectors: {
+        experimentId: [
+            () => [(_, props) => props.experimentId ?? 'new'],
+            (experimentId): Experiment['id'] => experimentId,
+        ],
         breadcrumbs: [
             (s) => [s.experimentData, s.experimentId],
             (experimentData, experimentId): Breadcrumb[] => [
@@ -405,7 +417,7 @@ export const experimentLogic = kea<experimentLogicType>({
                     path: urls.experiments(),
                 },
                 {
-                    name: experimentData?.name || 'New Experiment',
+                    name: experimentData?.name || 'New',
                     path: urls.experiment(experimentId || 'new'),
                 },
             ],
@@ -561,31 +573,31 @@ export const experimentLogic = kea<experimentLogicType>({
             (s) => [s.experimentResults],
             (experimentResults) =>
                 (variant: string, insightType: InsightType): number => {
+                    let result: number
                     // Ensures we get the right index from results, so the UI can
                     // display the right colour for the variant
                     if (!experimentResults) {
-                        return 0
-                    }
-                    let index = -1
-
-                    if (insightType === InsightType.FUNNELS) {
-                        // Funnel Insight is displayed in order of decreasing count
-                        index = ([...experimentResults?.insight] as FunnelStep[][])
-                            .sort((a, b) => b[0]?.count - a[0]?.count)
-                            .findIndex(
-                                (variantFunnel: FunnelStep[]) => variantFunnel[0]?.breakdown_value?.[0] === variant
-                            )
+                        result = 0
                     } else {
-                        index = (experimentResults?.insight as TrendResult[]).findIndex(
-                            (variantTrend: TrendResult) => variantTrend.breakdown_value === variant
-                        )
+                        let index = -1
+                        if (insightType === InsightType.FUNNELS) {
+                            // Funnel Insight is displayed in order of decreasing count
+                            index = ([...experimentResults?.insight] as FunnelStep[][])
+                                .sort((a, b) => b[0]?.count - a[0]?.count)
+                                .findIndex(
+                                    (variantFunnel: FunnelStep[]) => variantFunnel[0]?.breakdown_value?.[0] === variant
+                                )
+                        } else {
+                            index = (experimentResults?.insight as TrendResult[]).findIndex(
+                                (variantTrend: TrendResult) => variantTrend.breakdown_value === variant
+                            )
+                        }
+                        result = index === -1 ? 0 : index
                     }
-
-                    if (index === -1) {
-                        return 0
+                    if (insightType === InsightType.FUNNELS) {
+                        result++
                     }
-
-                    return index
+                    return result
                 },
         ],
         countDataForVariant: [
@@ -640,28 +652,24 @@ export const experimentLogic = kea<experimentLogicType>({
         ],
     },
     urlToAction: ({ actions, values }) => ({
-        '/experiments/:id': ({ id }) => {
-            actions.emptyExperimentResults()
+        '/experiments/:id': ({ id }, _, __, currentLocation, previousLocation) => {
             if (!values.hasAvailableFeature(AvailableFeature.EXPERIMENTATION)) {
                 router.actions.push('/experiments')
                 return
             }
-            if (id) {
+            const didPathChange = currentLocation.initial || currentLocation.pathname !== previousLocation?.pathname
+
+            actions.setEditExperiment(false)
+
+            if (id && didPathChange) {
                 const parsedId = id === 'new' ? 'new' : parseInt(id)
-                // TODO: optimise loading if already loaded Experiment
-                // like in featureFlagLogic.tsx
                 if (parsedId === 'new') {
                     actions.createNewExperimentInsight()
                     actions.resetNewExperiment()
                     actions.setSecondaryMetrics([])
                 }
 
-                actions.setEditExperiment(false)
-
-                if (parsedId !== values.experimentId) {
-                    actions.setExperimentId(parsedId)
-                }
-                if (parsedId !== 'new') {
+                if (parsedId !== 'new' && parsedId === values.experimentId) {
                     actions.loadExperiment()
                 }
             }

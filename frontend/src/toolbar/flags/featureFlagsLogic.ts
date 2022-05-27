@@ -17,7 +17,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>({
         setShowLocalFeatureFlagWarning: (showWarning: boolean) => ({ showWarning }),
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
     },
-
+    connect: () => [toolbarLogic],
     loaders: ({ values }) => ({
         userFlags: [
             [] as CombinedFeatureFlagAndOverrideType[],

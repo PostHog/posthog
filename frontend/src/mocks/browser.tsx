@@ -1,13 +1,14 @@
-import { rest, setupWorker } from 'msw'
+import React from 'react'
+import { setupWorker } from 'msw'
+import { handlers } from '~/mocks/handlers'
+import { Mocks, mocksToHandlers } from '~/mocks/utils'
 
 // Default handlers ensure no request is unhandled by msw
-export const worker = setupWorker(
-    // For /e/ let's just return a 200, we're not interested in mocking this any further
-    rest.post('/e/', (_, res, ctx) => res(ctx.status(200))),
+export const worker = setupWorker(...handlers)
 
-    // For everything else, require something explicit to be set
-    rest.get('/api/*', (_, res, ctx) => res(ctx.status(500), ctx.text('No route registered'))),
-    rest.post('/api/*', (_, res, ctx) => res(ctx.status(500), ctx.text('No route registered'))),
-    rest.put('/api/*', (_, res, ctx) => res(ctx.status(500), ctx.text('No route registered'))),
-    rest.delete('/api/*', (_, res, ctx) => res(ctx.status(500), ctx.text('No route registered')))
-)
+export const useStorybookMocks = (mocks: Mocks): void => worker.use(...mocksToHandlers(mocks))
+export const mswDecorator = (mocks: Mocks): ((Story: () => JSX.Element) => JSX.Element) =>
+    function StoryMock(Story): JSX.Element {
+        useStorybookMocks(mocks)
+        return <Story />
+    }

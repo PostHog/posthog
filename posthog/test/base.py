@@ -1,17 +1,27 @@
 import inspect
 import re
+import uuid
 from functools import wraps
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 import pytest
 import sqlparse
+from django.apps import apps
 from django.db import connection
-from django.test import TestCase
+from django.db.migrations.executor import MigrationExecutor
+from django.test import TestCase, TransactionTestCase
 from django.test.utils import CaptureQueriesContext
+from django.utils.timezone import now
 from rest_framework.test import APITestCase as DRFTestCase
 
+from ee.clickhouse.models.event import bulk_create_events
+from ee.clickhouse.models.person import bulk_create_persons, create_person
 from posthog.models import Organization, Team, User
 from posthog.models.organization import OrganizationMembership
+from posthog.models.person import Person
+
+persons_cache_tests: List[Dict[str, Any]] = []
+events_cache_tests: List[Dict[str, Any]] = []
 
 
 def _setup_test_data(klass):
@@ -113,6 +123,20 @@ class TestMixin:
         if not self.CLASS_DATA_LEVEL_SETUP:
             _setup_test_data(self)
 
+    def tearDown(self):
+        if len(persons_cache_tests) > 0:
+            persons_cache_tests.clear()
+            raise Exception(
+                "Some persons created in this test weren't flushed, which can lead to inconsistent test results. Add flush_persons_and_events() right after creating all persons."
+            )
+
+        if len(events_cache_tests) > 0:
+            events_cache_tests.clear()
+            raise Exception(
+                "Some events created in this test weren't flushed, which can lead to inconsistent test results. Add flush_persons_and_events() right after creating all events."
+            )
+        super().tearDown()  # type: ignore
+
     def validate_basic_html(self, html_message, site_url, preheader=None):
         # absolute URLs are used
         self.assertIn(f"{site_url}/static/posthog-logo.png", html_message)  # type: ignore
@@ -130,6 +154,18 @@ class BaseTest(TestMixin, ErrorResponsesMixin, TestCase):
     Each class and each test is wrapped inside an atomic block to rollback DB commits after each test.
     Read more: https://docs.djangoproject.com/en/3.1/topics/testing/tools/#testcase
     """
+
+
+class NonAtomicBaseTest(TestMixin, ErrorResponsesMixin, TransactionTestCase):
+    """
+    Django wraps tests in TestCase inside atomic transactions to speed up the run time. TransactionTestCase is the base
+    class for TestCase that doesn't implement this atomic wrapper.
+    Read more: https://avilpage.com/2020/01/disable-transactions-django-tests.html
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.setUpTestData()
 
 
 class APIBaseTest(TestMixin, ErrorResponsesMixin, DRFTestCase):
@@ -164,8 +200,8 @@ def test_with_materialized_columns(event_properties=[], person_properties=[], ve
     """
 
     try:
-        from ee.clickhouse.client import sync_execute
         from ee.clickhouse.materialized_columns import get_materialized_columns, materialize
+        from posthog.client import sync_execute
     except:
         # EE not available? Just run the main test
         return lambda fn: fn
@@ -231,6 +267,13 @@ class QueryMatchingTest:
             query,
         )
 
+        # Replace tag id lookups for postgres
+        query = re.sub(
+            fr"""("posthog_tag"\."id") IN \(('[^']+'::uuid)+(, ('[^']+'::uuid)+)*\)""",
+            r"""\1 IN ('00000000-0000-0000-0000-000000000000'::uuid, '00000000-0000-0000-0000-000000000000'::uuid, '00000000-0000-0000-0000-000000000000'::uuid /* ... */)""",
+            query,
+        )
+
         assert sqlparse.format(query, reindent=True) == self.snapshot, "\n".join(self.snapshot.get_assert_diff())
         if params is not None:
             del params["team_id"]  # Changes every run
@@ -259,3 +302,101 @@ def snapshot_postgres_queries(fn):
                 self.assertQueryMatchesSnapshot(query, replace_all_numbers=True)
 
     return wrapped
+
+
+class BaseTestMigrations(QueryMatchingTest):
+    @property
+    def app(self):
+        return apps.get_containing_app_config(type(self).__module__).name  # type: ignore
+
+    migrate_from = None
+    migrate_to = None
+    apps = None
+    assert_snapshots = False
+
+    def setUp(self):
+        assert (
+            self.migrate_from and self.migrate_to  # type: ignore
+        ), "TestCase '{}' must define migrate_from and migrate_to properties".format(type(self).__name__)
+        self.migrate_from = [(self.app, self.migrate_from)]  # type: ignore
+        self.migrate_to = [(self.app, self.migrate_to)]
+        executor = MigrationExecutor(connection)
+        old_apps = executor.loader.project_state(self.migrate_from).apps
+
+        # Reverse to the original migration
+        executor.migrate(self.migrate_from)
+
+        self.setUpBeforeMigration(old_apps)
+
+        # Run the migration to test
+        executor = MigrationExecutor(connection)
+        executor.loader.build_graph()  # reload.
+
+        if self.assert_snapshots:
+            self._execute_migration_with_snapshots(executor)
+        else:
+            executor.migrate(self.migrate_to)
+
+        self.apps = executor.loader.project_state(self.migrate_to).apps
+
+    @snapshot_postgres_queries
+    def _execute_migration_with_snapshots(self, executor):
+        executor.migrate(self.migrate_to)
+
+    def setUpBeforeMigration(self, apps):
+        pass
+
+
+class TestMigrations(BaseTestMigrations, BaseTest):
+    """
+    Can be used to test migrations
+    """
+
+
+class NonAtomicTestMigrations(BaseTestMigrations, NonAtomicBaseTest):
+    """
+    Can be used to test migrations where atomic=False.
+    """
+
+
+def flush_persons_and_events():
+    person_mapping = {}
+    if len(persons_cache_tests) > 0:
+        person_mapping = bulk_create_persons(persons_cache_tests)
+        persons_cache_tests.clear()
+    if len(events_cache_tests) > 0:
+        bulk_create_events(events_cache_tests, person_mapping)
+        events_cache_tests.clear()
+
+
+def _create_event(**kwargs):
+    """
+    Create an event in tests. NOTE: all events get batched and only created when sync_execute is called
+    """
+    if not kwargs.get("event_uuid"):
+        kwargs["event_uuid"] = str(uuid.uuid4())
+    if not kwargs.get("timestamp"):
+        kwargs["timestamp"] = now()
+    events_cache_tests.append(kwargs)
+    return kwargs["event_uuid"]
+
+
+def _create_person(*args, **kwargs):
+    """
+    Create a person in tests. NOTE: all persons get batched and only created when sync_execute is called
+    Pass immediate=True to create immediately and get a pk back
+    """
+    kwargs["uuid"] = uuid.uuid4()
+    # If we've done freeze_time just create straight away
+    if kwargs.get("immediate") or (hasattr(now(), "__module__") and now().__module__ == "freezegun.api"):
+        if kwargs.get("immediate"):
+            del kwargs["immediate"]
+        create_person(
+            team_id=kwargs.get("team_id") or kwargs["team"].pk, properties=kwargs.get("properties"), uuid=kwargs["uuid"]
+        )
+        return Person.objects.create(**kwargs)
+    if len(args) > 0:
+        kwargs["distinct_ids"] = [args[0]]  # allow calling _create_person("distinct_id")
+
+    persons_cache_tests.append(kwargs)
+    return Person(**{key: value for key, value in kwargs.items() if key != "distinct_ids"})

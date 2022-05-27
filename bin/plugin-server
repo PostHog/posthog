@@ -22,24 +22,11 @@ while test $# -gt 0; do
 done
 
 export BASE_DIR=$(dirname $(dirname "$PWD/${0#./}"))
-# Fall back to default KAFKA_URL value if not set - sync with settings/data_stores.py
+
 export KAFKA_URL=${KAFKA_URL:-'kafka://kafka:9092'}
-# Crudely extract netlocs by removing "kafka://" in a compatibility approach
-export KAFKA_HOSTS=${KAFKA_HOSTS:-$(echo $KAFKA_URL | sed -e "s/kafka\(\+ssl\)\{0,1\}:\/\///g")}
-# Check PRIMARY_DB in a compatibility approach
-export KAFKA_ENABLED=${KAFKA_ENABLED:-$([[ $PRIMARY_DB = "clickhouse" ]] && echo "true" || echo "false")}
+export KAFKA_HOSTS
 
-# On _Heroku_, the $WEB_CONCURRENCY env contains suggested number of workers per dyno.
-# Unfortunately we are running a NodeJS app, yet get the value for the "python" buildpack.
-# Thus instead of using this env directly, calculate the real concurrency from $DYNO_RAM.
-# Python: https://github.com/heroku/heroku-buildpack-python/blob/main/vendor/WEB_CONCURRENCY.sh
-# NodeJS: https://devcenter.heroku.com/articles/node-concurrency#common-runtime
-if [[ -n $DYNO_RAM ]]; then
-  # One worker for 512MB of RAM, rounding up
-  export WORKER_CONCURRENCY=$(( ($DYNO_RAM - 1) / 512 + 1 ))
-fi
-
-python manage.py migrate --check
+./bin/migrate-check
 
 cd plugin-server
 
@@ -53,13 +40,18 @@ if [ $? -ne 0 ]; then
   exit 1
 fi
 
+[[ -n $DEBUG ]] && cmd=start:dev || cmd=start:dist
+
 if [[ -n $NO_RESTART_LOOP ]]; then
   echo "▶️ Starting plugin server..."
-  [[ -n $DEBUG ]] && yarn start:dev || yarn start:dist
+  trap 'kill -TERM $child 2>/dev/null; while kill -0 $child 2>/dev/null; do sleep 1; done' SIGTERM
+  yarn $cmd &
+  child=$!
+  wait $child
 else
   echo "🔁 Starting plugin server in a resiliency loop..."
   while true; do
-    [[ -n $DEBUG ]] && yarn start:dev || yarn start:dist
+    yarn $cmd
     echo "💥 Plugin server crashed!"
     echo "⌛️ Waiting 2 seconds before restarting..."
     sleep 2

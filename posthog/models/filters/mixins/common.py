@@ -1,10 +1,10 @@
 import datetime
 import json
 import re
-from typing import Any, Dict, List, Literal, Optional, Union, get_args
+from typing import Any, Dict, List, Literal, Optional, Union, cast
 
+import pytz
 from dateutil.relativedelta import relativedelta
-from django.db.models.query_utils import Q
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 
@@ -15,11 +15,12 @@ from posthog.constants import (
     BREAKDOWN_LIMIT,
     BREAKDOWN_TYPE,
     BREAKDOWN_VALUE,
+    BREAKDOWN_VALUES_LIMIT,
+    BREAKDOWN_VALUES_LIMIT_FOR_COUNTRIES,
     BREAKDOWNS,
     COMPARE,
     DATE_FROM,
     DATE_TO,
-    DEPRECATED_DISPLAY_TYPES,
     DISPLAY,
     DISPLAY_TYPES,
     EVENTS,
@@ -34,8 +35,10 @@ from posthog.constants import (
     SELECTOR,
     SESSION,
     SHOWN_AS,
+    SMOOTHING_INTERVALS,
     TREND_FILTER_TYPE_ACTIONS,
     TREND_FILTER_TYPE_EVENTS,
+    TRENDS_WORLD_MAP,
 )
 from posthog.models.entity import MATH_TYPE, Entity, ExclusionEntity
 from posthog.models.filters.mixins.base import BaseParamMixin, BreakdownType
@@ -44,6 +47,25 @@ from posthog.models.filters.utils import GroupTypeIndex, validate_group_type_ind
 from posthog.utils import relative_date_parse
 
 ALLOWED_FORMULA_CHARACTERS = r"([a-zA-Z \-\*\^0-9\+\/\(\)]+)"
+
+
+class SmoothingIntervalsMixin(BaseParamMixin):
+    @cached_property
+    def smoothing_intervals(self) -> int:
+        interval_candidate_string = self._data.get(SMOOTHING_INTERVALS)
+        if not interval_candidate_string:
+            return 1
+        try:
+            interval_candidate = int(interval_candidate_string)
+            if interval_candidate < 1:
+                raise ValueError(f"Smoothing intervals must be a positive integer!")
+        except ValueError:
+            raise ValueError(f"Smoothing intervals must be a positive integer!")
+        return cast(int, interval_candidate)
+
+    @include_dict
+    def smoothing_intervals_to_dict(self):
+        return {SMOOTHING_INTERVALS: self.smoothing_intervals}
 
 
 class SelectorMixin(BaseParamMixin):
@@ -70,7 +92,7 @@ class FilterTestAccountsMixin(BaseParamMixin):
     @cached_property
     def filter_test_accounts(self) -> bool:
         setting = self._data.get(FILTER_TEST_ACCOUNTS, None)
-        if setting == True or setting == "true":
+        if setting is True or setting == "true":
             return True
         return False
 
@@ -122,11 +144,20 @@ class BreakdownMixin(BaseParamMixin):
 
     @cached_property
     def _breakdown_limit(self) -> Optional[int]:
-        return self._data.get(BREAKDOWN_LIMIT)
+        if BREAKDOWN_LIMIT in self._data:
+            try:
+                return int(self._data[BREAKDOWN_LIMIT])
+            except ValueError:
+                pass
+        return None
 
     @property
     def breakdown_limit_or_default(self) -> int:
-        return self._breakdown_limit or 10
+        return self._breakdown_limit or (
+            BREAKDOWN_VALUES_LIMIT_FOR_COUNTRIES
+            if getattr(self, "display", None) == TRENDS_WORLD_MAP
+            else BREAKDOWN_VALUES_LIMIT
+        )
 
     @include_dict
     def breakdown_to_dict(self):
@@ -241,6 +272,24 @@ class DateMixin(BaseParamMixin):
     def _date_to(self) -> Optional[Union[str, datetime.datetime]]:
         return self._data.get(DATE_TO, None)
 
+    @property
+    def date_from_has_explicit_time(self) -> bool:
+        """
+        Whether date_from has an explicit time set that we want to filter on
+        """
+        if not self._date_from:
+            return False
+        return isinstance(self._date_from, datetime.datetime) or "T" in self._date_from
+
+    @property
+    def date_to_has_explicit_time(self) -> bool:
+        """
+        Whether date_to has an explicit time set that we want to filter on
+        """
+        if not self._date_to:
+            return False
+        return isinstance(self._date_to, datetime.datetime) or "T" in self._date_to
+
     @cached_property
     def date_from(self) -> Optional[datetime.datetime]:
         if self._date_from:
@@ -254,35 +303,23 @@ class DateMixin(BaseParamMixin):
 
     @cached_property
     def date_to(self) -> datetime.datetime:
-        if self._date_to:
+        if not self._date_to:
+            if self.interval == "hour":  # type: ignore
+                return timezone.now() + relativedelta(minutes=1)
+            date = timezone.now()
+        else:
             if isinstance(self._date_to, str):
-                return relative_date_parse(self._date_to)
+                try:
+                    date = datetime.datetime.strptime(self._date_to, "%Y-%m-%d").replace(tzinfo=pytz.UTC)
+                except ValueError:
+                    try:
+                        return datetime.datetime.strptime(self._date_to, "%Y-%m-%d %H:%M:%S").replace(tzinfo=pytz.UTC)
+                    except ValueError:
+                        date = relative_date_parse(self._date_to)
             else:
                 return self._date_to
-        return timezone.now()
 
-    @cached_property
-    def date_filter_Q(self) -> Q:
-        date_from = self.date_from
-        if self._date_from == "all":
-            return Q()
-        if not date_from:
-            date_from = timezone.now().replace(hour=0, minute=0, second=0, microsecond=0) - relativedelta(days=7)
-        filter = Q(timestamp__gte=date_from)
-        if self.date_to:
-            filter &= Q(timestamp__lte=self.date_to)
-        return filter
-
-    def custom_date_filter_Q(self, field: str = "timestamp") -> Q:
-        date_from = self.date_from
-        if self._date_from == "all":
-            return Q()
-        if not date_from:
-            date_from = timezone.now().replace(hour=0, minute=0, second=0, microsecond=0) - relativedelta(days=7)
-        filter = Q(**{f"{field}__gte": date_from})
-        if self.date_to:
-            filter &= Q(**{f"{field}__lte": self.date_to})
-        return filter
+        return date.replace(hour=23, minute=59, second=59, microsecond=99999)
 
     @include_dict
     def date_to_dict(self) -> Dict:
@@ -344,7 +381,9 @@ class EntitiesMixin(BaseParamMixin):
             exclusion_list = self._data.get(EXCLUSIONS, [])
             if isinstance(exclusion_list, str):
                 exclusion_list = json.loads(exclusion_list)
-            _exclusions.extend([ExclusionEntity({**entity}) for entity in exclusion_list])
+
+            _exclusions.extend([ExclusionEntity({**entity}) for entity in exclusion_list if entity])
+
         return _exclusions
 
     @include_dict
@@ -390,4 +429,16 @@ class EntityMathMixin(BaseParamMixin):
 class IncludeRecordingsMixin(BaseParamMixin):
     @cached_property
     def include_recordings(self) -> bool:
-        return self._data.get("include_recordings") == "true"
+        include_recordings = self._data.get("include_recordings")
+        return include_recordings is True or include_recordings == "true"
+
+    @include_dict
+    def include_recordings_to_dict(self):
+        return {"include_recordings": self.include_recordings} if self.include_recordings else {}
+
+
+class SearchMixin(BaseParamMixin):
+    @cached_property
+    def search(self) -> Optional[str]:
+        search = self._data.get("search", None)
+        return search

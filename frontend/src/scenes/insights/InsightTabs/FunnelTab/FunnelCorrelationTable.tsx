@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { Row, Spin, Table } from 'antd'
 import Column from 'antd/lib/table/Column'
 import { useActions, useValues } from 'kea'
@@ -8,7 +8,7 @@ import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { FunnelCorrelation, FunnelCorrelationResultsType, FunnelCorrelationType } from '~/types'
 import Checkbox from 'antd/lib/checkbox/Checkbox'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { ValueInspectorButton } from 'scenes/funnels/FunnelBarGraph'
+import { ValueInspectorButton } from 'scenes/funnels/ValueInspectorButton'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import './FunnelCorrelationTable.scss'
 import { Tooltip } from 'lib/components/Tooltip'
@@ -18,15 +18,6 @@ import { LemonButton } from 'lib/components/LemonButton'
 import { Popup } from 'lib/components/Popup/Popup'
 import { CorrelationMatrix } from './CorrelationMatrix'
 import { capitalizeFirstLetter } from 'lib/utils'
-
-export const CorrelationToast = (): JSX.Element => (
-    <div data-attr="success-toast">
-        <h3>
-            <IconSelectEvents /> {'Correlation results are ready'}{' '}
-        </h3>
-        Click to view
-    </div>
-)
 
 export function FunnelCorrelationTable(): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
@@ -51,9 +42,15 @@ export function FunnelCorrelationTable(): JSX.Element | null {
         addNestedTableExpandedKey,
         removeNestedTableExpandedKey,
         openCorrelationPersonsModal,
+        loadCorrelations,
     } = useActions(logic)
 
     const { reportCorrelationInteraction } = useActions(eventUsageLogic)
+
+    // Load correlations only if this component is mounted, and then reload if filters change
+    useEffect(() => {
+        loadCorrelations({})
+    }, [filters])
 
     const onClickCorrelationType = (correlationType: FunnelCorrelationType): void => {
         if (correlationTypes) {

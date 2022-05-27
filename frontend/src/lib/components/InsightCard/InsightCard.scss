@@ -23,6 +23,9 @@
         width: 100%;
         overflow: auto;
     }
+    .insight-empty-state {
+        font-size: 0.875rem;
+    }
 }
 
 .InsightViz {
@@ -203,9 +206,6 @@
     section:not(:last-child) {
         margin-bottom: 0.5rem;
     }
-    .property-filters {
-        margin: 0;
-    }
     .LemonRow {
         min-height: 2rem;
         font-size: inherit;
@@ -235,7 +235,7 @@
     &:not(:first-child) {
         margin-top: 0.5rem;
     }
-    .LemonSpacer {
+    .LemonDivider {
         width: calc(100% - 1.5rem);
         margin-left: 1.5rem;
     }

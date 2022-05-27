@@ -1669,7 +1669,8 @@
       "avatar_url": "https://avatars.githubusercontent.com/u/1317194?v=4",
       "profile": "https://github.com/inbreaks",
       "contributions": [
-        "code"
+        "code",
+        "doc"
       ]
     },
     {
@@ -1785,6 +1786,107 @@
       "name": "Prithvi Tharun",
       "avatar_url": "https://avatars.githubusercontent.com/u/58725708?v=4",
       "profile": "https://www.uxwriter.life/",
+      "contributions": [
+        "code"
+      ]
+    },
+    {
+      "login": "hspotorno",
+      "name": "Henrique Spotorno",
+      "avatar_url": "https://avatars.githubusercontent.com/u/3391820?v=4",
+      "profile": "https://github.com/hspotorno",
+      "contributions": [
+        "code"
+      ]
+    },
+    {
+      "login": "bnomei",
+      "name": "Bruno Meilick",
+      "avatar_url": "https://avatars.githubusercontent.com/u/3265642?v=4",
+      "profile": "https://github.com/bnomei",
+      "contributions": [
+        "ideas",
+        "doc"
+      ]
+    },
+    {
+      "login": "rahul3v",
+      "name": "Rahul",
+      "avatar_url": "https://avatars.githubusercontent.com/u/24385409?v=4",
+      "profile": "https://github.rahul3v.xyz",
+      "contributions": [
+        "code",
+        "content"
+      ]
+    },
+    {
+      "login": "dannysheridan",
+      "name": "Danny Sheridan",
+      "avatar_url": "https://avatars.githubusercontent.com/u/83524670?v=4",
+      "profile": "https://www.linkedin.com/in/sheridandanny/",
+      "contributions": [
+        "code"
+      ]
+    },
+    {
+      "login": "Cavallando",
+      "name": "Michael Cavallaro",
+      "avatar_url": "https://avatars.githubusercontent.com/u/27144805?v=4",
+      "profile": "https://github.com/Cavallando",
+      "contributions": [
+        "code"
+      ]
+    },
+    {
+      "login": "RoryCrispin",
+      "name": "Rory Crispin",
+      "avatar_url": "https://avatars.githubusercontent.com/u/716269?v=4",
+      "profile": "https://github.com/RoryCrispin",
+      "contributions": [
+        "code"
+      ]
+    },
+    {
+      "login": "bjornj12",
+      "name": "Björn Ólafur Jóhannsson",
+      "avatar_url": "https://avatars.githubusercontent.com/u/2598477?v=4",
+      "profile": "https://github.com/bjornj12",
+      "contributions": [
+        "code"
+      ]
+    },
+    {
+      "login": "joetrollo",
+      "name": "Joe Trollo",
+      "avatar_url": "https://avatars.githubusercontent.com/u/7506225?v=4",
+      "profile": "https://joetrol.lol",
+      "contributions": [
+        "code"
+      ]
+    },
+    {
+      "login": "pxpeterxu",
+      "name": "Peter Xu",
+      "avatar_url": "https://avatars.githubusercontent.com/u/2924388?v=4",
+      "profile": "https://wanderlog.com/",
+      "contributions": [
+        "code"
+      ]
+    },
+    {
+      "login": "kuberaspeaking",
+      "name": "Shruti Kuber",
+      "avatar_url": "https://avatars.githubusercontent.com/u/27010949?v=4",
+      "profile": "https://github.com/restackio",
+      "contributions": [
+        "code"
+      ]
+    },
+    {
+      "login": "utkuzih",
+      "name": "Utku Zihnioglu",
+      "avatar_url": "https://avatars.githubusercontent.com/u/7005250?v=4",
+      "profile": "https://github.com/utkuzih",
       "contributions": [
         "code"
       ]

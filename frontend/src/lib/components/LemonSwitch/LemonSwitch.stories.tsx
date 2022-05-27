@@ -1,23 +1,31 @@
 import React, { useState } from 'react'
-import { ComponentMeta } from '@storybook/react'
+import { ComponentMeta, ComponentStory } from '@storybook/react'
 
-import { LemonSwitch as _LemonSwitch } from './LemonSwitch'
+import { LemonSwitch, LemonSwitchProps } from './LemonSwitch'
 
 export default {
-    title: 'PostHog/Components/LemonSwitch',
-    component: _LemonSwitch,
-    parameters: { options: { showPanel: true } },
+    title: 'Lemon UI/Lemon Switch',
+    component: LemonSwitch,
     argTypes: {
-        loading: {
-            control: {
-                type: 'boolean',
-            },
+        label: {
+            defaultValue: 'Switch this!',
         },
     },
-} as ComponentMeta<typeof _LemonSwitch>
+} as ComponentMeta<typeof LemonSwitch>
 
-export function LemonSwitch({ loading }: { loading: boolean }): JSX.Element {
+const Template: ComponentStory<typeof LemonSwitch> = (props: LemonSwitchProps) => {
     const [isChecked, setIsChecked] = useState(false)
-
-    return <_LemonSwitch loading={loading} checked={isChecked} onChange={setIsChecked} />
+    return <LemonSwitch {...props} checked={isChecked} onChange={setIsChecked} />
 }
+
+export const Basic = Template.bind({})
+Basic.args = {}
+
+export const Primary = Template.bind({})
+Primary.args = { type: 'primary' }
+
+export const Disabled = Template.bind({})
+Disabled.args = { disabled: true, label: "Can't switch this" }
+
+export const Standalone = Template.bind({})
+Standalone.args = { label: undefined }

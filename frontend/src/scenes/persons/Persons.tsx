@@ -1,47 +1,70 @@
 import React from 'react'
 import { useValues, useActions, BindLogic } from 'kea'
 import { PersonsTable } from './PersonsTable'
-import { Button, Row } from 'antd'
-import { ExportOutlined } from '@ant-design/icons'
-import { PersonLogicProps, personsLogic } from './personsLogic'
+import { Popconfirm } from 'antd'
+import { personsLogic } from './personsLogic'
 import { CohortType } from '~/types'
 import { PersonsSearch } from './PersonsSearch'
 import { SceneExport } from 'scenes/sceneTypes'
 import { PersonPageHeader } from './PersonPageHeader'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { LemonButton } from 'lib/components/LemonButton'
+import { IconExport } from 'lib/components/icons'
 
 export const scene: SceneExport = {
-    component: Persons,
+    component: PersonsScene,
     logic: personsLogic,
     paramsToProps: () => ({ syncWithUrl: true }),
 }
+
 interface PersonsProps {
-    cohort?: CohortType
+    cohort?: CohortType['id']
 }
 
 export function Persons({ cohort }: PersonsProps = {}): JSX.Element {
-    const personsLogicProps: PersonLogicProps = { cohort: cohort?.id, syncWithUrl: !cohort }
-    const { loadPersons, setListFilters } = useActions(personsLogic(personsLogicProps))
-    const { persons, listFilters, personsLoading } = useValues(personsLogic(personsLogicProps))
+    return (
+        <BindLogic logic={personsLogic} props={{ cohort: cohort, syncWithUrl: !cohort }}>
+            <PersonsScene />
+        </BindLogic>
+    )
+}
+
+export function PersonsScene(): JSX.Element {
+    const { loadPersons, setListFilters, exportCsv } = useActions(personsLogic)
+    const { cohortId, persons, listFilters, personsLoading, exportUrl } = useValues(personsLogic)
 
     return (
-        <BindLogic logic={personsLogic} props={personsLogicProps}>
-            <div className="persons-list">
-                <PersonPageHeader hideGroupTabs={!!cohort} />
-                <Row align="middle" justify="space-between" className="mb" style={{ gap: '0.75rem' }}>
-                    <PersonsSearch autoFocus={!cohort} />
-                    <div>
-                        <Button
-                            type="default"
-                            icon={<ExportOutlined />}
-                            href={'/api/person.csv' + (listFilters.cohort ? '?cohort=' + listFilters.cohort : '')}
-                            style={{ marginLeft: 8 }}
-                        >
-                            Export
-                        </Button>
-                    </div>
-                </Row>
+        <div className="persons-list">
+            {!cohortId && <PersonPageHeader />}
+            <div className="space-y-05">
+                <div className="space-between-items" style={{ gap: '0.75rem' }}>
+                    <PersonsSearch autoFocus={!cohortId} />
+                    <Popconfirm
+                        placement="topRight"
+                        title={
+                            <>
+                                Exporting by csv is limited to 10,000 users.
+                                <br />
+                                To return more, please use <a href="https://posthog.com/docs/api/persons">the API</a>.
+                                Do you want to export by CSV?
+                            </>
+                        }
+                        onConfirm={exportCsv}
+                    >
+                        {exportUrl && (
+                            <LemonButton type="secondary" icon={<IconExport style={{ color: 'var(--primary)' }} />}>
+                                {listFilters.properties && listFilters.properties.length > 0 ? (
+                                    <div style={{ display: 'block' }}>
+                                        Export (<strong>{listFilters.properties.length}</strong> filter)
+                                    </div>
+                                ) : (
+                                    'Export'
+                                )}
+                            </LemonButton>
+                        )}
+                    </Popconfirm>
+                </div>
                 <PropertyFilters
                     pageKey="persons-list-page"
                     propertyFilters={listFilters.properties}
@@ -62,6 +85,6 @@ export function Persons({ cohort }: PersonsProps = {}): JSX.Element {
                     loadNext={() => loadPersons(persons.next)}
                 />
             </div>
-        </BindLogic>
+        </div>
     )
 }

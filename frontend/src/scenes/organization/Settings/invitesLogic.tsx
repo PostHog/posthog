@@ -1,12 +1,11 @@
 import React from 'react'
 import { kea } from 'kea'
 import api from 'lib/api'
-import { toast } from 'react-toastify'
-import { CheckCircleOutlined } from '@ant-design/icons'
 import { OrganizationInviteType } from '~/types'
 import { invitesLogicType } from './invitesLogicType'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/logic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { lemonToast } from 'lib/components/lemonToast'
 
 export const invitesLogic = kea<invitesLogicType>({
     path: ['scenes', 'organization', 'Settings', 'invitesLogic'],
@@ -23,11 +22,10 @@ export const invitesLogic = kea<invitesLogicType>({
                 preflightLogic.actions.loadPreflight() // Make sure licensed_users_available is updated
 
                 if (newInvite.emailing_attempt_made) {
-                    toast(
-                        <div>
-                            <h1>Invite sent!</h1>
-                            <p>{targetEmail} can now join PostHog by clicking the link on the sent email.</p>
-                        </div>
+                    lemonToast.success(
+                        <>
+                            Invite sent to <b>{targetEmail}</b>'s inbox
+                        </>
                     )
                 }
 
@@ -36,10 +34,10 @@ export const invitesLogic = kea<invitesLogicType>({
             deleteInvite: async (invite: OrganizationInviteType) => {
                 await api.delete(`api/organizations/@current/invites/${invite.id}/`)
                 preflightLogic.actions.loadPreflight() // Make sure licensed_users_available is updated
-                toast(
-                    <div className="text-success">
-                        <CheckCircleOutlined /> Invite for {invite.target_email} removed!
-                    </div>
+                lemonToast.success(
+                    <>
+                        Invite for <b>{invite.target_email}</b> removed
+                    </>
                 )
                 return values.invites.filter((thisInvite) => thisInvite.id !== invite.id)
             },

@@ -11,6 +11,14 @@ on:
             - 'docker*.yml'
             - '*Dockerfile'
 
+env:
+    OBJECT_STORAGE_ENABLED: true
+    OBJECT_STORAGE_ENDPOINT: 'http://localhost:19000'
+    OBJECT_STORAGE_ACCESS_KEY_ID: 'object_storage_root_user'
+    OBJECT_STORAGE_SECRET_ACCESS_KEY: 'object_storage_root_password'
+    OBJECT_STORAGE_SESSION_RECORDING_FOLDER: 'session_recordings'
+    OBJECT_STORAGE_BUCKET: 'posthog'
+
 jobs:
     code-quality:
         name: Code quality
@@ -22,10 +30,10 @@ jobs:
         steps:
             - uses: actions/checkout@v1
 
-            - name: Set up Node 14
+            - name: Set up Node 16
               uses: actions/setup-node@v1
               with:
-                  node-version: 14
+                  node-version: 16
 
             - name: Install package.json dependencies with Yarn
               run: yarn
@@ -50,7 +58,7 @@ jobs:
                 ports: ['5432:5432']
                 options: --health-cmd pg_isready --health-interval 10s --health-timeout 5s --health-retries 5
             redis:
-                image: redis
+                image: redis:6.2.7-alpine
                 ports:
                     - '6379:6379'
                 options: >-
@@ -73,23 +81,23 @@ jobs:
                   sudo bash -c 'echo "127.0.0.1 kafka zookeeper" >> /etc/hosts'
                   ping -c 1 kafka
                   ping -c 1 zookeeper
-            - name: Start Kafka, ClickHouse, Zookeeper
-              run: docker-compose -f docker-compose.dev.yml up -d zookeeper kafka clickhouse
+            - name: Start Kafka, ClickHouse, Zookeeper, Object Storage
+              run: docker-compose -f docker-compose.dev.yml up -d zookeeper kafka clickhouse object_storage
 
-            - name: Set up Python
+            - name: Set up Python 3.8.12
               uses: actions/setup-python@v2
               with:
-                  python-version: 3.8
+                  python-version: 3.8.12
 
             - name: Install SAML (python3-saml) dependencies
               run: |
                   sudo apt-get update
                   sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
 
-            - name: Set up Node 14
+            - name: Set up Node 16
               uses: actions/setup-node@v2
               with:
-                  node-version: 14
+                  node-version: 16
 
             - uses: actions/cache@v2
               with:
@@ -105,7 +113,7 @@ jobs:
                   SECRET_KEY: 'abcdef' # unsafe - for testing only
                   DATABASE_URL: 'postgres://postgres:postgres@localhost:5432/posthog'
                   TEST: 'true'
-              run: python manage.py setup_test_environment
+              run: cd plugin-server && yarn setup:test
 
             - name: Install package.json dependencies with Yarn
               run: cd plugin-server && yarn
@@ -131,7 +139,7 @@ jobs:
                 ports: ['5432:5432']
                 options: --health-cmd pg_isready --health-interval 10s --health-timeout 5s --health-retries 5
             redis:
-                image: redis
+                image: redis:6.2.7-alpine
                 ports:
                     - '6379:6379'
                 options: >-
@@ -154,23 +162,23 @@ jobs:
                   sudo bash -c 'echo "127.0.0.1 kafka zookeeper" >> /etc/hosts'
                   ping -c 1 kafka
                   ping -c 1 zookeeper
-            - name: Start Kafka, ClickHouse, Zookeeper
-              run: docker-compose -f docker-compose.dev.yml up -d zookeeper kafka clickhouse
+            - name: Start Kafka, ClickHouse, Zookeeper, Object Storage
+              run: docker-compose -f docker-compose.dev.yml up -d zookeeper kafka clickhouse object_storage
 
-            - name: Set up Python
+            - name: Set up Python 3.8.12
               uses: actions/setup-python@v2
               with:
-                  python-version: 3.8
+                  python-version: 3.8.12
 
             - name: Install SAML (python3-saml) dependencies
               run: |
                   sudo apt-get update
                   sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
 
-            - name: Set up Node 14
+            - name: Set up Node 16
               uses: actions/setup-node@v2
               with:
-                  node-version: 14
+                  node-version: 16
 
             - uses: actions/cache@v2
               with:
@@ -186,7 +194,7 @@ jobs:
                   SECRET_KEY: 'abcdef' # unsafe - for testing only
                   DATABASE_URL: 'postgres://postgres:postgres@localhost:5432/posthog'
                   TEST: 'true'
-              run: python manage.py setup_test_environment
+              run: cd plugin-server && yarn setup:test
 
             - name: Install package.json dependencies with Yarn
               run: cd plugin-server && yarn
@@ -212,7 +220,7 @@ jobs:
                 ports: ['5432:5432']
                 options: --health-cmd pg_isready --health-interval 10s --health-timeout 5s --health-retries 5
             redis:
-                image: redis
+                image: redis:6.2.7-alpine
                 ports:
                     - '6379:6379'
                 options: >-
@@ -236,23 +244,23 @@ jobs:
                   sudo bash -c 'echo "127.0.0.1 kafka zookeeper" >> /etc/hosts'
                   ping -c 1 kafka
                   ping -c 1 zookeeper
-            - name: Start Kafka, ClickHouse, Zookeeper
-              run: docker-compose -f docker-compose.dev.yml up -d zookeeper kafka clickhouse
+            - name: Start Kafka, ClickHouse, Zookeeper, Object Storage
+              run: docker-compose -f docker-compose.dev.yml up -d zookeeper kafka clickhouse object_storage
 
-            - name: Set up Python
+            - name: Set up Python 3.8.12
               uses: actions/setup-python@v2
               with:
-                  python-version: 3.8
+                  python-version: 3.8.12
 
             - name: Install SAML (python3-saml) dependencies
               run: |
                   sudo apt-get update
                   sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
 
-            - name: Set up Node 14
+            - name: Set up Node 16
               uses: actions/setup-node@v2
               with:
-                  node-version: 14
+                  node-version: 16
 
             - uses: actions/cache@v2
               with:
@@ -268,7 +276,7 @@ jobs:
                   SECRET_KEY: 'abcdef' # unsafe - for testing only
                   DATABASE_URL: 'postgres://postgres:postgres@localhost:5432/posthog'
                   TEST: 'true'
-              run: python manage.py setup_test_environment
+              run: cd plugin-server && yarn setup:test
 
             - name: Install package.json dependencies with Yarn
               run: cd plugin-server && yarn
@@ -294,7 +302,7 @@ jobs:
                 ports: ['5432:5432']
                 options: --health-cmd pg_isready --health-interval 10s --health-timeout 5s --health-retries 5
             redis:
-                image: redis
+                image: redis:6.2.7-alpine
                 ports:
                     - '6379:6379'
                 options: >-
@@ -318,23 +326,23 @@ jobs:
                   sudo bash -c 'echo "127.0.0.1 kafka zookeeper" >> /etc/hosts'
                   ping -c 1 kafka
                   ping -c 1 zookeeper
-            - name: Start Kafka, ClickHouse, Zookeeper
-              run: docker-compose -f docker-compose.dev.yml up -d zookeeper kafka clickhouse
+            - name: Start Kafka, ClickHouse, Zookeeper, Object Storage
+              run: docker-compose -f docker-compose.dev.yml up -d zookeeper kafka clickhouse object_storage
 
-            - name: Set up Python
+            - name: Set up Python 3.8.12
               uses: actions/setup-python@v2
               with:
-                  python-version: 3.8
+                  python-version: 3.8.12
 
             - name: Install SAML (python3-saml) dependencies
               run: |
                   sudo apt-get update
                   sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
 
-            - name: Set up Node 14
+            - name: Set up Node 16
               uses: actions/setup-node@v2
               with:
-                  node-version: 14
+                  node-version: 16
 
             - uses: actions/cache@v2
               with:
@@ -350,7 +358,7 @@ jobs:
                   SECRET_KEY: 'abcdef' # unsafe - for testing only
                   DATABASE_URL: 'postgres://postgres:postgres@localhost:5432/posthog'
                   TEST: 'true'
-              run: python manage.py setup_test_environment
+              run: cd plugin-server && yarn setup:test
 
             - name: Install package.json dependencies with Yarn
               run: cd plugin-server && yarn

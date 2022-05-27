@@ -3,8 +3,8 @@ auth: 0012_alter_user_first_name_max_length
 axes: 0006_remove_accesslog_trusted
 contenttypes: 0002_remove_content_type_name
 database: 0002_auto_20190129_2304
-ee: 0007_dashboard_permissions
-posthog: 0208_alter_plugin_updated_at
+ee: 0012_migrate_tags_v2
+posthog: 0237_remove_timezone_from_teams
 rest_hooks: 0002_swappable_hook_model
 sessions: 0001_initial
 social_django: 0010_uid_db_index

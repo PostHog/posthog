@@ -1,0 +1,125 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`verifiedDomainsLogic values has proper defaults 1`] = `
+Object {
+  "addModalShown": false,
+  "configureSAMLModalId": null,
+  "currentOrganization": Object {
+    "available_features": Array [
+      "sso_enforcement",
+      "saml",
+    ],
+    "created_at": "2020-09-24T15:05:01.254111Z",
+    "id": "ABCD",
+    "is_member_join_email_enabled": true,
+    "membership_level": 8,
+    "metadata": Object {
+      "taxonomy_set_events_count": 60,
+      "taxonomy_set_properties_count": 17,
+    },
+    "name": "MockHog",
+    "plugins_access_level": 9,
+    "slug": "mockhog-fstn",
+    "teams": Array [
+      Object {
+        "access_control": true,
+        "anonymize_ips": false,
+        "api_token": "default-team-api-token",
+        "app_urls": Array [
+          "https://posthog.com/",
+          "https://app.posthog.com",
+        ],
+        "completed_snippet_onboarding": true,
+        "correlation_config": Object {
+          "excluded_event_names": Array [
+            "$autocapture",
+            "$capture_metrics",
+            "$feature_flag_called",
+            "$groupidentify",
+          ],
+          "excluded_event_property_names": Array [
+            "$plugins_deferred",
+            "$geoip_time_zone",
+          ],
+          "excluded_person_property_names": Array [
+            "$browser_version",
+          ],
+        },
+        "created_at": "2020-06-30T09:53:35.932534Z",
+        "data_attributes": Array [
+          "data-attr",
+        ],
+        "effective_membership_level": 8,
+        "has_group_types": true,
+        "id": 997,
+        "ingested_event": true,
+        "is_demo": false,
+        "name": "MockHog App + Marketing",
+        "organization": "ABCD",
+        "path_cleaning_filters": Array [],
+        "person_display_name_properties": Array [
+          "email",
+          "name",
+          "username",
+        ],
+        "primary_dashboard": 1,
+        "session_recording_opt_in": true,
+        "slack_incoming_webhook": "",
+        "test_account_filters": Array [
+          Object {
+            "key": "email",
+            "operator": "not_icontains",
+            "type": "person",
+            "value": "posthog.com",
+          },
+        ],
+        "timezone": "Europe/Brussels",
+        "updated_at": "2022-03-17T16:09:21.566253Z",
+        "uuid": "TEAM_UUID",
+      },
+    ],
+    "updated_at": "2022-01-03T13:50:55.369557Z",
+  },
+  "domainBeingVerified": null,
+  "isSAMLAvailable": true,
+  "isSSOEnforcementAvailable": true,
+  "isSamlConfigSubmitting": false,
+  "isSamlConfigValid": true,
+  "samlConfig": Object {},
+  "samlConfigAllErrors": Object {
+    "saml_acs_url": undefined,
+  },
+  "samlConfigChanged": false,
+  "samlConfigErrors": Object {},
+  "samlConfigHasErrors": false,
+  "samlConfigManualErrors": Object {},
+  "samlConfigTouched": false,
+  "samlConfigTouches": Object {},
+  "samlConfigValidationErrors": Object {
+    "saml_acs_url": undefined,
+  },
+  "showSamlConfigErrors": false,
+  "updatingDomain": false,
+  "updatingDomainLoading": false,
+  "verifiedDomains": Array [
+    Object {
+      "domain": "my.posthog.com",
+      "id": "8db3b0c2-a0ab-490a-9037-14f3358a81bc",
+      "is_verified": true,
+      "jit_provisioning_enabled": true,
+      "sso_enforcement": "google-oauth2",
+      "verified_at": "2022-01-01T23:59:59",
+    },
+    Object {
+      "domain": "temp.posthog.com",
+      "id": "id_will_be_deleted",
+      "is_verified": false,
+      "jit_provisioning_enabled": false,
+      "sso_enforcement": "",
+      "verified_at": "",
+    },
+  ],
+  "verifiedDomainsLoading": false,
+  "verifyModal": null,
+}
+`;

@@ -36,6 +36,24 @@ class TestDecide(BaseTest):
             HTTP_ORIGIN=origin,
         )
 
+    def test_defaults_to_v2_if_conflicting_parameters(self):
+        """
+        regression test for https://sentry.io/organizations/posthog2/issues/2738865125/?project=1899813
+        posthog-js version 1.19.0 (but not versions before or after)
+        mistakenly sent two `v` parameters to the decide endpoint
+        one was correct "2"
+        the other incorrect "1.19.0"
+
+        as a result, if there is a value error reading the `v` param, decide now defaults to 2
+        """
+
+        response = self.client.post(
+            f"/decide/?v=2&v=1.19.0",
+            {"data": self._dict_to_b64({"token": self.team.api_token, "distinct_id": "example_id", "groups": {}})},
+            HTTP_ORIGIN="http://127.0.0.1:8000",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
     def test_user_on_own_site_enabled(self):
         user = self.organization.members.first()
         user.toolbar_mode = "toolbar"

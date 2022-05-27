@@ -1,8 +1,6 @@
 import { gzipSync } from 'zlib'
 
 import { defaultConfig } from '../src/config/config'
-import { LOCKED_RESOURCE } from '../src/main/job-queues/job-queue-consumer'
-import { JobQueueManager } from '../src/main/job-queues/job-queue-manager'
 import { ServerInstance, startPluginsServer } from '../src/main/pluginsServer'
 import { EnqueuedJob, Hub, LogLevel, PluginsServerConfig } from '../src/types'
 import { createHub } from '../src/utils/db/hub'
@@ -84,13 +82,6 @@ describe.skip('job queues', () => {
     beforeEach(async () => {
         testConsole.reset()
 
-        // reset lock in redis
-        const [tempHub, closeTempHub] = await createHub()
-        const redis = await tempHub.redisPool.acquire()
-        await redis.del(LOCKED_RESOURCE)
-        await tempHub.redisPool.release(redis)
-        await closeTempHub()
-
         // reset test code
         await resetTestDatabase(testCode)
 
@@ -167,7 +158,7 @@ describe.skip('job queues', () => {
                 }
 
                 server.hub.jobQueueManager.enqueue(job)
-                const consumedJob: EnqueuedJob = await new Promise((resolve, reject) => {
+                const consumedJob: EnqueuedJob = await new Promise((resolve) => {
                     server.hub.jobQueueManager.startConsumer((consumedJob) => {
                         resolve(consumedJob[0])
                     })
@@ -225,7 +216,6 @@ describe.skip('job queues', () => {
     })
 
     describe('s3 queue', () => {
-        let jobQueue: JobQueueManager
         let hub: Hub
         let closeHub: () => Promise<void>
 
@@ -296,7 +286,7 @@ describe.skip('job queues', () => {
                 Body: gzipSync(Buffer.from(JSON.stringify(job), 'utf8')),
             })
 
-            const consumedJob: EnqueuedJob = await new Promise((resolve, reject) => {
+            const consumedJob: EnqueuedJob = await new Promise((resolve) => {
                 hub.jobQueueManager.startConsumer((consumedJob) => {
                     resolve(consumedJob[0])
                 })
@@ -335,7 +325,7 @@ describe.skip('job queues', () => {
                 Body: gzipSync(Buffer.from(JSON.stringify(job), 'utf8')),
             })
 
-            const consumedJob: EnqueuedJob = await new Promise((resolve, reject) => {
+            const consumedJob: EnqueuedJob = await new Promise((resolve) => {
                 hub.jobQueueManager.startConsumer((consumedJob) => {
                     resolve(consumedJob[0])
                 })

@@ -1,40 +1,20 @@
 import React from 'react'
-import { Input, Form, Select } from 'antd'
 import { useActions, useValues } from 'kea'
-import { slugify } from 'lib/utils'
-import { dashboardsModel } from '~/models/dashboardsModel'
-import TextArea from 'antd/lib/input/TextArea'
+import { Field } from 'lib/forms/Field'
 import { LemonModal } from 'lib/components/LemonModal/LemonModal'
-import { dashboardsLogic } from './dashboardsLogic'
 import { LemonButton } from 'lib/components/LemonButton'
-import { DashboardRestrictionLevel, FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { userLogic } from 'scenes/userLogic'
 import { AvailableFeature } from '~/types'
-import { LemonSelect, LemonSelectOptions } from 'lib/components/LemonSelect'
+import { LemonSelect } from 'lib/components/LemonSelect'
+import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { DASHBOARD_RESTRICTION_OPTIONS } from './ShareModal'
+import { VerticalForm } from 'lib/forms/VerticalForm'
+import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
+import { LemonInput } from 'lib/components/LemonInput/LemonInput'
+import { LemonTextArea } from 'lib/components/LemonTextArea/LemonTextArea'
 
 export function NewDashboardModal(): JSX.Element {
-    const { hideNewDashboardModal } = useActions(dashboardsLogic)
-    const { newDashboardModalVisible } = useValues(dashboardsLogic)
-    const { addDashboard } = useActions(dashboardsModel)
-    const { dashboardLoading } = useValues(dashboardsModel)
-    const { featureFlags } = useValues(featureFlagLogic)
-    const { hasAvailableFeature } = useValues(userLogic)
-
-    const permissioningAvailable = hasAvailableFeature(AvailableFeature.PROJECT_BASED_PERMISSIONING)
-
-    const restrictionOptions: LemonSelectOptions = Object.fromEntries(
-        Object.entries(DASHBOARD_RESTRICTION_OPTIONS).map(([key, option]) => [
-            key,
-            {
-                ...option,
-                disabled: !permissioningAvailable,
-            },
-        ])
-    )
-
-    const [form] = Form.useForm()
+    const { hideNewDashboardModal } = useActions(newDashboardLogic)
+    const { isNewDashboardSubmitting, newDashboardModalVisible } = useValues(newDashboardLogic)
 
     return (
         <LemonModal
@@ -48,7 +28,7 @@ export function NewDashboardModal(): JSX.Element {
                         form="new-dashboard-form"
                         type="secondary"
                         data-attr="dashboard-cancel"
-                        loading={dashboardLoading}
+                        loading={isNewDashboardSubmitting}
                         style={{ marginRight: '0.5rem' }}
                         onClick={hideNewDashboardModal}
                     >
@@ -59,82 +39,58 @@ export function NewDashboardModal(): JSX.Element {
                         htmlType="submit"
                         type="primary"
                         data-attr="dashboard-submit"
-                        loading={dashboardLoading}
+                        loading={isNewDashboardSubmitting}
+                        disabled={isNewDashboardSubmitting}
                     >
                         Create
                     </LemonButton>
                 </>
             }
         >
-            <Form
-                layout="vertical"
-                form={form}
-                onFinish={(values) => {
-                    addDashboard(values)
-                }}
-                id="new-dashboard-form"
-                requiredMark="optional"
-                initialValues={{
-                    restrictionLevel: DashboardRestrictionLevel.EveryoneInProjectCanEdit,
-                }}
-            >
+            <VerticalForm logic={newDashboardLogic} formKey="newDashboard" id="new-dashboard-form" enableFormOnSubmit>
                 <p>Use dashboards to compose multiple insights into a single view.</p>
-                <Form.Item
-                    name="name"
-                    label="Name"
-                    rules={[{ required: true, message: 'Please give your dashboard a name.' }]}
-                >
-                    <Input
-                        autoFocus={true}
-                        onChange={(e) => form.setFieldsValue({ key: slugify(e.target.value) })}
-                        data-attr="dashboard-name-input"
-                        className="ph-ignore-input"
-                    />
-                </Form.Item>
-                <Form.Item name="description" label="Description">
-                    <TextArea
-                        onChange={(e) => form.setFieldsValue({ description: e.target.value })}
-                        data-attr="dashboard-description-input"
-                        className="ph-ignore-input"
-                    />
-                </Form.Item>
-                <Form.Item name="useTemplate" label="Template">
-                    <Select
-                        data-attr="copy-from-template"
-                        style={{ width: '100%' }}
+                <Field name="name" label="Name">
+                    <LemonInput autoFocus={true} data-attr="dashboard-name-input" className="ph-ignore-input" />
+                </Field>
+                <Field name="description" label="Description" showOptional>
+                    <LemonTextArea data-attr="dashboard-description-input" className="ph-ignore-input" />
+                </Field>
+                <Field name="useTemplate" label="Template" showOptional>
+                    <LemonSelect
                         placeholder="Optionally start from template"
                         allowClear
-                    >
-                        <Select.Option data-attr="dashboard-select-default-app" value="DEFAULT_APP">
-                            Website
-                        </Select.Option>
-                    </Select>
-                </Form.Item>
-                {featureFlags[FEATURE_FLAGS.DASHBOARD_PERMISSIONS] && (
-                    <Form.Item
-                        name="restrictionLevel"
-                        label="Collaboration"
-                        rules={[{ required: true, message: 'Restriction level needs to be specified.' }]}
-                    >
-                        <LemonSelect
-                            value={form.getFieldValue('restrictionLevel')}
-                            onChange={(newValue) =>
-                                form.setFieldsValue({
-                                    restrictionLevel: newValue,
-                                })
-                            }
-                            options={restrictionOptions}
-                            loading={dashboardLoading}
-                            type="stealth"
-                            outlined
-                            style={{
-                                height: '3rem',
-                                width: '100%',
-                            }}
-                        />
-                    </Form.Item>
-                )}
-            </Form>
+                        options={{
+                            DEFAULT_APP: {
+                                label: 'Website',
+                                'data-attr': 'dashboard-select-default-app',
+                            },
+                        }}
+                        type="stealth"
+                        outlined
+                        style={{
+                            width: '100%',
+                        }}
+                        data-attr="copy-from-template"
+                    />
+                </Field>
+                <Field name="restrictionLevel" label="Collaboration settings">
+                    {({ value, onChange }) => (
+                        <PayGateMini feature={AvailableFeature.DASHBOARD_PERMISSIONING}>
+                            <LemonSelect
+                                value={value}
+                                onChange={onChange}
+                                options={DASHBOARD_RESTRICTION_OPTIONS}
+                                loading={isNewDashboardSubmitting}
+                                type="stealth"
+                                outlined
+                                style={{
+                                    width: '100%',
+                                }}
+                            />
+                        </PayGateMini>
+                    )}
+                </Field>
+            </VerticalForm>
         </LemonModal>
     )
 }

@@ -1,4 +1,5 @@
 from datetime import date, datetime, timedelta
+from unittest.mock import patch
 
 import pytz
 from freezegun.api import freeze_time
@@ -6,20 +7,14 @@ from freezegun.api import freeze_time
 from ee.clickhouse.queries.funnels.funnel_trends import ClickhouseFunnelTrends
 from ee.clickhouse.queries.funnels.funnel_trends_persons import ClickhouseFunnelTrendsActors
 from ee.clickhouse.test.test_journeys import journeys_for
-from ee.clickhouse.util import ClickhouseTestMixin
+from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
 from posthog.constants import INSIGHT_FUNNELS, TRENDS_LINEAR, FunnelOrderType
 from posthog.models.cohort import Cohort
 from posthog.models.filters import Filter
-from posthog.models.person import Person
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, _create_person
 
 FORMAT_TIME = "%Y-%m-%d %H:%M:%S"
 FORMAT_TIME_DAY_END = "%Y-%m-%d 23:59:59"
-
-
-def _create_person(**kwargs):
-    person = Person.objects.create(**kwargs)
-    return Person(id=person.uuid, uuid=person.uuid)
 
 
 class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
@@ -206,7 +201,6 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
                 "display": TRENDS_LINEAR,
                 "interval": "hour",
                 "date_from": "2021-05-01 00:00:00",
-                "date_to": "2021-05-07 00:00:00",
                 "funnel_window_days": 7,
                 "events": [
                     {"id": "step one", "order": 0},
@@ -215,8 +209,9 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
                 ],
             }
         )
-        results = ClickhouseFunnelTrends(filter, self.team)._exec_query()
-        self.assertEqual(len(results), 145)
+        with freeze_time("2021-05-06T23:40:59Z"):
+            results = ClickhouseFunnelTrends(filter, self.team)._exec_query()
+        self.assertEqual(len(results), 144)
 
     def test_day_interval(self):
         filter = Filter(
@@ -1192,7 +1187,11 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
             self.team,
         )
 
-        cohort = Cohort.objects.create(team=self.team, name="test_cohort", groups=[{"properties": {"key": "value"}}])
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="test_cohort",
+            groups=[{"properties": [{"key": "key", "value": "value", "type": "person"}]}],
+        )
         filter = Filter(
             data={
                 "insight": INSIGHT_FUNNELS,
@@ -1215,3 +1214,63 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
         result = funnel_trends.run()
         self.assertEqual(len(result), 1)
         self.assertEqual(result[0]["data"], [100.0, 100.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+
+    @snapshot_clickhouse_queries
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_timezones_trends(self, patch_feature_enabled):
+        journeys_for(
+            {
+                "user_one": [
+                    {"event": "step one", "timestamp": datetime(2021, 5, 1, 10)},  # 04-30 in pacific
+                    {"event": "step two", "timestamp": datetime(2021, 5, 1, 11)},  # today in pacific
+                    {"event": "step three", "timestamp": datetime(2021, 5, 1, 12)},  # today in pacific
+                ],
+                "user_two": [
+                    {"event": "step one", "timestamp": datetime(2021, 5, 1, 1)},  # 04-30 in pacific
+                    {"event": "step two", "timestamp": datetime(2021, 5, 1, 2)},  # 04-30 in pacific
+                    {"event": "step three", "timestamp": datetime(2021, 5, 1, 3)},  # 04-30 in pacific
+                ],
+                "user_three": [
+                    {"event": "step one", "timestamp": datetime(2021, 5, 1, 1)},  # 04-30 in pacific
+                    {"event": "step two", "timestamp": datetime(2021, 5, 1, 10)},  #  today in pacific
+                    {"event": "step three", "timestamp": datetime(2021, 5, 1, 11)},  # today in pacific
+                ],
+                "user_eight": [],
+            },
+            self.team,
+        )
+
+        filter = Filter(
+            data={
+                "insight": INSIGHT_FUNNELS,
+                "display": TRENDS_LINEAR,
+                "interval": "day",
+                "date_from": "2021-04-30 00:00:00",
+                "date_to": "2021-05-07 00:00:00",
+                "funnel_window_days": 7,
+                "events": [
+                    {"id": "step one", "order": 0},
+                    {"id": "step two", "order": 1},
+                    {"id": "step three", "order": 2},
+                ],
+            }
+        )
+        results = ClickhouseFunnelTrends(filter, self.team)._exec_query()
+
+        self.team.timezone = "US/Pacific"
+        self.team.save()
+
+        results_pacific = ClickhouseFunnelTrends(filter, self.team)._exec_query()
+
+        saturday = results[1]  # 5/1
+        self.assertEqual(3, saturday["reached_to_step_count"])
+        self.assertEqual(3, saturday["reached_from_step_count"])
+        self.assertEqual(100.0, saturday["conversion_rate"])
+
+        friday_pacific = results_pacific[0]
+        self.assertEqual(2, friday_pacific["reached_to_step_count"])
+        self.assertEqual(2, friday_pacific["reached_from_step_count"])
+        self.assertEqual(100.0, friday_pacific["conversion_rate"])
+        saturday_pacific = results_pacific[1]
+        self.assertEqual(1, saturday_pacific["reached_to_step_count"])
+        self.assertEqual(1, saturday_pacific["reached_from_step_count"])

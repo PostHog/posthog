@@ -1,17 +1,19 @@
 from typing import Any, Dict, List, Optional, Type, cast
 
+from dateutil.relativedelta import relativedelta
+from django.core.cache import cache
 from django.db import transaction
 from django.shortcuts import get_object_or_404
+from django.utils.timezone import now
 from rest_framework import exceptions, permissions, request, response, serializers, viewsets
 from rest_framework.decorators import action
 
 from posthog.api.shared import TeamBasicSerializer
 from posthog.constants import AvailableFeature
 from posthog.mixins import AnalyticsDestroyModelMixin
-from posthog.models import Organization, Team
+from posthog.models import Insight, Organization, Team, User
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.organization import OrganizationMembership
-from posthog.models.user import User
 from posthog.models.utils import generate_random_token_project
 from posthog.permissions import (
     CREATE_METHODS,
@@ -65,11 +67,13 @@ class TeamSerializer(serializers.ModelSerializer):
             "is_demo",
             "timezone",
             "data_attributes",
+            "person_display_name_properties",
             "correlation_config",
             "session_recording_opt_in",
             "effective_membership_level",
             "access_control",
             "has_group_types",
+            "primary_dashboard",
         )
         read_only_fields = (
             "id",
@@ -91,6 +95,9 @@ class TeamSerializer(serializers.ModelSerializer):
         return GroupTypeMapping.objects.filter(team=team).exists()
 
     def validate(self, attrs: Any) -> Any:
+        if "primary_dashboard" in attrs and attrs["primary_dashboard"].team != self.instance:
+            raise exceptions.PermissionDenied("Dashboard does not belong to this team.")
+
         if "access_control" in attrs:
             # Only organization-wide admins and above should be allowed to switch the project between open and private
             # If a project-only admin who is only an org member disabled this it, they wouldn't be able to reenable it
@@ -104,6 +111,7 @@ class TeamSerializer(serializers.ModelSerializer):
             )
             if org_membership.level < OrganizationMembership.Level.ADMIN:
                 raise exceptions.PermissionDenied(OrganizationAdminAnyPermissions.message)
+
         return super().validate(attrs)
 
     def create(self, validated_data: Dict[str, Any], **kwargs) -> Team:
@@ -115,6 +123,22 @@ class TeamSerializer(serializers.ModelSerializer):
             request.user.current_team = team
             request.user.save()
         return team
+
+    def _handle_timezone_update(self, team: Team, new_timezone: str) -> None:
+        hashes = (
+            Insight.objects.filter(team=team, last_refresh__gt=now() - relativedelta(days=7))
+            .exclude(filters_hash=None)
+            .values_list("filters_hash", flat=True)
+        )
+        cache.delete_many(hashes)
+
+        return
+
+    def update(self, instance: Team, validated_data: Dict[str, Any]) -> Team:
+        if "timezone" in validated_data and validated_data["timezone"] != instance.timezone:
+            self._handle_timezone_update(instance, validated_data["timezone"])
+
+        return super().update(instance, validated_data)
 
 
 class TeamViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
@@ -186,8 +210,9 @@ class TeamViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
         return team
 
     def perform_destroy(self, team: Team):
+        team_id = team.pk
         super().perform_destroy(team)
-        delete_clickhouse_data.delay(team_ids=[team.pk])
+        delete_clickhouse_data.delay(team_ids=[team_id])
 
     @action(methods=["PATCH"], detail=True)
     def reset_token(self, request: request.Request, id: str, **kwargs) -> response.Response:

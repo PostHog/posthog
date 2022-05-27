@@ -1,28 +1,39 @@
-import { mockAPI } from 'lib/api.mock'
 import { expectLogic } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
 import { personsLogic } from './personsLogic'
 import { router } from 'kea-router'
 import { PropertyOperator } from '~/types'
-
-jest.mock('lib/api')
+import { useMocks } from '~/mocks/jest'
 
 describe('personsLogic', () => {
     let logic: ReturnType<typeof personsLogic.build>
 
-    mockAPI(async ({ pathname, searchParams }) => {
-        if (
-            `api/person/` === pathname &&
-            (JSON.stringify(searchParams) == '{}' ||
-                JSON.stringify(searchParams) == JSON.stringify({ properties: [{ key: 'email', operator: 'is_set' }] }))
-        ) {
-            return { result: ['result from api'] }
-        } else if (`api/person/` === pathname && ['abc', 'xyz'].includes(searchParams['distinct_id'])) {
-            return { results: ['person from api'] }
-        }
-    })
-
     beforeEach(() => {
+        useMocks({
+            get: {
+                '/api/person/': (req) => {
+                    if (['abc', 'xyz'].includes(req.url.searchParams.get('distinct_id') ?? '')) {
+                        return [200, { results: ['person from api'] }]
+                    }
+                    if (['test@test.com'].includes(req.url.searchParams.get('distinct_id') ?? '')) {
+                        return [
+                            200,
+                            {
+                                results: [
+                                    {
+                                        id: 1,
+                                        name: 'test@test.com',
+                                        distinct_ids: ['test@test.com'],
+                                        uuid: 'abc-123',
+                                    },
+                                ],
+                            },
+                        ]
+                    }
+                    return [200, { result: ['result from api'] }]
+                },
+            },
+        })
         initKeaTests()
         logic = personsLogic({ syncWithUrl: true })
         logic.mount()
@@ -66,6 +77,25 @@ describe('personsLogic', () => {
             await expectLogic(logic).toMatchValues({
                 person: null,
             })
+        })
+
+        it('gets the person from the url', async () => {
+            router.actions.push('/person/test%40test.com')
+
+            await expectLogic(logic)
+                .toDispatchActions(['loadPerson', 'loadPersonSuccess'])
+                .toMatchValues({
+                    person: {
+                        id: 1,
+                        name: 'test@test.com',
+                        distinct_ids: ['test@test.com'],
+                        uuid: 'abc-123',
+                    },
+                })
+
+            // Dont fetch again if the url changes (even with encoded distinct IDs)
+            router.actions.push('/person/test%40test.com', {}, { sessionRecordingId: 'abc-123' })
+            await expectLogic(logic).toNotHaveDispatchedActions(['loadPerson'])
         })
 
         it('loads a person', async () => {

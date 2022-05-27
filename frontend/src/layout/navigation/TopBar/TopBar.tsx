@@ -3,7 +3,6 @@ import React from 'react'
 import { FriendlyLogo } from '../../../toolbar/assets/FriendlyLogo'
 import { SitePopover } from './SitePopover'
 import { Announcement } from './Announcement'
-import { SearchBox } from './SearchBox'
 import { navigationLogic } from '../navigationLogic'
 import { HelpButton } from '../../../lib/components/HelpButton/HelpButton'
 import { CommandPalette } from '../../../lib/components/CommandPalette'
@@ -14,6 +13,9 @@ import { IconMenu, IconMenuOpen } from '../../../lib/components/icons'
 import { CreateProjectModal } from '../../../scenes/project/CreateProjectModal'
 import './TopBar.scss'
 import { inviteLogic } from 'scenes/organization/Settings/inviteLogic'
+import { UniversalSearchPopup } from 'lib/components/UniversalSearch/UniversalSearchPopup'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { groupsModel } from '~/models/groupsModel'
 
 export function TopBar(): JSX.Element {
     const { isSideBarShown, bareNav, mobileLayout, isCreateOrganizationModalShown, isCreateProjectModalShown } =
@@ -22,6 +24,7 @@ export function TopBar(): JSX.Element {
         useActions(navigationLogic)
     const { isInviteModalShown } = useValues(inviteLogic)
     const { hideInviteModal } = useActions(inviteLogic)
+    const { groupNamesTaxonomicTypes } = useValues(groupsModel)
 
     return (
         <>
@@ -39,7 +42,23 @@ export function TopBar(): JSX.Element {
                     <Link to="/" className="TopBar__logo">
                         <FriendlyLogo />
                     </Link>
-                    <SearchBox />
+
+                    <div style={{ flexGrow: 1 }}>
+                        <UniversalSearchPopup
+                            groupType={TaxonomicFilterGroupType.Events}
+                            groupTypes={[
+                                TaxonomicFilterGroupType.Events,
+                                TaxonomicFilterGroupType.Actions,
+                                TaxonomicFilterGroupType.Cohorts,
+                                TaxonomicFilterGroupType.Insights,
+                                TaxonomicFilterGroupType.FeatureFlags,
+                                TaxonomicFilterGroupType.Plugins,
+                                TaxonomicFilterGroupType.Experiments,
+                                TaxonomicFilterGroupType.Dashboards,
+                                ...groupNamesTaxonomicTypes,
+                            ]}
+                        />
+                    </div>
                 </div>
                 <div className="TopBar__segment TopBar__segment--right">
                     <HelpButton />

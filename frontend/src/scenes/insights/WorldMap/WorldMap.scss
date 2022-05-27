@@ -1,0 +1,14 @@
+.WorldMap {
+    padding: 1rem 0;
+    width: 100%;
+    color: hsl(0, 0, 85%); // Alpha-less equivalent of --border
+    .landxx {
+        fill: currentColor;
+        stroke: var(--bg-light);
+        stroke-width: 0.125rem;
+        fill-rule: evenodd;
+        &:hover {
+            color: var(--brand-blue-active) !important;
+        }
+    }
+}

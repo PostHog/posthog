@@ -1,30 +1,25 @@
 import React from 'react'
 import { BindLogic, useActions, useValues } from 'kea'
 import { PersonsModal } from './PersonsModal'
-import {
-    ACTIONS_LINE_GRAPH_LINEAR,
-    ACTIONS_LINE_GRAPH_CUMULATIVE,
-    ACTIONS_TABLE,
-    ACTIONS_PIE_CHART,
-    ACTIONS_BAR_CHART,
-    ACTIONS_BAR_CHART_VALUE,
-} from 'lib/constants'
 import { ActionsPie, ActionsLineGraph, ActionsHorizontalBar } from './viz'
 import { SaveCohortModal } from './SaveCohortModal'
 import { trendsLogic } from './trendsLogic'
-import { InsightType, ItemMode } from '~/types'
+import { ChartDisplayType, InsightType, ItemMode } from '~/types'
 import { InsightsTable } from 'scenes/insights/InsightsTable'
 import { Button } from 'antd'
 import { personsModalLogic } from './personsModalLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
+import { WorldMap } from 'scenes/insights/WorldMap'
 
 interface Props {
     view: InsightType
 }
 
 export function TrendInsight({ view }: Props): JSX.Element {
-    const { insightProps, insightMode } = useValues(insightLogic)
+    const { insightMode } = useValues(insightSceneLogic)
+    const { insightProps } = useValues(insightLogic)
     const { cohortModalVisible } = useValues(personsModalLogic)
     const { setCohortModalVisible } = useActions(personsModalLogic)
     const {
@@ -42,13 +37,13 @@ export function TrendInsight({ view }: Props): JSX.Element {
     const renderViz = (): JSX.Element | undefined => {
         if (
             !_filters.display ||
-            _filters.display === ACTIONS_LINE_GRAPH_LINEAR ||
-            _filters.display === ACTIONS_LINE_GRAPH_CUMULATIVE ||
-            _filters.display === ACTIONS_BAR_CHART
+            _filters.display === ChartDisplayType.ActionsLineGraph ||
+            _filters.display === ChartDisplayType.ActionsLineGraphCumulative ||
+            _filters.display === ChartDisplayType.ActionsBar
         ) {
-            return <ActionsLineGraph filters={_filters} />
+            return <ActionsLineGraph />
         }
-        if (_filters.display === ACTIONS_TABLE) {
+        if (_filters.display === ChartDisplayType.ActionsTable) {
             return (
                 <BindLogic logic={trendsLogic} props={{ dashboardItemId: null, view, filters: null }}>
                     <InsightsTable
@@ -61,11 +56,14 @@ export function TrendInsight({ view }: Props): JSX.Element {
                 </BindLogic>
             )
         }
-        if (_filters.display === ACTIONS_PIE_CHART) {
-            return <ActionsPie filters={_filters} />
+        if (_filters.display === ChartDisplayType.ActionsPie) {
+            return <ActionsPie />
         }
-        if (_filters.display === ACTIONS_BAR_CHART_VALUE) {
-            return <ActionsHorizontalBar filters={_filters} />
+        if (_filters.display === ChartDisplayType.ActionsBarValue) {
+            return <ActionsHorizontalBar />
+        }
+        if (_filters.display === ChartDisplayType.WorldMap) {
+            return <WorldMap />
         }
     }
 
@@ -74,37 +72,29 @@ export function TrendInsight({ view }: Props): JSX.Element {
             {(_filters.actions || _filters.events) && (
                 <div
                     className={
-                        _filters.display !== ACTIONS_TABLE
+                        _filters.display !== ChartDisplayType.ActionsTable &&
+                        _filters.display !== ChartDisplayType.WorldMap
                             ? 'trends-insights-container'
-                            : undefined /* Tables don't need this padding, but graphs do for sizing */
+                            : undefined /* Tables and world map don't need this padding, but graphs do for sizing */
                     }
                 >
                     {renderViz()}
                 </div>
             )}
-            {_filters.breakdown && (
+            {_filters.breakdown && loadMoreBreakdownUrl && (
                 <div className="mt text-center">
-                    {loadMoreBreakdownUrl ? (
-                        <>
-                            <div className="text-muted mb">
-                                For readability, <b>not all breakdown values are displayed</b>. Click below to load
-                                them.
-                            </div>
-                            <div>
-                                <Button
-                                    style={{ textAlign: 'center', marginBottom: 16 }}
-                                    onClick={loadMoreBreakdownValues}
-                                    loading={breakdownValuesLoading}
-                                >
-                                    Load more breakdown values
-                                </Button>
-                            </div>
-                        </>
-                    ) : (
-                        <span className="text-muted">
-                            Showing <b>all breakdown values</b>
-                        </span>
-                    )}
+                    <div className="text-muted mb">
+                        For readability, <b>not all breakdown values are displayed</b>. Click below to load them.
+                    </div>
+                    <div>
+                        <Button
+                            style={{ textAlign: 'center', marginBottom: 16 }}
+                            onClick={loadMoreBreakdownValues}
+                            loading={breakdownValuesLoading}
+                        >
+                            Load more breakdown values
+                        </Button>
+                    </div>
                 </div>
             )}
             <PersonsModal

@@ -38,7 +38,7 @@ class ClickhousePathsActors(ClickhousePaths, ActorBaseQuery):  # type: ignore
         if self._filter.include_recordings:
             select_statement = """
                 person_id AS actor_id
-                , groupUniqArray(10)((uuid, timestamp, $session_id, $window_id)) as matching_events
+                , groupUniqArray(10)((timestamp, uuid, $session_id, $window_id)) as matching_events
             """
             group_statement = "GROUP BY person_id"
 

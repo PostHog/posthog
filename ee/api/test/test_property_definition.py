@@ -1,3 +1,4 @@
+import urllib.parse
 from typing import cast
 
 import pytest
@@ -7,7 +8,7 @@ from rest_framework import status
 
 from ee.models.license import License, LicenseManager
 from ee.models.property_definition import EnterprisePropertyDefinition
-from posthog.models import EventProperty
+from posthog.models import EventProperty, Tag
 from posthog.models.property_definition import PropertyDefinition
 from posthog.test.base import APIBaseTest
 
@@ -23,6 +24,7 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
         assert response.json()["property_type"] == "DateTime"
 
         query_list_response = self.client.get(f"/api/projects/@current/property_definitions")
+        self.assertEqual(query_list_response.status_code, status.HTTP_200_OK)
         matches = [p["name"] for p in query_list_response.json()["results"] if p["name"] == "a timestamp"]
         assert len(matches) == 1
 
@@ -36,9 +38,9 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
             plan="enterprise", valid_until=timezone.datetime(2500, 1, 19, 3, 14, 7)
         )
-        property = EnterprisePropertyDefinition.objects.create(
-            team=self.team, name="enterprise property", tags=["deprecated"]
-        )
+        property = EnterprisePropertyDefinition.objects.create(team=self.team, name="enterprise property")
+        tag = Tag.objects.create(name="deprecated", team_id=self.team.id)
+        property.tagged_items.create(tag_id=tag.id)
         response = self.client.get(f"/api/projects/@current/property_definitions/{property.id}")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
@@ -63,16 +65,18 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
             plan="enterprise", valid_until=timezone.datetime(2500, 1, 19, 3, 14, 7)
         )
+        tag = Tag.objects.create(name="deprecated", team_id=self.team.id)
         EventProperty.objects.create(team=self.team, event="$pageview", property="enterprise property")
-        EnterprisePropertyDefinition.objects.create(
-            team=self.team, name="enterprise property", description="", tags=["deprecated"]
+        enterprise_property = EnterprisePropertyDefinition.objects.create(
+            team=self.team, name="enterprise property", description=""
         )
-        EnterprisePropertyDefinition.objects.create(
-            team=self.team, name="other property", description="", tags=["deprecated"]
+        enterprise_property.tagged_items.create(tag_id=tag.id)
+        other_property = EnterprisePropertyDefinition.objects.create(
+            team=self.team, name="other property", description=""
         )
-        EnterprisePropertyDefinition.objects.create(
-            team=self.team, name="$set", description="", tags=["hidden-system-property"]
-        )
+        other_property.tagged_items.create(tag_id=tag.id)
+        set_property = EnterprisePropertyDefinition.objects.create(team=self.team, name="$set", description="")
+        set_property.tagged_items.create(tag_id=tag.id)
 
         response = self.client.get(f"/api/projects/@current/property_definitions/?search=enter")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -134,10 +138,10 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
         response_data = response.json()
         self.assertEqual(response_data["description"], "This is a description.")
         self.assertEqual(response_data["updated_by"]["first_name"], self.user.first_name)
-        self.assertEqual(response_data["tags"], ["official", "internal"])
+        self.assertEqual(set(response_data["tags"]), {"official", "internal"})
 
         property.refresh_from_db()
-        self.assertEqual(property.tags, ["official", "internal"])
+        self.assertEqual(set(property.tagged_items.values_list("tag__name", flat=True)), {"official", "internal"})
 
     def test_update_property_without_license(self):
         property = EnterprisePropertyDefinition.objects.create(team=self.team, name="enterprise property")
@@ -172,3 +176,112 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
         self.assertEqual(response.json()["count"], 2)
         for item in response.json()["results"]:
             self.assertIn(item["name"], ["plan", "app_rating"])
+
+    def test_event_property_definition_no_duplicate_tags(self):
+        from ee.models.license import License, LicenseManager
+
+        super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            key="key_123", plan="enterprise", valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7), max_users=3,
+        )
+        property = EnterprisePropertyDefinition.objects.create(team=self.team, name="description test")
+        response = self.client.patch(
+            f"/api/projects/@current/property_definitions/{str(property.id)}/", data={"tags": ["a", "b", "a"]},
+        )
+
+        self.assertListEqual(sorted(response.json()["tags"]), ["a", "b"])
+
+    def test_order_ids_first_filter(self):
+        super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            plan="enterprise", valid_until=timezone.datetime(2010, 1, 19, 3, 14, 7)
+        )
+        # is_first_movie, first_visit
+        is_first_movie_property = EnterprisePropertyDefinition.objects.create(team=self.team, name="is_first_movie")
+        first_visit_property = EnterprisePropertyDefinition.objects.create(team=self.team, name="first_visit")
+        ids = [is_first_movie_property.id, first_visit_property.id]
+
+        response = self.client.get("/api/projects/@current/property_definitions/?search=firs")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 2)  # first_visit, is_first_movie
+        self.assertEqual(response.json()["results"][0]["name"], "first_visit")
+        self.assertEqual(response.json()["results"][1]["name"], "is_first_movie")
+
+        order_ids_first_str = f'["{str(ids[0])}"]'
+        response = self.client.get(
+            f'/api/projects/@current/property_definitions/?search=firs&{urllib.parse.urlencode({"order_ids_first": order_ids_first_str})}'
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 2)
+        self.assertEqual(response.json()["results"][0]["id"], str(ids[0]))  # Test that included id is first item
+        self.assertEqual(response.json()["results"][0]["name"], "is_first_movie")
+
+        response = self.client.get(
+            f'/api/projects/@current/property_definitions/?search=firs&{urllib.parse.urlencode({"order_ids_first": []})}'
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 2)  # first_visit, is_first_movie
+        self.assertEqual(response.json()["results"][0]["name"], "first_visit")
+        self.assertEqual(response.json()["results"][1]["name"], "is_first_movie")
+
+    def test_excluded_ids_filter(self):
+        super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            plan="enterprise", valid_until=timezone.datetime(2010, 1, 19, 3, 14, 7)
+        )
+        # is_first_movie, first_visit
+        is_first_movie_property = EnterprisePropertyDefinition.objects.create(team=self.team, name="is_first_movie")
+        first_visit_property = EnterprisePropertyDefinition.objects.create(team=self.team, name="first_visit")
+        ids = [is_first_movie_property.id, first_visit_property.id]
+
+        response = self.client.get("/api/projects/@current/property_definitions/?search=firs")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 2)  # first_visit, is_first_movie
+        self.assertEqual(response.json()["results"][0]["name"], "first_visit")
+        self.assertEqual(response.json()["results"][1]["name"], "is_first_movie")
+
+        excluded_ids_str = f'["{str(ids[0])}"]'
+        response = self.client.get(
+            f'/api/projects/@current/property_definitions/?search=firs&{urllib.parse.urlencode({"excluded_ids": excluded_ids_str})}'
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 1)
+        self.assertEqual(response.json()["results"][0]["id"], str(ids[1]))
+        self.assertEqual(response.json()["results"][0]["name"], "first_visit")
+
+        response = self.client.get(
+            f'/api/projects/@current/property_definitions/?search=firs&{urllib.parse.urlencode({"excluded_ids": []})}'
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 2)  # first_visit, is_first_movie
+        self.assertEqual(response.json()["results"][0]["name"], "first_visit")
+        self.assertEqual(response.json()["results"][1]["name"], "is_first_movie")
+
+    def test_order_ids_first_overrides_excluded_ids_filter(self):
+        super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            plan="enterprise", valid_until=timezone.datetime(2010, 1, 19, 3, 14, 7)
+        )
+        # is_first_movie, first_visit
+        is_first_movie_property = EnterprisePropertyDefinition.objects.create(team=self.team, name="is_first_movie")
+        first_visit_property = EnterprisePropertyDefinition.objects.create(team=self.team, name="first_visit")
+        ids = [is_first_movie_property.id, first_visit_property.id]
+
+        response = self.client.get("/api/projects/@current/property_definitions/?search=firs")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 2)  # first_visit, is_first_movie
+        self.assertEqual(response.json()["results"][0]["name"], "first_visit")
+        self.assertEqual(response.json()["results"][1]["name"], "is_first_movie")
+
+        ids_str = f'["{str(ids[0])}"]'
+        response = self.client.get(
+            f'/api/projects/@current/property_definitions/?search=firs&{urllib.parse.urlencode({"excluded_ids": ids_str, "order_ids_first": ids_str})}'
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 2)
+        self.assertEqual(response.json()["results"][0]["id"], str(ids[0]))
+        self.assertEqual(response.json()["results"][0]["name"], "is_first_movie")
+
+        response = self.client.get(
+            f'/api/projects/@current/property_definitions/?search=firs&{urllib.parse.urlencode({"excluded_ids": [], "order_ids_first": []})}'
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 2)  # first_visit, is_first_movie
+        self.assertEqual(response.json()["results"][0]["name"], "first_visit")
+        self.assertEqual(response.json()["results"][1]["name"], "is_first_movie")

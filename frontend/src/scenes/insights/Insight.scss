@@ -2,7 +2,15 @@
 
 $funnel_canvas_background: #fff;
 
+$editor_panel_width: min(28rem, 50%);
+
 .insights-page {
+    h2 {
+        font-size: 1.125rem;
+        font-weight: 600;
+        margin: 0;
+    }
+
     .top-bar {
         width: 100%;
         .ant-tabs,
@@ -104,9 +112,52 @@ $funnel_canvas_background: #fff;
         }
     }
 
+    .insights-wrapper {
+        @media screen and (min-width: $md) {
+            display: flex;
+            overflow: hidden;
+            gap: $default_spacing;
+            flex-direction: row-reverse;
+        }
+
+        .insights-container {
+            flex: 1;
+            overflow-x: auto;
+        }
+        .insight-editor-area {
+            flex-shrink: 0;
+
+            > * {
+                margin-bottom: 1em;
+            }
+
+            @media screen and (min-width: $md) {
+                width: $editor_panel_width;
+
+                &.anim--enter {
+                    width: 0px;
+                }
+
+                &.anim--enter-active {
+                    width: $editor_panel_width;
+                    transition: width 250ms;
+                }
+
+                &.anim--exit {
+                    width: $editor_panel_width;
+                }
+
+                &.anim--exit-active {
+                    width: 0px;
+                    transition: width 250ms;
+                }
+            }
+        }
+    }
+
     .insights-graph-container {
-        margin-bottom: $default_spacing;
-        background-color: #fff;
+        background: #fff;
+        margin-bottom: 1rem;
 
         .ant-card-head {
             border-bottom: 1px solid $border;
@@ -147,6 +198,7 @@ $funnel_canvas_background: #fff;
 
         .ant-card-body {
             padding: 0;
+            overflow-x: auto;
         }
 
         .insights-graph-container-row {
@@ -155,9 +207,9 @@ $funnel_canvas_background: #fff;
             }
 
             .insights-graph-container-row-right {
-                width: 100%;
                 height: min(calc(90vh - 16rem), 36rem); // same as .trends-insights-container
                 max-width: 300px;
+                width: fit-content;
                 padding: 0 $default_spacing $default_spacing 0;
                 display: flex;
                 align-items: center;
@@ -166,9 +218,8 @@ $funnel_canvas_background: #fff;
 
         .graph-container {
             // hacky because container not respecting position: relative;
-            width: calc(100% - 48px);
-            height: calc(100% - 48px);
-            margin-top: $default_spacing * 2;
+            width: calc(100% - 3rem);
+            height: calc(100% - 3rem);
         }
     }
 
@@ -189,29 +240,6 @@ $funnel_canvas_background: #fff;
         display: flex;
         flex-wrap: nowrap;
         justify-content: flex-end;
-
-        .btn-reset {
-            color: rgba($danger, 0.8);
-        }
-        .btn-save {
-            border-color: $primary;
-            color: $primary;
-            &:hover {
-                border-color: darken($primary, 30%);
-                color: darken($primary, 30%);
-            }
-        }
-    }
-
-    .action-filters-bordered {
-        .draggable-action-filter {
-            border-bottom: 1px solid $border;
-            padding: $default_spacing $default_spacing / 4;
-            margin-top: 0;
-        }
-        .row-action-btn {
-            color: $primary_alt;
-        }
     }
 
     .advanced-options-dropdown {
@@ -259,18 +287,22 @@ $funnel_canvas_background: #fff;
     min-height: min(calc(90vh - 16rem), 36rem);
     display: flex;
     justify-content: center;
+    .graph-container {
+        height: calc(100% - 1rem) !important;
+    }
 }
 
 .funnel-insights-container {
     padding: 24px;
     background-color: $funnel_canvas_background;
+    border-radius: 0 0 var(--radius) var(--radius);
 
     &.no-padding {
         padding: 0;
     }
 
     &.non-empty-state {
-        min-height: 400px;
+        min-height: 26rem;
         position: relative;
         margin-bottom: 0;
     }
@@ -287,5 +319,14 @@ $funnel_canvas_background: #fff;
             padding: 0;
             margin: 0 0 0 4px;
         }
+    }
+}
+
+.significance-highlight {
+    display: inline-flex;
+    background: var(--primary);
+    color: var(--bg-light);
+    .LemonRow__icon {
+        color: var(--bg-light);
     }
 }

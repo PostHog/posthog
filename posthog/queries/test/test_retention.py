@@ -1,20 +1,21 @@
 import json
 from datetime import datetime
+from unittest.mock import patch
 
 import pytz
 from rest_framework import status
 
+from ee.clickhouse.util import snapshot_clickhouse_queries
 from posthog.constants import (
     FILTER_TEST_ACCOUNTS,
     RETENTION_FIRST_TIME,
     RETENTION_TYPE,
     TREND_FILTER_TYPE_ACTIONS,
     TREND_FILTER_TYPE_EVENTS,
-    TRENDS_LINEAR,
 )
-from posthog.models import Action, ActionStep, Event, Person
+from posthog.models import Person
 from posthog.models.filters import RetentionFilter
-from posthog.queries.retention import Retention
+from posthog.models.instance_setting import override_instance_config
 from posthog.test.base import APIBaseTest
 
 
@@ -895,6 +896,158 @@ def retention_test_factory(retention, event_factory, person_factory, action_fact
             )
 
             return p1, p2, p3, p4
+
+        def test_retention_aggregate_by_distinct_id(self):
+
+            person1 = person_factory(
+                team_id=self.team.pk, distinct_ids=["person1", "alias1"], properties={"test": "ok"}
+            )
+            person2 = person_factory(team_id=self.team.pk, distinct_ids=["person2"])
+
+            self._create_events(
+                [
+                    ("person1", self._date(0)),
+                    ("person1", self._date(1)),
+                    ("person1", self._date(2)),
+                    ("person1", self._date(5)),
+                    ("alias1", self._date(5, 9)),
+                    ("person1", self._date(6)),
+                    ("person2", self._date(1)),
+                    ("person2", self._date(2)),
+                    ("person2", self._date(3)),
+                    ("person2", self._date(6)),
+                ]
+            )
+
+            with override_instance_config("AGGREGATE_BY_DISTINCT_IDS_TEAMS", f"{self.team.pk}"):
+                # even if set to hour 6 it should default to beginning of day and include all pageviews above
+                result = retention().run(RetentionFilter(data={"date_to": self._date(10, hour=6)}), self.team)
+                self.assertEqual(len(result), 11)
+                self.assertEqual(
+                    self.pluck(result, "label"),
+                    [
+                        "Day 0",
+                        "Day 1",
+                        "Day 2",
+                        "Day 3",
+                        "Day 4",
+                        "Day 5",
+                        "Day 6",
+                        "Day 7",
+                        "Day 8",
+                        "Day 9",
+                        "Day 10",
+                    ],
+                )
+                self.assertEqual(result[0]["date"], datetime(2020, 6, 10, 0, tzinfo=pytz.UTC))
+
+                self.assertEqual(
+                    self.pluck(result, "values", "count"),
+                    [
+                        [1, 1, 1, 0, 0, 1, 1, 0, 0, 0, 0],
+                        [2, 2, 1, 0, 1, 2, 0, 0, 0, 0],
+                        [2, 1, 0, 1, 2, 0, 0, 0, 0],
+                        [1, 0, 0, 1, 0, 0, 0, 0],
+                        [0, 0, 0, 0, 0, 0, 0],
+                        [2, 1, 0, 0, 0, 0],  # this first day is different b/c of the distinct_id aggregation
+                        [2, 0, 0, 0, 0],
+                        [0, 0, 0, 0],
+                        [0, 0, 0],
+                        [0, 0],
+                        [0],
+                    ],
+                )
+
+                result = retention().run(
+                    RetentionFilter(
+                        data={
+                            "date_to": self._date(10, hour=6),
+                            "properties": [{"key": "test", "value": "ok", "type": "person"}],
+                        }
+                    ),
+                    self.team,
+                )
+                self.assertEqual(
+                    self.pluck(result, "values", "count"),
+                    [
+                        [1, 1, 1, 0, 0, 1, 1, 0, 0, 0, 0],
+                        [1, 1, 0, 0, 1, 1, 0, 0, 0, 0],
+                        [1, 0, 0, 1, 1, 0, 0, 0, 0],
+                        [0, 0, 0, 0, 0, 0, 0, 0],
+                        [0, 0, 0, 0, 0, 0, 0],
+                        [2, 1, 0, 0, 0, 0],  # this first day is different b/c of the distinct_id aggregation
+                        [1, 0, 0, 0, 0],
+                        [0, 0, 0, 0],
+                        [0, 0, 0],
+                        [0, 0],
+                        [0],
+                    ],
+                )
+
+        @snapshot_clickhouse_queries
+        @patch("posthoganalytics.feature_enabled", return_value=True)
+        def test_timezones(self, patch_feature_enabled):
+            person1 = person_factory(team_id=self.team.pk, distinct_ids=["person1", "alias1"])
+            person2 = person_factory(team_id=self.team.pk, distinct_ids=["person2"])
+
+            self._create_events(
+                [
+                    ("person1", self._date(-1, 1)),
+                    ("person1", self._date(0, 1)),
+                    ("person1", self._date(1, 1)),  # this is the only event in US Pacific on the first day
+                    ("person2", self._date(6, 1)),
+                    ("person2", self._date(6, 9)),
+                ]
+            )
+
+            result = retention().run(
+                RetentionFilter(data={"date_to": self._date(10, hour=6)}, team=self.team), self.team
+            )
+
+            self.team.timezone = "US/Pacific"
+            self.team.save()
+            result_pacific = retention().run(
+                RetentionFilter(data={"date_to": self._date(10, hour=6)}, team=self.team), self.team
+            )
+            self.assertEqual(
+                self.pluck(result_pacific, "label"),
+                ["Day 0", "Day 1", "Day 2", "Day 3", "Day 4", "Day 5", "Day 6", "Day 7", "Day 8", "Day 9", "Day 10",],
+            )
+            self.assertEqual(result_pacific[0]["date"], datetime(2020, 6, 10, 0, tzinfo=pytz.UTC))
+
+            self.assertEqual(
+                self.pluck(result, "values", "count"),
+                [
+                    [1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [1, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0],
+                    [1, 0, 0, 0, 0],  #  person 2
+                    [0, 0, 0, 0],
+                    [0, 0, 0],
+                    [0, 0],
+                    [0],
+                ],
+            )
+
+            self.assertEqual(
+                self.pluck(result_pacific, "values", "count"),
+                [
+                    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [1, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0],
+                    [1, 1, 0, 0, 0],  # person 2 is across two dates in US/Pacific
+                    [0, 0, 0, 0],
+                    [0, 0, 0],
+                    [0, 0],
+                    [0],
+                ],
+            )
 
         def _create_signup_actions(self, user_and_timestamps):
 

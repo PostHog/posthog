@@ -171,7 +171,7 @@ class UserViewSet(mixins.RetrieveModelMixin, mixins.UpdateModelMixin, mixins.Lis
     filterset_fields = [
         "is_staff",
     ]
-    queryset = User.objects.none()
+    queryset = User.objects.filter(is_active=True)
     lookup_field = "uuid"
 
     def get_object(self) -> Any:
@@ -187,9 +187,10 @@ class UserViewSet(mixins.RetrieveModelMixin, mixins.UpdateModelMixin, mixins.Lis
         return super().get_object()
 
     def get_queryset(self):
-        if self.request.user.is_staff:
-            return User.objects.all()
-        return User.objects.filter(id=self.request.user.id)
+        queryset = super().get_queryset()
+        if not self.request.user.is_staff:
+            queryset = queryset.filter(id=self.request.user.id)
+        return queryset
 
 
 @authenticate_secondarily
@@ -221,7 +222,9 @@ def redirect_to_site(request):
         params["userEmail"] = request.user.email
         params["distinctId"] = request.user.distinct_id
 
-    state = urllib.parse.quote(json.dumps(params))
+    # pass the empty string as the safe param so that `//` is encoded correctly.
+    # see https://github.com/PostHog/posthog/issues/9671
+    state = urllib.parse.quote(json.dumps(params), safe="")
 
     if use_new_toolbar:
         return redirect("{}#__posthog={}".format(app_url, state))

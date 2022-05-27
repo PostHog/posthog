@@ -1,12 +1,13 @@
 import json
+from unittest.mock import patch
 
 from freezegun import freeze_time
 from rest_framework.test import APIRequestFactory
 
+from ee.clickhouse.util import snapshot_clickhouse_queries
 from posthog.constants import FILTER_TEST_ACCOUNTS, TRENDS_LIFECYCLE
-from posthog.models import Action, ActionStep, Cohort, Event, Filter, Person, Team
-from posthog.queries.trends import Trends
-from posthog.test.base import APIBaseTest, BaseTest
+from posthog.models import Filter
+from posthog.test.base import APIBaseTest
 from posthog.utils import relative_date_parse
 
 
@@ -240,7 +241,7 @@ def lifecycle_test_factory(trends, event_factory, person_factory, action_factory
                         "shown_as": TRENDS_LIFECYCLE,
                     }
                 ),
-                self.team.pk,
+                self.team,
                 relative_date_parse("2020-01-13T00:00:00Z"),
                 "returning",
                 request,
@@ -258,7 +259,7 @@ def lifecycle_test_factory(trends, event_factory, person_factory, action_factory
                         "shown_as": TRENDS_LIFECYCLE,
                     }
                 ),
-                self.team.pk,
+                self.team,
                 relative_date_parse("2020-01-13T00:00:00Z"),
                 "dormant",
                 request,
@@ -275,7 +276,7 @@ def lifecycle_test_factory(trends, event_factory, person_factory, action_factory
                         "shown_as": TRENDS_LIFECYCLE,
                     }
                 ),
-                self.team.pk,
+                self.team,
                 relative_date_parse("2020-01-14T00:00:00Z"),
                 "dormant",
                 request,
@@ -544,7 +545,7 @@ def lifecycle_test_factory(trends, event_factory, person_factory, action_factory
                     },
                     team=self.team,
                 ),
-                self.team.pk,
+                self.team,
                 relative_date_parse("2020-01-13T00:00:00Z"),
                 "dormant",
                 request,
@@ -557,5 +558,74 @@ def lifecycle_test_factory(trends, event_factory, person_factory, action_factory
             sorted_expected = list(sorted(expected, key=lambda r: r["status"]))
 
             self.assertEquals(sorted_results, sorted_expected)
+
+        @snapshot_clickhouse_queries
+        @patch("posthoganalytics.feature_enabled", return_value=True)
+        def test_timezones(self, patch_something):
+            self._create_events(
+                data=[
+                    (
+                        "p1",
+                        [
+                            "2020-01-11T23:00:00Z",
+                            "2020-01-12T01:00:00Z",
+                            "2020-01-13T12:00:00Z",
+                            "2020-01-15T12:00:00Z",
+                            "2020-01-17T12:00:00Z",
+                            "2020-01-19T12:00:00Z",
+                        ],
+                    ),
+                    ("p2", ["2020-01-09T12:00:00Z", "2020-01-12T12:00:00Z"]),
+                    ("p3", ["2020-01-12T12:00:00Z"]),
+                    ("p4", ["2020-01-15T12:00:00Z"]),
+                ]
+            )
+
+            result = trends().run(
+                Filter(
+                    data={
+                        "date_from": "2020-01-12T00:00:00Z",
+                        "date_to": "2020-01-19T00:00:00Z",
+                        "events": [{"id": "$pageview", "type": "events", "order": 0}],
+                        "shown_as": TRENDS_LIFECYCLE,
+                    }
+                ),
+                self.team,
+            )
+
+            self.assertLifecycleResults(
+                result,
+                [
+                    {"status": "dormant", "data": [0, -2, -1, 0, -2, 0, -1, 0]},
+                    {"status": "new", "data": [1, 0, 0, 1, 0, 0, 0, 0]},
+                    {"status": "resurrecting", "data": [1, 0, 0, 1, 0, 1, 0, 1]},
+                    {"status": "returning", "data": [1, 1, 0, 0, 0, 0, 0, 0]},
+                ],
+            )
+
+            self.team.timezone = "US/Pacific"
+            self.team.save()
+
+            result_pacific = trends().run(
+                Filter(
+                    data={
+                        "date_from": "2020-01-12T00:00:00Z",
+                        "date_to": "2020-01-19T00:00:00Z",
+                        "events": [{"id": "$pageview", "type": "events", "order": 0}],
+                        "shown_as": TRENDS_LIFECYCLE,
+                    },
+                    team=self.team,
+                ),
+                self.team,
+            )
+            self.assertLifecycleResults(
+                result_pacific,
+                [
+                    {"status": "dormant", "data": [-1.0, -2.0, -1.0, 0.0, -2.0, 0.0, -1.0, 0.0]},
+                    {"status": "new", "data": [1, 0, 0, 1, 0, 0, 0, 0]},
+                    {"status": "resurrecting", "data": [1, 1, 0, 1, 0, 1, 0, 1]},
+                    {"status": "returning", "data": [0, 0, 0, 0, 0, 0, 0, 0]},
+                ],
+            )
 
     return TestLifecycle

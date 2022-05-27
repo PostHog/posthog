@@ -21,9 +21,15 @@ NOTE: $medium is a SCSS var; not a keyword
     --primary-bg-active: #{$primary_bg_active};
     --success: #{$success};
     --danger: #{$danger};
+    --danger-hover: #{$danger_hover};
+    --danger-active: #{$danger_active};
     --warning: #{$warning};
     --warning-hover: #{$warning_hover};
     --warning-active: #{$warning_active};
+    --brand-blue: #{$brand_blue};
+    --brand-blue-active: #{$brand_blue_active};
+    --brand-yellow: #{$brand_yellow};
+    --brand-red: #{$brand_red};
     --bg-menu: #{$bg_menu};
     --bg-mid: #{$bg_mid};
     --bg-side: #{$bg_side};
@@ -44,7 +50,8 @@ NOTE: $medium is a SCSS var; not a keyword
     --border-active: #{$border_active};
     --radius: #{$radius};
     --shadow-elevation: #{$shadow_elevation};
-    // Used for graph series. (Note: color.ts relies on these values being hex)
+    --opacity-disabled: #{$opacity_disabled};
+    // LEGACY data colors (e.g. insight series). Note: colors.ts relies on these values being hexadecimal
     --blue: #{$blue_500};
     --blue-light: #{$blue_300};
     --purple: #{$purple_500};
@@ -64,6 +71,21 @@ NOTE: $medium is a SCSS var; not a keyword
     --lime: #bfef45;
     --apricot: #ffd8b1;
     --brown: #9a6324;
+    // Data colors (e.g. insight series). Note: colors.ts relies on these values being hexadecimal
+    --data-ultramarine: var(--brand-blue);
+    --data-purple: #621da6;
+    --data-viridian: #42827e;
+    --data-magenta: #ce0e74;
+    --data-vermilion: #f14f58;
+    --data-brown: #7c440e;
+    --data-green: #529a0a;
+    --data-blue: #0476fb;
+    --data-pink: #fe729e;
+    --data-navy: var(--bg-navy);
+    --data-turquoise: #41cbc4;
+    --data-brick: #b64b02;
+    --data-yellow: #e4a604;
+    --data-lilac: #a56eff;
     // Lifecycle series
     --lifecycle-new: #{$lifecycle_new};
     --lifecycle-returning: #{$lifecycle_returning};
@@ -75,6 +97,17 @@ NOTE: $medium is a SCSS var; not a keyword
     --lifecycle-dormant-hover: #{darken($lifecycle_dormant, 20%)};
     // Insights
     --z-graph-tooltip: #{$z_graph_tooltip};
+    // Taxonomy
+    --taxonomy-icon-muted: #{$taxonomy_icon_muted};
+    // Toasts
+    --toastify-color-info: var(--primary);
+    --toastify-color-success: var(--success);
+    --toastify-color-warning: var(--warning);
+    --toastify-color-error: var(--danger);
+    --toastify-toast-background: var(--bg-light);
+    --toastify-toast-width: 26rem;
+    --toastify-toast-min-height: 3.5rem;
+    --toastify-toast-max-height: 16rem;
 }
 
 // Text styles
@@ -85,8 +118,20 @@ body strong {
     font-weight: 600;
 }
 
+.fw-500 {
+    font-weight: 500;
+}
+
+.fw-700 {
+    font-weight: 700;
+}
+
+.fw-800 {
+    font-weight: 800;
+}
+
 .text-default {
-    color: $text_default;
+    color: var(--text-default);
     font-size: 14px;
     line-height: 20px;
     font-weight: 400;
@@ -107,6 +152,10 @@ body strong {
     font-size: 8px;
 }
 
+.no-wrap {
+    white-space: nowrap !important;
+}
+
 .page-title-row {
     display: flex;
     flex-wrap: wrap;
@@ -116,6 +165,9 @@ body strong {
     margin: 1.25rem 0 0.25rem;
     @media screen and (min-width: $md) {
         flex-wrap: nowrap;
+    }
+    .ant-form-item {
+        margin-bottom: 0 !important;
     }
 }
 
@@ -162,7 +214,7 @@ body strong {
 .l3 {
     /* Level 3 title (ideally H3) */
     font-size: 16px;
-    font-weight: bold;
+    font-weight: 600;
     line-height: 19px;
 }
 
@@ -199,6 +251,10 @@ body strong {
 
 .primary {
     color: $primary;
+}
+
+.primary-alt {
+    color: $primary_alt;
 }
 
 .secondary {
@@ -282,6 +338,10 @@ code.code {
     margin-top: $default_spacing * 0.25;
 }
 
+.mb-0 {
+    margin-bottom: 0;
+}
+
 .mr {
     margin-right: $default_spacing;
 }
@@ -329,6 +389,10 @@ code.code {
     padding-bottom: $default_spacing;
 }
 
+.pb-05 {
+    padding-bottom: $default_spacing * 0.5;
+}
+
 .pt {
     padding-top: $default_spacing;
 }
@@ -339,6 +403,36 @@ code.code {
 
 .pl {
     padding-left: $default_spacing;
+}
+
+.space-y-05 {
+    & > * + * {
+        @extend .mt-05;
+    }
+}
+
+.space-y {
+    & > * + * {
+        @extend .mt;
+    }
+}
+
+.space-x-05 {
+    & > * + * {
+        @extend .ml-05;
+    }
+}
+
+.space-x {
+    & > * + * {
+        @extend .ml;
+    }
+}
+
+.col {
+    position: relative;
+    max-width: 100%;
+    min-height: 1px;
 }
 
 .full-width {
@@ -358,6 +452,18 @@ code.code {
     justify-content: space-between;
 }
 
+.items-center {
+    align-items: center;
+}
+
+.flex {
+    display: flex;
+}
+
+.flex-auto {
+    flex: auto;
+}
+
 .flex-center {
     display: flex;
     align-items: center;
@@ -368,6 +474,13 @@ code.code {
     border-radius: 4px;
 }
 
+.border-top {
+    border-top: 1px solid $border;
+}
+
+.border-bottom {
+    border-bottom: 1px solid $border;
+}
 // Vendor-specific adjustments
 
 input::-ms-clear {
@@ -430,76 +543,56 @@ input::-ms-clear {
 
 // Toasts
 
-.Toastify__toast-container {
-    opacity: 1;
-    transform: none;
-    margin-top: $top_nav_height;
+.Toastify__toast {
+    align-items: center;
+    opacity: 1 !important;
+    padding: 0.75rem;
+    margin-bottom: 0.5rem;
+    border-radius: var(--radius);
+    font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', 'Roboto', Helvetica, Arial, sans-serif,
+        'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol';
+    border: 1px solid var(--border);
+    box-shadow: var(--shadow-elevation);
+    font-size: 1rem;
+    cursor: unset;
 }
 
-.Toastify__toast {
-    padding: 16px;
-    border-radius: $radius;
-    font-family: inherit;
-    background-color: $bg_light;
-    border: 1px solid $border;
+.Toastify__toast-container {
+    padding: 0;
+}
+
+.Toastify__toast-body {
     @extend .text-default;
-
-    h1 {
-        font-size: 1.14rem;
-        font-weight: bold;
+    font-weight: 500;
+    padding: 0;
+    b,
+    strong {
+        font-weight: 700;
     }
+    button {
+        margin: 0 0.75rem;
+    }
+}
 
-    .action-bar {
-        @extend .text-small;
-        color: $text_muted;
-        margin-top: $default_spacing / 2;
-        display: flex;
-        align-items: center;
-        a {
-            color: $text_muted;
-        }
-        .help-button {
-            flex-grow: 1;
-            text-align: right;
-        }
-        .ant-btn-link {
-            padding: 0;
-        }
+.Toastify__toast-icon {
+    color: var(--muted-alt);
+    width: 1.5rem;
+    height: 1.5rem;
+    margin-right: 0.75rem;
+    font-size: 1.5rem;
+    .Toastify__toast--success & {
+        color: var(--toastify-color-success);
+    }
+    .Toastify__toast--warning & {
+        color: var(--toastify-color-warning);
+    }
+    .Toastify__toast--error & {
+        color: var(--toastify-color-error);
     }
 }
 
 .Toastify__progress-bar {
-    background: $success;
-}
-
-.Toastify__toast--success {
-    h1 {
-        color: $success;
-    }
-}
-
-.Toastify__toast--info {
-    h1 {
-        color: $primary_alt;
-    }
-    &.accent-border {
-        border-color: $primary_alt;
-    }
-    .Toastify__progress-bar {
-        background: $primary_alt;
-    }
-}
-
-.Toastify__toast--error {
-    h1 {
-        color: $danger;
-    }
-    .Toastify__progress-bar {
-        background: $danger;
-    }
-    .error-details {
-        font-style: italic;
-    }
+    height: var(--radius);
 }
 
 // Table styles
@@ -515,7 +608,41 @@ input::-ms-clear {
 }
 
 .card-elevated {
-    @extend %mixin-elevated;
+    box-shadow: var(--shadow-elevation);
+}
+
+// Horizontal scrollability indication
+
+.scrollable {
+    &::before,
+    &::after {
+        z-index: 1;
+        transition: opacity 200ms ease;
+        opacity: 0;
+        content: '';
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        pointer-events: none;
+    }
+    &::before {
+        box-shadow: 16px 0 16px -16px rgba(0, 0, 0, 0.25) inset;
+    }
+    &::after {
+        box-shadow: -16px 0 16px -16px rgba(0, 0, 0, 0.25) inset;
+    }
+    &.scrollable--right::after,
+    &.scrollable--left::before {
+        opacity: 1;
+    }
+}
+
+.scrollable__inner {
+    width: 100%;
+    height: 100%;
+    overflow: auto;
 }
 
 // Form & input styles
@@ -567,6 +694,16 @@ input::-ms-clear {
     font-size: 12px !important;
 }
 
+.ant-btn-primary.btn-danger {
+    background-color: $danger !important;
+    border-color: $danger !important;
+    &:disabled {
+        background-color: lighten($danger, 20%) !important;
+        color: lighten(#fff, 20%) !important;
+        border-color: lighten($danger, 20%) !important;
+    }
+}
+
 .ant-btn-md {
     // Size between `small` & `default`
     font-size: 13px !important;
@@ -583,6 +720,12 @@ input::-ms-clear {
         margin-left: 0;
         margin-right: 4px;
     }
+}
+
+.title-icon {
+    margin-left: 0.375rem;
+    font-size: 1rem;
+    line-height: 0;
 }
 
 .btn-lg-2x {
@@ -786,35 +929,6 @@ input::-ms-clear {
     color: $primary_alt !important;
     background-color: $bg_mid !important;
     border-color: $border !important;
-}
-
-// Hotkeys
-
-.hotkey {
-    width: 22px;
-    height: 22px;
-    border-radius: $radius;
-    font-weight: bold;
-    margin-left: 6px;
-    background-color: white;
-    color: $primary;
-    text-shadow: none;
-    text-transform: uppercase;
-    border: 1px solid $border_light;
-    margin-bottom: 2px;
-    font-size: 0.85rem;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-}
-
-.hotkey-plus {
-    display: inline;
-    &::after {
-        content: '+';
-        margin-left: 6px;
-        font-size: 1rem;
-    }
 }
 
 // Main app/body styles

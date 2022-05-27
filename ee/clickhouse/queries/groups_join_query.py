@@ -1,6 +1,6 @@
 from typing import Dict, Optional, Tuple, Union
 
-from ee.clickhouse.queries.column_optimizer import ColumnOptimizer
+from ee.clickhouse.queries.column_optimizer import EnterpriseColumnOptimizer
 from posthog.models import Filter
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.retention_filter import RetentionFilter
@@ -14,26 +14,31 @@ class GroupsJoinQuery:
 
     _filter: Union[Filter, PathFilter, RetentionFilter, StickinessFilter]
     _team_id: int
-    _column_optimizer: ColumnOptimizer
+    _column_optimizer: EnterpriseColumnOptimizer
 
     def __init__(
         self,
         filter: Union[Filter, PathFilter, RetentionFilter, StickinessFilter],
         team_id: int,
-        column_optimizer: Optional[ColumnOptimizer] = None,
+        column_optimizer: Optional[EnterpriseColumnOptimizer] = None,
         join_key: Optional[str] = None,
+        using_person_on_events: bool = False,
     ) -> None:
         self._filter = filter
         self._team_id = team_id
-        self._column_optimizer = column_optimizer or ColumnOptimizer(self._filter, self._team_id)
+        self._column_optimizer = column_optimizer or EnterpriseColumnOptimizer(self._filter, self._team_id)
         self._join_key = join_key
+        self._using_person_on_events = using_person_on_events
 
     def get_join_query(self) -> Tuple[str, Dict]:
         join_queries, params = [], {}
 
+        if self._using_person_on_events:
+            return "", {}
+
         for group_type_index in self._column_optimizer.group_types_to_query:
             var = f"group_index_{group_type_index}"
-            group_join_key = self._join_key or f"$group_{group_type_index}"
+            group_join_key = self._join_key or f'"$group_{group_type_index}"'
             join_queries.append(
                 f"""
                 INNER JOIN (

@@ -1,4 +1,3 @@
-import { StatsD } from 'hot-shots'
 import { QueryResult } from 'pg'
 
 import { PluginConfig } from '../../types'
@@ -32,7 +31,7 @@ export const postgresSetOnce = async (
     key: string,
     value: number
 ): Promise<void> => {
-    const se = await db.postgresQuery(
+    await db.postgresQuery(
         `
         INSERT INTO posthog_pluginstorage (plugin_config_id, key, value)
         VALUES ($1, $2, $3)
@@ -54,84 +53,4 @@ export const postgresGet = async (
         [pluginConfigId, key],
         'storageGet'
     )
-}
-
-export const addPublicJobIfNotExists = async (
-    db: DB,
-    pluginId: number,
-    jobName: string,
-    jobPayloadJson: Record<string, any>
-): Promise<void> => {
-    await db.postgresQuery(
-        `
-        UPDATE posthog_plugin
-        SET public_jobs = public_jobs || $1::jsonb
-        WHERE id = $2
-        AND (SELECT (public_jobs->$3) IS NULL)
-         `,
-        [JSON.stringify({ [jobName]: jobPayloadJson }), pluginId, jobName],
-        'addPublicJobIfNotExists'
-    )
-}
-
-type BufferOptions = {
-    limit: number
-    timeoutSeconds: number
-    onFlush: (objects: any[], points: number) => void | Promise<void>
-}
-
-export function createBuffer(opts: Partial<BufferOptions>, statsd?: StatsD) {
-    const buffer = {
-        _buffer: [] as any[],
-        _timeout: null as NodeJS.Timeout | null,
-        _lastFlushTriggered: new Date(),
-        _points: 0,
-        _options: {
-            limit: 10,
-            timeoutSeconds: 60,
-            ...opts,
-        } as BufferOptions,
-        add: (object: any, points = 1) => {
-            // flush existing if adding would make us go over the limit
-            if (buffer._points && buffer._points + points > buffer._options.limit) {
-                buffer.triggerFlushInstrumented()
-            }
-
-            // add the object to the buffer
-            buffer._points += points
-            buffer._buffer.push(object)
-
-            if (buffer._points > buffer._options.limit) {
-                // flush (again?) if we are now over the limit
-                buffer.triggerFlushInstrumented()
-            } else if (!buffer._timeout) {
-                // if not, make sure there's a flush timeout
-                buffer._timeout = setTimeout(
-                    () => buffer.triggerFlushInstrumented(),
-                    buffer._options.timeoutSeconds * 1000
-                )
-            }
-        },
-        triggerFlushInstrumented: () => {
-            statsd?.increment(`buffer_voided_promises`)
-            buffer._lastFlushTriggered = new Date()
-            void buffer.flush()
-        },
-        flush: async (): Promise<void> => {
-            if (buffer._timeout) {
-                clearTimeout(buffer._timeout)
-                buffer._timeout = null
-            }
-            if (buffer._buffer.length > 0 || buffer._points !== 0) {
-                const oldBuffer = buffer._buffer
-                const oldPoints = buffer._points
-                buffer._buffer = []
-                buffer._points = 0
-                await buffer._options.onFlush?.(oldBuffer, oldPoints)
-            }
-            statsd?.timing(`buffer_promise_duration`, buffer._lastFlushTriggered)
-        },
-    }
-
-    return buffer
 }

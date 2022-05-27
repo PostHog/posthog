@@ -13,8 +13,8 @@ from posthog.settings.utils import get_from_env, str_to_bool
 
 AXES_ENABLED = get_from_env("AXES_ENABLED", not TEST, type_cast=str_to_bool)
 AXES_HANDLER = "axes.handlers.cache.AxesCacheHandler"
-AXES_FAILURE_LIMIT = int(os.getenv("AXES_FAILURE_LIMIT", 5))
-AXES_COOLOFF_TIME = timedelta(minutes=15)
+AXES_FAILURE_LIMIT = get_from_env("AXES_FAILURE_LIMIT", 30, type_cast=int)
+AXES_COOLOFF_TIME = timedelta(minutes=10)
 AXES_LOCKOUT_CALLABLE = "posthog.api.authentication.axes_locked_out"
 AXES_META_PRECEDENCE_ORDER = [
     "HTTP_X_FORWARDED_FOR",
@@ -39,8 +39,6 @@ INSTALLED_APPS = [
     "social_django",
     "django_filters",
     "axes",
-    "constance",
-    "constance.backends.database",
     "drf_spectacular",
 ]
 
@@ -49,22 +47,22 @@ MIDDLEWARE = [
     "django_structlog.middlewares.RequestMiddleware",
     "django_structlog.middlewares.CeleryMiddleware",
     "django.middleware.security.SecurityMiddleware",
-    "posthog.middleware.AllowIP",
+    "posthog.middleware.AllowIPMiddleware",
     # NOTE: we need healthcheck high up to avoid hitting middlewares that may be
     # using dependencies that the healthcheck should be checking. It should be
     # ok below the above middlewares however.
     "posthog.health.healthcheck_middleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
-    "posthog.middleware.ToolbarCookieMiddleware",
     "corsheaders.middleware.CorsMiddleware",
     "django.middleware.common.CommonMiddleware",
     "posthog.middleware.CsrfOrKeyViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
-    "posthog.middleware.CSVNeverCacheMiddleware",
+    "posthog.middleware.CsvNeverCacheMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",
     "axes.middleware.AxesMiddleware",
+    "posthog.middleware.AutoProjectMiddleware",
 ]
 
 if STATSD_HOST is not None:
@@ -106,10 +104,6 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = "posthog.wsgi.application"
-
-# This is set as a cross-domain cookie with a random value.
-# Its existence is used by the toolbar to see that we are logged in.
-TOOLBAR_COOKIE_NAME = "phtoolbar"
 
 
 # Social Auth
@@ -159,7 +153,7 @@ SOCIAL_AUTH_GITLAB_API_URL = os.getenv("SOCIAL_AUTH_GITLAB_API_URL", "https://gi
 # https://docs.djangoproject.com/en/2.2/ref/settings/#auth-password-validators
 
 AUTH_PASSWORD_VALIDATORS = [
-    {"NAME": "django.contrib.auth.password_validation.MinimumLengthValidator",},
+    {"NAME": "django.contrib.auth.password_validation.MinimumLengthValidator"},
 ]
 
 PASSWORD_RESET_TIMEOUT = 86_400  # 1 day
@@ -204,11 +198,14 @@ REST_FRAMEWORK = {
     ],
     "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.LimitOffsetPagination",
     "DEFAULT_PERMISSION_CLASSES": ["rest_framework.permissions.IsAuthenticated"],
+    "DEFAULT_RENDERER_CLASSES": ["rest_framework.renderers.JSONRenderer"],
     "PAGE_SIZE": 100,
     "EXCEPTION_HANDLER": "exceptions_hog.exception_handler",
     "TEST_REQUEST_DEFAULT_FORMAT": "json",
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
 }
+if DEBUG:
+    REST_FRAMEWORK["DEFAULT_RENDERER_CLASSES"].append("rest_framework.renderers.BrowsableAPIRenderer")  # type: ignore
 
 SPECTACULAR_SETTINGS = {
     "AUTHENTICATION_WHITELIST": ["posthog.auth.PersonalAPIKeyAuthentication"],

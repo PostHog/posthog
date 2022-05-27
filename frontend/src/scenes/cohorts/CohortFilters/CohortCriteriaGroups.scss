@@ -1,0 +1,23 @@
+.CohortCriteriaGroups__matching-group {
+    padding-top: 1rem;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    width: 100%;
+    margin: 0.5rem 0;
+
+    &.CohortCriteriaGroups__matching-group--error {
+        border: 1px solid var(--danger);
+    }
+
+    .CohortCriteriaGroups__matching-group__error-row {
+        padding: 0 1rem 1rem 1rem;
+    }
+}
+
+.CohortCriteriaGroups__matching-group__logical-divider {
+    color: var(--primary-alt);
+    font-weight: 600;
+    font-size: 12px;
+    text-transform: uppercase;
+    padding: 0 1.5rem;
+}

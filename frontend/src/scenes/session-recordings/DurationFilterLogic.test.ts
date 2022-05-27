@@ -1,16 +1,14 @@
 import { expectLogic } from 'kea-test-utils'
-import { initKeaTestLogic } from '~/test/init'
+import { initKeaTests } from '~/test/init'
 import { PropertyOperator } from '~/types'
 import { durationFilterLogic, TimeUnit } from './durationFilterLogic'
-
-jest.mock('lib/api')
 
 describe('durationFilterLogic', () => {
     let logic: ReturnType<typeof durationFilterLogic.build>
     let filterValue = {}
-    initKeaTestLogic({
-        logic: durationFilterLogic,
-        props: {
+    beforeEach(() => {
+        initKeaTests()
+        logic = durationFilterLogic({
             initialFilter: {
                 type: 'recording',
                 key: 'duration',
@@ -21,8 +19,8 @@ describe('durationFilterLogic', () => {
                 filterValue = value
             },
             pageKey: 'heyheyhey',
-        },
-        onLogic: (l) => (logic = l),
+        })
+        logic.mount()
     })
 
     describe('core assumptions', () => {
@@ -46,6 +44,18 @@ describe('durationFilterLogic', () => {
             expect(filterValue).toMatchObject({
                 value: 120,
                 operator: PropertyOperator.GreaterThan,
+            })
+        })
+
+        it('setTimeValue to null is handled', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setTimeValue(null)
+            })
+                .toMatchValues({ timeValue: null, durationString: '> 0 minutes' })
+                .toFinishListeners()
+
+            expect(filterValue).toMatchObject({
+                value: 0,
             })
         })
 

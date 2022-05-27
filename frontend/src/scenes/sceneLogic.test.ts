@@ -4,25 +4,15 @@ import { expectLogic, partial, truth } from 'kea-test-utils'
 import { LoadedScene, Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { MOCK_TEAM_ID, mockAPI } from 'lib/api.mock'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
 import { appScenes } from 'scenes/appScenes'
 
-jest.mock('lib/api')
-
 describe('sceneLogic', () => {
     let logic: ReturnType<typeof sceneLogic.build>
 
-    mockAPI(async ({ pathname }) => {
-        if (pathname === `api/projects/${MOCK_TEAM_ID}/insights/`) {
-            return { result: null, next: null }
-        }
-    })
-
     beforeEach(async () => {
         initKeaTests()
-        teamLogic.mount()
         await expectLogic(teamLogic).toDispatchActions(['loadCurrentTeamSuccess'])
         featureFlagLogic.mount()
         router.actions.push(urls.annotations())

@@ -1,5 +1,6 @@
 import posthog from 'posthog-js'
-import * as Sentry from '@sentry/browser'
+import * as Sentry from '@sentry/react'
+import { Integration } from '@sentry/types'
 
 const configWithSentry = (config: posthog.Config): posthog.Config => {
     if ((window as any).SENTRY_DSN) {
@@ -21,13 +22,13 @@ export function loadPostHogJS(): void {
             window.JS_POSTHOG_API_KEY,
             configWithSentry({
                 api_host: window.JS_POSTHOG_HOST,
-                // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-                // @ts-ignore
+                // @ts-expect-error
                 _capture_metrics: true,
                 rageclick: true,
                 debug: window.JS_POSTHOG_SELF_CAPTURE,
                 persistence: 'localStorage+cookie',
                 _capture_performance: true,
+                enable_recording_console_log: true,
             })
         )
         // Make sure we have access to the object in window for debugging
@@ -48,7 +49,7 @@ export function loadPostHogJS(): void {
         Sentry.init({
             dsn: (window as any).SENTRY_DSN,
             ...(window.location.host.indexOf('app.posthog.com') > -1 && {
-                integrations: [new posthog.SentryIntegration(posthog, 'posthog', 1899813)],
+                integrations: [new posthog.SentryIntegration(posthog, 'posthog2', 1899813) as Integration],
             }),
         })
     }

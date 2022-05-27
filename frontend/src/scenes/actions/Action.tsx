@@ -2,7 +2,6 @@ import React from 'react'
 import { ActionEdit } from './ActionEdit'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { eventsTableLogic } from 'scenes/events/eventsTableLogic'
 import { EventsTable } from 'scenes/events'
 import { urls } from 'scenes/urls'
 import { ActionType } from '~/types'
@@ -14,23 +13,16 @@ import { actionLogic, ActionLogicProps } from 'scenes/actions/actionLogic'
 export const scene: SceneExport = {
     logic: actionLogic,
     component: Action,
-    paramsToProps: ({ params: { id } }): ActionLogicProps => ({ id: parseInt(id), onComplete: () => {} }),
+    paramsToProps: ({ params: { id } }): ActionLogicProps => ({ id: parseInt(id) }),
 }
 
 export function Action({ id }: { id?: ActionType['id'] } = {}): JSX.Element {
     const fixedFilters = { action_id: id }
 
     const { push } = useActions(router)
-    const { fetchEvents } = useActions(
-        eventsTableLogic({
-            fixedFilters,
-            sceneUrl: id ? urls.action(id) : urls.actions(),
-            key: 'Action',
-            disableActions: true,
-        })
-    )
-    const { action, isComplete } = useValues(actionLogic({ id, onComplete: fetchEvents }))
-    const { loadAction } = useActions(actionLogic({ id, onComplete: fetchEvents }))
+
+    const { action, isComplete } = useValues(actionLogic)
+    const { loadAction } = useActions(actionLogic)
 
     return (
         <>
@@ -46,37 +38,37 @@ export function Action({ id }: { id?: ActionType['id'] } = {}): JSX.Element {
                     }}
                 />
             )}
-            {id && !isComplete && (
-                <div style={{ marginBottom: '10rem' }}>
-                    <h2 className="subtitle">Events</h2>
-                    <div className="flex-center">
-                        <Spinner style={{ marginRight: 12 }} />
-                        Calculating action, please hold on.
+            {id &&
+                (isComplete ? (
+                    <div>
+                        <h2 className="subtitle">Matching events</h2>
+                        <p>
+                            This is the list of <strong>recent</strong> events that match this action.
+                            {action?.last_calculated_at ? (
+                                <>
+                                    {' '}
+                                    Last calculated: <b>{dayjs(action.last_calculated_at).fromNow()}</b>.
+                                </>
+                            ) : (
+                                ''
+                            )}
+                        </p>
+                        <EventsTable
+                            fixedFilters={fixedFilters}
+                            sceneUrl={urls.action(id)}
+                            fetchMonths={3}
+                            pageKey={`action-${id}-${JSON.stringify(fixedFilters)}`}
+                        />
                     </div>
-                </div>
-            )}
-            {isComplete && id && (
-                <div style={{ marginTop: '4rem' }}>
-                    <h2 className="subtitle">Matching events</h2>
-                    <p>
-                        This is the list of <strong>recent</strong> events that match this action.
-                        {action?.last_calculated_at ? (
-                            <>
-                                {' '}
-                                Last calculated: <b>{dayjs(action.last_calculated_at).fromNow()}</b>.
-                            </>
-                        ) : (
-                            ''
-                        )}
-                    </p>
-                    <EventsTable
-                        fixedFilters={fixedFilters}
-                        sceneUrl={urls.action(id)}
-                        fetchMonths={3}
-                        pageKey="Action"
-                    />
-                </div>
-            )}
+                ) : (
+                    <div>
+                        <h2 className="subtitle">Matching events</h2>
+                        <div className="flex-center">
+                            <Spinner style={{ marginRight: 12 }} />
+                            Calculating action, please hold on.
+                        </div>
+                    </div>
+                ))}
         </>
     )
 }

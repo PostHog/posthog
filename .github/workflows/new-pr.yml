@@ -1,4 +1,4 @@
-name: New PR
+name: Lint new PR
 
 on:
     pull_request:
@@ -15,7 +15,7 @@ jobs:
               run: |
                   FILTERED_BODY=$( \
                       sed -r -e \
-                      '/^(\.\.\.)|(\*Please describe)|(\*If this affects the frontend, include screenshots)|(##? )|(- *\[)/d' \
+                      '/^(\.\.\.)|(\*)|(##? )|(- \[)/d' \
                       <<< $RAW_BODY \
                   )
                   echo "::debug::Filtered PR body to $FILTERED_BODY"

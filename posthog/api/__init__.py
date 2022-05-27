@@ -12,7 +12,9 @@ from . import (
     feature_flag,
     instance_settings,
     instance_status,
+    kafka_inspector,
     organization,
+    organization_domain,
     organization_invite,
     organization_member,
     personal_api_key,
@@ -57,7 +59,7 @@ project_dashboards_router = projects_router.register(
     r"dashboards", dashboard.DashboardsViewSet, "project_dashboards", ["team_id"]
 )
 
-
+# Organizations nested endpoints
 organizations_router = router.register(r"organizations", organization.OrganizationViewSet, "organizations")
 organization_plugins_router = organizations_router.register(
     r"plugins", plugin.PluginViewSet, "organization_plugins", ["organization_id"]
@@ -69,7 +71,7 @@ organizations_router.register(
     r"invites", organization_invite.OrganizationInviteViewSet, "organization_invites", ["organization_id"],
 )
 organizations_router.register(
-    r"onboarding", organization.OrganizationOnboardingViewset, "organization_onboarding", ["organization_id"],
+    r"domains", organization_domain.OrganizationDomainViewset, "organization_domains", ["organization_id"],
 )
 
 # Project nested endpoints
@@ -85,6 +87,7 @@ projects_router.register(
 
 # General endpoints (shared across CH & PG)
 router.register(r"login", authentication.LoginViewSet)
+router.register(r"login/precheck", authentication.LoginPrecheckViewSet)
 router.register(r"reset", authentication.PasswordResetViewSet, "password_reset")
 router.register(r"users", user.UserViewSet)
 router.register(r"personal_api_keys", personal_api_key.PersonalAPIKeyViewSet, "personal_api_keys")
@@ -93,17 +96,18 @@ router.register(r"dead_letter_queue", dead_letter_queue.DeadLetterQueueViewSet, 
 router.register(r"shared_dashboards", dashboard.SharedDashboardsViewSet)
 router.register(r"async_migrations", async_migration.AsyncMigrationsViewset, "async_migrations")
 router.register(r"instance_settings", instance_settings.InstanceSettingsViewset, "instance_settings")
+router.register(r"kafka_inspector", kafka_inspector.KafkaInspectorViewSet, "kafka_inspector")
 
 
 from ee.clickhouse.views.experiments import ClickhouseExperimentsViewSet
 from ee.clickhouse.views.groups import ClickhouseGroupsTypesView, ClickhouseGroupsView
 from ee.clickhouse.views.insights import ClickhouseInsightsViewSet
-from ee.clickhouse.views.session_recordings import ClickhouseSessionRecordingViewSet
 from posthog.api.action import ActionViewSet
 from posthog.api.cohort import CohortViewSet, LegacyCohortViewSet
 from posthog.api.element import ElementViewSet, LegacyElementViewSet
 from posthog.api.event import EventViewSet, LegacyEventViewSet
 from posthog.api.person import LegacyPersonViewSet, PersonViewSet
+from posthog.api.session_recording import SessionRecordingViewSet
 
 # Legacy endpoints CH (to be removed eventually)
 router.register(r"cohort", LegacyCohortViewSet, basename="cohort")
@@ -123,5 +127,5 @@ projects_router.register(r"persons", PersonViewSet, "project_persons", ["team_id
 projects_router.register(r"elements", ElementViewSet, "project_elements", ["team_id"])
 projects_router.register(r"experiments", ClickhouseExperimentsViewSet, "project_experiments", ["team_id"])
 projects_router.register(
-    r"session_recordings", ClickhouseSessionRecordingViewSet, "project_session_recordings", ["team_id"],
+    r"session_recordings", SessionRecordingViewSet, "project_session_recordings", ["team_id"],
 )

@@ -5,7 +5,46 @@ import-order-style = pycharm
 max-line-length = 127
 max-complexity = 10
 
-select=E9,F63,F7,F82,W605,T001,T002,T003,T004
+# Error / Violation code details are available at:
+#
+# - https://pep8.readthedocs.io/en/latest/intro.html#error-codes
+# - https://flake8.pycqa.org/en/latest/user/error-codes.html
+#
+ignore=
+    B001, # Do not use bare `except:`.
+    B006, # Do not use mutable data structures for argument defaults.
+    B008, # Do not perform function calls in argument defaults.
+    B009, # Do not call getattr with a constant attribute value, it is not any safer than normal property access.
+    B007, # Loop control variable 'i' not used within the loop body. If this is intended, start the name with an underscore
+    B011, # Do not call assert False since python -O removes these calls
+    B010, # Do not call setattr with a constant attribute value, it is not any safer than normal property access.
+    C400, # Unnecessary generator - rewrite as a list comprehension
+    C401, # Unnecessary generator - rewrite as a set comprehension.
+    C403, # Unnecessary list comprehension - rewrite as a set comprehension.
+    C405, # Unnecessary list literal - rewrite as a set literal.
+    C407, # Unnecessary list comprehension - 'any' can take a generator.
+    C408, # Unnecessary dict call - rewrite as a literal.
+    C413, # Unnecessary list call around sorted()
+    C414, # Unnecessary list call within sorted().
+    C416, # Unnecessary list comprehension - rewrite using list().
+    C901, # function complexity
+    E203, # whitespace before ‘:’. -- Do not enable. we've disabled all formatting-related errors as 'black' takes care of them for us
+    E231, # missing whitespace after ‘,’, ‘;’, or ‘:’. -- Do not enable. We've disabled all formatting-related errors as 'black' takes care of them for us
+    E302, # expected 2 blank lines, found 0. -- Do not enable. we've disabled all formatting-related errors as 'black' takes care of them for us
+    E402, # module level import not at top of file
+    E501, # line too long
+    E722, # do not use bare except, specify exception instead
+    E731, # do not assign a lambda expression, use a def
+    F403, # ‘from module import *’ used; unable to detect undefined names
+    F405, # name may be undefined, or defined from star imports: module
+    F541, # f-string without any placeholders
+    F601, # dictionary key name repeated with different values
+    F841, # local variable name is assigned to but never used
+    I100, # Import statements are in the wrong order.
+    I101, # Imported names are in the wrong order
+    I201, # Missing newline between import groups.
+    I202, # Additional newline in a group of imports
+    W503, # line break before binary operator
 
 exclude =
     .git,
@@ -16,22 +55,27 @@ exclude =
 per-file-ignores =
     ./cypress/wait.py: T001
     ./docker-compose-config.py: T001
-    ./ee/clickhouse/client.py: T001
+    ./posthog/client.py: T001
     ./ee/clickhouse/generate_local.py: T001
+    ./ee/management/commands/dry_run_matrix.py: T001
     ./ee/management/commands/migrate_clickhouse.py: T001
     ./ee/management/commands/run_async_migrations.py: T001
+    ./ee/management/commands/backfill_persons_and_groups_on_events.py: T001
     ./gunicorn.config.py: T001
     ./posthog/api/capture.py: T001
     ./posthog/apps.py: T001
     ./posthog/celery.py: T001
+    ./posthog/demo/matrix/manager.py: T001
+    ./posthog/demo/matrix/matrix.py: T001
     ./posthog/email.py: T001
     ./posthog/management/commands/api_keys.py: T001
     ./posthog/management/commands/merge_distinct_emails.py: T001
     ./posthog/management/commands/migrate_elementgroup.py: T001
     ./posthog/management/commands/notify_helm_install.py: T001 T003
     ./posthog/management/commands/partition.py: T001
+    ./posthog/management/commands/simulate_matrix.py: T001
     ./posthog/management/commands/sync_feature_flags.py: T001
-    ./posthog/management/commands/test_migrations_are_null.py: T001
+    ./posthog/management/commands/test_migrations_are_safe.py: T001
     ./posthog/migrations/0027_move_elements_to_group.py: T001
     ./posthog/migrations/0038_migrate_actions_to_precalculate_events.py: T001
     ./posthog/models/plugin.py: T001

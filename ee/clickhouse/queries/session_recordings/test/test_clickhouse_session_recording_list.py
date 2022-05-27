@@ -1,23 +1,17 @@
 from uuid import uuid4
 
 from dateutil.relativedelta import relativedelta
-from django.utils import timezone
 from freezegun.api import freeze_time
 
-from ee.clickhouse.models.action import Action, ActionStep
-from ee.clickhouse.models.event import create_event
 from ee.clickhouse.models.session_recording_event import create_session_recording_event
 from ee.clickhouse.queries.session_recordings.clickhouse_session_recording_list import ClickhouseSessionRecordingList
 from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
 from posthog.models import Cohort, Person
+from posthog.models.action import Action
+from posthog.models.action_step import ActionStep
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
 from posthog.queries.session_recordings.test.test_session_recording_list import factory_session_recordings_list_test
-from posthog.test.base import test_with_materialized_columns
-
-
-def _create_event(**kwargs):
-    kwargs.update({"event_uuid": uuid4()})
-    create_event(**kwargs)
+from posthog.test.base import _create_event, test_with_materialized_columns
 
 
 def _create_session_recording_event(**kwargs):
@@ -43,7 +37,7 @@ class TestClickhouseSessionRecordingsList(ClickhouseTestMixin, factory_session_r
             team=self.team,
             data={"properties": [{"key": "email", "value": ["bla"], "operator": "exact", "type": "person"}],},
         )
-        session_recording_list_instance = ClickhouseSessionRecordingList(filter=filter, team_id=self.team.pk)
+        session_recording_list_instance = ClickhouseSessionRecordingList(filter=filter, team=self.team)
         (session_recordings, _) = session_recording_list_instance.run()
         self.assertEqual(len(session_recordings), 1)
         self.assertEqual(session_recordings[0]["session_id"], "1")
@@ -58,7 +52,9 @@ class TestClickhouseSessionRecordingsList(ClickhouseTestMixin, factory_session_r
                     team=self.team, distinct_ids=["user2"], properties={"email": "bla2", "$some_prop": "some_val"}
                 )
                 cohort = Cohort.objects.create(
-                    team=self.team, name="cohort1", groups=[{"properties": {"$some_prop": "some_val"}}]
+                    team=self.team,
+                    name="cohort1",
+                    groups=[{"properties": [{"key": "$some_prop", "value": "some_val", "type": "person"}]}],
                 )
                 cohort.calculate_people_ch(pending_version=0)
 
@@ -72,14 +68,14 @@ class TestClickhouseSessionRecordingsList(ClickhouseTestMixin, factory_session_r
                     team=self.team,
                     data={"properties": [{"key": "id", "value": cohort.pk, "operator": None, "type": "cohort"}],},
                 )
-                session_recording_list_instance = ClickhouseSessionRecordingList(filter=filter, team_id=self.team.pk)
+                session_recording_list_instance = ClickhouseSessionRecordingList(filter=filter, team=self.team)
                 (session_recordings, _) = session_recording_list_instance.run()
                 self.assertEqual(len(session_recordings), 1)
                 self.assertEqual(session_recordings[0]["session_id"], "2")
 
     @freeze_time("2021-01-21T20:00:00.000Z")
     @snapshot_clickhouse_queries
-    @test_with_materialized_columns(["$current_url", "$session_id"])
+    @test_with_materialized_columns(["$current_url"])
     def test_event_filter_with_matching_on_session_id(self):
         Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
         self.create_snapshot("user", "1", self.base_time, window_id="1")
@@ -89,7 +85,7 @@ class TestClickhouseSessionRecordingsList(ClickhouseTestMixin, factory_session_r
         filter = SessionRecordingsFilter(
             team=self.team, data={"events": [{"id": "$pageview", "type": "events", "order": 0, "name": "$pageview"}]},
         )
-        session_recording_list_instance = ClickhouseSessionRecordingList(filter=filter, team_id=self.team.pk)
+        session_recording_list_instance = ClickhouseSessionRecordingList(filter=filter, team=self.team)
         (session_recordings, _) = session_recording_list_instance.run()
         self.assertEqual(len(session_recordings), 1)
         self.assertEqual(session_recordings[0]["session_id"], "1")
@@ -98,13 +94,13 @@ class TestClickhouseSessionRecordingsList(ClickhouseTestMixin, factory_session_r
             team=self.team,
             data={"events": [{"id": "$autocapture", "type": "events", "order": 0, "name": "$autocapture"}]},
         )
-        session_recording_list_instance = ClickhouseSessionRecordingList(filter=filter, team_id=self.team.pk)
+        session_recording_list_instance = ClickhouseSessionRecordingList(filter=filter, team=self.team)
         (session_recordings, _) = session_recording_list_instance.run()
         self.assertEqual(len(session_recordings), 0)
 
     @freeze_time("2021-01-21T20:00:00.000Z")
     @snapshot_clickhouse_queries
-    @test_with_materialized_columns(["$current_url", "$session_id"])
+    @test_with_materialized_columns(["$current_url"])
     def test_event_filter_matching_with_no_session_id(self):
         Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
         self.create_snapshot("user", "1", self.base_time, window_id="1")
@@ -116,7 +112,7 @@ class TestClickhouseSessionRecordingsList(ClickhouseTestMixin, factory_session_r
         filter = SessionRecordingsFilter(
             team=self.team, data={"events": [{"id": "$pageview", "type": "events", "order": 0, "name": "$pageview"}]},
         )
-        session_recording_list_instance = ClickhouseSessionRecordingList(filter=filter, team_id=self.team.pk)
+        session_recording_list_instance = ClickhouseSessionRecordingList(filter=filter, team=self.team)
         (session_recordings, _) = session_recording_list_instance.run()
         self.assertEqual(len(session_recordings), 1)
         self.assertEqual(session_recordings[0]["session_id"], "1")
@@ -126,6 +122,6 @@ class TestClickhouseSessionRecordingsList(ClickhouseTestMixin, factory_session_r
             team=self.team,
             data={"events": [{"id": "$autocapture", "type": "events", "order": 0, "name": "$autocapture"}]},
         )
-        session_recording_list_instance = ClickhouseSessionRecordingList(filter=filter, team_id=self.team.pk)
+        session_recording_list_instance = ClickhouseSessionRecordingList(filter=filter, team=self.team)
         (session_recordings, _) = session_recording_list_instance.run()
         self.assertEqual(len(session_recordings), 0)

@@ -1,12 +1,11 @@
-from datetime import datetime
-
-from rest_framework import status
+from flaky import flaky
 
 from ee.api.test.base import APILicensedTest
 from ee.clickhouse.test.test_journeys import journeys_for
 from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
 
 
+@flaky(max_runs=10, min_passes=1)
 class ClickhouseTestExperimentSecondaryResults(ClickhouseTestMixin, APILicensedTest):
     @snapshot_clickhouse_queries
     def test_basic_secondary_metric_results(self):
@@ -114,20 +113,36 @@ class ClickhouseTestExperimentSecondaryResults(ClickhouseTestMixin, APILicensedT
                 "parameters": {},
                 "secondary_metrics": [
                     {
-                        "insight": "trends",
-                        "events": [{"order": 0, "id": "$pageview"}],
-                        "properties": [
-                            {"key": "$geoip_country_name", "type": "person", "value": ["france"], "operator": "exact",}
-                            # properties superceded by FF breakdown
-                        ],
+                        "name": "trends whatever",
+                        "filters": {
+                            "insight": "trends",
+                            "events": [{"order": 0, "id": "$pageview"}],
+                            "properties": [
+                                {
+                                    "key": "$geoip_country_name",
+                                    "type": "person",
+                                    "value": ["france"],
+                                    "operator": "exact",
+                                }
+                                # properties superceded by FF breakdown
+                            ],
+                        },
                     },
                     {
-                        "insight": "funnels",
-                        "events": [{"order": 0, "id": "$pageview_funnel"}, {"order": 1, "id": "$pageleave_funnel"}],
-                        "properties": [
-                            {"key": "$geoip_country_name", "type": "person", "value": ["france"], "operator": "exact",}
-                            # properties superceded by FF breakdown
-                        ],
+                        "name": "funnels whatever",
+                        "filters": {
+                            "insight": "funnels",
+                            "events": [{"order": 0, "id": "$pageview_funnel"}, {"order": 1, "id": "$pageleave_funnel"}],
+                            "properties": [
+                                {
+                                    "key": "$geoip_country_name",
+                                    "type": "person",
+                                    "value": ["france"],
+                                    "operator": "exact",
+                                }
+                                # properties superceded by FF breakdown
+                            ],
+                        },
                     },
                 ],
                 # target metric insignificant since we're testing secondaries right now
@@ -155,7 +170,7 @@ class ClickhouseTestExperimentSecondaryResults(ClickhouseTestMixin, APILicensedT
         self.assertEqual(len(response_data["result"].items()), 2)
 
         self.assertAlmostEqual(response_data["result"]["control"], 1)
-        self.assertEqual(response_data["result"]["test"], 1 / 3)
+        self.assertEqual(response_data["result"]["test"], round(1 / 3, 3))
 
     def test_secondary_metric_results_for_multiple_variants(self):
         journeys_for(
@@ -279,10 +294,16 @@ class ClickhouseTestExperimentSecondaryResults(ClickhouseTestMixin, APILicensedT
                     ],
                 },
                 "secondary_metrics": [
-                    {"insight": "trends", "events": [{"order": 0, "id": "$pageview_trend"}],},
                     {
-                        "insight": "funnels",
-                        "events": [{"order": 0, "id": "$pageview"}, {"order": 1, "id": "$pageleave"}],
+                        "name": "secondary metric",
+                        "filters": {"insight": "trends", "events": [{"order": 0, "id": "$pageview_trend"}]},
+                    },
+                    {
+                        "name": "funnel metric",
+                        "filters": {
+                            "insight": "funnels",
+                            "events": [{"order": 0, "id": "$pageview"}, {"order": 1, "id": "$pageleave"}],
+                        },
                     },
                 ],
                 # target metric insignificant since we're testing secondaries right now
@@ -313,6 +334,6 @@ class ClickhouseTestExperimentSecondaryResults(ClickhouseTestMixin, APILicensedT
         self.assertEqual(len(response_data["result"].items()), 4)
 
         self.assertAlmostEqual(response_data["result"]["control"], 1)
-        self.assertAlmostEqual(response_data["result"]["test"], 1 / 3)
-        self.assertAlmostEqual(response_data["result"]["test_1"], 2 / 3)
+        self.assertAlmostEqual(response_data["result"]["test"], round(1 / 3, 3))
+        self.assertAlmostEqual(response_data["result"]["test_1"], round(2 / 3, 3))
         self.assertAlmostEqual(response_data["result"]["test_2"], 1)

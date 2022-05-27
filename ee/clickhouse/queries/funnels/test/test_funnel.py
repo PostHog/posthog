@@ -1,15 +1,11 @@
-from typing import List, cast
+from datetime import datetime
 from unittest.case import skip
-from uuid import uuid4
+from unittest.mock import patch
 
-from django.utils import timezone
 from freezegun.api import freeze_time
 from rest_framework.exceptions import ValidationError
 
-from ee.clickhouse.materialized_columns import materialize
-from ee.clickhouse.models.event import create_event
 from ee.clickhouse.models.group import create_group
-from ee.clickhouse.queries.actor_base_query import SerializedGroup, SerializedPerson
 from ee.clickhouse.queries.funnels.funnel import ClickhouseFunnel
 from ee.clickhouse.queries.funnels.funnel_persons import ClickhouseFunnelActors
 from ee.clickhouse.queries.funnels.test.breakdown_cases import (
@@ -26,9 +22,8 @@ from posthog.models.action_step import ActionStep
 from posthog.models.cohort import Cohort
 from posthog.models.filters import Filter
 from posthog.models.group_type_mapping import GroupTypeMapping
-from posthog.models.person import Person
 from posthog.queries.test.test_funnel import funnel_test_factory
-from posthog.test.base import test_with_materialized_columns
+from posthog.test.base import _create_event, _create_person, test_with_materialized_columns
 
 FORMAT_TIME = "%Y-%m-%d 00:00:00"
 MAX_STEP_COLUMN = 0
@@ -43,16 +38,6 @@ def _create_action(**kwargs):
     action = Action.objects.create(team=team, name=name)
     ActionStep.objects.create(action=action, event=name, properties=properties)
     return action
-
-
-def _create_person(**kwargs):
-    person = Person.objects.create(**kwargs)
-    return Person(id=person.uuid, uuid=person.uuid)
-
-
-def _create_event(**kwargs):
-    kwargs.update({"event_uuid": uuid4()})
-    create_event(**kwargs)
 
 
 class TestFunnelBreakdown(ClickhouseTestMixin, funnel_breakdown_test_factory(ClickhouseFunnel, ClickhouseFunnelActors, _create_event, _create_action, _create_person)):  # type: ignore
@@ -159,7 +144,7 @@ class TestClickhouseFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFu
         # event
         person1_stopped_after_two_signups = _create_person(distinct_ids=["stopped_after_signup1"], team_id=self.team.pk)
         _create_event(
-            team=self.team, event="user signed up", distinct_id="stopped_after_signup1", properties={"key": "val"}
+            team=self.team, event="user signed up", distinct_id="stopped_after_signup1", properties={"key": "val"},
         )
         _create_event(team=self.team, event="user signed up", distinct_id="stopped_after_signup1")
 
@@ -658,7 +643,7 @@ class TestClickhouseFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFu
         filters = {
             "actions": [
                 {"id": sign_up_action.id, "math": "dau", "order": 0},
-                {"id": sign_up_action.id, "math": "wau", "order": 1},
+                {"id": sign_up_action.id, "math": "weekly_active", "order": 1},
             ],
             "insight": INSIGHT_FUNNELS,
         }
@@ -672,6 +657,53 @@ class TestClickhouseFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFu
         _create_event(team=self.team, event="sign up", distinct_id="stopped_after_signup1", properties={"key": "val"})
 
         person2_stopped_after_signup = _create_person(distinct_ids=["stopped_after_signup2"], team_id=self.team.pk)
+        _create_event(team=self.team, event="sign up", distinct_id="stopped_after_signup2", properties={"key": "val"})
+
+        result = funnel.run()
+
+        self.assertEqual(result[0]["name"], "sign up")
+        self.assertEqual(result[0]["count"], 2)
+
+        self.assertEqual(result[1]["count"], 1)
+
+        # check ordering of people in first step
+        self.assertCountEqual(
+            self._get_actor_ids_at_step(filter, 1),
+            [person1_stopped_after_two_signups.uuid, person2_stopped_after_signup.uuid],
+        )
+
+        self.assertCountEqual(
+            self._get_actor_ids_at_step(filter, 2), [person1_stopped_after_two_signups.uuid],
+        )
+
+    def test_funnel_with_actions_and_props(self):
+        sign_up_action = _create_action(
+            name="sign up",
+            team=self.team,
+            properties=[{"key": "email", "operator": "icontains", "value": ".com", "type": "person"}],
+        )
+
+        filters = {
+            "actions": [
+                {"id": sign_up_action.id, "math": "dau", "order": 0},
+                {"id": sign_up_action.id, "math": "weekly_active", "order": 1},
+            ],
+            "insight": INSIGHT_FUNNELS,
+        }
+
+        filter = Filter(data=filters)
+        funnel = ClickhouseFunnel(filter, self.team)
+
+        # event
+        person1_stopped_after_two_signups = _create_person(
+            distinct_ids=["stopped_after_signup1"], team_id=self.team.pk, properties={"email": "fake@test.com"}
+        )
+        _create_event(team=self.team, event="sign up", distinct_id="stopped_after_signup1", properties={"key": "val"})
+        _create_event(team=self.team, event="sign up", distinct_id="stopped_after_signup1", properties={"key": "val"})
+
+        person2_stopped_after_signup = _create_person(
+            distinct_ids=["stopped_after_signup2"], team_id=self.team.pk, properties={"email": "fake@test.com"}
+        )
         _create_event(team=self.team, event="sign up", distinct_id="stopped_after_signup2", properties={"key": "val"})
 
         result = funnel.run()
@@ -708,7 +740,7 @@ class TestClickhouseFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFu
             ],
             "actions": [
                 {"id": sign_up_action.id, "math": "dau", "order": 2},
-                {"id": sign_up_action.id, "math": "wau", "order": 3},
+                {"id": sign_up_action.id, "math": "weekly_active", "order": 3},
             ],
             "insight": INSIGHT_FUNNELS,
             "funnel_window_days": 14,
@@ -1100,6 +1132,7 @@ class TestClickhouseFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFu
             self._get_actor_ids_at_step(filter, 2), [person1.uuid, person3.uuid],
         )
 
+    @test_with_materialized_columns(["test_prop"])
     def test_funnel_with_denormalised_properties(self):
         filters = {
             "events": [
@@ -1117,8 +1150,6 @@ class TestClickhouseFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFu
             "date_to": "2020-01-14",
         }
 
-        materialize("events", "test_prop")
-
         filter = Filter(data=filters)
         funnel = ClickhouseFunnel(filter, self.team)
 
@@ -1135,7 +1166,6 @@ class TestClickhouseFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFu
             team=self.team, event="paid", distinct_id="user_1", timestamp="2020-01-10T14:00:00Z",
         )
 
-        self.assertNotIn("json", funnel.get_query().lower())
         result = funnel.run()
 
         self.assertEqual(result[0]["name"], "user signed up")
@@ -1472,6 +1502,262 @@ class TestClickhouseFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFu
 
         self.assertEqual(result[0]["name"], "user signed up")
         self.assertEqual(result[0]["count"], 1)
+
+        self.assertEqual(result[1]["name"], "paid")
+        self.assertEqual(result[1]["count"], 1)
+
+    @snapshot_clickhouse_queries
+    @test_with_materialized_columns(["$current_url"], person_properties=["email", "age"])
+    def test_funnel_with_property_groups(self):
+        filters = {
+            "date_from": "2020-01-01 00:00:00",
+            "date_to": "2020-07-01 00:00:00",
+            "events": [
+                {"id": "user signed up", "order": 0},
+                {"id": "$pageview", "order": 1, "properties": {"$current_url": "aloha.com"}},
+                {
+                    "id": "$pageview",
+                    "order": 2,
+                    "properties": {"$current_url": "aloha2.com"},
+                },  # different event to above
+            ],
+            "insight": INSIGHT_FUNNELS,
+            "funnel_window_days": 14,
+            "properties": {
+                "type": "OR",
+                "values": [
+                    {
+                        "type": "AND",
+                        "values": [
+                            {"key": "email", "operator": "icontains", "value": ".com", "type": "person"},
+                            {"key": "age", "operator": "exact", "value": "20", "type": "person"},
+                        ],
+                    },
+                    {
+                        "type": "OR",
+                        "values": [
+                            {"key": "email", "operator": "icontains", "value": ".org", "type": "person"},
+                            {"key": "age", "operator": "exact", "value": "28", "type": "person"},
+                        ],
+                    },
+                ],
+            },
+        }
+
+        filter = Filter(data=filters)
+        funnel = ClickhouseFunnel(filter, self.team)
+
+        people = {}
+        people["stopped_after_signup1"] = _create_person(
+            distinct_ids=["stopped_after_signup1"],
+            team_id=self.team.pk,
+            properties={"email": "test@b.com", "age": "18"},
+        )
+        people["stopped_after_pageview1"] = _create_person(
+            distinct_ids=["stopped_after_pageview1"],
+            team_id=self.team.pk,
+            properties={"email": "test@b.org", "age": "28"},
+        )
+        people["stopped_after_pageview2"] = _create_person(
+            distinct_ids=["stopped_after_pageview2"],
+            team_id=self.team.pk,
+            properties={"email": "test2@b.com", "age": "28"},
+        )
+        people["stopped_after_pageview3"] = _create_person(
+            distinct_ids=["stopped_after_pageview3"],
+            team_id=self.team.pk,
+            properties={"email": "test3@b.com", "age": "28"},
+        )
+        people["stopped_after_pageview4"] = _create_person(
+            distinct_ids=["stopped_after_pageview4"],
+            team_id=self.team.pk,
+            properties={"email": "test4@b.org", "age": "18"},
+        )
+
+        # event
+        journeys_for(
+            {
+                "stopped_after_signup1": [{"event": "user signed up", "timestamp": datetime(2020, 5, 1, 0)}],
+                "stopped_after_pageview1": [{"event": "user signed up", "timestamp": datetime(2020, 5, 1, 0)},],
+                "stopped_after_pageview2": [
+                    {"event": "user signed up", "timestamp": datetime(2020, 5, 1, 0)},
+                    {
+                        "event": "$pageview",
+                        "properties": {"$current_url": "aloha.com"},
+                        "timestamp": datetime(2020, 5, 2, 0),
+                    },
+                ],
+                "stopped_after_pageview3": [
+                    {"event": "user signed up", "timestamp": datetime(2020, 5, 1, 0)},
+                    {
+                        "event": "$pageview",
+                        "properties": {"$current_url": "aloha.com"},
+                        "timestamp": datetime(2020, 5, 2, 0),
+                    },
+                    {
+                        "event": "$pageview",
+                        "properties": {"$current_url": "aloha2.com"},
+                        "timestamp": datetime(2020, 5, 3, 0),
+                    },
+                ],
+                "stopped_after_pageview4": [
+                    # {"event": "user signed up"}, # no signup, so not in funnel
+                    {
+                        "event": "$pageview",
+                        "properties": {"$current_url": "aloha.com"},
+                        "timestamp": datetime(2020, 5, 2, 0),
+                    },
+                    {
+                        "event": "$pageview",
+                        "properties": {"$current_url": "aloha2.com"},
+                        "timestamp": datetime(2020, 5, 3, 0),
+                    },
+                    {
+                        "event": "$pageview",
+                        "properties": {"$current_url": "aloha2.com"},
+                        "timestamp": datetime(2020, 5, 4, 0),
+                    },
+                ],
+            },
+            self.team,
+            create_people=False,
+        )
+
+        result = funnel.run()
+
+        self.assertEqual(result[0]["name"], "user signed up")
+        self.assertEqual(result[1]["name"], "$pageview")
+        self.assertEqual(result[2]["name"], "$pageview")
+        self.assertEqual(result[0]["count"], 3)
+        self.assertEqual(result[1]["count"], 2)
+        self.assertEqual(result[2]["count"], 1)
+        # check ordering of people in every step
+        self.assertCountEqual(
+            self._get_actor_ids_at_step(filter, 1),
+            [
+                people["stopped_after_pageview1"].uuid,
+                people["stopped_after_pageview2"].uuid,
+                people["stopped_after_pageview3"].uuid,
+            ],
+        )
+
+        self.assertCountEqual(
+            self._get_actor_ids_at_step(filter, 2),
+            [people["stopped_after_pageview2"].uuid, people["stopped_after_pageview3"].uuid,],
+        )
+
+        self.assertCountEqual(
+            self._get_actor_ids_at_step(filter, 3), [people["stopped_after_pageview3"].uuid,],
+        )
+
+    @snapshot_clickhouse_queries
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_timezones(self, patch_feature_enabled):
+        self.team.timezone = "US/Pacific"
+        self.team.save()
+
+        filters = {
+            "events": [
+                {"id": "user signed up", "type": "events", "order": 0},
+                {"id": "paid", "type": "events", "order": 1},
+            ],
+            "insight": INSIGHT_FUNNELS,
+            "date_from": "2020-01-01",
+            "date_to": "2020-01-14",
+        }
+
+        filter = Filter(data=filters)
+        funnel = ClickhouseFunnel(filter, self.team)
+
+        # event
+        _create_person(distinct_ids=["user_1"], team_id=self.team.pk)
+        #  this event shouldn't appear as in US/Pacific this would be the previous day
+        _create_event(
+            team=self.team, event="user signed up", distinct_id="user_1", timestamp="2020-01-01T01:00:00Z",
+        )
+        result = funnel.run()
+
+        self.assertEqual(result[0]["name"], "user signed up")
+        self.assertEqual(result[0]["count"], 0)
+
+    def test_funnel_aggregation_with_groups_with_cohort_filtering(self):
+
+        GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
+        GroupTypeMapping.objects.create(team=self.team, group_type="company", group_type_index=1)
+
+        create_group(team_id=self.team.pk, group_type_index=0, group_key="org:5", properties={"industry": "finance"})
+        create_group(team_id=self.team.pk, group_type_index=0, group_key="org:6", properties={"industry": "technology"})
+
+        create_group(team_id=self.team.pk, group_type_index=1, group_key="company:1", properties={})
+        create_group(team_id=self.team.pk, group_type_index=1, group_key="company:2", properties={})
+
+        _create_person(distinct_ids=[f"user_1"], team=self.team, properties={"email": "fake@test.com"})
+        _create_person(distinct_ids=[f"user_2"], team=self.team, properties={"email": "fake@test.com"})
+        _create_person(distinct_ids=[f"user_3"], team=self.team, properties={"email": "fake_2@test.com"})
+
+        action1 = Action.objects.create(team=self.team, name="action1")
+        ActionStep.objects.create(
+            event="$pageview", action=action1,
+        )
+
+        cohort = Cohort.objects.create(
+            team=self.team,
+            groups=[
+                {"properties": [{"key": "email", "operator": "icontains", "value": "fake@test.com", "type": "person"}]}
+            ],
+        )
+
+        events_by_person = {
+            "user_1": [
+                {"event": "$pageview", "timestamp": datetime(2020, 1, 2, 14), "properties": {"$group_0": "org:5"}},
+                {"event": "user signed up", "timestamp": datetime(2020, 1, 2, 14), "properties": {"$group_0": "org:5"}},
+                {
+                    "event": "user signed up",  # same person, different group, so should count as different step 1 in funnel
+                    "timestamp": datetime(2020, 1, 10, 14),
+                    "properties": {"$group_0": "org:6"},
+                },
+            ],
+            "user_2": [
+                {  # different person, same group, so should count as step two in funnel
+                    "event": "paid",
+                    "timestamp": datetime(2020, 1, 3, 14),
+                    "properties": {"$group_0": "org:5"},
+                },
+            ],
+            "user_3": [
+                {"event": "user signed up", "timestamp": datetime(2020, 1, 2, 14), "properties": {"$group_0": "org:7"}},
+                {  # person not in cohort so should be filtered out
+                    "event": "paid",
+                    "timestamp": datetime(2020, 1, 3, 14),
+                    "properties": {"$group_0": "org:7"},
+                },
+            ],
+        }
+        created_people = journeys_for(events_by_person, self.team)
+        cohort.calculate_people_ch(pending_version=0)
+
+        filters = {
+            "events": [
+                {
+                    "id": "user signed up",
+                    "type": "events",
+                    "order": 0,
+                    "properties": [{"type": "precalculated-cohort", "key": "id", "value": cohort.pk}],
+                },
+                {"id": "paid", "type": "events", "order": 1},
+            ],
+            "insight": INSIGHT_FUNNELS,
+            "date_from": "2020-01-01",
+            "date_to": "2020-01-14",
+            "aggregation_group_type_index": 0,
+        }
+
+        filter = Filter(data=filters)
+        funnel = ClickhouseFunnel(filter, self.team)
+        result = funnel.run()
+
+        self.assertEqual(result[0]["name"], "user signed up")
+        self.assertEqual(result[0]["count"], 2)
 
         self.assertEqual(result[1]["name"], "paid")
         self.assertEqual(result[1]["count"], 1)

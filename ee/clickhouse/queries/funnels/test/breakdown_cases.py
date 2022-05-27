@@ -1,10 +1,9 @@
 from dataclasses import dataclass
 from datetime import datetime
 from string import ascii_lowercase
-from typing import Any, Dict, List, Literal, Optional, Union, cast
+from typing import Any, Dict, List, Literal, Optional, Union
 
 from ee.clickhouse.models.group import create_group
-from ee.clickhouse.queries.actor_base_query import SerializedGroup, SerializedPerson
 from ee.clickhouse.queries.breakdown_props import ALL_USERS_COHORT_ID
 from ee.clickhouse.queries.funnels.funnel import ClickhouseFunnel
 from ee.clickhouse.test.test_journeys import journeys_for
@@ -16,7 +15,7 @@ from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.test.base import APIBaseTest, test_with_materialized_columns
 
 
-@dataclass
+@dataclass(frozen=True)
 class FunnelStepResult:
     name: str
     count: int
@@ -427,6 +426,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
             people = journeys_for(events_by_person, self.team)
 
             result = funnel.run()
+            result = sort_breakdown_funnel_results(result)
 
             assert_funnel_breakdown_result_is_correct(
                 result[1],
@@ -1367,6 +1367,7 @@ def assert_funnel_results_equal(left: List[Dict[str, Any]], right: List[Dict[str
     """
 
     assert len(left) == len(right)
+
     for index, item in enumerate(exclude_people_urls_from_funnel_response(left)):
         other = exclude_people_urls_from_funnel_response(right)[index]
         assert item.keys() == other.keys()
@@ -1376,6 +1377,10 @@ def assert_funnel_results_equal(left: List[Dict[str, Any]], right: List[Dict[str
             except AssertionError as e:
                 e.args += (f"failed comparing ${key}", f'Got "{item[key]}" and "{other[key]}"')
                 raise
+
+
+def sort_breakdown_funnel_results(results: List[Dict[int, Any]]):
+    return list(sorted(results, key=lambda r: r[0]["breakdown_value"]))
 
 
 def assert_funnel_breakdown_results_equal(left, right):

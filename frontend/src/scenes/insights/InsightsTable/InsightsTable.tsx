@@ -3,26 +3,29 @@ import { Dropdown, Menu } from 'antd'
 import { Tooltip } from 'lib/components/Tooltip'
 import { BindLogic, useActions, useValues } from 'kea'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
-import { PHCheckbox } from 'lib/components/PHCheckbox'
-import { getChartColors } from 'lib/colors'
+import { LemonCheckbox } from 'lib/components/LemonCheckbox'
+import { getSeriesColor } from 'lib/colors'
 import { cohortsModel } from '~/models/cohortsModel'
-import { BreakdownKeyType, CohortType, FilterType, InsightShortId, IntervalType, TrendResult } from '~/types'
-import { average, median, maybeAddCommasToInteger, capitalizeFirstLetter } from 'lib/utils'
+import { BreakdownKeyType, ChartDisplayType, CohortType, IntervalType, TrendResult } from '~/types'
+import { average, median, capitalizeFirstLetter, humanFriendlyNumber } from 'lib/utils'
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { CalcColumnState, insightsTableLogic } from './insightsTableLogic'
-import { DownOutlined, InfoCircleOutlined, EditOutlined } from '@ant-design/icons'
+import { DownOutlined, InfoCircleOutlined } from '@ant-design/icons'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { DateDisplay } from 'lib/components/DateDisplay'
 import { SeriesToggleWrapper } from './components/SeriesToggleWrapper'
-import { ACTIONS_LINE_GRAPH_CUMULATIVE, ACTIONS_PIE_CHART, ACTIONS_TABLE } from 'lib/constants'
 import { IndexedTrendResult } from 'scenes/trends/types'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { entityFilterLogic } from '../ActionFilter/entityFilterLogic'
 import './InsightsTable.scss'
 import clsx from 'clsx'
-import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/components/LemonTable'
+import { LemonTable, LemonTableColumn } from 'lib/components/LemonTable'
 import stringWithWBR from 'lib/utils/stringWithWBR'
+import { LemonButton } from 'lib/components/LemonButton'
+import { IconEdit } from 'lib/components/icons'
+import { countryCodeToName } from '../WorldMap'
+import { NON_TIME_SERIES_DISPLAY_TYPES } from 'lib/constants'
 
 interface InsightsTableProps {
     /** Whether this is just a legend instead of standalone insight viz. Default: false. */
@@ -48,16 +51,11 @@ const CALC_COLUMN_LABELS: Record<CalcColumnState, string> = {
 /**
  * InsightsTable for use in a dashboard.
  */
-export function DashboardInsightsTable({
-    filters,
-    dashboardItemId,
-}: {
-    filters: FilterType
-    dashboardItemId: InsightShortId
-}): JSX.Element {
+export function DashboardInsightsTable(): JSX.Element {
+    const { insightProps } = useValues(insightLogic)
     return (
-        <BindLogic logic={trendsLogic} props={{ dashboardItemId, filters }}>
-            <InsightsTable showTotalCount filterKey={`dashboard_${dashboardItemId}`} embedded />
+        <BindLogic logic={trendsLogic} props={insightProps}>
+            <InsightsTable showTotalCount filterKey={`dashboard_${insightProps.dashboardItemId}`} embedded />
         </BindLogic>
     )
 }
@@ -71,18 +69,11 @@ export function InsightsTable({
     canCheckUncheckSeries = true,
     isMainInsightView = false,
 }: InsightsTableProps): JSX.Element | null {
-    const { insightProps } = useValues(insightLogic)
+    const { insightProps, isViewedOnDashboard, insight } = useValues(insightLogic)
     const { indexedResults, hiddenLegendKeys, filters, resultsLoading } = useValues(trendsLogic(insightProps))
     const { toggleVisibility, setFilters } = useActions(trendsLogic(insightProps))
     const { cohorts } = useValues(cohortsModel)
     const { reportInsightsTableCalcToggled } = useActions(eventUsageLogic)
-
-    const _entityFilterLogic = entityFilterLogic({
-        setFilters,
-        filters,
-        typeKey: filterKey,
-    })
-    const { showModal, selectFilter } = useActions(_entityFilterLogic)
 
     const hasMathUniqueFilter = !!(
         filters.actions?.find(({ math }) => math === 'dau') || filters.events?.find(({ math }) => math === 'dau')
@@ -91,17 +82,26 @@ export function InsightsTable({
     const { calcColumnState } = useValues(logic)
     const { setCalcColumnState } = useActions(logic)
 
-    const colorList = getChartColors('white', indexedResults.length, !!filters.compare)
     const showCountedByTag = !!indexedResults.find(({ action }) => action?.math && action.math !== 'total')
 
     const handleEditClick = (item: IndexedTrendResult): void => {
         if (canEditSeriesNameInline) {
-            selectFilter(item.action)
-            showModal()
+            const entityFitler = entityFilterLogic.findMounted({
+                setFilters,
+                filters,
+                typeKey: filterKey,
+            })
+            if (entityFitler) {
+                entityFitler.actions.selectFilter(item.action)
+                entityFitler.actions.showModal()
+            }
         }
     }
 
-    const calcColumnMenu = (
+    const isDisplayModeNonTimeSeries: boolean =
+        !!filters.display && NON_TIME_SERIES_DISPLAY_TYPES.includes(filters.display)
+
+    const calcColumnMenu = isDisplayModeNonTimeSeries ? null : (
         <Menu>
             {Object.keys(CALC_COLUMN_LABELS).map((key) => (
                 <Menu.Item
@@ -119,14 +119,14 @@ export function InsightsTable({
     )
 
     // Build up columns to include. Order matters.
-    const columns: LemonTableColumns<IndexedTrendResult> = []
+    const columns: LemonTableColumn<IndexedTrendResult, keyof IndexedTrendResult | undefined>[] = []
 
     if (isLegend) {
         columns.push({
             render: function RenderCheckbox(_, item: IndexedTrendResult) {
                 return (
-                    <PHCheckbox
-                        color={colorList[item.id]}
+                    <LemonCheckbox
+                        color={getSeriesColor(item.id, !!filters.compare)}
                         checked={!hiddenLegendKeys[item.id]}
                         onChange={() => toggleVisibility(item.id)}
                         disabled={!canCheckUncheckSeries}
@@ -143,7 +143,7 @@ export function InsightsTable({
             return (
                 <div className="series-name-wrapper-col">
                     <InsightLabel
-                        seriesColor={colorList[item.id]}
+                        seriesColor={getSeriesColor(item.id, !!filters.compare)}
                         action={item.action}
                         fallbackName={item.breakdown_value === '' ? 'None' : item.label}
                         hasMultipleSeries={indexedResults.length > 1}
@@ -159,10 +159,10 @@ export function InsightsTable({
                         onLabelClick={canEditSeriesNameInline ? () => handleEditClick(item) : undefined}
                     />
                     {canEditSeriesNameInline && (
-                        <EditOutlined
-                            title="Rename graph series"
-                            className="edit-icon"
+                        <LemonButton
                             onClick={() => handleEditClick(item)}
+                            title="Rename graph series"
+                            icon={<IconEdit className="edit-icon" />}
                         />
                     )}
                 </div>
@@ -199,6 +199,16 @@ export function InsightsTable({
                 return labelA.localeCompare(labelB)
             },
         })
+        if (filters.display === ChartDisplayType.WorldMap) {
+            columns.push({
+                title: <PropertyKeyInfo disableIcon disablePopover value="$geoip_country_name" />,
+                render: (_, item: IndexedTrendResult) => countryCodeToName[item.breakdown_value as string],
+                key: 'breakdown_addendum',
+                sorter: (a, b) => {
+                    return countryCodeToName[a.breakdown_value as string].localeCompare(b.breakdown_value as string)
+                },
+            })
+        }
     }
 
     if (indexedResults?.length > 0 && indexedResults[0].data) {
@@ -218,10 +228,10 @@ export function InsightsTable({
                     />
                 ),
                 render: function RenderPeriod(_, item: IndexedTrendResult) {
-                    return maybeAddCommasToInteger(item.data[index])
+                    return humanFriendlyNumber(item.data[index] ?? NaN)
                 },
-                key: `data[${index}]`,
-                sorter: (a, b) => a.data[index] - b.data[index],
+                key: `data-${index}`,
+                sorter: (a, b) => (a.data[index] ?? NaN) - (b.data[index] ?? NaN),
                 align: 'right',
             })
         )
@@ -231,26 +241,23 @@ export function InsightsTable({
 
     if (showTotalCount) {
         columns.push({
-            title: (
+            title: calcColumnMenu ? (
                 <Dropdown overlay={calcColumnMenu}>
                     <span className="cursor-pointer">
                         {CALC_COLUMN_LABELS[calcColumnState]}
                         <DownOutlined className="ml-025" />
                     </span>
                 </Dropdown>
+            ) : (
+                CALC_COLUMN_LABELS.total
             ),
             render: function RenderCalc(count: any, item: IndexedTrendResult) {
-                if (calcColumnState === 'average') {
+                if (calcColumnState === 'total' || isDisplayModeNonTimeSeries) {
+                    return (item.count || item.aggregated_value || 'Unknown').toLocaleString()
+                } else if (calcColumnState === 'average') {
                     return average(item.data).toLocaleString()
                 } else if (calcColumnState === 'median') {
                     return median(item.data).toLocaleString()
-                } else if (
-                    calcColumnState === 'total' &&
-                    (filters.display === ACTIONS_LINE_GRAPH_CUMULATIVE ||
-                        filters.display === ACTIONS_TABLE ||
-                        filters.display === ACTIONS_PIE_CHART)
-                ) {
-                    return (item.count || item.aggregated_value || 'Unknown').toLocaleString()
                 }
                 return (
                     <>
@@ -271,6 +278,7 @@ export function InsightsTable({
 
     return (
         <LemonTable
+            id={isViewedOnDashboard ? insight.short_id : undefined}
             dataSource={isLegend ? indexedResults : indexedResults.filter((r) => !hiddenLegendKeys?.[r.id])}
             embedded={embedded}
             columns={columns}

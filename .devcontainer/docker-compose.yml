@@ -1,35 +1,11 @@
-# Defines the services and workspace environment used for codespaces
-#
-# Used
-# https://github.com/microsoft/vscode-dev-containers/blob/main/containers/python-3-postgres/.devcontainer/docker-compose.yml
-# for reference.
+# Defines the services for the project. Note this doesn't include the
+# docker container that will be used as the project container. It's too
+# cumbersome to handle e.g. docker-compose updates when that also requires
+# triggering a codespaces rebuild. Rather we want to be as close to what it
+# would be like running docker-compose locally manually.
 
-version: '3'
+version: '3.7'
 services:
-    # The workspace environment you'll be dropped into. Note that I do not
-    # create separate services for each process e.g. celery, the plugin server.
-    # I expect these to be run from within this workspace context, such that you
-    # do not need to interact with them via docker, the intent is to make them
-    # readily debuggable.
-    #
-    # Service dependencies are, however, run separately as there isn't so much
-    # of a need to debug them. You can of course however use `docker logs` (as we
-    # have docker-in-docker enabled) to view these, of via the vscode docker
-    # extention.
-    app:
-        image: ghcr.io/posthog/posthog/codespaces:master
-        command: sleep infinity
-        env_file: .env
-        volumes:
-            # Make sure we can see the code in our workspace! Should match the
-            # `workspaceFolder` setting in `devcontainer.json`.
-            - .:/workspace:cached
-
-            # Make sure we can talk to the docker daemon. See
-            # https://aka.ms/vscode-remote/samples/docker-from-docker-compose
-            # for details.
-            - /var/run/docker.sock:/var/run/docker.sock
-
     # The applications service dependencies
     db:
         image: postgres:12-alpine
@@ -44,14 +20,16 @@ services:
 
     # Used for/by 1. celery broker 2. django.core.cache
     redis:
-        image: 'redis:alpine'
+        image: redis:6.2.7-alpine
         ports:
             - '6379:6379'
 
     clickhouse:
-        # KEEP CLICKHOUSE-SERVER VERSION IN SYNC WITH
-        # https://github.com/PostHog/charts-clickhouse/blob/main/charts/posthog/templates/clickhouse_instance.yaml#L88
-        image: yandex/clickhouse-server:21.6.5
+        #
+        # Note: please keep the default version in sync across
+        #       `posthog` and the `charts-clickhouse` repos
+        #
+        image: ${CLICKHOUSE_SERVER_IMAGE:-clickhouse/clickhouse-server:22.3}
         ports:
             - '8123:8123'
             - '9000:9000'
@@ -59,24 +37,28 @@ services:
             - '9009:9009'
         volumes:
             - ../ee/idl:/idl
-            - ./docker/clickhouse/docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d
-            - ./docker/clickhouse/config.xml:/etc/clickhouse-server/config.xml
-            - ./docker/clickhouse/users.xml:/etc/clickhouse-server/users.xml
+            - ../docker/clickhouse/docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d
+            - ../docker/clickhouse/config.xml:/etc/clickhouse-server/config.xml
+            - ../docker/clickhouse/users.xml:/etc/clickhouse-server/users.xml
             - clickhouse-data:/var/lib/clickhouse/data
 
     # Needed for 1. clickhouse distributed queries 2. kafka replication
     zookeeper:
-        image: wurstmeister/zookeeper
+        image: zookeeper:3.7.0
 
     kafka:
-        image: wurstmeister/kafka
+        image: bitnami/kafka:2.8.1-debian-10-r99
         depends_on:
             - zookeeper
         ports:
             - '9092:9092'
         environment:
-            KAFKA_ADVERTISED_HOST_NAME: kafka
-            KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+            KAFKA_BROKER_ID: 1001
+            KAFKA_CFG_RESERVED_BROKER_MAX_ID: 1001
+            KAFKA_CFG_LISTENERS: PLAINTEXT://:9092
+            KAFKA_CFG_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+            KAFKA_CFG_ZOOKEEPER_CONNECT: zookeeper:2181
+            ALLOW_PLAINTEXT_LISTENER: 'true'
 
 # Make sure we persist between container recreation. We only really care about
 # postgres and clickhouse here

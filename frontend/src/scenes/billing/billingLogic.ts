@@ -1,11 +1,12 @@
 import { kea } from 'kea'
 import api from 'lib/api'
-import { billingLogicType } from './billingLogicType'
+import type { billingLogicType } from './billingLogicType'
 import { PlanInterface, BillingType } from '~/types'
-import { preflightLogic } from 'scenes/PreflightCheck/logic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import posthog from 'posthog-js'
-import { Scene } from 'scenes/sceneTypes'
 import { sceneLogic } from 'scenes/sceneLogic'
+import { Scene } from 'scenes/sceneTypes'
+import { lemonToast } from 'lib/components/lemonToast'
 
 export const UTM_TAGS = 'utm_medium=in-product&utm_campaign=billing-management'
 export const ALLOCATION_THRESHOLD_ALERT = 0.85 // Threshold to show warning of event usage near limit
@@ -13,9 +14,10 @@ export const ALLOCATION_THRESHOLD_ALERT = 0.85 // Threshold to show warning of e
 export enum BillingAlertType {
     SetupBilling = 'setup_billing',
     UsageNearLimit = 'usage_near_limit',
+    UsageLimitExceeded = 'usage_limit_exceeded',
 }
 
-export const billingLogic = kea<billingLogicType<BillingAlertType>>({
+export const billingLogic = kea<billingLogicType>({
     path: ['scenes', 'billing', 'billingLogic'],
     actions: {
         registerInstrumentationProps: true,
@@ -31,6 +33,11 @@ export const billingLogic = kea<billingLogicType<BillingAlertType>>({
                     }
                     actions.registerInstrumentationProps()
                     return response as BillingType
+                },
+                setBillingLimit: async (billing: BillingType) => {
+                    const res = await api.update('api/billing/', billing)
+                    lemonToast.success(`Billing limit set to $${billing.billing_limit} usd/month`)
+                    return res as BillingType
                 },
             },
         ],
@@ -85,8 +92,13 @@ export const billingLogic = kea<billingLogicType<BillingAlertType>>({
             },
         ],
         alertToShow: [
-            (s) => [s.eventAllocation, s.billing, sceneLogic.selectors.scene],
-            (eventAllocation: number | null, billing: BillingType, scene: Scene): BillingAlertType | undefined => {
+            (s) => [s.eventAllocation, s.percentage, s.billing, sceneLogic.selectors.scene],
+            (
+                eventAllocation: number | null,
+                percentage: number,
+                billing: BillingType,
+                scene: Scene
+            ): BillingAlertType | undefined => {
                 // Determines which billing alert/warning to show to the user (if any)
 
                 // Priority 1: In-progress incomplete billing setup
@@ -94,12 +106,16 @@ export const billingLogic = kea<billingLogicType<BillingAlertType>>({
                     return BillingAlertType.SetupBilling
                 }
 
-                // Priority 2: Event allowance near limit
+                // Priority 2: Event allowance exceeded or near limit
+                if (billing?.billing_limit_exceeded) {
+                    return BillingAlertType.UsageLimitExceeded
+                }
+
                 if (
                     scene !== Scene.Billing &&
+                    billing?.current_usage &&
                     eventAllocation &&
-                    billing.current_usage &&
-                    billing.current_usage / eventAllocation >= ALLOCATION_THRESHOLD_ALERT
+                    percentage >= ALLOCATION_THRESHOLD_ALERT
                 ) {
                     return BillingAlertType.UsageNearLimit
                 }

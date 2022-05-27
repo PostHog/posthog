@@ -1,10 +1,158 @@
+# name: TestClickhouseTrends.test_breakdown_active_user_math_with_actions
+  '
+  
+  SELECT groupArray(value)
+  FROM
+    (SELECT replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '') AS value,
+            count(*) as count
+     FROM events e
+     INNER JOIN
+       (SELECT distinct_id,
+               argMax(person_id, version) as person_id
+        FROM person_distinct_id2
+        WHERE team_id = 2
+        GROUP BY distinct_id
+        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+     INNER JOIN
+       (SELECT id,
+               argMax(properties, _timestamp) as person_props
+        FROM person
+        WHERE team_id = 2
+        GROUP BY id
+        HAVING max(is_deleted) = 0) person ON pdi.person_id = person.id
+     WHERE team_id = 2
+       AND ((event = '$pageview'
+             AND (has(['p1', 'p2', 'p3'], replaceRegexpAll(JSONExtractRaw(person_props, 'name'), '^"|"$', ''))
+                  AND pdi.person_id IN
+                    (select id
+                     from
+                       (SELECT *
+                        FROM person
+                        JOIN
+                          (SELECT id,
+                                  max(_timestamp) as _timestamp,
+                                  max(is_deleted) as is_deleted
+                           FROM person
+                           WHERE team_id = 2
+                           GROUP BY id) as person_max ON person.id = person_max.id
+                        AND person._timestamp = person_max._timestamp
+                        WHERE team_id = 2
+                          AND person_max.is_deleted = 0
+                          AND (has(['p1', 'p2'], replaceRegexpAll(JSONExtractRaw(properties, 'name'), '^"|"$', ''))) )))))
+       AND timestamp >= toDateTime('2020-01-01 00:00:00')
+       AND timestamp <= toDateTime('2020-01-12 23:59:59')
+     GROUP BY value
+     ORDER BY count DESC
+     LIMIT 25
+     OFFSET 0)
+  '
+---
+# name: TestClickhouseTrends.test_breakdown_active_user_math_with_actions.1
+  '
+  
+  SELECT groupArray(day_start) as date,
+         groupArray(count) as data,
+         breakdown_value
+  FROM
+    (SELECT SUM(total) as count,
+            day_start,
+            breakdown_value
+     FROM
+       (SELECT *
+        FROM
+          (SELECT toUInt16(0) AS total,
+                  ticks.day_start as day_start,
+                  breakdown_value
+           FROM
+             (SELECT toStartOfDay(toDateTime('2020-01-12 23:59:59', 'UTC') - number * 86400) as day_start
+              FROM numbers(12)
+              UNION ALL SELECT toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')) as day_start) as ticks
+           CROSS JOIN
+             (SELECT breakdown_value
+              FROM
+                (SELECT ['val'] as breakdown_value) ARRAY
+              JOIN breakdown_value) as sec
+           ORDER BY breakdown_value,
+                    day_start
+           UNION ALL SELECT counts as total,
+                            timestamp as day_start,
+                                         breakdown_value
+           FROM
+             (SELECT d.timestamp,
+                     COUNT(DISTINCT person_id) counts,
+                     breakdown_value
+              FROM
+                (SELECT toStartOfDay(toDateTime(timestamp), 'UTC') as timestamp
+                 FROM events e
+                 WHERE team_id = 2
+                   AND timestamp >= '2019-12-25 00:00:00'
+                   AND timestamp <= toDateTime('2020-01-12 23:59:59')
+                 GROUP BY timestamp) d
+              CROSS JOIN
+                (SELECT toStartOfDay(toDateTime(timestamp), 'UTC') as timestamp,
+                        pdi.person_id AS person_id,
+                        replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '') as breakdown_value
+                 FROM events e
+                 INNER JOIN
+                   (SELECT distinct_id,
+                           argMax(person_id, version) as person_id
+                    FROM person_distinct_id2
+                    WHERE team_id = 2
+                    GROUP BY distinct_id
+                    HAVING argMax(is_deleted, version) = 0) as pdi ON events.distinct_id = pdi.distinct_id
+                 INNER JOIN
+                   (SELECT id,
+                           argMax(properties, _timestamp) as person_props
+                    FROM person
+                    WHERE team_id = 2
+                    GROUP BY id
+                    HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
+                 WHERE e.team_id = 2
+                   AND timestamp >= '2019-12-25 00:00:00'
+                   AND timestamp <= toDateTime('2020-01-12 23:59:59')
+                   AND ((event = '$pageview'
+                         AND (has(['p1', 'p2', 'p3'], replaceRegexpAll(JSONExtractRaw(person_props, 'name'), '^"|"$', ''))
+                              AND pdi.person_id IN
+                                (select id
+                                 from
+                                   (SELECT *
+                                    FROM person
+                                    JOIN
+                                      (SELECT id,
+                                              max(_timestamp) as _timestamp,
+                                              max(is_deleted) as is_deleted
+                                       FROM person
+                                       WHERE team_id = 2
+                                       GROUP BY id) as person_max ON person.id = person_max.id
+                                    AND person._timestamp = person_max._timestamp
+                                    WHERE team_id = 2
+                                      AND person_max.is_deleted = 0
+                                      AND (has(['p1', 'p2'], replaceRegexpAll(JSONExtractRaw(properties, 'name'), '^"|"$', ''))) )))))
+                 GROUP BY timestamp,
+                          person_id,
+                          breakdown_value) e
+              WHERE e.timestamp <= d.timestamp
+                AND e.timestamp > d.timestamp - INTERVAL 7 DAY
+              GROUP BY d.timestamp,
+                       breakdown_value
+              ORDER BY d.timestamp)
+           WHERE 11111 = 11111
+             AND timestamp >= toStartOfDay(toDateTime('2020-01-01 00:00:00'), 'UTC')
+             AND timestamp <= toDateTime('2020-01-12 23:59:59') ))
+     GROUP BY day_start,
+              breakdown_value
+     ORDER BY breakdown_value,
+              day_start)
+  GROUP BY breakdown_value
+  ORDER BY breakdown_value
+  '
+---
 # name: TestClickhouseTrends.test_breakdown_by_group_props
   '
   
   SELECT groupArray(value)
   FROM
-    (SELECT trim(BOTH '"'
-                 FROM JSONExtractRaw(group_properties_0, 'industry')) AS value,
+    (SELECT replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS value,
             count(*) as count
      FROM events e
      INNER JOIN
@@ -13,11 +161,11 @@
         FROM groups
         WHERE team_id = 2
           AND group_type_index = 0
-        GROUP BY group_key) groups_0 ON $group_0 == groups_0.group_key
+        GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
      WHERE team_id = 2
        AND event = 'sign up'
-       AND timestamp >= '2020-01-01 00:00:00'
-       AND timestamp <= '2020-01-12 23:59:59'
+       AND timestamp >= toDateTime('2020-01-01 00:00:00')
+       AND timestamp <= toDateTime('2020-01-12 23:59:59')
      GROUP BY value
      ORDER BY count DESC, value DESC
      LIMIT 25
@@ -41,9 +189,9 @@
                   ticks.day_start as day_start,
                   breakdown_value
            FROM
-             (SELECT toStartOfDay(toDateTime('2020-01-12 23:59:59') - number * 86400) as day_start
+             (SELECT toStartOfDay(toDateTime('2020-01-12 23:59:59', 'UTC') - number * 86400) as day_start
               FROM numbers(12)
-              UNION ALL SELECT toStartOfDay(toDateTime('2020-01-01 00:00:00')) as day_start) as ticks
+              UNION ALL SELECT toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')) as day_start) as ticks
            CROSS JOIN
              (SELECT breakdown_value
               FROM
@@ -52,9 +200,8 @@
            ORDER BY breakdown_value,
                     day_start
            UNION ALL SELECT count(*) as total,
-                            toDateTime(toStartOfDay(timestamp), 'UTC') as day_start,
-                            trim(BOTH '"'
-                                 FROM JSONExtractRaw(group_properties_0, 'industry')) as breakdown_value
+                            toStartOfDay(timestamp, 'UTC') as day_start,
+                            replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') as breakdown_value
            FROM events e
            INNER JOIN
              (SELECT group_key,
@@ -62,13 +209,12 @@
               FROM groups
               WHERE team_id = 2
                 AND group_type_index = 0
-              GROUP BY group_key) groups_0 ON $group_0 == groups_0.group_key
+              GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
            WHERE e.team_id = 2
              AND event = 'sign up'
-             AND toStartOfDay(timestamp) >= toStartOfDay(toDateTime('2020-01-01 00:00:00'))
-             AND timestamp <= '2020-01-12 23:59:59'
-             AND trim(BOTH '"'
-                      FROM JSONExtractRaw(group_properties_0, 'industry')) in (['finance', 'technology'])
+             AND timestamp >= toStartOfDay(toDateTime('2020-01-01 00:00:00'), 'UTC')
+             AND timestamp <= toDateTime('2020-01-12 23:59:59')
+             AND replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') in (['finance', 'technology'])
            GROUP BY day_start,
                     breakdown_value))
      GROUP BY day_start,
@@ -76,6 +222,7 @@
      ORDER BY breakdown_value,
               day_start)
   GROUP BY breakdown_value
+  ORDER BY breakdown_value
   '
 ---
 # name: TestClickhouseTrends.test_breakdown_by_group_props.2
@@ -96,24 +243,17 @@
         GROUP BY distinct_id
         HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
      INNER JOIN
-       (SELECT id
-        FROM person
-        WHERE team_id = 2
-        GROUP BY id
-        HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
-     INNER JOIN
        (SELECT group_key,
                argMax(group_properties, _timestamp) AS group_properties_0
         FROM groups
         WHERE team_id = 2
           AND group_type_index = 0
-        GROUP BY group_key) groups_0 ON $group_0 == groups_0.group_key
+        GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
      WHERE team_id = 2
        AND event = 'sign up'
-       AND timestamp >= '2020-01-02 00:00:00'
-       AND timestamp <= '2020-01-02 23:59:59'
-       AND (has(['technology'], trim(BOTH '"'
-                                     FROM JSONExtractRaw(group_properties_0, 'industry')))) )
+       AND timestamp >= toDateTime('2020-01-02 00:00:00')
+       AND timestamp <= toDateTime('2020-01-02 23:59:59')
+       AND (has(['technology'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', ''))) )
   GROUP BY actor_id
   LIMIT 200
   OFFSET 0
@@ -124,8 +264,7 @@
   
   SELECT groupArray(value)
   FROM
-    (SELECT trim(BOTH '"'
-                 FROM JSONExtractRaw(group_properties_0, 'industry')) AS value,
+    (SELECT replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS value,
             count(*) as count
      FROM events e
      INNER JOIN
@@ -141,19 +280,18 @@
         WHERE team_id = 2
         GROUP BY id
         HAVING max(is_deleted) = 0
-        AND has(['value'], trim(BOTH '"'
-                                FROM JSONExtractRaw(argMax(person.properties, _timestamp), 'key')))) person ON pdi.person_id = person.id
+        AND (has(['value'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'key'), '^"|"$', '')))) person ON pdi.person_id = person.id
      INNER JOIN
        (SELECT group_key,
                argMax(group_properties, _timestamp) AS group_properties_0
         FROM groups
         WHERE team_id = 2
           AND group_type_index = 0
-        GROUP BY group_key) groups_0 ON $group_0 == groups_0.group_key
+        GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
      WHERE team_id = 2
        AND event = 'sign up'
-       AND timestamp >= '2020-01-01 00:00:00'
-       AND timestamp <= '2020-01-12 23:59:59'
+       AND timestamp >= toDateTime('2020-01-01 00:00:00')
+       AND timestamp <= toDateTime('2020-01-12 23:59:59')
      GROUP BY value
      ORDER BY count DESC, value DESC
      LIMIT 25
@@ -177,9 +315,9 @@
                   ticks.day_start as day_start,
                   breakdown_value
            FROM
-             (SELECT toStartOfDay(toDateTime('2020-01-12 23:59:59') - number * 86400) as day_start
+             (SELECT toStartOfDay(toDateTime('2020-01-12 23:59:59', 'UTC') - number * 86400) as day_start
               FROM numbers(12)
-              UNION ALL SELECT toStartOfDay(toDateTime('2020-01-01 00:00:00')) as day_start) as ticks
+              UNION ALL SELECT toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')) as day_start) as ticks
            CROSS JOIN
              (SELECT breakdown_value
               FROM
@@ -188,9 +326,8 @@
            ORDER BY breakdown_value,
                     day_start
            UNION ALL SELECT count(*) as total,
-                            toDateTime(toStartOfDay(timestamp), 'UTC') as day_start,
-                            trim(BOTH '"'
-                                 FROM JSONExtractRaw(group_properties_0, 'industry')) as breakdown_value
+                            toStartOfDay(timestamp, 'UTC') as day_start,
+                            replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') as breakdown_value
            FROM events e
            INNER JOIN
              (SELECT distinct_id,
@@ -205,21 +342,19 @@
               WHERE team_id = 2
               GROUP BY id
               HAVING max(is_deleted) = 0
-              AND has(['value'], trim(BOTH '"'
-                                      FROM JSONExtractRaw(argMax(person.properties, _timestamp), 'key')))) person ON person.id = pdi.person_id
+              AND (has(['value'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'key'), '^"|"$', '')))) person ON person.id = pdi.person_id
            INNER JOIN
              (SELECT group_key,
                      argMax(group_properties, _timestamp) AS group_properties_0
               FROM groups
               WHERE team_id = 2
                 AND group_type_index = 0
-              GROUP BY group_key) groups_0 ON $group_0 == groups_0.group_key
+              GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
            WHERE e.team_id = 2
              AND event = 'sign up'
-             AND toStartOfDay(timestamp) >= toStartOfDay(toDateTime('2020-01-01 00:00:00'))
-             AND timestamp <= '2020-01-12 23:59:59'
-             AND trim(BOTH '"'
-                      FROM JSONExtractRaw(group_properties_0, 'industry')) in (['finance'])
+             AND timestamp >= toStartOfDay(toDateTime('2020-01-01 00:00:00'), 'UTC')
+             AND timestamp <= toDateTime('2020-01-12 23:59:59')
+             AND replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') in (['finance'])
            GROUP BY day_start,
                     breakdown_value))
      GROUP BY day_start,
@@ -227,37 +362,31 @@
      ORDER BY breakdown_value,
               day_start)
   GROUP BY breakdown_value
+  ORDER BY breakdown_value
   '
 ---
-# name: TestClickhouseTrends.test_breakdown_with_filter_groups
+# name: TestClickhouseTrends.test_breakdown_filtering_with_properties_in_new_format
   '
   
   SELECT groupArray(value)
   FROM
-    (SELECT trim(BOTH '"'
-                 FROM JSONExtractRaw(properties, 'key')) AS value,
+    (SELECT replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', '') AS value,
             count(*) as count
      FROM events e
-     INNER JOIN
-       (SELECT group_key,
-               argMax(group_properties, _timestamp) AS group_properties_0
-        FROM groups
-        WHERE team_id = 2
-          AND group_type_index = 0
-        GROUP BY group_key) groups_0 ON $group_0 == groups_0.group_key
      WHERE team_id = 2
        AND event = 'sign up'
-       AND timestamp >= '2020-01-01 00:00:00'
-       AND timestamp <= '2020-01-12 23:59:59'
-       AND (has(['finance'], trim(BOTH '"'
-                                  FROM JSONExtractRaw(group_properties_0, 'industry'))))
+       AND timestamp >= toDateTime('2019-12-22 00:00:00')
+       AND timestamp <= toDateTime('2020-01-05 23:59:59')
+       AND ((has(['Firefox'], replaceRegexpAll(JSONExtractRaw(e.properties, '$browser'), '^"|"$', ''))
+             OR has(['Windows'], replaceRegexpAll(JSONExtractRaw(e.properties, '$os'), '^"|"$', '')))
+            AND (has(['Mac'], replaceRegexpAll(JSONExtractRaw(e.properties, '$os'), '^"|"$', ''))))
      GROUP BY value
      ORDER BY count DESC, value DESC
      LIMIT 25
      OFFSET 0)
   '
 ---
-# name: TestClickhouseTrends.test_breakdown_with_filter_groups.1
+# name: TestClickhouseTrends.test_breakdown_filtering_with_properties_in_new_format.1
   '
   
   SELECT groupArray(day_start) as date,
@@ -274,9 +403,9 @@
                   ticks.day_start as day_start,
                   breakdown_value
            FROM
-             (SELECT toStartOfDay(toDateTime('2020-01-12 23:59:59') - number * 86400) as day_start
-              FROM numbers(12)
-              UNION ALL SELECT toStartOfDay(toDateTime('2020-01-01 00:00:00')) as day_start) as ticks
+             (SELECT toStartOfDay(toDateTime('2020-01-05 23:59:59', 'UTC') - number * 86400) as day_start
+              FROM numbers(15)
+              UNION ALL SELECT toStartOfDay(toDateTime('2019-12-22 00:00:00', 'UTC')) as day_start) as ticks
            CROSS JOIN
              (SELECT breakdown_value
               FROM
@@ -285,17 +414,9 @@
            ORDER BY breakdown_value,
                     day_start
            UNION ALL SELECT count(*) as total,
-                            toDateTime(toStartOfDay(timestamp), 'UTC') as day_start,
-                            trim(BOTH '"'
-                                 FROM JSONExtractRaw(properties, 'key')) as breakdown_value
+                            toStartOfDay(timestamp, 'UTC') as day_start,
+                            replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', '') as breakdown_value
            FROM events e
-           INNER JOIN
-             (SELECT group_key,
-                     argMax(group_properties, _timestamp) AS group_properties_0
-              FROM groups
-              WHERE team_id = 2
-                AND group_type_index = 0
-              GROUP BY group_key) groups_0 ON $group_0 == groups_0.group_key
            WHERE e.team_id = 2
              AND event = 'sign up'
              AND (has(['finance'], trim(BOTH '"'
@@ -311,6 +432,36 @@
      ORDER BY breakdown_value,
               day_start)
   GROUP BY breakdown_value
+  ORDER BY breakdown_value
+  '
+---
+# name: TestClickhouseTrends.test_breakdown_filtering_with_properties_in_new_format.2
+  '
+  
+  SELECT groupArray(value)
+  FROM
+    (SELECT replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', '') AS value,
+            count(*) as count
+     FROM events e
+     WHERE team_id = 2
+       AND event = 'sign up'
+       AND timestamp >= toDateTime('2019-12-22 00:00:00')
+       AND timestamp <= toDateTime('2020-01-05 23:59:59')
+       AND ((has(['Firefox'], replaceRegexpAll(JSONExtractRaw(e.properties, '$browser'), '^"|"$', ''))
+             AND has(['Windows'], replaceRegexpAll(JSONExtractRaw(e.properties, '$os'), '^"|"$', '')))
+            AND (has(['Mac'], replaceRegexpAll(JSONExtractRaw(e.properties, '$os'), '^"|"$', ''))))
+     GROUP BY value
+     ORDER BY count DESC
+     LIMIT 25
+     OFFSET 0)
+  '
+---
+# name: TestClickhouseTrends.test_breakdown_filtering_with_properties_in_new_format.3
+  '
+  SELECT [now()] AS date,
+         [0] AS data,
+         '' AS breakdown_value
+  LIMIT 0
   '
 ---
 # name: TestClickhouseTrends.test_filtering_with_group_props
@@ -323,12 +474,12 @@
             day_start
      from
        (SELECT toUInt16(0) AS total,
-               toStartOfDay(toDateTime('2020-01-12 23:59:59') - toIntervalDay(number)) AS day_start
-        FROM numbers(dateDiff('day', toDateTime('2020-01-01 00:00:00'), toDateTime('2020-01-12 23:59:59')))
+               toStartOfDay(toDateTime('2020-01-12 23:59:59') - toIntervalDay(number), 'UTC') AS day_start
+        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2020-01-01 00:00:00'), 'UTC'), toDateTime('2020-01-12 23:59:59'), 'UTC'))
         UNION ALL SELECT toUInt16(0) AS total,
-                         toStartOfDay(toDateTime('2020-01-01 00:00:00'))
+                         toStartOfDay(toDateTime('2020-01-01 00:00:00'), 'UTC')
         UNION ALL SELECT count(*) as data,
-                         toDateTime(toStartOfDay(timestamp), 'UTC') as date
+                         toStartOfDay(toDateTime(timestamp), 'UTC') as date
         FROM
           (SELECT e.timestamp as timestamp,
                   pdi.person_id as person_id
@@ -346,23 +497,676 @@
               WHERE team_id = 2
               GROUP BY id
               HAVING max(is_deleted) = 0
-              AND has(['value'], trim(BOTH '"'
-                                      FROM JSONExtractRaw(argMax(person.properties, _timestamp), 'key')))) person ON person.id = pdi.person_id
+              AND ((has(['value'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'key'), '^"|"$', ''))))) person ON person.id = pdi.person_id
            INNER JOIN
              (SELECT group_key,
                      argMax(group_properties, _timestamp) AS group_properties_0
               FROM groups
               WHERE team_id = 2
                 AND group_type_index = 0
-              GROUP BY group_key) groups_0 ON $group_0 == groups_0.group_key
+              GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
            WHERE team_id = 2
              AND event = '$pageview'
-             AND toStartOfDay(timestamp) >= toStartOfDay(toDateTime('2020-01-01 00:00:00'))
-             AND timestamp <= '2020-01-12 23:59:59'
-             AND (has(['finance'], trim(BOTH '"'
-                                        FROM JSONExtractRaw(group_properties_0, 'industry')))) )
-        GROUP BY toStartOfDay(timestamp))
+             AND timestamp >= toStartOfDay(toDateTime('2020-01-01 00:00:00'), 'UTC')
+             AND timestamp <= toDateTime('2020-01-12 23:59:59')
+             AND ((has(['finance'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))) )
+        GROUP BY date)
      group by day_start
-     order by day_start) SETTINGS timeout_before_checking_execution_speed = 60
+     order by day_start SETTINGS allow_experimental_window_functions = 1) SETTINGS timeout_before_checking_execution_speed = 60
+  '
+---
+# name: TestClickhouseTrends.test_person_property_filtering
+  '
+  
+  SELECT groupArray(day_start) as date,
+         groupArray(count) as data
+  FROM
+    (SELECT SUM(total) AS count,
+            day_start
+     from
+       (SELECT toUInt16(0) AS total,
+               toStartOfDay(toDateTime('2020-01-04 23:59:59') - toIntervalDay(number), 'UTC') AS day_start
+        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2019-12-28 00:00:00'), 'UTC'), toDateTime('2020-01-04 23:59:59'), 'UTC'))
+        UNION ALL SELECT toUInt16(0) AS total,
+                         toStartOfDay(toDateTime('2019-12-28 00:00:00'), 'UTC')
+        UNION ALL SELECT count(*) as data,
+                         toStartOfDay(toDateTime(timestamp), 'UTC') as date
+        FROM
+          (SELECT e.timestamp as timestamp,
+                  pdi.person_id as person_id
+           FROM events e
+           INNER JOIN
+             (SELECT distinct_id,
+                     argMax(person_id, version) as person_id
+              FROM person_distinct_id2
+              WHERE team_id = 2
+              GROUP BY distinct_id
+              HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+           INNER JOIN
+             (SELECT id
+              FROM person
+              WHERE team_id = 2
+              GROUP BY id
+              HAVING max(is_deleted) = 0
+              AND (has(['person1'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'name'), '^"|"$', '')))) person ON person.id = pdi.person_id
+           WHERE team_id = 2
+             AND event = 'watched movie'
+             AND timestamp >= toStartOfDay(toDateTime('2019-12-28 00:00:00'), 'UTC')
+             AND timestamp <= toDateTime('2020-01-04 23:59:59') )
+        GROUP BY date)
+     group by day_start
+     order by day_start SETTINGS allow_experimental_window_functions = 1) SETTINGS timeout_before_checking_execution_speed = 60
+  '
+---
+# name: TestClickhouseTrends.test_person_property_filtering_materialized
+  '
+  
+  SELECT groupArray(day_start) as date,
+         groupArray(count) as data
+  FROM
+    (SELECT SUM(total) AS count,
+            day_start
+     from
+       (SELECT toUInt16(0) AS total,
+               toStartOfDay(toDateTime('2020-01-04 23:59:59') - toIntervalDay(number), 'UTC') AS day_start
+        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2019-12-28 00:00:00'), 'UTC'), toDateTime('2020-01-04 23:59:59'), 'UTC'))
+        UNION ALL SELECT toUInt16(0) AS total,
+                         toStartOfDay(toDateTime('2019-12-28 00:00:00'), 'UTC')
+        UNION ALL SELECT count(*) as data,
+                         toStartOfDay(toDateTime(timestamp), 'UTC') as date
+        FROM
+          (SELECT e.timestamp as timestamp,
+                  pdi.person_id as person_id
+           FROM events e
+           INNER JOIN
+             (SELECT distinct_id,
+                     argMax(person_id, version) as person_id
+              FROM person_distinct_id2
+              WHERE team_id = 2
+              GROUP BY distinct_id
+              HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+           INNER JOIN
+             (SELECT id
+              FROM person
+              WHERE team_id = 2
+              GROUP BY id
+              HAVING max(is_deleted) = 0
+              AND (has(['person1'], argMax(person."pmat_name", _timestamp)))) person ON person.id = pdi.person_id
+           WHERE team_id = 2
+             AND event = 'watched movie'
+             AND timestamp >= toStartOfDay(toDateTime('2019-12-28 00:00:00'), 'UTC')
+             AND timestamp <= toDateTime('2020-01-04 23:59:59') )
+        GROUP BY date)
+     group by day_start
+     order by day_start SETTINGS allow_experimental_window_functions = 1) SETTINGS timeout_before_checking_execution_speed = 60
+  '
+---
+# name: TestClickhouseTrends.test_timezones
+  '
+  
+  SELECT groupArray(day_start) as date,
+         groupArray(count) as data
+  FROM
+    (SELECT SUM(total) AS count,
+            day_start
+     from
+       (SELECT toUInt16(0) AS total,
+               toStartOfDay(toDateTime('2020-01-05 23:59:59') - toIntervalDay(number), 'US/Pacific') AS day_start
+        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2019-12-29 08:00:00'), 'US/Pacific'), toDateTime('2020-01-05 23:59:59'), 'US/Pacific'))
+        UNION ALL SELECT toUInt16(0) AS total,
+                         toStartOfDay(toDateTime('2019-12-29 08:00:00'), 'US/Pacific')
+        UNION ALL SELECT count(*) as data,
+                         toStartOfDay(toDateTime(timestamp), 'US/Pacific') as date
+        FROM
+          (SELECT e.timestamp as timestamp
+           FROM events e
+           WHERE team_id = 2
+             AND event = 'sign up'
+             AND timestamp >= toStartOfDay(toDateTime('2019-12-29 08:00:00'), 'US/Pacific')
+             AND timestamp <= toDateTime('2020-01-05 23:59:59') )
+        GROUP BY date)
+     group by day_start
+     order by day_start SETTINGS allow_experimental_window_functions = 1) SETTINGS timeout_before_checking_execution_speed = 60
+  '
+---
+# name: TestClickhouseTrends.test_timezones.1
+  '
+  
+  SELECT groupArray(day_start) as date,
+         groupArray(count) as data
+  FROM
+    (SELECT SUM(total) AS count,
+            day_start
+     from
+       (SELECT toUInt16(0) AS total,
+               toStartOfDay(toDateTime('2020-01-05 23:59:59') - toIntervalDay(number), 'US/Pacific') AS day_start
+        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2019-12-22 08:00:00'), 'US/Pacific'), toDateTime('2020-01-05 23:59:59'), 'US/Pacific'))
+        UNION ALL SELECT toUInt16(0) AS total,
+                         toStartOfDay(toDateTime('2019-12-22 08:00:00'), 'US/Pacific')
+        UNION ALL SELECT count(DISTINCT person_id) as data,
+                         toStartOfDay(toDateTime(timestamp), 'US/Pacific') as date
+        FROM
+          (SELECT e.timestamp as timestamp,
+                  pdi.person_id as person_id
+           FROM events e
+           INNER JOIN
+             (SELECT distinct_id,
+                     argMax(person_id, version) as person_id
+              FROM person_distinct_id2
+              WHERE team_id = 2
+              GROUP BY distinct_id
+              HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+           WHERE team_id = 2
+             AND event = 'sign up'
+             AND timestamp >= toStartOfDay(toDateTime('2019-12-22 08:00:00'), 'US/Pacific')
+             AND timestamp <= toDateTime('2020-01-05 23:59:59') )
+        GROUP BY date)
+     group by day_start
+     order by day_start SETTINGS allow_experimental_window_functions = 1) SETTINGS timeout_before_checking_execution_speed = 60
+  '
+---
+# name: TestClickhouseTrends.test_timezones.2
+  '
+  
+  SELECT groupArray(day_start) as date,
+         groupArray(count) as data
+  FROM
+    (SELECT SUM(total) AS count,
+            day_start
+     from
+       (SELECT toUInt16(0) AS total,
+               toStartOfDay(toDateTime('2020-01-05 23:59:59') - toIntervalDay(number), 'US/Pacific') AS day_start
+        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2019-12-29 08:00:00'), 'US/Pacific'), toDateTime('2020-01-05 23:59:59'), 'US/Pacific'))
+        UNION ALL SELECT toUInt16(0) AS total,
+                         toStartOfDay(toDateTime('2019-12-29 08:00:00'), 'US/Pacific')
+        UNION ALL SELECT counts as total,
+                         timestamp as day_start
+        FROM
+          (SELECT d.timestamp,
+                  COUNT(DISTINCT person_id) counts
+           FROM
+             (SELECT toStartOfDay(toDateTime(timestamp, 'US/Pacific')) as timestamp
+              FROM events
+              WHERE team_id = 2
+                AND timestamp >= '2019-12-22 00:00:00'
+                AND timestamp <= toDateTime('2020-01-05 23:59:59')
+              GROUP BY timestamp) d
+           CROSS JOIN
+             (SELECT toStartOfDay(toDateTime(timestamp, 'US/Pacific')) as timestamp,
+                     person_id
+              FROM
+                (SELECT e.timestamp as timestamp,
+                        pdi.person_id as person_id
+                 FROM events e
+                 INNER JOIN
+                   (SELECT distinct_id,
+                           argMax(person_id, version) as person_id
+                    FROM person_distinct_id2
+                    WHERE team_id = 2
+                    GROUP BY distinct_id
+                    HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+                 WHERE team_id = 2
+                   AND event = 'sign up'
+                   AND timestamp >= '2019-12-22 00:00:00'
+                   AND timestamp <= toDateTime('2020-01-05 23:59:59') ) events
+              WHERE 1 = 1
+                AND timestamp >= '2019-12-22 00:00:00'
+                AND timestamp <= toDateTime('2020-01-05 23:59:59')
+              GROUP BY timestamp,
+                       person_id) e
+           WHERE e.timestamp <= d.timestamp
+             AND e.timestamp > d.timestamp - INTERVAL 7 DAY
+           GROUP BY d.timestamp
+           ORDER BY d.timestamp)
+        WHERE 1 = 1
+          AND timestamp >= toStartOfDay(toDateTime('2019-12-29 08:00:00'), 'US/Pacific')
+          AND timestamp <= toDateTime('2020-01-05 23:59:59') )
+     group by day_start
+     order by day_start SETTINGS allow_experimental_window_functions = 1) SETTINGS timeout_before_checking_execution_speed = 60
+  '
+---
+# name: TestClickhouseTrends.test_timezones.3
+  '
+  
+  SELECT groupArray(day_start) as date,
+         groupArray(count) as data
+  FROM
+    (SELECT SUM(total) AS count,
+            day_start
+     from
+       (SELECT toUInt16(0) AS total,
+               toStartOfDay(toDateTime('2020-01-05 23:59:59') - toIntervalDay(number), 'US/Pacific') AS day_start
+        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2019-12-29 08:00:00'), 'US/Pacific'), toDateTime('2020-01-05 23:59:59'), 'US/Pacific'))
+        UNION ALL SELECT toUInt16(0) AS total,
+                         toStartOfDay(toDateTime('2019-12-29 08:00:00'), 'US/Pacific')
+        UNION ALL SELECT count(*) as data,
+                         toStartOfDay(toDateTime(timestamp), 'US/Pacific') as date
+        FROM
+          (SELECT e.timestamp as timestamp
+           FROM events e
+           WHERE team_id = 2
+             AND event = 'sign up'
+             AND timestamp >= toStartOfDay(toDateTime('2019-12-29 08:00:00'), 'US/Pacific')
+             AND timestamp <= toDateTime('2020-01-05 23:59:59') )
+        GROUP BY date)
+     group by day_start
+     order by day_start SETTINGS allow_experimental_window_functions = 1) SETTINGS timeout_before_checking_execution_speed = 60
+  '
+---
+# name: TestClickhouseTrends.test_timezones.4
+  '
+  
+  SELECT groupArray(value)
+  FROM
+    (SELECT replaceRegexpAll(JSONExtractRaw(properties, '$os'), '^"|"$', '') AS value,
+            count(*) as count
+     FROM events e
+     WHERE team_id = 2
+       AND event = 'sign up'
+       AND timestamp >= toDateTime('2019-12-29 08:00:00')
+       AND timestamp <= toDateTime('2020-01-05 23:59:59')
+     GROUP BY value
+     ORDER BY count DESC
+     LIMIT 25
+     OFFSET 0)
+  '
+---
+# name: TestClickhouseTrends.test_timezones.5
+  '
+  
+  SELECT groupArray(day_start) as date,
+         groupArray(count) as data,
+         breakdown_value
+  FROM
+    (SELECT SUM(total) as count,
+            day_start,
+            breakdown_value
+     FROM
+       (SELECT *
+        FROM
+          (SELECT toUInt16(0) AS total,
+                  ticks.day_start as day_start,
+                  breakdown_value
+           FROM
+             (SELECT toStartOfDay(toDateTime('2020-01-05 23:59:59', 'US/Pacific') - number * 86400) as day_start
+              FROM numbers(8)
+              UNION ALL SELECT toStartOfDay(toDateTime('2019-12-29 08:00:00', 'US/Pacific')) as day_start) as ticks
+           CROSS JOIN
+             (SELECT breakdown_value
+              FROM
+                (SELECT ['Mac'] as breakdown_value) ARRAY
+              JOIN breakdown_value) as sec
+           ORDER BY breakdown_value,
+                    day_start
+           UNION ALL SELECT count(DISTINCT pdi.person_id) as total,
+                            toStartOfDay(timestamp, 'US/Pacific') as day_start,
+                            replaceRegexpAll(JSONExtractRaw(properties, '$os'), '^"|"$', '') as breakdown_value
+           FROM events e
+           INNER JOIN
+             (SELECT distinct_id,
+                     argMax(person_id, version) as person_id
+              FROM person_distinct_id2
+              WHERE team_id = 2
+              GROUP BY distinct_id
+              HAVING argMax(is_deleted, version) = 0) as pdi ON events.distinct_id = pdi.distinct_id
+           WHERE e.team_id = 2
+             AND event = 'sign up'
+             AND timestamp >= toStartOfDay(toDateTime('2019-12-29 08:00:00'), 'US/Pacific')
+             AND timestamp <= toDateTime('2020-01-05 23:59:59')
+             AND replaceRegexpAll(JSONExtractRaw(properties, '$os'), '^"|"$', '') in (['Mac'])
+           GROUP BY day_start,
+                    breakdown_value))
+     GROUP BY day_start,
+              breakdown_value
+     ORDER BY breakdown_value,
+              day_start)
+  GROUP BY breakdown_value
+  ORDER BY breakdown_value
+  '
+---
+# name: TestClickhouseTrends.test_timezones.6
+  '
+  
+  SELECT groupArray(day_start) as date,
+         groupArray(count) as data
+  FROM
+    (SELECT SUM(total) AS count,
+            day_start
+     from
+       (SELECT toUInt16(0) AS total,
+               toStartOfHour(toDateTime('2020-01-04 07:59:59') - toIntervalHour(number), 'US/Pacific') AS day_start
+        FROM numbers(dateDiff('hour', toStartOfHour(toDateTime('2020-01-03 08:00:00'), 'US/Pacific'), toDateTime('2020-01-04 07:59:59'), 'US/Pacific'))
+        UNION ALL SELECT toUInt16(0) AS total,
+                         toStartOfHour(toDateTime('2020-01-03 08:00:00'), 'US/Pacific')
+        UNION ALL SELECT count(*) as data,
+                         toStartOfHour(toDateTime(timestamp), 'US/Pacific') as date
+        FROM
+          (SELECT e.timestamp as timestamp
+           FROM events e
+           WHERE team_id = 2
+             AND event = 'sign up'
+             AND timestamp >= toStartOfHour(toDateTime('2020-01-03 08:00:00'), 'US/Pacific')
+             AND timestamp <= toDateTime('2020-01-04 07:59:59') )
+        GROUP BY date)
+     group by day_start
+     order by day_start SETTINGS allow_experimental_window_functions = 1) SETTINGS timeout_before_checking_execution_speed = 60
+  '
+---
+# name: TestClickhouseTrends.test_timezones.7
+  '
+  
+  SELECT groupArray(day_start) as date,
+         groupArray(count) as data
+  FROM
+    (SELECT SUM(total) AS count,
+            day_start
+     from
+       (SELECT toUInt16(0) AS total,
+               toStartOfDay(toDateTime('2020-01-04 07:59:59') - toIntervalDay(number), 'US/Pacific') AS day_start
+        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2020-01-03 08:00:00'), 'US/Pacific'), toDateTime('2020-01-04 07:59:59'), 'US/Pacific'))
+        UNION ALL SELECT toUInt16(0) AS total,
+                         toStartOfDay(toDateTime('2020-01-03 08:00:00'), 'US/Pacific')
+        UNION ALL SELECT count(*) as data,
+                         toStartOfDay(toDateTime(timestamp), 'US/Pacific') as date
+        FROM
+          (SELECT e.timestamp as timestamp
+           FROM events e
+           WHERE team_id = 2
+             AND event = 'sign up'
+             AND timestamp >= toDateTime('2020-01-03 08:00:00')
+             AND timestamp <= toDateTime('2020-01-04 07:59:59') )
+        GROUP BY date)
+     group by day_start
+     order by day_start SETTINGS allow_experimental_window_functions = 1) SETTINGS timeout_before_checking_execution_speed = 60
+  '
+---
+# name: TestClickhouseTrends.test_timezones_hourly
+  '
+  
+  SELECT groupArray(day_start) as date,
+         groupArray(count) as data
+  FROM
+    (SELECT SUM(total) AS count,
+            day_start
+     from
+       (SELECT toUInt16(0) AS total,
+               toStartOfHour(toDateTime('2020-01-05 18:02:01') - toIntervalHour(number), 'US/Pacific') AS day_start
+        FROM numbers(dateDiff('hour', toStartOfHour(toDateTime('2020-01-05 08:00:00'), 'US/Pacific'), toDateTime('2020-01-05 18:02:01'), 'US/Pacific'))
+        UNION ALL SELECT toUInt16(0) AS total,
+                         toStartOfHour(toDateTime('2020-01-05 08:00:00'), 'US/Pacific')
+        UNION ALL SELECT count(DISTINCT person_id) as data,
+                         toStartOfHour(toDateTime(timestamp), 'US/Pacific') as date
+        FROM
+          (SELECT e.timestamp as timestamp,
+                  pdi.person_id as person_id
+           FROM events e
+           INNER JOIN
+             (SELECT distinct_id,
+                     argMax(person_id, version) as person_id
+              FROM person_distinct_id2
+              WHERE team_id = 2
+              GROUP BY distinct_id
+              HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+           WHERE team_id = 2
+             AND event = 'sign up'
+             AND timestamp >= toStartOfHour(toDateTime('2020-01-05 08:00:00'), 'US/Pacific')
+             AND timestamp <= toDateTime('2020-01-05 18:02:01') )
+        GROUP BY date)
+     group by day_start
+     order by day_start SETTINGS allow_experimental_window_functions = 1) SETTINGS timeout_before_checking_execution_speed = 60
+  '
+---
+# name: TestClickhouseTrends.test_timezones_hourly.1
+  '
+  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_actions_people_?$ (ActionViewSet) */
+  SELECT person_id AS actor_id
+  FROM
+    (SELECT e.timestamp as timestamp,
+            pdi.person_id as person_id,
+            e.distinct_id as distinct_id,
+            e.team_id as team_id
+     FROM events e
+     INNER JOIN
+       (SELECT distinct_id,
+               argMax(person_id, version) as person_id
+        FROM person_distinct_id2
+        WHERE team_id = 2
+        GROUP BY distinct_id
+        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+     WHERE team_id = 2
+       AND event = 'sign up'
+       AND timestamp >= toDateTime('2020-01-05 15:00:00')
+       AND timestamp <= toDateTime('2020-01-05 16:00:00') )
+  GROUP BY actor_id
+  LIMIT 200
+  OFFSET 0
+  '
+---
+# name: TestClickhouseTrends.test_timezones_hourly.2
+  '
+  
+  SELECT groupArray(day_start) as date,
+         groupArray(count) as data
+  FROM
+    (SELECT SUM(total) AS count,
+            day_start
+     from
+       (SELECT toUInt16(0) AS total,
+               toStartOfHour(toDateTime('2020-01-05 18:02:01') - toIntervalHour(number), 'US/Pacific') AS day_start
+        FROM numbers(dateDiff('hour', toStartOfHour(toDateTime('2020-01-05 08:00:00'), 'US/Pacific'), toDateTime('2020-01-05 18:02:01'), 'US/Pacific'))
+        UNION ALL SELECT toUInt16(0) AS total,
+                         toStartOfHour(toDateTime('2020-01-05 08:00:00'), 'US/Pacific')
+        UNION ALL SELECT count(*) as data,
+                         toStartOfHour(toDateTime(timestamp), 'US/Pacific') as date
+        FROM
+          (SELECT e.timestamp as timestamp
+           FROM events e
+           WHERE team_id = 2
+             AND event = 'sign up'
+             AND timestamp >= toStartOfHour(toDateTime('2020-01-05 08:00:00'), 'US/Pacific')
+             AND timestamp <= toDateTime('2020-01-05 18:02:01') )
+        GROUP BY date)
+     group by day_start
+     order by day_start SETTINGS allow_experimental_window_functions = 1) SETTINGS timeout_before_checking_execution_speed = 60
+  '
+---
+# name: TestClickhouseTrends.test_trend_breakdown_user_props_with_filter_with_partial_property_pushdowns
+  '
+  
+  SELECT groupArray(value)
+  FROM
+    (SELECT replaceRegexpAll(JSONExtractRaw(person_props, 'email'), '^"|"$', '') AS value,
+            count(*) as count
+     FROM events e
+     INNER JOIN
+       (SELECT distinct_id,
+               argMax(person_id, version) as person_id
+        FROM person_distinct_id2
+        WHERE team_id = 2
+        GROUP BY distinct_id
+        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+     INNER JOIN
+       (SELECT id,
+               argMax(properties, _timestamp) as person_props
+        FROM person
+        WHERE team_id = 2
+        GROUP BY id
+        HAVING max(is_deleted) = 0
+        AND ((has(['android'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), '$os'), '^"|"$', ''))
+              OR has(['safari'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), '$browser'), '^"|"$', ''))))) person ON pdi.person_id = person.id
+     WHERE team_id = 2
+       AND event = 'sign up'
+       AND timestamp >= toDateTime('2020-01-01 00:00:00')
+       AND timestamp <= toDateTime('2020-07-01 00:00:00')
+       AND ((NOT (replaceRegexpAll(JSONExtractRaw(person_props, 'email'), '^"|"$', '') ILIKE '%@posthog.com%')
+             OR has(['val'], replaceRegexpAll(JSONExtractRaw(e.properties, 'key'), '^"|"$', ''))))
+     GROUP BY value
+     ORDER BY count DESC
+     LIMIT 25
+     OFFSET 0)
+  '
+---
+# name: TestClickhouseTrends.test_trend_breakdown_user_props_with_filter_with_partial_property_pushdowns.1
+  '
+  
+  SELECT groupArray(day_start) as date,
+         groupArray(count) as data,
+         breakdown_value
+  FROM
+    (SELECT SUM(total) as count,
+            day_start,
+            breakdown_value
+     FROM
+       (SELECT *
+        FROM
+          (SELECT toUInt16(0) AS total,
+                  ticks.day_start as day_start,
+                  breakdown_value
+           FROM
+             (SELECT toStartOfDay(toDateTime('2020-07-01 00:00:00', 'UTC') - number * 86400) as day_start
+              FROM numbers(183)
+              UNION ALL SELECT toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')) as day_start) as ticks
+           CROSS JOIN
+             (SELECT breakdown_value
+              FROM
+                (SELECT ['test2@posthog.com', 'test@gmail.com', 'test5@posthog.com', 'test4@posthog.com', 'test3@posthog.com'] as breakdown_value) ARRAY
+              JOIN breakdown_value) as sec
+           ORDER BY breakdown_value,
+                    day_start
+           UNION ALL SELECT count(*) as total,
+                            toStartOfDay(timestamp, 'UTC') as day_start,
+                            replaceRegexpAll(JSONExtractRaw(person_props, 'email'), '^"|"$', '') as breakdown_value
+           FROM events e
+           INNER JOIN
+             (SELECT distinct_id,
+                     argMax(person_id, version) as person_id
+              FROM person_distinct_id2
+              WHERE team_id = 2
+              GROUP BY distinct_id
+              HAVING argMax(is_deleted, version) = 0) as pdi ON events.distinct_id = pdi.distinct_id
+           INNER JOIN
+             (SELECT id,
+                     argMax(properties, _timestamp) as person_props
+              FROM person
+              WHERE team_id = 2
+              GROUP BY id
+              HAVING max(is_deleted) = 0
+              AND ((has(['android'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), '$os'), '^"|"$', ''))
+                    OR has(['safari'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), '$browser'), '^"|"$', ''))))) person ON person.id = pdi.person_id
+           WHERE e.team_id = 2
+             AND event = 'sign up'
+             AND ((NOT (replaceRegexpAll(JSONExtractRaw(person_props, 'email'), '^"|"$', '') ILIKE '%@posthog.com%')
+                   OR has(['val'], replaceRegexpAll(JSONExtractRaw(e.properties, 'key'), '^"|"$', ''))))
+             AND timestamp >= toStartOfDay(toDateTime('2020-01-01 00:00:00'), 'UTC')
+             AND timestamp <= toDateTime('2020-07-01 00:00:00')
+             AND replaceRegexpAll(JSONExtractRaw(person_props, 'email'), '^"|"$', '') in (['test2@posthog.com', 'test@gmail.com', 'test5@posthog.com', 'test4@posthog.com', 'test3@posthog.com'])
+           GROUP BY day_start,
+                    breakdown_value))
+     GROUP BY day_start,
+              breakdown_value
+     ORDER BY breakdown_value,
+              day_start)
+  GROUP BY breakdown_value
+  ORDER BY breakdown_value
+  '
+---
+# name: TestClickhouseTrends.test_trend_breakdown_user_props_with_filter_with_partial_property_pushdowns.2
+  '
+  
+  SELECT groupArray(value)
+  FROM
+    (SELECT replaceRegexpAll(JSONExtractRaw(person_props, 'email'), '^"|"$', '') AS value,
+            count(*) as count
+     FROM events e
+     INNER JOIN
+       (SELECT distinct_id,
+               argMax(person_id, version) as person_id
+        FROM person_distinct_id2
+        WHERE team_id = 2
+        GROUP BY distinct_id
+        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+     INNER JOIN
+       (SELECT id,
+               argMax(properties, _timestamp) as person_props
+        FROM person
+        WHERE team_id = 2
+        GROUP BY id
+        HAVING max(is_deleted) = 0
+        AND (((has(['android'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), '$os'), '^"|"$', ''))
+               AND has(['chrome'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), '$browser'), '^"|"$', ''))))
+             AND (replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'email'), '^"|"$', '') ILIKE '%@posthog.com%'))) person ON pdi.person_id = person.id
+     WHERE team_id = 2
+       AND event = 'sign up'
+       AND timestamp >= toDateTime('2020-01-01 00:00:00')
+       AND timestamp <= toDateTime('2020-07-01 00:00:00')
+       AND ((has(['val'], replaceRegexpAll(JSONExtractRaw(e.properties, 'key'), '^"|"$', ''))))
+     GROUP BY value
+     ORDER BY count DESC
+     LIMIT 25
+     OFFSET 0)
+  '
+---
+# name: TestClickhouseTrends.test_trend_breakdown_user_props_with_filter_with_partial_property_pushdowns.3
+  '
+  
+  SELECT groupArray(day_start) as date,
+         groupArray(count) as data,
+         breakdown_value
+  FROM
+    (SELECT SUM(total) as count,
+            day_start,
+            breakdown_value
+     FROM
+       (SELECT *
+        FROM
+          (SELECT toUInt16(0) AS total,
+                  ticks.day_start as day_start,
+                  breakdown_value
+           FROM
+             (SELECT toStartOfDay(toDateTime('2020-07-01 00:00:00', 'UTC') - number * 86400) as day_start
+              FROM numbers(183)
+              UNION ALL SELECT toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')) as day_start) as ticks
+           CROSS JOIN
+             (SELECT breakdown_value
+              FROM
+                (SELECT ['test2@posthog.com'] as breakdown_value) ARRAY
+              JOIN breakdown_value) as sec
+           ORDER BY breakdown_value,
+                    day_start
+           UNION ALL SELECT count(*) as total,
+                            toStartOfDay(timestamp, 'UTC') as day_start,
+                            replaceRegexpAll(JSONExtractRaw(person_props, 'email'), '^"|"$', '') as breakdown_value
+           FROM events e
+           INNER JOIN
+             (SELECT distinct_id,
+                     argMax(person_id, version) as person_id
+              FROM person_distinct_id2
+              WHERE team_id = 2
+              GROUP BY distinct_id
+              HAVING argMax(is_deleted, version) = 0) as pdi ON events.distinct_id = pdi.distinct_id
+           INNER JOIN
+             (SELECT id,
+                     argMax(properties, _timestamp) as person_props
+              FROM person
+              WHERE team_id = 2
+              GROUP BY id
+              HAVING max(is_deleted) = 0
+              AND (((has(['android'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), '$os'), '^"|"$', ''))
+                     AND has(['chrome'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), '$browser'), '^"|"$', ''))))
+                   AND (replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'email'), '^"|"$', '') ILIKE '%@posthog.com%'))) person ON person.id = pdi.person_id
+           WHERE e.team_id = 2
+             AND event = 'sign up'
+             AND ((has(['val'], replaceRegexpAll(JSONExtractRaw(e.properties, 'key'), '^"|"$', ''))))
+             AND timestamp >= toStartOfDay(toDateTime('2020-01-01 00:00:00'), 'UTC')
+             AND timestamp <= toDateTime('2020-07-01 00:00:00')
+             AND replaceRegexpAll(JSONExtractRaw(person_props, 'email'), '^"|"$', '') in (['test2@posthog.com'])
+           GROUP BY day_start,
+                    breakdown_value))
+     GROUP BY day_start,
+              breakdown_value
+     ORDER BY breakdown_value,
+              day_start)
+  GROUP BY breakdown_value
+  ORDER BY breakdown_value
   '
 ---

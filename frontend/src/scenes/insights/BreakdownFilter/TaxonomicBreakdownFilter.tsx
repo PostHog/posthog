@@ -7,7 +7,7 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import React from 'react'
 import { TaxonomicBreakdownButton } from 'scenes/insights/BreakdownFilter/TaxonomicBreakdownButton'
 import { cohortsModel } from '~/models/cohortsModel'
-import { Breakdown, FilterType } from '~/types'
+import { Breakdown, ChartDisplayType, FilterType } from '~/types'
 import './TaxonomicBreakdownFilter.scss'
 import { onFilterChange } from './taxonomicBreakdownFilterUtils'
 
@@ -33,7 +33,7 @@ export function BreakdownFilter({
     useMultiBreakdown = false,
 }: TaxonomicBreakdownFilterProps): JSX.Element {
     const { breakdown, breakdowns, breakdown_type } = filters
-    const { cohorts } = useValues(cohortsModel)
+    const { cohortsById } = useValues(cohortsModel)
 
     let breakdownType = propertyFilterTypeToTaxonomicFilterType(breakdown_type)
     if (breakdownType === TaxonomicFilterGroupType.Cohorts) {
@@ -70,7 +70,12 @@ export function BreakdownFilter({
                               })
                           }
                       } else {
-                          setFilters({ breakdown: undefined, breakdown_type: null })
+                          setFilters({
+                              breakdown: undefined,
+                              breakdown_type: undefined,
+                              // Make sure we are no longer in map view after removing the Country Code breakdown
+                              display: filters.display !== ChartDisplayType.WorldMap ? filters.display : undefined,
+                          })
                       }
                   }
               }
@@ -88,9 +93,7 @@ export function BreakdownFilter({
               >
                   {isPersonEventOrGroup(t) && <PropertyKeyInfo value={t} />}
                   {isAllCohort(t) && <PropertyKeyInfo value={'All Users'} />}
-                  {isCohort(t) && (
-                      <PropertyKeyInfo value={cohorts.filter((c) => c.id == t)[0]?.name || `Cohort ${t}`} />
-                  )}
+                  {isCohort(t) && <PropertyKeyInfo value={cohortsById[t]?.name || `Cohort ${t}`} />}
               </Tag>
           ))
 

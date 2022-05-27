@@ -52,8 +52,8 @@ class CanCreateOrg(BasePermission):
 
     message = "New organizations cannot be created in this instance. Contact your administrator if you think this is a mistake."
 
-    def has_permission(self, *args, **kwargs) -> bool:
-        return get_can_create_org()
+    def has_permission(self, request, *args, **kwargs) -> bool:
+        return get_can_create_org(request.user)
 
 
 class SingleTenancyOrAdmin(BasePermission):
@@ -119,8 +119,11 @@ class OrganizationAdminWritePermissions(BasePermission):
 
     def has_permission(self, request: Request, view) -> bool:
 
-        # When request is not creating or listing an `Organization`, an object exists, delegate to `has_object_permission`
-        if view.basename == "organizations" and view.action not in ["list", "create"]:
+        if request.method in SAFE_METHODS:
+            return True
+
+        # When request is not creating (or listing) an `Organization`, an object exists, delegate to `has_object_permission`
+        if view.basename == "organizations" and view.action not in ["create"]:
             return True
 
         # TODO: Optimize so that this computation is only done once, on `OrganizationMemberPermissions`
@@ -238,7 +241,7 @@ class PremiumFeaturePermission(BasePermission):
         if not request.user or not request.user.organization:  # type: ignore
             return True
 
-        if not view.premium_feature in request.user.organization.available_features:  # type: ignore
+        if view.premium_feature not in request.user.organization.available_features:  # type: ignore
             raise EnterpriseFeatureException()
 
         return True

@@ -1,6 +1,5 @@
 import React from 'react'
 import { Progress } from 'antd'
-import { red, volcano, orange, yellow, green } from '@ant-design/colors'
 import zxcvbn from 'zxcvbn'
 
 export default function PasswordStrength({ password = '' }: { password: string }): JSX.Element {
@@ -13,15 +12,7 @@ export default function PasswordStrength({ password = '' }: { password: string }
             percent={passwordScore}
             size="small"
             strokeColor={
-                passwordScore <= 20
-                    ? red.primary
-                    : passwordScore <= 40
-                    ? volcano.primary
-                    : passwordScore <= 60
-                    ? orange.primary
-                    : passwordScore <= 80
-                    ? yellow.primary
-                    : green.primary
+                passwordScore <= 50 ? 'var(--danger)' : passwordScore <= 75 ? 'var(--warning)' : 'var(--success)'
             }
             showInfo={false}
         />

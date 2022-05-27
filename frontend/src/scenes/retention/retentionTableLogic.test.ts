@@ -1,11 +1,9 @@
-import { mockAPI, MOCK_TEAM_ID } from 'lib/api.mock'
 import { expectLogic } from 'kea-test-utils'
-import { initKeaTestLogic } from '~/test/init'
+import { initKeaTests } from '~/test/init'
 import { retentionTableLogic } from 'scenes/retention/retentionTableLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { InsightShortId, InsightType } from '~/types'
-
-jest.mock('lib/api')
+import { useMocks } from '~/mocks/jest'
 
 const Insight123 = '123' as InsightShortId
 const result = [
@@ -30,24 +28,26 @@ const result = [
 describe('retentionTableLogic', () => {
     let logic: ReturnType<typeof retentionTableLogic.build>
 
-    mockAPI(async ({ pathname, searchParams }) => {
-        if (String(searchParams.short_id) === Insight123) {
-            return { results: [result] }
-        } else if (
-            [`api/projects/${MOCK_TEAM_ID}/insights`, `api/projects/${MOCK_TEAM_ID}/insights/trend/`].includes(pathname)
-        ) {
-            return { results: [] }
-        } else if (pathname === `api/projects/${MOCK_TEAM_ID}/insights/retention/`) {
-            return { result }
-        }
+    beforeEach(() => {
+        useMocks({
+            get: {
+                '/api/projects/:team/insights/': { results: [result] },
+                '/api/projects/:team/insights/retention/': { result },
+            },
+            post: {
+                '/api/projects/:team/insights/': { results: [result] },
+                '/api/projects/:team/insights/:id/viewed': [201],
+            },
+        })
     })
 
     describe('syncs with insightLogic', () => {
         const props = { dashboardItemId: Insight123 }
-        initKeaTestLogic({
-            logic: retentionTableLogic,
-            props,
-            onLogic: (l) => (logic = l),
+
+        beforeEach(() => {
+            initKeaTests()
+            logic = retentionTableLogic(props)
+            logic.mount()
         })
 
         it('setFilters calls insightLogic.setFilters', async () => {

@@ -1,0 +1,70 @@
+@import '~/vars';
+
+.welcome-panel {
+    max-width: 480px;
+    border-radius: $radius;
+    padding: 40px;
+    padding-bottom: $default_spacing;
+    background-color: white;
+    box-shadow: var(--shadow-elevation);
+}
+
+.bookmarklet-warning {
+    border: 2px dashed $border;
+    padding: 8px;
+
+    p {
+        margin-bottom: 0;
+    }
+
+    .warning-icon {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-right: 2px dashed $border;
+    }
+}
+
+.bookmarklet-steps {
+    margin-top: $default_spacing / 2;
+}
+
+.panel-footer {
+    background-color: white;
+    margin-bottom: $default_spacing;
+    bottom: 0;
+}
+
+.panel-header {
+    font-size: 14px;
+    color: $text_muted_alt;
+}
+
+.ingestion-card-container {
+    padding: 40px;
+    margin-bottom: 40px;
+    box-shadow: var(--shadow-elevation);
+    max-width: 65vw;
+    border-radius: $radius;
+    display: flex;
+    flex-direction: column;
+    background-color: white;
+
+    .ant-card-head-title {
+        padding-bottom: 0;
+    }
+}
+
+.ingestion-title {
+    font-size: 28px;
+    font-weight: 800;
+    margin-bottom: 8px;
+}
+
+.ingestion-listening-for-events {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    margin-bottom: $default_spacing;
+}

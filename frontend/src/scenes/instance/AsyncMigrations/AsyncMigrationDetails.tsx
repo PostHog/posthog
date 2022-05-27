@@ -17,29 +17,27 @@ export function AsyncMigrationDetails({ asyncMigration }: { asyncMigration: Asyn
             dataIndex: 'description',
         },
         {
-            title: 'Timestamp',
+            title: (
+                <LemonButton
+                    icon={asyncMigrationErrorsLoading[asyncMigration.id] ? <Spinner size="sm" /> : <IconRefresh />}
+                    onClick={() => loadAsyncMigrationErrors(asyncMigration.id)}
+                    type="secondary"
+                    size="small"
+                >
+                    Refresh errors
+                </LemonButton>
+            ),
             render: function Render(_, asyncMigrationError: AsyncMigrationError): JSX.Element {
                 return <div>{humanFriendlyDetailedTime(asyncMigrationError.created_at)}</div>
             },
         },
     ]
     return (
-        <>
-            <LemonTable
-                columns={columns}
-                dataSource={asyncMigrationErrors[asyncMigration.id]}
-                loading={asyncMigrationErrorsLoading[asyncMigration.id]}
-                embedded
-            />
-            <LemonButton
-                icon={asyncMigrationErrorsLoading[asyncMigration.id] ? <Spinner size="sm" /> : <IconRefresh />}
-                onClick={() => loadAsyncMigrationErrors(asyncMigration.id)}
-                type="secondary"
-                compact
-                style={{ position: 'absolute', top: '0.5rem', right: '1.5rem' }}
-            >
-                Refresh errors
-            </LemonButton>
-        </>
+        <LemonTable
+            columns={columns}
+            dataSource={asyncMigrationErrors[asyncMigration.id]}
+            loading={asyncMigrationErrorsLoading[asyncMigration.id]}
+            embedded
+        />
     )
 }

@@ -1,9 +1,9 @@
 from datetime import datetime
-from sys import stderr
 from typing import Optional
 
+import posthoganalytics
 import structlog
-from constance import config
+from django.conf import settings
 from django.db import transaction
 from django.utils.timezone import now
 
@@ -12,9 +12,23 @@ from posthog.async_migrations.setup import DEPENDENCY_TO_ASYNC_MIGRATION
 from posthog.celery import app
 from posthog.email import is_email_available
 from posthog.models.async_migration import AsyncMigration, AsyncMigrationError, MigrationStatus
-from posthog.plugins.alert import AlertLevel, send_alert_to_plugins
+from posthog.models.instance_setting import get_instance_setting
+from posthog.models.user import User
+from posthog.utils import get_machine_id
 
 logger = structlog.get_logger(__name__)
+
+
+def send_analytics_to_posthog(event, data):
+    posthoganalytics.project_api_key = "sTMFPsFhdP1Ssg"
+    user = User.objects.filter(is_active=True).first()
+    groups = {"instance": settings.SITE_URL}
+    if user and user.current_organization:
+        data["organization_name"] = user.current_organization.name
+        groups["organization"] = str(user.current_organization.id)
+    posthoganalytics.capture(
+        get_machine_id(), event, data, groups=groups,
+    )
 
 
 def execute_op(op: AsyncMigrationOperation, uuid: str, rollback: bool = False):
@@ -24,17 +38,25 @@ def execute_op(op: AsyncMigrationOperation, uuid: str, rollback: bool = False):
     op.rollback_fn(uuid) if rollback else op.fn(uuid)
 
 
-def execute_op_clickhouse(sql: str, query_id: str, timeout_seconds: int):
-    from ee.clickhouse.client import sync_execute
+def execute_op_clickhouse(sql: str, query_id: str, timeout_seconds: Optional[int] = None, settings=None):
+    from posthog.client import sync_execute
 
-    sync_execute(f"/* {query_id} */ " + sql, settings={"max_execution_time": timeout_seconds})
+    settings = settings if settings else {"max_execution_time": timeout_seconds}
+
+    try:
+        sync_execute(f"/* {query_id} */ " + sql, settings=settings)
+    except Exception as e:
+        raise Exception(f"Failed to execute ClickHouse op: sql={sql},\nquery_id={query_id},\nexception={str(e)}")
 
 
 def execute_op_postgres(sql: str, query_id: str):
     from django.db import connection
 
-    with connection.cursor() as cursor:
-        cursor.execute(f"/* {query_id} */ " + sql)
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(f"/* {query_id} */ " + sql)
+    except Exception as e:
+        raise Exception(f"Failed to execute postgres op: sql={sql},\nquery_id={query_id},\nexception={str(e)}")
 
 
 def process_error(
@@ -54,6 +76,16 @@ def process_error(
         error=error,
         finished_at=now(),
     )
+    send_analytics_to_posthog(
+        "Async migration error",
+        {
+            "name": migration_instance.name,
+            "error": error,
+            "current_operation_index": migration_instance.current_operation_index
+            if current_operation_index is None
+            else current_operation_index,
+        },
+    )
 
     if alert:
         if async_migrations_emails_enabled():
@@ -63,30 +95,16 @@ def process_error(
                 migration_key=migration_instance.name, time=now().isoformat(), error=error
             )
 
-        send_alert_to_plugins(
-            key="async_migration_errored",
-            description=f"Migration {migration_instance.name} failed with error {error}",
-            level=AlertLevel.P2,
-        )
-
     if (
         not rollback
         or status == MigrationStatus.FailedAtStartup
-        or getattr(config, "ASYNC_MIGRATIONS_DISABLE_AUTO_ROLLBACK")
+        or get_instance_setting("ASYNC_MIGRATIONS_DISABLE_AUTO_ROLLBACK")
     ):
         return
 
     from posthog.async_migrations.runner import attempt_migration_rollback
 
     attempt_migration_rollback(migration_instance)
-
-
-def can_resume_migration(migration_instance: AsyncMigration):
-    from posthog.async_migrations.runner import is_current_operation_resumable
-
-    if not is_current_operation_resumable(migration_instance):
-        return False, "Can't resume a migration because the current operation isn't resumable"
-    return True, ""
 
 
 def trigger_migration(migration_instance: AsyncMigration, fresh_start: bool = True):
@@ -125,19 +143,28 @@ def rollback_migration(migration_instance: AsyncMigration):
 
 def complete_migration(migration_instance: AsyncMigration, email: bool = True):
     finished_at = now()
-    update_async_migration(
-        migration_instance=migration_instance,
-        status=MigrationStatus.CompletedSuccessfully,
-        finished_at=finished_at,
-        progress=100,
-    )
 
-    if email and async_migrations_emails_enabled():
-        from posthog.tasks.email import send_async_migration_complete_email
+    migration_instance.refresh_from_db()
 
-        send_async_migration_complete_email.delay(migration_key=migration_instance.name, time=finished_at.isoformat())
+    needs_update = migration_instance.status != MigrationStatus.CompletedSuccessfully
 
-    if getattr(config, "AUTO_START_ASYNC_MIGRATIONS"):
+    if needs_update:
+        update_async_migration(
+            migration_instance=migration_instance,
+            status=MigrationStatus.CompletedSuccessfully,
+            finished_at=finished_at,
+            progress=100,
+        )
+        send_analytics_to_posthog("Async migration completed", {"name": migration_instance.name})
+
+        if email and async_migrations_emails_enabled():
+            from posthog.tasks.email import send_async_migration_complete_email
+
+            send_async_migration_complete_email.delay(
+                migration_key=migration_instance.name, time=finished_at.isoformat()
+            )
+
+    if get_instance_setting("AUTO_START_ASYNC_MIGRATIONS"):
         next_migration = DEPENDENCY_TO_ASYNC_MIGRATION.get(migration_instance.name)
         if next_migration:
             from posthog.async_migrations.runner import run_next_migration
@@ -201,4 +228,4 @@ def update_async_migration(
 
 
 def async_migrations_emails_enabled():
-    return is_email_available() and not getattr(config, "ASYNC_MIGRATIONS_OPT_OUT_EMAILS")
+    return is_email_available() and not get_instance_setting("ASYNC_MIGRATIONS_OPT_OUT_EMAILS")

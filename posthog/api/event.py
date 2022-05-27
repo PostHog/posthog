@@ -5,6 +5,8 @@ from typing import Any, Dict, List, Optional, Union
 
 from django.db.models.query import Prefetch
 from django.utils.timezone import now
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter
 from rest_framework import mixins, request, response, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound
@@ -13,11 +15,10 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.settings import api_settings
 from rest_framework_csv import renderers as csvrenderers
 
-from ee.clickhouse.client import sync_execute
-from ee.clickhouse.models.action import format_action_filter
 from ee.clickhouse.models.event import ClickhouseEventSerializer, determine_event_conditions
 from ee.clickhouse.models.person import get_persons_by_distinct_ids
-from ee.clickhouse.models.property import get_property_values_for_key, parse_prop_grouped_clauses
+from ee.clickhouse.models.property import parse_prop_grouped_clauses
+from ee.clickhouse.queries.property_values import get_property_values_for_key
 from ee.clickhouse.sql.events import (
     GET_CUSTOM_EVENTS,
     SELECT_EVENT_BY_TEAM_AND_CONDITIONS_FILTERS_SQL,
@@ -26,8 +27,10 @@ from ee.clickhouse.sql.events import (
 )
 from posthog.api.documentation import PropertiesSerializer, extend_schema
 from posthog.api.routing import StructuredViewSetMixin
-from posthog.models import Element, ElementGroup, Event, Filter, Person
+from posthog.client import query_with_columns, sync_execute
+from posthog.models import Element, Filter, Person
 from posthog.models.action import Action
+from posthog.models.action.util import format_action_filter
 from posthog.models.team import Team
 from posthog.models.utils import UUIDT
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
@@ -51,50 +54,6 @@ class ElementSerializer(serializers.ModelSerializer):
             "attributes",
             "order",
         ]
-
-
-class EventSerializer(serializers.HyperlinkedModelSerializer):
-    elements = serializers.SerializerMethodField()
-    person = serializers.SerializerMethodField()
-
-    class Meta:
-        model = Event
-        fields = [
-            "id",
-            "distinct_id",
-            "properties",
-            "elements",
-            "event",
-            "timestamp",
-            "person",
-        ]
-
-    def get_person(self, event: Event) -> Any:
-        if hasattr(event, "serialized_person"):
-            return event.serialized_person  # type: ignore
-        return None
-
-    def get_elements(self, event: Event):
-        if not event.elements_hash:
-            return []
-        if hasattr(event, "elements_group_cache"):
-            if event.elements_group_cache:  # type: ignore
-                return ElementSerializer(
-                    event.elements_group_cache.element_set.all().order_by("order"),  # type: ignore
-                    many=True,
-                ).data
-        elements = (
-            ElementGroup.objects.get(hash=event.elements_hash, team_id=event.team_id)
-            .element_set.all()
-            .order_by("order")
-        )
-        return ElementSerializer(elements, many=True).data
-
-    def to_representation(self, instance):
-        representation = super().to_representation(instance)
-        if self.context.get("format") == "csv":
-            representation.pop("elements")
-        return representation
 
 
 class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.ListModelMixin, viewsets.GenericViewSet):
@@ -121,7 +80,24 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
         order_by_param = request.GET.get("orderBy")
         return ["-timestamp"] if not order_by_param else list(json.loads(order_by_param))
 
-    @extend_schema(parameters=[PropertiesSerializer(required=False)],)
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "event",
+                OpenApiTypes.STR,
+                description="Filter list by event. For example `user sign up` or `$pageview`.",
+            ),
+            OpenApiParameter("person_id", OpenApiTypes.INT, description="Filter list by person id."),
+            OpenApiParameter("distinct_id", OpenApiTypes.INT, description="Filter list by distinct id."),
+            OpenApiParameter(
+                "before", OpenApiTypes.DATETIME, description="Only return events with a timestamp before this time."
+            ),
+            OpenApiParameter(
+                "after", OpenApiTypes.DATETIME, description="Only return events with a timestamp after this time."
+            ),
+            PropertiesSerializer(required=False),
+        ],
+    )
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         is_csv_request = self.request.accepted_renderer.format == "csv"
 
@@ -150,12 +126,12 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
 
         next_url: Optional[str] = None
         if not is_csv_request and len(query_result) > limit:
-            next_url = self._build_next_url(request, query_result[limit - 1][3])
+            next_url = self._build_next_url(request, query_result[limit - 1]["timestamp"])
 
         return response.Response({"next": next_url, "results": result})
 
     def _get_people(self, query_result: List[Dict], team: Team) -> Dict[str, Any]:
-        distinct_ids = [event[5] for event in query_result]
+        distinct_ids = [event["distinct_id"] for event in query_result]
         persons = get_persons_by_distinct_ids(team.pk, distinct_ids)
         persons = persons.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
         distinct_to_person: Dict[str, Person] = {}
@@ -167,6 +143,7 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
     def _query_events_list(
         self, filter: Filter, team: Team, request: request.Request, long_date_from: bool = False, limit: int = 100
     ) -> List:
+
         limit += 1
         limit_sql = "LIMIT %(limit)s"
         order = "DESC" if self._parse_order_by(self.request)[0] == "-timestamp" else "ASC"
@@ -181,7 +158,7 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
             long_date_from,
         )
         prop_filters, prop_filter_params = parse_prop_grouped_clauses(
-            filter.property_groups, has_person_id_joined=False
+            team_id=team.pk, property_group=filter.property_groups, has_person_id_joined=False
         )
 
         if request.GET.get("action_id"):
@@ -191,19 +168,21 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
                 return []
             if action.steps.count() == 0:
                 return []
-            action_query, params = format_action_filter(action)
+
+            # NOTE: never accepts cohort parameters so no need for explicit person_id_joined_alias
+            action_query, params = format_action_filter(team_id=team.pk, action=action)
             prop_filters += " AND {}".format(action_query)
             prop_filter_params = {**prop_filter_params, **params}
 
         if prop_filters != "":
-            return sync_execute(
+            return query_with_columns(
                 SELECT_EVENT_BY_TEAM_AND_CONDITIONS_FILTERS_SQL.format(
                     conditions=conditions, limit=limit_sql, filters=prop_filters, order=order
                 ),
                 {"team_id": team.pk, "limit": limit, **condition_params, **prop_filter_params},
             )
         else:
-            return sync_execute(
+            return query_with_columns(
                 SELECT_EVENT_BY_TEAM_AND_CONDITIONS_SQL.format(conditions=conditions, limit=limit_sql, order=order),
                 {"team_id": team.pk, "limit": limit, **condition_params},
             )
@@ -211,14 +190,22 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
     def retrieve(
         self, request: request.Request, pk: Optional[Union[int, str]] = None, *args: Any, **kwargs: Any
     ) -> response.Response:
+
         if not isinstance(pk, str) or not UUIDT.is_valid_uuid(pk):
             return response.Response(
                 {"detail": "Invalid UUID", "code": "invalid", "type": "validation_error",}, status=400
             )
-        query_result = sync_execute(SELECT_ONE_EVENT_SQL, {"team_id": self.team.pk, "event_id": pk.replace("-", "")})
+        query_result = query_with_columns(
+            SELECT_ONE_EVENT_SQL, {"team_id": self.team.pk, "event_id": pk.replace("-", "")}
+        )
         if len(query_result) == 0:
             raise NotFound(detail=f"No events exist for event UUID {pk}")
-        res = ClickhouseEventSerializer(query_result[0], many=False).data
+
+        query_context = {}
+        if request.query_params.get("include_person", False):
+            query_context["people"] = self._get_people(query_result, self.team)
+
+        res = ClickhouseEventSerializer(query_result[0], many=False, context=query_context).data
         return response.Response(res)
 
     @action(methods=["GET"], detail=False)

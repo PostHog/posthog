@@ -1,16 +1,18 @@
-from ee.kafka_client.topics import KAFKA_EVENTS
-from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE, DEBUG
+from django.conf import settings
 
-from .clickhouse import KAFKA_COLUMNS, REPLACING_MERGE_TREE, STORAGE_POLICY, kafka_engine, table_engine
-from .person import GET_TEAM_PERSON_DISTINCT_IDS
+from ee.clickhouse.sql.clickhouse import KAFKA_COLUMNS, STORAGE_POLICY, kafka_engine, trim_quotes_expr
+from ee.clickhouse.sql.table_engines import Distributed, ReplacingMergeTree, ReplicationScheme
+from ee.kafka_client.topics import KAFKA_EVENTS, KAFKA_EVENTS_JSON
 
-EVENTS_TABLE = "events"
+EVENTS_DATA_TABLE = lambda: "sharded_events" if settings.CLICKHOUSE_REPLICATION else "events"
 
-TRUNCATE_EVENTS_TABLE_SQL = f"TRUNCATE TABLE IF EXISTS {EVENTS_TABLE} ON CLUSTER {CLICKHOUSE_CLUSTER}"
-DROP_EVENTS_TABLE_SQL = f"DROP TABLE IF EXISTS {EVENTS_TABLE} ON CLUSTER {CLICKHOUSE_CLUSTER}"
+TRUNCATE_EVENTS_TABLE_SQL = (
+    lambda: f"TRUNCATE TABLE IF EXISTS {EVENTS_DATA_TABLE()} ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'"
+)
+DROP_EVENTS_TABLE_SQL = lambda: f"DROP TABLE IF EXISTS {EVENTS_DATA_TABLE()} ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'"
 
 EVENTS_TABLE_BASE_SQL = """
-CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER {cluster}
+CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
 (
     uuid UUID,
     event VARCHAR,
@@ -19,21 +21,42 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER {cluster}
     team_id Int64,
     distinct_id VARCHAR,
     elements_chain VARCHAR,
-    created_at DateTime64(6, 'UTC')
+    created_at DateTime64(6, 'UTC'),
+    person_id UUID,
+    person_properties VARCHAR,
+    group0_properties VARCHAR,
+    group1_properties VARCHAR,
+    group2_properties VARCHAR,
+    group3_properties VARCHAR,
+    group4_properties VARCHAR
     {materialized_columns}
     {extra_fields}
 ) ENGINE = {engine}
 """
 
-EVENTS_TABLE_MATERIALIZED_COLUMNS = """
-    , $group_0 VARCHAR materialized trim(BOTH '\"' FROM JSONExtractRaw(properties, '$group_0')) COMMENT 'column_materializer::$group_0'
-    , $group_1 VARCHAR materialized trim(BOTH '\"' FROM JSONExtractRaw(properties, '$group_1')) COMMENT 'column_materializer::$group_1'
-    , $group_2 VARCHAR materialized trim(BOTH '\"' FROM JSONExtractRaw(properties, '$group_2')) COMMENT 'column_materializer::$group_2'
-    , $group_3 VARCHAR materialized trim(BOTH '\"' FROM JSONExtractRaw(properties, '$group_3')) COMMENT 'column_materializer::$group_3'
-    , $group_4 VARCHAR materialized trim(BOTH '\"' FROM JSONExtractRaw(properties, '$group_4')) COMMENT 'column_materializer::$group_4'
+EVENTS_TABLE_MATERIALIZED_COLUMNS = f"""
+    , $group_0 VARCHAR MATERIALIZED {trim_quotes_expr("JSONExtractRaw(properties, '$group_0')")} COMMENT 'column_materializer::$group_0'
+    , $group_1 VARCHAR MATERIALIZED {trim_quotes_expr("JSONExtractRaw(properties, '$group_1')")} COMMENT 'column_materializer::$group_1'
+    , $group_2 VARCHAR MATERIALIZED {trim_quotes_expr("JSONExtractRaw(properties, '$group_2')")} COMMENT 'column_materializer::$group_2'
+    , $group_3 VARCHAR MATERIALIZED {trim_quotes_expr("JSONExtractRaw(properties, '$group_3')")} COMMENT 'column_materializer::$group_3'
+    , $group_4 VARCHAR MATERIALIZED {trim_quotes_expr("JSONExtractRaw(properties, '$group_4')")} COMMENT 'column_materializer::$group_4'
+    , $window_id VARCHAR MATERIALIZED {trim_quotes_expr("JSONExtractRaw(properties, '$window_id')")} COMMENT 'column_materializer::$window_id'
+    , $session_id VARCHAR MATERIALIZED {trim_quotes_expr("JSONExtractRaw(properties, '$session_id')")} COMMENT 'column_materializer::$session_id'
 """
 
-# :KLUDGE: This is not in sync with reality on cloud! Instead a distributed table engine is used with a sharded_events table.
+EVENTS_TABLE_PROXY_MATERIALIZED_COLUMNS = """
+    , $group_0 VARCHAR COMMENT 'column_materializer::$group_0'
+    , $group_1 VARCHAR COMMENT 'column_materializer::$group_1'
+    , $group_2 VARCHAR COMMENT 'column_materializer::$group_2'
+    , $group_3 VARCHAR COMMENT 'column_materializer::$group_3'
+    , $group_4 VARCHAR COMMENT 'column_materializer::$group_4'
+    , $window_id VARCHAR COMMENT 'column_materializer::$window_id'
+    , $session_id VARCHAR COMMENT 'column_materializer::$session_id'
+"""
+
+EVENTS_DATA_TABLE_ENGINE = lambda: ReplacingMergeTree(
+    "events", ver="_timestamp", replication_scheme=ReplicationScheme.SHARDED,
+)
 EVENTS_TABLE_SQL = lambda: (
     EVENTS_TABLE_BASE_SQL
     + """PARTITION BY toYYYYMM(timestamp)
@@ -42,20 +65,18 @@ ORDER BY (team_id, toDate(timestamp), event, cityHash64(distinct_id), cityHash64
 {storage_policy}
 """
 ).format(
-    table_name=EVENTS_TABLE,
-    cluster=CLICKHOUSE_CLUSTER,
-    engine=table_engine(EVENTS_TABLE, "_timestamp", REPLACING_MERGE_TREE),
+    table_name=EVENTS_DATA_TABLE(),
+    cluster=settings.CLICKHOUSE_CLUSTER,
+    engine=EVENTS_DATA_TABLE_ENGINE(),
     extra_fields=KAFKA_COLUMNS,
     materialized_columns=EVENTS_TABLE_MATERIALIZED_COLUMNS,
-    sample_by="SAMPLE BY cityHash64(distinct_id)"
-    if not DEBUG
-    else "",  # https://github.com/PostHog/posthog/issues/5684
+    sample_by="SAMPLE BY cityHash64(distinct_id)",
     storage_policy=STORAGE_POLICY(),
 )
 
 KAFKA_EVENTS_TABLE_SQL = lambda: EVENTS_TABLE_BASE_SQL.format(
-    table_name="kafka_" + EVENTS_TABLE,
-    cluster=CLICKHOUSE_CLUSTER,
+    table_name="kafka_events",
+    cluster=settings.CLICKHOUSE_CLUSTER,
     engine=kafka_engine(topic=KAFKA_EVENTS, serialization="Protobuf", proto_schema="events:Event"),
     extra_fields="",
     materialized_columns="",
@@ -63,9 +84,9 @@ KAFKA_EVENTS_TABLE_SQL = lambda: EVENTS_TABLE_BASE_SQL.format(
 
 # You must include the database here because of a bug in clickhouse
 # related to https://github.com/ClickHouse/ClickHouse/issues/10471
-EVENTS_TABLE_MV_SQL = """
-CREATE MATERIALIZED VIEW {table_name}_mv ON CLUSTER {cluster}
-TO {database}.{table_name}
+EVENTS_TABLE_MV_SQL = lambda: """
+CREATE MATERIALIZED VIEW events_mv ON CLUSTER '{cluster}'
+TO {database}.{target_table}
 AS SELECT
 uuid,
 event,
@@ -77,15 +98,91 @@ elements_chain,
 created_at,
 _timestamp,
 _offset
-FROM {database}.kafka_{table_name}
+FROM {database}.kafka_events
 """.format(
-    table_name=EVENTS_TABLE, cluster=CLICKHOUSE_CLUSTER, database=CLICKHOUSE_DATABASE,
+    target_table="writable_events" if settings.CLICKHOUSE_REPLICATION else EVENTS_DATA_TABLE(),
+    cluster=settings.CLICKHOUSE_CLUSTER,
+    database=settings.CLICKHOUSE_DATABASE,
 )
 
-INSERT_EVENT_SQL = """
-INSERT INTO events (uuid, event, properties, timestamp, team_id, distinct_id, elements_chain, created_at, _timestamp, _offset)
-SELECT %(uuid)s, %(event)s, %(properties)s, %(timestamp)s, %(team_id)s, %(distinct_id)s, %(elements_chain)s, %(created_at)s, now(), 0
+# we add the settings to prevent poison pills from stopping ingestion
+# kafka_skip_broken_messages is an int, not a boolean, so we explicitly set
+# the max block size to consume from kafka such that we skip _all_ broken messages
+# this is an added safety mechanism given we control payloads to this topic
+KAFKA_EVENTS_TABLE_JSON_SQL = lambda: (
+    EVENTS_TABLE_BASE_SQL
+    + """
+    SETTINGS kafka_skip_broken_messages = 100
 """
+).format(
+    table_name="kafka_events_json",
+    cluster=settings.CLICKHOUSE_CLUSTER,
+    engine=kafka_engine(topic=KAFKA_EVENTS_JSON),
+    extra_fields="",
+    materialized_columns="",
+)
+
+EVENTS_TABLE_JSON_MV_SQL = lambda: """
+CREATE MATERIALIZED VIEW events_json_mv ON CLUSTER '{cluster}'
+TO {database}.{target_table}
+AS SELECT
+uuid,
+event,
+properties,
+timestamp,
+team_id,
+distinct_id,
+elements_chain,
+created_at,
+person_id,
+person_properties,
+group0_properties,
+group1_properties,
+group2_properties,
+group3_properties,
+group4_properties,
+_timestamp,
+_offset
+FROM {database}.kafka_events_json
+""".format(
+    target_table="writable_events" if settings.CLICKHOUSE_REPLICATION else EVENTS_DATA_TABLE(),
+    cluster=settings.CLICKHOUSE_CLUSTER,
+    database=settings.CLICKHOUSE_DATABASE,
+)
+
+# Distributed engine tables are only created if CLICKHOUSE_REPLICATED
+
+# This table is responsible for writing to sharded_events based on a sharding key.
+WRITABLE_EVENTS_TABLE_SQL = lambda: EVENTS_TABLE_BASE_SQL.format(
+    table_name="writable_events",
+    cluster=settings.CLICKHOUSE_CLUSTER,
+    engine=Distributed(data_table=EVENTS_DATA_TABLE(), sharding_key="sipHash64(distinct_id)"),
+    extra_fields=KAFKA_COLUMNS,
+    materialized_columns="",
+)
+
+# This table is responsible for reading from events on a cluster setting
+DISTRIBUTED_EVENTS_TABLE_SQL = lambda: EVENTS_TABLE_BASE_SQL.format(
+    table_name="events",
+    cluster=settings.CLICKHOUSE_CLUSTER,
+    engine=Distributed(data_table=EVENTS_DATA_TABLE(), sharding_key="sipHash64(distinct_id)"),
+    extra_fields=KAFKA_COLUMNS,
+    materialized_columns=EVENTS_TABLE_PROXY_MATERIALIZED_COLUMNS,
+)
+
+INSERT_EVENT_SQL = (
+    lambda: f"""
+INSERT INTO {EVENTS_DATA_TABLE()} (uuid, event, properties, timestamp, team_id, distinct_id, elements_chain, created_at, _timestamp, _offset)
+VALUES (%(uuid)s, %(event)s, %(properties)s, %(timestamp)s, %(team_id)s, %(distinct_id)s, %(elements_chain)s, %(created_at)s, now(), 0)
+"""
+)
+
+BULK_INSERT_EVENT_SQL = (
+    lambda: f"""
+INSERT INTO {EVENTS_DATA_TABLE()} (uuid, event, properties, timestamp, team_id, distinct_id, elements_chain, person_id, person_properties, group0_properties, group1_properties, group2_properties, group3_properties, group4_properties, created_at, _timestamp, _offset)
+VALUES
+"""
+)
 
 GET_EVENTS_SQL = """
 SELECT
@@ -114,28 +211,28 @@ FROM events WHERE team_id = %(team_id)s
 """
 
 SELECT_PROP_VALUES_SQL = """
-SELECT 
-    DISTINCT trim(BOTH '\"' FROM JSONExtractRaw(properties, %(key)s)) 
-FROM 
-    events 
-WHERE 
+SELECT
+    DISTINCT {property_field}
+FROM
+    events
+WHERE
     team_id = %(team_id)s AND
-    JSONHas(properties, %(key)s) 
-    {parsed_date_from} 
-    {parsed_date_to} 
+    JSONHas(properties, %(key)s)
+    {parsed_date_from}
+    {parsed_date_to}
 LIMIT 10
 """
 
 SELECT_PROP_VALUES_SQL_WITH_FILTER = """
-SELECT 
-    DISTINCT trim(BOTH '\"' FROM JSONExtractRaw(properties, %(key)s)) 
+SELECT
+    DISTINCT {property_field}
 FROM
-    events 
-WHERE 
-    team_id = %(team_id)s AND 
-    trim(BOTH '\"' FROM JSONExtractRaw(properties, %(key)s)) ILIKE %(value)s 
-    {parsed_date_from} 
-    {parsed_date_to} 
+    events
+WHERE
+    team_id = %(team_id)s AND
+    {property_field} ILIKE %(value)s
+    {parsed_date_from}
+    {parsed_date_to}
 LIMIT 10
 """
 
@@ -153,7 +250,7 @@ FROM
     events
 where team_id = %(team_id)s
 {conditions}
-ORDER BY toDate(timestamp) {order}, timestamp {order} {limit}
+ORDER BY timestamp {order} {limit}
 """
 
 SELECT_EVENT_BY_TEAM_AND_CONDITIONS_FILTERS_SQL = """
@@ -171,7 +268,7 @@ WHERE
 team_id = %(team_id)s
 {conditions}
 {filters}
-ORDER BY toDate(timestamp) {order}, timestamp {order} {limit}
+ORDER BY timestamp {order} {limit}
 """
 
 SELECT_ONE_EVENT_SQL = """
@@ -187,13 +284,9 @@ SELECT
 FROM events WHERE uuid = %(event_id)s AND team_id = %(team_id)s
 """
 
-GET_EARLIEST_TIMESTAMP_SQL = """
-SELECT timestamp from events WHERE team_id = %(team_id)s AND timestamp > %(earliest_timestamp)s order by toDate(timestamp), timestamp limit 1
-"""
-
 NULL_SQL = """
 -- Creates zero values for all date axis ticks for the given date_from, date_to range
-SELECT toUInt16(0) AS total, {trunc_func}(toDateTime(%(date_to)s) - {interval_func}(number)) AS day_start
+SELECT toUInt16(0) AS total, {trunc_func}(toDateTime(%(date_to)s) - {interval_func}(number), {start_of_week_fix} %(timezone)s) AS day_start
 
 -- Get the number of `intervals` between date_from and date_to.
 --
@@ -213,12 +306,12 @@ SELECT toUInt16(0) AS total, {trunc_func}(toDateTime(%(date_to)s) - {interval_fu
 --
 -- TODO: Ths pattern of generating intervals is repeated in several places. Reuse this
 --       `ticks` query elsewhere.
-FROM numbers(dateDiff(%(interval)s, toDateTime(%(date_from)s), toDateTime(%(date_to)s)))
+FROM numbers(dateDiff(%(interval)s, {trunc_func}(toDateTime(%(date_from)s), {start_of_week_fix} %(timezone)s), toDateTime(%(date_to)s), %(timezone)s))
 
 UNION ALL
 
 -- Make sure we capture the interval date_from falls into.
-SELECT toUInt16(0) AS total, {trunc_func}(toDateTime(%(date_from)s))
+SELECT toUInt16(0) AS total, {trunc_func}(toDateTime(%(date_from)s), {start_of_week_fix} %(timezone)s)
 """
 
 EVENT_JOIN_PERSON_SQL = """
@@ -245,7 +338,7 @@ GROUP BY tag_name, elements_chain
 ORDER BY tag_count desc, tag_name
 LIMIT %(limit)s
 """.format(
-    tag_regex=EXTRACT_TAG_REGEX, text_regex=EXTRACT_TEXT_REGEX
+    tag_regex=EXTRACT_TAG_REGEX, text_regex=EXTRACT_TEXT_REGEX,
 )
 
 GET_CUSTOM_EVENTS = """

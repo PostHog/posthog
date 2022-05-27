@@ -1,13 +1,12 @@
 import React, { useState } from 'react'
 import { useValues, useActions } from 'kea'
-import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { ActionFilter } from '../../ActionFilter/ActionFilter'
 import { Row, Checkbox, Col, Button } from 'antd'
 import { BreakdownFilter } from '../../BreakdownFilter'
 import { CloseButton } from 'lib/components/CloseButton'
 import { InfoCircleOutlined, PlusCircleOutlined } from '@ant-design/icons'
 import { trendsLogic } from '../../../trends/trendsLogic'
-import { FilterType, InsightType } from '~/types'
+import { ChartDisplayType, FilterType, InsightType } from '~/types'
 import { Formula } from './Formula'
 import { TestAccountFilter } from 'scenes/insights/TestAccountFilter'
 import './TrendTab.scss'
@@ -17,10 +16,12 @@ import { Tooltip } from 'lib/components/Tooltip'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { groupsModel } from '~/models/groupsModel'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { alphabet } from 'lib/utils'
+import { alphabet, convertPropertiesToPropertyGroup } from 'lib/utils'
+import { PropertyGroupFilters } from 'lib/components/PropertyGroupFilters/PropertyGroupFilters'
+import { MathAvailability } from 'scenes/insights/ActionFilter/ActionFilterRow/ActionFilterRow'
 
 export interface TrendTabProps {
-    view: string
+    view: InsightType
 }
 
 export function TrendTab({ view }: TrendTabProps): JSX.Element {
@@ -51,17 +52,31 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
 
     return (
         <>
-            <Row gutter={16}>
-                <Col md={16} xs={24}>
+            <Row gutter={24}>
+                <Col md={12} xs={24}>
+                    {filters.insight === InsightType.LIFECYCLE ? (
+                        <div className="mb-05">
+                            Showing <b>Unique users</b> who did
+                        </div>
+                    ) : undefined}
                     <ActionFilter
-                        horizontalUI
                         filters={filters}
                         setFilters={(payload: Partial<FilterType>): void => setFilters(payload)}
                         typeKey={`trends_${view}`}
                         buttonCopy="Add graph series"
                         showSeriesIndicator
-                        entitiesLimit={filters.insight === InsightType.LIFECYCLE ? 1 : alphabet.length}
-                        hideMathSelector={filters.insight === InsightType.LIFECYCLE}
+                        entitiesLimit={
+                            filters.insight === InsightType.LIFECYCLE || filters.display === ChartDisplayType.WorldMap
+                                ? 1
+                                : alphabet.length
+                        }
+                        mathAvailability={
+                            filters.insight === InsightType.LIFECYCLE
+                                ? MathAvailability.None
+                                : filters.insight === InsightType.STICKINESS
+                                ? MathAvailability.ActorsOnly
+                                : MathAvailability.All
+                        }
                         propertiesTaxonomicGroupTypes={[
                             TaxonomicFilterGroupType.EventProperties,
                             TaxonomicFilterGroupType.PersonProperties,
@@ -69,16 +84,9 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
                             TaxonomicFilterGroupType.Cohorts,
                             TaxonomicFilterGroupType.Elements,
                         ]}
-                        customRowPrefix={
-                            filters.insight === InsightType.LIFECYCLE ? (
-                                <>
-                                    Showing <b>Unique users</b> who did
-                                </>
-                            ) : undefined
-                        }
                     />
                 </Col>
-                <Col md={8} xs={24} style={{ marginTop: isSmallScreen ? '2rem' : 0 }}>
+                <Col md={12} xs={24} style={{ marginTop: isSmallScreen ? '2rem' : 0 }}>
                     {filters.insight === InsightType.LIFECYCLE && (
                         <>
                             <GlobalFiltersTitle unit="actions/events" />
@@ -106,10 +114,11 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
                     )}
                     {filters.insight !== InsightType.LIFECYCLE && (
                         <>
-                            <GlobalFiltersTitle />
-                            <PropertyFilters
-                                propertyFilters={filters.properties}
-                                onChange={(properties) => setFilters({ properties })}
+                            <PropertyGroupFilters
+                                value={convertPropertiesToPropertyGroup(filters.properties)}
+                                onChange={(properties) => {
+                                    setFilters({ properties })
+                                }}
                                 taxonomicGroupTypes={[
                                     TaxonomicFilterGroupType.EventProperties,
                                     TaxonomicFilterGroupType.PersonProperties,
@@ -119,8 +128,10 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
                                 ]}
                                 pageKey="trends-filters"
                                 eventNames={allEventNames}
+                                filters={filters}
+                                setTestFilters={(testFilters) => setFilters(testFilters)}
                             />
-                            <TestAccountFilter filters={filters} onChange={setFilters} />
+
                             {formulaAvailable && (
                                 <>
                                     <hr />

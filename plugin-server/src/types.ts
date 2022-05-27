@@ -1,5 +1,12 @@
 import ClickHouse from '@posthog/clickhouse'
-import { Meta, PluginAttachment, PluginConfigSchema, PluginEvent, Properties } from '@posthog/plugin-scaffold'
+import {
+    Meta,
+    PluginAttachment,
+    PluginConfigSchema,
+    PluginEvent,
+    ProcessedPluginEvent,
+    Properties,
+} from '@posthog/plugin-scaffold'
 import { Pool as GenericPool } from 'generic-pool'
 import { StatsD } from 'hot-shots'
 import { Redis } from 'ioredis'
@@ -10,20 +17,22 @@ import { Job } from 'node-schedule'
 import { Pool } from 'pg'
 import { VM } from 'vm2'
 
+import { ObjectStorage } from './main/services/object_storage'
 import { DB } from './utils/db/db'
 import { KafkaProducerWrapper } from './utils/db/kafka-producer-wrapper'
 import { InternalMetrics } from './utils/internal-metrics'
-import { PluginMetricsManager } from './utils/plugin-metrics'
 import { UUID } from './utils/utils'
 import { ActionManager } from './worker/ingestion/action-manager'
 import { ActionMatcher } from './worker/ingestion/action-matcher'
 import { HookCommander } from './worker/ingestion/hooks'
 import { OrganizationManager } from './worker/ingestion/organization-manager'
 import { EventsProcessor } from './worker/ingestion/process-event'
+import { SiteUrlManager } from './worker/ingestion/site-url-manager'
 import { TeamManager } from './worker/ingestion/team-manager'
 import { PluginsApiKeyManager } from './worker/vm/extensions/helpers/api-key-manager'
 import { RootAccessManager } from './worker/vm/extensions/helpers/root-acess-manager'
 import { LazyPluginVM } from './worker/vm/lazy'
+import { PromiseManager } from './worker/vm/promise-manager'
 
 export enum LogLevel {
     None = 'none',
@@ -43,11 +52,23 @@ export const logLevelToNumber: Record<LogLevel, number> = {
     [LogLevel.Error]: 50,
 }
 
+export enum KafkaSecurityProtocol {
+    Plaintext = 'PLAINTEXT',
+    SaslPlaintext = 'SASL_PLAINTEXT',
+    Ssl = 'SSL',
+    SaslSsl = 'SASL_SSL',
+}
+
+export enum KafkaSaslMechanism {
+    Plain = 'plain',
+    ScramSha256 = 'scram-sha-256',
+    ScramSha512 = 'scram-sha-512',
+}
+
 export interface PluginsServerConfig extends Record<string, any> {
     WORKER_CONCURRENCY: number
     TASKS_PER_WORKER: number
     TASK_TIMEOUT: number
-    CELERY_DEFAULT_QUEUE: string
     DATABASE_URL: string | null
     POSTHOG_DB_NAME: string | null
     POSTHOG_DB_USER: string
@@ -61,15 +82,18 @@ export interface PluginsServerConfig extends Record<string, any> {
     CLICKHOUSE_CA: string | null
     CLICKHOUSE_SECURE: boolean
     KAFKA_ENABLED: boolean
-    KAFKA_HOSTS: string | null
+    KAFKA_HOSTS: string
     KAFKA_CLIENT_CERT_B64: string | null
     KAFKA_CLIENT_CERT_KEY_B64: string | null
     KAFKA_TRUSTED_CERT_B64: string | null
+    KAFKA_SECURITY_PROTOCOL: KafkaSecurityProtocol | null
+    KAFKA_SASL_MECHANISM: KafkaSaslMechanism | null
+    KAFKA_SASL_USER: string | null
+    KAFKA_SASL_PASSWORD: string | null
     KAFKA_CONSUMPTION_TOPIC: string | null
     KAFKA_PRODUCER_MAX_QUEUE_SIZE: number
     KAFKA_MAX_MESSAGE_BATCH_SIZE: number
     KAFKA_FLUSH_FREQUENCY_MS: number
-    PLUGINS_CELERY_QUEUE: string
     REDIS_URL: string
     POSTHOG_REDIS_PASSWORD: string
     POSTHOG_REDIS_HOST: string
@@ -88,7 +112,6 @@ export interface PluginsServerConfig extends Record<string, any> {
     DISTINCT_ID_LRU_SIZE: number
     EVENT_PROPERTY_LRU_SIZE: number
     INTERNAL_MMDB_SERVER_PORT: number
-    PLUGIN_SERVER_IDLE: boolean
     JOB_QUEUES: string
     JOB_QUEUE_GRAPHILE_URL: string
     JOB_QUEUE_GRAPHILE_SCHEMA: string
@@ -105,24 +128,44 @@ export interface PluginsServerConfig extends Record<string, any> {
     PISCINA_USE_ATOMICS: boolean
     PISCINA_ATOMICS_TIMEOUT: number
     SITE_URL: string | null
-    NEW_PERSON_PROPERTIES_UPDATE_ENABLED: boolean
     EXPERIMENTAL_EVENTS_LAST_SEEN_ENABLED: boolean
     EXPERIMENTAL_EVENT_PROPERTY_TRACKER_ENABLED: boolean
+    MAX_PENDING_PROMISES_PER_WORKER: number
+    KAFKA_PARTITIONS_CONSUMED_CONCURRENTLY: number
+    CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS: boolean
+    CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS_TEAMS: string
+    CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: string
+    CONVERSION_BUFFER_ENABLED: boolean
+    CONVERSION_BUFFER_ENABLED_TEAMS: string
+    BUFFER_CONVERSION_SECONDS: number
+    PERSON_INFO_TO_REDIS_TEAMS: string
+    PERSON_INFO_CACHE_TTL: number
+    KAFKA_HEALTHCHECK_SECONDS: number
+    HISTORICAL_EXPORTS_ENABLED: boolean
+    OBJECT_STORAGE_ENABLED: boolean
+    OBJECT_STORAGE_ENDPOINT: string
+    OBJECT_STORAGE_ACCESS_KEY_ID: string
+    OBJECT_STORAGE_SECRET_ACCESS_KEY: string
+    OBJECT_STORAGE_SESSION_RECORDING_FOLDER: string
+    OBJECT_STORAGE_BUCKET: string
+    PLUGIN_SERVER_MODE: 'ingestion' | 'async' | null
 }
 
 export interface Hub extends PluginsServerConfig {
     instanceId: UUID
+    // what tasks this server will tackle - e.g. ingestion, scheduled plugins or others.
+    capabilities: PluginServerCapabilities
     // active connections to Postgres, Redis, ClickHouse, Kafka, StatsD
     db: DB
     postgres: Pool
     redisPool: GenericPool<Redis>
-    clickhouse?: ClickHouse
-    kafka?: Kafka
-    kafkaProducer?: KafkaProducerWrapper
+    clickhouse: ClickHouse
+    kafka: Kafka
+    kafkaProducer: KafkaProducerWrapper
+    objectStorage: ObjectStorage
     // metrics
     statsd?: StatsD
     internalMetrics?: InternalMetrics
-    pluginMetricsManager: PluginMetricsManager
     pluginMetricsJob: Job | undefined
     // currently enabled plugin status
     plugins: Map<PluginId, Plugin>
@@ -138,26 +181,26 @@ export interface Hub extends PluginsServerConfig {
     organizationManager: OrganizationManager
     pluginsApiKeyManager: PluginsApiKeyManager
     rootAccessManager: RootAccessManager
+    promiseManager: PromiseManager
     actionManager: ActionManager
     actionMatcher: ActionMatcher
     hookCannon: HookCommander
     eventsProcessor: EventsProcessor
     jobQueueManager: JobQueueManager
+    siteUrlManager: SiteUrlManager
     // diagnostics
     lastActivity: number
     lastActivityType: string
     statelessVms: StatelessVmMap
+    conversionBufferEnabledTeams: Set<number>
 }
 
-export interface Pausable {
-    pause: () => Promise<void> | void
-    resume: () => Promise<void> | void
-    isPaused: () => boolean
-}
-
-export interface Queue extends Pausable {
-    start: () => Promise<void> | void
-    stop: () => Promise<void> | void
+export interface PluginServerCapabilities {
+    ingestion?: boolean
+    pluginScheduledTasks?: boolean
+    processJobs?: boolean
+    processAsyncHandlers?: boolean
+    http?: boolean
 }
 
 export type OnJobCallback = (queue: EnqueuedJob[]) => Promise<void> | void
@@ -184,7 +227,6 @@ export interface JobQueue {
 export enum JobQueueType {
     FS = 'fs',
     Graphile = 'graphile',
-    S3 = 's3',
 }
 
 export enum JobQueuePersistence {
@@ -192,8 +234,6 @@ export enum JobQueuePersistence {
     Local = 'local',
     /** Remote persistent job queues that can be read from concurrently */
     Concurrent = 'concurrent',
-    /** Remote persistent job queues that must be read from one redlocked server at a time */
-    Redlocked = 'redlocked',
 }
 
 export type JobQueueExport = {
@@ -215,7 +255,7 @@ export enum MetricMathOperations {
 export type StoredMetricMathOperations = 'max' | 'min' | 'sum'
 export type StoredPluginMetrics = Record<string, StoredMetricMathOperations> | null
 export type PluginMetricsVmResponse = Record<string, string> | null
-
+export type PluginPublicJobPayload = Record<string, string>
 export interface Plugin {
     id: number
     organization_id: string
@@ -228,7 +268,12 @@ export interface Plugin {
     config_schema: Record<string, PluginConfigSchema> | PluginConfigSchema[]
     tag?: string
     archive: Buffer | null
+    /** @deprecated Replaced with source__index_ts */
     source?: string
+    /** Cached source for index.ts from a joined PluginSourceFile query */
+    source__index_ts?: string
+    /** Cached source for frontend.tsx from a joined PluginSourceFile query */
+    source__frontend_tsx?: string
     error?: PluginError
     from_json?: boolean
     from_web?: boolean
@@ -237,6 +282,8 @@ export interface Plugin {
     capabilities?: PluginCapabilities
     metrics?: StoredPluginMetrics
     is_stateless?: boolean
+    public_jobs?: Record<string, PluginPublicJobPayload>
+    log_level?: PluginLogLevel
 }
 
 export interface PluginCapabilities {
@@ -274,7 +321,7 @@ export interface PluginError {
     time: string
     name?: string
     stack?: string
-    event?: PluginEvent | null
+    event?: PluginEvent | ProcessedPluginEvent | null
 }
 
 export interface PluginAttachmentDB {
@@ -302,6 +349,13 @@ export enum PluginLogEntryType {
     Error = 'ERROR',
 }
 
+export enum PluginLogLevel {
+    Full = 0, // all logs
+    Debug = 1, // all except log
+    Warn = 2, // all except log and info
+    Critical = 3, // only error type and system source
+}
+
 export interface PluginLogEntry {
     id: string
     team_id: number
@@ -312,6 +366,12 @@ export interface PluginLogEntry {
     type: PluginLogEntryType
     message: string
     instance_id: string
+}
+
+export enum PluginSourceFileStatus {
+    Transpiled = 'TRANSPILED',
+    Locked = 'LOCKED',
+    Error = 'ERROR',
 }
 
 export enum PluginTaskType {
@@ -326,22 +386,19 @@ export interface PluginTask {
 }
 
 export type WorkerMethods = {
-    onEvent: (event: PluginEvent) => Promise<void>
-    onAction: (action: Action, event: PluginEvent) => Promise<void>
-    onSnapshot: (event: PluginEvent) => Promise<void>
-    processEvent: (event: PluginEvent) => Promise<PluginEvent | null>
-    ingestEvent: (event: PluginEvent) => Promise<IngestEventResponse>
+    runBufferEventPipeline: (event: PreIngestionEvent) => Promise<IngestEventResponse>
+    runAsyncHandlersEventPipeline: (event: IngestionEvent) => Promise<void>
+    runEventPipeline: (event: PluginEvent) => Promise<void>
 }
 
 export type VMMethods = {
     setupPlugin?: () => Promise<void>
     teardownPlugin?: () => Promise<void>
-    onEvent?: (event: PluginEvent) => Promise<void>
-    onAction?: (action: Action, event: PluginEvent) => Promise<void>
-    onSnapshot?: (event: PluginEvent) => Promise<void>
+    onEvent?: (event: ProcessedPluginEvent) => Promise<void>
+    onAction?: (action: Action, event: ProcessedPluginEvent) => Promise<void>
+    onSnapshot?: (event: ProcessedPluginEvent) => Promise<void>
     exportEvents?: (events: PluginEvent[]) => Promise<void>
     processEvent?: (event: PluginEvent) => Promise<PluginEvent>
-    handleAlert?: (alert: Alert) => Promise<void>
 }
 
 export enum AlertLevel {
@@ -371,6 +428,7 @@ export interface PluginConfigVMResponse {
     vm: VM
     methods: VMMethods
     tasks: Record<PluginTaskType, Record<string, PluginTask>>
+    vmResponseVariable: string
 }
 
 export interface PluginConfigVMInternalResponse<M extends Meta = Meta> {
@@ -476,6 +534,12 @@ export interface Event {
     distinct_id: string
     elements_hash: string
     created_at: string
+    person_properties: Record<string, any>
+    group0_properties: Record<string, any>
+    group1_properties: Record<string, any>
+    group2_properties: Record<string, any>
+    group3_properties: Record<string, any>
+    group4_properties: Record<string, any>
 }
 
 export interface ClickHouseEvent extends Omit<Event, 'id' | 'elements' | 'elements_hash'> {
@@ -768,7 +832,7 @@ export enum Database {
     Postgres = 'postgres',
 }
 
-export interface ScheduleControl {
+export interface PluginScheduleControl {
     stopSchedule: () => Promise<void>
     reloadSchedule: () => Promise<void>
 }
@@ -778,7 +842,9 @@ export interface JobQueueConsumerControl {
     resume: () => Promise<void> | void
 }
 
-export type IngestEventResponse = { success?: boolean; error?: string; actionMatches?: Action[] }
+export type IngestEventResponse =
+    | { success: true; actionMatches: Action[]; preIngestionEvent: PreIngestionEvent | null }
+    | { success: false; error: string }
 
 export interface EventDefinitionType {
     id: string
@@ -829,11 +895,7 @@ export interface EventPropertyType {
     team_id: number
 }
 
-export type PluginFunction = 'onEvent' | 'onAction' | 'processEvent' | 'onSnapshot' | 'pluginTask' | 'handleAlert'
-
-export enum CeleryTriggeredJobOperation {
-    Start = 'start',
-}
+export type PluginFunction = 'onEvent' | 'onAction' | 'processEvent' | 'onSnapshot' | 'pluginTask'
 
 export type GroupTypeToColumnIndex = Record<string, GroupTypeIndex>
 
@@ -856,3 +918,16 @@ export enum OrganizationMembershipLevel {
     Admin = 8,
     Owner = 15,
 }
+
+export interface PreIngestionEvent {
+    eventUuid: string
+    event: string
+    ip: string | null
+    teamId: TeamId
+    distinctId: string
+    properties: Properties
+    timestamp: DateTime | string
+    elementsList: Element[]
+}
+
+export type IngestionEvent = PreIngestionEvent

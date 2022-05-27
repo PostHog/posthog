@@ -11,5 +11,5 @@ already_materialized_columns = [
 operations = []
 
 for column_name, property in already_materialized_columns:
-    statement = f"ALTER TABLE events ON CLUSTER {CLICKHOUSE_CLUSTER} COMMENT COLUMN IF EXISTS {column_name} 'column_materializer::{property}'"
+    statement = f"ALTER TABLE events ON CLUSTER '{CLICKHOUSE_CLUSTER}' COMMENT COLUMN IF EXISTS {column_name} 'column_materializer::{property}'"
     operations.append(migrations.RunSQL(statement))

@@ -2,6 +2,8 @@ from datetime import datetime
 from typing import Callable, List, Optional, Tuple
 
 from posthog.constants import AnalyticsDBMS
+from posthog.models.utils import sane_repr
+from posthog.settings import ASYNC_MIGRATIONS_DEFAULT_TIMEOUT_SECONDS
 from posthog.version_requirement import ServiceVersionRequirement
 
 
@@ -23,54 +25,45 @@ class AsyncMigrationType:
 
 class AsyncMigrationOperation:
     def __init__(
-        self,
-        fn: Callable[[str], None],
-        rollback_fn: Callable[[str], None] = lambda _: None,
-        resumable=False,
-        sql: Optional[str] = None,
+        self, fn: Callable[[str], None], rollback_fn: Callable[[str], None] = lambda _: None,
     ):
         self.fn = fn
-        # if the operation is dynamic and knows how to restart correctly after a crash
-        # Example:
-        #   - Not resumable: `INSERT INTO table1 (col1) SELECT col1 FROM table2`
-        #   - Resumable: `INSERT INTO table2 (foo, timestamp) SELECT foo, timestamp FROM table1 WHERE timestamp > (SELECT max(timestamp) FROM table2)`
-        self.resumable = resumable
 
         # This should not be a long operation as it will be executed synchronously!
         # Defaults to a no-op ("") - None causes a failure to rollback
         self.rollback_fn = rollback_fn
 
-        # If the operation specifies raw SQL, add this as a property for easier debugging
-        self.sql = sql
 
-    @classmethod
-    def simple_op(
-        cls,
-        sql,
-        rollback=None,
+class AsyncMigrationOperationSQL(AsyncMigrationOperation):
+    def __init__(
+        self,
+        *,
+        sql: str,
+        rollback: Optional[str],
         database: AnalyticsDBMS = AnalyticsDBMS.CLICKHOUSE,
-        resumable=False,
-        timeout_seconds: int = 60,
+        timeout_seconds: int = ASYNC_MIGRATIONS_DEFAULT_TIMEOUT_SECONDS,
     ):
-        return cls(
-            fn=cls.get_db_op(database=database, sql=sql, timeout_seconds=timeout_seconds),
-            rollback_fn=cls.get_db_op(database=database, sql=rollback) if rollback else lambda _: None,
-            resumable=resumable,
-            sql=sql,
-        )
+        self.sql = sql
+        self.rollback = rollback
+        self.database = database
+        self.timeout_seconds = timeout_seconds
 
-    @classmethod
-    def get_db_op(cls, sql: str, database: AnalyticsDBMS = AnalyticsDBMS.CLICKHOUSE, timeout_seconds: int = 60):
+    def fn(self, query_id: str):
+        self._execute_op(query_id, self.sql)
+
+    def rollback_fn(self, query_id: str):
+        if self.rollback is not None:
+            self._execute_op(query_id, self.rollback)
+
+    def _execute_op(self, query_id: str, sql: str):
         from posthog.async_migrations.utils import execute_op_clickhouse, execute_op_postgres
 
-        # timeout is currently CH only
-        def run_db_op(query_id):
-            if database == AnalyticsDBMS.CLICKHOUSE:
-                execute_op_clickhouse(sql, query_id, timeout_seconds)
-            else:
-                execute_op_postgres(sql, query_id)
+        if self.database == AnalyticsDBMS.CLICKHOUSE:
+            execute_op_clickhouse(sql, query_id, self.timeout_seconds)
+        else:
+            execute_op_postgres(sql, query_id)
 
-        return run_db_op
+    __repr__ = sane_repr("sql", "rollback", "database", "timeout_seconds", include_id=False)
 
 
 class AsyncMigrationDefinition:
@@ -94,7 +87,7 @@ class AsyncMigrationDefinition:
     depends_on: Optional[str] = None
 
     # will be run before starting the migration, return a boolean specifying if the instance needs this migration
-    # e.g. instances with CLICKHOUSE_REPLICATION == True might need different migrations
+    # e.g. instances where fresh setups are already set up correctly
     def is_required(self) -> bool:
         return True
 

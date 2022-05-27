@@ -1,15 +1,16 @@
 from dataclasses import asdict, dataclass
-from typing import Any, List, Literal, Optional, TypedDict, Union
+from typing import List, Literal, Optional, TypedDict, Union
 
 from django.test import TestCase
 from django.test.client import Client
 
-from ee.clickhouse.test.test_journeys import _create_all_events, update_or_create_person
+from ee.clickhouse.test.test_journeys import create_all_events, update_or_create_person
 from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
 from ee.clickhouse.views.test.funnel.util import EventPattern
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
 from posthog.api.test.test_user import create_user
+from posthog.models.instance_setting import override_instance_config
 from posthog.test.base import test_with_materialized_columns
 from posthog.utils import encode_get_request_params
 
@@ -63,6 +64,66 @@ class RetentionTests(TestCase, ClickhouseTestMixin):
             "Day 0": {"1": ["person 2"], "2": [],},
             "Day 1": {"1": ["person 3"]},
         }
+
+    @snapshot_clickhouse_queries
+    def test_retention_aggregation_by_distinct_id_and_retrieve_people(self):
+        organization = create_organization(name="test")
+        team = create_team(organization=organization)
+        user = create_user(email="test@posthog.com", password="1234", organization=organization)
+
+        self.client.force_login(user)
+
+        p1 = update_or_create_person(distinct_ids=["person 1", "another one"], team_id=team.pk)
+        p2 = update_or_create_person(distinct_ids=["person 2"], team_id=team.pk)
+
+        setup_user_activity_by_day(
+            daily_activity={
+                "2020-01-01": {"person 1": [{"event": "target event",}], "another one": [{"event": "target event",}],},
+                "2020-01-02": {"person 1": [{"event": "target event"}], "person 2": [{"event": "target event"}]},
+                "2020-01-03": {"another one": [{"event": "target event"}],},
+            },
+            team=team,
+        )
+
+        with override_instance_config("AGGREGATE_BY_DISTINCT_IDS_TEAMS", f"{team.pk}"):
+            retention = get_retention_ok(
+                client=self.client,
+                team_id=team.pk,
+                request=RetentionRequest(
+                    target_entity={"id": "target event", "type": "events"},
+                    returning_entity={"id": "target event", "type": "events"},
+                    date_from="2020-01-01",
+                    total_intervals=3,
+                    date_to="2020-01-03",
+                    period="Day",
+                    retention_type="retention_first_time",
+                ),
+            )
+
+            assert retention["result"][0]["values"][0]["count"] == 2  #  person 1 and another one
+            assert retention["result"][0]["values"][1]["count"] == 1  # person 1
+            assert retention["result"][0]["values"][2]["count"] == 1  # another one
+
+            #  person 2
+            assert retention["result"][1]["values"][0]["count"] == 1
+            assert retention["result"][1]["values"][1]["count"] == 0
+
+            people_url = retention["result"][0]["values"][0]["people_url"]
+            people_response = self.client.get(people_url)
+            assert people_response.status_code == 200
+
+            people = people_response.json()["result"]
+            # person1 and another one are the same person
+            assert len(people) == 1
+            assert people[0]["id"] == str(p1.uuid)
+
+            people_url = retention["result"][1]["values"][0]["people_url"]
+            people_response = self.client.get(people_url)
+            assert people_response.status_code == 200
+
+            people = people_response.json()["result"]
+            assert len(people) == 1
+            assert people[0]["id"] == str(p2.uuid)
 
 
 class BreakdownTests(TestCase, ClickhouseTestMixin):
@@ -408,7 +469,7 @@ class RegressionTests(TestCase, ClickhouseTestMixin):
 
 
 def setup_user_activity_by_day(daily_activity, team):
-    _create_all_events(
+    create_all_events(
         [
             {"distinct_id": person_id, "team": team, "timestamp": timestamp, **event}
             for timestamp, people in daily_activity.items()
@@ -418,7 +479,7 @@ def setup_user_activity_by_day(daily_activity, team):
     )
 
 
-@dataclass
+@dataclass(frozen=True)
 class Breakdown:
     type: str
     property: str
@@ -431,7 +492,7 @@ class PropertyFilter(TypedDict):
     type: Literal["person"]  # NOTE: not exhaustive
 
 
-@dataclass
+@dataclass(frozen=True)
 class RetentionRequest:
     date_from: str  # From what I can tell, this doesn't do anything, rather `total_intervals` is used
     total_intervals: int

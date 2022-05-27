@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
 
 from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
@@ -11,9 +11,11 @@ from rest_framework import exceptions
 
 from posthog.constants import MAX_SLUG_LENGTH, AvailableFeature
 from posthog.email import is_email_available
+from posthog.models.utils import LowercaseSlugField, UUIDModel, create_with_slug, sane_repr
 from posthog.utils import mask_email_address
 
-from .utils import LowercaseSlugField, UUIDModel, create_with_slug, sane_repr
+if TYPE_CHECKING:
+    from posthog.models import Team, User
 
 try:
     from ee.models.license import License
@@ -29,8 +31,8 @@ class OrganizationManager(models.Manager):
         return create_with_slug(super().create, *args, **kwargs)
 
     def bootstrap(
-        self, user: Any, *, team_fields: Optional[Dict[str, Any]] = None, **kwargs,
-    ) -> Tuple["Organization", Optional["OrganizationMembership"], Any]:
+        self, user: Optional["User"], *, team_fields: Optional[Dict[str, Any]] = None, **kwargs,
+    ) -> Tuple["Organization", Optional["OrganizationMembership"], "Team"]:
         """Instead of doing the legwork of creating an organization yourself, delegate the details with bootstrap."""
         from .team import Team  # Avoiding circular import
 
@@ -81,11 +83,6 @@ class Organization(UUIDModel):
     slug: LowercaseSlugField = LowercaseSlugField(unique=True, max_length=MAX_SLUG_LENGTH)
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True)
     updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
-    domain_whitelist: ArrayField = ArrayField(
-        models.CharField(max_length=256, blank=False), blank=True, default=list
-    )  # Used to allow self-serve account creation based on social login (#5111)
-    setup_section_2_completed: models.BooleanField = models.BooleanField(default=True)  # Onboarding (#2822)
-    personalization: models.JSONField = models.JSONField(default=dict, null=False, blank=True)
     plugins_access_level: models.PositiveSmallIntegerField = models.PositiveSmallIntegerField(
         default=PluginsAccessLevel.CONFIG if settings.MULTI_TENANCY else PluginsAccessLevel.ROOT,
         choices=PluginsAccessLevel.choices,
@@ -93,6 +90,13 @@ class Organization(UUIDModel):
     available_features = ArrayField(models.CharField(max_length=64, blank=False), blank=True, default=list)
     for_internal_metrics: models.BooleanField = models.BooleanField(default=False)
     is_member_join_email_enabled: models.BooleanField = models.BooleanField(default=True)
+
+    # DEPRECATED attributes (should be removed on next major version)
+    setup_section_2_completed: models.BooleanField = models.BooleanField(default=True)
+    personalization: models.JSONField = models.JSONField(default=dict, null=False, blank=True)
+    domain_whitelist: ArrayField = ArrayField(
+        models.CharField(max_length=256, blank=False), blank=True, default=list
+    )  # DEPRECATED in favor of `OrganizationDomain` model; previously used to allow self-serve account creation based on social login (#5111)
 
     objects: OrganizationManager = OrganizationManager()
 
@@ -140,25 +144,14 @@ class Organization(UUIDModel):
         return feature in self.available_features
 
     @property
-    def is_onboarding_active(self) -> bool:
-        return not self.setup_section_2_completed
-
-    @property
     def active_invites(self) -> QuerySet:
         return self.invites.filter(created_at__gte=timezone.now() - timezone.timedelta(days=INVITE_DAYS_VALIDITY))
-
-    def complete_onboarding(self) -> "Organization":
-        self.setup_section_2_completed = True
-        self.save()
-        return self
 
     def get_analytics_metadata(self):
         return {
             "member_count": self.members.count(),
             "project_count": self.teams.count(),
             "person_count": sum(team.person_set.count() for team in self.teams.all()),
-            "setup_section_2_completed": self.setup_section_2_completed,
-            "personalization": self.personalization,
             "name": self.name,
         }
 
@@ -248,8 +241,8 @@ class OrganizationInvite(UUIDModel):
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True)
     updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
 
-    def validate(self, *, user: Any = None, email: Optional[str] = None) -> None:
-        _email = email or (hasattr(user, "email") and user.email)
+    def validate(self, *, user: Optional["User"] = None, email: Optional[str] = None) -> None:
+        _email = email or getattr(user, "email", None)
 
         if _email and _email != self.target_email:
             raise exceptions.ValidationError(
@@ -276,7 +269,7 @@ class OrganizationInvite(UUIDModel):
                 code="existing_email_address",
             )
 
-    def use(self, user: Any, *, prevalidated: bool = False) -> None:
+    def use(self, user: "User", *, prevalidated: bool = False) -> None:
         if not prevalidated:
             self.validate(user=user)
         user.join(organization=self.organization)

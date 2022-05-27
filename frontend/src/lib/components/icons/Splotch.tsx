@@ -10,14 +10,15 @@ export enum SplotchColor {
     White = 'white',
 }
 
-/**
- * An "icon" that signifies the specified color with a sort of blob of that color.
- * This can fit everywhere a standard icon would – e.g. as a button icon in a menu for color selection.
- */
-export function Splotch({ color }: { color: SplotchColor }): JSX.Element {
+export interface SplotchProps {
+    color: SplotchColor
+}
+
+/** An icon-sized blob signifying the given color. It can serve e.g. as a `LemonButton` icon in a color selection menu. */
+export function Splotch({ color }: SplotchProps): JSX.Element {
     return (
-        <div className="Splotch">
-            <div className={clsx('paint', color)} />
+        <div className={clsx('Splotch', `Splotch--${color}`)}>
+            <div className="Splotch__paint" />
         </div>
     )
 }

@@ -1,32 +1,33 @@
 import React from 'react'
-import { useValues, useActions } from 'kea'
-import { featureFlagsLogic } from './featureFlagsLogic'
-import { Input } from 'antd'
+import { useActions, useValues } from 'kea'
+import { featureFlagsLogic, FeatureFlagsTabs } from './featureFlagsLogic'
+import { Input, Tabs } from 'antd'
 import { Link } from 'lib/components/Link'
 import { copyToClipboard, deleteWithUndo } from 'lib/utils'
-import { PlusOutlined } from '@ant-design/icons'
 import { PageHeader } from 'lib/components/PageHeader'
 import { FeatureFlagGroupType, FeatureFlagType } from '~/types'
-import { LinkButton } from 'lib/components/LinkButton'
 import { normalizeColumnTitle } from 'lib/components/Table/utils'
 import { urls } from 'scenes/urls'
 import stringWithWBR from 'lib/utils/stringWithWBR'
 import { teamLogic } from '../teamLogic'
 import { SceneExport } from 'scenes/sceneTypes'
-import { LemonButton } from '../../lib/components/LemonButton'
-import { LemonSpacer } from '../../lib/components/LemonRow'
-import { LemonSwitch } from '../../lib/components/LemonSwitch/LemonSwitch'
-import { LemonTable, LemonTableColumn, LemonTableColumns } from '../../lib/components/LemonTable'
-import { More } from '../../lib/components/LemonButton/More'
-import { createdAtColumn, createdByColumn } from '../../lib/components/LemonTable/columnUtils'
+import { LemonButton } from 'lib/components/LemonButton'
+import { LemonDivider } from 'lib/components/LemonDivider'
+import { LemonSwitch } from 'lib/components/LemonSwitch/LemonSwitch'
+import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/components/LemonTable'
+import { More } from 'lib/components/LemonButton/More'
+import { createdAtColumn, createdByColumn } from 'lib/components/LemonTable/columnUtils'
 import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/PropertyFiltersDisplay'
+import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
+import { flagActivityDescriber } from 'scenes/feature-flags/activityDescriptions'
+import { ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
 
 export const scene: SceneExport = {
     component: FeatureFlags,
     logic: featureFlagsLogic,
 }
 
-export function FeatureFlags(): JSX.Element {
+function OverViewTab(): JSX.Element {
     const { currentTeamId } = useValues(teamLogic)
     const { featureFlagsLoading, searchedFeatureFlags, searchTerm } = useValues(featureFlagsLogic)
     const { updateFeatureFlag, loadFeatureFlags, setSearchTerm } = useActions(featureFlagsLogic)
@@ -65,17 +66,16 @@ export function FeatureFlags(): JSX.Element {
             sorter: (a: FeatureFlagType, b: FeatureFlagType) => Number(a.active) - Number(b.active),
             width: 100,
             render: function RenderActive(_, featureFlag: FeatureFlagType) {
-                const switchId = `feature-flag-${featureFlag.id}-switch`
                 return (
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                        <label htmlFor={switchId}>{featureFlag.active ? 'Enabled' : 'Disabled'}</label>
                         <LemonSwitch
-                            id={switchId}
+                            id={`feature-flag-${featureFlag.id}-switch`}
                             checked={featureFlag.active}
                             onChange={(active) =>
                                 featureFlag.id ? updateFeatureFlag({ id: featureFlag.id, payload: { active } }) : null
                             }
-                            style={{ marginLeft: '0.5rem' }}
+                            label={featureFlag.active ? 'Enabled' : 'Disabled'}
+                            style={{ fontWeight: 400, padding: 0 }}
                         />
                     </div>
                 )
@@ -114,7 +114,7 @@ export function FeatureFlags(): JSX.Element {
                                 >
                                     Try out in Insights
                                 </LemonButton>
-                                <LemonSpacer />
+                                <LemonDivider />
                                 {featureFlag.id && (
                                     <LemonButton
                                         type="stealth"
@@ -122,7 +122,7 @@ export function FeatureFlags(): JSX.Element {
                                         onClick={() => {
                                             deleteWithUndo({
                                                 endpoint: `projects/${currentTeamId}/feature_flags`,
-                                                object: { name: featureFlag.name, id: featureFlag.id },
+                                                object: { name: featureFlag.key, id: featureFlag.id },
                                                 callback: loadFeatureFlags,
                                             })
                                         }}
@@ -140,32 +140,18 @@ export function FeatureFlags(): JSX.Element {
     ]
 
     return (
-        <div className="feature_flags">
-            <PageHeader
-                title="Feature Flags"
-                caption="Feature Flags are a way of turning functionality in your app on or off, based on user properties."
-            />
+        <>
             <div>
                 <Input.Search
                     placeholder="Search for feature flags"
                     allowClear
                     enterButton
-                    style={{ maxWidth: 400, width: 'initial', flexGrow: 1 }}
+                    style={{ maxWidth: 400, width: 'initial', flexGrow: 1, marginBottom: '1rem' }}
                     value={searchTerm}
                     onChange={(e) => {
                         setSearchTerm(e.target.value)
                     }}
                 />
-                <div className="mb float-right">
-                    <LinkButton
-                        type="primary"
-                        to={urls.featureFlag('new')}
-                        data-attr="new-feature-flag"
-                        icon={<PlusOutlined />}
-                    >
-                        New Feature Flag
-                    </LinkButton>
-                </div>
             </div>
             <LemonTable
                 dataSource={searchedFeatureFlags}
@@ -177,11 +163,38 @@ export function FeatureFlags(): JSX.Element {
                 nouns={['feature flag', 'feature flags']}
                 data-attr="feature-flag-table"
             />
+        </>
+    )
+}
+
+export function FeatureFlags(): JSX.Element {
+    const { activeTab } = useValues(featureFlagsLogic)
+    const { setActiveTab } = useActions(featureFlagsLogic)
+
+    return (
+        <div className="feature_flags">
+            <PageHeader
+                title="Feature Flags"
+                buttons={
+                    <LemonButton type="primary" to={urls.featureFlag('new')} data-attr="new-feature-flag">
+                        New feature flag
+                    </LemonButton>
+                }
+            />
+
+            <Tabs activeKey={activeTab} destroyInactiveTabPane onChange={(t) => setActiveTab(t as FeatureFlagsTabs)}>
+                <Tabs.TabPane tab="Overview" key="overview">
+                    <OverViewTab />
+                </Tabs.TabPane>
+                <Tabs.TabPane tab="History" key="history">
+                    <ActivityLog scope={ActivityScope.FEATURE_FLAG} describer={flagActivityDescriber} />
+                </Tabs.TabPane>
+            </Tabs>
         </div>
     )
 }
 
-function groupFilters(groups: FeatureFlagGroupType[]): JSX.Element | string {
+export function groupFilters(groups: FeatureFlagGroupType[]): JSX.Element | string {
     if (groups.length === 0 || !groups.some((group) => group.rollout_percentage !== 0)) {
         // There are no rollout groups or all are at 0%
         return 'No users'

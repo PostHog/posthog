@@ -1,11 +1,10 @@
-from posthog.models.event import Event
 from posthog.models.filters.stickiness_filter import StickinessFilter
+from posthog.queries.util import get_earliest_timestamp
 from posthog.test.base import BaseTest
 
 
 class TestStickinessFilter(BaseTest):
     def test_filter_properties(self):
-        earliest_timestamp_func = lambda team_id: Event.objects.earliest_timestamp(team_id)
         filter = StickinessFilter(
             data={
                 "interval": "month",
@@ -15,7 +14,7 @@ class TestStickinessFilter(BaseTest):
                 "compare": True,
             },
             team=self.team,
-            get_earliest_timestamp=earliest_timestamp_func,
+            get_earliest_timestamp=get_earliest_timestamp,
         )
         self.assertEqual(
             filter.to_dict(),
@@ -33,7 +32,7 @@ class TestStickinessFilter(BaseTest):
                         "math": None,
                         "math_property": None,
                         "math_group_type_index": None,
-                        "properties": [],
+                        "properties": {},
                     }
                 ],
                 "insight": "TRENDS",

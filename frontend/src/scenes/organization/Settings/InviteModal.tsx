@@ -1,16 +1,16 @@
-import { Alert, Button, Col, Input, Row } from 'antd'
+import { Alert, Col, Input, Row } from 'antd'
 import Modal from 'antd/lib/modal/Modal'
 import { useActions, useValues } from 'kea'
 import React from 'react'
 import { userLogic } from 'scenes/userLogic'
-import { PlusOutlined, CloseOutlined } from '@ant-design/icons'
-import { red } from '@ant-design/colors'
+import { CloseOutlined } from '@ant-design/icons'
 import './InviteModal.scss'
 import { isEmail, pluralize } from 'lib/utils'
-import { preflightLogic } from 'scenes/PreflightCheck/logic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { inviteLogic } from './inviteLogic'
-import { InfoMessage } from 'lib/components/InfoMessage/InfoMessage'
 import { IconOpenInNew } from 'lib/components/icons'
+import { LemonButton } from 'lib/components/LemonButton'
+import { AlertMessage } from 'lib/components/AlertMessage'
 
 /** Shuffled placeholder names */
 const PLACEHOLDER_NAMES: string[] = [...Array(10).fill('Jane'), ...Array(10).fill('John'), 'Sonic'].sort(
@@ -20,7 +20,7 @@ const MAX_INVITES_AT_ONCE = 20
 
 export function EmailUnavailableMessage(): JSX.Element {
     return (
-        <InfoMessage style={{ marginTop: 16 }}>
+        <AlertMessage type="info" style={{ marginTop: 16 }}>
             <>
                 This PostHog instance isn't{' '}
                 <a href="https://posthog.com/docs/self-host/configure/email" target="_blank" rel="noopener">
@@ -30,7 +30,7 @@ export function EmailUnavailableMessage(): JSX.Element {
                 .<br />
                 Remember to <u>share the invite link</u> with each team member you invite.
             </>
-        </InfoMessage>
+        </AlertMessage>
     )
 }
 
@@ -80,7 +80,7 @@ function InviteRow({ index, isDeletable }: { index: number; isDeletable: boolean
             </Col>
             {isDeletable && (
                 <Col xs={2}>
-                    <CloseOutlined style={{ color: red.primary }} onClick={() => deleteInviteAtIndex(index)} />
+                    <CloseOutlined style={{ color: 'var(--danger)' }} onClick={() => deleteInviteAtIndex(index)} />
                 </Col>
             )}
         </Row>
@@ -153,9 +153,9 @@ export function InviteModal({ visible, onClose }: { visible: boolean; onClose: (
 
                     <div className="mt">
                         {areInvitesCreatable && (
-                            <Button block onClick={appendInviteRow} icon={<PlusOutlined />}>
+                            <LemonButton type="secondary" onClick={appendInviteRow} fullWidth center>
                                 Add another team member
-                            </Button>
+                            </LemonButton>
                         )}
                     </div>
                 </div>

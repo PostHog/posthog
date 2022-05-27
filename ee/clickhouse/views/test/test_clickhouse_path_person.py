@@ -1,34 +1,25 @@
 import json
 import urllib.parse
 from unittest.mock import patch
-from uuid import uuid4
 
 from django.core.cache import cache
 from rest_framework import status
 
-from ee.clickhouse.models.event import create_event
 from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.constants import FUNNEL_PATH_AFTER_STEP, INSIGHT_FUNNELS, INSIGHT_PATHS
 from posthog.models.cohort import Cohort
 from posthog.models.person import Person
 from posthog.tasks.calculate_cohort import insert_cohort_from_insight_filter
-from posthog.test.base import APIBaseTest
-
-
-def _create_person(**kwargs):
-    person = Person.objects.create(**kwargs)
-    return person
-
-
-def _create_event(**kwargs):
-    kwargs.update({"event_uuid": uuid4()})
-    create_event(**kwargs)
+from posthog.test.base import APIBaseTest, _create_event, _create_person
 
 
 class TestPathPerson(ClickhouseTestMixin, APIBaseTest):
     def _create_sample_data(self, num, delete=False):
         for i in range(num):
-            person = _create_person(distinct_ids=[f"user_{i}"], team=self.team)
+            if delete:
+                person = Person.objects.create(distinct_ids=[f"user_{i}"], team=self.team)
+            else:
+                _create_person(distinct_ids=[f"user_{i}"], team=self.team)
             _create_event(
                 event="step one",
                 distinct_id=f"user_{i}",
@@ -101,7 +92,7 @@ class TestPathPerson(ClickhouseTestMixin, APIBaseTest):
         cohort = Cohort.objects.get(pk=cohort_id)
         people = Person.objects.filter(cohort__id=cohort.pk)
         self.assertEqual(cohort.errors_calculating, 0)
-        self.assertEqual(len(people), 5)
+        self.assertEqual(people.count(), 5)
 
     def test_basic_format_with_path_start_key_constraints(self):
         self._create_sample_data(5)

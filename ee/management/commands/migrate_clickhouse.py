@@ -13,6 +13,7 @@ from posthog.settings import (
     CLICKHOUSE_REPLICATION,
     CLICKHOUSE_USER,
 )
+from posthog.settings.data_stores import CLICKHOUSE_CLUSTER
 
 MIGRATIONS_PACKAGE_NAME = "ee.clickhouse.migrations"
 
@@ -46,6 +47,7 @@ class Command(BaseCommand):
             db_url=host,
             username=CLICKHOUSE_USER,
             password=CLICKHOUSE_PASSWORD,
+            cluster=CLICKHOUSE_CLUSTER,
             verify_ssl_cert=False,
         )
         if options["plan"] or options["check"]:
@@ -54,7 +56,7 @@ class Command(BaseCommand):
             for migration_name, operations in migrations:
                 print(f"Migration would get applied: {migration_name}")
                 for op in operations:
-                    sql = getattr(op, "_sql")
+                    sql = getattr(op, "_sql", None)
                     if options["print_sql"] and sql is not None:
                         print(indent("\n\n".join(sql), "    "))
             if len(migrations) == 0:

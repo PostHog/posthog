@@ -1,4 +1,5 @@
-from ee.clickhouse.sql.clickhouse import KAFKA_COLUMNS, REPLACING_MERGE_TREE, kafka_engine, table_engine, ttl_period
+from ee.clickhouse.sql.clickhouse import KAFKA_COLUMNS, kafka_engine, ttl_period
+from ee.clickhouse.sql.table_engines import ReplacingMergeTree
 from ee.kafka_client.topics import KAFKA_DEAD_LETTER_QUEUE
 from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
 
@@ -8,7 +9,7 @@ from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
 DEAD_LETTER_QUEUE_TABLE = "events_dead_letter_queue"
 
 DEAD_LETTER_QUEUE_TABLE_BASE_SQL = """
-CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER {cluster}
+CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
 (
     id UUID,
     event_uuid UUID,
@@ -30,6 +31,7 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER {cluster}
 ) ENGINE = {engine}
 """
 
+DEAD_LETTER_QUEUE_TABLE_ENGINE = lambda: ReplacingMergeTree(DEAD_LETTER_QUEUE_TABLE, ver="_timestamp")
 DEAD_LETTER_QUEUE_TABLE_SQL = lambda: (
     DEAD_LETTER_QUEUE_TABLE_BASE_SQL
     + """ORDER BY (id, event_uuid, distinct_id, team_id)
@@ -40,11 +42,16 @@ SETTINGS index_granularity=512
     table_name=DEAD_LETTER_QUEUE_TABLE,
     cluster=CLICKHOUSE_CLUSTER,
     extra_fields=KAFKA_COLUMNS,
-    engine=table_engine(DEAD_LETTER_QUEUE_TABLE, "_timestamp", REPLACING_MERGE_TREE),
+    engine=DEAD_LETTER_QUEUE_TABLE_ENGINE(),
     ttl_period=ttl_period("_timestamp", 4),  # 4 weeks
 )
 
-KAFKA_DEAD_LETTER_QUEUE_TABLE_SQL = lambda: DEAD_LETTER_QUEUE_TABLE_BASE_SQL.format(
+# skip up to 1000 messages per block. blocks can be as large as 65505
+# if a block has >1000 broken messages it probably means we're doing something wrong
+# so it should fail and require manual intervention
+KAFKA_DEAD_LETTER_QUEUE_TABLE_SQL = lambda: (
+    DEAD_LETTER_QUEUE_TABLE_BASE_SQL + " SETTINGS kafka_skip_broken_messages=1000"
+).format(
     table_name="kafka_" + DEAD_LETTER_QUEUE_TABLE,
     cluster=CLICKHOUSE_CLUSTER,
     engine=kafka_engine(topic=KAFKA_DEAD_LETTER_QUEUE),
@@ -52,7 +59,7 @@ KAFKA_DEAD_LETTER_QUEUE_TABLE_SQL = lambda: DEAD_LETTER_QUEUE_TABLE_BASE_SQL.for
 )
 
 DEAD_LETTER_QUEUE_TABLE_MV_SQL = """
-CREATE MATERIALIZED VIEW IF NOT EXISTS {table_name}_mv ON CLUSTER {cluster}
+CREATE MATERIALIZED VIEW IF NOT EXISTS {table_name}_mv ON CLUSTER '{cluster}'
 TO {database}.{table_name}
 AS SELECT
 id,
@@ -103,11 +110,11 @@ now()
 """
 
 TRUNCATE_DEAD_LETTER_QUEUE_TABLE_SQL = (
-    f"TRUNCATE TABLE IF EXISTS {DEAD_LETTER_QUEUE_TABLE} ON CLUSTER {CLICKHOUSE_CLUSTER}"
+    f"TRUNCATE TABLE IF EXISTS {DEAD_LETTER_QUEUE_TABLE} ON CLUSTER '{CLICKHOUSE_CLUSTER}'"
 )
 DROP_KAFKA_DEAD_LETTER_QUEUE_TABLE_SQL = (
-    f"DROP TABLE IF EXISTS kafka_{DEAD_LETTER_QUEUE_TABLE} ON CLUSTER {CLICKHOUSE_CLUSTER}"
+    f"DROP TABLE IF EXISTS kafka_{DEAD_LETTER_QUEUE_TABLE} ON CLUSTER '{CLICKHOUSE_CLUSTER}'"
 )
 TRUNCATE_DEAD_LETTER_QUEUE_TABLE_MV_SQL = (
-    f"TRUNCATE TABLE IF EXISTS {DEAD_LETTER_QUEUE_TABLE}_mv ON CLUSTER {CLICKHOUSE_CLUSTER}"
+    f"TRUNCATE TABLE IF EXISTS {DEAD_LETTER_QUEUE_TABLE}_mv ON CLUSTER '{CLICKHOUSE_CLUSTER}'"
 )

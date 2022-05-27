@@ -8,19 +8,13 @@ import { RetentionTablePayload, RetentionTablePeoplePayload } from 'scenes/reten
 import { insightLogic } from 'scenes/insights/insightLogic'
 import './RetentionLineGraph.scss'
 import { RetentionModal } from './RetentionModal'
+import { roundToDecimal } from 'lib/utils'
 
 interface RetentionLineGraphProps {
-    dashboardItemId?: number | null
-    color?: string
-    inSharedMode?: boolean | null
-    filters?: Record<string, unknown>
+    inSharedMode?: boolean
 }
 
-export function RetentionLineGraph({
-    dashboardItemId = null,
-    color = 'white',
-    inSharedMode = false,
-}: RetentionLineGraphProps): JSX.Element | null {
+export function RetentionLineGraph({ inSharedMode = false }: RetentionLineGraphProps): JSX.Element | null {
     const { insightProps, insight } = useValues(insightLogic)
     const logic = retentionTableLogic(insightProps)
     const {
@@ -48,11 +42,10 @@ export function RetentionLineGraph({
             <LineGraph
                 data-attr="trend-line-graph"
                 type={GraphType.Line}
-                color={color}
                 datasets={trendSeries as GraphDataset[]}
                 labels={(trendSeries[0] && trendSeries[0].labels) || []}
                 isInProgress={incompletenessOffsetFromEnd < 0}
-                insightId={insight.id}
+                insightNumericId={insight.id}
                 inSharedMode={!!inSharedMode}
                 showPersonsModal={false}
                 labelGroupType={filters.aggregation_group_type_index ?? 'people'}
@@ -69,24 +62,20 @@ export function RetentionLineGraph({
                     },
                     showHeader: false,
                     renderCount: (count) => {
-                        return `${count}%`
+                        return `${roundToDecimal(count)}%`
                     },
                 }}
-                onClick={
-                    !!dashboardItemId
-                        ? undefined
-                        : (payload) => {
-                              const { points } = payload
-                              const datasetIndex = points.clickedPointNotLine
-                                  ? points.pointsIntersectingClick[0].dataset.index
-                                  : points.pointsIntersectingLine[0].dataset.index
-                              if (datasetIndex) {
-                                  loadPeople(datasetIndex) // start from 0
-                                  selectRow(datasetIndex)
-                              }
-                              setModalVisible(true)
-                          }
-                }
+                onClick={(payload) => {
+                    const { points } = payload
+                    const datasetIndex = points.clickedPointNotLine
+                        ? points.pointsIntersectingClick[0].dataset.index
+                        : points.pointsIntersectingLine[0].dataset.index
+                    if (datasetIndex) {
+                        loadPeople(datasetIndex) // start from 0
+                        selectRow(datasetIndex)
+                    }
+                    setModalVisible(true)
+                }}
                 incompletenessOffsetFromEnd={incompletenessOffsetFromEnd}
             />
             {results && (
@@ -104,6 +93,6 @@ export function RetentionLineGraph({
             )}
         </>
     ) : (
-        <InsightEmptyState color={color} isDashboard={!!dashboardItemId} />
+        <InsightEmptyState />
     )
 }

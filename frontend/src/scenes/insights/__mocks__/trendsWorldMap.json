@@ -1,0 +1,159 @@
+{
+    "id": 785,
+    "short_id": "iw14ZE4w",
+    "name": "",
+    "derived_name": "Pageview count by event's Country Code",
+    "filters": {
+        "events": [
+            {
+                "id": "$pageview",
+                "name": "$pageview",
+                "type": "events",
+                "order": 0
+            }
+        ],
+        "actions": [],
+        "display": "WorldMap",
+        "insight": "TRENDS",
+        "interval": "day",
+        "breakdown": "$geoip_country_code",
+        "properties": {
+            "type": "AND",
+            "values": []
+        },
+        "breakdown_type": "event",
+        "filter_test_accounts": false
+    },
+    "filters_hash": "cache_a2e54e38b1b584783d494e4311ebe466",
+    "order": null,
+    "deleted": false,
+    "dashboard": null,
+    "layouts": {},
+    "color": null,
+    "last_refresh": null,
+    "refreshing": false,
+    "result": [
+        {
+            "action": {
+                "id": "$pageview",
+                "type": "events",
+                "order": 0,
+                "name": "$pageview",
+                "custom_name": null,
+                "math": null,
+                "math_property": null,
+                "math_group_type_index": null,
+                "properties": {}
+            },
+            "label": "$pageview - AU",
+            "count": 0,
+            "data": [],
+            "labels": [],
+            "days": [
+                "2022-03-28",
+                "2022-03-29",
+                "2022-03-30",
+                "2022-03-31",
+                "2022-04-01",
+                "2022-04-02",
+                "2022-04-03",
+                "2022-04-04"
+            ],
+            "aggregated_value": 1732,
+            "filter": {
+                "breakdown": "$geoip_country_code",
+                "breakdown_type": "event",
+                "date_from": "2022-03-28T00:00:00+00:00",
+                "date_to": "2022-04-04T19:28:41.487993+00:00",
+                "display": "WorldMap",
+                "events": "[{\"id\": \"$pageview\", \"type\": \"events\", \"order\": 0, \"name\": \"$pageview\", \"custom_name\": null, \"math\": null, \"math_property\": null, \"math_group_type_index\": null, \"properties\": {}}]",
+                "insight": "TRENDS",
+                "interval": "day",
+                "smoothing_intervals": 1
+            },
+            "persons": {
+                "filter": {
+                    "entity_id": "$pageview",
+                    "entity_type": "events",
+                    "breakdown_value": "AU",
+                    "breakdown_type": "event"
+                },
+                "url": "api/projects/1/actions/people/?breakdown=%24geoip_country_code&breakdown_type=event&date_from=2022-03-28T00%3A00%3A00%2B00%3A00&date_to=2022-04-04T19%3A28%3A41.487993%2B00%3A00&display=WorldMap&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&breakdown_value=AU"
+            },
+            "breakdown_value": "AU"
+        },
+        {
+            "action": {
+                "id": "$pageview",
+                "type": "events",
+                "order": 0,
+                "name": "$pageview",
+                "custom_name": null,
+                "math": null,
+                "math_property": null,
+                "math_group_type_index": null,
+                "properties": {}
+            },
+            "label": "$pageview - IS",
+            "count": 0,
+            "data": [],
+            "labels": [],
+            "days": [
+                "2022-03-28",
+                "2022-03-29",
+                "2022-03-30",
+                "2022-03-31",
+                "2022-04-01",
+                "2022-04-02",
+                "2022-04-03",
+                "2022-04-04"
+            ],
+            "aggregated_value": 6,
+            "filter": {
+                "breakdown": "$geoip_country_code",
+                "breakdown_type": "event",
+                "date_from": "2022-03-28T00:00:00+00:00",
+                "date_to": "2022-04-04T19:28:41.487993+00:00",
+                "display": "WorldMap",
+                "events": "[{\"id\": \"$pageview\", \"type\": \"events\", \"order\": 0, \"name\": \"$pageview\", \"custom_name\": null, \"math\": null, \"math_property\": null, \"math_group_type_index\": null, \"properties\": {}}]",
+                "insight": "TRENDS",
+                "interval": "day",
+                "smoothing_intervals": 1
+            },
+            "persons": {
+                "filter": {
+                    "entity_id": "$pageview",
+                    "entity_type": "events",
+                    "breakdown_value": "IS",
+                    "breakdown_type": "event"
+                },
+                "url": "api/projects/1/actions/people/?breakdown=%24geoip_country_code&breakdown_type=event&date_from=2022-03-28T00%3A00%3A00%2B00%3A00&date_to=2022-04-04T19%3A28%3A41.487993%2B00%3A00&display=WorldMap&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&breakdown_value=IS"
+            },
+            "breakdown_value": "IS"
+        }
+    ],
+    "created_at": "2022-04-04T19:54:43.148529Z",
+    "created_by": {
+        "id": 1,
+        "uuid": "017f5653-cd43-0000-7d2a-0e01599ee2cd",
+        "distinct_id": "5SnGi4opWlUsnwPFpfMMHsAicmYl6w4En87xyQty6oi",
+        "first_name": "Michael",
+        "email": "michael@posthog.com"
+    },
+    "description": "",
+    "updated_at": "2022-04-04T19:54:43.148560Z",
+    "tags": [],
+    "favorited": false,
+    "saved": true,
+    "last_modified_at": "2022-04-04T19:54:43.147831Z",
+    "last_modified_by": {
+        "id": 1,
+        "uuid": "017f5653-cd43-0000-7d2a-0e01599ee2cd",
+        "distinct_id": "5SnGi4opWlUsnwPFpfMMHsAicmYl6w4En87xyQty6oi",
+        "first_name": "Michael",
+        "email": "michael@posthog.com"
+    },
+    "is_sample": false,
+    "effective_restriction_level": 21,
+    "effective_privilege_level": 37
+}

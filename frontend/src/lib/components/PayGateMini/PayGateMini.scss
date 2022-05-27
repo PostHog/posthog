@@ -1,0 +1,26 @@
+.PayGateMini {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    background: var(--bg-side);
+    border-radius: var(--radius);
+    padding: 0.75rem;
+    font-size: 0.875rem;
+}
+
+.PayGateMini__icon {
+    display: flex;
+    color: var(--warning);
+    font-size: 2rem;
+}
+
+.PayGateMini__description {
+    margin-top: 0.75rem;
+    font-weight: 600;
+    color: var(--primary-alt);
+}
+
+.PayGateMini__cta {
+    margin-bottom: 0.75rem;
+}

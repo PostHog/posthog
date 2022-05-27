@@ -1,11 +1,10 @@
 import { Properties } from '@posthog/plugin-scaffold'
+import crypto from 'crypto'
 import { DateTime } from 'luxon'
 import { Hub, PluginConfig, RawEventMessage } from 'types'
 
-import { Client } from '../../../utils/celery/client'
 import { UUIDT } from '../../../utils/utils'
 import { ApiExtension, createApi } from './api'
-
 const { version } = require('../../../../package.json')
 interface InternalData {
     distinct_id: string
@@ -29,15 +28,15 @@ export function createPosthog(server: Hub, pluginConfig: PluginConfig): DummyPos
     if (server.KAFKA_ENABLED) {
         // Sending event to our Kafka>ClickHouse pipeline
         sendEvent = async (data) => {
-            if (!server.kafkaProducer) {
-                throw new Error('kafkaProducer not configured!')
-            }
-            // ignore the promise, run in the background just like with celery
+            const partitionKeyHash = crypto.createHash('sha256')
+            partitionKeyHash.update(`${data.team_id}:${data.distinct_id}`)
+            const partitionKey = partitionKeyHash.digest('hex')
+
             await server.kafkaProducer.queueMessage({
                 topic: server.KAFKA_CONSUMPTION_TOPIC!,
                 messages: [
                     {
-                        key: data.uuid,
+                        key: partitionKey,
                         value: JSON.stringify({
                             distinct_id: data.distinct_id,
                             ip: '',
@@ -51,16 +50,7 @@ export function createPosthog(server: Hub, pluginConfig: PluginConfig): DummyPos
                     },
                 ],
             })
-        }
-    } else {
-        // Sending event to our Redis>Postgres pipeline
-        const client = new Client(server.db, server.PLUGINS_CELERY_QUEUE)
-        sendEvent = async (data) => {
-            await client.sendTaskAsync(
-                'posthog.tasks.process_event.process_event_with_plugins',
-                [data.distinct_id, null, null, data, pluginConfig.team_id, data.timestamp, data.timestamp],
-                {}
-            )
+            server.statsd?.increment('vm_posthog_extension_capture_called')
         }
     }
 

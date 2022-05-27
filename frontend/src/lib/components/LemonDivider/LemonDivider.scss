@@ -1,0 +1,51 @@
+.LemonDivider {
+    width: 100%;
+    height: 1px;
+    opacity: 0.17;
+    background: currentColor;
+    margin: 0.5rem 0;
+    flex-shrink: 0;
+
+    &--dashed {
+        background: repeating-linear-gradient(
+            to right,
+            currentColor,
+            currentColor 4px,
+            transparent 4px,
+            transparent 8px
+        );
+    }
+
+    &--large {
+        margin: 1rem 0;
+    }
+
+    &--thick {
+        height: 3px;
+    }
+
+    &--vertical {
+        width: 1px;
+        height: auto;
+        margin: 0.5rem;
+        align-self: stretch;
+
+        &.LemonDivider--large {
+            margin: 0.5rem 1rem;
+        }
+
+        &.LemonDivider--thick {
+            width: 2px;
+        }
+
+        &.LemonDivider--dashed {
+            background: repeating-linear-gradient(
+                to bottom,
+                currentColor,
+                currentColor 4px,
+                transparent 4px,
+                transparent 8px
+            );
+        }
+    }
+}

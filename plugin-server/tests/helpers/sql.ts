@@ -41,6 +41,7 @@ TRUNCATE TABLE
     posthog_action,
     posthog_element,
     posthog_elementgroup,
+    posthog_instancesetting,
     posthog_sessionrecordingevent,
     posthog_persondistinctid,
     posthog_person,
@@ -167,8 +168,8 @@ export async function createUserTeamAndOrganization(
         plugins_access_level: 9,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
-        personalization: '{}',
-        setup_section_2_completed: true,
+        personalization: '{}', // DEPRECATED
+        setup_section_2_completed: true, // DEPRECATED
         for_internal_metrics: false,
         available_features: [],
         domain_whitelist: [],
@@ -207,6 +208,7 @@ export async function createUserTeamAndOrganization(
         test_account_filters: [],
         timezone: 'UTC',
         data_attributes: ['data-attr'],
+        person_display_name_properties: [],
         access_control: false,
     })
 }

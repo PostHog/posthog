@@ -1,10 +1,12 @@
-name: Docker
+name: Build DockerHub image
 
 on:
     push:
         branches:
             - master
             - main
+
+concurrency: 'publish_latest_image' # Ensure only one of this runs at a time
 
 jobs:
     build-push:

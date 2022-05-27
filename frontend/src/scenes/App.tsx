@@ -1,11 +1,11 @@
 import React from 'react'
-import { kea, useMountedLogic, useValues } from 'kea'
+import { kea, useMountedLogic, useValues, BindLogic } from 'kea'
 import { Layout } from 'antd'
 import { ToastContainer, Slide } from 'react-toastify'
-import { preflightLogic } from './PreflightCheck/logic'
+import { preflightLogic } from './PreflightCheck/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
-import { SceneLoading } from 'lib/utils'
+import { Loading } from 'lib/utils'
 import { UpgradeModal } from './UpgradeModal'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { appLogicType } from './AppType'
@@ -14,9 +14,15 @@ import { teamLogic } from './teamLogic'
 import { LoadedScene } from 'scenes/sceneTypes'
 import { appScenes } from 'scenes/appScenes'
 import { Navigation } from '~/layout/navigation/Navigation'
+import { ErrorBoundary } from '~/layout/ErrorBoundary'
+import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
+import { organizationLogic } from 'scenes/organizationLogic'
+import { ToastCloseButton } from 'lib/components/lemonToast'
+import { frontendAppsLogic } from 'scenes/apps/frontendAppsLogic'
 
 export const appLogic = kea<appLogicType>({
     path: ['scenes', 'App'],
+    connect: [teamLogic, organizationLogic, frontendAppsLogic],
     actions: {
         enableDelayedSpinner: true,
         ignoreFeatureFlags: true,
@@ -72,7 +78,7 @@ export function App(): JSX.Element | null {
         )
     }
 
-    return showingDelayedSpinner ? <SceneLoading /> : null
+    return showingDelayedSpinner ? <Loading /> : null
 }
 
 function LoadedSceneLogic({ scene }: { scene: LoadedScene }): null {
@@ -103,20 +109,42 @@ function Models(): null {
 }
 
 function AppScene(): JSX.Element | null {
+    useMountedLogic(breadcrumbsLogic)
     const { user } = useValues(userLogic)
-    const { activeScene, params, loadedScenes, sceneConfig } = useValues(sceneLogic)
+    const { activeScene, activeLoadedScene, sceneParams, params, loadedScenes, sceneConfig } = useValues(sceneLogic)
     const { showingDelayedSpinner } = useValues(appLogic)
 
     const SceneComponent: (...args: any[]) => JSX.Element | null =
         (activeScene ? loadedScenes[activeScene]?.component : null) ||
-        (() => (showingDelayedSpinner ? <SceneLoading /> : null))
+        (() => (showingDelayedSpinner ? <Loading /> : null))
 
-    const toastContainer = <ToastContainer autoClose={8000} transition={Slide} position="bottom-right" />
+    const toastContainer = (
+        <ToastContainer
+            autoClose={6000}
+            transition={Slide}
+            closeOnClick={false}
+            draggable={false}
+            closeButton={<ToastCloseButton />}
+            position="bottom-right"
+        />
+    )
+
+    const protectedBoundActiveScene = (
+        <ErrorBoundary key={activeScene}>
+            {activeLoadedScene?.logic ? (
+                <BindLogic logic={activeLoadedScene.logic} props={activeLoadedScene.paramsToProps?.(sceneParams) || {}}>
+                    <SceneComponent user={user} {...params} />
+                </BindLogic>
+            ) : (
+                <SceneComponent user={user} {...params} />
+            )}
+        </ErrorBoundary>
+    )
 
     if (!user) {
         return sceneConfig?.onlyUnauthenticated || sceneConfig?.allowUnauthenticated ? (
             <Layout style={{ minHeight: '100vh' }}>
-                <SceneComponent {...params} />
+                {protectedBoundActiveScene}
                 {toastContainer}
             </Layout>
         ) : null
@@ -124,9 +152,7 @@ function AppScene(): JSX.Element | null {
 
     return (
         <>
-            <Navigation>
-                <SceneComponent user={user} {...params} />
-            </Navigation>
+            <Navigation>{protectedBoundActiveScene}</Navigation>
             {toastContainer}
             <UpgradeModal />
         </>

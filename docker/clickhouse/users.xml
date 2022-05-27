@@ -1,11 +1,14 @@
 <?xml version="1.0"?>
 <yandex>
+    <!-- See also the files in users.d directory where the settings can be overridden. -->
+
     <!-- Profiles of settings. -->
     <profiles>
         <!-- Default settings. -->
         <default>
             <!-- Maximum memory usage for processing single query, in bytes. -->
             <max_memory_usage>10000000000</max_memory_usage>
+
             <!-- How to choose between replicas during distributed query processing.
                  random - choose random replica from set of replicas with minimum number of errors
                  nearest_hostname - from set of replicas with minimum number of errors, choose replica
@@ -15,19 +18,25 @@
                  first_or_random - if first replica one has higher number of errors, pick a random one from replicas with minimum number of errors.
             -->
             <load_balancing>random</load_balancing>
+
+            <allow_nondeterministic_mutations>1</allow_nondeterministic_mutations>
+
         </default>
 
         <!-- Profile that allows only read queries. -->
         <readonly>
             <readonly>1</readonly>
         </readonly>
+
     </profiles>
 
     <!-- Users and ACL. -->
     <users>
         <!-- If user name was not specified, 'default' user is used. -->
         <default>
-            <!-- Password could be specified in plaintext or in SHA256 (in hex format).
+            <!-- See also the files in users.d directory where the password can be overridden.
+
+                 Password could be specified in plaintext or in SHA256 (in hex format).
 
                  If you want to specify password in plaintext (not recommended), place it in 'password' element.
                  Example: <password>qwerty</password>.

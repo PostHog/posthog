@@ -18,6 +18,10 @@ env:
     SITE_URL: 'test.posthog.net' # used to test password resets
     NO_RESTART_LOOP: 1
     CLICKHOUSE_SECURE: 0
+    OBJECT_STORAGE_ENABLED: 1
+    OBJECT_STORAGE_ENDPOINT: 'http://localhost:19000'
+    OBJECT_STORAGE_ACCESS_KEY_ID: 'object_storage_root_user'
+    OBJECT_STORAGE_SECRET_ACCESS_KEY: 'object_storage_root_password'
 
 jobs:
     # Job that lists and chunks spec file names and caches node modules
@@ -69,14 +73,14 @@ jobs:
             - name: Start stack with Docker Compose
               run: |
                   docker-compose -f docker-compose.dev.yml down
-                  docker-compose -f docker-compose.dev.yml up -d db clickhouse zookeeper kafka redis &
+                  docker-compose -f docker-compose.dev.yml up -d db clickhouse zookeeper kafka redis object_storage &
             - name: Add kafka host to /etc/hosts for kafka connectivity
               run: sudo echo "127.0.0.1 kafka" | sudo tee -a /etc/hosts
 
-            - name: Set up Python 3.8
+            - name: Set up Python 3.8.12
               uses: actions/setup-python@v2
               with:
-                  python-version: 3.8
+                  python-version: 3.8.12
 
             - uses: syphar/restore-virtualenv@v1.2
               id: cache-virtualenv
@@ -84,15 +88,18 @@ jobs:
                   requirement_files: requirements.txt # this is optional
             - uses: syphar/restore-pip-download-cache@v1
               if: steps.cache-virtualenv.outputs.cache-hit != 'true'
+            - name: Install SAML (python3-saml) dependencies
+              run: |
+                  sudo apt-get update
+                  sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
             - name: Install python dependencies
               if: steps.cache-virtualenv.outputs.cache-hit != 'true'
               run: |
                   python -m pip install --upgrade pip
-                  python -m pip install $(grep -ivE "psycopg2" requirements.txt | cut -d'#' -f1) --no-cache-dir --compile
-                  python -m pip install psycopg2-binary --no-cache-dir --compile
+                  python -m pip install -r requirements.txt --no-cache-dir --compile
             - uses: actions/setup-node@v1
               with:
-                  node-version: 14
+                  node-version: 16
             - uses: actions/cache@v2
               id: cypress-node-modules-cache-3
               with:

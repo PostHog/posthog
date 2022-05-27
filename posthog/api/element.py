@@ -2,16 +2,15 @@ from rest_framework import authentication, request, response, serializers, views
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 
-from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.element import chain_to_elements
 from ee.clickhouse.models.property import parse_prop_grouped_clauses
-from ee.clickhouse.queries.util import parse_timestamps
 from ee.clickhouse.sql.element import GET_ELEMENTS, GET_VALUES
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.auth import PersonalAPIKeyAuthentication, TemporaryTokenAuthentication
+from posthog.client import sync_execute
 from posthog.models import Element, Filter
-from posthog.models.user import User
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
+from posthog.queries.util import date_from_clause, parse_timestamps
 
 
 class ElementSerializer(serializers.ModelSerializer):
@@ -48,12 +47,15 @@ class ElementViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     def stats(self, request: request.Request, **kwargs) -> response.Response:
         filter = Filter(request=request, team=self.team)
 
-        date_from, date_to, date_params = parse_timestamps(filter, team_id=self.team.pk)
+        _, date_to, date_params = parse_timestamps(filter, team=self.team)
+        date_from = date_from_clause("toStartOfDay", True)
 
-        prop_filters, prop_filter_params = parse_prop_grouped_clauses(filter.property_groups)
+        prop_filters, prop_filter_params = parse_prop_grouped_clauses(
+            team_id=self.team.pk, property_group=filter.property_groups
+        )
         result = sync_execute(
             GET_ELEMENTS.format(date_from=date_from, date_to=date_to, query=prop_filters),
-            {"team_id": self.team.pk, **prop_filter_params, **date_params},
+            {"team_id": self.team.pk, "timezone": self.team.timezone, **prop_filter_params, **date_params},
         )
         return response.Response(
             [

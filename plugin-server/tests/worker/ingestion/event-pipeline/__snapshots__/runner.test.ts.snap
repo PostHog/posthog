@@ -1,0 +1,138 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`EventPipelineRunner runAsyncHandlersEventPipeline() runs remaining steps 1`] = `
+Array [
+  Array [
+    "runAsyncHandlersStep",
+    Array [
+      Object {
+        "distinctId": "my_id",
+        "elementsList": Array [],
+        "event": "$pageview",
+        "eventUuid": "uuid1",
+        "ip": "127.0.0.1",
+        "properties": Object {},
+        "teamId": 2,
+        "timestamp": "2020-02-23T02:15:00Z",
+      },
+      "testPerson",
+    ],
+  ],
+]
+`;
+
+exports[`EventPipelineRunner runBufferEventPipeline() runs remaining steps 1`] = `
+Array [
+  Array [
+    "createEventStep",
+    Array [
+      Object {
+        "distinctId": "my_id",
+        "elementsList": Array [],
+        "event": "$pageview",
+        "eventUuid": "uuid1",
+        "ip": "127.0.0.1",
+        "properties": Object {},
+        "teamId": 2,
+        "timestamp": "2020-02-23T02:15:00Z",
+      },
+      "testPerson",
+    ],
+  ],
+  Array [
+    "runAsyncHandlersStep",
+    Array [
+      Object {
+        "distinctId": "my_id",
+        "elementsList": Array [],
+        "event": "$pageview",
+        "eventUuid": "uuid1",
+        "ip": "127.0.0.1",
+        "properties": Object {},
+        "teamId": 2,
+        "timestamp": "2020-02-23T02:15:00Z",
+      },
+    ],
+  ],
+]
+`;
+
+exports[`EventPipelineRunner runEventPipeline() runs all steps 1`] = `
+Array [
+  Array [
+    "pluginsProcessEventStep",
+    Array [
+      Object {
+        "distinct_id": "my_id",
+        "event": "default event",
+        "ip": "127.0.0.1",
+        "now": "2020-02-23T02:15:00Z",
+        "properties": Object {},
+        "site_url": "http://localhost",
+        "team_id": 2,
+        "timestamp": "2020-02-23T02:15:00Z",
+      },
+    ],
+  ],
+  Array [
+    "prepareEventStep",
+    Array [
+      Object {
+        "distinct_id": "my_id",
+        "event": "default event",
+        "ip": "127.0.0.1",
+        "now": "2020-02-23T02:15:00Z",
+        "properties": Object {},
+        "site_url": "http://localhost",
+        "team_id": 2,
+        "timestamp": "2020-02-23T02:15:00Z",
+      },
+    ],
+  ],
+  Array [
+    "emitToBufferStep",
+    Array [
+      Object {
+        "distinctId": "my_id",
+        "elementsList": Array [],
+        "event": "$pageview",
+        "eventUuid": "uuid1",
+        "ip": "127.0.0.1",
+        "properties": Object {},
+        "teamId": 2,
+        "timestamp": "2020-02-23T02:15:00Z",
+      },
+    ],
+  ],
+  Array [
+    "createEventStep",
+    Array [
+      Object {
+        "distinctId": "my_id",
+        "elementsList": Array [],
+        "event": "$pageview",
+        "eventUuid": "uuid1",
+        "ip": "127.0.0.1",
+        "properties": Object {},
+        "teamId": 2,
+        "timestamp": "2020-02-23T02:15:00Z",
+      },
+    ],
+  ],
+  Array [
+    "runAsyncHandlersStep",
+    Array [
+      Object {
+        "distinctId": "my_id",
+        "elementsList": Array [],
+        "event": "$pageview",
+        "eventUuid": "uuid1",
+        "ip": "127.0.0.1",
+        "properties": Object {},
+        "teamId": 2,
+        "timestamp": "2020-02-23T02:15:00Z",
+      },
+    ],
+  ],
+]
+`;

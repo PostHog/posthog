@@ -1,17 +1,11 @@
-from uuid import UUID, uuid4
+from uuid import UUID
 
 from freezegun.api import freeze_time
 
-from ee.clickhouse.models.event import create_event
 from ee.clickhouse.models.group import create_group
 from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
-from posthog.models import Event, GroupTypeMapping, Person
-from posthog.test.base import APIBaseTest
-
-
-def _create_event(**kwargs):
-    kwargs["event_uuid"] = uuid4()
-    create_event(**kwargs)
+from posthog.models import GroupTypeMapping, Person
+from posthog.test.base import APIBaseTest, _create_event
 
 
 class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):

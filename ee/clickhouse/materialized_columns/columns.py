@@ -2,20 +2,22 @@ import re
 from datetime import timedelta
 from typing import Dict, List, Literal, Union
 
-from constance import config
 from django.utils.timezone import now
 
-from ee.clickhouse.client import sync_execute
 from ee.clickhouse.materialized_columns.util import cache_for
+from ee.clickhouse.replication.utils import clickhouse_is_replicated
+from ee.clickhouse.sql.clickhouse import trim_quotes_expr
+from posthog.client import sync_execute
+from posthog.models.instance_setting import get_instance_setting
 from posthog.models.property import PropertyName, TableWithProperties
 from posthog.models.utils import generate_random_short_suffix
-from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE, CLICKHOUSE_REPLICATION, TEST
+from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE, TEST
 
 ColumnName = str
 
 TablesWithMaterializedColumns = Union[TableWithProperties, Literal["session_recording_events"]]
 
-TRIM_AND_EXTRACT_PROPERTY = "trim(BOTH '\"' FROM JSONExtractRaw(properties, %(property)s))"
+TRIM_AND_EXTRACT_PROPERTY = trim_quotes_expr("JSONExtractRaw(properties, %(property)s)")
 
 
 @cache_for(timedelta(minutes=15))
@@ -30,7 +32,7 @@ def get_materialized_columns(table: TablesWithMaterializedColumns) -> Dict[Prope
     """,
         {"database": CLICKHOUSE_DATABASE, "table": table},
     )
-    if rows and getattr(config, "MATERIALIZED_COLUMNS_ENABLED"):
+    if rows and get_instance_setting("MATERIALIZED_COLUMNS_ENABLED"):
         return {extract_property(comment): column_name for comment, column_name in rows}
     else:
         return {}
@@ -45,9 +47,9 @@ def materialize(table: TableWithProperties, property: PropertyName, column_name=
 
     column_name = column_name or materialized_column_name(table, property)
     # :TRICKY: On cloud, we ON CLUSTER updates to events/sharded_events but not to persons. Why? ¯\_(ツ)_/¯
-    execute_on_cluster = f"ON CLUSTER {CLICKHOUSE_CLUSTER}" if table == "events" else ""
+    execute_on_cluster = f"ON CLUSTER '{CLICKHOUSE_CLUSTER}'" if table == "events" else ""
 
-    if CLICKHOUSE_REPLICATION and table == "events":
+    if clickhouse_is_replicated() and table == "events":
         sync_execute(
             f"""
             ALTER TABLE sharded_{table}
@@ -94,9 +96,9 @@ def backfill_materialized_columns(
     if len(properties) == 0:
         return
 
-    updated_table = "sharded_events" if CLICKHOUSE_REPLICATION and table == "events" else table
+    updated_table = "sharded_events" if clickhouse_is_replicated() and table == "events" else table
     # :TRICKY: On cloud, we ON CLUSTER updates to events/sharded_events but not to persons. Why? ¯\_(ツ)_/¯
-    execute_on_cluster = f"ON CLUSTER {CLICKHOUSE_CLUSTER}" if table == "events" else ""
+    execute_on_cluster = f"ON CLUSTER '{CLICKHOUSE_CLUSTER}'" if table == "events" else ""
 
     materialized_columns = get_materialized_columns(table, use_cache=False)
 

@@ -2,22 +2,33 @@ import { ReaderModel } from '@maxmind/geoip2-node'
 import Piscina from '@posthog/piscina'
 import * as Sentry from '@sentry/node'
 import { Server } from 'http'
+import { Consumer } from 'kafkajs'
 import net, { AddressInfo } from 'net'
 import * as schedule from 'node-schedule'
 
 import { defaultConfig } from '../config/config'
-import { Hub, JobQueueConsumerControl, PluginsServerConfig, Queue, ScheduleControl } from '../types'
+import { KAFKA_HEALTHCHECK } from '../config/kafka-topics'
+import {
+    Hub,
+    JobQueueConsumerControl,
+    PluginScheduleControl,
+    PluginServerCapabilities,
+    PluginsServerConfig,
+} from '../types'
 import { createHub } from '../utils/db/hub'
+import { determineNodeEnv, NodeEnv } from '../utils/env-utils'
 import { killProcess } from '../utils/kill'
+import { cancelAllScheduledJobs } from '../utils/node-schedule'
 import { PubSub } from '../utils/pubsub'
 import { status } from '../utils/status'
-import { statusReport } from '../utils/status-report'
-import { delay, determineNodeEnv, getPiscinaStats, NodeEnv, stalenessCheck } from '../utils/utils'
+import { delay, getPiscinaStats, stalenessCheck } from '../utils/utils'
+import { KafkaQueue } from './ingestion-queues/kafka-queue'
 import { startQueues } from './ingestion-queues/queue'
 import { startJobQueueConsumer } from './job-queues/job-queue-consumer'
 import { createHttpServer } from './services/http-server'
 import { createMmdbServer, performMmdbStalenessCheck, prepareMmdb } from './services/mmdb'
-import { startSchedule } from './services/schedule'
+import { startPluginSchedules } from './services/schedule'
+import { setupKafkaHealthcheckConsumer } from './utils'
 
 const { version } = require('../../package.json')
 
@@ -25,36 +36,36 @@ const { version } = require('../../package.json')
 export type ServerInstance = {
     hub: Hub
     piscina: Piscina
-    queue: Queue
+    queue: KafkaQueue | null
     mmdb?: ReaderModel
+    kafkaHealthcheckConsumer?: Consumer
     mmdbUpdateJob?: schedule.Job
     stop: () => Promise<void>
 }
 
 export async function startPluginsServer(
     config: Partial<PluginsServerConfig>,
-    makePiscina: (config: PluginsServerConfig) => Piscina
+    makePiscina: (config: PluginsServerConfig) => Piscina,
+    capabilities: PluginServerCapabilities | null = null
 ): Promise<ServerInstance> {
+    const timer = new Date()
+
     const serverConfig: PluginsServerConfig = {
         ...defaultConfig,
         ...config,
     }
 
+    status.updatePrompt(serverConfig.PLUGIN_SERVER_MODE)
     status.info('ℹ️', `${serverConfig.WORKER_CONCURRENCY} workers, ${serverConfig.TASKS_PER_WORKER} tasks per worker`)
 
     let pubSub: PubSub | undefined
     let hub: Hub | undefined
-    let actionsReloadJob: schedule.Job | undefined
-    let pingJob: schedule.Job | undefined
-    let piscinaStatsJob: schedule.Job | undefined
-    let internalMetricsStatsJob: schedule.Job | undefined
-    let pluginMetricsJob: schedule.Job | undefined
     let piscina: Piscina | undefined
-    let queue: Queue | undefined // ingestion queue
-    let redisQueueForPluginJobs: Queue | undefined | null
+    let queue: KafkaQueue | undefined | null // ingestion queue
+    let healthCheckConsumer: Consumer | undefined
     let jobQueueConsumer: JobQueueConsumerControl | undefined
     let closeHub: () => Promise<void> | undefined
-    let scheduleControl: ScheduleControl | undefined
+    let pluginScheduleControl: PluginScheduleControl | undefined
     let mmdbServer: net.Server | undefined
     let lastActivityCheck: NodeJS.Timeout | undefined
     let httpServer: Server | undefined
@@ -74,17 +85,12 @@ export async function startPluginsServer(
         }
         status.info('💤', ' Shutting down gracefully...')
         lastActivityCheck && clearInterval(lastActivityCheck)
+        cancelAllScheduledJobs()
         await queue?.stop()
-        await redisQueueForPluginJobs?.stop()
         await pubSub?.stop()
-        actionsReloadJob && schedule.cancelJob(actionsReloadJob)
-        pingJob && schedule.cancelJob(pingJob)
-        pluginMetricsJob && schedule.cancelJob(pluginMetricsJob)
-        statusReport.stopStatusReportSchedule()
-        piscinaStatsJob && schedule.cancelJob(piscinaStatsJob)
-        internalMetricsStatsJob && schedule.cancelJob(internalMetricsStatsJob)
         await jobQueueConsumer?.stop()
-        await scheduleControl?.stopSchedule()
+        await pluginScheduleControl?.stopSchedule()
+        await healthCheckConsumer?.stop()
         await new Promise<void>((resolve, reject) =>
             !mmdbServer
                 ? resolve()
@@ -118,8 +124,14 @@ export async function startPluginsServer(
         process.exit(0)
     })
 
+    process.on('unhandledRejection', (error: Error) => {
+        Sentry.captureException(error)
+        status.error('🤮', 'Unhandled Promise Rejection!')
+        status.error('🤮', error)
+    })
+
     try {
-        ;[hub, closeHub] = await createHub(serverConfig, null)
+        ;[hub, closeHub] = await createHub(serverConfig, null, capabilities)
 
         const serverInstance: Partial<ServerInstance> & Pick<ServerInstance, 'hub'> = {
             hub,
@@ -138,37 +150,42 @@ export async function startPluginsServer(
 
         piscina = makePiscina(serverConfig)
 
-        scheduleControl = await startSchedule(hub, piscina)
-        jobQueueConsumer = await startJobQueueConsumer(hub, piscina)
+        if (hub.capabilities.pluginScheduledTasks) {
+            pluginScheduleControl = await startPluginSchedules(hub, piscina)
+        }
+        if (hub.capabilities.processJobs) {
+            jobQueueConsumer = await startJobQueueConsumer(hub, piscina)
+        }
 
         const queues = await startQueues(hub, piscina)
 
-        // `queue` refers to the ingestion queue. With Celery ingestion, we only
-        // have one queue for plugin jobs and ingestion. With Kafka ingestion, we
-        // use Kafka for events but still start Redis for plugin jobs.
-        // Thus, if Kafka is disabled, we don't need to call anything on
-        // redisQueueForPluginJobs, as that will also be the ingestion queue.
+        // `queue` refers to the ingestion queue.
         queue = queues.ingestion
-        redisQueueForPluginJobs = config.KAFKA_ENABLED ? queues.auxiliary : null
         piscina.on('drain', () => {
-            void queue?.resume()
-            void redisQueueForPluginJobs?.resume()
             void jobQueueConsumer?.resume()
         })
 
         // use one extra Redis connection for pub-sub
         pubSub = new PubSub(hub, {
             [hub.PLUGINS_RELOAD_PUBSUB_CHANNEL]: async () => {
+                // KLUDGE:  wait for 30 seconds before reloading plugins to reduce joint load from "rage" config updates
+                // we should be smarter about reloads using some breakpoint-like mechanism
+                if (determineNodeEnv() === NodeEnv.Production) {
+                    await delay(30 * 1000)
+                }
+
                 status.info('⚡', 'Reloading plugins!')
                 await piscina?.broadcastTask({ task: 'reloadPlugins' })
-                await scheduleControl?.reloadSchedule()
+                await pluginScheduleControl?.reloadSchedule()
             },
-            'reload-action': async (message) =>
-                await piscina?.broadcastTask({ task: 'reloadAction', args: JSON.parse(message) }),
-            'drop-action': async (message) =>
-                await piscina?.broadcastTask({ task: 'dropAction', args: JSON.parse(message) }),
-            'plugins-alert': async (message) =>
-                await piscina?.run({ task: 'handleAlert', args: { alert: JSON.parse(message) } }),
+            ...(hub.capabilities.processAsyncHandlers
+                ? {
+                      'reload-action': async (message) =>
+                          await piscina?.broadcastTask({ task: 'reloadAction', args: JSON.parse(message) }),
+                      'drop-action': async (message) =>
+                          await piscina?.broadcastTask({ task: 'dropAction', args: JSON.parse(message) }),
+                  }
+                : {}),
         })
 
         await pubSub.start()
@@ -179,18 +196,18 @@ export async function startPluginsServer(
         }
 
         // every 5 minutes all ActionManager caches are reloaded for eventual consistency
-        actionsReloadJob = schedule.scheduleJob('*/5 * * * *', async () => {
+        schedule.scheduleJob('*/5 * * * *', async () => {
             await piscina?.broadcastTask({ task: 'reloadAllActions' })
         })
         // every 5 seconds set Redis keys @posthog-plugin-server/ping and @posthog-plugin-server/version
-        pingJob = schedule.scheduleJob('*/5 * * * * *', async () => {
+        schedule.scheduleJob('*/5 * * * * *', async () => {
             await hub!.db!.redisSet('@posthog-plugin-server/ping', new Date().toISOString(), 60, {
                 jsonSerialize: false,
             })
             await hub!.db!.redisSet('@posthog-plugin-server/version', version, undefined, { jsonSerialize: false })
         })
         // every 10 seconds sends stuff to StatsD
-        piscinaStatsJob = schedule.scheduleJob('*/10 * * * * *', () => {
+        schedule.scheduleJob('*/10 * * * * *', () => {
             if (piscina) {
                 for (const [key, value] of Object.entries(getPiscinaStats(piscina))) {
                     hub!.statsd?.gauge(`piscina.${key}`, value)
@@ -198,16 +215,19 @@ export async function startPluginsServer(
             }
         })
 
-        // every minute flush internal metrics
-        if (hub.internalMetrics) {
-            internalMetricsStatsJob = schedule.scheduleJob('0 * * * * *', async () => {
-                await hub!.internalMetrics?.flush(piscina!)
+        // every minute log information on kafka consumer
+        if (queue) {
+            schedule.scheduleJob('0 * * * * *', async () => {
+                await queue?.emitConsumerGroupMetrics()
             })
         }
 
-        pluginMetricsJob = schedule.scheduleJob('*/30 * * * *', async () => {
-            await piscina!.broadcastTask({ task: 'sendPluginMetrics' })
-        })
+        // every minute flush internal metrics
+        if (hub.internalMetrics) {
+            schedule.scheduleJob('0 * * * * *', async () => {
+                await hub!.internalMetrics?.flush(piscina!)
+            })
+        }
 
         if (serverConfig.STALENESS_RESTART_SECONDS > 0) {
             // check every 10 sec how long it has been since the last activity
@@ -247,9 +267,26 @@ export async function startPluginsServer(
         serverInstance.queue = queue
         serverInstance.stop = closeJobs
 
-        // start http server used for the healthcheck
-        httpServer = createHttpServer(hub, serverConfig)
+        if (hub.KAFKA_ENABLED) {
+            healthCheckConsumer = await setupKafkaHealthcheckConsumer(hub.kafka)
+            serverInstance.kafkaHealthcheckConsumer = healthCheckConsumer
 
+            await healthCheckConsumer.connect()
+
+            try {
+                healthCheckConsumer.pause([{ topic: KAFKA_HEALTHCHECK }])
+            } catch (err) {
+                // It's fine to do nothing for now - Kafka issues will be caught by the periodic healthcheck
+                status.error('🔴', 'Failed to pause Kafka healthcheck consumer on connect!')
+            }
+        }
+
+        if (hub.capabilities.http) {
+            // start http server used for the healthcheck
+            httpServer = createHttpServer(hub!, serverInstance as ServerInstance, serverConfig)
+        }
+
+        hub.statsd?.timing('total_setup_time', timer)
         status.info('🚀', 'All systems go')
 
         hub.lastActivity = new Date().valueOf()

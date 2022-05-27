@@ -25,6 +25,7 @@ export interface PopupProps {
     /** Whether the popover's width should be synced with the children's width. */
     sameWidth?: boolean
     className?: string
+    modifier?: Record<string, any>
 }
 
 /** 0 means no parent. */
@@ -32,7 +33,10 @@ export const PopupContext = React.createContext<number>(0)
 
 let uniqueMemoizedIndex = 1
 
-/** This is a custom popup control that uses `react-popper` to position DOM nodes */
+/** This is a custom popup control that uses `react-popper` to position DOM nodes.
+ *
+ * Often used with buttons for various menu. If this is your intention, use `LemonButtonWithPopup`.
+ */
 export function Popup({
     children,
     overlay,
@@ -44,6 +48,7 @@ export function Popup({
     className,
     actionable = false,
     sameWidth = false,
+    modifier = {},
 }: PopupProps): JSX.Element {
     const [referenceElement, setReferenceElement] = useState<HTMLDivElement | null>(null)
     const [popperElement, setPopperElement] = useState<HTMLDivElement | null>(null)
@@ -80,6 +85,7 @@ export function Popup({
                       requires: ['computeStyles'],
                   }
                 : {},
+            modifier,
         ],
         []
     )

@@ -1,6 +1,34 @@
+.definition-popup-overlay {
+    width: 100vw;
+    height: 100vh;
+    position: fixed;
+    top: 0;
+    left: 0;
+    background-color: var(--bg-depth);
+    opacity: 0.2;
+
+    &.definition-popup-overlay--enter {
+        opacity: 0;
+    }
+
+    &.definition-popup-overlay--enter-active {
+        opacity: 0.2;
+        transition: opacity 150ms;
+    }
+
+    &.definition-popup-overlay--exit {
+        opacity: 0.2;
+    }
+
+    &.definition-popup-overlay--exit-active {
+        opacity: 0;
+        transition: opacity 150ms;
+    }
+}
+
 .definition-popup {
     width: 316px;
-    padding: 0.5rem;
+    padding: 0.5rem 0.75rem 0.75rem 0.75rem;
 
     .definition-popup-header {
         display: flex;
@@ -11,6 +39,7 @@
             flex-direction: row;
             justify-content: space-between;
             margin-bottom: 4px;
+            line-height: 2rem;
 
             .definition-popup-header-row-title {
                 font-size: 11px;
@@ -23,7 +52,17 @@
             .definition-popup-header-row-buttons {
                 display: flex;
                 flex-direction: row;
-                font-size: 14px;
+                font-size: 13px;
+
+                a {
+                    user-select: none;
+                    margin-left: 16px;
+                }
+
+                .definition-popup-disabled-button {
+                    color: var(--text-muted);
+                    cursor: not-allowed;
+                }
             }
         }
 
@@ -32,21 +71,27 @@
             align-items: center;
             font-weight: 600;
             font-size: 20px;
-            line-height: 24px;
+            min-height: 24px;
             margin-bottom: 4px;
 
-            svg {
+            svg.taxonomy-icon {
                 margin-right: 8px;
+                width: 28px;
+                flex-shrink: 0;
 
                 &.taxonomy-icon-muted {
                     path {
-                        fill: var(--primary-alt);
+                        fill: var(--taxonomy-icon-muted);
                     }
                 }
 
                 &.taxonomy-icon-verified {
                     path {
                         fill: var(--success);
+                    }
+
+                    &:not(.taxonomy-icon-ph) {
+                        margin-bottom: -4px; // Slightly larger height requires offset to look vertically centered
                     }
                 }
             }
@@ -68,9 +113,14 @@
         }
     }
 
+    .definition-popup-tags {
+        margin: 0 !important;
+    }
+
     .definition-popup-description {
         font-weight: 400;
         margin-bottom: 4px;
+        overflow-wrap: break-word;
 
         &.empty {
             font-style: italic;
@@ -83,18 +133,16 @@
         font-style: italic;
     }
 
-    .ant-tag {
-        margin-top: 0 !important;
-    }
-
     .definition-popup-timemeta {
-        display: flex;
+        display: inline;
         margin-top: 4px;
         margin-bottom: 4px;
 
-        span.definition-popup-timemeta-spacer {
+        .definition-popup-timemeta-user {
+            display: inline-flex;
+        }
+        .definition-popup-timemeta-spacer {
             margin-right: 4px;
-            margin-left: 4px;
         }
     }
 
@@ -135,6 +183,7 @@
                             flex-wrap: wrap;
                             align-items: center;
                         }
+
                         pre {
                             background-color: var(--bg-mid);
                             padding: 0 4px;
@@ -143,6 +192,47 @@
                             border-radius: 4px;
                         }
                     }
+                }
+            }
+        }
+    }
+
+    .definition-popup-edit-form {
+        display: flex;
+        flex-direction: column;
+
+        .label-text {
+            font-weight: 600;
+            margin-right: 4px;
+        }
+
+        .definition-popup-edit-form-label {
+            margin-bottom: 8px;
+        }
+
+        .definition-popup-edit-form-value {
+            margin-bottom: 16px;
+
+            &.definition-popup-owner-select {
+                .ant-select-selector {
+                    .ant-select-selection-placeholder {
+                        color: black;
+                        font-weight: normal;
+                    }
+                }
+            }
+        }
+
+        .definition-popup-edit-form-buttons {
+            display: flex;
+            justify-content: space-between;
+
+            .definition-popup-edit-form-buttons-secondary {
+                color: var(--primary);
+
+                &:hover,
+                &:focus {
+                    border-color: var(--primary);
                 }
             }
         }

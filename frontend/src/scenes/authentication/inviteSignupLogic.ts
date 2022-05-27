@@ -1,8 +1,8 @@
 import { kea } from 'kea'
 import api from 'lib/api'
-import { toast } from 'react-toastify'
+import { lemonToast } from 'lib/components/lemonToast'
 import { PrevalidatedInvite } from '~/types'
-import { inviteSignupLogicType } from './inviteSignupLogicType'
+import type { inviteSignupLogicType } from './inviteSignupLogicType'
 
 export enum ErrorCodes {
     InvalidInvite = 'invalid_invite',
@@ -10,18 +10,18 @@ export enum ErrorCodes {
     Unknown = 'unknown',
 }
 
-interface ErrorInterface {
+export interface ErrorInterface {
     code: ErrorCodes
     detail?: string
 }
 
-interface AcceptInvitePayloadInterface {
+export interface AcceptInvitePayloadInterface {
     first_name?: string
     password: string
     email_opt_in: boolean
 }
 
-export const inviteSignupLogic = kea<inviteSignupLogicType<AcceptInvitePayloadInterface, ErrorInterface>>({
+export const inviteSignupLogic = kea<inviteSignupLogicType>({
     path: ['scenes', 'authentication', 'inviteSignupLogic'],
     actions: {
         setError: (payload: ErrorInterface) => ({ payload }),
@@ -43,7 +43,7 @@ export const inviteSignupLogic = kea<inviteSignupLogicType<AcceptInvitePayloadIn
 
                     try {
                         return await api.get(`api/signup/${id}/`)
-                    } catch (e) {
+                    } catch (e: any) {
                         if (e.status === 400) {
                             if (e.code === 'invalid_recipient') {
                                 actions.setError({ code: ErrorCodes.InvalidRecipient, detail: e.detail })
@@ -75,7 +75,7 @@ export const inviteSignupLogic = kea<inviteSignupLogicType<AcceptInvitePayloadIn
     }),
     listeners: ({ values }) => ({
         acceptInviteSuccess: async (_, breakpoint) => {
-            toast.success(`You have joined ${values.invite?.organization_name}! Taking you to PostHog now...`)
+            lemonToast.success(`You have joined ${values.invite?.organization_name}! Taking you to PostHog now…`)
             await breakpoint(2000) // timeout for the user to read the toast
             window.location.href = '/' // hard refresh because the current_organization changed
         },

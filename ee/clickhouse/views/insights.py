@@ -1,6 +1,5 @@
 from typing import Any, Dict, cast
 
-from rest_framework import exceptions
 from rest_framework.decorators import action
 from rest_framework.permissions import SAFE_METHODS, BasePermission
 from rest_framework.request import Request
@@ -16,10 +15,14 @@ from posthog.models.filters import Filter
 class CanEditInsight(BasePermission):
     message = "This insight is on a dashboard that can only be edited by its owner, team members invited to editing the dashboard, and project admins."
 
-    def has_object_permission(self, request: Request, view, insight) -> bool:
-        if request.method in SAFE_METHODS or insight.dashboard_id is None:
+    def has_object_permission(self, request: Request, view, insight: Insight) -> bool:
+        if request.method in SAFE_METHODS:
             return True
-        return insight.dashboard.can_user_edit(cast(User, request.user).id)
+        dashboards = list(insight.dashboards.all())
+        if not dashboards:
+            return True
+        edit_permissions = [d.can_user_edit(cast(User, request.user).id) for d in dashboards if d is not None]
+        return any(edit_permissions)
 
 
 class ClickhouseInsightsViewSet(InsightViewSet):

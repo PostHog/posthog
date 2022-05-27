@@ -7,7 +7,7 @@ from django.utils import timezone
 from ee.clickhouse.queries.actor_base_query import ActorBaseQuery
 from ee.clickhouse.queries.trends.trend_event_query import TrendsEventQuery
 from ee.clickhouse.sql.person import GET_ACTORS_FROM_EVENT_QUERY
-from posthog.constants import TRENDS_CUMULATIVE, TRENDS_DISPLAY_BY_VALUE
+from posthog.constants import NON_TIME_SERIES_DISPLAY_TYPES, TRENDS_CUMULATIVE, PropertyOperatorType
 from posthog.models.cohort import Cohort
 from posthog.models.entity import Entity
 from posthog.models.filters import Filter
@@ -21,13 +21,11 @@ def _handle_date_interval(filter: Filter) -> Filter:
     date_from = filter.date_from or timezone.now()
     data: Dict = {}
     if filter.interval == "month":
-        data.update(
-            {"date_to": (date_from + relativedelta(months=1) - timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S")}
-        )
+        data.update({"date_to": (date_from + relativedelta(months=1) - timedelta(days=1)).strftime("%Y-%m-%d")})
     elif filter.interval == "week":
-        data.update({"date_to": (date_from + relativedelta(weeks=1) - timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S")})
+        data.update({"date_to": (date_from + relativedelta(weeks=1) - timedelta(days=1)).strftime("%Y-%m-%d")})
     elif filter.interval == "day":
-        data.update({"date_to": date_from})
+        data.update({"date_to": (date_from).strftime("%Y-%m-%d 23:59:59")})
     elif filter.interval == "hour":
         data.update({"date_to": date_from + timedelta(hours=1)})
     return filter.with_data(data)
@@ -41,7 +39,7 @@ class ClickhouseTrendsActors(ActorBaseQuery):
         if not entity:
             raise ValueError("Entity is required")
 
-        if filter.display != TRENDS_CUMULATIVE and not filter.display in TRENDS_DISPLAY_BY_VALUE:
+        if filter.display != TRENDS_CUMULATIVE and filter.display not in NON_TIME_SERIES_DISPLAY_TYPES:
             filter = _handle_date_interval(filter)
 
         super().__init__(team, filter, entity, **kwargs)
@@ -56,7 +54,11 @@ class ClickhouseTrendsActors(ActorBaseQuery):
         if self._filter.breakdown_type == "cohort" and self._filter.breakdown_value != "all":
             cohort = Cohort.objects.get(pk=self._filter.breakdown_value, team_id=self._team.pk)
             self._filter = self._filter.with_data(
-                {"properties": self._filter.properties + [Property(key="id", value=cohort.pk, type="cohort")]}
+                {
+                    "properties": self._filter.property_groups.combine_properties(
+                        PropertyOperatorType.AND, [Property(key="id", value=cohort.pk, type="cohort")]
+                    ).to_dict()
+                }
             )
         elif (
             self._filter.breakdown_type
@@ -75,7 +77,13 @@ class ClickhouseTrendsActors(ActorBaseQuery):
                     key=self._filter.breakdown, value=self._filter.breakdown_value, type=self._filter.breakdown_type
                 )
 
-            self._filter = self._filter.with_data({"properties": self._filter.properties + [breakdown_prop]})
+            self._filter = self._filter.with_data(
+                {
+                    "properties": self._filter.property_groups.combine_properties(
+                        PropertyOperatorType.AND, [breakdown_prop]
+                    ).to_dict()
+                }
+            )
 
         extra_fields: List[str] = ["distinct_id", "team_id"] if not self.is_aggregating_by_groups else []
         if self._filter.include_recordings:
@@ -83,16 +91,17 @@ class ClickhouseTrendsActors(ActorBaseQuery):
 
         events_query, params = TrendsEventQuery(
             filter=self._filter,
-            team_id=self._team.pk,
+            team=self._team,
             entity=self.entity,
-            should_join_distinct_ids=not self.is_aggregating_by_groups,
-            should_join_persons=not self.is_aggregating_by_groups,
+            should_join_distinct_ids=not self.is_aggregating_by_groups
+            and not self._team.actor_on_events_querying_enabled,
             extra_event_properties=["$window_id", "$session_id"] if self._filter.include_recordings else [],
             extra_fields=extra_fields,
+            using_person_on_events=self._team.actor_on_events_querying_enabled,
         ).get_query()
 
         matching_events_select_statement = (
-            ", groupUniqArray(10)((uuid, timestamp, $session_id, $window_id)) as matching_events"
+            ", groupUniqArray(10)((timestamp, uuid, $session_id, $window_id)) as matching_events"
             if self._filter.include_recordings
             else ""
         )

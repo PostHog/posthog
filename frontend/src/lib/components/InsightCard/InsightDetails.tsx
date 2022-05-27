@@ -1,15 +1,17 @@
 import { useValues } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { allOperatorsMapping, alphabet } from 'lib/utils'
+import { allOperatorsMapping, alphabet, convertPropertyGroupToProperties } from 'lib/utils'
 import React from 'react'
 import { LocalFilter, toLocalFilters } from 'scenes/insights/ActionFilter/entityFilterLogic'
 import { BreakdownFilter } from 'scenes/insights/BreakdownFilter'
+import { humanizePathsEventTypes } from 'scenes/insights/utils'
 import { apiValueToMathType, MathDefinition, mathsLogic } from 'scenes/trends/mathsLogic'
 import { urls } from 'scenes/urls'
-import { FilterType, InsightModel, InsightType, PathType, PropertyFilter } from '~/types'
+import { FilterType, InsightModel, InsightType, PropertyFilter } from '~/types'
 import { IconCalculate, IconSubdirectoryArrowRight } from '../icons'
-import { LemonRow, LemonSpacer } from '../LemonRow'
+import { LemonRow } from '../LemonRow'
+import { LemonDivider } from '../LemonDivider'
 import { Lettermark } from '../Lettermark/Lettermark'
 import { Link } from '../Link'
 import { ProfilePicture } from '../ProfilePicture'
@@ -42,7 +44,7 @@ function CompactPropertyFiltersDisplay({
                             <>
                                 {subFilter.type || 'event'}'s
                                 <span className="SeriesDisplay__raw-name">
-                                    <PropertyKeyInfo value={subFilter.key} />
+                                    {subFilter.key && <PropertyKeyInfo value={subFilter.key} />}
                                 </span>
                                 {allOperatorsMapping[subFilter.operator || 'exact']} <b>{subFilter.value}</b>
                             </>
@@ -123,23 +125,11 @@ function SeriesDisplay({
 }
 
 function PathsSummary({ filters }: { filters: Partial<FilterType> }): JSX.Element {
-    const humanEventTypes: string[] = []
-    if (filters.include_event_types) {
-        if (filters.include_event_types.includes(PathType.PageView)) {
-            humanEventTypes.push('page views')
-        }
-        if (filters.include_event_types.includes(PathType.Screen)) {
-            humanEventTypes.push('screen views')
-        }
-        if (filters.include_event_types.includes(PathType.CustomEvent)) {
-            humanEventTypes.push('custom events')
-        }
-    }
-
+    // Sync format with summarizePaths in utils
     return (
         <div className="SeriesDisplay">
             <div>
-                Paths based on <b>{humanEventTypes.join(', ')}</b>
+                User paths based on <b>{humanizePathsEventTypes(filters).join(' and ')}</b>
             </div>
             {filters.start_point && (
                 <div>
@@ -155,15 +145,11 @@ function PathsSummary({ filters }: { filters: Partial<FilterType> }): JSX.Elemen
     )
 }
 
-function InsightDetailsInternal({ insight }: { insight: InsightModel }, ref: React.Ref<HTMLDivElement>): JSX.Element {
-    const { filters, created_at, created_by } = insight
-
-    const { featureFlags } = useValues(featureFlagLogic)
-
+export function QuerySummary({ filters }: { filters: Partial<FilterType> }): JSX.Element {
     const localFilters = toLocalFilters(filters)
 
     return (
-        <div className="InsightDetails" ref={ref}>
+        <>
             <h5>Query summary</h5>
             <section className="InsightDetails__query">
                 {filters.formula && (
@@ -173,7 +159,7 @@ function InsightDetailsInternal({ insight }: { insight: InsightModel }, ref: Rea
                                 Formula:<code>{filters.formula}</code>
                             </span>
                         </LemonRow>
-                        <LemonSpacer />
+                        <LemonDivider />
                     </>
                 )}
                 <div className="InsightDetails__series">
@@ -186,7 +172,7 @@ function InsightDetailsInternal({ insight }: { insight: InsightModel }, ref: Rea
                                     <SeriesDisplay filter={localFilters[0]} insightType={filters.insight} index={0} />
                                     {localFilters.slice(1).map((filter, index) => (
                                         <>
-                                            <LemonSpacer />
+                                            <LemonDivider />
                                             <SeriesDisplay
                                                 key={index}
                                                 filter={filter}
@@ -201,14 +187,46 @@ function InsightDetailsInternal({ insight }: { insight: InsightModel }, ref: Rea
                     )}
                 </div>
             </section>
+        </>
+    )
+}
+
+export function FiltersSummary({ filters }: { filters: Partial<FilterType> }): JSX.Element {
+    const properties = convertPropertyGroupToProperties(filters.properties)
+
+    return (
+        <>
             <h5>Filters</h5>
             <section>
-                {filters.properties?.length ? (
-                    <CompactPropertyFiltersDisplay properties={filters.properties} />
-                ) : (
-                    <i>None</i>
-                )}
+                {properties?.length ? <CompactPropertyFiltersDisplay properties={properties} /> : <i>None</i>}
             </section>
+        </>
+    )
+}
+
+export function BreakdownSummary({ filters }: { filters: Partial<FilterType> }): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
+    return (
+        <div>
+            <h5>Breakdown by</h5>
+            <BreakdownFilter
+                filters={filters}
+                useMultiBreakdown={
+                    filters.insight === InsightType.FUNNELS &&
+                    !!featureFlags[FEATURE_FLAGS.BREAKDOWN_BY_MULTIPLE_PROPERTIES]
+                }
+            />
+        </div>
+    )
+}
+
+function InsightDetailsInternal({ insight }: { insight: InsightModel }, ref: React.Ref<HTMLDivElement>): JSX.Element {
+    const { filters, created_at, created_by } = insight
+
+    return (
+        <div className="InsightDetails" ref={ref}>
+            <QuerySummary filters={filters} />
+            <FiltersSummary filters={filters} />
             <div className="InsightDetails__footer">
                 <div>
                     <h5>Created by</h5>
@@ -217,18 +235,7 @@ function InsightDetailsInternal({ insight }: { insight: InsightModel }, ref: Rea
                         <TZLabel time={created_at} />
                     </section>
                 </div>
-                {filters.breakdown_type && (
-                    <div>
-                        <h5>Breakdown by</h5>
-                        <BreakdownFilter
-                            filters={filters}
-                            useMultiBreakdown={
-                                filters.insight === InsightType.FUNNELS &&
-                                !!featureFlags[FEATURE_FLAGS.BREAKDOWN_BY_MULTIPLE_PROPERTIES]
-                            }
-                        />
-                    </div>
-                )}
+                {filters.breakdown_type && <BreakdownSummary filters={filters} />}
             </div>
         </div>
     )

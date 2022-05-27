@@ -1,7 +1,7 @@
 import './PropertyKeyInfo.scss'
 import React from 'react'
-import { Popover, Typography } from 'antd'
-import { KeyMapping, PropertyFilterValue } from '~/types'
+import { Col, Popover, Row, Typography } from 'antd'
+import { KeyMapping, PropertyDefinition, PropertyFilterValue } from '~/types'
 import { ANTD_TOOLTIP_PLACEMENTS } from 'lib/utils'
 import { TooltipPlacement } from 'antd/lib/tooltip'
 
@@ -569,7 +569,15 @@ export function PropertyKeyTitle({ data }: { data: KeyMapping }): JSX.Element {
     )
 }
 
-export function PropertyKeyDescription({ data, value }: { data: KeyMapping; value: string }): JSX.Element {
+export function PropertyKeyDescription({
+    data,
+    value,
+    propertyType,
+}: {
+    data: KeyMapping
+    value: string
+    propertyType?: PropertyDefinition['property_type'] | null
+}): JSX.Element {
     return (
         <span>
             {data.description ? <p>{data.description}</p> : null}
@@ -580,7 +588,14 @@ export function PropertyKeyDescription({ data, value }: { data: KeyMapping; valu
                 </p>
             ) : null}
             {data.description || data.examples ? <hr /> : null}
-            Sent as <code style={{ padding: '2px 3px' }}>{value}</code>
+            <Row align={'middle'}>
+                <Col flex="1 1 75%" style={{ padding: '4px 0px' }}>
+                    Sent as <code style={{ padding: '2px 3px' }}>{value}</code>
+                </Col>
+                <Col flex="1 0 25%" style={{ padding: '4px 0px' }}>
+                    {propertyType && <div className="property-value-type">{propertyType}</div>}
+                </Col>
+            </Row>
         </span>
     )
 }
@@ -628,62 +643,54 @@ export function PropertyKeyInfo({
     className = '',
 }: PropertyKeyInfoInterface): JSX.Element {
     value = `${value}` // convert to string
-    const data = getKeyMapping(value, type)
-    if (!data) {
-        return (
-            <Typography.Text
-                ellipsis={ellipsis}
-                style={{ color: 'inherit', maxWidth: 400, ...style }}
-                title={value}
-                className={className}
-            >
-                {value !== '' ? value : <i>(empty string)</i>}
-            </Typography.Text>
-        )
-    }
-    if (disableIcon) {
-        return (
-            <Typography.Text
-                ellipsis={ellipsis}
-                style={{ color: 'inherit', maxWidth: 400 }}
-                title={data.label}
-                className={className}
-            >
-                {data.label !== '' ? data.label : <i>(empty string)</i>}
-            </Typography.Text>
-        )
-    }
 
+    const data = getKeyMapping(value, type)
+    const baseValue = (data ? data.label : value)?.trim() ?? ''
+    const baseValueNode = baseValue === '' ? <i>(empty string)</i> : baseValue
+
+    // By this point, property is a PH defined property
     const innerContent = (
         <span className="property-key-info">
-            <span className="property-key-info-logo" />
-            {data.label}
+            {!disableIcon && !!data && <span className="property-key-info-logo" />}
+            <Typography.Text
+                ellipsis={ellipsis}
+                style={{
+                    color: 'inherit',
+                    maxWidth: 400,
+                    display: 'inline', // NOTE: This important and stops the whole thing from only showing "..."
+                    ...style,
+                }}
+                title={baseValue}
+                className={className}
+            >
+                {baseValueNode}
+            </Typography.Text>
         </span>
     )
+
+    if (!data || disablePopover) {
+        return innerContent
+    }
+
+    const popoverProps = tooltipPlacement
+        ? {
+              visible: true,
+              placement: tooltipPlacement,
+          }
+        : {
+              align: ANTD_TOOLTIP_PLACEMENTS.horizontalPreferRight,
+          }
 
     const popoverTitle = <PropertyKeyTitle data={data} />
     const popoverContent = <PropertyKeyDescription data={data} value={value} />
 
-    return disablePopover ? (
-        innerContent
-    ) : tooltipPlacement ? (
-        <Popover
-            visible
-            overlayStyle={{ zIndex: 99999 }}
-            overlayClassName={`property-key-info-tooltip ${className || ''}`}
-            placement={tooltipPlacement}
-            title={popoverTitle}
-            content={popoverContent}
-        >
-            {innerContent}
-        </Popover>
-    ) : (
+    return (
         <Popover
             overlayStyle={{ zIndex: 99999 }}
             overlayClassName={`property-key-info-tooltip ${className || ''}`}
-            align={ANTD_TOOLTIP_PLACEMENTS.horizontalPreferRight}
             title={popoverTitle}
             content={popoverContent}
+            {...popoverProps}
         >
             {innerContent}
         </Popover>

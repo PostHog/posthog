@@ -1,15 +1,6 @@
 import { PluginAttachment } from '@posthog/plugin-scaffold'
 
-import {
-    Hub,
-    Plugin,
-    PluginConfig,
-    PluginConfigId,
-    PluginId,
-    PluginTaskType,
-    StatelessVmMap,
-    TeamId,
-} from '../../types'
+import { Hub, Plugin, PluginConfig, PluginConfigId, PluginId, StatelessVmMap, TeamId } from '../../types'
 import { getPluginAttachmentRows, getPluginConfigRows, getPluginRows } from '../../utils/db/sql'
 import { status } from '../../utils/status'
 import { LazyPluginVM } from '../vm/lazy'
@@ -35,7 +26,7 @@ export async function setupPlugins(server: Hub): Promise<void> {
         } else if (plugin?.is_stateless && statelessVms[plugin.id]) {
             pluginConfig.vm = statelessVms[plugin.id]
         } else {
-            pluginConfig.vm = new LazyPluginVM()
+            pluginConfig.vm = new LazyPluginVM(server, pluginConfig)
             pluginVMLoadPromises.push(loadPlugin(server, pluginConfig))
 
             if (prevConfig) {
@@ -58,7 +49,7 @@ export async function setupPlugins(server: Hub): Promise<void> {
         server.pluginConfigsPerTeam.get(teamId)?.sort((a, b) => a.order - b.order)
     }
 
-    void loadSchedule(server)
+    await loadSchedule(server)
 }
 
 async function loadPluginsFromDB(
@@ -129,7 +120,7 @@ export async function loadSchedule(server: Hub): Promise<void> {
     let count = 0
 
     for (const [id, pluginConfig] of server.pluginConfigs) {
-        const tasks = (await pluginConfig.vm?.getTasks(PluginTaskType.Schedule)) ?? {}
+        const tasks = (await pluginConfig.vm?.getScheduledTasks()) ?? {}
         for (const [taskName, task] of Object.entries(tasks)) {
             if (task && taskName in pluginSchedule) {
                 pluginSchedule[taskName].push(id)

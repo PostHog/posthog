@@ -1,8 +1,5 @@
-import '@cypress/react/support'
 import 'givens/setup'
 import './commands'
-
-import { unmount } from '@cypress/react'
 
 try {
     // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -17,32 +14,21 @@ Cypress.on('window:before:load', (win) => {
 })
 
 beforeEach(() => {
-    if (Cypress.spec.specType === 'component') {
-        // Freeze time to 2021.01.05 Noon UTC - this should be the same date regardless of timezone.
-        cy.clock(1578225600000, ['Date'])
+    if (Cypress.spec.name.includes('Premium')) {
+        cy.intercept('/api/users/@me/', { fixture: 'api/user-enterprise' })
+
+        cy.request('POST', '/api/login/', {
+            email: 'test@posthog.com',
+            password: '12345678',
+        })
+        cy.visit('/?no-preloaded-app-context=true')
     } else {
-        if (Cypress.spec.name.includes('Premium')) {
-            cy.intercept('/api/users/@me/', { fixture: 'api/user-enterprise' })
-
-            cy.request('POST', '/api/login/', {
-                email: 'test@posthog.com',
-                password: '12345678',
-            })
-            cy.visit('/?no-preloaded-app-context=true')
-        } else {
-            cy.request('POST', '/api/login/', {
-                email: 'test@posthog.com',
-                password: '12345678',
-            })
-            cy.visit('/insights')
-            cy.get('.saved-insights').should('exist')
-        }
-    }
-})
-
-afterEach(() => {
-    if (Cypress.spec.specType === 'component') {
-        unmount()
+        cy.request('POST', '/api/login/', {
+            email: 'test@posthog.com',
+            password: '12345678',
+        })
+        cy.visit('/insights')
+        cy.get('.saved-insights').should('exist')
     }
 })
 

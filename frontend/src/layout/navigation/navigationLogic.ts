@@ -1,29 +1,21 @@
 import { dayjs } from 'lib/dayjs'
 import { kea } from 'kea'
 import api from 'lib/api'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { systemStatusLogic } from 'scenes/instance/SystemStatus/systemStatusLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/logic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 import { VersionType } from '~/types'
-import { navigationLogicType } from './navigationLogicType'
+import type { navigationLogicType } from './navigationLogicType'
 import { membersLogic } from 'scenes/organization/Settings/membersLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 
-type WarningType =
-    | 'welcome'
-    | 'incomplete_setup_on_demo_project'
-    | 'incomplete_setup_on_real_project'
-    | 'demo_project'
-    | 'real_project_with_no_events'
-    | 'invite_teammates'
-    | null
+export type WarningType = 'demo_project' | 'real_project_with_no_events' | 'invite_teammates' | null
 
-export const navigationLogic = kea<navigationLogicType<WarningType>>({
+export const navigationLogic = kea<navigationLogicType>({
     path: ['layout', 'navigation', 'navigationLogic'],
     connect: {
         values: [sceneLogic, ['sceneConfig'], membersLogic, ['members', 'membersLoading']],
@@ -41,7 +33,9 @@ export const navigationLogic = kea<navigationLogicType<WarningType>>({
         hideCreateProjectModal: true,
         toggleProjectSwitcher: true,
         hideProjectSwitcher: true,
-        setHotkeyNavigationEngaged: (hotkeyNavigationEngaged: boolean) => ({ hotkeyNavigationEngaged }),
+        openAppSourceEditor: (id: number, pluginId: number) => ({ id, pluginId }),
+        closeAppSourceEditor: true,
+        setOpenAppMenu: (id: number | null) => ({ id }),
     },
     reducers: {
         // Non-mobile base
@@ -89,12 +83,14 @@ export const navigationLogic = kea<navigationLogicType<WarningType>>({
                 hideProjectSwitcher: () => false,
             },
         ],
-        hotkeyNavigationEngaged: [
-            false,
+        appSourceEditor: [
+            null as null | { pluginId: number; id: number },
             {
-                setHotkeyNavigationEngaged: (_, { hotkeyNavigationEngaged }) => hotkeyNavigationEngaged,
+                openAppSourceEditor: (_, payload) => payload,
+                closeAppSourceEditor: () => null,
             },
         ],
+        openAppMenu: [null as null | number, { setOpenAppMenu: (_, { id }) => id }],
     },
     windowValues: () => ({
         fullscreen: (window) => !!window.document.fullscreenElement,
@@ -137,6 +133,13 @@ export const navigationLogic = kea<navigationLogicType<WarningType>>({
                 return aliveSignals >= aliveMetrics.length
             },
         ],
+        asyncMigrationsOk: [
+            () => [systemStatusLogic.selectors.overview, systemStatusLogic.selectors.systemStatusLoading],
+            (statusMetrics, systemStatusLoading) => {
+                const asyncMigrations = statusMetrics.filter((sm) => sm.key && sm.key == 'async_migrations_ok')[0]
+                return systemStatusLoading || !asyncMigrations || asyncMigrations.value
+            },
+        ],
         updateAvailable: [
             (selectors) => [
                 selectors.latestVersion,
@@ -167,21 +170,7 @@ export const navigationLogic = kea<navigationLogicType<WarningType>>({
                     return null
                 }
 
-                if (
-                    organization.setup.is_active &&
-                    dayjs(organization.created_at) >= dayjs().subtract(1, 'days') &&
-                    currentTeam?.is_demo
-                ) {
-                    // TODO: Currently unused
-                    return 'welcome'
-                } else if (organization.setup.is_active && currentTeam?.is_demo) {
-                    // TODO: Currently unused
-
-                    return 'incomplete_setup_on_demo_project'
-                } else if (organization.setup.is_active) {
-                    // TODO: Currently unused
-                    return 'incomplete_setup_on_real_project'
-                } else if (currentTeam?.is_demo && !preflight?.demo) {
+                if (currentTeam?.is_demo && !preflight?.demo) {
                     // If the project is a demo one, show a project-level warning
                     // Don't show this project-level warning in the PostHog demo environemnt though,
                     // as then Announcement is shown instance-wide
@@ -226,15 +215,6 @@ export const navigationLogic = kea<navigationLogicType<WarningType>>({
             },
         ],
     },
-    listeners: ({ actions }) => ({
-        setHotkeyNavigationEngaged: async ({ hotkeyNavigationEngaged }, breakpoint) => {
-            if (hotkeyNavigationEngaged) {
-                eventUsageLogic.actions.reportHotkeyNavigation('global', 'g')
-                await breakpoint(3000)
-                actions.setHotkeyNavigationEngaged(false)
-            }
-        },
-    }),
     events: ({ actions }) => ({
         afterMount: () => {
             actions.loadLatestVersion()

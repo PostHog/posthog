@@ -1,16 +1,14 @@
 import { kea } from 'kea'
 import api from 'lib/api'
 import { PropertyDefinition, PropertyFilterValue, SelectOption } from '~/types'
-import { propertyDefinitionsModelType } from './propertyDefinitionsModelType'
+import type { propertyDefinitionsModelType } from './propertyDefinitionsModelType'
 import { dayjs } from 'lib/dayjs'
-import { featureFlagLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 
-interface PropertySelectOption extends SelectOption {
+export interface PropertySelectOption extends SelectOption {
     is_numerical?: boolean
 }
 
-interface PropertyDefinitionStorage {
+export interface PropertyDefinitionStorage {
     count: number
     next: null | string
     results: PropertyDefinition[]
@@ -29,18 +27,13 @@ const normaliseToArray = (
     }
 }
 
-type FormatForDisplayFunction = (
+export type FormatForDisplayFunction = (
     propertyName: string | undefined,
     valueToFormat: PropertyFilterValue | undefined
 ) => string | string[] | null
 
-export const propertyDefinitionsModel = kea<
-    propertyDefinitionsModelType<FormatForDisplayFunction, PropertyDefinitionStorage, PropertySelectOption>
->({
+export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>({
     path: ['models', 'propertyDefinitionsModel'],
-    connect: {
-        values: [featureFlagLogic, ['featureFlags']],
-    },
     actions: () => ({
         loadPropertyDefinitions: (initial = false) => ({ initial }),
         updatePropertyDefinition: (property: PropertyDefinition) => ({ property }),
@@ -130,8 +123,8 @@ export const propertyDefinitionsModel = kea<
                 },
         ],
         formatForDisplay: [
-            (s) => [s.propertyDefinitions, s.featureFlags],
-            (propertyDefinitions: PropertyDefinition[], featureFlags: FeatureFlagsSet): FormatForDisplayFunction => {
+            (s) => [s.propertyDefinitions],
+            (propertyDefinitions: PropertyDefinition[]): FormatForDisplayFunction => {
                 return (propertyName: string | undefined, valueToFormat: PropertyFilterValue | undefined) => {
                     if (valueToFormat === null || valueToFormat === undefined) {
                         return null
@@ -146,10 +139,7 @@ export const propertyDefinitionsModel = kea<
                     const formattedValues = arrayOfPropertyValues.map((_propertyValue) => {
                         const propertyValue: string | null = String(_propertyValue)
 
-                        if (
-                            featureFlags[FEATURE_FLAGS.QUERY_EVENTS_BY_DATETIME] &&
-                            propertyDefinition?.property_type === 'DateTime'
-                        ) {
+                        if (propertyDefinition?.property_type === 'DateTime') {
                             const unixTimestampMilliseconds = /^\d{13}$/
                             const unixTimestampSeconds = /^\d{10}(\.\d*)?$/
 

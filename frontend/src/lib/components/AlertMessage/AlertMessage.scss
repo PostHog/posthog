@@ -1,0 +1,36 @@
+@import '~/vars';
+
+.AlertMessage {
+    background-color: var(--radius-light);
+    border-radius: var(--radius);
+    padding: 0.5rem 0.75rem;
+    color: $primary_alt;
+    font-weight: 500;
+    display: flex;
+    align-items: center;
+
+    .AlertMessage__icon {
+        line-height: 0;
+        flex-shrink: 0;
+        font-size: 1.5rem;
+        margin: 0.25rem 0.75rem 0.25rem 0;
+    }
+
+    &.info {
+        background-color: rgba($primary_alt, 0.09);
+    }
+
+    &.warning {
+        background-color: rgba($warning, 0.09);
+        color: $warning;
+    }
+
+    &.error {
+        background-color: rgba($danger, 0.09);
+        color: $danger;
+    }
+
+    p {
+        margin-bottom: 0.25em;
+    }
+}

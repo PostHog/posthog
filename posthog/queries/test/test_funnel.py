@@ -128,8 +128,6 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             self._signup_event(distinct_id="wrong_order")
             self._movie_event(distinct_id="wrong_order")
 
-            self._signup_event(distinct_id="a_user_that_got_deleted_or_doesnt_exist")
-
             result = funnel.run()
             self.assertEqual(result[0]["name"], "user signed up")
             self.assertEqual(result[0]["count"], 4)
@@ -278,21 +276,19 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             self.assertEqual(result[1]["count"], 1)
             self.assertEqual(result[2]["count"], 1)
 
-        @test_with_materialized_columns(["test_prop"])
+        @test_with_materialized_columns(["test_propX"])
         def test_funnel_multiple_actions(self):
             # we had an issue on clickhouse where multiple actions with different property filters would incorrectly grab only the last
             # properties.
             # This test prevents a regression
             person_factory(distinct_ids=["person1"], team_id=self.team.pk)
             event_factory(distinct_id="person1", event="event1", team=self.team)
-            event_factory(distinct_id="person1", event="event2", properties={"test_prop": "a"}, team=self.team)
+            event_factory(distinct_id="person1", event="event2", properties={"test_propX": "a"}, team=self.team)
 
             action1 = Action.objects.create(team_id=self.team.pk, name="event2")
-            ActionStep.objects.create(action=action1, event="event2", properties=[{"key": "test_prop", "value": "a"}])
-            action1.calculate_events()
+            ActionStep.objects.create(action=action1, event="event2", properties=[{"key": "test_propX", "value": "a"}])
             action2 = Action.objects.create(team_id=self.team.pk, name="event2")
-            ActionStep.objects.create(action=action2, event="event2", properties=[{"key": "test_prop", "value": "c"}])
-            action2.calculate_events()
+            ActionStep.objects.create(action=action2, event="event2", properties=[{"key": "test_propX", "value": "c"}])
 
             result = Funnel(
                 filter=Filter(
@@ -373,7 +369,6 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                 event="event1",
                 properties=[{"key": "email", "value": "is_set", "operator": "is_set", "type": "person"}],
             )
-            action.calculate_events()
 
             result = Funnel(
                 filter=Filter(

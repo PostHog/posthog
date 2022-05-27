@@ -1,19 +1,19 @@
-from datetime import timedelta
-from uuid import uuid4
+from datetime import datetime, timedelta
+from unittest.mock import patch
 
+from django.test.client import Client
 from freezegun.api import freeze_time
 
-from ee.clickhouse.models.event import create_event
 from ee.clickhouse.models.group import create_group
 from ee.clickhouse.queries.stickiness.clickhouse_stickiness import ClickhouseStickiness
-from ee.clickhouse.queries.util import get_earliest_timestamp
+from ee.clickhouse.test.test_journeys import journeys_for
 from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
-from posthog.api.test.test_stickiness import get_stickiness_ok, get_stickiness_time_series_ok, stickiness_test_factory
-from posthog.api.test.test_trends import get_people_from_url_ok
+from posthog.api.test.test_stickiness import get_stickiness_time_series_ok, stickiness_test_factory
 from posthog.models.action import Action
 from posthog.models.action_step import ActionStep
 from posthog.models.filters.stickiness_filter import StickinessFilter
-from posthog.models.person import Person
+from posthog.queries.util import get_earliest_timestamp
+from posthog.test.base import _create_event, _create_person
 
 
 def _create_action(**kwargs):
@@ -25,22 +25,15 @@ def _create_action(**kwargs):
     return action
 
 
-def _create_event(**kwargs):
-    kwargs.update({"event_uuid": uuid4()})
-    create_event(**kwargs)
-
-
-def _create_person(**kwargs):
-    person = Person.objects.create(**kwargs)
-    return Person(id=person.uuid)
+def get_people_from_url_ok(client: Client, url: str):
+    response = client.get("/" + url)
+    assert response.status_code == 200, response.content
+    return response.json()["results"][0]["people"]
 
 
 class TestClickhouseStickiness(ClickhouseTestMixin, stickiness_test_factory(ClickhouseStickiness, _create_event, _create_person, _create_action, get_earliest_timestamp)):  # type: ignore
     @snapshot_clickhouse_queries
     def test_filter_by_group_properties(self):
-        p1, p2, p3, p4 = self._create_multiple_people(
-            period=timedelta(weeks=1), event_properties=lambda i: {"$group_0": f"org:{i}", "$group_1": "instance:1"},
-        )
         create_group(
             team_id=self.team.pk, group_type_index=0, group_key=f"org:1", properties={"industry": "technology"}
         )
@@ -50,8 +43,14 @@ class TestClickhouseStickiness(ClickhouseTestMixin, stickiness_test_factory(Clic
         create_group(
             team_id=self.team.pk, group_type_index=0, group_key=f"org:3", properties={"industry": "technology"}
         )
+        create_group(team_id=self.team.pk, group_type_index=0, group_key=f"org:4", properties={})
         create_group(
             team_id=self.team.pk, group_type_index=1, group_key=f"company:1", properties={"industry": "technology"}
+        )
+        create_group(team_id=self.team.pk, group_type_index=1, group_key=f"instance:1", properties={})
+
+        p1, p2, p3, p4 = self._create_multiple_people(
+            period=timedelta(weeks=1), event_properties=lambda i: {"$group_0": f"org:{i}", "$group_1": "instance:1"},
         )
 
         with freeze_time("2020-02-15T13:01:01Z"):
@@ -77,16 +76,12 @@ class TestClickhouseStickiness(ClickhouseTestMixin, stickiness_test_factory(Clic
             week2_actors = get_people_from_url_ok(self.client, data["watched movie"][2].person_url)
             week3_actors = get_people_from_url_ok(self.client, data["watched movie"][3].person_url)
 
-        assert sorted([p["id"] for p in week1_actors]) == sorted([str(p1.pk)])
+        assert sorted([p["id"] for p in week1_actors]) == sorted([str(p1.uuid)])
         assert sorted([p["id"] for p in week2_actors]) == sorted([])
-        assert sorted([p["id"] for p in week3_actors]) == sorted([str(p3.pk)])
+        assert sorted([p["id"] for p in week3_actors]) == sorted([str(p3.uuid)])
 
     @snapshot_clickhouse_queries
     def test_aggregate_by_groups(self):
-        self._create_multiple_people(
-            period=timedelta(weeks=1), event_properties=lambda i: {"$group_0": f"org:{i // 2}"},
-        )
-
         create_group(
             team_id=self.team.pk, group_type_index=0, group_key=f"org:0", properties={"industry": "technology"}
         )
@@ -95,6 +90,9 @@ class TestClickhouseStickiness(ClickhouseTestMixin, stickiness_test_factory(Clic
         )
         create_group(
             team_id=self.team.pk, group_type_index=0, group_key=f"org:2", properties={"industry": "technology"}
+        )
+        self._create_multiple_people(
+            period=timedelta(weeks=1), event_properties=lambda i: {"$group_0": f"org:{i // 2}"},
         )
 
         with freeze_time("2020-02-15T13:01:01Z"):
@@ -122,3 +120,55 @@ class TestClickhouseStickiness(ClickhouseTestMixin, stickiness_test_factory(Clic
         assert sorted([p["id"] for p in week1_actors]) == sorted(["org:0", "org:2"])
         assert sorted([p["id"] for p in week2_actors]) == sorted([])
         assert sorted([p["id"] for p in week3_actors]) == sorted(["org:1"])
+
+    @snapshot_clickhouse_queries
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_timezones(self, patch_feature_enabled):
+        people = journeys_for(
+            {
+                "person1": [
+                    {
+                        "event": "$pageview",
+                        "timestamp": datetime(2021, 5, 2, 1),
+                    },  # this time will fall on 5/1 in US Pacific
+                    {"event": "$pageview", "timestamp": datetime(2021, 5, 2, 9)},
+                    {"event": "$pageview", "timestamp": datetime(2021, 5, 4, 3)},
+                ],
+            },
+            self.team,
+        )
+
+        data = ClickhouseStickiness().run(
+            filter=StickinessFilter(
+                data={
+                    "shown_as": "Stickiness",
+                    "date_from": "2021-05-01",
+                    "date_to": "2021-05-15",
+                    "events": [{"id": "$pageview"}],
+                },
+                team=self.team,
+            ),
+            team=self.team,
+        )
+
+        self.assertEqual(data[0]["days"], [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15])
+        self.assertEqual(data[0]["data"], [0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
+
+        self.team.timezone = "US/Pacific"
+        self.team.save()
+
+        data_pacific = ClickhouseStickiness().run(
+            filter=StickinessFilter(
+                data={
+                    "shown_as": "Stickiness",
+                    "date_from": "2021-05-01",
+                    "date_to": "2021-05-15",
+                    "events": [{"id": "$pageview"}],
+                },
+                team=self.team,
+            ),
+            team=self.team,
+        )
+
+        self.assertEqual(data_pacific[0]["days"], [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15])
+        self.assertEqual(data_pacific[0]["data"], [0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])

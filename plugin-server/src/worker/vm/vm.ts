@@ -8,7 +8,6 @@ import { createConsole } from './extensions/console'
 import { createGeoIp } from './extensions/geoip'
 import { createGoogle } from './extensions/google'
 import { createJobs } from './extensions/jobs'
-import { createMetrics, setupMetrics } from './extensions/metrics'
 import { createPosthog } from './extensions/posthog'
 import { createStorage } from './extensions/storage'
 import { createUtils } from './extensions/utilities'
@@ -27,11 +26,11 @@ export class TimeoutError extends Error {
     }
 }
 
-export async function createPluginConfigVM(
+export function createPluginConfigVM(
     hub: Hub,
     pluginConfig: PluginConfig, // NB! might have team_id = 0
     indexJs: string
-): Promise<PluginConfigVMResponse> {
+): PluginConfigVMResponse {
     const timer = new Date()
 
     const statsdTiming = (metric: string) => {
@@ -97,7 +96,6 @@ export async function createPluginConfigVM(
             storage: createStorage(hub, pluginConfig),
             geoip: createGeoIp(hub),
             jobs: createJobs(hub, pluginConfig),
-            metrics: createMetrics(hub, pluginConfig),
             utils: createUtils(hub, pluginConfig.id),
         },
         '__pluginHostMeta'
@@ -184,14 +182,12 @@ export async function createPluginConfigVM(
                 onAction: __asyncFunctionGuard(__bindMeta('onAction'), 'onAction'),
                 onSnapshot: __asyncFunctionGuard(__bindMeta('onSnapshot'), 'onSnapshot'),
                 processEvent: __asyncFunctionGuard(__bindMeta('processEvent'), 'processEvent'),
-                handleAlert: __asyncFunctionGuard(__bindMeta('handleAlert'), 'handleAlert'),
             };
 
             const __tasks = {
                 schedule: {},
                 job: {},
             };
-            const __metrics = {}
 
             for (const exportDestination of exportDestinations.reverse()) {
                 // gather the runEveryX commands and export in __tasks
@@ -216,35 +212,27 @@ export async function createPluginConfigVM(
                     }
                 }
 
-                if (typeof exportDestination['metrics'] === 'object') {
-                    for (const [key, value] of Object.entries(exportDestination['metrics'])) {
-                        if (typeof value === 'string') {
-                            __metrics[key] = value.toLowerCase()
-                        }
-                    }
-                }
 
             }
 
-            ${responseVar} = { methods: __methods, tasks: __tasks, meta: __pluginMeta, metrics: __metrics, }
+            ${responseVar} = { methods: __methods, tasks: __tasks, meta: __pluginMeta, }
         })
     `)(asyncGuard)
 
     const vmResponse = vm.run(responseVar)
-    const { methods, tasks, metrics } = vmResponse
+    const { methods, tasks } = vmResponse
     const exportEventsExists = !!methods.exportEvents
 
     if (exportEventsExists) {
         upgradeExportEvents(hub, pluginConfig, vmResponse)
         statsdTiming('vm_setup_sync_section')
-        await addHistoricalEventsExportCapability(hub, pluginConfig, vmResponse)
+
+        if (hub.HISTORICAL_EXPORTS_ENABLED) {
+            addHistoricalEventsExportCapability(hub, pluginConfig, vmResponse)
+        }
     } else {
         statsdTiming('vm_setup_sync_section')
     }
-
-    setupMetrics(hub, pluginConfig, metrics, exportEventsExists)
-
-    await vm.run(`${responseVar}.methods.setupPlugin?.()`)
 
     statsdTiming('vm_setup_full')
 
@@ -252,5 +240,6 @@ export async function createPluginConfigVM(
         vm,
         methods,
         tasks,
+        vmResponseVariable: responseVar,
     }
 }

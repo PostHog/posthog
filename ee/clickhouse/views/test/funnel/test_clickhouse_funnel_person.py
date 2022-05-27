@@ -1,31 +1,22 @@
 import json
 from unittest.mock import patch
-from uuid import uuid4
 
 from django.core.cache import cache
 from rest_framework import status
 
-from ee.clickhouse.models.event import create_event
 from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.constants import INSIGHT_FUNNELS
 from posthog.models.person import Person
-from posthog.test.base import APIBaseTest
-
-
-def _create_person(**kwargs):
-    person = Person.objects.create(**kwargs)
-    return person
-
-
-def _create_event(**kwargs):
-    kwargs.update({"event_uuid": uuid4()})
-    create_event(**kwargs)
+from posthog.test.base import APIBaseTest, _create_event, _create_person
 
 
 class TestFunnelPerson(ClickhouseTestMixin, APIBaseTest):
     def _create_sample_data(self, num, delete=False):
         for i in range(num):
-            person = _create_person(distinct_ids=[f"user_{i}"], team=self.team)
+            if delete:
+                person = Person.objects.create(distinct_ids=[f"user_{i}"], team=self.team)
+            else:
+                _create_person(distinct_ids=[f"user_{i}"], team=self.team)
             _create_event(
                 event="step one",
                 distinct_id=f"user_{i}",

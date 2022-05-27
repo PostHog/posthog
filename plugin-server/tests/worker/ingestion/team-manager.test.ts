@@ -1,5 +1,4 @@
 import { DateTime, Settings } from 'luxon'
-import { mocked } from 'ts-jest/utils'
 
 import { defaultConfig } from '../../../src/config/config'
 import { DateTimePropertyTypeFormat, Hub, PropertyType } from '../../../src/types'
@@ -49,7 +48,7 @@ describe('TeamManager()', () => {
             jest.spyOn(global.Date, 'now').mockImplementation(() => new Date('2020-02-27T11:00:25Z').getTime())
             await hub.db.postgresQuery("UPDATE posthog_team SET name = 'Updated Name!'", undefined, 'testTag')
 
-            mocked(hub.db.postgresQuery).mockClear()
+            jest.mocked(hub.db.postgresQuery).mockClear()
 
             team = await teamManager.fetchTeam(2)
             expect(team!.name).toEqual('TEST PROJECT')
@@ -291,8 +290,8 @@ describe('TeamManager()', () => {
             expect(hub.db.postgresQuery).toHaveBeenCalledTimes(1)
 
             // Scenario: Next request but a real update
-            mocked(teamManager.fetchTeam).mockClear()
-            mocked(hub.db.postgresQuery).mockClear()
+            jest.mocked(teamManager.fetchTeam).mockClear()
+            jest.mocked(hub.db.postgresQuery).mockClear()
 
             await teamManager.updateEventNamesAndProperties(2, '$newevent', {})
             expect(teamManager.fetchTeam).toHaveBeenCalledTimes(1)
@@ -373,6 +372,50 @@ DO UPDATE SET property_type=$5 WHERE posthog_propertydefinition.property_type IS
                     },
                     postgresQuery
                 )
+            })
+
+            const boolTestCases = [
+                true,
+                false,
+                'true',
+                'false',
+                'True',
+                'False',
+                'TRUE',
+                'FALSE',
+                ' true ',
+                ' false',
+                'true ',
+            ]
+            boolTestCases.forEach((testcase) => {
+                it(`identifies ${testcase} as a boolean`, async () => {
+                    await teamManager.updateEventNamesAndProperties(teamId, 'another_test_event', {
+                        some_bool: testcase,
+                    })
+
+                    expect(teamManager.propertyDefinitionsCache.get(teamId)?.peek('some_bool')).toEqual('Boolean')
+
+                    expectMockQueryCallToMatch(
+                        {
+                            tag: 'insertPropertyDefinition',
+                            query: insertPropertyDefinitionQuery,
+                            params: [expect.any(String), 'some_bool', false, teamId, 'Boolean'],
+                        },
+                        postgresQuery
+                    )
+                })
+            })
+
+            // i.e. not using truthiness to detect whether something is boolean
+            const notBoolTestCases = [0, 1, '0', '1', 'yes', 'no', null, undefined, '', [], ' ']
+            notBoolTestCases.forEach((testcase) => {
+                it(`does not identify ${testcase} as a boolean`, async () => {
+                    await teamManager.updateEventNamesAndProperties(teamId, 'another_test_event', {
+                        some_bool: testcase,
+                    })
+
+                    expect(teamManager.propertyDefinitionsCache.get(teamId)?.peek('some_bool')).not.toEqual('Boolean')
+                })
             })
 
             it('identifies a numeric type', async () => {

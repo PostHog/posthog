@@ -1,7 +1,8 @@
 @import '~/vars';
 
 .properties-table-key {
-    min-width: 12rem;
+    min-width: 8rem;
+    max-width: 24rem;
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -21,6 +22,7 @@
     font-size: 0.625rem;
     font-weight: 500;
     text-transform: uppercase;
+    white-space: nowrap;
     cursor: default;
     &:not(:first-child) {
         margin-left: 0.25rem;

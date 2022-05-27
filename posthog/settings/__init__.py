@@ -24,13 +24,14 @@ from posthog.settings.async_migrations import *
 from posthog.settings.celery import *
 from posthog.settings.data_stores import *
 from posthog.settings.dynamic_settings import *
-from posthog.settings.ee import EE_AVAILABLE
+from posthog.settings.ee import *
 from posthog.settings.feature_flags import *
-from posthog.settings.logging import *
+from posthog.settings.logs import *
 from posthog.settings.sentry import *
 from posthog.settings.shell_plus import *
 from posthog.settings.service_requirements import *
 from posthog.settings.statsd import *
+from posthog.settings.object_storage import *
 
 from posthog.settings.web import *
 
@@ -41,7 +42,8 @@ CALCULATE_X_COHORTS_PARALLEL = get_from_env("CALCULATE_X_COHORTS_PARALLEL", 2, t
 
 # Instance configuration preferences
 # https://posthog.com/docs/self-host/configure/environment-variables
-SELF_CAPTURE = get_from_env("SELF_CAPTURE", DEBUG, type_cast=str_to_bool)
+DEMO = get_from_env("DEMO", False, type_cast=str_to_bool)  # Whether this is a managed demo environment
+SELF_CAPTURE = get_from_env("SELF_CAPTURE", DEBUG and not DEMO, type_cast=str_to_bool)
 debug_queries = get_from_env("DEBUG_QUERIES", False, type_cast=str_to_bool)
 disable_paid_fs = get_from_env("DISABLE_PAID_FEATURE_SHOWCASING", False, type_cast=str_to_bool)
 INSTANCE_PREFERENCES = {
@@ -66,7 +68,6 @@ PLUGINS_PREINSTALLED_URLS: List[str] = (
 )
 PLUGINS_CELERY_QUEUE = os.getenv("PLUGINS_CELERY_QUEUE", "posthog-plugins")
 PLUGINS_RELOAD_PUBSUB_CHANNEL = os.getenv("PLUGINS_RELOAD_PUBSUB_CHANNEL", "reload-plugins")
-PLUGINS_ALERT_CHANNEL = "plugins-alert"
 
 # Tokens used when installing plugins, for example to get the latest commit SHA or to download private repositories.
 # Used mainly to get around API limits and only if no ?private_token=TOKEN found in the plugin URL.
@@ -98,9 +99,6 @@ MULTI_ORG_ENABLED = get_from_env("MULTI_ORG_ENABLED", False, type_cast=str_to_bo
 # Overriden by posthog-cloud
 MULTI_TENANCY = False
 
-# Whether this is a managed demo environment
-DEMO = get_from_env("DEMO", False, type_cast=str_to_bool)
-
 CACHED_RESULTS_TTL = 7 * 24 * 60 * 60  # how long to keep cached results for
 TEMP_CACHE_RESULTS_TTL = 24 * 60 * 60  # how long to keep non dashboard cached results for
 SESSION_RECORDING_TTL = 30  # how long to keep session recording cache. Relatively short because cached result is used throughout the duration a session recording loads.
@@ -116,7 +114,4 @@ if "ee.apps.EnterpriseConfig" in INSTALLED_APPS:
     from ee.settings import *  # noqa: F401, F403
 
 # Lastly, cloud settings override and modify all
-from posthog.settings.cloud import *
-
-# TODO: Temporary
-EMAIL_REPORTS_ENABLED: bool = get_from_env("EMAIL_REPORTS_ENABLED", False, type_cast=str_to_bool)
+from posthog.settings.cloud import *  # noqa: F401

@@ -32,6 +32,7 @@ import { LemonTag } from 'lib/components/LemonTag/LemonTag'
 import { AuthorizedUrlsTable } from 'scenes/toolbar-launch/AuthorizedUrlsTable'
 import { GroupAnalytics } from 'scenes/project/Settings/GroupAnalytics'
 import { IconRefresh } from 'lib/components/icons'
+import { PersonDisplayNameProperties } from './PersonDisplayNameProperties'
 
 export const scene: SceneExport = {
     component: ProjectSettings,
@@ -164,7 +165,10 @@ export function ProjectSettings(): JSX.Element {
                 <h2 className="subtitle" id="timezone">
                     Timezone
                 </h2>
-                <p>Set the timezone for your project so that you can see relevant time conversions in PostHog.</p>
+                <p>
+                    Set the timezone for your project. All charts will be based on this timezone, including how PostHog
+                    buckets data in day/week/month intervals.
+                </p>
                 <TimezoneConfig />
                 <Divider />
                 <h2 className="subtitle" id="internal-users-filtering">
@@ -224,17 +228,21 @@ export function ProjectSettings(): JSX.Element {
                     </>
                 )}
                 <Divider />
-                <div id="permitted-domains" />
+                <div id="permitted-domains" /> {/** DEPRECATED: Remove after Jun 1, 2022 */}
+                <div id="authorized-urls" />
                 <h2 className="subtitle" id="urls">
-                    Permitted domains/URLs
+                    Authorized URLs
                 </h2>
                 <p>
-                    These are the domains and URLs where the <b>Toolbar will automatically launch</b> (if you're logged
-                    in) and where we'll <b>record sessions</b> (if <a href="#session-recording">enabled</a>).
+                    These are the URLs where the{' '}
+                    <b>
+                        <Link to={urls.toolbarLaunch()}>Toolbar</Link> will automatically launch
+                    </b>{' '}
+                    (if you're logged in) and where we'll <b>record sessions</b> (if <a href="#recordings">enabled</a>).
                 </p>
                 <p>
-                    <b>Wilcard subdomains are permitted</b>: <code>https://*.example.com</code> You cannot use wildcard
-                    top-level domains as this could present a security risk.
+                    <b>Domains and wilcard subdomains are allowed</b> (example: <code>https://*.example.com</code>).
+                    However, wildcarded top-level domains cannot be used (for security reasons).
                 </p>
                 <AuthorizedUrlsTable />
                 <Divider />
@@ -242,6 +250,11 @@ export function ProjectSettings(): JSX.Element {
                     Data attributes
                 </h2>
                 <DataAttributes />
+                <Divider />
+                <h2 className="subtitle" id="person-display-name">
+                    Person Display Name
+                </h2>
+                <PersonDisplayNameProperties />
                 <Divider />
                 <h2 className="subtitle" id="webhook">
                     Webhook integration
@@ -256,7 +269,6 @@ export function ProjectSettings(): JSX.Element {
                 <h2 className="subtitle">PostHog Toolbar</h2>
                 <ToolbarSettings />
                 <Divider />
-                <div id="session-recording" />
                 <h2 id="recordings" className="subtitle" style={{ display: 'flex', alignItems: 'center' }}>
                     Recordings
                 </h2>
@@ -274,7 +286,7 @@ export function ProjectSettings(): JSX.Element {
                         posthog-js
                     </a>{' '}
                     <b>directly</b> installed, and the domains you wish to record must be set in{' '}
-                    <a href="#permitted-domains">Permitted domains/URLs</a>. For more details, check out our{' '}
+                    <a href="#authorized-urls">Authorized URLs</a>. For more details, check out our{' '}
                     <a
                         href="https://posthog.com/docs/user-guides/recordings?utm_campaign=session-recording&utm_medium=in-product"
                         target="_blank"

@@ -6,6 +6,8 @@ from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
+from ee.clickhouse.queries.session_recordings.clickhouse_session_recording import ClickhouseSessionRecording
+from ee.clickhouse.queries.session_recordings.clickhouse_session_recording_list import ClickhouseSessionRecordingList
 from posthog.api.person import PersonSerializer
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.models import Filter, PersonDistinctId
@@ -13,8 +15,6 @@ from posthog.models.filters.session_recordings_filter import SessionRecordingsFi
 from posthog.models.person import Person
 from posthog.models.session_recording_event import SessionRecordingViewed
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
-from posthog.queries.session_recordings.session_recording import SessionRecording
-from posthog.queries.session_recordings.session_recording_list import SessionRecordingList
 from posthog.utils import format_query_params_absolute_url
 
 DEFAULT_RECORDING_CHUNK_LIMIT = 20  # Should be tuned to find the best value
@@ -50,15 +50,15 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
 
     def _get_session_recording_list(self, filter):
-        return SessionRecordingList(filter=filter, team_id=self.team.pk).run()
+        return ClickhouseSessionRecordingList(filter=filter, team=self.team).run()
 
     def _get_session_recording_snapshots(self, request, session_recording_id, limit, offset):
-        return SessionRecording(
+        return ClickhouseSessionRecording(
             request=request, team=self.team, session_recording_id=session_recording_id
         ).get_snapshots(limit, offset)
 
     def _get_session_recording_meta_data(self, request, session_recording_id):
-        return SessionRecording(
+        return ClickhouseSessionRecording(
             request=request, team=self.team, session_recording_id=session_recording_id
         ).get_metadata()
 

@@ -3,7 +3,7 @@
 #
 # Note: for 'posthog/posthog-cloud' remember to update 'prod.web.Dockerfile' as appropriate
 #
-FROM python:3.8-alpine3.14
+FROM python:3.8.12-alpine3.14
 
 ENV PYTHONUNBUFFERED 1
 
@@ -23,31 +23,15 @@ RUN apk --update --no-cache add \
     "libxslt~=1.1" \
     "libxslt-dev~=1.1" \
     "make~=4.3" \
-    "nodejs~=14" \
+    "nodejs-current~=16" \
     "npm~=7" \
     && npm install -g yarn@1
 
 # Install SAML dependencies
-#
-# Notes:
-#
-# - please add in this section runtime dependences only.
-#   If you temporary need a package to build a Python or npm
-#   dependency take a look at the sections below.
-#
-# - we would like to include those dependencies + 'python3-saml'
-#   directly in the requirements.txt file but due to our CI/CD
-#   setup this is currently not possible. More context at:
-#   https://github.com/PostHog/posthog/pull/5870
-#   https://github.com/PostHog/posthog/pull/6575#discussion_r733457836
-#   https://github.com/PostHog/posthog/pull/6607
-#
 RUN apk --update --no-cache add \
     "libxml2-dev~=2.9" \
     "xmlsec~=1.2" \
-    "xmlsec-dev~=1.2" \
-    && \
-    pip install python3-saml==1.12.0 --compile --no-cache-dir
+    "xmlsec-dev~=1.2"
 
 # Compile and install Python dependencies.
 #

@@ -7,13 +7,16 @@ from posthog.test.base import APIBaseTest
 
 class TestOrganizationMembersAPI(APIBaseTest):
     def test_list_organization_members(self):
+        User.objects.create_and_join(self.organization, "1@posthog.com", None)
+        User.objects.create_and_join(self.organization, "2@posthog.com", None, is_active=False)
 
         response = self.client.get("/api/organizations/@current/members/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
         response_data = response.json()["results"]
-        self.assertEqual(len(response_data), self.organization.members.count())
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
         instance = OrganizationMembership.objects.get(id=response_data[0]["id"])
+        # self.user + first created user should be counted, second created user shouldn't as they're deactivated
+        self.assertEqual(len(response_data), 2)
         self.assertEqual(response_data[0]["user"]["uuid"], str(instance.user.uuid))
         self.assertEqual(response_data[0]["user"]["first_name"], instance.user.first_name)
 
@@ -139,7 +142,7 @@ class TestOrganizationMembersAPI(APIBaseTest):
     def test_pass_ownership(self):
         user = User.objects.create_user("test@x.com", None, "X")
         membership: OrganizationMembership = OrganizationMembership.objects.create(
-            user=user, organization=self.organization
+            user=user, organization=self.organization,
         )
         self.organization_membership.level = OrganizationMembership.Level.OWNER
         self.organization_membership.save()
@@ -153,7 +156,7 @@ class TestOrganizationMembersAPI(APIBaseTest):
         self.assertEqual(membership.level, OrganizationMembership.Level.OWNER)
         self.assertEqual(
             OrganizationMembership.objects.filter(
-                organization=self.organization, level=OrganizationMembership.Level.OWNER
+                organization=self.organization, level=OrganizationMembership.Level.OWNER,
             ).count(),
             1,
         )
@@ -161,7 +164,7 @@ class TestOrganizationMembersAPI(APIBaseTest):
     def test_pass_ownership_only_if_owner(self):
         user = User.objects.create_user("test@x.com", None, "X")
         membership: OrganizationMembership = OrganizationMembership.objects.create(
-            user=user, organization=self.organization
+            user=user, organization=self.organization,
         )
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()

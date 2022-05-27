@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-python manage.py migrate --check
+./bin/migrate-check
 
 gunicorn posthog.wsgi \
     --config gunicorn.config.py \

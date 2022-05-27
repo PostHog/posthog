@@ -17,6 +17,21 @@ class ClickhouseFunnelTrendsActors(ClickhouseFunnelTrends, ActorBaseQuery):
     def aggregation_group_type_index(self):
         return self._filter.aggregation_group_type_index
 
+    def _get_funnel_person_step_events(self):
+        if self._filter.include_recordings:
+            # Get the event that should be used to match the recording
+            funnel_to_step = self._filter.funnel_to_step
+            is_drop_off = self._filter.drop_off
+
+            if funnel_to_step is None or is_drop_off:
+                # If there is no funnel_to_step or if we are looking for drop off, we need to get the users final event
+                return ", final_matching_events as matching_events"
+            else:
+                # Otherwise, we return the event of the funnel_to_step
+                self.params.update({"matching_events_step_num": funnel_to_step})
+                return ", step_%(matching_events_step_num)s_matching_events as matching_events"
+        return ""
+
     def actor_query(self, limit_actors: Optional[bool] = True):
         drop_off = self._filter.drop_off
         if drop_off is None:
@@ -40,6 +55,7 @@ class ClickhouseFunnelTrendsActors(ClickhouseFunnelTrends, ActorBaseQuery):
             FUNNEL_PERSONS_BY_STEP_SQL.format(
                 steps_per_person_query=step_counts_query,
                 persons_steps=did_not_reach_to_step_count_condition if drop_off else reached_to_step_count_condition,
+                matching_events_select_statement=self._get_funnel_person_step_events(),
                 extra_fields="",
                 limit="LIMIT %(limit)s" if limit_actors else "",
                 offset="OFFSET %(offset)s" if limit_actors else "",

@@ -1,19 +1,15 @@
 import { Properties } from '@posthog/plugin-scaffold'
-import { KafkaMessage, ProducerRecord } from 'kafkajs'
 import { DateTime } from 'luxon'
-import { PoolClient, QueryResult } from 'pg'
 
 import {
     Group,
     GroupTypeIndex,
-    Person,
     PropertiesLastOperation,
     PropertiesLastUpdatedAt,
     PropertyUpdateOperation,
     TeamId,
 } from '../../types'
 import { DB } from '../../utils/db/db'
-import { generateKafkaPersonUpdateMessage } from '../../utils/db/utils'
 import { RaceConditionError } from '../../utils/utils'
 
 interface PropertiesUpdate {
@@ -21,103 +17,6 @@ interface PropertiesUpdate {
     properties: Properties
     properties_last_updated_at: PropertiesLastUpdatedAt
     properties_last_operation: PropertiesLastOperation
-}
-
-export async function updatePersonProperties(
-    db: DB,
-    teamId: TeamId,
-    distinctId: string,
-    properties: Properties,
-    propertiesOnce: Properties,
-    timestamp: DateTime
-): Promise<void> {
-    if (Object.keys(properties).length === 0 && Object.keys(propertiesOnce).length === 0) {
-        return
-    }
-
-    const [propertiesUpdate, person] = await db.postgresTransaction(async (client) => {
-        const person = await db.fetchPerson(teamId, distinctId, client, { forUpdate: true })
-        if (!person) {
-            throw new Error(
-                `Could not find person with distinct id "${distinctId}" in team "${teamId}" to update props`
-            )
-        }
-
-        const propertiesUpdate: PropertiesUpdate = calculateUpdate(
-            person.properties,
-            properties,
-            propertiesOnce,
-            person.properties_last_updated_at,
-            person.properties_last_operation || {},
-            timestamp
-        )
-        if (propertiesUpdate.updated || timestamp < person.created_at) {
-            person.version = await db.updatePerson(
-                client,
-                person.id,
-                DateTime.min(timestamp, person.created_at),
-                propertiesUpdate.properties,
-                propertiesUpdate.properties_last_updated_at,
-                propertiesUpdate.properties_last_operation
-            )
-        }
-        return [propertiesUpdate, person]
-    })
-
-    if (db.kafkaProducer && propertiesUpdate.updated) {
-        const kafkaMessage = generateKafkaPersonUpdateMessage(
-            timestamp,
-            propertiesUpdate.properties,
-            person.team_id,
-            person.is_identified,
-            person.uuid,
-            person.version
-        )
-        await db.kafkaProducer.queueMessage(kafkaMessage)
-    }
-}
-
-export async function mergePersonProperties(
-    db: DB,
-    client: PoolClient,
-    primaryPerson: Person,
-    secondaryPerson: Person,
-    timestamp: DateTime
-): Promise<ProducerRecord[]> {
-    // Assuming we have locked both person's rows for update
-    const propertiesUpdate: PropertiesUpdate = calculateUpdateForMerge(
-        primaryPerson.properties,
-        primaryPerson.properties_last_updated_at,
-        primaryPerson.properties_last_operation || {},
-        secondaryPerson.properties,
-        secondaryPerson.properties_last_updated_at,
-        secondaryPerson.properties_last_operation || {}
-    )
-
-    if (propertiesUpdate.updated) {
-        const version = await db.updatePerson(
-            client,
-            primaryPerson.id,
-            timestamp,
-            propertiesUpdate.properties,
-            propertiesUpdate.properties_last_updated_at,
-            propertiesUpdate.properties_last_operation
-        )
-
-        if (db.kafkaProducer && propertiesUpdate.updated) {
-            return [
-                generateKafkaPersonUpdateMessage(
-                    timestamp,
-                    propertiesUpdate.properties,
-                    primaryPerson.team_id,
-                    primaryPerson.is_identified || secondaryPerson.is_identified,
-                    primaryPerson.uuid,
-                    version
-                ),
-            ]
-        }
-    }
-    return []
 }
 
 export async function upsertGroup(
@@ -225,7 +124,7 @@ export function shouldUpdateProperty(
 export function calculateUpdateSingleProperty(
     result: PropertiesUpdate,
     key: string,
-    value: any,
+    value: any, // eslint-disable-line @typescript-eslint/explicit-module-boundary-types
     operation: PropertyUpdateOperation,
     timestamp: DateTime,
     currentPropertiesLastOperation: PropertiesLastOperation,

@@ -1,7 +1,7 @@
 from typing import Dict, List
+from uuid import uuid4
 
-from posthog.models import Action, Event, Person, PersonDistinctId, Team
-from posthog.models.session_recording_event import SessionRecordingEvent
+from posthog.models import Person, PersonDistinctId, Team
 from posthog.models.utils import UUIDT
 
 
@@ -26,7 +26,6 @@ class DataGenerator:
         if dashboards:
             self.create_actions_dashboards()
         self.team.save()
-        _recalculate(team=self.team)
 
     def create_people(self):
         self.people = [self.make_person(i) for i in range(self.n_people)]
@@ -66,10 +65,13 @@ class DataGenerator:
         pass
 
     def bulk_import_events(self):
-        from ee.clickhouse.demo import bulk_create_events, bulk_create_session_recording_events
+        from ee.clickhouse.models.event import create_event
+        from ee.clickhouse.models.session_recording_event import create_session_recording_event
 
-        bulk_create_events(self.events, team=self.team)
-        bulk_create_session_recording_events(self.snapshots, team_id=self.team.pk)
+        for event_data in self.events:
+            create_event(**event_data, team=self.team, event_uuid=uuid4())
+        for data in self.snapshots:
+            create_session_recording_event(**data, team_id=self.team.pk, uuid=uuid4())
 
     def add_if_not_contained(self, array, value):
         if value not in array:
@@ -77,9 +79,3 @@ class DataGenerator:
 
     def add_event(self, **kw):
         self.events.append(kw)
-
-
-def _recalculate(team: Team) -> None:
-    actions = Action.objects.filter(team=team)
-    for action in actions:
-        action.calculate_events()

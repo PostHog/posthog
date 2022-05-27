@@ -1,13 +1,10 @@
-import React, { useState } from 'react'
+import React from 'react'
 import { useValues, useActions } from 'kea'
-import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { pathsLogic } from 'scenes/paths/pathsLogic'
 import { Button, Checkbox, Col, Row, Select } from 'antd'
 import { InfoCircleOutlined, BarChartOutlined } from '@ant-design/icons'
-import { TestAccountFilter } from '../../TestAccountFilter'
-import { PathType, InsightType, FunnelPathType, AvailableFeature } from '~/types'
+import { PathType, FunnelPathType, AvailableFeature, PropertyGroupFilter } from '~/types'
 import './PathTab.scss'
-import { GlobalFiltersTitle } from '../../common'
 import useBreakpoint from 'antd/lib/grid/hooks/useBreakpoint'
 
 import { PathItemSelector } from 'lib/components/PropertyFilters/components/PathItemSelector'
@@ -15,29 +12,21 @@ import { PathItemFilters } from 'lib/components/PropertyFilters/PathItemFilters'
 import { CloseButton } from 'lib/components/CloseButton'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { Tooltip } from 'lib/components/Tooltip'
-import { PersonsModal } from 'scenes/trends/PersonsModal'
-import { personsModalLogic } from 'scenes/trends/personsModalLogic'
 import { combineUrl, encodeParams, router } from 'kea-router'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { userLogic } from 'scenes/userLogic'
 import { PayCard } from 'lib/components/PayCard/PayCard'
-import { preflightLogic } from 'scenes/PreflightCheck/logic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { groupsModel } from '~/models/groupsModel'
 import { PathAdvanded } from './PathAdvanced'
-import clsx from 'clsx'
-import { IconArrowDropDown } from 'lib/components/icons'
+import { PropertyGroupFilters } from 'lib/components/PropertyGroupFilters/PropertyGroupFilters'
+import { convertPropertiesToPropertyGroup } from 'lib/utils'
 
 export function PathTab(): JSX.Element {
     const { insightProps, allEventNames } = useValues(insightLogic)
     const { filter, wildcards } = useValues(pathsLogic(insightProps))
     const { setFilter, updateExclusions } = useActions(pathsLogic(insightProps))
-    const { featureFlags } = useValues(featureFlagLogic)
-    const [advancedOptionsShown, setAdvancedOptionShown] = useState(false) // TODO: Move to kea logic if option is kept
 
-    const { showingPeople, cohortModalVisible } = useValues(personsModalLogic)
-    const { setCohortModalVisible } = useActions(personsModalLogic)
     const { preflight } = useValues(preflightLogic)
     const { user } = useValues(userLogic)
     const { groupsTaxonomicTypes } = useValues(groupsModel)
@@ -84,6 +73,13 @@ export function PathTab(): JSX.Element {
             })
         }
     }
+
+    const disablePageviewSelector =
+        filter.include_event_types?.includes(PathType.PageView) && filter.include_event_types?.length === 1
+    const disableScreenviewSelector =
+        filter.include_event_types?.includes(PathType.Screen) && filter.include_event_types?.length === 1
+    const disableCustomEventSelector =
+        filter.include_event_types?.includes(PathType.CustomEvent) && filter.include_event_types?.length === 1
 
     function _getStepNameAtIndex(filters: Record<string, any>, index: number): string {
         const targetEntity =
@@ -151,15 +147,6 @@ export function PathTab(): JSX.Element {
 
     return (
         <>
-            <PersonsModal
-                visible={showingPeople && !cohortModalVisible}
-                view={InsightType.PATHS}
-                filters={filter}
-                onSaveCohort={() => {
-                    setCohortModalVisible(true)
-                }}
-                aggregationTargetLabel={{ singular: 'user', plural: 'users' }}
-            />
             <Row>
                 <Col span={12}>
                     <Col className="event-types" style={{ paddingBottom: 16 }}>
@@ -172,10 +159,11 @@ export function PathTab(): JSX.Element {
                                 sm={20}
                                 xl={7}
                                 className="tab-btn left ant-btn"
-                                onClick={() => onClickPathtype(PathType.PageView)}
+                                onClick={() => !disablePageviewSelector && onClickPathtype(PathType.PageView)}
                             >
                                 <Checkbox
                                     checked={filter.include_event_types?.includes(PathType.PageView)}
+                                    disabled={disablePageviewSelector}
                                     style={{
                                         pointerEvents: 'none',
                                     }}
@@ -188,10 +176,11 @@ export function PathTab(): JSX.Element {
                                 sm={20}
                                 xl={7}
                                 className="tab-btn center ant-btn"
-                                onClick={() => onClickPathtype(PathType.Screen)}
+                                onClick={() => !disableScreenviewSelector && onClickPathtype(PathType.Screen)}
                             >
                                 <Checkbox
                                     checked={filter.include_event_types?.includes(PathType.Screen)}
+                                    disabled={disableScreenviewSelector}
                                     style={{
                                         pointerEvents: 'none',
                                     }}
@@ -204,10 +193,11 @@ export function PathTab(): JSX.Element {
                                 sm={20}
                                 xl={7}
                                 className="tab-btn right ant-btn"
-                                onClick={() => onClickPathtype(PathType.CustomEvent)}
+                                onClick={() => !disableCustomEventSelector && onClickPathtype(PathType.CustomEvent)}
                             >
                                 <Checkbox
                                     checked={filter.include_event_types?.includes(PathType.CustomEvent)}
+                                    disabled={disableCustomEventSelector}
                                     style={{
                                         pointerEvents: 'none',
                                     }}
@@ -382,42 +372,13 @@ export function PathTab(): JSX.Element {
                                 </Row>
                             </>
                         )}
-                        {['control', 'direct'].includes(
-                            featureFlags[FEATURE_FLAGS.PATHS_ADVANCED_EXPERIMENT] as string
-                        ) &&
-                            hasAdvancedPaths && (
-                                <>
-                                    <hr />
-                                    <h4
-                                        className="secondary"
-                                        style={{ display: 'flex', cursor: 'pointer', alignItems: 'center' }}
-                                        onClick={() => setAdvancedOptionShown(!advancedOptionsShown)}
-                                    >
-                                        <span style={{ flexGrow: 1 }}>Advanced options</span>
-                                        {featureFlags[FEATURE_FLAGS.PATHS_ADVANCED_EXPERIMENT] === 'control' && (
-                                            <div
-                                                className={clsx(
-                                                    'advanced-options-dropdown',
-                                                    advancedOptionsShown && 'expanded'
-                                                )}
-                                            >
-                                                <IconArrowDropDown />
-                                            </div>
-                                        )}
-                                    </h4>
-                                    {featureFlags[FEATURE_FLAGS.PATHS_ADVANCED_EXPERIMENT] === 'direct' ||
-                                    advancedOptionsShown ? (
-                                        <PathAdvanded />
-                                    ) : (
-                                        <div
-                                            className="text-muted-alt cursor-pointer"
-                                            onClick={() => setAdvancedOptionShown(!advancedOptionsShown)}
-                                        >
-                                            Adjust maximum number of paths, path density or path cleaning options.
-                                        </div>
-                                    )}
-                                </>
-                            )}
+                        {hasAdvancedPaths && (
+                            <>
+                                <hr />
+                                <h4 className="secondary">Advanced options</h4>
+                                <PathAdvanded />
+                            </>
+                        )}
                         {!hasAdvancedPaths && !preflight?.instance_preferences?.disable_paid_fs && (
                             <Row align="middle">
                                 <Col span={24}>
@@ -433,11 +394,11 @@ export function PathTab(): JSX.Element {
                     </Col>
                 </Col>
                 <Col span={12} style={{ marginTop: isSmallScreen ? '2rem' : 0, paddingLeft: 32 }}>
-                    <GlobalFiltersTitle title={'Filters'} unit="actions/events" />
-                    <PropertyFilters
-                        propertyFilters={filter.properties}
-                        onChange={(properties) => setFilter({ properties })}
-                        pageKey="insight-path"
+                    <PropertyGroupFilters
+                        value={convertPropertiesToPropertyGroup(filter.properties)}
+                        onChange={(properties: PropertyGroupFilter) => {
+                            setFilter({ properties })
+                        }}
                         taxonomicGroupTypes={[
                             TaxonomicFilterGroupType.EventProperties,
                             TaxonomicFilterGroupType.PersonProperties,
@@ -445,9 +406,11 @@ export function PathTab(): JSX.Element {
                             TaxonomicFilterGroupType.Cohorts,
                             TaxonomicFilterGroupType.Elements,
                         ]}
+                        pageKey="insight-path"
                         eventNames={allEventNames}
+                        filters={filter}
+                        setTestFilters={(testFilters) => setFilter(testFilters)}
                     />
-                    <TestAccountFilter filters={filter} onChange={setFilter} />
                     {hasAdvancedPaths && (
                         <>
                             <hr />

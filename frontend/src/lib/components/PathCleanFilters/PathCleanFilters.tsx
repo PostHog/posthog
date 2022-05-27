@@ -18,7 +18,6 @@ interface PropertyFiltersProps {
     taxonomicPopoverPlacement?: Placement
     style?: CSSProperties
     taxonomicGroupTypes?: TaxonomicFilterGroupType[]
-    showNestedArrow?: boolean
 }
 
 export function PathCleanFilters({
@@ -31,7 +30,6 @@ export function PathCleanFilters({
     popoverPlacement = null,
     taxonomicPopoverPlacement = undefined,
     style = {},
-    showNestedArrow = false,
 }: PropertyFiltersProps): JSX.Element {
     return (
         <div className="mb" style={style}>
@@ -49,7 +47,6 @@ export function PathCleanFilters({
                             disablePopover={disablePopover}
                             popoverPlacement={popoverPlacement}
                             taxonomicPopoverPlacement={taxonomicPopoverPlacement}
-                            showNestedArrow={showNestedArrow}
                             label={'Add rule'}
                             onRemove={onRemove}
                             filterComponent={(onComplete) => {

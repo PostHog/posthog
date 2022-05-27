@@ -1,17 +1,19 @@
 import { kea } from 'kea'
 import { router } from 'kea-router'
 import api from 'lib/api'
-import { errorToast, objectDiffShallow, objectsEqual, toParams } from 'lib/utils'
+import { objectDiffShallow, objectsEqual, toParams } from 'lib/utils'
 import { InsightModel, LayoutView, SavedInsightsTabs } from '~/types'
-import { savedInsightsLogicType } from './savedInsightsLogicType'
+import type { savedInsightsLogicType } from './savedInsightsLogicType'
 import { dayjs } from 'lib/dayjs'
 import { insightsModel } from '~/models/insightsModel'
 import { teamLogic } from '../teamLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { Sorting } from 'lib/components/LemonTable'
 import { urls } from 'scenes/urls'
+import { lemonToast } from 'lib/components/lemonToast'
+import { PaginationManual } from 'lib/components/PaginationControl'
 
-export const INSIGHTS_PER_PAGE = 20
+export const INSIGHTS_PER_PAGE = 30
 
 export interface InsightsResult {
     results: InsightModel[]
@@ -37,7 +39,7 @@ export interface SavedInsightFilters {
 function cleanFilters(values: Partial<SavedInsightFilters>): SavedInsightFilters {
     return {
         layoutView: values.layoutView || LayoutView.List,
-        order: values.order || '-updated_at',
+        order: values.order || '-last_modified_at', // Sync with `sorting` selector
         tab: values.tab || SavedInsightsTabs.All,
         search: String(values.search || ''),
         insightType: values.insightType || 'All types',
@@ -48,7 +50,7 @@ function cleanFilters(values: Partial<SavedInsightFilters>): SavedInsightFilters
     }
 }
 
-export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult, SavedInsightFilters>>({
+export const savedInsightsLogic = kea<savedInsightsLogicType>({
     path: ['scenes', 'saved-insights', 'savedInsightsLogic'],
     connect: {
         values: [teamLogic, ['currentTeamId']],
@@ -56,7 +58,6 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult, Sav
     },
     actions: {
         setSavedInsightsFilters: (filters: Partial<SavedInsightFilters>, merge = true) => ({ filters, merge }),
-        addGraph: (type: string) => ({ type }),
         updateFavoritedInsight: (insight: InsightModel, favorited: boolean) => ({ insight, favorited }),
         renameInsight: (insight: InsightModel) => ({ insight }),
         duplicateInsight: (insight: InsightModel) => ({ insight }),
@@ -72,7 +73,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult, Sav
                 const { filters } = values
                 const params = values.paramsFromFilters
                 const response = await api.get(
-                    `api/projects/${teamLogic.values.currentTeamId}/insights/?${toParams(params)}`
+                    `api/projects/${teamLogic.values.currentTeamId}/insights/?${toParams({ ...params, basic: true })}`
                 )
 
                 if (filters.search && String(filters.search).match(/^[0-9]+$/)) {
@@ -121,18 +122,16 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult, Sav
             null as Partial<SavedInsightFilters> | null,
             {
                 setSavedInsightsFilters: (state, { filters, merge }) =>
-                    cleanFilters(
-                        merge
-                            ? {
-                                  ...(state || {}),
-                                  ...filters,
-                              }
-                            : filters
-                    ),
+                    cleanFilters({
+                        ...(merge ? state || {} : {}),
+                        ...filters,
+                        // Reset page on filter change EXCEPT if it's page or view that's being updated
+                        ...('page' in filters || 'layoutView' in filters ? {} : { page: 1 }),
+                    }),
             },
         ],
     },
-    selectors: {
+    selectors: ({ actions }) => ({
         filters: [(s) => [s.rawFilters], (rawFilters): SavedInsightFilters => cleanFilters(rawFilters || {})],
         count: [(s) => [s.insights], (insights) => insights.count],
         usingFilters: [
@@ -143,11 +142,15 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult, Sav
             (s) => [s.filters],
             (filters): Sorting | null => {
                 if (!filters.order) {
-                    return null
+                    // Sync with `cleanFilters` function
+                    return {
+                        columnKey: 'last_modified_at',
+                        order: -1,
+                    }
                 }
                 return filters.order.startsWith('-')
                     ? {
-                          columnKey: filters.order.substr(1),
+                          columnKey: filters.order.slice(1),
                           order: -1,
                       }
                     : {
@@ -177,11 +180,27 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult, Sav
                     }),
             }),
         ],
-    },
+        pagination: [
+            (s) => [s.filters, s.count],
+            (filters, count): PaginationManual => {
+                return {
+                    controlled: true,
+                    pageSize: INSIGHTS_PER_PAGE,
+                    currentPage: filters.page,
+                    entryCount: count,
+                    onBackward: () =>
+                        actions.setSavedInsightsFilters({
+                            page: filters.page - 1,
+                        }),
+                    onForward: () =>
+                        actions.setSavedInsightsFilters({
+                            page: filters.page + 1,
+                        }),
+                }
+            },
+        ],
+    }),
     listeners: ({ actions, values, selectors }) => ({
-        addGraph: ({ type }) => {
-            router.actions.push(`/insights?insight=${encodeURIComponent(String(type).toUpperCase())}`)
-        },
         setSavedInsightsFilters: async ({ merge }, breakpoint, __, previousState) => {
             const oldFilters = selectors.filters(previousState)
             const firstLoad = selectors.rawFilters(previousState) === null
@@ -215,7 +234,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult, Sav
             insightsModel.actions.renameInsight(insight)
         },
         duplicateInsight: async ({ insight }) => {
-            await api.create(`api/projects/${values.currentTeamId}/insights`, insight)
+            await api.create(`api/projects/${teamLogic.values.currentTeamId}/insights`, insight)
             actions.loadInsights()
         },
         setDates: () => {
@@ -251,25 +270,17 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult, Sav
         [urls.savedInsights()]: async (_, searchParams, hashParams) => {
             if (hashParams.fromItem && String(hashParams.fromItem).match(/^[0-9]+$/)) {
                 // `fromItem` for legacy /insights url redirect support
-                const insightId = parseInt(hashParams.fromItem)
+                const insightNumericId = parseInt(hashParams.fromItem)
                 try {
                     const { short_id }: InsightModel = await api.get(
-                        `api/projects/${teamLogic.values.currentTeamId}/insights/${insightId}`
+                        `api/projects/${teamLogic.values.currentTeamId}/insights/${insightNumericId}`
                     )
                     if (!short_id) {
                         throw new Error('Could not find short_id')
                     }
-                    router.actions.replace(
-                        hashParams.edit
-                            ? urls.insightEdit(short_id, searchParams)
-                            : urls.insightView(short_id, searchParams)
-                    )
+                    router.actions.replace(hashParams.edit ? urls.insightEdit(short_id) : urls.insightView(short_id))
                 } catch (e) {
-                    errorToast(
-                        'Could not find insight',
-                        `The insight with the id "${insightId}" could not be retrieved.`,
-                        ' ' // adding a " " removes "Unknown Exception" from the toast
-                    )
+                    lemonToast.error(`Insight ID ${insightNumericId} couldn't be retrieved`)
                     router.actions.push(urls.savedInsights())
                 }
                 return

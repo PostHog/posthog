@@ -1,10 +1,9 @@
-@import '~/vars';
-
 .LemonRow {
     transition: background-color 200ms ease, color 200ms ease, border 200ms ease, opacity 200ms ease;
     display: flex;
     flex-direction: column;
-    align-items: start;
+    flex-shrink: 0;
+    align-items: flex-start;
     justify-content: center;
     min-height: 2.5rem;
     padding: 0.25rem 1rem;
@@ -14,17 +13,18 @@
     font-size: 0.875rem;
     text-align: left;
     line-height: 1.25rem;
+
     &.LemonRow--status-highlighted {
-        background: rgba($primary, 0.1);
+        background: var(--primary-bg-hover);
         color: var(--text-default);
         font-weight: 600;
+
         .LemonRow__icon {
             color: var(--primary);
         }
     }
 
     &.LemonRow--status-danger {
-        color: var(--danger);
         .LemonRow__icon {
             color: var(--danger);
         }
@@ -41,10 +41,19 @@
             color: var(--success);
         }
     }
+
+    &.LemonRow--status-muted {
+        background: var(--bg-side);
+    }
+
+    &.LemonRow--disabled {
+        opacity: var(--opacity-disabled);
+    }
 }
 
 .LemonRow__main-area {
     width: 100%;
+    height: 100%;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -55,6 +64,7 @@
     flex-direction: column;
     font-size: 0.8125rem;
     margin-left: 2rem;
+    padding-bottom: 0.125rem;
 }
 
 .LemonRow--outlined {
@@ -65,10 +75,12 @@
     width: 100%;
     padding-left: 0.5rem;
     padding-right: 0.5rem;
+
     .LemonRow__icon:not(:first-child):last-child {
         margin-right: 0;
     }
-    .LemonRow__main-area {
+
+    > .LemonRow__main-area {
         justify-content: start;
     }
 }
@@ -77,6 +89,7 @@
     .LemonRow__main-area {
         justify-content: center !important;
     }
+
     .LemonRow__content {
         flex-grow: 0;
     }
@@ -86,17 +99,38 @@
     display: block;
     min-height: 0;
     height: 1.5rem;
+    width: 1.5rem;
     padding: 0;
 }
 
-.LemonRow--compact {
+.LemonRow--large {
+    min-height: 3.5rem;
+    padding: 0.5rem 1rem;
+    font-size: 1rem;
+
+    &.LemonRow--symbolic {
+        min-height: 0;
+        height: 1.75rem;
+        width: 1.75rem;
+        padding: 0;
+    }
+
+    .LemonRow__icon {
+        font-size: 1.75rem;
+    }
+}
+
+.LemonRow--small {
     min-height: 2rem;
     padding: 0.125rem 0.5rem;
+
     &.LemonRow--symbolic {
         min-height: 0;
         height: 1.25rem;
+        width: 1.25rem;
         padding: 0;
     }
+
     .LemonRow__icon {
         font-size: 1.25rem;
     }
@@ -111,13 +145,15 @@
     justify-content: center;
     font-size: 1.5rem;
     color: var(--muted-alt);
-    &:not(:first-child):last-child {
-        margin-right: -0.5rem;
+
+    &.LemonRow__icon--relaxed-width {
+        width: auto;
     }
 }
 
 .LemonRow__content {
     flex-grow: 1;
+    min-width: 0;
     display: flex;
     align-items: center;
 }
@@ -126,25 +162,5 @@
 .LemonRow__icon {
     &:not(:first-child) {
         margin-left: 0.5rem;
-    }
-}
-
-.LemonSpacer {
-    width: 100%;
-    height: 1px;
-    background: var(--border);
-    margin: 0.5rem 0;
-    flex-shrink: 0;
-    &--large {
-        margin: 1rem 0;
-    }
-    &--vertical {
-        width: 1px;
-        height: auto;
-        margin: 0.5rem;
-        align-self: stretch;
-        &--large {
-            margin: 0.5rem 1rem;
-        }
     }
 }

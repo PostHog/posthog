@@ -1,11 +1,10 @@
-from typing import Any, Dict, List, NamedTuple, Tuple, Union
+from typing import Any, Dict, List, NamedTuple, Optional, Tuple, Union
 from urllib.parse import urlencode
 
-from ee.clickhouse.client import substitute_params, sync_execute
 from ee.clickhouse.queries.retention.retention_event_query import RetentionEventsQuery
 from ee.clickhouse.sql.retention.retention import RETENTION_BREAKDOWN_SQL
+from posthog.client import substitute_params, sync_execute
 from posthog.constants import RETENTION_FIRST_TIME, RetentionQueryType
-from posthog.models.filters import RetentionFilter
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.team import Team
 
@@ -142,11 +141,18 @@ class ClickhouseRetention:
         return ClickhouseRetentionActorsByPeriod(team=team, filter=filter).actors()
 
 
-def build_returning_event_query(filter: RetentionFilter, team: Team):
+def build_returning_event_query(
+    filter: RetentionFilter,
+    team: Team,
+    aggregate_users_by_distinct_id: Optional[bool] = None,
+    using_person_on_events: bool = False,
+):
     returning_event_query_templated, returning_event_params = RetentionEventsQuery(
         filter=filter.with_data({"breakdowns": []}),  # Avoid pulling in breakdown values from returning event query
-        team_id=team.pk,
+        team=team,
         event_query_type=RetentionQueryType.RETURNING,
+        aggregate_users_by_distinct_id=aggregate_users_by_distinct_id,
+        using_person_on_events=using_person_on_events,
     ).get_query()
 
     query = substitute_params(returning_event_query_templated, returning_event_params)
@@ -154,15 +160,22 @@ def build_returning_event_query(filter: RetentionFilter, team: Team):
     return query
 
 
-def build_target_event_query(filter: RetentionFilter, team: Team):
+def build_target_event_query(
+    filter: RetentionFilter,
+    team: Team,
+    aggregate_users_by_distinct_id: Optional[bool] = None,
+    using_person_on_events: bool = False,
+):
     target_event_query_templated, target_event_params = RetentionEventsQuery(
         filter=filter,
-        team_id=team.pk,
+        team=team,
         event_query_type=(
             RetentionQueryType.TARGET_FIRST_TIME
             if (filter.retention_type == RETENTION_FIRST_TIME)
             else RetentionQueryType.TARGET
         ),
+        aggregate_users_by_distinct_id=aggregate_users_by_distinct_id,
+        using_person_on_events=using_person_on_events,
     ).get_query()
 
     query = substitute_params(target_event_query_templated, target_event_params)

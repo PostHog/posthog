@@ -9,11 +9,12 @@ export enum Scene {
     Dashboards = 'Dashboards',
     Dashboard = 'Dashboard',
     Insight = 'Insight',
-    InsightRouter = 'InsightRouter',
     Cohorts = 'Cohorts',
+    Cohort = 'Cohort',
     Events = 'Events',
-    EventStats = 'EventsVolumeTable',
-    EventPropertyStats = 'PropertiesVolumeTable',
+    DataManagement = 'DataManagement',
+    EventDefinitions = 'EventDefinitionsTable',
+    EventPropertyDefinitions = 'EventPropertyDefinitionsTable',
     SessionRecordings = 'SessionsRecordings',
     Person = 'Person',
     Persons = 'Persons',
@@ -27,6 +28,7 @@ export enum Scene {
     FeatureFlag = 'FeatureFlag',
     OrganizationSettings = 'OrganizationSettings',
     OrganizationCreateFirst = 'OrganizationCreate',
+    ProjectHomepage = 'ProjectHomepage',
     ProjectSettings = 'ProjectSettings',
     ProjectCreateFirst = 'ProjectCreate',
     SystemStatus = 'SystemStatus',
@@ -38,9 +40,11 @@ export enum Scene {
     Billing = 'Billing',
     BillingSubscribed = 'BillingSubscribed',
     Plugins = 'Plugins',
+    FrontendAppScene = 'FrontendAppScene',
     SavedInsights = 'SavedInsights',
     ToolbarLaunch = 'ToolbarLaunch',
-    // Authentication & onboarding routes
+    WebPerformance = 'WebPerformance',
+    // Authentication, onboarding & initialization routes
     Login = 'Login',
     Signup = 'Signup',
     InviteSignup = 'InviteSignup',
@@ -48,9 +52,7 @@ export enum Scene {
     PasswordResetComplete = 'PasswordResetComplete',
     PreflightCheck = 'PreflightCheck',
     Ingestion = 'IngestionWizard',
-    OnboardingSetup = 'OnboardingSetup',
-    Personalization = 'Personalization',
-    WebPerformance = 'WebPerformance',
+    OrganizationCreationConfirm = 'OrganizationCreationConfirm',
 }
 
 export type SceneProps = Record<string, any>

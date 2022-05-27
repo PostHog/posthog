@@ -1,6 +1,6 @@
 import { kea } from 'kea'
 import api from 'lib/api'
-import { DashboardPrivilegeLevel } from 'lib/constants'
+import { DashboardPrivilegeLevel, DashboardRestrictionLevel } from 'lib/constants'
 import { teamMembersLogic } from 'scenes/project/Settings/teamMembersLogic'
 import {
     DashboardType,
@@ -9,21 +9,21 @@ import {
     FusedDashboardCollaboratorType,
     UserBasicType,
 } from '~/types'
-import { dashboardCollaboratorsLogicType } from './dashboardCollaboratorsLogicType'
+import type { dashboardCollaboratorsLogicType } from './dashboardCollaboratorsLogicType'
 import { dashboardLogic } from './dashboardLogic'
 
 export interface DashboardCollaboratorsLogicProps {
     dashboardId: DashboardType['id']
 }
 
-export const dashboardCollaboratorsLogic = kea<dashboardCollaboratorsLogicType<DashboardCollaboratorsLogicProps>>({
+export const dashboardCollaboratorsLogic = kea<dashboardCollaboratorsLogicType>({
     path: (key) => ['scenes', 'dashboard', 'dashboardCollaboratorsLogic', key],
     props: {} as DashboardCollaboratorsLogicProps,
     key: (props) => props.dashboardId,
     connect: (props: DashboardCollaboratorsLogicProps) => ({
         values: [
             teamMembersLogic,
-            ['admins', 'plainMembers', 'allMembersLoading'],
+            ['admins', 'plainMembers', 'allMembers', 'allMembersLoading'],
             dashboardLogic({ id: props.dashboardId }),
             ['dashboard'],
         ],
@@ -77,34 +77,41 @@ export const dashboardCollaboratorsLogic = kea<dashboardCollaboratorsLogicType<D
     }),
     selectors: {
         allCollaborators: [
-            (s) => [s.explicitCollaborators, s.admins, s.dashboard],
-            (explicitCollaborators, admins, dashboard): FusedDashboardCollaboratorType[] => {
+            (s) => [s.explicitCollaborators, s.admins, s.allMembers, s.dashboard],
+            (explicitCollaborators, admins, allMembers, dashboard): FusedDashboardCollaboratorType[] => {
                 const allCollaborators: FusedDashboardCollaboratorType[] = []
-                let dashboardCreatorUuid: UserBasicType['uuid'] | undefined
-                if (dashboard?.created_by) {
-                    dashboardCreatorUuid = dashboard.created_by.uuid
-                    allCollaborators.push({
-                        user: dashboard.created_by,
-                        level: 'owner',
-                    })
-                }
+                const dashboardCreatorUuid = dashboard?.created_by?.uuid
+                const baseCollaborators =
+                    dashboard?.effective_restriction_level === DashboardRestrictionLevel.EveryoneInProjectCanEdit
+                        ? allMembers
+                        : admins
                 allCollaborators.push(
-                    ...explicitCollaborators.filter(
-                        (collaborator) =>
-                            !admins.find((admin) => admin.user.uuid === collaborator.user.uuid) &&
-                            collaborator.user.uuid !== dashboardCreatorUuid
-                    )
+                    ...explicitCollaborators
+                        .filter(
+                            (collaborator) =>
+                                !baseCollaborators.find(
+                                    (baseCollaborator) => baseCollaborator.user.uuid === collaborator.user.uuid
+                                )
+                        )
+                        .map((explicitCollaborator) => ({
+                            ...explicitCollaborator,
+                            level:
+                                explicitCollaborator.user.uuid === dashboardCreatorUuid
+                                    ? DashboardPrivilegeLevel._Owner
+                                    : explicitCollaborator.level,
+                        }))
                 )
                 allCollaborators.push(
-                    ...admins
-                        .filter((admin) => admin.user.uuid !== dashboardCreatorUuid)
-                        .map(
-                            (admin) =>
-                                ({
-                                    user: admin.user,
-                                    level: 'project-admin',
-                                } as FusedDashboardCollaboratorType)
-                        )
+                    ...baseCollaborators.map((baseCollaborator) => ({
+                        user: baseCollaborator.user,
+                        level:
+                            baseCollaborator.user.uuid === dashboardCreatorUuid
+                                ? DashboardPrivilegeLevel._Owner
+                                : DashboardPrivilegeLevel._ProjectAdmin,
+                    }))
+                )
+                allCollaborators.sort((a, b) =>
+                    a.level === b.level ? a.user.first_name.localeCompare(b.user.first_name) : b.level - a.level
                 )
                 return allCollaborators
             },
@@ -118,6 +125,7 @@ export const dashboardCollaboratorsLogic = kea<dashboardCollaboratorsLogicType<D
                         addableMembers.push(plainMember.user)
                     }
                 }
+                addableMembers.sort((a, b) => a.first_name.localeCompare(b.first_name))
                 return addableMembers
             },
         ],

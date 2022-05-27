@@ -1,23 +1,32 @@
 import { kea } from 'kea'
 import { actionsModel } from '~/models/actionsModel'
 import { EntityTypes, FilterType, Entity, EntityType, ActionFilter, EntityFilter, AnyPropertyFilter } from '~/types'
-import { entityFilterLogicType } from './entityFilterLogicType'
+import type { entityFilterLogicType } from './entityFilterLogicType'
 import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
 import { eventUsageLogic, GraphSeriesAddedSource } from 'lib/utils/eventUsageLogic'
+import { convertPropertyGroupToProperties } from 'lib/utils'
 
 export type LocalFilter = ActionFilter & {
     order: number
 }
 export type BareEntity = Pick<Entity, 'id' | 'name'>
 
-export function toLocalFilters(filters: FilterType): LocalFilter[] {
-    return [
+export function toLocalFilters(filters: Partial<FilterType>): LocalFilter[] {
+    const localFilters = [
         ...(filters[EntityTypes.ACTIONS] || []),
         ...(filters[EntityTypes.EVENTS] || []),
         ...(filters[EntityTypes.NEW_ENTITY] || []),
     ]
         .sort((a, b) => a.order - b.order)
         .map((filter, order) => ({ ...(filter as ActionFilter), order }))
+    return localFilters.map((filter) =>
+        filter.properties && Array.isArray(filter.properties)
+            ? {
+                  ...filter,
+                  properties: convertPropertyGroupToProperties(filter.properties),
+              }
+            : filter
+    )
 }
 
 export function toFilters(localFilters: LocalFilter[]): FilterType {
@@ -41,11 +50,12 @@ export interface EntityFilterProps {
     addFilterDefaultOptions?: Record<string, any>
 }
 
-export const entityFilterLogic = kea<entityFilterLogicType<BareEntity, EntityFilterProps, LocalFilter>>({
+export const entityFilterLogic = kea<entityFilterLogicType>({
     props: {} as EntityFilterProps,
     key: (props) => props.typeKey,
     path: (key) => ['scenes', 'insights', 'ActionFilter', 'entityFilterLogic', key],
     connect: {
+        logic: [eventUsageLogic],
         values: [actionsModel, ['actions']],
     },
     actions: () => ({

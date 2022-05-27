@@ -25,6 +25,7 @@ interface EditableFieldProps {
     /** Controlled mode. */
     mode?: 'view' | 'edit'
     className?: string
+    style?: React.CSSProperties
     'data-attr'?: string
     saveButtonText?: string
     /** Extra information shown next to the field. */
@@ -48,6 +49,7 @@ export function EditableField({
     paywall = false,
     mode,
     className,
+    style,
     'data-attr': dataAttr,
     saveButtonText = 'Save',
     notice,
@@ -97,6 +99,7 @@ export function EditableField({
                 className
             )}
             data-attr={dataAttr}
+            style={style}
         >
             <Tooltip
                 placement="right"
@@ -142,7 +145,7 @@ export function EditableField({
                             )}
                             {!mode && (
                                 <>
-                                    <LemonButton title="Cancel editing" compact onClick={cancel} type="secondary">
+                                    <LemonButton title="Cancel editing" size="small" onClick={cancel} type="secondary">
                                         Cancel
                                     </LemonButton>
                                     <LemonButton
@@ -155,7 +158,7 @@ export function EditableField({
                                                       'characters'
                                                   )} required)`
                                         }
-                                        compact
+                                        size="small"
                                         disabled={!isSaveable}
                                         onClick={save}
                                         type="primary"
@@ -172,7 +175,7 @@ export function EditableField({
                                 <LemonButton
                                     title="Edit"
                                     icon={<IconEdit />}
-                                    compact={compactButtons}
+                                    size={compactButtons ? 'small' : undefined}
                                     onClick={() => setLocalIsEditing(true)}
                                     data-attr={`edit-prop-${name}`}
                                     disabled={paywall}

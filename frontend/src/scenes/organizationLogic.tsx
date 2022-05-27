@@ -1,18 +1,16 @@
 import { kea } from 'kea'
 import api from 'lib/api'
-import { organizationLogicType } from './organizationLogicType'
+import type { organizationLogicType } from './organizationLogicType'
 import { AvailableFeature, OrganizationType } from '~/types'
-import { toast } from 'react-toastify'
 import { userLogic } from './userLogic'
 import { getAppContext } from '../lib/utils/getAppContext'
 import { OrganizationMembershipLevel } from '../lib/constants'
 import { isUserLoggedIn } from 'lib/utils'
+import { lemonToast } from 'lib/components/lemonToast'
 
-export type OrganizationUpdatePayload = Partial<
-    Pick<OrganizationType, 'name' | 'personalization' | 'domain_whitelist' | 'is_member_join_email_enabled'>
->
+export type OrganizationUpdatePayload = Partial<Pick<OrganizationType, 'name' | 'is_member_join_email_enabled'>>
 
-export const organizationLogic = kea<organizationLogicType<OrganizationUpdatePayload>>({
+export const organizationLogic = kea<organizationLogicType>({
     path: ['scenes', 'organizationLogic'],
     actions: {
         deleteOrganization: (organization: OrganizationType) => ({ organization }),
@@ -34,6 +32,11 @@ export const organizationLogic = kea<organizationLogicType<OrganizationUpdatePay
             (s) => [s.currentOrganization],
             (currentOrganization) =>
                 currentOrganization?.available_features?.includes(AvailableFeature.DASHBOARD_COLLABORATION),
+        ],
+        hasIngestionTaxonomy: [
+            (s) => [s.currentOrganization],
+            (currentOrganization) =>
+                currentOrganization?.available_features?.includes(AvailableFeature.INGESTION_TAXONOMY),
         ],
         isCurrentOrganizationUnavailable: [
             (s) => [s.currentOrganization, s.currentOrganizationLoading],
@@ -83,7 +86,7 @@ export const organizationLogic = kea<organizationLogicType<OrganizationUpdatePay
             window.location.href = '/organization/members'
         },
         updateOrganizationSuccess: () => {
-            toast.success('Your configuration has been saved!')
+            lemonToast.success('Your configuration has been saved')
         },
         deleteOrganization: async ({ organization }) => {
             try {
@@ -95,7 +98,7 @@ export const organizationLogic = kea<organizationLogicType<OrganizationUpdatePay
             }
         },
         deleteOrganizationSuccess: () => {
-            toast.success('Organization has been deleted')
+            lemonToast.success('Organization has been deleted')
         },
     }),
     events: ({ actions }) => ({

@@ -10,9 +10,8 @@ interface AnnotationsProps {
     leftExtent: number
     interval: number
     topExtent: number
-    insightId?: number
+    insightNumericId?: number
     color: string | null
-    graphColor: string
     accessoryColor: string | null
     currentDateMarker?: string | null
     onClick: () => void
@@ -24,15 +23,14 @@ export function Annotations({
     leftExtent,
     interval,
     topExtent,
-    insightId,
+    insightNumericId,
     onClick,
     color,
     accessoryColor,
     onClose,
-    graphColor,
     currentDateMarker,
 }: AnnotationsProps): JSX.Element {
-    const logic = annotationsLogic({ insightId })
+    const logic = annotationsLogic({ insightNumericId })
     const { diffType, groupedAnnotations } = useValues(logic)
     const { createAnnotation, deleteAnnotation, deleteGlobalAnnotation, createGlobalAnnotation } = useActions(logic)
 
@@ -40,7 +38,7 @@ export function Annotations({
         (date: string) =>
         (input: string, applyAll: boolean): void => {
             if (applyAll) {
-                createGlobalAnnotation(input, date, insightId)
+                createGlobalAnnotation(input, date, insightNumericId)
             } else {
                 createAnnotation(input, date)
             }
@@ -50,7 +48,7 @@ export function Annotations({
 
     const makeAnnotationMarker = (index: number, date: string, annotationsToMark: AnnotationType[]): JSX.Element => (
         <AnnotationMarker
-            insightId={insightId}
+            insightNumericId={insightNumericId}
             elementId={date}
             label={dayjs(date).format('MMMM Do YYYY')}
             key={index}
@@ -70,7 +68,6 @@ export function Annotations({
             onClick={onClick}
             onClose={onClose}
             color={color}
-            graphColor={graphColor}
             accessoryColor={accessoryColor}
             currentDateMarker={currentDateMarker}
             index={index}

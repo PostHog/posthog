@@ -108,7 +108,7 @@ class PersonDistinctId(models.Model):
     class Meta:
         constraints = [models.UniqueConstraint(fields=["team", "distinct_id"], name="unique distinct_id for team")]
 
-    team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
+    team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE, db_index=False)
     person: models.ForeignKey = models.ForeignKey(Person, on_delete=models.CASCADE)
     distinct_id: models.CharField = models.CharField(max_length=400)
 

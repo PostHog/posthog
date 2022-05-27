@@ -1,27 +1,34 @@
 import React from 'react'
-import { Col, Card, Row } from 'antd'
+import { Row } from 'antd'
+import { ingestionLogic } from './ingestionLogic'
+import { useValues } from 'kea'
+import { PanelFooter, PanelHeader } from './panels/PanelComponents'
+import './panels/Panels.scss'
 import { ArrowLeftOutlined } from '@ant-design/icons'
+import { LemonButton } from 'lib/components/LemonButton'
 
 export function CardContainer({
     index,
-    totalSteps,
     onBack,
     children,
-    nextButton,
+    showFooter,
     onSubmit,
 }: {
     index: number
-    totalSteps?: number
     onBack?: () => void
     children: React.ReactNode
-    nextButton?: boolean
+    showFooter?: boolean
     onSubmit?: () => void
 }): JSX.Element {
+    const { onboarding1, onboardingSidebarEnabled } = useValues(ingestionLogic)
+
     return (
-        <Col>
-            <Card
-                headStyle={{ minHeight: 60 }}
-                title={
+        <div>
+            {onboardingSidebarEnabled && index !== 0 && (
+                <LemonButton className="mb" icon={<ArrowLeftOutlined />} size="small" onClick={onBack} />
+            )}
+            <div className="ingestion-card-container">
+                {!onboardingSidebarEnabled && (
                     <Row align="middle" data-attr="wizard-step-counter">
                         {index !== 0 && (
                             <ArrowLeftOutlined
@@ -30,34 +37,35 @@ export function CardContainer({
                                 onClick={onBack}
                             />
                         )}
-                        {`Step ${index + 1} ${totalSteps ? 'of' : ''} ${totalSteps ? totalSteps : ''}`}
+                        <PanelHeader index={index} />
                     </Row>
-                }
-                style={{ width: '65vw', maxHeight: '70vh', overflow: 'auto', border: '1px solid var(--border)' }}
-            >
+                )}
                 {children}
-            </Card>
-
-            {nextButton && (
-                <div
-                    data-attr="wizard-continue-button"
-                    className="bg-primary"
-                    role="button"
-                    style={{
-                        marginTop: 20,
-                        width: '65vw',
-                        height: 70,
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        borderRadius: 5,
-                        cursor: 'pointer',
-                    }}
-                    onClick={onSubmit}
-                >
-                    <span style={{ fontWeight: 500, fontSize: 18, color: 'white' }}>Continue</span>
+                <div>
+                    {showFooter &&
+                        (onboarding1 ? (
+                            <PanelFooter />
+                        ) : (
+                            <div
+                                data-attr="wizard-continue-button"
+                                className="bg-primary"
+                                role="button"
+                                style={{
+                                    height: 70,
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    borderRadius: 5,
+                                    cursor: 'pointer',
+                                    margin: 16,
+                                }}
+                                onClick={onSubmit}
+                            >
+                                <span style={{ fontWeight: 500, fontSize: 18, color: 'white' }}>Continue</span>
+                            </div>
+                        ))}
                 </div>
-            )}
-        </Col>
+            </div>
+        </div>
     )
 }

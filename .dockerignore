@@ -20,3 +20,11 @@
 !frontend/public
 !frontend/*.*
 !ee
+!.devcontainer
+!plugin-server/package.json
+!plugin-server/yarn.lock
+!plugin-server/tsconfig.json
+!plugin-server/tsconfig.eslint.json
+!plugin-server/src
+!plugin-server/.eslintrc.js
+!plugin-server/.prettierrc

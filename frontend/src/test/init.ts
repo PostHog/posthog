@@ -1,20 +1,24 @@
-import { BuiltLogic, Logic, LogicWrapper } from 'kea'
 import { initKea } from '~/initKea'
-import { testUtilsPlugin, expectLogic } from 'kea-test-utils'
+import { testUtilsPlugin } from 'kea-test-utils'
 import { createMemoryHistory } from 'history'
 import posthog from 'posthog-js'
-import { AppContext } from '../types'
-import { MOCK_DEFAULT_TEAM } from '../lib/api.mock'
+import { AppContext } from '~/types'
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 import { dayjs } from 'lib/dayjs'
+import { organizationLogic } from 'scenes/organizationLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
-export function initKeaTests(): void {
+process.on('unhandledRejection', (err) => {
+    console.warn(err)
+})
+
+export function initKeaTests(mountCommonLogic = true): void {
     dayjs.tz.setDefault('UTC')
     window.POSTHOG_APP_CONTEXT = {
         current_team: MOCK_DEFAULT_TEAM,
         ...window.POSTHOG_APP_CONTEXT,
     } as unknown as AppContext
     posthog.init('no token', {
-        api_host: 'borked',
         test: true,
         autocapture: false,
         disable_session_recording: true,
@@ -29,39 +33,8 @@ export function initKeaTests(): void {
     ;(history as any).pushState = history.push
     ;(history as any).replaceState = history.replace
     initKea({ beforePlugins: [testUtilsPlugin], routerLocation: history.location, routerHistory: history })
-}
-
-/* do not call this within a 'test' or a 'beforeEach' block, only in 'describe' */
-export function initKeaTestLogic<L extends Logic = Logic>({
-    logic,
-    props,
-    onLogic,
-    beforeLogic,
-}: {
-    logic?: LogicWrapper<L>
-    props?: LogicWrapper<L>['props']
-    onLogic?: (l: BuiltLogic<L>) => any
-    beforeLogic?: () => any
-} = {}): void {
-    let builtLogic: BuiltLogic<L>
-    let unmount: () => void
-
-    beforeEach(async () => {
-        initKeaTests()
-        beforeLogic?.()
-        if (logic) {
-            builtLogic = logic.build({ ...props })
-            await onLogic?.(builtLogic)
-            unmount = builtLogic.mount()
-        }
-        return unmount
-    })
-
-    afterEach(async () => {
-        if (logic) {
-            unmount?.()
-            await expectLogic(logic).toFinishAllListeners()
-        }
-        delete window.POSTHOG_APP_CONTEXT
-    })
+    if (mountCommonLogic) {
+        teamLogic.mount()
+        organizationLogic.mount()
+    }
 }

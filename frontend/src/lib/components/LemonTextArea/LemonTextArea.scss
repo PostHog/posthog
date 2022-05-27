@@ -1,0 +1,60 @@
+.LemonTextArea {
+    color: var(--text-default);
+    cursor: text;
+
+    &:not(.LemonTextArea):not(.LemonTextArea--disabled):hover {
+        border: 1px solid var(--primary-hover);
+    }
+
+    &.LemonTextArea--disabled {
+        .LemonRow__icon {
+            opacity: var(--opacity-disabled);
+        }
+    }
+
+    .LemonTextArea__input,
+    .LemonTextArea__textarea {
+        border: none;
+        outline: none;
+        background-color: inherit;
+        width: 100%;
+        text-overflow: ellipsis;
+
+        &:disabled {
+            opacity: var(--opacity-disabled);
+            cursor: not-allowed;
+        }
+    }
+}
+
+.LemonRow__icon:first-child {
+    .LemonTextArea & {
+        font-size: 18px;
+        color: var(--text-muted);
+    }
+
+    .LemonTextArea.LemonTextArea--with-input & {
+        color: var(--primary);
+    }
+}
+
+.LemonTextArea--embedded {
+    color: var(--text-default);
+    font-weight: 400;
+    border: none !important;
+
+    .LemonRow__icon {
+        color: var(--muted-alt);
+    }
+}
+
+.LemonTextArea--disabled {
+    cursor: not-allowed;
+}
+
+.LemonTextArea--focused {
+    &:not(.LemonTextArea--disabled) {
+        transition: 100ms border;
+        border: 1px solid var(--primary);
+    }
+}

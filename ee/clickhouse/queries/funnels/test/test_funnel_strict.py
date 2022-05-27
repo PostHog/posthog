@@ -1,9 +1,5 @@
-from datetime import datetime, timedelta
-from typing import List, cast
-from uuid import uuid4
+from datetime import datetime
 
-from ee.clickhouse.models.event import create_event
-from ee.clickhouse.queries.actor_base_query import SerializedGroup, SerializedPerson
 from ee.clickhouse.queries.funnels.funnel_strict import ClickhouseFunnelStrict
 from ee.clickhouse.queries.funnels.funnel_strict_persons import ClickhouseFunnelStrictActors
 from ee.clickhouse.queries.funnels.test.breakdown_cases import (
@@ -17,8 +13,8 @@ from posthog.constants import INSIGHT_FUNNELS
 from posthog.models.action import Action
 from posthog.models.action_step import ActionStep
 from posthog.models.filters import Filter
-from posthog.models.person import Person
-from posthog.test.base import APIBaseTest
+from posthog.models.instance_setting import override_instance_config
+from posthog.test.base import APIBaseTest, _create_event, _create_person
 
 FORMAT_TIME = "%Y-%m-%d 00:00:00"
 
@@ -30,16 +26,6 @@ def _create_action(**kwargs):
     action = Action.objects.create(team=team, name=name)
     ActionStep.objects.create(action=action, event=name, properties=properties)
     return action
-
-
-def _create_person(**kwargs):
-    person = Person.objects.create(**kwargs)
-    return Person(id=person.uuid, uuid=person.uuid)
-
-
-def _create_event(**kwargs):
-    kwargs.update({"event_uuid": uuid4()})
-    create_event(**kwargs)
 
 
 class TestFunnelStrictStepsBreakdown(ClickhouseTestMixin, funnel_breakdown_test_factory(ClickhouseFunnelStrict, ClickhouseFunnelStrictActors, _create_event, _create_action, _create_person)):  # type: ignore
@@ -184,7 +170,9 @@ class TestFunnelStrictSteps(ClickhouseTestMixin, APIBaseTest):
 
         funnel = ClickhouseFunnelStrict(filter, self.team)
 
-        person1_stopped_after_signup = _create_person(distinct_ids=["stopped_after_signup1"], team_id=self.team.pk)
+        person1_stopped_after_signup = _create_person(
+            distinct_ids=["stopped_after_signup1"], team_id=self.team.pk, properties={"test": "okay"}
+        )
         _create_event(team=self.team, event="user signed up", distinct_id="stopped_after_signup1")
 
         person2_stopped_after_one_pageview = _create_person(
@@ -263,6 +251,13 @@ class TestFunnelStrictSteps(ClickhouseTestMixin, APIBaseTest):
             self._get_actor_ids_at_step(filter, 3), [person7.uuid],
         )
 
+        with override_instance_config("AGGREGATE_BY_DISTINCT_IDS_TEAMS", f"{self.team.pk}"):
+            result = funnel.run()
+            self.assertEqual(result[0]["name"], "user signed up")
+            self.assertEqual(result[1]["name"], "$pageview")
+            self.assertEqual(result[2]["name"], "insight viewed")
+            self.assertEqual(result[0]["count"], 7)
+
     def test_advanced_strict_funnel(self):
 
         sign_up_action = _create_action(
@@ -284,7 +279,7 @@ class TestFunnelStrictSteps(ClickhouseTestMixin, APIBaseTest):
             ],
             "actions": [
                 {"id": sign_up_action.id, "math": "dau", "order": 1},
-                {"id": view_action.id, "math": "wau", "order": 3},
+                {"id": view_action.id, "math": "weekly_active", "order": 3},
             ],
             "insight": INSIGHT_FUNNELS,
         }

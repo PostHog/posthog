@@ -15,7 +15,6 @@ export interface OperatorValueSelectProps {
     endpoint?: string
     onChange: (operator: PropertyOperator, value: PropertyFilterValue) => void
     operatorSelectProps?: Omit<SelectProps<any>, 'onChange'>
-    allowQueryingEventsByDateTime?: string | boolean
     propertyDefinitions: PropertyDefinition[]
     defaultOpen?: boolean
 }
@@ -37,7 +36,6 @@ export function OperatorValueSelect({
     endpoint,
     onChange,
     operatorSelectProps,
-    allowQueryingEventsByDateTime,
     propertyDefinitions = [],
     defaultOpen,
 }: OperatorValueSelectProps): JSX.Element {
@@ -45,21 +43,16 @@ export function OperatorValueSelect({
 
     // DateTime properties should not default to Exact
     const startingOperator =
-        allowQueryingEventsByDateTime &&
-        propertyDefinition?.property_type == PropertyType.DateTime &&
-        (!operator || operator == PropertyOperator.Exact)
+        propertyDefinition?.property_type == PropertyType.DateTime && (!operator || operator == PropertyOperator.Exact)
             ? PropertyOperator.IsDateExact
             : operator || PropertyOperator.Exact
     const [currentOperator, setCurrentOperator] = useState(startingOperator)
 
     const [operators, setOperators] = useState([] as Array<PropertyOperator>)
     useEffect(() => {
-        const operatorMapping: Record<string, string> = chooseOperatorMap(
-            propertyDefinition?.property_type,
-            !!allowQueryingEventsByDateTime
-        )
+        const operatorMapping: Record<string, string> = chooseOperatorMap(propertyDefinition?.property_type)
         setOperators(Object.keys(operatorMapping) as Array<PropertyOperator>)
-    }, [propertyDefinition, allowQueryingEventsByDateTime])
+    }, [propertyDefinition])
 
     return (
         <>

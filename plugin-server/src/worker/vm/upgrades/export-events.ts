@@ -1,12 +1,12 @@
-import { Plugin, PluginEvent, PluginMeta, RetryError } from '@posthog/plugin-scaffold'
+import { Plugin, PluginEvent, PluginMeta, ProcessedPluginEvent, RetryError } from '@posthog/plugin-scaffold'
 
-import { Hub, MetricMathOperations, PluginConfig, PluginConfigVMInternalResponse, PluginTaskType } from '../../../types'
+import { Hub, PluginConfig, PluginConfigVMInternalResponse, PluginTaskType } from '../../../types'
+import { determineNodeEnv, NodeEnv } from '../../../utils/env-utils'
 import { status } from '../../../utils/status'
-import { determineNodeEnv, stringClamp } from '../../../utils/utils'
-import { createBuffer } from '../utils'
-import { NodeEnv } from './../../../utils/utils'
+import { stringClamp } from '../../../utils/utils'
+import { ExportEventsBuffer } from './utils/export-events-buffer'
 
-const MAXIMUM_RETRIES = 15
+export const MAXIMUM_RETRIES = 3
 const EXPORT_BUFFER_BYTES_MINIMUM = 1
 const EXPORT_BUFFER_BYTES_DEFAULT = 1024 * 1024
 const EXPORT_BUFFER_BYTES_MAXIMUM = 100 * 1024 * 1024
@@ -16,7 +16,7 @@ const EXPORT_BUFFER_SECONDS_DEFAULT = determineNodeEnv() === NodeEnv.Test ? EXPO
 
 type ExportEventsUpgrade = Plugin<{
     global: {
-        exportEventsBuffer: ReturnType<typeof createBuffer>
+        exportEventsBuffer: ExportEventsBuffer
         exportEventsToIgnore: Set<string>
         exportEventsWithRetry: (payload: ExportEventsJobPayload, meta: PluginMeta<ExportEventsUpgrade>) => Promise<void>
     }
@@ -61,37 +61,25 @@ export function upgradeExportEvents(
         EXPORT_BUFFER_SECONDS_MAXIMUM
     )
 
-    function incrementMetric(metricName: string, value: number) {
-        hub.pluginMetricsManager.updateMetric({
-            metricName,
-            value,
-            pluginConfig,
-            metricOperation: MetricMathOperations.Increment,
-        })
-    }
-
     meta.global.exportEventsToIgnore = new Set(
         meta.config.exportEventsToIgnore
             ? meta.config.exportEventsToIgnore.split(',').map((event: string) => event.trim())
             : null
     )
 
-    meta.global.exportEventsBuffer = createBuffer(
-        {
-            limit: uploadBytes,
-            timeoutSeconds: uploadSeconds,
-            onFlush: async (batch) => {
-                const jobPayload = {
-                    batch,
-                    batchId: Math.floor(Math.random() * 1000000),
-                    retriesPerformedSoFar: 0,
-                }
-                // Running the first export code directly, without a job in between
-                await meta.global.exportEventsWithRetry(jobPayload, meta)
-            },
+    meta.global.exportEventsBuffer = new ExportEventsBuffer(hub, {
+        limit: uploadBytes,
+        timeoutSeconds: uploadSeconds,
+        onFlush: async (batch) => {
+            const jobPayload = {
+                batch,
+                batchId: Math.floor(Math.random() * 1000000),
+                retriesPerformedSoFar: 0,
+            }
+            // Running the first export code directly, without a job in between
+            await meta.global.exportEventsWithRetry(jobPayload, meta)
         },
-        hub.statsd
-    )
+    })
 
     meta.global.exportEventsWithRetry = async (
         payload: ExportEventsJobPayload,
@@ -99,18 +87,13 @@ export function upgradeExportEvents(
     ) => {
         const start = new Date()
         try {
-            if (!payload.retriesPerformedSoFar) {
-                incrementMetric('events_seen', payload.batch.length)
-            }
             await methods.exportEvents?.(payload.batch)
             hub.statsd?.timing('plugin.export_events.success', start, {
                 plugin: pluginConfig.plugin?.name ?? '?',
                 teamId: pluginConfig.team_id.toString(),
             })
-            incrementMetric('events_delivered_successfully', payload.batch.length)
         } catch (err) {
             if (err instanceof RetryError) {
-                incrementMetric('retry_errors', payload.batch.length)
                 if (payload.retriesPerformedSoFar < MAXIMUM_RETRIES) {
                     const nextRetrySeconds = 2 ** (payload.retriesPerformedSoFar + 1) * 3
                     await meta.jobs
@@ -129,7 +112,6 @@ export function upgradeExportEvents(
                         teamId: pluginConfig.team_id.toString(),
                     })
                 } else {
-                    incrementMetric('undelivered_events', payload.batch.length)
                     status.info(
                         '☠️',
                         `Dropped PluginConfig ${pluginConfig.id} batch ${payload.batchId} after retrying ${payload.retriesPerformedSoFar} times`
@@ -141,8 +123,6 @@ export function upgradeExportEvents(
                     })
                 }
             } else {
-                incrementMetric('other_errors', payload.batch.length)
-                incrementMetric('undelivered_events', payload.batch.length)
                 throw err
             }
         }
@@ -155,9 +135,9 @@ export function upgradeExportEvents(
     }
 
     const oldOnEvent = methods.onEvent
-    methods.onEvent = async (event: PluginEvent) => {
+    methods.onEvent = async (event: ProcessedPluginEvent) => {
         if (!meta.global.exportEventsToIgnore.has(event.event)) {
-            meta.global.exportEventsBuffer.add(event, JSON.stringify(event).length)
+            await meta.global.exportEventsBuffer.add(event, JSON.stringify(event).length)
         }
         await oldOnEvent?.(event)
     }

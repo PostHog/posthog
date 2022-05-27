@@ -1,18 +1,23 @@
 import { kea } from 'kea'
-import { tableConfigLogicType } from './tableConfigLogicType'
+import type { tableConfigLogicType } from './tableConfigLogicType'
 import { router } from 'kea-router'
 import { ColumnChoice } from '~/types'
 
+export interface TableConfigLogicProps {
+    startingColumns?: ColumnChoice
+}
+
 export const tableConfigLogic = kea<tableConfigLogicType>({
     path: ['lib', 'components', 'ResizableTable', 'tableConfigLogic'],
+    props: { startingColumns: 'DEFAULT' } as TableConfigLogicProps,
     actions: {
         showModal: true,
-        hideModal: false,
+        hideModal: true,
         setSelectedColumns: (columnConfig: ColumnChoice) => ({ columnConfig }),
     },
-    reducers: () => ({
+    reducers: ({ props }) => ({
         selectedColumns: [
-            'DEFAULT' as ColumnChoice,
+            (props.startingColumns || 'DEFAULT') as ColumnChoice,
             {
                 setSelectedColumns: (_, { columnConfig }) => columnConfig,
             },

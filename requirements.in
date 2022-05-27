@@ -1,18 +1,23 @@
-# pip-compile requirements.in
-
+# In order to add, delete or modify a dependency, please update
+# the reference here and then run:
+#
+# - `pip-compile --rebuild requirements.in`
+# - `pip-compile --rebuild requirements-dev.in`
+#
 django-rest-hooks@ git+https://github.com/zapier/django-rest-hooks.git@v1.6.0
 amqp==2.5.2
 asgiref==3.3.2
 aioch==0.0.2
+boto3==1.21.29
 celery==4.4.2
 celery-redbeat==2.0.0
 clickhouse-driver==0.2.1
 clickhouse-pool==0.5.3
+dataclasses_json==0.5.7
 defusedxml==0.6.0
 dj-database-url==0.5.0
-Django==3.2.5
+Django==3.2.12
 django-axes==5.9.0
-django-constance==2.8.0
 django-cors-headers==3.5.0
 django-deprecate-fields==0.1.1
 django-extensions==3.1.2
@@ -24,24 +29,28 @@ django-statsd==2.5.2
 django-structlog==2.1.3
 djangorestframework==3.12.2
 djangorestframework-csv==2.1.0
+dnspython==2.2.1
 drf-exceptions-hog==0.2.0
 drf-extensions==0.7.0
+drf-spectacular==0.21.1
 gunicorn==20.1.0
 grpcio==1.33.1
 idna==2.8
 importlib-metadata==1.6.0
-infi-clickhouse-orm@ git+https://github.com/PostHog/infi.clickhouse_orm@6e2e2b7d12d70921139902e2f2d38ccd169ae40b
+infi-clickhouse-orm@ git+https://github.com/PostHog/infi.clickhouse_orm@37722f350f3b449bbcd6564917c436b0d93e796f
 kafka-python==2.0.2
 kafka-helper==0.2
 kombu==4.6.8
 lzstring==1.0.4
+numpy==1.21.4
 parso==0.8.1
 pexpect==4.7.0
 pickleshare==0.7.5
-posthoganalytics==1.4.4
+posthoganalytics==1.4.7
 protobuf==3.13.0
 psycopg2-binary==2.8.6
 python-dateutil==2.8.1
+python3-saml==1.12.0
 pytz==2021.1
 redis==3.4.1
 requests==2.25.1
@@ -53,5 +62,4 @@ social-auth-core==4.1.0
 statshog==1.0.6
 toronado==0.1.0
 whitenoise==5.2.0
-numpy==1.21.4
-drf-spectacular==0.21.1
+mimesis==5.2.1

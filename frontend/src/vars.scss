@@ -15,10 +15,13 @@ $warning: #f7a501;
 $warning_hover: #f3ba3e;
 $warning_active: #e69900;
 $danger: #f96132;
+$danger_hover: #fa754c;
+$danger_active: #f9430b;
 $danger_bridge: #df4313; // Used for bridge pages (posthog.com to PostHog App transition)
 
 // Brand colors, as in logo
 $brand_blue: #1d4aff;
+$brand_blue_active: #2148e4;
 $brand_red: #f54e00;
 $brand_yellow: #f9bd2b;
 
@@ -56,7 +59,7 @@ $lifecycle_dormant: #f86234;
 // Funnels
 $funnel_default: $primary;
 $funnel_alt: $primary_alt;
-$funnel_background: #e7e8ee;
+$funnel_background: var(--border-light);
 $funnel_axis_zero: $bg_depth;
 $funnel_axis: $border_dark;
 $funnel_axis_label: $text_muted;
@@ -74,6 +77,12 @@ $recording_failure_event: #fee9e2;
 $recording_failure_event_dark: #cd3000;
 $recording_highlight_event: #fdedc9;
 $recording_highlight_event_dark: #946508;
+
+// Taxonomy
+$taxonomy_icon_muted: #747ea1;
+
+// Error state
+$error_red: #bf411a;
 
 // Blue Swatch
 $blue_700: #35416b;
@@ -117,11 +126,6 @@ $light-grey: #f2f2f2;
     border: 1px solid var(--border);
 }
 
-%mixin-elevated {
-    box-shadow: 0 2px 3px rgba(0, 0, 0, 0.02), 0 5px 7px rgba(0, 0, 0, 0.03), 0 11px 16px rgba(0, 0, 0, 0.03),
-        0 32px 48px rgba(0, 0, 0, 0.05) !important;
-}
-
 %mixin-gradient-overlay {
     content: '';
     width: 100%;
@@ -144,7 +148,7 @@ $light-grey: #f2f2f2;
 
 $default_spacing: 1rem;
 $radius: 4px;
-$top_nav_height: 50px;
+$opacity_disabled: 0.6;
 
 // Recordings
 $recording_spacing: $default_spacing * 2 / 3;

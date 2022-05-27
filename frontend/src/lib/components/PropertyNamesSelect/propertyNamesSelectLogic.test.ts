@@ -1,22 +1,20 @@
 import { expectLogic } from 'kea-test-utils'
-import { initKeaTestLogic } from '~/test/init'
+import { initKeaTests } from '~/test/init'
 import { propertySelectLogic } from './propertyNamesSelectLogic'
 
-jest.mock('lib/api')
-
-describe('funnelLogic', () => {
+describe('propertyNamesSelectLogic', () => {
     let logic: ReturnType<typeof propertySelectLogic.build>
     const allProperties: string[] = ['property 1', 'property 2']
 
-    initKeaTestLogic({
-        logic: propertySelectLogic,
-        props: {
+    beforeEach(() => {
+        initKeaTests()
+        logic = propertySelectLogic({
             initialProperties: new Set() as Set<string>,
             onChange: jest.fn(),
             propertySelectLogicKey: '123',
             properties: allProperties,
-        },
-        onLogic: (l) => (logic = l),
+        })
+        logic.mount()
     })
 
     describe('popover', () => {

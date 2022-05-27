@@ -51,8 +51,25 @@
         justify-content: center;
     }
 
-    .action-description {
-        margin-top: 1rem;
+    .action-name {
+        min-width: 0;
+        font-size: 28px;
+        line-height: 34px;
+        margin: 0;
+        font-weight: 600;
+    }
+
+    .action-tags {
+        margin-top: 0.5rem;
+    }
+
+    .ant-form-item {
+        margin-bottom: 0;
+
+        .ant-form-item-control-input {
+            align-items: unset;
+            min-height: unset;
+        }
     }
 }
 
@@ -83,17 +100,9 @@
         }
     }
 
-    .type-switcher {
-        &.unselected {
-            position: absolute;
-            top: 50%;
-            transform: translateY(-50%);
-            width: 100%;
-            text-align: center;
-        }
-    }
-
-    .property-filters {
+    .action-property-filters {
+        display: flex;
+        flex-direction: column;
         margin-top: 16px;
         padding-top: 16px;
 

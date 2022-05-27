@@ -1,4 +1,4 @@
-from typing import List, Optional, cast
+from typing import List, cast
 
 from django.core.management.base import BaseCommand
 

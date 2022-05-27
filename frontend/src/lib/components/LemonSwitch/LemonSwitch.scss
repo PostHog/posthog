@@ -1,17 +1,25 @@
 @import '~/vars';
 
 .LemonSwitch {
+    width: fit-content;
+    font-weight: 500;
+    &.LemonRow--disabled {
+        opacity: var(--opacity-disabled);
+    }
+}
+
+.LemonSwitch__button {
     position: relative;
     display: inline-block;
     flex-shrink: 0;
-    width: 36px;
-    height: 20px;
+    padding: 0;
+    width: 2.25rem;
+    height: 1.25rem;
     background: none;
     border: none;
     cursor: pointer;
-    &:disabled {
+    .LemonRow--disabled & {
         cursor: not-allowed;
-        opacity: 0.6;
     }
 }
 
@@ -20,9 +28,9 @@
     left: 0;
     top: 5px;
     display: inline-block;
-    width: 36px;
-    height: 10px;
-    border-radius: 25px;
+    width: 2.25rem;
+    height: 0.625rem;
+    border-radius: 0.625rem;
     background-color: $border;
     transition: background-color 100ms ease;
     .LemonSwitch--checked & {
@@ -43,27 +51,6 @@
     background-color: #fff;
     border: 2px solid $border;
     transition: background-color 100ms ease, transform 100ms ease, border-color 100ms ease;
-    &::after {
-        content: '';
-        transition: border-color 100ms ease;
-        animation: spin 1000ms linear infinite;
-        display: block;
-        position: absolute;
-        width: 100%;
-        height: 100%;
-        border-radius: 0.625rem;
-        border: 2px solid transparent;
-        border-left-color: transparent;
-    }
-    .LemonSwitch--loading &::after {
-        border-left-color: var(--primary);
-    }
-    .LemonSwitch--alt.LemonSwitch--loading &::after {
-        border-left-color: var(--primary-alt);
-    }
-    .LemonSwitch--loading.LemonSwitch--checked &::after {
-        border-left-color: #fff;
-    }
     .LemonSwitch--checked & {
         transform: translateX(1rem);
         background-color: var(--primary);
@@ -81,22 +68,9 @@
     }
 }
 
-.LemonSwitch__wrapper {
-    display: flex;
-    align-items: center;
-    &--primary {
-        font-weight: 600;
-        flex-grow: 1;
-        height: 3rem;
-        padding: 0 1rem;
-        border: 1px solid var(--border);
-        border-radius: var(--radius);
-        .LemonSwitch__label {
-            flex-grow: 1;
-        }
-    }
-}
-
 .LemonSwitch__label {
-    margin-right: 0.5rem;
+    cursor: pointer;
+    .LemonRow--disabled & {
+        cursor: not-allowed;
+    }
 }

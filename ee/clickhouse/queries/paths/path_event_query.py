@@ -1,7 +1,7 @@
 from typing import Any, Dict, List, Tuple
 
 from ee.clickhouse.models.property import get_property_string_expr
-from ee.clickhouse.queries.event_query import ClickhouseEventQuery
+from ee.clickhouse.queries.event_query import EnterpriseEventQuery
 from posthog.constants import (
     FUNNEL_PATH_AFTER_STEP,
     FUNNEL_PATH_BEFORE_STEP,
@@ -11,9 +11,10 @@ from posthog.constants import (
 )
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.team import Team
+from posthog.models.utils import PersonPropertiesMode
 
 
-class PathEventQuery(ClickhouseEventQuery):
+class PathEventQuery(EnterpriseEventQuery):
     FUNNEL_PERSONS_ALIAS = "funnel_actors"
     _filter: PathFilter
 
@@ -23,6 +24,10 @@ class PathEventQuery(ClickhouseEventQuery):
         funnel_paths_join = ""
         funnel_paths_filter = ""
 
+        person_id = (
+            f"{self.DISTINCT_ID_TABLE_ALIAS if not self._using_person_on_events else self.EVENT_TABLE_ALIAS}.person_id"
+        )
+
         if self._filter.funnel_paths == FUNNEL_PATH_AFTER_STEP or self._filter.funnel_paths == FUNNEL_PATH_BEFORE_STEP:
             # used when looking for paths up to a dropoff point to account for events happening between the latest even and when the person is deemed dropped off
             funnel_window = (
@@ -31,17 +36,22 @@ class PathEventQuery(ClickhouseEventQuery):
             operator = ">=" if self._filter.funnel_paths == FUNNEL_PATH_AFTER_STEP else "<="
 
             funnel_paths_timestamp = f"{self.FUNNEL_PERSONS_ALIAS}.timestamp AS target_timestamp"
-            funnel_paths_join = f"JOIN {self.FUNNEL_PERSONS_ALIAS} ON {self.FUNNEL_PERSONS_ALIAS}.actor_id = {self.DISTINCT_ID_TABLE_ALIAS}.person_id"
+            funnel_paths_join = (
+                f"JOIN {self.FUNNEL_PERSONS_ALIAS} ON {self.FUNNEL_PERSONS_ALIAS}.actor_id = {person_id}"
+            )
             funnel_paths_filter = f"AND {self.EVENT_TABLE_ALIAS}.timestamp {operator} target_timestamp {funnel_window if self._filter.funnel_paths == FUNNEL_PATH_BEFORE_STEP and self._filter.funnel_step and self._filter.funnel_step < 0 else ''}"
         elif self._filter.funnel_paths == FUNNEL_PATH_BETWEEN_STEPS:
             funnel_paths_timestamp = f"{self.FUNNEL_PERSONS_ALIAS}.min_timestamp as min_timestamp, {self.FUNNEL_PERSONS_ALIAS}.max_timestamp as max_timestamp"
-            funnel_paths_join = f"JOIN {self.FUNNEL_PERSONS_ALIAS} ON {self.FUNNEL_PERSONS_ALIAS}.actor_id = {self.DISTINCT_ID_TABLE_ALIAS}.person_id"
+            funnel_paths_join = (
+                f"JOIN {self.FUNNEL_PERSONS_ALIAS} ON {self.FUNNEL_PERSONS_ALIAS}.actor_id = {person_id}"
+            )
             funnel_paths_filter = f"AND {self.EVENT_TABLE_ALIAS}.timestamp >= min_timestamp AND {self.EVENT_TABLE_ALIAS}.timestamp <= max_timestamp"
 
         # We don't use ColumnOptimizer to decide what to query because Paths query doesn't surface any filter properties
+
         _fields = [
             f"{self.EVENT_TABLE_ALIAS}.timestamp AS timestamp",
-            f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id as person_id" if self._should_join_distinct_ids else "",
+            f"{person_id} AS person_id",
             funnel_paths_timestamp,
         ]
         _fields += [f"{self.EVENT_TABLE_ALIAS}.{field} AS {field}" for field in self._extra_fields]
@@ -75,8 +85,14 @@ class PathEventQuery(ClickhouseEventQuery):
         date_query, date_params = self._get_date_filter()
         self.params.update(date_params)
 
-        prop_filters = self._filter.properties
-        prop_query, prop_params = self._get_props(prop_filters)
+        prop_query, prop_params = self._get_prop_groups(
+            self._filter.property_groups,
+            person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS
+            if self._using_person_on_events
+            else PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
+            person_id_joined_alias=f"{person_id}",
+        )
+
         self.params.update(prop_params)
 
         event_query, event_params = self._get_event_query()
@@ -99,12 +115,18 @@ class PathEventQuery(ClickhouseEventQuery):
             {date_query}
             {prop_query}
             {funnel_paths_filter}
-            ORDER BY {self.DISTINCT_ID_TABLE_ALIAS}.person_id, {self.EVENT_TABLE_ALIAS}.timestamp
+            ORDER BY {person_id}, {self.EVENT_TABLE_ALIAS}.timestamp
         """
         return query, self.params
 
     def _determine_should_join_distinct_ids(self) -> None:
         self._should_join_distinct_ids = True
+
+    def _determine_should_join_persons(self) -> None:
+        EnterpriseEventQuery._determine_should_join_persons(self)
+        if self._using_person_on_events:
+            self._should_join_distinct_ids = False
+            self._should_join_persons = False
 
     def _get_grouping_fields(self) -> Tuple[List[str], Dict[str, Any]]:
         _fields = []
@@ -148,7 +170,7 @@ class PathEventQuery(ClickhouseEventQuery):
 
     def _get_current_url_parsing(self):
         path_type, _ = get_property_string_expr("events", "$current_url", "'$current_url'", "properties")
-        return f"if(length({path_type}) > 1, trim( TRAILING '/' FROM {path_type}), {path_type})"
+        return f"if(length({path_type}) > 1, replaceRegexpAll({path_type}, '/$', ''), {path_type})"
 
     def _get_screen_name_parsing(self):
         path_type, _ = get_property_string_expr("events", "$screen_name", "'$screen_name'", "properties")

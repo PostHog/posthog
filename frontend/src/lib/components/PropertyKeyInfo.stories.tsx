@@ -4,9 +4,8 @@ import { ComponentStory, ComponentMeta } from '@storybook/react'
 import { PropertyKeyInfo } from './PropertyKeyInfo'
 
 export default {
-    title: 'PostHog/Components/PropertyKeyInfo',
+    title: 'Components/Property Key Info',
     component: PropertyKeyInfo,
-    parameters: { options: { showPanel: true } },
 } as ComponentMeta<typeof PropertyKeyInfo>
 
 const Template: ComponentStory<typeof PropertyKeyInfo> = (args) => {
@@ -30,8 +29,8 @@ const Template: ComponentStory<typeof PropertyKeyInfo> = (args) => {
     )
 }
 
-export const Primary = Template.bind({})
-Primary.args = {
+export const PropertyKeyInfo_ = Template.bind({})
+PropertyKeyInfo_.args = {
     value: undefined,
     type: 'event',
     tooltipPlacement: undefined,

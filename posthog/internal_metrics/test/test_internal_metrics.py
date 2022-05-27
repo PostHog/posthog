@@ -2,7 +2,6 @@ from unittest import mock
 
 import pytest
 from django.conf import settings
-from pytest_mock import MockFixture
 from pytest_mock.plugin import MockerFixture
 
 from posthog.internal_metrics import gauge, incr, timing
@@ -102,7 +101,7 @@ def test_get_internal_metrics_dashboards(db):
     assert Dashboard.objects.count() == 1
     assert dashboard.team_id == team.pk
     assert dashboard.name == CLICKHOUSE_DASHBOARD["name"]
-    assert dashboard.items.count() == len(CLICKHOUSE_DASHBOARD["items"])
+    assert dashboard.insights.count() == len(CLICKHOUSE_DASHBOARD["items"])
 
     assert get_internal_metrics_dashboards() == info
 

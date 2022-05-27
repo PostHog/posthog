@@ -1,4 +1,3 @@
-import decideResponse from '../fixtures/api/decide'
 import { dayjs } from 'lib/dayjs'
 
 const interceptPropertyDefinitions = () => {
@@ -22,7 +21,8 @@ const interceptPropertyDefinitions = () => {
 const selectNewTimestampPropertyFilter = () => {
     cy.get('[data-attr=new-prop-filter-EventsTable]').click()
     cy.get('[data-attr=taxonomic-filter-searchfield]').type('$time')
-    cy.get('.taxonomic-list-row').should('have.length', 1).click()
+    cy.get('.taxonomic-list-row').should('have.length', 1)
+    cy.get('[data-attr=prop-filter-event_properties-0]').click({ force: true })
 }
 
 const selectOperator = (operator, openPopUp) => {
@@ -50,16 +50,6 @@ describe('Events', () => {
             return req.reply([{ name: '96' }, { name: '97' }])
         })
 
-        // sometimes the system under test calls `/decide`
-        // and sometimes it calls https://app.posthog.com/decide
-        cy.intercept(/.*\/decide\/.*/, (req) =>
-            req.reply(
-                decideResponse({
-                    '6619-query-events-by-date': true,
-                })
-            )
-        ).as('featureFlagsLoaded')
-
         cy.visit('/events')
     })
 
@@ -82,13 +72,11 @@ describe('Events', () => {
     })
 
     it('use before and after with a DateTime property', () => {
-        cy.wait('@featureFlagsLoaded').then(() => {
-            selectNewTimestampPropertyFilter()
+        selectNewTimestampPropertyFilter()
 
-            cy.get('.taxonomic-operator').click()
-            cy.get('.operator-value-option').should('contain.text', '> after')
-            cy.get('.operator-value-option').should('contain.text', '< before')
-        })
+        cy.get('.taxonomic-operator').click()
+        cy.get('.operator-value-option').should('contain.text', '> after')
+        cy.get('.operator-value-option').should('contain.text', '< before')
     })
 
     it('use less than and greater than with a numeric property', () => {
@@ -100,16 +88,6 @@ describe('Events', () => {
         cy.get('.operator-value-option').its('length').should('eql', 10)
         cy.get('.operator-value-option').contains('< lower than').should('be.visible')
         cy.get('.operator-value-option').contains('> greater than').should('be.visible')
-    })
-
-    it('use before and after with a DateTime property', () => {
-        cy.wait('@featureFlagsLoaded').then(() => {
-            selectNewTimestampPropertyFilter()
-
-            cy.get('.taxonomic-operator').click()
-            cy.get('.operator-value-option').should('contain.text', '> after')
-            cy.get('.operator-value-option').should('contain.text', '< before')
-        })
     })
 
     /**

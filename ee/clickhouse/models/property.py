@@ -13,26 +13,20 @@ from typing import (
 )
 
 from clickhouse_driver.util.escape import escape_param
-from django.utils import timezone
 from rest_framework import exceptions
 
-from ee.clickhouse.client import sync_execute
 from ee.clickhouse.materialized_columns.columns import TableWithProperties, get_materialized_columns
 from ee.clickhouse.models.cohort import (
+    format_cohort_subquery,
     format_filter_query,
     format_precalculated_cohort_query,
     format_static_cohort_query,
+    get_count_operator,
 )
-from ee.clickhouse.models.util import PersonPropertiesMode, is_json
-from ee.clickhouse.sql.events import SELECT_PROP_VALUES_SQL, SELECT_PROP_VALUES_SQL_WITH_FILTER
+from ee.clickhouse.models.util import is_json
+from ee.clickhouse.sql.clickhouse import trim_quotes_expr
 from ee.clickhouse.sql.groups import GET_GROUP_IDS_BY_PROPERTY_SQL
-from ee.clickhouse.sql.person import (
-    GET_DISTINCT_IDS_BY_PERSON_ID_FILTER,
-    GET_DISTINCT_IDS_BY_PROPERTY_SQL,
-    GET_TEAM_PERSON_DISTINCT_IDS,
-    SELECT_PERSON_PROP_VALUES_SQL,
-    SELECT_PERSON_PROP_VALUES_SQL_WITH_FILTER,
-)
+from ee.clickhouse.sql.person import GET_DISTINCT_IDS_BY_PERSON_ID_FILTER, GET_DISTINCT_IDS_BY_PROPERTY_SQL
 from posthog.constants import PropertyOperatorType
 from posthog.models.cohort import Cohort
 from posthog.models.event import Selector
@@ -44,8 +38,9 @@ from posthog.models.property import (
     PropertyIdentifier,
     PropertyName,
 )
-from posthog.models.team import Team
-from posthog.utils import is_valid_regex, relative_date_parse
+from posthog.models.utils import PersonPropertiesMode
+from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
+from posthog.utils import is_valid_regex
 
 # Property Groups Example:
 # {type: 'AND', groups: [
@@ -64,7 +59,8 @@ from posthog.utils import is_valid_regex, relative_date_parse
 
 
 def parse_prop_grouped_clauses(
-    property_group: PropertyGroup,
+    team_id: int,
+    property_group: Optional[PropertyGroup],
     prepend: str = "global",
     table_name: str = "",
     allow_denormalized_props: bool = True,
@@ -75,15 +71,16 @@ def parse_prop_grouped_clauses(
     _top_level: bool = True,
 ) -> Tuple[str, Dict]:
 
-    if len(property_group.groups) == 0:
+    if not property_group or len(property_group.values) == 0:
         return "", {}
 
-    if isinstance(property_group.groups[0], PropertyGroup):
+    if isinstance(property_group.values[0], PropertyGroup):
         group_clauses = []
         final_params = {}
-        for idx, group in enumerate(property_group.groups):
+        for idx, group in enumerate(property_group.values):
             if isinstance(group, PropertyGroup):
                 clause, params = parse_prop_grouped_clauses(
+                    team_id=team_id,
                     property_group=group,
                     prepend=f"{prepend}_{idx}",
                     table_name=table_name,
@@ -97,10 +94,12 @@ def parse_prop_grouped_clauses(
                 group_clauses.append(clause)
                 final_params.update(params)
 
+        # purge empty returns
+        group_clauses = [clause for clause in group_clauses if clause]
         _final = f"{property_group.type} ".join(group_clauses)
     else:
         _final, final_params = parse_prop_clauses(
-            filters=cast(List[Property], property_group.groups),
+            filters=cast(List[Property], property_group.values),
             prepend=f"{prepend}",
             table_name=table_name,
             allow_denormalized_props=allow_denormalized_props,
@@ -109,6 +108,7 @@ def parse_prop_grouped_clauses(
             person_id_joined_alias=person_id_joined_alias,
             group_properties_joined=group_properties_joined,
             property_operator=property_group.type,
+            team_id=team_id,
         )
 
     if not _final:
@@ -129,6 +129,7 @@ def is_property_group(group: Union[Property, "PropertyGroup"]):
 
 
 def parse_prop_clauses(
+    team_id: int,
     filters: List[Property],
     prepend: str = "global",
     table_name: str = "",
@@ -153,11 +154,36 @@ def parse_prop_clauses(
                     f"{property_operator} 0 = 13"
                 )  # If cohort doesn't exist, nothing can match, unless an OR operator is used
             else:
-                person_id_query, cohort_filter_params = format_filter_query(cohort, idx)
-                params = {**params, **cohort_filter_params}
-                final.append(f"{property_operator} {table_name}distinct_id IN ({person_id_query})")
-        elif prop.type == "person" and person_properties_mode != PersonPropertiesMode.EXCLUDE:
-            # :TODO: Clean this up by using ClickhousePersonQuery over GET_DISTINCT_IDS_BY_PROPERTY_SQL to have access
+
+                if person_properties_mode == PersonPropertiesMode.USING_SUBQUERY:
+                    person_id_query, cohort_filter_params = format_filter_query(cohort, idx)
+                    params = {**params, **cohort_filter_params}
+                    final.append(f"{property_operator} {table_name}distinct_id IN ({person_id_query})")
+                elif person_properties_mode == PersonPropertiesMode.DIRECT_ON_EVENTS:
+                    person_id_query, cohort_filter_params = format_cohort_subquery(
+                        cohort, idx, custom_match_field=f"{person_id_joined_alias}"
+                    )
+                    params = {**params, **cohort_filter_params}
+                    final.append(f"{property_operator} {person_id_query}")
+                else:
+                    person_id_query, cohort_filter_params = format_cohort_subquery(
+                        cohort, idx, custom_match_field=f"{person_id_joined_alias}"
+                    )
+                    params = {**params, **cohort_filter_params}
+                    final.append(f"{property_operator} {person_id_query}")
+        elif prop.type == "person" and person_properties_mode == PersonPropertiesMode.DIRECT_ON_EVENTS:
+            filter_query, filter_params = prop_filter_json_extract(
+                prop,
+                idx,
+                prepend,
+                prop_var="{}person_properties".format(table_name),
+                allow_denormalized_props=False,  # TODO: No denormalized props will exist on person on events for now
+                property_operator=property_operator,
+            )
+            final.append(filter_query)
+            params.update(filter_params)
+        elif prop.type == "person" and person_properties_mode != PersonPropertiesMode.DIRECT:
+            # :TODO: Clean this up by using PersonQuery over GET_DISTINCT_IDS_BY_PROPERTY_SQL to have access
             #   to materialized columns
             # :TODO: (performance) Avoid subqueries whenever possible, use joins instead
             is_direct_query = person_properties_mode == PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN
@@ -178,16 +204,30 @@ def parse_prop_clauses(
                 final.append(
                     " {property_operator} {table_name}distinct_id IN ({filter_query})".format(
                         filter_query=GET_DISTINCT_IDS_BY_PROPERTY_SQL.format(
-                            filters=filter_query, GET_TEAM_PERSON_DISTINCT_IDS=GET_TEAM_PERSON_DISTINCT_IDS
+                            filters=filter_query, GET_TEAM_PERSON_DISTINCT_IDS=get_team_distinct_ids_query(team_id),
                         ),
                         table_name=table_name,
                         property_operator=property_operator,
                     )
                 )
                 params.update(filter_params)
+        elif prop.type == "person" and person_properties_mode == PersonPropertiesMode.DIRECT:
+            # this setting is used to generate the PersonQuery SQL.
+            # When using direct mode, there should only be person properties in the entire
+            # property group
+            filter_query, filter_params = prop_filter_json_extract(
+                prop,
+                idx,
+                prepend=f"personquery_{prepend}",
+                allow_denormalized_props=True,
+                transform_expression=lambda column_name: f"argMax(person.{column_name}, _timestamp)",
+                property_operator=property_operator,
+            )
+            final.append(filter_query)
+            params.update(filter_params)
         elif prop.type == "element":
             query, filter_params = filter_element(
-                {prop.key: prop.value}, operator=prop.operator, prepend="{}_".format(idx)
+                {prop.key: prop.value}, operator=prop.operator, prepend="{}_".format(prepend)
             )
             if query:
                 final.append(f"{property_operator} {query}")
@@ -202,6 +242,17 @@ def parse_prop_clauses(
                 property_operator=property_operator,
             )
             final.append(f" {filter_query}")
+            params.update(filter_params)
+        elif prop.type == "group" and person_properties_mode == PersonPropertiesMode.DIRECT_ON_EVENTS:
+            filter_query, filter_params = prop_filter_json_extract(
+                prop,
+                idx,
+                prepend,
+                prop_var=f"group{prop.group_type_index}_properties",
+                allow_denormalized_props=False,
+                property_operator=property_operator,
+            )
+            final.append(filter_query)
             params.update(filter_params)
         elif prop.type == "group":
             if group_properties_joined:
@@ -232,15 +283,19 @@ def parse_prop_clauses(
 
             method = format_static_cohort_query if prop.type == "static-cohort" else format_precalculated_cohort_query
             filter_query, filter_params = method(
-                cohort_id, idx, prepend=prepend, custom_match_field=person_id_joined_alias
+                cohort_id,
+                idx,
+                prepend=prepend,
+                custom_match_field=person_id_joined_alias
+                if not person_properties_mode == PersonPropertiesMode.DIRECT_ON_EVENTS
+                else "person_id",
             )  # type: ignore
-            if has_person_id_joined:
+            if has_person_id_joined or person_properties_mode == PersonPropertiesMode.DIRECT_ON_EVENTS:
                 final.append(f"{property_operator} {filter_query}")
             else:
                 # :TODO: (performance) Avoid subqueries whenever possible, use joins instead
-                # :TODO: Use get_team_distinct_ids_query instead when possible instead of GET_TEAM_PERSON_DISTINCT_IDS
                 subquery = GET_DISTINCT_IDS_BY_PERSON_ID_FILTER.format(
-                    filters=filter_query, GET_TEAM_PERSON_DISTINCT_IDS=GET_TEAM_PERSON_DISTINCT_IDS
+                    filters=filter_query, GET_TEAM_PERSON_DISTINCT_IDS=get_team_distinct_ids_query(team_id),
                 )
                 final.append(f"{property_operator} {table_name}distinct_id IN ({subquery})")
             params.update(filter_params)
@@ -252,6 +307,28 @@ def parse_prop_clauses(
     return "", params
 
 
+def negate_operator(operator: OperatorType) -> OperatorType:
+    return {
+        "is_not": "exact",
+        "exact": "is_not",
+        "icontains": "not_icontains",
+        "not_icontains": "icontains",
+        "regex": "not_regex",
+        "not_regex": "regex",
+        "gt": "lte",
+        "lt": "gte",
+        "gte": "lt",
+        "lte": "gt",
+        "is_set": "is_not_set",
+        "is_not_set": "is_set",
+        "is_date_before": "is_date_after",
+        "is_date_after": "is_date_before",
+        # is_date_exact not yet supported
+    }.get(
+        operator, operator
+    )  # type: ignore
+
+
 def prop_filter_json_extract(
     prop: Property,
     idx: int,
@@ -259,7 +336,7 @@ def prop_filter_json_extract(
     prop_var: str = "properties",
     allow_denormalized_props: bool = True,
     transform_expression: Optional[Callable[[str], str]] = None,
-    property_operator: PropertyOperatorType = PropertyOperatorType.AND,
+    property_operator: str = PropertyOperatorType.AND,
 ) -> Tuple[str, Dict[str, Any]]:
     # TODO: Once all queries are migrated over we can get rid of allow_denormalized_props
     if transform_expression is not None:
@@ -273,6 +350,9 @@ def prop_filter_json_extract(
         property_expr = transform_expression(property_expr)
 
     operator = prop.operator
+    if prop.negation:
+        operator = negate_operator(operator or "exact")
+
     params: Dict[str, Any] = {}
 
     if operator == "is_not":
@@ -399,20 +479,13 @@ def prop_filter_json_extract(
             query,
             {"k{}_{}".format(prepend, idx): prop.key, prop_value_param_key: prop.value,},
         )
-    elif operator == "gt":
+    elif operator in ["gt", "lt", "gte", "lte"]:
+        count_operator = get_count_operator(operator)
+
         params = {"k{}_{}".format(prepend, idx): prop.key, "v{}_{}".format(prepend, idx): prop.value}
+        extract_property_expr = trim_quotes_expr(f"replaceRegexpAll({property_expr}, ' ', '')")
         return (
-            " {property_operator} toFloat64OrNull(trim(BOTH '\"' FROM replaceRegexpAll({left}, ' ', ''))) > %(v{prepend}_{idx})s".format(
-                idx=idx, prepend=prepend, left=property_expr, property_operator=property_operator,
-            ),
-            params,
-        )
-    elif operator == "lt":
-        params = {"k{}_{}".format(prepend, idx): prop.key, "v{}_{}".format(prepend, idx): prop.value}
-        return (
-            " {property_operator} toFloat64OrNull(trim(BOTH '\"' FROM replaceRegexpAll({left}, ' ', ''))) < %(v{prepend}_{idx})s".format(
-                idx=idx, prepend=prepend, left=property_expr, property_operator=property_operator,
-            ),
+            f" {property_operator} toFloat64OrNull({extract_property_expr}) {count_operator} %(v{prepend}_{idx})s",
             params,
         )
     else:
@@ -445,7 +518,11 @@ def property_table(property: Property) -> TableWithProperties:
 
 
 def get_single_or_multi_property_string_expr(
-    breakdown, table: TableWithProperties, query_alias: Literal["prop", "value", None]
+    breakdown,
+    table: TableWithProperties,
+    query_alias: Literal["prop", "value", None],
+    column: str,
+    allow_denormalized_props=True,
 ):
     """
     When querying for breakdown properties:
@@ -461,14 +538,14 @@ def get_single_or_multi_property_string_expr(
 
     """
 
-    column = "properties" if table == "events" else "person_props"
-
     if isinstance(breakdown, str) or isinstance(breakdown, int):
-        expression, _ = get_property_string_expr(table, str(breakdown), escape_param(breakdown), column)
+        expression, _ = get_property_string_expr(
+            table, str(breakdown), escape_param(breakdown), column, allow_denormalized_props
+        )
     else:
         expressions = []
         for b in breakdown:
-            expr, _ = get_property_string_expr(table, b, escape_param(b), column)
+            expr, _ = get_property_string_expr(table, b, escape_param(b), column, allow_denormalized_props)
             expressions.append(expr)
 
         expression = f"array({','.join(expressions)})"
@@ -504,41 +581,18 @@ def get_property_string_expr(
     """
     materialized_columns = get_materialized_columns(table) if allow_denormalized_props else {}
 
-    table_string = f"{table_alias}." if table_alias != None else ""
+    table_string = f"{table_alias}." if table_alias is not None else ""
 
     if allow_denormalized_props and property_name in materialized_columns:
-        return f"{table_string}{materialized_columns[property_name]}", True
+        return f'{table_string}"{materialized_columns[property_name]}"', True
 
-    return f"trim(BOTH '\"' FROM JSONExtractRaw({table_string}{column}, {var}))", False
+    return trim_quotes_expr(f"JSONExtractRaw({table_string}{column}, {var})"), False
 
 
 def box_value(value: Any, remove_spaces=False) -> List[Any]:
     if not isinstance(value, List):
         value = [value]
     return [str(value).replace(" ", "") if remove_spaces else str(value) for value in value]
-
-
-def get_property_values_for_key(key: str, team: Team, value: Optional[str] = None):
-    parsed_date_from = "AND timestamp >= '{}'".format(relative_date_parse("-7d").strftime("%Y-%m-%d 00:00:00"))
-    parsed_date_to = "AND timestamp <= '{}'".format(timezone.now().strftime("%Y-%m-%d 23:59:59"))
-
-    if value:
-        return sync_execute(
-            SELECT_PROP_VALUES_SQL_WITH_FILTER.format(parsed_date_from=parsed_date_from, parsed_date_to=parsed_date_to),
-            {"team_id": team.pk, "key": key, "value": "%{}%".format(value)},
-        )
-    return sync_execute(
-        SELECT_PROP_VALUES_SQL.format(parsed_date_from=parsed_date_from, parsed_date_to=parsed_date_to),
-        {"team_id": team.pk, "key": key},
-    )
-
-
-def get_person_property_values_for_key(key: str, team: Team, value: Optional[str] = None):
-    if value:
-        return sync_execute(
-            SELECT_PERSON_PROP_VALUES_SQL_WITH_FILTER, {"team_id": team.pk, "key": key, "value": "%{}%".format(value)},
-        )
-    return sync_execute(SELECT_PERSON_PROP_VALUES_SQL, {"team_id": team.pk, "key": key},)
 
 
 def filter_element(filters: Dict, *, operator: Optional[OperatorType] = None, prepend: str = "") -> Tuple[str, Dict]:

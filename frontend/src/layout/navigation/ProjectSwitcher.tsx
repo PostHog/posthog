@@ -2,7 +2,8 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { IconPlus, IconSettings } from 'lib/components/icons'
 import { LemonButton, LemonButtonWithSideAction } from 'lib/components/LemonButton'
-import { LemonRow, LemonSpacer } from 'lib/components/LemonRow'
+import { LemonRow } from 'lib/components/LemonRow'
+import { LemonDivider } from 'lib/components/LemonDivider'
 import React from 'react'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -19,9 +20,9 @@ export function ProjectSwitcherOverlay(): JSX.Element {
     const { showCreateProjectModal, hideProjectSwitcher } = useActions(navigationLogic)
 
     return (
-        <div>
+        <div className="project-switcher-container">
             <h5>Projects</h5>
-            <LemonSpacer />
+            <LemonDivider />
             <CurrentProjectButton />
             {currentOrganization?.teams &&
                 currentOrganization.teams

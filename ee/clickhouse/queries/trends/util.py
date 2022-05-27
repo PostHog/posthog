@@ -1,15 +1,16 @@
 from datetime import timedelta
-from typing import Any, Dict, List, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 from rest_framework.exceptions import ValidationError
 
 from ee.clickhouse.models.property import get_property_string_expr
-from ee.clickhouse.queries.util import format_ch_timestamp, get_earliest_timestamp
 from ee.clickhouse.sql.events import EVENT_JOIN_PERSON_SQL
 from posthog.constants import WEEKLY_ACTIVE
 from posthog.models.entity import Entity
 from posthog.models.filters import Filter, PathFilter
 from posthog.models.filters.utils import validate_group_type_index
+from posthog.models.team import Team
+from posthog.queries.util import format_ch_timestamp, get_earliest_timestamp
 
 MATH_FUNCTIONS = {
     "sum": "sum",
@@ -23,13 +24,19 @@ MATH_FUNCTIONS = {
 }
 
 
-def process_math(entity: Entity) -> Tuple[str, str, Dict[str, Any]]:
+def process_math(
+    entity: Entity, team: Team, event_table_alias: Optional[str] = None, person_id_alias: str = "person_id"
+) -> Tuple[str, str, Dict[str, Any]]:
     aggregate_operation = "count(*)"
     join_condition = ""
     params: Dict[str, Any] = {}
     if entity.math == "dau":
-        join_condition = EVENT_JOIN_PERSON_SQL
-        aggregate_operation = "count(DISTINCT person_id)"
+        if team.aggregate_users_by_distinct_id:
+            join_condition = ""
+            aggregate_operation = f"count(DISTINCT {event_table_alias + '.' if event_table_alias else ''}distinct_id)"
+        else:
+            join_condition = EVENT_JOIN_PERSON_SQL
+            aggregate_operation = f"count(DISTINCT {person_id_alias})"
     elif entity.math == "unique_group":
         validate_group_type_index("math_group_type_index", entity.math_group_type_index, required=True)
 
@@ -49,7 +56,6 @@ def process_math(entity: Entity) -> Tuple[str, str, Dict[str, Any]]:
 
 def parse_response(stats: Dict, filter: Filter, additional_values: Dict = {}) -> Dict[str, Any]:
     counts = stats[1]
-    dates = [item.strftime("%Y-%m-%d{}".format(", %H:%M" if filter.interval == "hour" else "")) for item in stats[0]]
     labels = [item.strftime("%-d-%b-%Y{}".format(" %H:%M" if filter.interval == "hour" else "")) for item in stats[0]]
     days = [item.strftime("%Y-%m-%d{}".format(" %H:%M:%S" if filter.interval == "hour" else "")) for item in stats[0]]
     return {
@@ -67,9 +73,7 @@ def get_active_user_params(filter: Union[Filter, PathFilter], entity: Entity, te
     diff = timedelta(days=7) if entity.math == WEEKLY_ACTIVE else timedelta(days=30)
     if filter.date_from:
         params.update(
-            {
-                "parsed_date_from_prev_range": f"AND timestamp >= '{format_ch_timestamp(filter.date_from - diff, filter)}'"
-            }
+            {"parsed_date_from_prev_range": f"AND timestamp >= '{format_ch_timestamp(filter.date_from - diff)}'"}
         )
     else:
         try:
@@ -78,9 +82,7 @@ def get_active_user_params(filter: Union[Filter, PathFilter], entity: Entity, te
             raise ValidationError("Active User queries require a lower date bound")
         else:
             params.update(
-                {
-                    "parsed_date_from_prev_range": f"AND timestamp >= '{format_ch_timestamp(earliest_date - diff, filter)}'"
-                }
+                {"parsed_date_from_prev_range": f"AND timestamp >= '{format_ch_timestamp(earliest_date - diff)}'"}
             )
 
     return params

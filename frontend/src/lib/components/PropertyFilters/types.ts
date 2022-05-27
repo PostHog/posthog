@@ -1,4 +1,4 @@
-import { AnyPropertyFilter, PropertyFilter } from '~/types'
+import { PropertyGroupFilter, AnyPropertyFilter, FilterLogicalOperator, PropertyFilter } from '~/types'
 import {
     TaxonomicFilterGroup,
     TaxonomicFilterGroupType,
@@ -16,6 +16,10 @@ export interface PropertyFilterLogicProps extends PropertyFilterBaseProps {
     onChange: (filters: PropertyFilter[]) => void
 }
 
+export interface PropertyGroupFilterLogicProps extends PropertyFilterBaseProps {
+    value?: PropertyGroupFilter
+    onChange: (filters: PropertyGroupFilter) => void
+}
 export interface TaxonomicPropertyFilterLogicProps extends PropertyFilterBaseProps {
     propertyFilterLogic: ReturnType<typeof propertyFilterLogic.build>
     taxonomicGroupTypes: TaxonomicFilterGroupType[]
@@ -32,4 +36,6 @@ export interface PropertyFilterInternalProps {
     disablePopover: boolean
     taxonomicGroupTypes?: TaxonomicFilterGroupType[]
     eventNames?: string[]
+    propertyGroupType?: FilterLogicalOperator | null
+    orFiltering?: boolean
 }

@@ -1,8 +1,9 @@
 from celery.utils.log import get_task_logger
 
-from ee.clickhouse.client import sync_execute
 from ee.clickhouse.materialized_columns.columns import TRIM_AND_EXTRACT_PROPERTY, ColumnName, get_materialized_columns
-from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE, CLICKHOUSE_REPLICATION
+from ee.clickhouse.replication.utils import clickhouse_is_replicated
+from posthog.client import sync_execute
+from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
 
 logger = get_task_logger(__name__)
 
@@ -13,10 +14,10 @@ def mark_all_materialized() -> None:
         return
 
     for table, property_name, column_name in get_materialized_columns_with_default_expression():
-        updated_table = "sharded_events" if CLICKHOUSE_REPLICATION and table == "events" else table
+        updated_table = "sharded_events" if clickhouse_is_replicated() and table == "events" else table
 
         # :TRICKY: On cloud, we ON CLUSTER updates to events/sharded_events but not to persons. Why? ¯\_(ツ)_/¯
-        execute_on_cluster = f"ON CLUSTER {CLICKHOUSE_CLUSTER}" if table == "events" else ""
+        execute_on_cluster = f"ON CLUSTER '{CLICKHOUSE_CLUSTER}'" if table == "events" else ""
 
         sync_execute(
             f"""
@@ -43,8 +44,9 @@ def any_ongoing_mutations() -> bool:
 
 
 def is_default_expression(table: str, column_name: ColumnName) -> bool:
+    updated_table = "sharded_events" if clickhouse_is_replicated and table == "events" else table
     column_query = sync_execute(
         "SELECT default_kind FROM system.columns WHERE table = %(table)s AND name = %(name)s AND database = %(database)s",
-        {"table": table, "name": column_name, "database": CLICKHOUSE_DATABASE,},
+        {"table": updated_table, "name": column_name, "database": CLICKHOUSE_DATABASE,},
     )
     return len(column_query) > 0 and column_query[0][0] == "DEFAULT"

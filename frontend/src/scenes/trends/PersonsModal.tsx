@@ -2,7 +2,7 @@ import React, { useMemo } from 'react'
 import { useActions, useValues } from 'kea'
 import { DownloadOutlined, UsergroupAddOutlined } from '@ant-design/icons'
 import { Modal, Button, Input, Skeleton, Select } from 'antd'
-import { FilterType, InsightType, ActorType } from '~/types'
+import { FilterType, InsightType, ActorType, ChartDisplayType } from '~/types'
 import { personsModalLogic } from './personsModalLogic'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { capitalizeFirstLetter, isGroupType, midEllipsis, pluralize } from 'lib/utils'
@@ -16,11 +16,13 @@ import { LemonTable, LemonTableColumns } from 'lib/components/LemonTable'
 import { GroupActorHeader } from 'scenes/persons/GroupActorHeader'
 import { IconPersonFilled } from 'lib/components/icons'
 import { InsightLabel } from 'lib/components/InsightLabel'
-import { getChartColors } from 'lib/colors'
+import { getSeriesColor } from 'lib/colors'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { SessionPlayerDrawer } from 'scenes/session-recordings/SessionPlayerDrawer'
 import { MultiRecordingButton } from 'scenes/session-recordings/multiRecordingButton/multiRecordingButton'
+import { countryCodeToFlag, countryCodeToName } from 'scenes/insights/WorldMap/countryCodes'
+
 export interface PersonsModalProps {
     visible: boolean
     view: InsightType
@@ -81,9 +83,18 @@ export function PersonsModal({
                     {people?.pathsDropoff ? 'Dropped off after' : 'Completed'} step{' '}
                     <PropertyKeyInfo value={people?.label.replace(/(^[0-9]+_)/, '') || ''} disablePopover />
                 </>
+            ) : filters.display === ChartDisplayType.WorldMap ? (
+                <>
+                    {capitalizeFirstLetter(actorLabel)}
+                    {peopleParams?.breakdown_value
+                        ? ` in ${countryCodeToFlag(peopleParams?.breakdown_value as string)} ${
+                              countryCodeToName[peopleParams?.breakdown_value as string]
+                          }`
+                        : ''}
+                </>
             ) : (
                 <>
-                    {capitalizeFirstLetter(actorLabel)} list on{' '}
+                    {capitalizeFirstLetter(actorLabel)} on{' '}
                     <DateDisplay interval={filters.interval || 'day'} date={people?.day?.toString() || ''} />
                 </>
             ),
@@ -91,14 +102,15 @@ export function PersonsModal({
     )
 
     const flaggedInsights = featureFlags[FEATURE_FLAGS.NEW_INSIGHT_COHORTS]
-    const isDownloadCsvAvailable: boolean = view === InsightType.TRENDS && showModalActions && !!people?.action
+    // TODO: Re-enable CSV downloads when frontend can support new entity properties
+    // const isDownloadCsvAvailable: boolean = view === InsightType.TRENDS && showModalActions && !!people?.action
+    const isDownloadCsvAvailable: boolean = false
     const isSaveAsCohortAvailable =
         (view === InsightType.TRENDS ||
             view === InsightType.STICKINESS ||
             (!!flaggedInsights && (view === InsightType.FUNNELS || view === InsightType.PATHS))) && // make sure flaggedInsights isn't evaluated as undefined
         showModalActions
 
-    const colorList = getChartColors('white', people?.crossDataset?.length)
     const showCountedByTag = !!people?.crossDataset?.find(({ action }) => action?.math && action.math !== 'total')
     const hasMultipleSeries = !!people?.crossDataset?.find(({ action }) => action?.order)
     return (
@@ -171,32 +183,30 @@ export function PersonsModal({
                                         : setFirstLoadedActors(firstLoadedPeople)
                                 }
                             />
-                            {featureFlags[FEATURE_FLAGS.MULTI_POINT_PERSON_MODAL] &&
-                                !!people.crossDataset?.length &&
-                                people.seriesId !== undefined && (
-                                    <div className="data-point-selector">
-                                        <Select value={people.seriesId} onChange={(_id) => switchToDataPoint(_id)}>
-                                            {people.crossDataset.map((dataPoint) => (
-                                                <Select.Option
-                                                    value={dataPoint.id}
-                                                    key={`${dataPoint.action?.id}${dataPoint.breakdown_value}`}
-                                                >
-                                                    <InsightLabel
-                                                        seriesColor={colorList[dataPoint.id]}
-                                                        action={dataPoint.action}
-                                                        breakdownValue={
-                                                            dataPoint.breakdown_value === ''
-                                                                ? 'None'
-                                                                : dataPoint.breakdown_value?.toString()
-                                                        }
-                                                        showCountedByTag={showCountedByTag}
-                                                        hasMultipleSeries={hasMultipleSeries}
-                                                    />
-                                                </Select.Option>
-                                            ))}
-                                        </Select>
-                                    </div>
-                                )}
+                            {!!people.crossDataset?.length && people.seriesId !== undefined && (
+                                <div className="data-point-selector">
+                                    <Select value={people.seriesId} onChange={(_id) => switchToDataPoint(_id)}>
+                                        {people.crossDataset.map((dataPoint) => (
+                                            <Select.Option
+                                                value={dataPoint.id}
+                                                key={`${dataPoint.action?.id}${dataPoint.breakdown_value}`}
+                                            >
+                                                <InsightLabel
+                                                    seriesColor={getSeriesColor(dataPoint.id)}
+                                                    action={dataPoint.action}
+                                                    breakdownValue={
+                                                        dataPoint.breakdown_value === ''
+                                                            ? 'None'
+                                                            : dataPoint.breakdown_value?.toString()
+                                                    }
+                                                    showCountedByTag={showCountedByTag}
+                                                    hasMultipleSeries={hasMultipleSeries}
+                                                />
+                                            </Select.Option>
+                                        ))}
+                                    </Select>
+                                </div>
+                            )}
                             <div className="user-count-subheader">
                                 <IconPersonFilled style={{ fontSize: '1.125rem', marginRight: '0.5rem' }} />
                                 <span>

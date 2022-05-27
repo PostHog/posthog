@@ -1,4 +1,4 @@
-from typing import Optional, Tuple
+from typing import Tuple
 
 from semantic_version.base import SimpleSpec, Version
 
@@ -52,7 +52,7 @@ def get_postgres_version() -> Version:
 
 
 def get_clickhouse_version() -> Version:
-    from ee.clickhouse.client import default_client
+    from posthog.client import default_client
 
     client = default_client()
     rows = client.execute("SELECT version()")

@@ -11,7 +11,9 @@ class AvailableFeature(str, Enum):
     PROJECT_BASED_PERMISSIONING = "project_based_permissioning"
     GOOGLE_LOGIN = "google_login"
     SAML = "saml"
+    SSO_ENFORCEMENT = "sso_enforcement"
     DASHBOARD_COLLABORATION = "dashboard_collaboration"
+    DASHBOARD_PERMISSIONING = "dashboard_permissioning"
     INGESTION_TAXONOMY = "ingestion_taxonomy"
     PATHS_ADVANCED = "paths_advanced"
     CORRELATION_ANALYSIS = "correlation_analysis"
@@ -19,6 +21,8 @@ class AvailableFeature(str, Enum):
     MULTIVARIATE_FLAGS = "multivariate_flags"
     EXPERIMENTATION = "experimentation"
     TAGGING = "tagging"
+    BEHAVIORAL_COHORT_FILTERING = "behavioral_cohort_filtering"
+    WHITE_LABELLING = "white_labelling"
 
 
 TREND_FILTER_TYPE_ACTIONS = "actions"
@@ -35,8 +39,10 @@ TRENDS_RETENTION = "RetentionTable"
 TRENDS_PATHS = "PathsViz"
 TRENDS_BAR = "ActionsBar"
 TRENDS_BAR_VALUE = "ActionsBarValue"
+TRENDS_WORLD_MAP = "WorldMap"
 
-TRENDS_DISPLAY_BY_VALUE = [TRENDS_TABLE, TRENDS_PIE, TRENDS_BAR_VALUE]
+# Sync with frontend NON_TIME_SERIES_DISPLAY_TYPES
+NON_TIME_SERIES_DISPLAY_TYPES = [TRENDS_TABLE, TRENDS_PIE, TRENDS_BAR_VALUE, TRENDS_WORLD_MAP]
 
 # CONSTANTS
 INSIGHT_TRENDS = "TRENDS"
@@ -58,7 +64,13 @@ INSIGHT_TO_DISPLAY = {
 }
 
 DISPLAY_TYPES = Literal[
-    "ActionsLineGraph", "ActionsLineGraphCumulative", "ActionsTable", "ActionsPie", "ActionsBar", "ActionsBarValue",
+    "ActionsLineGraph",
+    "ActionsLineGraphCumulative",
+    "ActionsTable",
+    "ActionsPie",
+    "ActionsBar",
+    "ActionsBarValue",
+    "WorldMap",
 ]
 
 DEPRECATED_DISPLAY_TYPES = Literal[
@@ -85,6 +97,7 @@ PROPERTIES = "properties"
 PROPERTY_GROUPS = "property_groups"
 SELECTOR = "selector"
 INTERVAL = "interval"
+SMOOTHING_INTERVALS = "smoothing_intervals"
 DISPLAY = "display"
 SHOWN_AS = "shown_as"
 FILTER_TEST_ACCOUNTS = "filter_test_accounts"
@@ -220,3 +233,5 @@ class PropertyOperatorType(str, Enum):
 MAX_SLUG_LENGTH = 48
 GROUP_TYPES_LIMIT = 5
 BREAKDOWN_VALUES_LIMIT = 25
+BREAKDOWN_VALUES_LIMIT_FOR_COUNTRIES = 300
+CSV_EXPORT_LIMIT = 10000

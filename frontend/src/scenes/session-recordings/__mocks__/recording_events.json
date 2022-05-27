@@ -50,5 +50,18 @@
         },
         "elements": [],
         "elements_hash": ""
+    },
+    {
+        "id": "backend event",
+        "name": "backend event",
+        "event": "backend event",
+        "type": "events",
+        "order": 4,
+        "timestamp": "2021-12-09T19:37:40.223000Z",
+        "properties": {
+            "$window_id": null
+        },
+        "elements": [],
+        "elements_hash": ""
     }
 ]

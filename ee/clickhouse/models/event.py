@@ -1,28 +1,22 @@
 import json
 import uuid
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
-import celery
 import pytz
 from dateutil.parser import isoparse
-from django.conf import settings
 from django.utils import timezone
 from rest_framework import serializers
-from sentry_sdk import capture_exception
-from statshog.defaults.django import statsd
 
-from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.element import chain_to_elements, elements_to_string
-from ee.clickhouse.sql.events import GET_EVENTS_BY_TEAM_SQL, INSERT_EVENT_SQL
-from ee.idl.gen import events_pb2
+from ee.clickhouse.sql.events import BULK_INSERT_EVENT_SQL, GET_EVENTS_BY_TEAM_SQL, INSERT_EVENT_SQL
 from ee.kafka_client.client import ClickhouseProducer
-from ee.kafka_client.topics import KAFKA_EVENTS
-from ee.models.hook import Hook
-from posthog.constants import AvailableFeature
-from posthog.models.action_step import ActionStep
+from ee.kafka_client.topics import KAFKA_EVENTS_JSON
+from posthog.client import query_with_columns, sync_execute
+from posthog.models import Group
 from posthog.models.element import Element
 from posthog.models.person import Person
 from posthog.models.team import Team
+from posthog.settings import TEST
 
 
 def create_event(
@@ -33,7 +27,6 @@ def create_event(
     timestamp: Optional[Union[timezone.datetime, str]] = None,
     properties: Optional[Dict] = {},
     elements: Optional[List[Element]] = None,
-    site_url: Optional[str] = None,
 ) -> str:
     if not timestamp:
         timestamp = timezone.now()
@@ -49,25 +42,123 @@ def create_event(
     if elements and len(elements) > 0:
         elements_chain = elements_to_string(elements=elements)
 
-    pb_event = events_pb2.Event()
-    pb_event.uuid = str(event_uuid)
-    pb_event.event = event
-    pb_event.properties = json.dumps(properties)
-    pb_event.timestamp = timestamp.strftime("%Y-%m-%d %H:%M:%S.%f")
-    pb_event.team_id = team.pk
-    pb_event.distinct_id = str(distinct_id)
-    pb_event.elements_chain = elements_chain
-    pb_event.created_at = timestamp.strftime("%Y-%m-%d %H:%M:%S.%f")
-
+    data = {
+        "uuid": str(event_uuid),
+        "event": event,
+        "properties": json.dumps(properties),
+        "timestamp": timestamp.strftime("%Y-%m-%d %H:%M:%S.%f"),
+        "team_id": team.pk,
+        "distinct_id": str(distinct_id),
+        "elements_chain": elements_chain,
+        "created_at": timestamp.strftime("%Y-%m-%d %H:%M:%S.%f"),
+        # TODO: Support persons on events
+    }
     p = ClickhouseProducer()
-
-    p.produce_proto(sql=INSERT_EVENT_SQL, topic=KAFKA_EVENTS, data=pb_event)
+    p.produce(topic=KAFKA_EVENTS_JSON, sql=INSERT_EVENT_SQL(), data=data)
 
     return str(event_uuid)
 
 
+def bulk_create_events(events: List[Dict[str, Any]], person_mapping: Optional[Dict[str, Person]] = None) -> None:
+    """
+    TEST ONLY
+    Insert events in bulk. List of dicts:
+    bulk_create_events([{
+        "event": "user signed up",
+        "distinct_id": "1",
+        "team": team,
+        "timestamp": "2022-01-01T12:00:00"
+    }])
+    """
+    if not TEST:
+        raise Exception("This function is only meant for setting up tests")
+    inserts = []
+    params: Dict[str, Any] = {}
+    for index, event in enumerate(events):
+        timestamp = event.get("timestamp")
+        if not timestamp:
+            timestamp = timezone.now()
+        # clickhouse specific formatting
+        if isinstance(timestamp, str):
+            timestamp = isoparse(timestamp)
+        else:
+            timestamp = timestamp.astimezone(pytz.utc)
+
+        timestamp = timestamp.strftime("%Y-%m-%d %H:%M:%S.%f")
+
+        elements_chain = ""
+        if event.get("elements") and len(event["elements"]) > 0:
+            elements_chain = elements_to_string(elements=event.get("elements"))  # type: ignore
+
+        inserts.append(
+            "(%(uuid_{i})s, %(event_{i})s, %(properties_{i})s, %(timestamp_{i})s, %(team_id_{i})s, %(distinct_id_{i})s, %(elements_chain_{i})s, %(person_id_{i})s, %(person_properties_{i})s, %(group0_properties_{i})s, %(group1_properties_{i})s, %(group2_properties_{i})s, %(group3_properties_{i})s, %(group4_properties_{i})s, %(created_at_{i})s, now(), 0)".format(
+                i=index
+            )
+        )
+
+        #  use person properties mapping to populate person properties in given event
+        team_id = event["team"].pk if event.get("team") else event["team_id"]
+        if person_mapping and person_mapping.get(event["distinct_id"]):
+            person = person_mapping[event["distinct_id"]]
+            person_properties = person.properties
+            person_id = person.uuid
+        else:
+            try:
+                person = Person.objects.get(
+                    persondistinctid__distinct_id=event["distinct_id"], persondistinctid__team_id=team_id
+                )
+                person_properties = person.properties
+                person_id = person.uuid
+            except Person.DoesNotExist:
+                person_properties = {}
+                person_id = uuid.uuid4()
+
+        event = {
+            **event,
+            "person_properties": {**person_properties, **event.get("person_properties", {})},
+            "person_id": person_id,
+        }
+
+        # Populate group properties as well
+        for property_key, value in (event.get("properties") or {}).items():
+            if property_key.startswith("$group_"):
+                group_type_index = property_key[-1]
+                try:
+                    group = Group.objects.get(team_id=team_id, group_type_index=group_type_index, group_key=value)
+                    group_property_key = f"group{group_type_index}_properties"
+                    event = {
+                        **event,
+                        group_property_key: {**group.group_properties, **event.get(group_property_key, {})},
+                    }
+
+                except Group.DoesNotExist:
+                    continue
+
+        event = {
+            "uuid": str(event["event_uuid"]) if event.get("event_uuid") else str(uuid.uuid4()),
+            "event": event["event"],
+            "properties": json.dumps(event["properties"]) if event.get("properties") else "{}",
+            "timestamp": timestamp,
+            "team_id": team_id,
+            "distinct_id": str(event["distinct_id"]),
+            "elements_chain": elements_chain,
+            "created_at": timestamp,
+            "person_id": event["person_id"] if event.get("person_id") else str(uuid.uuid4()),
+            "person_properties": json.dumps(event["person_properties"]) if event.get("person_properties") else "{}",
+            "group0_properties": json.dumps(event["group0_properties"]) if event.get("group0_properties") else "{}",
+            "group1_properties": json.dumps(event["group1_properties"]) if event.get("group1_properties") else "{}",
+            "group2_properties": json.dumps(event["group2_properties"]) if event.get("group2_properties") else "{}",
+            "group3_properties": json.dumps(event["group3_properties"]) if event.get("group3_properties") else "{}",
+            "group4_properties": json.dumps(event["group4_properties"]) if event.get("group4_properties") else "{}",
+        }
+
+        params = {**params, **{"{}_{}".format(key, index): value for key, value in event.items()}}
+    sync_execute(BULK_INSERT_EVENT_SQL() + ", ".join(inserts), params, flush=False)
+
+
 def get_events_by_team(team_id: Union[str, int]):
-    events = sync_execute(GET_EVENTS_BY_TEAM_SQL, {"team_id": str(team_id)})
+
+    events = query_with_columns(GET_EVENTS_BY_TEAM_SQL, {"team_id": str(team_id)})
     return ClickhouseEventSerializer(events, many=True, context={"elements": None, "people": None}).data
 
 
@@ -102,34 +193,30 @@ class ClickhouseEventSerializer(serializers.Serializer):
     elements_chain = serializers.SerializerMethodField()
 
     def get_id(self, event):
-        return str(event[0])
+        return str(event["uuid"])
 
     def get_distinct_id(self, event):
-        return event[5]
+        return event["distinct_id"]
 
     def get_properties(self, event):
-        if len(event) >= 10 and event[8] and event[9]:
-            prop_vals = [res.strip('"') for res in event[9]]
-            return dict(zip(event[8], prop_vals))
-        else:
-            # parse_constants gets called for any NaN, Infinity etc values
-            # we just want those to be returned as None
-            props = json.loads(event[2], parse_constant=lambda x: None)
-            unpadded = {key: value.strip('"') if isinstance(value, str) else value for key, value in props.items()}
-            return unpadded
+        # parse_constants gets called for any NaN, Infinity etc values
+        # we just want those to be returned as None
+        props = json.loads(event["properties"], parse_constant=lambda x: None)
+        unpadded = {key: value.strip('"') if isinstance(value, str) else value for key, value in props.items()}
+        return unpadded
 
     def get_event(self, event):
-        return event[1]
+        return event["event"]
 
     def get_timestamp(self, event):
-        dt = event[3].replace(tzinfo=timezone.utc)
+        dt = event["timestamp"].replace(tzinfo=timezone.utc)
         return dt.astimezone().isoformat()
 
     def get_person(self, event):
-        if not self.context.get("people") or event[5] not in self.context["people"]:
+        if not self.context.get("people") or event["distinct_id"] not in self.context["people"]:
             return None
 
-        person = self.context["people"][event[5]]
+        person = self.context["people"][event["distinct_id"]]
         return {
             "is_identified": person.is_identified,
             "distinct_ids": person.distinct_ids[:1],  # only send the first one to avoid a payload bloat
@@ -139,12 +226,12 @@ class ClickhouseEventSerializer(serializers.Serializer):
         }
 
     def get_elements(self, event):
-        if not event[6]:
+        if not event["elements_chain"]:
             return []
-        return ElementSerializer(chain_to_elements(event[6]), many=True).data
+        return ElementSerializer(chain_to_elements(event["elements_chain"]), many=True).data
 
     def get_elements_chain(self, event):
-        return event[6]
+        return event["elements_chain"]
 
 
 def determine_event_conditions(
@@ -264,7 +351,7 @@ def get_event_count_for_last_month() -> int:
         SELECT
         COUNT(1) freq
         FROM events
-        WHERE 
+        WHERE
         toStartOfMonth(timestamp) = toStartOfMonth(date_sub(MONTH, 1, now()))
     """
     )[0][0]
@@ -289,9 +376,9 @@ def get_events_count_for_team_by_client_lib(
 ) -> dict:
     results = sync_execute(
         """
-        SELECT JSONExtractString(properties, '$lib') as lib, COUNT(1) as freq 
+        SELECT JSONExtractString(properties, '$lib') as lib, COUNT(1) as freq
         FROM events
-        WHERE team_id = %(team_id)s 
+        WHERE team_id = %(team_id)s
         AND timestamp between %(begin)s AND %(end)s
         GROUP BY lib
     """,
@@ -305,11 +392,11 @@ def get_events_count_for_team_by_event_type(
 ) -> dict:
     results = sync_execute(
         """
-        SELECT event, COUNT(1) as freq 
+        SELECT event, COUNT(1) as freq
         FROM events
         WHERE team_id = %(team_id)s
         AND timestamp between %(begin)s AND %(end)s
-        GROUP BY event 
+        GROUP BY event
     """,
         {"team_id": str(team_id), "begin": begin, "end": end},
     )

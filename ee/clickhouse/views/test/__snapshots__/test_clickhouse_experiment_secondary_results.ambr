@@ -3,16 +3,14 @@
   /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_experiments_(?P<pk>[^_.]+)_secondary_results_?$ (ClickhouseExperimentsViewSet) */
   SELECT groupArray(value)
   FROM
-    (SELECT trim(BOTH '"'
-                 FROM JSONExtractRaw(properties, '$feature/a-b-test')) AS value,
+    (SELECT replaceRegexpAll(JSONExtractRaw(properties, '$feature/a-b-test'), '^"|"$', '') AS value,
             count(*) as count
      FROM events e
      WHERE team_id = 2
        AND event = '$pageview'
-       AND timestamp >= '2020-01-01 00:00:00'
-       AND timestamp <= '2020-01-06 23:59:59'
-       AND (has(['control', 'test'], trim(BOTH '"'
-                                          FROM JSONExtractRaw(e.properties, '$feature/a-b-test'))))
+       AND timestamp >= toDateTime('2020-01-01 00:00:00')
+       AND timestamp <= toDateTime('2020-01-06 00:00:00')
+       AND (has(['control', 'test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature/a-b-test'), '^"|"$', '')))
      GROUP BY value
      ORDER BY count DESC, value DESC
      LIMIT 25
@@ -36,9 +34,9 @@
                   ticks.day_start as day_start,
                   breakdown_value
            FROM
-             (SELECT toStartOfDay(toDateTime('2020-01-06 23:59:59') - number * 86400) as day_start
+             (SELECT toStartOfDay(toDateTime('2020-01-06 00:00:00', 'UTC') - number * 86400) as day_start
               FROM numbers(6)
-              UNION ALL SELECT toStartOfDay(toDateTime('2020-01-01 00:00:00')) as day_start) as ticks
+              UNION ALL SELECT toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')) as day_start) as ticks
            CROSS JOIN
              (SELECT breakdown_value
               FROM
@@ -47,18 +45,15 @@
            ORDER BY breakdown_value,
                     day_start
            UNION ALL SELECT count(*) as total,
-                            toDateTime(toStartOfDay(timestamp), 'UTC') as day_start,
-                            trim(BOTH '"'
-                                 FROM JSONExtractRaw(properties, '$feature/a-b-test')) as breakdown_value
+                            toStartOfDay(timestamp, 'UTC') as day_start,
+                            replaceRegexpAll(JSONExtractRaw(properties, '$feature/a-b-test'), '^"|"$', '') as breakdown_value
            FROM events e
            WHERE e.team_id = 2
              AND event = '$pageview'
-             AND (has(['control', 'test'], trim(BOTH '"'
-                                                FROM JSONExtractRaw(e.properties, '$feature/a-b-test'))))
-             AND toStartOfDay(timestamp) >= toStartOfDay(toDateTime('2020-01-01 00:00:00'))
-             AND timestamp <= '2020-01-06 23:59:59'
-             AND trim(BOTH '"'
-                      FROM JSONExtractRaw(properties, '$feature/a-b-test')) in (['control', 'test'])
+             AND (has(['control', 'test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature/a-b-test'), '^"|"$', '')))
+             AND timestamp >= toStartOfDay(toDateTime('2020-01-01 00:00:00'), 'UTC')
+             AND timestamp <= toDateTime('2020-01-06 00:00:00')
+             AND replaceRegexpAll(JSONExtractRaw(properties, '$feature/a-b-test'), '^"|"$', '') in (['control', 'test'])
            GROUP BY day_start,
                     breakdown_value))
      GROUP BY day_start,
@@ -66,6 +61,7 @@
      ORDER BY breakdown_value,
               day_start)
   GROUP BY breakdown_value
+  ORDER BY breakdown_value
   '
 ---
 # name: ClickhouseTestExperimentSecondaryResults.test_basic_secondary_metric_results.2
@@ -73,16 +69,14 @@
   /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_experiments_(?P<pk>[^_.]+)_secondary_results_?$ (ClickhouseExperimentsViewSet) */
   SELECT groupArray(value)
   FROM
-    (SELECT array(trim(BOTH '"'
-                       FROM JSONExtractRaw(properties, '$feature/a-b-test'))) AS value,
+    (SELECT array(replaceRegexpAll(JSONExtractRaw(properties, '$feature/a-b-test'), '^"|"$', '')) AS value,
             count(*) as count
      FROM events e
      WHERE team_id = 2
        AND event = '$pageview_funnel'
-       AND timestamp >= '2020-01-01 00:00:00'
-       AND timestamp <= '2020-01-06 23:59:59'
-       AND (has(['control', 'test'], trim(BOTH '"'
-                                          FROM JSONExtractRaw(e.properties, '$feature/a-b-test'))))
+       AND timestamp >= toDateTime('2020-01-01 00:00:00')
+       AND timestamp <= toDateTime('2020-01-06 00:00:00')
+       AND (has(['control', 'test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature/a-b-test'), '^"|"$', '')))
      GROUP BY value
      ORDER BY count DESC, value DESC
      LIMIT 10
@@ -101,14 +95,14 @@
     (SELECT aggregation_target,
             steps,
             avg(step_1_conversion_time) step_1_average_conversion_time_inner,
-            median(step_1_conversion_time) step_1_median_conversion_time_inner,
+            median(step_1_conversion_time) step_1_median_conversion_time_inner ,
             prop
      FROM
        (SELECT aggregation_target,
                steps,
                max(steps) over (PARTITION BY aggregation_target,
                                              prop) as max_steps,
-                               step_1_conversion_time,
+                               step_1_conversion_time ,
                                prop
         FROM
           (SELECT *,
@@ -134,15 +128,15 @@
                         if(step_0 = 1, timestamp, null) as latest_0,
                         if(event = '$pageleave_funnel', 1, 0) as step_1,
                         if(step_1 = 1, timestamp, null) as latest_1,
-                        array(trim(BOTH '"'
-                                   FROM JSONExtractRaw(properties, '$feature/a-b-test'))) AS prop
+                        array(replaceRegexpAll(JSONExtractRaw(properties, '$feature/a-b-test'), '^"|"$', '')) AS prop
                  FROM
                    (SELECT e.event as event,
                            e.team_id as team_id,
                            e.distinct_id as distinct_id,
                            e.timestamp as timestamp,
                            pdi.person_id as aggregation_target,
-                           e.properties as properties
+                           e."properties" as "properties",
+                           pdi.person_id as person_id
                     FROM events e
                     INNER JOIN
                       (SELECT distinct_id,
@@ -153,10 +147,9 @@
                        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     WHERE team_id = 2
                       AND event IN ['$pageleave_funnel', '$pageview_funnel']
-                      AND timestamp >= '2020-01-01 00:00:00'
-                      AND timestamp <= '2020-01-06 23:59:59'
-                      AND (has(['control', 'test'], trim(BOTH '"'
-                                                         FROM JSONExtractRaw(properties, '$feature/a-b-test')))) ) events
+                      AND timestamp >= toDateTime('2020-01-01 00:00:00')
+                      AND timestamp <= toDateTime('2020-01-06 00:00:00')
+                      AND (has(['control', 'test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature/a-b-test'), '^"|"$', ''))) ) events
                  WHERE (step_0 = 1
                         OR step_1 = 1) ))
            WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))

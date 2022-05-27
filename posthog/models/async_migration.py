@@ -1,3 +1,5 @@
+from typing import List
+
 from django.db import models
 
 
@@ -15,7 +17,7 @@ class MigrationStatus:
 class AsyncMigrationError(models.Model):
     id: models.BigAutoField = models.BigAutoField(primary_key=True)
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True, blank=True)
-    description: models.CharField = models.CharField(max_length=400, null=False, blank=False)
+    description: models.TextField = models.TextField(null=False, blank=False)
     async_migration: models.ForeignKey = models.ForeignKey("AsyncMigration", on_delete=models.CASCADE)
 
 
@@ -52,6 +54,10 @@ def get_all_completed_async_migrations():
 
 def get_all_running_async_migrations():
     return AsyncMigration.objects.filter(status=MigrationStatus.Running)
+
+
+def get_async_migrations_by_status(target_statuses: List[int]):
+    return AsyncMigration.objects.filter(status__in=target_statuses)
 
 
 # allow for splitting code paths

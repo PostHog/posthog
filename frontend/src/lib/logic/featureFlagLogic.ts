@@ -4,9 +4,10 @@
     Use this instead of `window.posthog.isFeatureEnabled('feature')`
 */
 import { kea } from 'kea'
-import { featureFlagLogicType } from './featureFlagLogicType'
+import type { featureFlagLogicType } from './featureFlagLogicType'
 import posthog from 'posthog-js'
 import { getAppContext } from 'lib/utils/getAppContext'
+import { AppContext } from '~/types'
 
 export type FeatureFlagsSet = {
     [flag: string]: boolean | string
@@ -22,14 +23,18 @@ function notifyFlagIfNeeded(flag: string, flagState: string | boolean): void {
     }
 }
 
-function getPersistedFeatureFlags(): FeatureFlagsSet {
-    const persistedFeatureFlags = getAppContext()?.persisted_feature_flags || []
+function getPersistedFeatureFlags(appContext: AppContext | undefined = getAppContext()): FeatureFlagsSet {
+    const persistedFeatureFlags = appContext?.persisted_feature_flags || []
     return Object.fromEntries(persistedFeatureFlags.map((f) => [f, true]))
 }
 
 function spyOnFeatureFlags(featureFlags: FeatureFlagsSet): FeatureFlagsSet {
-    const persistedFlags = getPersistedFeatureFlags()
-    const availableFlags = Object.keys(persistedFlags).length ? persistedFlags : featureFlags
+    const appContext = getAppContext()
+    const persistedFlags = getPersistedFeatureFlags(appContext)
+    const availableFlags =
+        appContext?.preflight?.cloud || appContext?.preflight?.is_debug || process?.env.NODE_ENV === 'test'
+            ? { ...persistedFlags, ...featureFlags }
+            : persistedFlags
 
     if (typeof window.Proxy !== 'undefined') {
         return new Proxy(
@@ -64,7 +69,7 @@ function spyOnFeatureFlags(featureFlags: FeatureFlagsSet): FeatureFlagsSet {
     }
 }
 
-export const featureFlagLogic = kea<featureFlagLogicType<FeatureFlagsSet>>({
+export const featureFlagLogic = kea<featureFlagLogicType>({
     path: ['lib', 'logic', 'featureFlagLogic'],
     actions: {
         setFeatureFlags: (flags: string[], variants: Record<string, string | boolean>) => ({ flags, variants }),

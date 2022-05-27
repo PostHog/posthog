@@ -1,70 +1,94 @@
+import './PropertyFilterButton.scss'
 import { Button } from 'antd'
 import { useValues } from 'kea'
-import { formatPropertyLabel } from 'lib/utils'
+import { formatPropertyLabel, midEllipsis } from 'lib/utils'
 import React from 'react'
 import { cohortsModel } from '~/models/cohortsModel'
 import { AnyPropertyFilter } from '~/types'
 import { keyMapping } from 'lib/components/PropertyKeyInfo'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { CloseButton } from 'lib/components/CloseButton'
+import { IconCohort, IconPerson, UnverifiedEventStack } from 'lib/components/icons'
+import { Tooltip } from 'lib/components/Tooltip'
 
 export interface PropertyFilterButtonProps {
-    item: AnyPropertyFilter
     onClick?: () => void
     onClose?: () => void
     setRef?: (ref: HTMLElement) => void
+    children?: string | JSX.Element
+    item: AnyPropertyFilter
+    style?: React.CSSProperties
 }
 
 export function PropertyFilterText({ item }: PropertyFilterButtonProps): JSX.Element {
-    const { cohorts } = useValues(cohortsModel)
+    const { cohortsById } = useValues(cohortsModel)
     const { formatForDisplay } = useValues(propertyDefinitionsModel)
 
-    return <>{formatPropertyLabel(item, cohorts, keyMapping, (s) => formatForDisplay(item.key, s))}</>
-}
-
-export function PropertyFilterButton({ item, ...props }: PropertyFilterButtonProps): JSX.Element {
     return (
-        <FilterButton {...props}>
-            <PropertyFilterText item={item} />
-        </FilterButton>
+        <>
+            {formatPropertyLabel(item, cohortsById, keyMapping, (s) =>
+                midEllipsis(formatForDisplay(item.key, s)?.toString() || '', 32)
+            )}
+        </>
     )
 }
 
-interface FilterRowProps {
-    onClick?: () => void
-    onClose?: () => void
-    setRef?: (ref: HTMLElement) => void
-    children: string | JSX.Element
+function PropertyFilterIcon({ item }: { item: AnyPropertyFilter }): JSX.Element {
+    let iconElement = <></>
+    switch (item?.type) {
+        case 'event':
+            iconElement = (
+                <Tooltip title={'Event property'}>
+                    <UnverifiedEventStack width={'14'} height={'14'} />
+                </Tooltip>
+            )
+            break
+        case 'person':
+            iconElement = (
+                <Tooltip title={'Person property'}>
+                    <IconPerson />
+                </Tooltip>
+            )
+            break
+        case 'cohort':
+            iconElement = (
+                <Tooltip title={'Cohort filter'}>
+                    <IconCohort />
+                </Tooltip>
+            )
+            break
+    }
+    return iconElement
 }
 
-export function FilterButton({ onClick, onClose, setRef, children }: FilterRowProps): JSX.Element {
+export function PropertyFilterButton({
+    onClick,
+    onClose,
+    setRef,
+    children,
+    item,
+    style,
+}: PropertyFilterButtonProps): JSX.Element {
     return (
         <Button
-            type="primary"
             shape="round"
-            style={{ overflow: 'hidden' }}
+            style={{ ...style }}
             onClick={onClick}
             ref={setRef}
-            className={'property-filter'}
+            className="PropertyFilterButton ph-no-capture"
         >
-            <span
-                className="ph-no-capture property-filter-button-label"
-                style={{ width: '100%', overflow: 'hidden', textOverflow: 'ellipsis' }}
-            >
-                {children}
-                {onClose && (
-                    <CloseButton
-                        className={'ml-1'}
-                        onClick={(e: MouseEvent) => {
-                            e.stopPropagation()
-                            onClose()
-                        }}
-                        style={{ cursor: 'pointer', float: 'none', marginLeft: 5 }}
-                    />
-                )}
+            <PropertyFilterIcon item={item} />
+            <span className="PropertyFilterButton-content">
+                {children ? children : <PropertyFilterText item={item} />}
             </span>
+            {onClose && (
+                <CloseButton
+                    onClick={(e: MouseEvent) => {
+                        e.stopPropagation()
+                        onClose()
+                    }}
+                />
+            )}
         </Button>
     )
 }
-
-export default PropertyFilterButton

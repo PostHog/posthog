@@ -1,6 +1,6 @@
 import { kea } from 'kea'
 import { router } from 'kea-router'
-import { commandPaletteLogicType } from './commandPaletteLogicType'
+import type { commandPaletteLogicType } from './commandPaletteLogicType'
 import Fuse from 'fuse.js'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { Parser } from 'expr-eval'
@@ -33,6 +33,7 @@ import {
     LineChartOutlined,
     ApiOutlined,
     DatabaseOutlined,
+    HomeOutlined,
 } from '@ant-design/icons'
 import { DashboardType, InsightType } from '~/types'
 import api from 'lib/api'
@@ -42,8 +43,9 @@ import { personalAPIKeysLogic } from '../PersonalAPIKeys/personalAPIKeysLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import posthog from 'posthog-js'
 import { debugCHQueries } from './DebugCHQueries'
-import { preflightLogic } from 'scenes/PreflightCheck/logic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
+import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 
 // If CommandExecutor returns CommandFlow, flow will be entered
 export type CommandExecutor = () => CommandFlow | void
@@ -110,21 +112,12 @@ function resolveCommand(source: Command | CommandFlow, argument?: string, prefix
     return resultsWithCommand
 }
 
-export const commandPaletteLogic = kea<
-    commandPaletteLogicType<
-        Command,
-        CommandFlow,
-        CommandRegistrations,
-        CommandResult,
-        CommandResultDisplayable,
-        RegExpCommandPairs
-    >
->({
+export const commandPaletteLogic = kea<commandPaletteLogicType>({
     path: ['lib', 'components', 'CommandPalette', 'commandPaletteLogic'],
     connect: {
         actions: [personalAPIKeysLogic, ['createKey']],
         values: [teamLogic, ['currentTeam'], userLogic, ['user']],
-        logic: [preflightLogic], // used in afterMount, which does not auto-connect
+        logic: [preflightLogic],
     },
     actions: {
         hidePalette: true,
@@ -198,7 +191,7 @@ export const commandPaletteLogic = kea<
                     return { ...commands, [command.key]: command }
                 },
                 deregisterCommand: (commands, { commandKey }) => {
-                    const { [commandKey]: _, ...cleanedCommands } = commands // eslint-disable-line
+                    const { [commandKey]: _discard, ...cleanedCommands } = commands
                     return cleanedCommands
                 },
             },
@@ -226,9 +219,7 @@ export const commandPaletteLogic = kea<
                 }
             }
             // Capture command execution, without useless data
-            // eslint-disable-next-line @typescript-eslint/no-unused-vars
             const { icon, index, ...cleanedResult }: Record<string, any> = result
-            // eslint-disable-next-line @typescript-eslint/no-unused-vars
             const { resolver, ...cleanedCommand } = cleanedResult.source
             cleanedResult.source = cleanedCommand
             cleanedResult.isMobile = isMobile()
@@ -509,6 +500,13 @@ export const commandPaletteLogic = kea<
                         },
                     },
                     {
+                        icon: HomeOutlined,
+                        display: 'Go to project homepage',
+                        executor: () => {
+                            push(urls.projectHomepage())
+                        },
+                    },
+                    {
                         icon: ProjectOutlined,
                         display: 'Go to Project settings',
                         executor: () => {
@@ -528,15 +526,15 @@ export const commandPaletteLogic = kea<
                         display: 'Go to Plugins',
                         synonyms: ['integrations'],
                         executor: () => {
-                            push(urls.plugins())
+                            push(urls.projectApps())
                         },
                     },
                     {
                         icon: DatabaseOutlined,
-                        display: 'Go to System status page',
+                        display: 'Go to Instance status & settings',
                         synonyms: ['redis', 'celery', 'django', 'postgres', 'backend', 'service', 'online'],
                         executor: () => {
-                            push(urls.systemStatus())
+                            push(urls.instanceStatus())
                         },
                     },
                     {
@@ -680,7 +678,7 @@ export const commandPaletteLogic = kea<
                                     icon: FundOutlined,
                                     display: `Create Dashboard "${argument}"`,
                                     executor: () => {
-                                        dashboardsModel.actions.addDashboard({ name: argument, show: true })
+                                        newDashboardLogic.actions.addDashboard({ name: argument })
                                     },
                                 }
                             }

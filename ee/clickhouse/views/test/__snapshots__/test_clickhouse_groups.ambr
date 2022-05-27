@@ -1,7 +1,7 @@
 # name: ClickhouseTestGroupsApi.test_related_groups
   '
   /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_groups_related_?$ (ClickhouseGroupsView) */
-  SELECT DISTINCT person_id
+  SELECT DISTINCT pdi.person_id
   FROM events e
   JOIN
     (SELECT distinct_id,
@@ -57,7 +57,7 @@
     AND timestamp > '2021-02-09T00:00:00.000000'
     AND timestamp < '2021-05-10T00:00:00.000000'
     AND group_key != ''
-    AND person_id = '01795392-cc00-0003-7dc7-67a694604d72'
+    AND pdi.person_id = '01795392-cc00-0003-7dc7-67a694604d72'
   ORDER BY group_key
   '
 ---
@@ -83,7 +83,7 @@
     AND timestamp > '2021-02-09T00:00:00.000000'
     AND timestamp < '2021-05-10T00:00:00.000000'
     AND group_key != ''
-    AND person_id = '01795392-cc00-0003-7dc7-67a694604d72'
+    AND pdi.person_id = '01795392-cc00-0003-7dc7-67a694604d72'
   ORDER BY group_key
   '
 ---

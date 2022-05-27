@@ -11,15 +11,14 @@ import {
     SessionRecordingId,
     SessionRecordingsResponse,
 } from '~/types'
-import { sessionRecordingsTableLogicType } from './sessionRecordingsTableLogicType'
+import type { sessionRecordingsTableLogicType } from './sessionRecordingsTableLogicType'
 import { router } from 'kea-router'
 import { eventUsageLogic, RecordingWatchedSource } from 'lib/utils/eventUsageLogic'
 import equal from 'fast-deep-equal'
 import { teamLogic } from '../teamLogic'
 import { dayjs } from 'lib/dayjs'
 import { SessionRecordingType } from '~/types'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { getDefaultEventName } from 'lib/utils/getAppContext'
 
 export type PersonUUID = string
 interface Params {
@@ -42,24 +41,27 @@ export const DEFAULT_DURATION_FILTER: RecordingDurationFilter = {
 
 export const DEFAULT_PROPERTY_FILTERS = []
 
+const event = getDefaultEventName()
+
 export const DEFAULT_ENTITY_FILTERS = {
     events: [],
     actions: [],
     new_entity: [
         {
-            id: null,
+            id: event,
             type: EntityTypes.EVENTS,
             order: 0,
-            name: null,
+            name: event,
         },
     ],
 }
 
-export const sessionRecordingsTableLogic = kea<sessionRecordingsTableLogicType<PersonUUID>>({
+export const sessionRecordingsTableLogic = kea<sessionRecordingsTableLogicType>({
     path: (key) => ['scenes', 'session-recordings', 'sessionRecordingsTableLogic', key],
-    key: (props) => props.personUUID || 'global',
+    key: (props) => props.key || props.personUUID || 'global',
     props: {} as {
         personUUID?: PersonUUID
+        key?: string
     },
     connect: {
         values: [teamLogic, ['currentTeamId']],
@@ -221,10 +223,9 @@ export const sessionRecordingsTableLogic = kea<sessionRecordingsTableLogicType<P
             (sessionRecordingsResponse) => sessionRecordingsResponse.has_next,
         ],
         showFilters: [
-            (s) => [s.filterEnabled, s.entityFilters, s.propertyFilters, featureFlagLogic.selectors.featureFlags],
-            (filterEnabled, entityFilters, propertyFilters, featureFlags) => {
+            (s) => [s.filterEnabled, s.entityFilters, s.propertyFilters],
+            (filterEnabled, entityFilters, propertyFilters) => {
                 return (
-                    featureFlags[FEATURE_FLAGS.RECORDINGS_FILTER_EXPERIMENT] === 'test' ||
                     filterEnabled ||
                     entityFilters !== DEFAULT_ENTITY_FILTERS ||
                     propertyFilters !== DEFAULT_PROPERTY_FILTERS

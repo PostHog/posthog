@@ -10,21 +10,18 @@ import { FilterType, InsightLogicProps, InsightType } from '~/types'
  * @param sceneKey
  */
 export const keyForInsightLogicProps =
-    (defaultKey = 'new', sceneKey = 'scene') =>
+    (defaultKey = 'new') =>
     (props: InsightLogicProps): string | number => {
         if (!('dashboardItemId' in props)) {
             throw new Error('Must init with dashboardItemId, even if undefined')
         }
-        return props.syncWithUrl ? sceneKey : props.dashboardItemId || defaultKey
+        return props.dashboardItemId
+            ? `${props.dashboardItemId}${props.dashboardId ? `/on-dashboard-${props.dashboardId}` : ''}`
+            : defaultKey
     }
 
 export function filterTrendsClientSideParams(filters: Partial<FilterType>): Partial<FilterType> {
-    const {
-        people_day: _skip_this_one, // eslint-disable-line
-        people_action: _skip_this_too, // eslint-disable-line
-        stickiness_days: __and_this, // eslint-disable-line
-        ...newFilters
-    } = filters
+    const { people_day: _discard, people_action: __discard, stickiness_days: ___discard, ...newFilters } = filters
 
     return newFilters
 }

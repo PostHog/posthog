@@ -1,40 +1,45 @@
 import Piscina from '@posthog/piscina'
 import * as schedule from 'node-schedule'
 
-import { Hub, PluginConfigId, ScheduleControl } from '../../types'
+import { Hub, PluginConfigId, PluginScheduleControl } from '../../types'
 import { processError } from '../../utils/db/error'
+import { cancelAllScheduledJobs } from '../../utils/node-schedule'
 import { startRedlock } from '../../utils/redlock'
 import { status } from '../../utils/status'
 import { delay } from '../../utils/utils'
 
 export const LOCKED_RESOURCE = 'plugin-server:locks:schedule'
 
-export async function startSchedule(server: Hub, piscina: Piscina, onLock?: () => void): Promise<ScheduleControl> {
+export async function startPluginSchedules(
+    server: Hub,
+    piscina: Piscina,
+    onLock?: () => void
+): Promise<PluginScheduleControl> {
     status.info('⏰', 'Starting scheduling service...')
+
+    // Import this just to trigger build on ts-node-dev
+    // This is a total hack and needs to be fixed - seems to be bug with ts-node-dev
+    require('../../worker/worker')
 
     let stopped = false
     let weHaveTheLock = false
 
-    // Import this just to trigger build on ts-node-dev
-    // This is a total hack and needs to be fixed - seems to be bug with ts-node-dev
-    const _ = require('../../worker/worker')
-
     let pluginSchedulePromise = loadPluginSchedule(piscina)
     server.pluginSchedule = await pluginSchedulePromise
 
-    const runEveryMinuteJob = schedule.scheduleJob('* * * * *', async () => {
+    schedule.scheduleJob('* * * * *', async () => {
         !stopped &&
             weHaveTheLock &&
             (await pluginSchedulePromise) &&
             runScheduleDebounced(server!, piscina!, 'runEveryMinute')
     })
-    const runEveryHourJob = schedule.scheduleJob('0 * * * *', async () => {
+    schedule.scheduleJob('0 * * * *', async () => {
         !stopped &&
             weHaveTheLock &&
             (await pluginSchedulePromise) &&
             runScheduleDebounced(server!, piscina!, 'runEveryHour')
     })
-    const runEveryDayJob = schedule.scheduleJob('0 0 * * *', async () => {
+    schedule.scheduleJob('0 0 * * *', async () => {
         !stopped &&
             weHaveTheLock &&
             (await pluginSchedulePromise) &&
@@ -56,15 +61,14 @@ export async function startSchedule(server: Hub, piscina: Piscina, onLock?: () =
 
     const stopSchedule = async () => {
         stopped = true
-        runEveryDayJob && schedule.cancelJob(runEveryDayJob)
-        runEveryHourJob && schedule.cancelJob(runEveryHourJob)
-        runEveryMinuteJob && schedule.cancelJob(runEveryMinuteJob)
+        cancelAllScheduledJobs()
 
         await unlock()
-        await waitForTasksToFinish(server!)
+        await waitForTasksToFinish(server)
     }
 
     const reloadSchedule = async () => {
+        await piscina.broadcastTask({ task: 'reloadSchedule' })
         pluginSchedulePromise = loadPluginSchedule(piscina)
         server.pluginSchedule = await pluginSchedulePromise
     }
@@ -73,9 +77,6 @@ export async function startSchedule(server: Hub, piscina: Piscina, onLock?: () =
 }
 
 export async function loadPluginSchedule(piscina: Piscina, maxIterations = 2000): Promise<Hub['pluginSchedule']> {
-    // :TRICKY: While loadSchedule is called during the worker init process, it sometimes does not finish executing
-    //  due to threading shenanigans. Nudge the plugin server to finish loading!
-    void piscina.broadcastTask({ task: 'reloadSchedule' })
     while (maxIterations--) {
         const schedule = (await piscina.run({ task: 'getPluginSchedule' })) as Record<string, PluginConfigId[]> | null
         if (schedule) {

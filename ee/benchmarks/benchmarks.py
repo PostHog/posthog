@@ -1,20 +1,17 @@
 # isort: skip_file
 # Needs to be first to set up django environment
 from .helpers import *
-
-from django.utils import timezone
 from datetime import timedelta
 from typing import List, Tuple
-
-from ee.clickhouse.queries.trends.lifecycle import ClickhouseLifecycle
 from ee.clickhouse.materialized_columns import backfill_materialized_columns, get_materialized_columns, materialize
 from ee.clickhouse.queries.stickiness.clickhouse_stickiness import ClickhouseStickiness
 from ee.clickhouse.queries.funnels.funnel_correlation import FunnelCorrelation
 from ee.clickhouse.queries.funnels import ClickhouseFunnel
+from ee.clickhouse.queries.property_values import get_property_values_for_key, get_person_property_values_for_key
 from ee.clickhouse.queries.trends.clickhouse_trends import ClickhouseTrends
 from ee.clickhouse.queries.session_recordings.clickhouse_session_recording_list import ClickhouseSessionRecordingList
 from ee.clickhouse.queries.retention.clickhouse_retention import ClickhouseRetention
-from ee.clickhouse.queries.util import get_earliest_timestamp
+from posthog.queries.util import get_earliest_timestamp
 from posthog.models import Action, ActionStep, Cohort, Team, Organization
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
@@ -402,13 +399,13 @@ class QuerySuite:
     def track_session_recordings_list(self):
         filter = SessionRecordingsFilter(data=SESSIONS_DATE_RANGE, team=self.team,)
 
-        ClickhouseSessionRecordingList(filter, self.team.pk).run()
+        ClickhouseSessionRecordingList(filter, self.team).run()
 
     @benchmark_clickhouse
     def track_session_recordings_list_event_filter(self):
         filter = SessionRecordingsFilter(data={"events": [{"id": "$pageview"}], **SESSIONS_DATE_RANGE}, team=self.team,)
 
-        ClickhouseSessionRecordingList(filter, self.team.pk).run()
+        ClickhouseSessionRecordingList(filter, self.team).run()
 
     @benchmark_clickhouse
     def track_session_recordings_list_person_property_filter(self):
@@ -425,7 +422,7 @@ class QuerySuite:
             team=self.team,
         )
 
-        ClickhouseSessionRecordingList(filter, self.team.pk).run()
+        ClickhouseSessionRecordingList(filter, self.team).run()
 
     @benchmark_clickhouse
     def track_retention(self):
@@ -617,6 +614,24 @@ class QuerySuite:
     @benchmark_clickhouse
     def track_earliest_timestamp(self):
         get_earliest_timestamp(2)
+
+    @benchmark_clickhouse
+    def track_event_property_values(self):
+        with no_materialized_columns():
+            get_property_values_for_key("$browser", self.team)
+
+    @benchmark_clickhouse
+    def track_event_property_values_materialized(self):
+        get_property_values_for_key("$browser", self.team)
+
+    @benchmark_clickhouse
+    def track_person_property_values(self):
+        with no_materialized_columns():
+            get_person_property_values_for_key("$browser", self.team)
+
+    @benchmark_clickhouse
+    def track_person_property_values_materialized(self):
+        get_person_property_values_for_key("$browser", self.team)
 
     def setup(self):
         for table, property in MATERIALIZED_PROPERTIES:

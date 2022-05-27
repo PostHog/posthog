@@ -11,9 +11,9 @@ from dateutil.relativedelta import relativedelta
 from django.utils import timezone
 from sentry_sdk.api import capture_exception
 
-from ee.clickhouse.client import make_ch_pool, sync_execute
 from ee.clickhouse.models.event import get_event_count, get_event_count_for_last_month, get_event_count_month_to_date
 from posthog.api.dead_letter_queue import get_dead_letter_queue_events_last_24h, get_dead_letter_queue_size
+from posthog.client import make_ch_pool, query_with_columns, sync_execute
 from posthog.settings import CLICKHOUSE_PASSWORD, CLICKHOUSE_STABLE_HOST, CLICKHOUSE_USER
 
 SLOW_THRESHOLD_MS = 10000
@@ -166,24 +166,6 @@ def get_clickhouse_slow_log() -> List[Dict]:
             "Settings.Values",
         ],
     )
-
-
-def query_with_columns(query, args=None, columns_to_remove=[]) -> List[Dict]:
-    metrics, types = sync_execute(query, args, with_column_types=True)
-    type_names = [key for key, _type in types]
-
-    rows = []
-    for row in metrics:
-        result = {}
-        for type_name, value in zip(type_names, row):
-            if isinstance(value, list):
-                value = ", ".join(map(str, value))
-            if type_name not in columns_to_remove:
-                result[type_name] = value
-
-        rows.append(result)
-
-    return rows
 
 
 def analyze_query(query: str):

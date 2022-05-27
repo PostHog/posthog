@@ -2,13 +2,13 @@ import '~/styles'
 
 import React from 'react'
 import ReactDOM from 'react-dom'
-import { Provider } from 'react-redux'
 import { getContext } from 'kea'
 
 import { App } from 'scenes/App'
 import { initKea } from './initKea'
 
 import { loadPostHogJS } from './loadPostHogJS'
+import { ErrorBoundary } from './layout/ErrorBoundary'
 
 loadPostHogJS()
 initKea()
@@ -24,12 +24,17 @@ if (typeof window !== 'undefined') {
 }
 
 function renderApp(): void {
-    ReactDOM.render(
-        <Provider store={getContext().store}>
-            <App />
-        </Provider>,
-        document.getElementById('root')
-    )
+    const root = document.getElementById('root')
+    if (root) {
+        ReactDOM.render(
+            <ErrorBoundary>
+                <App />
+            </ErrorBoundary>,
+            root
+        )
+    } else {
+        console.error('Attempted, but could not render PostHog app because <div id="root" /> is not found.')
+    }
 }
 
 // Render react only when DOM has loaded - javascript might be cached and loaded before the page is ready.

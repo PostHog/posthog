@@ -38,11 +38,6 @@
                 "created_at": "2021-11-12T20:24:37.580946Z",
                 "updated_at": "2021-11-19T05:32:26.185018Z",
                 "membership_level": 15,
-                "personalization": {},
-                "setup": {
-                    "is_active": false,
-                    "current_section": null
-                },
                 "plugins_access_level": 9,
                 "teams": [
                     {
@@ -60,7 +55,6 @@
                     }
                 ],
                 "available_features": [],
-                "domain_whitelist": [],
                 "is_member_join_email_enabled": true
             },
             "currentOrganizationLoading": false,
@@ -141,11 +135,6 @@
                     "created_at": "2021-11-12T20:24:37.580946Z",
                     "updated_at": "2021-11-19T05:32:26.185018Z",
                     "membership_level": 15,
-                    "personalization": {},
-                    "setup": {
-                        "is_active": false,
-                        "current_section": null
-                    },
                     "plugins_access_level": 9,
                     "teams": [
                         {
@@ -163,7 +152,6 @@
                         }
                     ],
                     "available_features": [],
-                    "domain_whitelist": [],
                     "is_member_join_email_enabled": true
                 },
                 "organizations": [
@@ -188,6 +176,8 @@
                     "plugins": false,
                     "celery": false,
                     "db": true,
+                    "clickhouse": false,
+                    "kafka": false,
                     "initiated": true,
                     "cloud": false,
                     "realm": "hosted-clickhouse",
@@ -574,21 +564,23 @@
                         "properties": [],
                         "filter_test_accounts": false
                     },
-                    "savedFilters": {
-                        "insight": "TRENDS",
-                        "events": [
-                            {
-                                "id": "$pageview",
-                                "name": "$pageview",
-                                "type": "events",
-                                "order": 0
-                            }
-                        ],
-                        "actions": [],
-                        "display": "ActionsLineGraph",
-                        "interval": "day",
-                        "properties": [],
-                        "filter_test_accounts": false
+                    "savedInsight": {
+                        "filters": {
+                            "insight": "TRENDS",
+                            "events": [
+                                {
+                                    "id": "$pageview",
+                                    "name": "$pageview",
+                                    "type": "events",
+                                    "order": 0
+                                }
+                            ],
+                            "actions": [],
+                            "display": "ActionsLineGraph",
+                            "interval": "day",
+                            "properties": [],
+                            "filter_test_accounts": false
+                        }
                     },
                     "showTimeoutMessage": true,
                     "maybeShowTimeoutMessage": true,

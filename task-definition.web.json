@@ -79,10 +79,6 @@
                     "value": "True"
                 },
                 {
-                    "name": "PRIMARY_DB",
-                    "value": "clickhouse"
-                },
-                {
                     "name": "SITE_URL",
                     "value": "https://app.posthog.com"
                 },
@@ -123,10 +119,6 @@
                     "value": "True"
                 },
                 {
-                    "name": "PERSISTED_FEATURE_FLAGS",
-                    "value": "0"
-                },
-                {
                     "name": "CALCULATE_X_COHORTS_PARALLEL",
                     "value": "50"
                 },
@@ -137,6 +129,18 @@
                 {
                     "name": "ASYNC_MIGRATIONS_DISABLE_AUTO_ROLLBACK",
                     "value": "1"
+                },
+                {
+                    "name": "UPDATE_CACHED_DASHBOARD_ITEMS_INTERVAL_SECONDS",
+                    "value": "60"
+                },
+                {
+                    "name": "PARALLEL_DASHBOARD_ITEM_CACHE",
+                    "value": "7"
+                },
+                {
+                    "name": "OBJECT_STORAGE_ENABLED",
+                    "value": "True"
                 }
             ],
             "secrets": [
@@ -263,6 +267,14 @@
                 {
                     "name": "HUBSPOT_API_KEY",
                     "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:HUBSPOT_API_KEY::"
+                },
+                {
+                    "name": "OBJECT_STORAGE_ENDPOINT",
+                    "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:OBJECT_STORAGE_ENDPOINT::"
+                },
+                {
+                    "name": "OBJECT_STORAGE_BUCKET",
+                    "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:OBJECT_STORAGE_BUCKET::"
                 }
             ],
             "entryPoint": ["sh", "-c"],

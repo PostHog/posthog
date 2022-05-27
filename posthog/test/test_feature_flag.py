@@ -1,5 +1,3 @@
-from django.utils import timezone
-
 from posthog.models import Cohort, FeatureFlag, GroupTypeMapping, Person
 from posthog.models.feature_flag import (
     FeatureFlagMatch,
@@ -83,13 +81,17 @@ class TestFeatureFlagMatcher(BaseTest):
     def test_user_in_cohort(self):
         Person.objects.create(team=self.team, distinct_ids=["example_id_1"], properties={"$some_prop_1": "something_1"})
         cohort = Cohort.objects.create(
-            team=self.team, groups=[{"properties": {"$some_prop_1": "something_1"}}], name="cohort1"
+            team=self.team,
+            groups=[{"properties": [{"key": "$some_prop_1", "value": "something_1", "type": "person"}]}],
+            name="cohort1",
         )
         cohort.calculate_people_ch(pending_version=0)
 
-        feature_flag = self.create_feature_flag(
+        feature_flag: FeatureFlag = self.create_feature_flag(
             filters={"groups": [{"properties": [{"key": "id", "value": cohort.pk, "type": "cohort"}],}]}
         )
+
+        feature_flag.update_cohorts()
 
         self.assertEqual(FeatureFlagMatcher(feature_flag, "example_id_1").get_match(), FeatureFlagMatch())
         self.assertIsNone(FeatureFlagMatcher(feature_flag, "another_id").get_match())
@@ -132,13 +134,17 @@ class TestFeatureFlagMatcher(BaseTest):
     def test_legacy_user_in_cohort(self):
         Person.objects.create(team=self.team, distinct_ids=["example_id_2"], properties={"$some_prop_2": "something_2"})
         cohort = Cohort.objects.create(
-            team=self.team, groups=[{"properties": {"$some_prop_2": "something_2"}}], name="cohort2"
+            team=self.team,
+            groups=[{"properties": [{"key": "$some_prop_2", "value": "something_2", "type": "person"}]}],
+            name="cohort2",
         )
         cohort.calculate_people_ch(pending_version=0)
 
-        feature_flag = self.create_feature_flag(
+        feature_flag: FeatureFlag = self.create_feature_flag(
             filters={"properties": [{"key": "id", "value": cohort.pk, "type": "cohort"}],}
         )
+
+        feature_flag.update_cohorts()
 
         self.assertEqual(FeatureFlagMatcher(feature_flag, "example_id_2").get_match(), FeatureFlagMatch())
         self.assertIsNone(FeatureFlagMatcher(feature_flag, "another_id").get_match())
