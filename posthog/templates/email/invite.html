@@ -6,6 +6,12 @@
     better understand your users.<br />
     Build the best product <i>together</i>.
 </p>
+{% if invite.message %}
+<div class="invite-message">
+    <div class="invite-message-divider"></div>
+    {{ invite.message }}
+</div>
+{% endif %}
 <div class="mb mt text-center">
     <a class="button primary" href="{{ invite }}">Join now</a>
 </div>
