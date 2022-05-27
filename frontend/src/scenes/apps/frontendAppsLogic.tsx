@@ -82,16 +82,16 @@ export const frontendAppsLogic = kea<frontendAppsLogicType>([
                             return values.frontendApps
                         }
                         if ('error' in app) {
-                            lemonToast.error(`Can not load frontend for app ${id}: ${app.error}`)
+                            lemonToast.error(`Cannot load frontend for app ${id}: ${app.error}`)
                             return values.frontendApps
                         }
                         throw Error(`Could not find exported "scene" or "error" for app ${id}`)
                     }
                     throw Error(`Could not find exported "getFrontendApp" for app ${id}`)
                 } catch (error) {
-                    console.error(`Can not load frontend for app ${id}`)
+                    console.error(`Cannot load frontend for app ${id}`)
                     console.error(error)
-                    lemonToast.error(`Can not load frontend for app ${id}: ${error}`)
+                    lemonToast.error(`Cannot load frontend for app ${id}: ${error}`)
                     throw error
                 }
             },

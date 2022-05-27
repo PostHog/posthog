@@ -461,7 +461,7 @@ describe('plugins', () => {
         expect(processError).toHaveBeenCalledWith(
             hub,
             pluginConfigs.get(39)!,
-            `Plugin plugin test-maxmind-plugin ID ${plugin60.id} (organization ID ${commonOrganizationId} - global) is not a local, remote or source plugin. Can not load.`
+            `Plugin plugin test-maxmind-plugin ID ${plugin60.id} (organization ID ${commonOrganizationId} - global) is not a local, remote or source plugin. Cannot load.`
         )
         expect(await pluginConfigs.get(39)!.vm!.getScheduledTasks()).toEqual({})
     })
