@@ -1,5 +1,5 @@
 import json
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Literal, Optional, Tuple
 
 from dateutil import parser
 from django.db import DEFAULT_DB_ALIAS, connection, connections
@@ -658,6 +658,76 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         )
         self.assertEqual(response.status_code, 200, response.content)
         self.assertEqual(response.json()["name"], "replaced")
+
+    def test_can_soft_delete_insight_after_soft_deleting_dashboard(self) -> None:
+        filter_dict = {
+            "events": [{"id": "$pageview"}],
+            "properties": [{"key": "$browser", "value": "Mac OS X"}],
+            "insight": "TRENDS",
+        }
+
+        dashboard_id, _ = self._create_dashboard({"name": "dashboard"})
+        insight_id, _ = self._create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
+
+        self._soft_delete(dashboard_id, "dashboards")
+
+        insight_json = self._get_insight(insight_id=insight_id)
+        self.assertEqual(insight_json["dashboards"], [])
+
+        self._soft_delete(insight_id, "insights")
+
+    def test_can_soft_delete_dashboard_after_soft_deleting_insight(self) -> None:
+        filter_dict = {
+            "events": [{"id": "$pageview"}],
+            "properties": [{"key": "$browser", "value": "Mac OS X"}],
+            "insight": "TRENDS",
+        }
+
+        dashboard_id, _ = self._create_dashboard({"name": "dashboard"})
+        insight_id, _ = self._create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
+
+        self._soft_delete(insight_id, "insights")
+
+        self._get_insight(insight_id=insight_id, expected_status=status.HTTP_404_NOT_FOUND)
+
+        dashboard_json = self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard_id}").json()
+        self.assertEqual(len(dashboard_json["items"]), 0)
+
+        self._soft_delete(dashboard_id, "dashboards")
+
+    def test_hard_delete_is_forbidden(self) -> None:
+        dashboard_id, _ = self._create_dashboard({"name": "dashboard"})
+        api_response = self.client.delete(f"/api/projects/{self.team.id}/dashboards/{dashboard_id}")
+        self.assertEqual(api_response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
+        self.assertEqual(
+            self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard_id}").status_code, status.HTTP_200_OK,
+        )
+
+    def test_soft_delete_can_be_reversed_with_patch(self) -> None:
+        dashboard_id, _ = self._create_dashboard({"name": "dashboard"})
+
+        self._soft_delete(dashboard_id, "dashboards")
+
+        update_response = self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}", {"deleted": False}
+        )
+        self.assertEqual(update_response.status_code, status.HTTP_200_OK)
+
+        self.assertEqual(
+            self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard_id}").status_code, status.HTTP_200_OK
+        )
+
+    def _soft_delete(
+        self,
+        model_id: int,
+        model_type: Literal["insights", "dashboards"],
+        expected_get_status: int = status.HTTP_404_NOT_FOUND,
+    ) -> None:
+        api_response = self.client.patch(f"/api/projects/{self.team.id}/{model_type}/{model_id}", {"deleted": True})
+        self.assertEqual(api_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            self.client.get(f"/api/projects/{self.team.id}/{model_type}/{model_id}").status_code, expected_get_status,
+        )
 
     def _create_dashboard(self, data: Dict[str, Any], team_id: Optional[int] = None) -> Tuple[int, Dict[str, Any]]:
         if team_id is None:

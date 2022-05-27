@@ -14,8 +14,15 @@ asgiref==3.3.2
     # via
     #   -r requirements.in
     #   django
+async-generator==1.10
+    # via
+    #   trio
+    #   trio-websocket
 attrs==21.4.0
-    # via jsonschema
+    # via
+    #   jsonschema
+    #   outcome
+    #   trio
 backoff==1.6.0
     # via posthoganalytics
 billiard==3.6.3.0
@@ -36,6 +43,7 @@ certifi==2019.11.28
     # via
     #   requests
     #   sentry-sdk
+    #   urllib3
 cffi==1.14.5
     # via cryptography
 chardet==3.0.4
@@ -47,10 +55,12 @@ clickhouse-driver==0.2.1
     #   clickhouse-pool
 clickhouse-pool==0.5.3
     # via -r requirements.in
-cryptography==3.4.7
+cryptography==37.0.2
     # via
     #   kafka-helper
+    #   pyopenssl
     #   social-auth-core
+    #   urllib3
 cssselect==1.1.0
     # via toronado
 cssutils==1.0.2
@@ -127,15 +137,19 @@ grpcio==1.33.1
     # via -r requirements.in
 gunicorn==20.1.0
     # via -r requirements.in
+h11==0.13.0
+    # via wsproto
 idna==2.8
     # via
     #   -r requirements.in
     #   requests
+    #   trio
+    #   urllib3
 importlib-metadata==1.6.0
     # via -r requirements.in
 importlib-resources==5.7.1
     # via jsonschema
-git+https://github.com/PostHog/infi.clickhouse_orm@de88ffaecda8c36c693cc51909a3598cb9725fde
+git+https://github.com/PostHog/infi.clickhouse_orm@37722f350f3b449bbcd6564917c436b0d93e796f
     # via -r requirements.in
 inflection==0.5.1
     # via drf-spectacular
@@ -182,6 +196,8 @@ oauthlib==3.1.0
     # via
     #   requests-oauthlib
     #   social-auth-core
+outcome==1.1.0
+    # via trio
 packaging==21.3
     # via marshmallow
 parso==0.8.1
@@ -202,10 +218,14 @@ pycparser==2.20
     # via cffi
 pyjwt==2.1.0
     # via social-auth-core
+pyopenssl==22.0.0
+    # via urllib3
 pyparsing==3.0.7
     # via packaging
 pyrsistent==0.18.1
     # via jsonschema
+pysocks==1.7.1
+    # via urllib3
 python-dateutil==2.8.1
     # via
     #   -r requirements.in
@@ -245,6 +265,9 @@ requests==2.25.1
     #   posthoganalytics
     #   requests-oauthlib
     #   social-auth-core
+    #   webdriver-manager
+selenium==4.1.5
+    # via -r requirements.in
 s3transfer==0.5.2
     # via boto3
 semantic_version==2.8.5
@@ -260,12 +283,16 @@ six==1.14.0
     #   protobuf
     #   python-dateutil
     #   tenacity
+sniffio==1.2.0
+    # via trio
 social-auth-app-django==5.0.0
     # via -r requirements.in
 social-auth-core==4.1.0
     # via
     #   -r requirements.in
     #   social-auth-app-django
+sortedcontainers==2.4.0
+    # via trio
 sqlparse==0.3.0
     # via django
 statshog==1.0.6
@@ -276,6 +303,12 @@ tenacity==6.1.0
     # via celery-redbeat
 toronado==0.1.0
     # via -r requirements.in
+trio-websocket==0.9.2
+    # via selenium
+trio==0.20.0
+    # via
+    #   selenium
+    #   trio-websocket
 typing-extensions==4.1.1
     # via typing-inspect
 typing-inspect==0.7.1
@@ -286,17 +319,22 @@ unicodecsv==0.14.1
     # via djangorestframework-csv
 uritemplate==4.1.1
     # via drf-spectacular
-urllib3==1.26.5
+urllib3[secure,socks]==1.26.5
     # via
     #   botocore
     #   requests
+    #   selenium
     #   sentry-sdk
 vine==1.3.0
     # via
     #   amqp
     #   celery
+webdriver_manager==3.5.4
+    # via -r requirements.in
 whitenoise==5.2.0
     # via -r requirements.in
+wsproto==1.1.0
+    # via trio-websocket
 xmlsec==1.3.12
     # via python3-saml
 zipp==3.1.0

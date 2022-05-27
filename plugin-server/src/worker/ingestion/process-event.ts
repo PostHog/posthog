@@ -234,16 +234,18 @@ export class EventsProcessor {
         teamId: number,
         distinctId: string,
         properties: Properties,
-        propertiesOnce: Properties
+        propertiesOnce: Properties,
+        unsetProperties: Array<string>
     ): Promise<void> {
-        await this.updatePersonPropertiesDeprecated(teamId, distinctId, properties, propertiesOnce)
+        await this.updatePersonPropertiesDeprecated(teamId, distinctId, properties, propertiesOnce, unsetProperties)
     }
 
     private async updatePersonPropertiesDeprecated(
         teamId: number,
         distinctId: string,
         properties: Properties,
-        propertiesOnce: Properties
+        propertiesOnce: Properties,
+        unsetProperties: Array<string>
     ): Promise<void> {
         const personFound = await this.db.fetchPerson(teamId, distinctId)
         if (!personFound) {
@@ -263,6 +265,10 @@ export class EventsProcessor {
             if (personFound?.properties[key] !== value) {
                 updatedProperties[key] = value
             }
+        })
+
+        unsetProperties.forEach((propertyKey) => {
+            delete updatedProperties[propertyKey]
         })
 
         const arePersonsEqual = equal(personFound.properties, updatedProperties)
@@ -550,12 +556,16 @@ export class EventsProcessor {
 
         if (event === '$groupidentify') {
             await this.upsertGroup(team.id, properties, timestamp)
-        } else if (!createdNewPersonWithProperties && (properties['$set'] || properties['$set_once'])) {
+        } else if (
+            !createdNewPersonWithProperties &&
+            (properties['$set'] || properties['$set_once'] || properties['$unset'])
+        ) {
             await this.updatePersonProperties(
                 team.id,
                 distinctId,
                 properties['$set'] || {},
-                properties['$set_once'] || {}
+                properties['$set_once'] || {},
+                properties['$unset'] || []
             )
         }
 

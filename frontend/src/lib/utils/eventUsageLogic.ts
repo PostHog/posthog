@@ -824,7 +824,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
             posthog.capture('saved insights new insight clicked', { insight_type: insightType })
         },
         reportRecording: ({ recordingData, source, loadTime, type }) => {
-            // @ts-ignore
+            // @ts-expect-error
             const eventIndex = new EventIndex(recordingData?.snapshots || [])
             const payload: Partial<RecordingViewedProps> = {
                 load_time: loadTime,

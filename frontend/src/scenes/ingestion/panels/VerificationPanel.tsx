@@ -15,8 +15,8 @@ export function VerificationPanel(): JSX.Element {
     const { loadCurrentTeam } = useActions(teamLogic)
     const { currentTeam } = useValues(teamLogic)
     const { setVerify, completeOnboarding } = useActions(ingestionLogic)
-    const { index } = useValues(ingestionLogic)
-    const { reportIngestionContinueWithoutVerifying, reportTeamHasIngestedEvents } = useActions(eventUsageLogic)
+    const { index, onboardingSidebarEnabled } = useValues(ingestionLogic)
+    const { reportIngestionContinueWithoutVerifying } = useActions(eventUsageLogic)
 
     useInterval(() => {
         if (!currentTeam?.ingested_event) {
@@ -48,7 +48,7 @@ export function VerificationPanel(): JSX.Element {
                                 Continue without verifying
                             </LemonButton>
                         </div>
-                        <PanelSupport />
+                        {!onboardingSidebarEnabled && <PanelSupport />}
                     </>
                 ) : (
                     <>
@@ -62,17 +62,14 @@ export function VerificationPanel(): JSX.Element {
                             <LemonButton
                                 data-attr="wizard-complete-button"
                                 type="primary"
-                                onClick={() => {
-                                    completeOnboarding()
-                                    reportTeamHasIngestedEvents()
-                                }}
+                                onClick={() => completeOnboarding()}
                                 fullWidth
                                 center
                             >
                                 Complete
                             </LemonButton>
                         </div>
-                        <PanelSupport />
+                        {!onboardingSidebarEnabled && <PanelSupport />}
                     </>
                 )}
             </div>

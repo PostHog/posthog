@@ -99,6 +99,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         OBJECT_STORAGE_SECRET_ACCESS_KEY: 'object_storage_root_password',
         OBJECT_STORAGE_SESSION_RECORDING_FOLDER: 'session_recordings',
         OBJECT_STORAGE_BUCKET: 'posthog',
+        PLUGIN_SERVER_MODE: null,
     }
 }
 
@@ -171,6 +172,7 @@ export function getConfigHelp(): Record<keyof PluginsServerConfig, string> {
         CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS_TEAMS:
             '(advanced) a comma separated list of teams to disable clickhouse external schemas for',
         CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: '(advanced) topic to send events to for clickhouse ingestion',
+        PLUGIN_SERVER_MODE: '(advanced) plugin server mode',
         OBJECT_STORAGE_ENABLED:
             'Disables or enables the use of object storage. It will become mandatory to use object storage',
         OBJECT_STORAGE_ENDPOINT: 'minio endpoint',
@@ -206,6 +208,10 @@ export function overrideWithEnv(
                 newConfig[key] = env[key]
             }
         }
+    }
+
+    if (!['ingestion', 'async', null].includes(newConfig.PLUGIN_SERVER_MODE)) {
+        throw Error(`Invalid PLUGIN_SERVER_MODE ${newConfig.PLUGIN_SERVER_MODE}`)
     }
     return newConfig
 }

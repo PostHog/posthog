@@ -279,7 +279,7 @@ class TestFunnelStrictSteps(ClickhouseTestMixin, APIBaseTest):
             ],
             "actions": [
                 {"id": sign_up_action.id, "math": "dau", "order": 1},
-                {"id": view_action.id, "math": "wau", "order": 3},
+                {"id": view_action.id, "math": "weekly_active", "order": 3},
             ],
             "insight": INSIGHT_FUNNELS,
         }

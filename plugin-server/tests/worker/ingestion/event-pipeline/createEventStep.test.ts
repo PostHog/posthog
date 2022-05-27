@@ -15,7 +15,6 @@ const preIngestionEvent: PreIngestionEvent = {
 }
 
 const testPerson: any = { id: 'testid' }
-const testElements: any = ['element1', 'element2']
 
 describe('createEventStep()', () => {
     let runner: any
@@ -25,7 +24,7 @@ describe('createEventStep()', () => {
             nextStep: (...args: any[]) => args,
             hub: {
                 eventsProcessor: {
-                    createEvent: () => [null, null, testElements],
+                    createEvent: jest.fn(),
                 },
             },
         }
@@ -34,6 +33,6 @@ describe('createEventStep()', () => {
     it('calls `createEvent` and forwards to `runAsyncHandlersStep`', async () => {
         const response = await createEventStep(runner, preIngestionEvent, testPerson)
 
-        expect(response).toEqual(['runAsyncHandlersStep', preIngestionEvent, testPerson, testElements])
+        expect(response).toEqual(['runAsyncHandlersStep', preIngestionEvent, testPerson])
     })
 })

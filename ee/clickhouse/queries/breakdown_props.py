@@ -115,7 +115,7 @@ def get_breakdown_prop_values(
             "limit": filter.breakdown_limit_or_default,
             "team_id": team.pk,
             "offset": filter.offset,
-            "timezone": team.timezone_for_charts,
+            "timezone": team.timezone,
             **prop_filter_params,
             **entity_params,
             **person_join_params,

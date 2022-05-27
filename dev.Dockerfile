@@ -27,6 +27,8 @@ RUN apk --update --no-cache add \
     "make~=4.3" \
     "nodejs-current~=16" \
     "npm~=7" \
+    "chromium~=93" \
+    "chromium-chromedriver~=93" \
     && npm install -g yarn@1
 
 # Compile and install Python dependencies.
@@ -87,4 +89,9 @@ RUN mkdir -p frontend/dist && \
 # Expose container port and run entry point script
 EXPOSE 8000
 EXPOSE 8234
+
+ENV CHROME_BIN=/usr/bin/chromium-browser \
+    CHROME_PATH=/usr/lib/chromium/ \
+    CHROMEDRIVER_BIN=/usr/bin/chromedriver
+
 CMD ["./bin/docker-dev"]

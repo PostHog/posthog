@@ -60,7 +60,7 @@ describe('LazyPluginVM', () => {
             expect(await vm.getProcessEvent()).toEqual('processEvent')
             expect(await vm.getTask('someTask', PluginTaskType.Schedule)).toEqual(null)
             expect(await vm.getTask('runEveryMinute', PluginTaskType.Schedule)).toEqual('runEveryMinute')
-            expect(await vm.getTasks(PluginTaskType.Schedule)).toEqual(mockVM.tasks.schedule)
+            expect(await vm.getScheduledTasks()).toEqual(mockVM.tasks.schedule)
         })
 
         it('logs info and clears errors on success', async () => {
@@ -103,7 +103,7 @@ describe('LazyPluginVM', () => {
 
             expect(await vm.getProcessEvent()).toEqual(null)
             expect(await vm.getTask('runEveryMinute', PluginTaskType.Schedule)).toEqual(null)
-            expect(await vm.getTasks(PluginTaskType.Schedule)).toEqual({})
+            expect(await vm.getScheduledTasks()).toEqual({})
         })
 
         it('disables plugin if vm creation fails before setupPlugin', async () => {
