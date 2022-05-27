@@ -7,6 +7,7 @@ import { killGracefully } from '../../utils/utils'
 import { KAFKA_BUFFER, KAFKA_EVENTS_JSON, prefix as KAFKA_PREFIX } from './../../config/kafka-topics'
 import { eachBatchAsyncHandlers } from './batch-processing/each-batch-async-handlers'
 import { eachBatchIngestion } from './batch-processing/each-batch-ingestion'
+import { addMetricsEventListeners, emitConsumerGroupMetrics } from './kafka-metrics'
 
 type ConsumerManagementPayload = {
     topic: string
@@ -19,6 +20,7 @@ export class KafkaQueue {
     public workerMethods: WorkerMethods
     private kafka: Kafka
     private consumer: Consumer
+    private consumerGroupMemberId: string | null
     private wasConsumerRan: boolean
     private sleepTimeout: NodeJS.Timeout | null
     private ingestionTopic: string
@@ -33,6 +35,7 @@ export class KafkaQueue {
         this.wasConsumerRan = false
         this.workerMethods = workerMethods
         this.sleepTimeout = null
+        this.consumerGroupMemberId = null
 
         this.ingestionTopic = this.pluginsServer.KAFKA_CONSUMPTION_TOPIC!
         this.bufferTopic = KAFKA_BUFFER
@@ -69,9 +72,10 @@ export class KafkaQueue {
 
     async start(): Promise<void> {
         const startPromise = new Promise<void>(async (resolve, reject) => {
-            this.addMetricListeners()
+            addMetricsEventListeners(this.consumer, this.pluginsServer.statsd)
             this.consumer.on(this.consumer.events.GROUP_JOIN, ({ payload }) => {
                 status.info('ℹ️', 'Kafka joined consumer group', JSON.stringify(payload))
+                this.consumerGroupMemberId = payload.memberId
                 resolve()
             })
             this.consumer.on(this.consumer.events.CRASH, ({ payload: { error } }) => reject(error))
@@ -176,6 +180,10 @@ export class KafkaQueue {
         try {
             await this.consumer.disconnect()
         } catch {}
+    }
+
+    emitConsumerGroupMetrics(): Promise<void> {
+        return emitConsumerGroupMetrics(this.consumer, this.consumerGroupMemberId, this.pluginsServer)
     }
 
     private addMetricListeners() {
