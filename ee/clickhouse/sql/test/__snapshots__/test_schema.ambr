@@ -210,6 +210,22 @@
   
   '
 ---
+# name: test_create_table_query[cohortpeople2]
+  '
+  
+  CREATE TABLE IF NOT EXISTS cohortpeople2 ON CLUSTER 'posthog'
+  (
+      person_id UUID,
+      cohort_id Int64,
+      team_id Int64,
+      sign Int8,
+      version UInt64
+  ) ENGINE = VersionedCollapsingMergeTree(sign, version)
+  Order By (team_id, cohort_id, person_id)
+  
+  
+  '
+---
 # name: test_create_table_query[cohortpeople]
   '
   
@@ -933,6 +949,22 @@
   , _offset UInt64
   
   ) ENGINE = Distributed('posthog', 'posthog_test', 'session_recording_events', sipHash64(distinct_id))
+  
+  '
+---
+# name: test_create_table_query_replicated_and_storage[cohortpeople2]
+  '
+  
+  CREATE TABLE IF NOT EXISTS cohortpeople2 ON CLUSTER 'posthog'
+  (
+      person_id UUID,
+      cohort_id Int64,
+      team_id Int64,
+      sign Int8,
+      version UInt64
+  ) ENGINE = ReplicatedVersionedCollapsingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.cohortpeople2', '{replica}-{shard}', sign, version)
+  Order By (team_id, cohort_id, person_id)
+  
   
   '
 ---
