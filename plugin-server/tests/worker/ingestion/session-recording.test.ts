@@ -6,7 +6,7 @@ import { TimestampFormat } from '../../../src/types'
 import { castTimestampOrNow } from '../../../src/utils/utils'
 import { processSnapshotData } from '../../../src/worker/ingestion/session-recordings'
 
-describe('session recordings', () => {
+describe('processSnapshotData()', () => {
     let statsdTiming: jest.Mock
     let statsdIncrement: jest.Mock
     let statsd: StatsD
