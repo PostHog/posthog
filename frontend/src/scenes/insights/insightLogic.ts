@@ -543,11 +543,17 @@ export const insightLogic = kea<insightLogicType>({
                     : sum(filters.properties?.values?.map((x) => x.values.length) || [])
             },
         ],
+        supportsCsvExport: [
+            (s) => [s.insight],
+            ({ filters }): boolean => {
+                return filters?.insight === InsightType.TRENDS
+            },
+        ],
         csvExportUrl: [
-            (s) => [s.insight, s.currentTeamId],
-            (insight: Partial<InsightModel>, currentTeamId: number) => {
+            (s) => [s.insight, s.currentTeamId, s.supportsCsvExport],
+            (insight: Partial<InsightModel>, currentTeamId: number, supportsCsvExport: boolean) => {
                 const { filters, name, short_id, derived_name } = insight
-                if (filters?.insight === InsightType.TRENDS) {
+                if (filters && supportsCsvExport) {
                     return `/api/projects/${currentTeamId}/insights/trend.csv/?${toParams({
                         ...filterTrendsClientSideParams(filters),
                         export_name: name || derived_name,

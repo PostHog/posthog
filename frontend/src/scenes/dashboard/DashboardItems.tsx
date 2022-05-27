@@ -4,7 +4,7 @@ import React, { useRef, useState } from 'react'
 import { useActions, useValues } from 'kea'
 import { Responsive as ReactGridLayout } from 'react-grid-layout'
 
-import { InsightModel, DashboardMode, DashboardType } from '~/types'
+import { InsightModel, DashboardMode, DashboardType, DashboardPlacement } from '~/types'
 import { insightsModel } from '~/models/insightsModel'
 import { dashboardLogic, BREAKPOINT_COLUMN_COUNTS, BREAKPOINTS } from 'scenes/dashboard/dashboardLogic'
 import clsx from 'clsx'
@@ -12,7 +12,7 @@ import { InsightCard } from 'lib/components/InsightCard'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 
 export function DashboardItems(): JSX.Element {
-    const { dashboard, items, layouts, dashboardMode, isRefreshing, highlightedInsightId, refreshStatus } =
+    const { dashboard, items, layouts, dashboardMode, placement, isRefreshing, highlightedInsightId, refreshStatus } =
         useValues(dashboardLogic)
     const { updateLayouts, updateContainerWidth, updateItemColor, removeItem, refreshAllDashboardItems } =
         useActions(dashboardLogic)
@@ -101,6 +101,11 @@ export function DashboardItems(): JSX.Element {
                             }
                             moveToDashboard(item, dashboard.id, id, name)
                         }}
+                        showEditingControls={[
+                            DashboardPlacement.Dashboard,
+                            DashboardPlacement.ProjectHomepage,
+                        ].includes(placement)}
+                        showDetailsControls={placement != DashboardPlacement.Export}
                     />
                 ))}
             </ReactGridLayout>
