@@ -10,6 +10,7 @@ from posthog.celery import app
 from posthog.email import EmailMessage, is_email_available
 from posthog.models import Organization, OrganizationInvite, User
 from posthog.models.team import Team
+from posthog.utils import absolute_uri
 
 logger = structlog.get_logger(__name__)
 
@@ -131,7 +132,10 @@ def send_first_ingestion_reminder_emails() -> None:
                 campaign_key=campaign_key,
                 subject=f"Learn how to ingest events into your PostHog project",
                 template_name="first_ingestion_reminder",
-                template_context={"first_name": user.first_name},
+                template_context={
+                    "first_name": user.first_name,
+                    "invite_users_url": absolute_uri("/organization/settings"),
+                },
             )
 
             message.add_recipient(user.email)
