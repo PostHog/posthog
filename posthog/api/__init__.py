@@ -9,6 +9,7 @@ from . import (
     dashboard,
     dead_letter_queue,
     event_definition,
+    exports,
     feature_flag,
     instance_settings,
     instance_status,
@@ -58,6 +59,8 @@ projects_router.register(r"feature_flags", feature_flag.FeatureFlagViewSet, "pro
 project_dashboards_router = projects_router.register(
     r"dashboards", dashboard.DashboardsViewSet, "project_dashboards", ["team_id"]
 )
+
+projects_router.register(r"exports", exports.ExportedAssetViewSet, "exports", ["team_id"])
 
 # Organizations nested endpoints
 organizations_router = router.register(r"organizations", organization.OrganizationViewSet, "organizations")

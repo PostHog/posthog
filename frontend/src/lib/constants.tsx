@@ -114,6 +114,7 @@ export const FEATURE_FLAGS = {
     COHORT_FILTERS: 'cohort-filters', // owner: @edscode
     FRONTEND_APPS: '9618-frontend-apps', // owner: @mariusandra
     PROPERTY_FILTER_ON_DASHBOARD: 'property-filter-on-dashboard', // owner: @edscode
+    EXPORT_DASHBOARD_INSIGHTS: 'export-dashboard-insights', // owner: @benjackwhite
     ONBOARDING_1_5: 'onboarding-1_5', // owner: @liyiy
 }
 

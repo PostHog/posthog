@@ -23,6 +23,6 @@ export function frontendAppRequire(module: string): any {
     if (module in packages) {
         return packages[module]
     } else {
-        throw new Error(`Can not import from unknown module "${module}"`)
+        throw new Error(`Cannot import from unknown module "${module}"`)
     }
 }
