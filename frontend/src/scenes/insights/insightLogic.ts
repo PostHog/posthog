@@ -283,7 +283,7 @@ export const insightLogic = kea<insightLogicType>({
                         } else if (insight === InsightType.PATHS) {
                             response = await api.create(`api/projects/${currentTeamId}/insights/path`, params)
                         } else {
-                            throw new Error(`Can not load insight of type ${insight}`)
+                            throw new Error(`Cannot load insight of type ${insight}`)
                         }
                     } catch (e: any) {
                         if (e.name === 'AbortError') {
