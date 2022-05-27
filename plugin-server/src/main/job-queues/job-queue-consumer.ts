@@ -1,9 +1,9 @@
 import Piscina from '@posthog/piscina'
-import { killProcess } from 'utils/kill'
-import { logOrThrowJobQueueError } from 'utils/utils'
 
 import { Hub, JobQueueConsumerControl, OnJobCallback } from '../../types'
+import { killProcess } from '../../utils/kill'
 import { status } from '../../utils/status'
+import { logOrThrowJobQueueError } from '../../utils/utils'
 import { pauseQueueIfWorkerFull } from '../ingestion-queues/queue'
 
 export async function startJobQueueConsumer(server: Hub, piscina: Piscina): Promise<JobQueueConsumerControl> {
