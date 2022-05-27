@@ -206,7 +206,6 @@ export async function createHub(
     )
     status.info('👍', `Redis ready`)
 
-    status.info('🤔', `Connecting to object storage...`)
     let objectStorage = noOpStorage
     try {
         objectStorage = connectObjectStorage(serverConfig)
