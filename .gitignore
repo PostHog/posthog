@@ -36,7 +36,6 @@ docker-compose.prod.yml
 build-storybook.log
 storybook-static
 ee/benchmarks/results
-plugin-server/src/config/idl/protos.*
 .coverage
 coverage-*.xml
 object_storage/

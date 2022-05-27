@@ -62,12 +62,14 @@ export class EventPipelineRunner {
     }
 
     async runEventPipeline(event: PluginEvent): Promise<EventPipelineResult> {
+        this.hub.statsd?.increment('kafka_queue.event_pipeline.start', { pipeline: 'event' })
         const result = await this.runPipeline('pluginsProcessEventStep', event)
         this.hub.statsd?.increment('kafka_queue.single_event.processed_and_ingested')
         return result
     }
 
     async runBufferEventPipeline(event: PreIngestionEvent): Promise<EventPipelineResult> {
+        this.hub.statsd?.increment('kafka_queue.event_pipeline.start', { pipeline: 'buffer' })
         const person = await this.hub.db.fetchPerson(event.teamId, event.distinctId)
         const result = await this.runPipeline('createEventStep', event, person)
         this.hub.statsd?.increment('kafka_queue.buffer_event.processed_and_ingested')
@@ -75,6 +77,7 @@ export class EventPipelineRunner {
     }
 
     async runAsyncHandlersEventPipeline(event: IngestionEvent): Promise<EventPipelineResult> {
+        this.hub.statsd?.increment('kafka_queue.event_pipeline.start', { pipeline: 'asyncHandlers' })
         const person = await this.hub.db.fetchPerson(event.teamId, event.distinctId)
         const result = await this.runPipeline('runAsyncHandlersStep', event, person)
         this.hub.statsd?.increment('kafka_queue.async_handlers.processed')
@@ -129,7 +132,7 @@ export class EventPipelineRunner {
         })
         try {
             // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-            // @ts-ignore
+            // @ts-expect-error
             return EVENT_PIPELINE_STEPS[name](this, ...args)
         } finally {
             clearTimeout(timeout)

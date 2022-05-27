@@ -5,7 +5,7 @@ import './index.scss'
 import clsx from 'clsx'
 import { SocialLoginIcon } from './SocialLoginIcon'
 import { SSOProviders } from '~/types'
-import { SSOProviderNames } from 'lib/constants'
+import { SSO_PROVIDER_NAMES } from 'lib/constants'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 interface SharedProps {
@@ -39,7 +39,7 @@ export function SocialLoginLink({ provider, queryString }: SocialLoginButtonProp
             icon={SocialLoginIcon(provider)}
             type="link"
         >
-            <span>{SSOProviderNames[provider]}</span>
+            <span>{SSO_PROVIDER_NAMES[provider]}</span>
         </Button>
     )
 }

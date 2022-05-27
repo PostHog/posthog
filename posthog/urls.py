@@ -132,7 +132,6 @@ urlpatterns = [
     opt_slash_path(".well-known/security.txt", security_txt),
     # auth
     path("logout", authentication.logout, name="login"),
-    path("signup/finish/", signup.finish_social_signup, name="signup_finish"),
     path(
         "login/<str:backend>/", authentication.sso_login, name="social_begin"
     ),  # overrides from `social_django.urls` to validate proper license
@@ -160,6 +159,7 @@ frontend_unauthenticated_routes = [
     r"signup\/[A-Za-z0-9\-]*",
     "reset",
     "organization/billing/subscribed",
+    "organization/confirm-creation",
     "login",
 ]
 for route in frontend_unauthenticated_routes:

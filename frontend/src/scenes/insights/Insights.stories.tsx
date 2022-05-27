@@ -1,4 +1,3 @@
-/* eslint-disable */
 import { Meta } from '@storybook/react'
 import { mswDecorator } from '~/mocks/browser'
 import { samplePersonProperties, sampleRetentionPeopleResponse } from 'scenes/insights/__mocks__/insight.mocks'
@@ -20,6 +19,7 @@ export default {
     ],
 } as Meta
 
+/* eslint-disable @typescript-eslint/no-var-requires */
 export const TrendsLine = createInsightScene(require('./__mocks__/trendsLine.json'))
 export const TrendsLineBreakdown = createInsightScene(require('./__mocks__/trendsLineBreakdown.json'))
 export const TrendsBar = createInsightScene(require('./__mocks__/trendsBar.json'))
@@ -36,7 +36,7 @@ export const FunnelLeftToRight = createInsightScene(require('./__mocks__/funnelL
 export const FunnelLeftToRightBreakdown = createInsightScene(require('./__mocks__/funnelLeftToRightBreakdown.json'))
 export const FunnelTopToBottom = createInsightScene(require('./__mocks__/funnelTopToBottom.json'))
 export const FunnelTopToBottomBreakdown = createInsightScene(require('./__mocks__/funnelTopToBottomBreakdown.json'))
-export const funnelHistoricalTrends = createInsightScene(require('./__mocks__/funnelHistoricalTrends.json'))
+export const FunnelHistoricalTrends = createInsightScene(require('./__mocks__/funnelHistoricalTrends.json'))
 export const FunnelTimeToConvert = createInsightScene(require('./__mocks__/funnelTimeToConvert.json'))
 
 export const Retention = createInsightScene(require('./__mocks__/retention.json'))
@@ -44,3 +44,4 @@ export const RetentionBreakdown = createInsightScene(require('./__mocks__/retent
 export const Lifecycle = createInsightScene(require('./__mocks__/lifecycle.json'))
 export const Stickiness = createInsightScene(require('./__mocks__/stickiness.json'))
 export const UserPaths = createInsightScene(require('./__mocks__/userPaths.json'))
+/* eslint-enable @typescript-eslint/no-var-requires */
