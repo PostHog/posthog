@@ -218,7 +218,6 @@
       person_id UUID,
       cohort_id Int64,
       team_id Int64,
-      random_string UUID,
       sign Int8
   ) ENGINE = CollapsingMergeTree(sign)
   Order By (team_id, cohort_id, person_id)
@@ -945,7 +944,6 @@
       person_id UUID,
       cohort_id Int64,
       team_id Int64,
-      random_string UUID,
       sign Int8
   ) ENGINE = ReplicatedCollapsingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.cohortpeople', '{replica}-{shard}', sign)
   Order By (team_id, cohort_id, person_id)
