@@ -21,9 +21,9 @@
         "prepublishOnly": "yarn build",
         "setup:dev:clickhouse": "cd .. && DEBUG=1 python manage.py migrate_clickhouse",
         "setup:test": "cd .. && TEST=1 python manage.py setup_test_environment",
-        "services:start": "cd .. && docker-compose -f docker-compose.dev.yml up zookeeper kafka clickhouse object_storage",
-        "services:stop": "cd .. && docker-compose -f docker-compose.dev.yml down",
-        "services:clean": "cd .. && docker-compose -f docker-compose.dev.yml rm -v zookeeper kafka clickhouse object_storage",
+        "services:start": "cd .. && docker-compose up zookeeper kafka clickhouse object_storage",
+        "services:stop": "cd .. && docker-compose down",
+        "services:clean": "cd .. && docker-compose rm -v zookeeper kafka clickhouse object_storage",
         "services": "yarn services:stop && yarn services:clean && yarn services:start"
     },
     "bin": {

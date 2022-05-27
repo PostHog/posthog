@@ -68,9 +68,9 @@ jobs:
                         - .github/workflows/ci-backend.yml
                         - .github/workflows/backend-tests-action/action.yml
                         # We use docker-compose for tests, make sure we rerun on
-                        # changes to docker-compose.dev.yml e.g. dependency
+                        # changes to docker-compose.yml e.g. dependency
                         # version changes
-                        - docker-compose.dev.yml
+                        - docker-compose.yml
 
     backend-code-quality:
         needs: changes
@@ -142,8 +142,8 @@ jobs:
 
             - name: Stop/Start stack with Docker Compose
               run: |
-                  docker-compose -f docker-compose.dev.yml down
-                  docker-compose -f docker-compose.dev.yml up -d db &
+                  docker-compose down
+                  docker-compose up -d db &
 
             - name: Set up Python
               uses: actions/setup-python@v2
@@ -313,8 +313,8 @@ jobs:
 
             - name: Stop/Start stack with Docker Compose
               run: |
-                  docker-compose -f master/docker-compose.dev.yml down
-                  docker-compose -f master/docker-compose.dev.yml up -d db clickhouse zookeeper kafka redis object_storage &
+                  docker-compose -f master/docker-compose.yml down
+                  docker-compose -f master/docker-compose.yml up -d db clickhouse zookeeper kafka redis object_storage &
 
             - name: Set up Python 3.8.12
               uses: actions/setup-python@v2
