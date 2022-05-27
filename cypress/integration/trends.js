@@ -54,7 +54,13 @@ describe('Trends', () => {
         cy.get('[data-attr="expand-list-event_properties"]').click()
         cy.get('[data-attr=prop-filter-event_properties-1]').click({ force: true })
         cy.get('[data-attr=prop-val]').click({ force: true })
-        cy.get('[data-attr=prop-val-0]').click({ force: true })
+        // cypress is odd and even though when a human clicks this the right dropdown opens
+        // in the test that doesn't happen
+        cy.get('body').then(($body) => {
+            if ($body.find('[data-attr=prop-val-0]').length === 0) {
+                cy.get('.taxonomic-value-select').click()
+            }
+        })
         cy.get('[data-attr=trend-line-graph]', { timeout: 8000 }).should('exist')
     })
 
@@ -69,6 +75,13 @@ describe('Trends', () => {
         cy.get('[data-attr="expand-list-event_properties"]').click()
         cy.get('[data-attr=prop-filter-event_properties-1]').click({ force: true })
         cy.get('[data-attr=prop-val]').click({ force: true })
+        // cypress is odd and even though when a human clicks this the right dropdown opens
+        // in the test that doesn't happen
+        cy.get('body').then(($body) => {
+            if ($body.find('[data-attr=prop-val-0]').length === 0) {
+                cy.get('.taxonomic-value-select').click()
+            }
+        })
         cy.get('[data-attr=prop-val-0]').click({ force: true })
 
         cy.get('[data-attr=trend-line-graph]', { timeout: 8000 }).should('exist')
@@ -133,6 +146,13 @@ describe('Trends', () => {
         cy.get('[data-attr=prop-filter-event_properties-1]').click({ force: true })
         cy.get('[data-attr=prop-val]').click({ force: true })
         cy.get('[data-attr=prop-val-0]').click({ force: true })
+        // cypress is odd and even though when a human clicks this the right dropdown opens
+        // in the test that doesn't happen
+        cy.get('body').then(($body) => {
+            if ($body.find('[data-attr=prop-val-0]').length === 0) {
+                cy.get('.taxonomic-value-select').click()
+            }
+        })
 
         cy.get('[data-attr=insight-save-button]').click()
         cy.get('[data-attr=save-to-dashboard-button]').click()

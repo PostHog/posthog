@@ -110,7 +110,7 @@ class ExportedViewerPageViewSet(mixins.RetrieveModelMixin, StructuredViewSetMixi
     authentication_classes = []  # type: ignore
     permission_classes = []  # type: ignore
 
-    def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
+    def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Any:
         asset = self.get_object()
         context = {"view": self, "request": request}
         export_data = {}
