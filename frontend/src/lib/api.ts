@@ -130,6 +130,15 @@ class ApiRequest {
         return this.actions(teamId).addPathComponent(actionId)
     }
 
+    // # Exports
+    public exports(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('exports')
+    }
+
+    public export(id: number, teamId?: TeamType['id']): ApiRequest {
+        return this.exports(teamId).addPathComponent(id)
+    }
+
     // # Events
     public events(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('events')
@@ -360,6 +369,12 @@ const api = {
             return requestForScope[activityLogProps.scope](activityLogProps)
                 .withQueryString(toParams(pagingParameters))
                 .get()
+        },
+    },
+
+    exports: {
+        determineExportUrl(exportId: number, teamId: TeamType['id'] = getCurrentTeamId()): string {
+            return new ApiRequest().export(exportId, teamId).withAction('content').assembleFullUrl(true)
         },
     },
 

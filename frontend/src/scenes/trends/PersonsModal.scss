@@ -51,7 +51,7 @@
     }
 
     .data-point-selector {
-        padding: $default_spacing / 2 $default_spacing;
+        padding: 0 1rem 1rem;
         border-bottom: 1px solid var(--border);
         .ant-select {
             display: block;

@@ -5,5 +5,6 @@
     "requestTimeout": 8000,
     "pageLoadTimeout": 80000,
     "projectId": "twojfp",
-    "viewportWidth": 1200
+    "viewportWidth": 1200,
+    "trashAssetsBeforeRuns": true
 }

@@ -215,6 +215,13 @@ export async function startPluginsServer(
             }
         })
 
+        // every minute log information on kafka consumer
+        if (queue) {
+            schedule.scheduleJob('0 * * * * *', async () => {
+                await queue?.emitConsumerGroupMetrics()
+            })
+        }
+
         // every minute flush internal metrics
         if (hub.internalMetrics) {
             schedule.scheduleJob('0 * * * * *', async () => {

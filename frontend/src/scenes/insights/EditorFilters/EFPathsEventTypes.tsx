@@ -62,10 +62,7 @@ export function EFPathsEventTypes({ insightProps }: EditorFilterProps): JSX.Elem
                 overlay: options.map((option) => (
                     <LemonButton
                         key={option.type}
-                        onClick={(e) => {
-                            console.log(e.nativeEvent, e.target)
-                            onClickPathtype(option.type)
-                        }}
+                        onClick={() => onClickPathtype(option.type)}
                         type="stealth"
                         disabled={option.selected && filter.include_event_types?.length === 1}
                         fullWidth
