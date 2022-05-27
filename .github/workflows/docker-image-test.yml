@@ -3,6 +3,10 @@ name: Test Docker image build
 on:
     - pull_request
 
+permissions:
+    contents: read
+    id-token: write
+
 jobs:
     build:
         name: Test image build
@@ -20,7 +24,7 @@ jobs:
               uses: depot/build-push-action@v1
               with:
                   tags: posthog/posthog:testing
-                  token: ${{ secrets.DEPOT_TOKEN }}
+                  project: k8nszt4xzj # posthog-pull-request project
 
             - name: Output image info including size
               run: |
