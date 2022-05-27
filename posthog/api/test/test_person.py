@@ -131,6 +131,44 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         response = self.client.get(response.json()["next"])
         self.assertEqual(len(response.json()["results"]), 50, response)
 
+    def test_cohort_swapover(self):
+        p1 = _create_person(team=self.team, distinct_ids=[f"person_1"], properties={"$os": "Chrome"})
+        p2 = _create_person(team=self.team, distinct_ids=[f"person_2"], properties={"$os": "Chrome"})
+
+        _create_person(
+            team=self.team, distinct_ids=[f"person_3"], properties={"$os": "Brave"},
+        )
+
+        flush_persons_and_events()
+        cohort = Cohort.objects.create(
+            team=self.team, groups=[{"properties": [{"key": "$os", "value": "Chrome", "type": "person"}]}]
+        )
+
+        sync_execute(
+            f"""
+        INSERT INTO cohortpeople
+        SELECT '{p1.uuid}', {cohort.pk}, {self.team.pk}, 1 as sign
+        """
+        )
+        sync_execute(
+            f"""
+        INSERT INTO cohortpeople
+        SELECT '{p2.uuid}', {cohort.pk}, {self.team.pk}, 1 as sign
+        """
+        )
+
+        response = self.client.get(f"/api/cohort/{cohort.pk}/persons")
+        self.assertEqual(len(response.json()["results"]), 2, response)
+
+        cohort = Cohort.objects.create(
+            team=self.team, groups=[{"properties": [{"key": "$os", "value": "Brave", "type": "person"}]}]
+        )
+
+        cohort.calculate_people_ch(pending_version=0)
+
+        response = self.client.get(f"/api/cohort/{cohort.pk}/persons")
+        self.assertEqual(len(response.json()["results"]), 1, response)
+
     def test_filter_by_cohort_prop(self):
         for i in range(5):
             _create_person(
