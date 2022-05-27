@@ -13,6 +13,9 @@ export async function eachBatch(
     const batchStartTimer = new Date()
     const loggingKey = `each_batch_${key}`
 
+    // :KLUDGE: We're seeing some kafka consumers sitting idly. Commit heartbeats more frequently.
+    const heartbeatInterval = setInterval(heartbeat, 100)
+
     try {
         const messageBatches = groupIntoBatches(
             batch.messages,
@@ -36,7 +39,6 @@ export async function eachBatch(
                 resolveOffset(messageBatch[messageBatch.length - 1].offset)
             }
             await commitOffsetsIfNecessary()
-            await heartbeat()
         }
 
         status.info(
@@ -46,6 +48,7 @@ export async function eachBatch(
             }ms (${loggingKey})`
         )
     } finally {
+        clearInterval(heartbeatInterval)
         queue.pluginsServer.statsd?.timing(`kafka_queue.${loggingKey}`, batchStartTimer)
     }
 }
