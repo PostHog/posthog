@@ -139,7 +139,7 @@ $topbar_height: 3.5rem;
         top: $topbar_height;
         left: $sidebar_width;
         bottom: 0px;
-        height: 100%;
+        height: calc(100% - $topbar_height);
         background-color: var(--bg-side);
         border-right: 1px solid var(--border);
         overflow-y: auto;
