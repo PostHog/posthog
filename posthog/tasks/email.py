@@ -2,6 +2,7 @@ import uuid
 from datetime import datetime, timedelta
 from typing import List
 
+import posthoganalytics
 import structlog
 from django.conf import settings
 from django.utils import timezone
@@ -128,18 +129,20 @@ def send_first_ingestion_reminder_emails() -> None:
         campaign_key = "first_ingestion_reminder"
 
         for user in users_to_email:
-            message = EmailMessage(
-                campaign_key=campaign_key,
-                subject=f"Learn how to ingest events into your PostHog project",
-                template_name="first_ingestion_reminder",
-                template_context={
-                    "first_name": user.first_name,
-                    "invite_users_url": absolute_uri("/organization/settings"),
-                },
-            )
+            if posthoganalytics.feature_enabled("re-engagement-emails", user.distinct_id):
+                message = EmailMessage(
+                    campaign_key=campaign_key,
+                    subject="Get started: How to send events to PostHog",
+                    reply_to="hey@posthog.com",
+                    template_name="first_ingestion_reminder",
+                    template_context={
+                        "first_name": user.first_name,
+                        "invite_users_url": absolute_uri("/organization/settings"),
+                    },
+                )
 
-            message.add_recipient(user.email)
-            message.send()
+                message.add_recipient(user.email)
+                message.send()
 
 
 @app.task(max_retries=1)
@@ -154,11 +157,13 @@ def send_second_ingestion_reminder_emails() -> None:
         campaign_key = "second_ingestion_reminder"
 
         for user in users_to_email:
-            message = EmailMessage(
-                campaign_key=campaign_key,
-                subject="Your PostHog project is waiting for events",
-                template_name="second_ingestion_reminder",
-            )
+            if posthoganalytics.feature_enabled("re-engagement-emails", user.distinct_id):
+                message = EmailMessage(
+                    campaign_key=campaign_key,
+                    subject="Your PostHog project is waiting for events",
+                    reply_to="hey@posthog.com",
+                    template_name="second_ingestion_reminder",
+                )
 
-            message.add_recipient(user.email)
-            message.send()
+                message.add_recipient(user.email)
+                message.send()
