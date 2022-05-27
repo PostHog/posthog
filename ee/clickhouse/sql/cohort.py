@@ -1,5 +1,5 @@
 from ee.clickhouse.sql.person import PERSON_STATIC_COHORT_TABLE
-from ee.clickhouse.sql.table_engines import CollapsingMergeTree
+from ee.clickhouse.sql.table_engines import CollapsingMergeTree, VersionedCollapsingMergeTree
 from posthog.settings import CLICKHOUSE_CLUSTER
 
 CALCULATE_COHORT_PEOPLE_SQL = """
@@ -22,7 +22,26 @@ Order By (team_id, cohort_id, person_id)
 )
 
 TRUNCATE_COHORTPEOPLE_TABLE_SQL = f"TRUNCATE TABLE IF EXISTS cohortpeople ON CLUSTER '{CLICKHOUSE_CLUSTER}'"
-DROP_COHORTPEOPLE_TABLE_SQL = f"DROP TABLE IF EXISTS cohortpeople ON CLUSTER '{CLICKHOUSE_CLUSTER}'"
+
+
+COHORTPEOPLE2_TABLE_ENGINE = lambda: VersionedCollapsingMergeTree("cohortpeople2", sign="sign", ver="version")
+CREATE_COHORTPEOPLE2_TABLE_SQL = lambda: """
+CREATE TABLE IF NOT EXISTS cohortpeople2 ON CLUSTER '{cluster}'
+(
+    person_id UUID,
+    cohort_id Int64,
+    team_id Int64,
+    sign Int8,
+    version UInt64
+) ENGINE = {engine}
+Order By (team_id, cohort_id, person_id)
+{storage_policy}
+""".format(
+    cluster=CLICKHOUSE_CLUSTER, engine=COHORTPEOPLE2_TABLE_ENGINE(), storage_policy="",
+)
+
+TRUNCATE_COHORTPEOPLE2_TABLE_SQL = f"TRUNCATE TABLE IF EXISTS cohortpeople2 ON CLUSTER '{CLICKHOUSE_CLUSTER}'"
+
 
 REMOVE_PEOPLE_NOT_MATCHING_COHORT_ID_SQL = """
 INSERT INTO cohortpeople
