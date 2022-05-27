@@ -1,5 +1,5 @@
 import './Insight.scss'
-import React, { useEffect } from 'react'
+import React, { useEffect, useState } from 'react'
 import { useActions, useMountedLogic, useValues, BindLogic } from 'kea'
 import { Card } from 'antd'
 import { FunnelTab, PathTab, RetentionTab, TrendTab } from './InsightTabs'
@@ -41,6 +41,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
+import { InsightSubscriptionModal } from 'lib/components/InsightSubscription/InsightSubscriptionModal'
 
 export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): JSX.Element {
     const { insightMode } = useValues(insightSceneLogic)
@@ -48,6 +49,9 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
     const { featureFlags } = useValues(featureFlagLogic)
     const { currentTeamId } = useValues(teamLogic)
     const { push } = useActions(router)
+    const {
+        searchParams, // object
+    } = useValues(router)
 
     const logic = insightLogic({ dashboardItemId: insightId || 'new' })
     const {
@@ -109,8 +113,17 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
 
     const insightTab = usingEditorPanels ? <EditorFilters insightProps={insightProps} /> : insightTabFilters
 
+    // TODO: This is just for testing. Ideally we have the subscriptions as a full path endpoint for convenient hyperlinking
+    const [subscribeModalOpen, setSubscribeModalOpen] = useState<boolean>(searchParams.subscribe === true)
+
     const insightScene = (
         <div className="insights-page">
+            <InsightSubscriptionModal
+                visible={subscribeModalOpen}
+                closeModal={() => setSubscribeModalOpen(false)}
+                insight={insight}
+                canEditInsight={true}
+            />
             <PageHeader
                 title={
                     <EditableField
@@ -143,6 +156,13 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                                             {usingExportFeature && insight.short_id && (
                                                 <>
                                                     <ExportButton insightShortId={insight.short_id} fullWidth />
+                                                    <LemonButton
+                                                        onClick={() => setSubscribeModalOpen(true)}
+                                                        type="stealth"
+                                                        fullWidth
+                                                    >
+                                                        Subscribe
+                                                    </LemonButton>
                                                     <LemonDivider />
                                                 </>
                                             )}
@@ -153,6 +173,7 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                                             >
                                                 Duplicate
                                             </LemonButton>
+
                                             <LemonDivider />
                                             <LemonButton
                                                 type="stealth"

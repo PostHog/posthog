@@ -13,6 +13,7 @@ import {
     LicenseType,
     PluginLogEntry,
     PropertyDefinition,
+    SubscriptionType,
     TeamType,
     UserType,
 } from '~/types'
@@ -237,6 +238,15 @@ class ApiRequest {
 
     public insightsActivity(teamId: TeamType['id']): ApiRequest {
         return this.insights(teamId).addPathComponent('activity')
+    }
+
+    // # Subscriptions
+    public subscriptions(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('subscriptions')
+    }
+
+    public subscription(id: SubscriptionType['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.subscriptions(teamId).addPathComponent(id)
     }
 
     // Request finalization
@@ -578,6 +588,27 @@ const api = {
         },
         async delete(licenseId: LicenseType['id']): Promise<LicenseType> {
             return await new ApiRequest().license(licenseId).delete()
+        },
+    },
+
+    subscriptions: {
+        async get(subscriptionId: SubscriptionType['id']): Promise<SubscriptionType> {
+            return await new ApiRequest().subscription(subscriptionId).get()
+        },
+        async create(data: Partial<SubscriptionType>): Promise<SubscriptionType> {
+            return await new ApiRequest().subscriptions().create({ data })
+        },
+        async update(
+            subscriptionId: SubscriptionType['id'],
+            data: Partial<SubscriptionType>
+        ): Promise<SubscriptionType> {
+            return await new ApiRequest().subscription(subscriptionId).update({ data })
+        },
+        async list(insightId?: number): Promise<PaginatedResponse<ActionType>> {
+            return await new ApiRequest()
+                .actions()
+                .withQueryString(insightId ? `insight_id=${insightId}` : '')
+                .get()
         },
     },
 
