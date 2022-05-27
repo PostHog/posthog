@@ -90,7 +90,7 @@ class Cohort(models.Model):
     errors_calculating: models.IntegerField = models.IntegerField(default=0)
 
     is_static: models.BooleanField = models.BooleanField(default=False)
-    use_new_relation_table: models.BooleanField = models.BooleanField(default=False, null=True, blank=True)
+    use_new_relation_table: models.BooleanField = models.BooleanField(null=True, blank=True)
 
     objects = CohortManager()
 

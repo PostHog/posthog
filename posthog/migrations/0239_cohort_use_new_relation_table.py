@@ -11,8 +11,6 @@ class Migration(migrations.Migration):
 
     operations = [
         migrations.AddField(
-            model_name="cohort",
-            name="use_new_relation_table",
-            field=models.BooleanField(blank=True, default=False, null=True),
+            model_name="cohort", name="use_new_relation_table", field=models.BooleanField(blank=True, null=True),
         ),
     ]
