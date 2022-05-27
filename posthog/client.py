@@ -63,7 +63,13 @@ def default_client():
     """
     return SyncClient(
         host=CLICKHOUSE_HOST,
-        database=CLICKHOUSE_DATABASE,
+        # We set "system" here as we don't necessarily have a "default" database,
+        # which is what the clickhouse_driver would use by default. We are
+        # assuming that this exists and we have permissions to access it. This
+        # feels like a reasonably safe assumption as e.g. we already reference
+        # `system.numbers` in multiple places within queries. We also assume
+        # access to various other tables e.g. to handle async migrations.
+        database="system",
         secure=CLICKHOUSE_SECURE,
         user=CLICKHOUSE_USER,
         password=CLICKHOUSE_PASSWORD,
