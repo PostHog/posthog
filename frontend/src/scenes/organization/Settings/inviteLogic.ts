@@ -6,7 +6,6 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import type { inviteLogicType } from './inviteLogicType'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { router } from 'kea-router'
-import { urls } from 'scenes/urls'
 import { lemonToast } from 'lib/components/lemonToast'
 
 /** State of a single invite row (with input data) in bulk invite creation. */
@@ -115,16 +114,15 @@ export const inviteLogic = kea<inviteLogicType>({
     listeners: ({ values, actions }) => ({
         inviteTeamMembersSuccess: (): void => {
             const inviteCount = values.invitedTeamMembersInternal.length
-            lemonToast.success(`Invited ${inviteCount} new team member${inviteCount === 1 ? '' : 's'}`)
+            if (values.preflight?.email_service_available) {
+                lemonToast.success(`Invited ${inviteCount} new team member${inviteCount === 1 ? '' : 's'}`)
+            } else {
+                lemonToast.success('Team invite links generated')
+            }
+
             organizationLogic.actions.loadCurrentOrganization()
             actions.loadInvites()
-            if (
-                router.values.location.pathname !== urls.organizationSettings() &&
-                !values.preflight?.email_service_available
-            ) {
-                // If email service is not available, take user to org settings page to copy invite(s) link(s)
-                router.actions.push(`${urls.organizationSettings()}#invites`)
-            }
+
             if (values.preflight?.email_service_available) {
                 actions.hideInviteModal()
             }
