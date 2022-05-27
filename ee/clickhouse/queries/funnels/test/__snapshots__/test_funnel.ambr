@@ -89,9 +89,10 @@
   SELECT count(*)
   FROM
     (SELECT 1
-     FROM cohortpeople
+     FROM cohortpeople2
      WHERE team_id = 2
        AND cohort_id = 2
+       AND version = -1
      GROUP BY person_id,
               cohort_id,
               team_id
@@ -104,9 +105,10 @@
   SELECT count(*)
   FROM
     (SELECT 1
-     FROM cohortpeople
+     FROM cohortpeople2
      WHERE team_id = 2
        AND cohort_id = 2
+       AND version = 0
      GROUP BY person_id,
               cohort_id,
               team_id
@@ -150,10 +152,11 @@
                         if(event = 'user signed up'
                            AND (person_id IN
                                   (SELECT person_id
-                                   FROM cohortpeople
+                                   FROM cohortpeople2
                                    WHERE team_id = 2
+                                     AND version = 0
                                      AND cohort_id = 2
-                                   GROUP BY person_id, cohort_id, team_id
+                                   GROUP BY person_id, cohort_id, team_id, version
                                    HAVING sum(sign) > 0)), 1, 0) as step_0,
                         if(step_0 = 1, timestamp, null) as latest_0,
                         if(event = 'paid', 1, 0) as step_1,
