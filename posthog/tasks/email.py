@@ -124,12 +124,12 @@ def send_first_ingestion_reminder_emails() -> None:
             org_created_from=two_days_ago, org_created_to=one_day_ago
         )
 
-        campaign_key: str = f"first_ingestion_reminder_"
+        campaign_key = "first_ingestion_reminder"
 
         for user in users_to_email:
             message = EmailMessage(
                 campaign_key=campaign_key,
-                subject=f"Ingestion reminder?",
+                subject=f"Learn how to ingest events into your PostHog project",
                 template_name="first_ingestion_reminder",
                 template_context={"first_name": user.first_name},
             )
@@ -147,11 +147,13 @@ def send_second_ingestion_reminder_emails() -> None:
             org_created_from=five_days_ago, org_created_to=four_days_ago
         )
 
-        campaign_key: str = f"final_ingestion_reminder_"
+        campaign_key = "second_ingestion_reminder"
 
         for user in users_to_email:
             message = EmailMessage(
-                campaign_key=campaign_key, subject=f"???", template_name="final_ingestion_reminder",  # TODO
+                campaign_key=campaign_key,
+                subject="Your PostHog project is waiting for events",
+                template_name="second_ingestion_reminder",
             )
 
             message.add_recipient(user.email)
