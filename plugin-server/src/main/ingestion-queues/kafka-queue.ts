@@ -181,6 +181,7 @@ export class KafkaQueue {
             // NOTE: This should never clash with the group ID specified for the kafka engine posthog/ee/clickhouse/sql/clickhouse.py
             groupId,
             readUncommitted: false,
+            sessionTimeout: 100000,
         })
         const { GROUP_JOIN, CRASH, CONNECT, DISCONNECT } = consumer.events
         consumer.on(GROUP_JOIN, ({ payload: { groupId } }) => {
