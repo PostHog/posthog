@@ -54,7 +54,7 @@
         "@posthog/clickhouse": "^1.7.0",
         "@posthog/piscina": "^3.2.0-posthog",
         "@posthog/plugin-contrib": "^0.0.5",
-        "@posthog/plugin-scaffold": "1.0.1",
+        "@posthog/plugin-scaffold": "1.0.2",
         "@sentry/node": "^6.7.0",
         "@sentry/tracing": "^6.7.0",
         "@types/lru-cache": "^5.1.0",
