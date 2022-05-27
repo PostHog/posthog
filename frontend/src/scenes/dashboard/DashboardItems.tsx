@@ -20,7 +20,7 @@ export function DashboardItems(): JSX.Element {
 
     const [resizingItem, setResizingItem] = useState<any>(null)
 
-    // can not click links when dragging and 250ms after
+    // cannot click links when dragging and 250ms after
     const isDragging = useRef(false)
     const dragEndTimeout = useRef<number | null>(null)
     const className = clsx({
