@@ -33,7 +33,6 @@ def read_snapshot_data(snapshot_data: str, team_id: int) -> Dict:
             statsd.incr("session_recording.object_storage.read.success", tags={"team_id": team_id})
 
             json_data["data"] = file_content
-            return json_data
     except Exception as e:
         logger.error("session_recording.object_storage.read.error", team_id=team_id, error=e, path=object_storage_path)
         statsd.incr("session_recording.object_storage.read.error", tags={"team_id": team_id})
