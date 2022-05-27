@@ -26,8 +26,6 @@ export async function eachBatch(
         }
     }
 
-    await tryHeartBeat()
-
     try {
         const messageBatches = groupIntoBatches(
             batch.messages,
@@ -54,7 +52,6 @@ export async function eachBatch(
             await commitOffsetsIfNecessary()
             await tryHeartBeat()
         }
-        await tryHeartBeat()
 
         status.info(
             '🧩',
