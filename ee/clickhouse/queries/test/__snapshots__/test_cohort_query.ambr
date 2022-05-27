@@ -421,9 +421,10 @@
   SELECT count(*)
   FROM
     (SELECT 1
-     FROM cohortpeople
+     FROM cohortpeople2
      WHERE team_id = 2
        AND cohort_id = 2
+       AND version = -1
      GROUP BY person_id,
               cohort_id,
               team_id
@@ -436,9 +437,10 @@
   SELECT count(*)
   FROM
     (SELECT 1
-     FROM cohortpeople
+     FROM cohortpeople2
      WHERE team_id = 2
        AND cohort_id = 2
+       AND version = 0
      GROUP BY person_id,
               cohort_id,
               team_id
