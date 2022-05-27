@@ -523,14 +523,6 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         results = self._get_cohortpeople(cohort3)
         self.assertEqual(len(results), 1)
 
-        cohort4 = Cohort.objects.create(
-            team=self.team,
-            groups=[{"action_id": action.pk, "days": 3, "count": 0, "count_operator": "eq"}],
-            name="cohort4",
-        )
-
-        self.assertRaises(ValueError, lambda: cohort4.calculate_people_ch(pending_version=0))
-
     def test_cohortpeople_deleted_person(self):
         p1 = Person.objects.create(
             team_id=self.team.pk,

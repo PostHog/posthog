@@ -135,7 +135,7 @@ class Cohort(models.Model):
                                 Property(
                                     key=key,
                                     type="behavioral",
-                                    value="performed_event_multiple" if count is not None else "performed_event",
+                                    value="performed_event_multiple" if count else "performed_event",
                                     event_type=event_type,
                                     time_interval="day",
                                     time_value=group.get("days") or 365,
