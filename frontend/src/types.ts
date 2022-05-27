@@ -1477,7 +1477,7 @@ export interface LicenseType {
 export interface EventDefinition {
     id: string
     name: string
-    description: string
+    description?: string
     tags?: string[]
     volume_30_day: number | null
     query_usage_30_day: number | null
@@ -1502,7 +1502,7 @@ export enum PropertyType {
 export interface PropertyDefinition {
     id: string
     name: string
-    description: string
+    description?: string
     tags?: string[]
     volume_30_day: number | null
     query_usage_30_day: number | null

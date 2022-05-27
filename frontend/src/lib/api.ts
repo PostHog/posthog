@@ -394,6 +394,9 @@ const api = {
     },
 
     eventDefinitions: {
+        async get({ eventDefinitionId }: { eventDefinitionId: EventDefinition['id'] }): Promise<EventDefinition> {
+            return new ApiRequest().eventDefinitionsDetail(eventDefinitionId).get()
+        },
         async update({
             eventDefinitionId,
             eventDefinitionData,
@@ -438,6 +441,13 @@ const api = {
     },
 
     propertyDefinitions: {
+        async get({
+            propertyDefinitionId,
+        }: {
+            propertyDefinitionId: PropertyDefinition['id']
+        }): Promise<PropertyDefinition> {
+            return new ApiRequest().propertyDefinitionsDetail(propertyDefinitionId).get()
+        },
         async update({
             propertyDefinitionId,
             propertyDefinitionData,

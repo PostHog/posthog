@@ -1,37 +1,26 @@
-import { kea, props, path, actions, key, selectors } from 'kea'
+import { kea, props, path, key, connect } from 'kea'
 import { Definition, EventDefinition, PropertyDefinition } from '~/types'
-import type { definitionDetailLogicType } from './definitionDetailLogicType'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { lemonToast } from 'lib/components/lemonToast'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
-import { router } from 'kea-router'
-import { urls } from 'scenes/urls'
+import { definitionLogic, DefinitionLogicProps } from 'scenes/data-management/definition/definitionLogic'
 
-export interface SetDefinitionProps {
-    merge?: boolean
-}
+import type { definitionEditLogicType } from './definitionEditLogicType'
 
-export interface DefinitionDetailLogicProps {
-    id?: Definition['id']
-    definition: Definition
-}
-
-export const definitionDetailLogic = kea<definitionDetailLogicType>([
+export const definitionEditLogic = kea<definitionEditLogicType>([
     path(['scenes', 'data-management', 'definition', 'definitionDetailLogic']),
-    props({} as DefinitionDetailLogicProps),
+    props({} as DefinitionLogicProps),
     key((props) => props.id || 'new'),
-    actions({
-        setEvent: (
-            definition: Partial<EventDefinition> | Partial<PropertyDefinition>,
-            options: SetDefinitionProps
-        ) => ({ definition, options }),
-    }),
-    forms(({ actions, props }) => ({
+    connect((props: DefinitionLogicProps) => ({
+        values: [definitionLogic(props), ['definition', 'isEvent']],
+        actions: [definitionLogic(props), ['setDefinition']],
+    })),
+    forms(({ actions, values }) => ({
         action: {
-            defaults: { ...props.definition } as Definition,
+            defaults: { ...values.definition } as Definition,
             errors: ({ name }) => ({
                 name: !name ? 'You need to set a name' : null,
             }),
@@ -40,15 +29,10 @@ export const definitionDetailLogic = kea<definitionDetailLogicType>([
             },
         },
     })),
-    selectors({
-        isEvent: [() => [router.selectors.location], ({ pathname }) => pathname.startsWith(urls.eventDefinitions())],
-    }),
-    loaders(({ props, values }) => ({
+    loaders(({ values }) => ({
         definition: [
-            { ...props.definition } as Definition,
+            { ...values.definition } as Definition,
             {
-                setDefinition: ({ definition, options: { merge } }) =>
-                    (merge ? { ...values.definition, ...definition } : definition) as Definition,
                 saveDefinition: async (updatedDefinition: Definition, breakpoint) => {
                     let definition = { ...updatedDefinition }
 
