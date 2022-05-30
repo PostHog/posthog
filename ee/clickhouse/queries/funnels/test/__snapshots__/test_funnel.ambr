@@ -899,10 +899,7 @@
                                     if(event = 'buy', 1, 0) as step_2,
                                     if(step_2 = 1, timestamp, null) as latest_2,
                                     replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS prop_basic,
-                                    if(step_0 = 1, prop_basic, null) as prop_0,
-                                    if(step_1 = 1, prop_basic, null) as prop_1,
-                                    if(step_2 = 1, prop_basic, null) as prop_2,
-                                    coalesce(prop_0, prop_1, prop_2) as prop
+                                    prop_basic as prop
                              FROM
                                (SELECT e.event as event,
                                        e.team_id as team_id,
@@ -1052,10 +1049,7 @@
                                     if(event = 'buy', 1, 0) as step_2,
                                     if(step_2 = 1, timestamp, null) as latest_2,
                                     replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS prop_basic,
-                                    if(step_0 = 1, prop_basic, null) as prop_0,
-                                    if(step_1 = 1, prop_basic, null) as prop_1,
-                                    if(step_2 = 1, prop_basic, null) as prop_2,
-                                    coalesce(prop_0, prop_1, prop_2) as prop
+                                    prop_basic as prop
                              FROM
                                (SELECT e.event as event,
                                        e.team_id as team_id,
@@ -1204,10 +1198,7 @@
                                     if(event = 'buy', 1, 0) as step_2,
                                     if(step_2 = 1, timestamp, null) as latest_2,
                                     replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS prop_basic,
-                                    if(step_0 = 1, prop_basic, null) as prop_0,
-                                    if(step_1 = 1, prop_basic, null) as prop_1,
-                                    if(step_2 = 1, prop_basic, null) as prop_2,
-                                    coalesce(prop_0, prop_1, prop_2) as prop
+                                    prop_basic as prop
                              FROM
                                (SELECT e.event as event,
                                        e.team_id as team_id,
@@ -1360,10 +1351,7 @@
                                     if(event = 'buy', 1, 0) as step_2,
                                     if(step_2 = 1, timestamp, null) as latest_2,
                                     replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS prop_basic,
-                                    if(step_0 = 1, prop_basic, null) as prop_0,
-                                    if(step_1 = 1, prop_basic, null) as prop_1,
-                                    if(step_2 = 1, prop_basic, null) as prop_2,
-                                    coalesce(prop_0, prop_1, prop_2) as prop
+                                    prop_basic as prop
                              FROM
                                (SELECT e.event as event,
                                        e.team_id as team_id,
@@ -1516,10 +1504,7 @@
                                     if(event = 'buy', 1, 0) as step_2,
                                     if(step_2 = 1, timestamp, null) as latest_2,
                                     replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS prop_basic,
-                                    if(step_0 = 1, prop_basic, null) as prop_0,
-                                    if(step_1 = 1, prop_basic, null) as prop_1,
-                                    if(step_2 = 1, prop_basic, null) as prop_2,
-                                    coalesce(prop_0, prop_1, prop_2) as prop
+                                    prop_basic as prop
                              FROM
                                (SELECT e.event as event,
                                        e.team_id as team_id,
@@ -1672,10 +1657,7 @@
                                     if(event = 'buy', 1, 0) as step_2,
                                     if(step_2 = 1, timestamp, null) as latest_2,
                                     replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS prop_basic,
-                                    if(step_0 = 1, prop_basic, null) as prop_0,
-                                    if(step_1 = 1, prop_basic, null) as prop_1,
-                                    if(step_2 = 1, prop_basic, null) as prop_2,
-                                    coalesce(prop_0, prop_1, prop_2) as prop
+                                    prop_basic as prop
                              FROM
                                (SELECT e.event as event,
                                        e.team_id as team_id,
