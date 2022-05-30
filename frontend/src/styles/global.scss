@@ -2,7 +2,8 @@
 nimble to simplify maintenance. We separate variables and mixins in vars.scss to be able to import those into local
 style files without adding already imported styles.
 
-Font weights: only `normal` (400), `var(--font-medium)` (500) or `bold` (700) should be used.
+Font weights:
+Only 400 (`normal`), 500 (`var(--font-medium)`), 600 (`var(--font-semibold)`), or 700 (`bold`) should be used
 
 */
 
@@ -72,6 +73,7 @@ $_lifecycle_dormant: #f86234;
     --shadow-elevation: 0px 16px 16px -16px rgba(0, 0, 0, 0.35);
     --opacity-disabled: 0.6;
     --font-medium: 500;
+    --font-semibold: 600;
     --dark-grey: #d9d9d9;
     --light-grey: #f2f2f2;
     --error-red: #bf411a;
