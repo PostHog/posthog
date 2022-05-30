@@ -55,7 +55,7 @@ class EventQuery(metaclass=ABCMeta):
         self._extra_event_properties = extra_event_properties
         self._column_optimizer = ColumnOptimizer(self._filter, self._team_id)
         self._extra_person_fields = extra_person_fields
-        self.params: Dict[str, Any] = {"team_id": self._team_id, "timezone": team.timezone_for_charts}
+        self.params: Dict[str, Any] = {"team_id": self._team_id, "timezone": team.timezone}
 
         self._should_join_distinct_ids = should_join_distinct_ids
         self._should_join_persons = should_join_persons
@@ -166,6 +166,7 @@ class EventQuery(metaclass=ABCMeta):
         self,
         prop_group: Optional[PropertyGroup],
         person_properties_mode=PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
+        person_id_joined_alias="person_id",
     ) -> Tuple[str, Dict]:
         if not prop_group:
             return "", {}
@@ -182,5 +183,5 @@ class EventQuery(metaclass=ABCMeta):
             table_name=self.EVENT_TABLE_ALIAS,
             allow_denormalized_props=True,
             person_properties_mode=person_properties_mode,
-            person_id_joined_alias=f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id",
+            person_id_joined_alias=person_id_joined_alias,
         )

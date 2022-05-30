@@ -60,7 +60,10 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>({
         setSavedInsightsFilters: (filters: Partial<SavedInsightFilters>, merge = true) => ({ filters, merge }),
         updateFavoritedInsight: (insight: InsightModel, favorited: boolean) => ({ insight, favorited }),
         renameInsight: (insight: InsightModel) => ({ insight }),
-        duplicateInsight: (insight: InsightModel) => ({ insight }),
+        duplicateInsight: (insight: InsightModel, redirectToInsight = false) => ({
+            insight,
+            redirectToInsight,
+        }),
         loadInsights: true,
     },
     loaders: ({ values }) => ({
@@ -233,9 +236,10 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>({
         renameInsight: async ({ insight }) => {
             insightsModel.actions.renameInsight(insight)
         },
-        duplicateInsight: async ({ insight }) => {
-            await api.create(`api/projects/${teamLogic.values.currentTeamId}/insights`, insight)
+        duplicateInsight: async ({ insight, redirectToInsight }) => {
+            const newInsight = await api.create(`api/projects/${values.currentTeamId}/insights`, insight)
             actions.loadInsights()
+            redirectToInsight && router.actions.push(urls.insightView(newInsight.short_id))
         },
         setDates: () => {
             actions.loadInsights()

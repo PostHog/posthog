@@ -4,7 +4,6 @@ import { LazyPluginVM } from '../../src/worker/vm/lazy'
 import { createPluginConfigVM } from '../../src/worker/vm/vm'
 import { plugin60 } from '../helpers/plugins'
 import { disablePlugin } from '../helpers/sqlMock'
-import { PostgresLogsWrapper } from './../../src/utils/db/postgres-logs-wrapper'
 
 jest.mock('../../src/utils/db/error')
 jest.mock('../../src/utils/status')
@@ -19,18 +18,14 @@ const mockConfig = {
 }
 
 describe('LazyPluginVM', () => {
-    const baseDb = {
-        queuePluginLogEntry: jest.fn(),
-        batchInsertPostgresLogs: jest.fn(),
-    }
-    const postgresLogsWrapper = new PostgresLogsWrapper(baseDb as any)
-
     const db = {
-        ...baseDb,
-        postgresLogsWrapper,
+        queuePluginLogEntry: jest.fn(),
     }
 
-    const mockServer: any = { db }
+    const mockServer: any = {
+        db,
+        capabilities: { ingestion: true, pluginScheduledTasks: true, processJobs: true, processAsyncHandlers: true },
+    }
 
     const createVM = () => {
         const lazyVm = new LazyPluginVM(mockServer, mockConfig as any)
@@ -65,7 +60,7 @@ describe('LazyPluginVM', () => {
             expect(await vm.getProcessEvent()).toEqual('processEvent')
             expect(await vm.getTask('someTask', PluginTaskType.Schedule)).toEqual(null)
             expect(await vm.getTask('runEveryMinute', PluginTaskType.Schedule)).toEqual('runEveryMinute')
-            expect(await vm.getTasks(PluginTaskType.Schedule)).toEqual(mockVM.tasks.schedule)
+            expect(await vm.getScheduledTasks()).toEqual(mockVM.tasks.schedule)
         })
 
         it('logs info and clears errors on success', async () => {
@@ -108,7 +103,7 @@ describe('LazyPluginVM', () => {
 
             expect(await vm.getProcessEvent()).toEqual(null)
             expect(await vm.getTask('runEveryMinute', PluginTaskType.Schedule)).toEqual(null)
-            expect(await vm.getTasks(PluginTaskType.Schedule)).toEqual({})
+            expect(await vm.getScheduledTasks()).toEqual({})
         })
 
         it('disables plugin if vm creation fails before setupPlugin', async () => {

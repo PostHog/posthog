@@ -234,16 +234,18 @@ export class EventsProcessor {
         teamId: number,
         distinctId: string,
         properties: Properties,
-        propertiesOnce: Properties
+        propertiesOnce: Properties,
+        unsetProperties: Array<string>
     ): Promise<void> {
-        await this.updatePersonPropertiesDeprecated(teamId, distinctId, properties, propertiesOnce)
+        await this.updatePersonPropertiesDeprecated(teamId, distinctId, properties, propertiesOnce, unsetProperties)
     }
 
     private async updatePersonPropertiesDeprecated(
         teamId: number,
         distinctId: string,
         properties: Properties,
-        propertiesOnce: Properties
+        propertiesOnce: Properties,
+        unsetProperties: Array<string>
     ): Promise<void> {
         const personFound = await this.db.fetchPerson(teamId, distinctId)
         if (!personFound) {
@@ -263,6 +265,10 @@ export class EventsProcessor {
             if (personFound?.properties[key] !== value) {
                 updatedProperties[key] = value
             }
+        })
+
+        unsetProperties.forEach((propertyKey) => {
+            delete updatedProperties[propertyKey]
         })
 
         const arePersonsEqual = equal(personFound.properties, updatedProperties)
@@ -550,12 +556,16 @@ export class EventsProcessor {
 
         if (event === '$groupidentify') {
             await this.upsertGroup(team.id, properties, timestamp)
-        } else if (!createdNewPersonWithProperties && (properties['$set'] || properties['$set_once'])) {
+        } else if (
+            !createdNewPersonWithProperties &&
+            (properties['$set'] || properties['$set_once'] || properties['$unset'])
+        ) {
             await this.updatePersonProperties(
                 team.id,
                 distinctId,
                 properties['$set'] || {},
-                properties['$set_once'] || {}
+                properties['$set_once'] || {},
+                properties['$unset'] || []
             )
         }
 
@@ -681,15 +691,7 @@ export class EventsProcessor {
             partitionKeyHash.update(`${bufferEvent.teamId}:${bufferEvent.distinctId}`)
             const partitionKey = partitionKeyHash.digest('hex')
 
-            await this.kafkaProducer.queueMessage({
-                topic: KAFKA_BUFFER,
-                messages: [
-                    {
-                        key: partitionKey,
-                        value: Buffer.from(JSON.stringify(bufferEvent)),
-                    },
-                ],
-            })
+            await this.kafkaProducer.queueSingleJsonMessage(KAFKA_BUFFER, partitionKey, bufferEvent)
         }
     }
 
@@ -724,10 +726,7 @@ export class EventsProcessor {
         }
 
         if (this.pluginsServer.KAFKA_ENABLED) {
-            await this.kafkaProducer.queueMessage({
-                topic: KAFKA_SESSION_RECORDING_EVENTS,
-                messages: [{ key: uuid, value: Buffer.from(JSON.stringify(data)) }],
-            })
+            await this.kafkaProducer.queueSingleJsonMessage(KAFKA_SESSION_RECORDING_EVENTS, uuid, data)
         } else {
             await this.db.postgresQuery(
                 'INSERT INTO posthog_sessionrecordingevent (created_at, team_id, distinct_id, session_id, window_id, timestamp, snapshot_data) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *',

@@ -1,6 +1,6 @@
 // This file contains funnel-related components that are used in the general insights scope
 import { useActions, useValues } from 'kea'
-import { humanFriendlyDuration } from 'lib/utils'
+import { humanFriendlyDuration, percentage } from 'lib/utils'
 import React from 'react'
 import { Button, Row } from 'antd'
 import { InfoCircleOutlined } from '@ant-design/icons'
@@ -9,7 +9,6 @@ import { funnelLogic } from './funnelLogic'
 import './FunnelCanvasLabel.scss'
 import { chartFilterLogic } from 'lib/components/ChartFilter/chartFilterLogic'
 import { FunnelVizType, InsightType } from '~/types'
-import { formatDisplayPercentage } from './funnelUtils'
 import { Tooltip } from 'lib/components/Tooltip'
 import { FunnelStepsPicker } from 'scenes/insights/InsightTabs/FunnelTab/FunnelStepsPicker'
 
@@ -35,7 +34,7 @@ export function FunnelCanvasLabel(): JSX.Element | null {
                           Total conversion rate
                       </span>
                       <span className="text-muted-alt mr-025">:</span>
-                      <span className="l4">{formatDisplayPercentage(conversionMetrics.totalRate)}%</span>
+                      <span className="l4">{percentage(conversionMetrics.totalRate, 1, true)}</span>
                   </>,
               ]
             : []),

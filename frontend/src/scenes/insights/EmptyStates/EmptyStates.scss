@@ -51,6 +51,8 @@
         max-width: 600px;
 
         .illustration-main {
+            display: flex;
+            justify-content: center;
             font-size: 4rem;
             height: 4rem;
             line-height: 1em;

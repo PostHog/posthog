@@ -1,8 +1,7 @@
 @import '../../../styles/breakpoints';
 
 .social-logins {
-    margin-bottom: 1rem;
-    margin-top: 2rem;
+    margin-top: 1rem;
     text-align: center;
 
     &:not(.empty) {
@@ -21,8 +20,6 @@
     }
 
     @media screen and (max-width: $sm) {
-        margin-top: 0;
-
         .link-social-login {
             padding: 0 0.5rem;
         }

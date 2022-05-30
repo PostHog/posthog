@@ -166,7 +166,7 @@
 
 .FunnelTooltip {
     width: 20rem;
-    margin: 0.25rem 0.5rem 0.25rem;
+    margin: 0.25rem 0.5rem 0.5rem;
     table {
         width: 100%;
         border-collapse: collapse;
@@ -183,5 +183,8 @@
         padding-right: 0.5rem;
         font-weight: 600;
         text-align: right;
+    }
+    .table-subtext {
+        padding-bottom: 0.25rem;
     }
 }

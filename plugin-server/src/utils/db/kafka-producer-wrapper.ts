@@ -1,6 +1,6 @@
 import * as Sentry from '@sentry/node'
 import { StatsD } from 'hot-shots'
-import { Producer, ProducerRecord } from 'kafkajs'
+import { Message, Producer, ProducerRecord } from 'kafkajs'
 
 import { PluginsServerConfig } from '../../types'
 import { instrumentQuery } from '../metrics'
@@ -68,6 +68,13 @@ export class KafkaProducerWrapper {
         for (const message of kafkaMessages) {
             await this.queueMessage(message)
         }
+    }
+
+    async queueSingleJsonMessage(topic: string, key: Message['key'], object: Record<string, any>): Promise<void> {
+        await this.queueMessage({
+            topic,
+            messages: [{ key, value: Buffer.from(JSON.stringify(object)) }],
+        })
     }
 
     public flush(append?: ProducerRecord): Promise<void> {

@@ -75,10 +75,4 @@
             height: 24px;
         }
     }
-
-    @media screen and (max-width: $sm) {
-        .auth-main-content {
-            align-items: flex-start;
-        }
-    }
 }

@@ -3,7 +3,7 @@ import * as fetch from 'node-fetch'
 
 import { KAFKA_EVENTS_PLUGIN_INGESTION, KAFKA_PLUGIN_LOG_ENTRIES } from '../../src/config/kafka-topics'
 import { JobQueueManager } from '../../src/main/job-queues/job-queue-manager'
-import { Hub } from '../../src/types'
+import { Hub, PluginLogEntrySource, PluginLogEntryType } from '../../src/types'
 import { PluginConfig, PluginConfigVMResponse } from '../../src/types'
 import { createHub } from '../../src/utils/db/hub'
 import { delay } from '../../src/utils/utils'
@@ -685,22 +685,21 @@ describe('vm tests', () => {
             ...defaultEvent,
             event: 'logged event',
         }
-        const queueMessageSpy = jest.spyOn(hub.kafkaProducer, 'queueMessage')
+        const queueSingleJsonMessageSpy = jest.spyOn(hub.kafkaProducer, 'queueSingleJsonMessage')
 
         await vm.methods.processEvent!(event)
 
-        expect(queueMessageSpy).toHaveBeenCalledTimes(1)
-        expect(queueMessageSpy.mock.calls[0][0].topic).toEqual(KAFKA_PLUGIN_LOG_ENTRIES)
-        expect(JSON.parse(queueMessageSpy.mock.calls[0][0].messages[0].value.toString())).toEqual({
-            id: expect.anything(),
-            instance_id: expect.anything(),
+        expect(queueSingleJsonMessageSpy).toHaveBeenCalledTimes(1)
+        expect(queueSingleJsonMessageSpy).toHaveBeenCalledWith(KAFKA_PLUGIN_LOG_ENTRIES, expect.any(String), {
+            id: expect.any(String),
+            instance_id: hub.instanceId.toString(),
             message: 'logged event',
-            plugin_config_id: 39,
-            plugin_id: 60,
-            source: 'CONSOLE',
-            team_id: 2,
-            timestamp: expect.anything(),
-            type: 'LOG',
+            plugin_config_id: pluginConfig39.id,
+            plugin_id: pluginConfig39.plugin_id,
+            source: PluginLogEntrySource.Console,
+            team_id: pluginConfig39.team_id,
+            timestamp: expect.any(String),
+            type: PluginLogEntryType.Log,
         })
     })
 

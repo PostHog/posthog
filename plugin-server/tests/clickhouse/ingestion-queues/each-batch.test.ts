@@ -2,6 +2,9 @@ import { eachBatch } from '../../../src/main/ingestion-queues/batch-processing/e
 import { eachBatchAsyncHandlers } from '../../../src/main/ingestion-queues/batch-processing/each-batch-async-handlers'
 import { eachBatchBuffer } from '../../../src/main/ingestion-queues/batch-processing/each-batch-buffer'
 import { eachBatchIngestion } from '../../../src/main/ingestion-queues/batch-processing/each-batch-ingestion'
+import { ClickHouseEvent } from '../../../src/types'
+
+jest.mock('../../../src/utils/status')
 
 const event = {
     eventUuid: 'uuid1',
@@ -12,6 +15,25 @@ const event = {
     event: '$pageview',
     properties: {},
     elementsList: [],
+}
+
+const clickhouseEvent: ClickHouseEvent = {
+    event: '$pageview',
+    properties: {
+        $ip: '127.0.0.1',
+    },
+    uuid: 'uuid1',
+    elements_chain: '',
+    timestamp: '2020-02-23T02:15:00Z',
+    team_id: 2,
+    distinct_id: 'my_id',
+    created_at: '2020-02-23T02:15:00Z',
+    person_properties: {},
+    group0_properties: {},
+    group1_properties: {},
+    group2_properties: {},
+    group3_properties: {},
+    group4_properties: {},
 }
 
 const captureEndpointEvent = {
@@ -29,16 +51,16 @@ const captureEndpointEvent = {
 }
 
 describe('eachBatchX', () => {
-    let batch: any
     let queue: any
 
-    beforeEach(() => {
-        batch = {
+    function createBatch(event: any, timestamp?: any): any {
+        return {
             batch: {
                 partition: 0,
                 messages: [
                     {
                         value: JSON.stringify(event),
+                        timestamp,
                     },
                 ],
             },
@@ -48,7 +70,9 @@ describe('eachBatchX', () => {
             isRunning: jest.fn(() => true),
             isStale: jest.fn(() => false),
         }
+    }
 
+    beforeEach(() => {
         queue = {
             bufferSleep: jest.fn(),
             pluginsServer: {
@@ -71,14 +95,14 @@ describe('eachBatchX', () => {
     describe('eachBatch', () => {
         it('calls eachMessage with the correct arguments', async () => {
             const eachMessage = jest.fn()
-            await eachBatch(batch, queue, eachMessage, 'key')
+            await eachBatch(createBatch(event), queue, eachMessage, 'key')
 
             expect(eachMessage).toHaveBeenCalledWith({ value: JSON.stringify(event) }, queue)
         })
 
         it('tracks metrics based on the key', async () => {
             const eachMessage = jest.fn()
-            await eachBatch(batch, queue, eachMessage, 'my_key')
+            await eachBatch(createBatch(event), queue, eachMessage, 'my_key')
 
             expect(queue.pluginsServer.statsd.timing).toHaveBeenCalledWith(
                 'kafka_queue.each_batch_my_key',
@@ -89,9 +113,12 @@ describe('eachBatchX', () => {
 
     describe('eachBatchAsyncHandlers', () => {
         it('calls runAsyncHandlersEventPipeline', async () => {
-            await eachBatchAsyncHandlers(batch, queue)
+            await eachBatchAsyncHandlers(createBatch(clickhouseEvent), queue)
 
-            expect(queue.workerMethods.runAsyncHandlersEventPipeline).toHaveBeenCalledWith(event)
+            expect(queue.workerMethods.runAsyncHandlersEventPipeline).toHaveBeenCalledWith({
+                ...event,
+                properties: clickhouseEvent.properties,
+            })
             expect(queue.pluginsServer.statsd.timing).toHaveBeenCalledWith(
                 'kafka_queue.each_batch_async_handlers',
                 expect.any(Date)
@@ -101,7 +128,7 @@ describe('eachBatchX', () => {
 
     describe('eachBatchIngestion', () => {
         it('calls runEventPipeline', async () => {
-            batch.batch.messages = [{ value: JSON.stringify(captureEndpointEvent) }]
+            const batch = createBatch(captureEndpointEvent)
             await eachBatchIngestion(batch, queue)
 
             expect(queue.workerMethods.runEventPipeline).toHaveBeenCalledWith({
@@ -129,7 +156,7 @@ describe('eachBatchX', () => {
             jest.setSystemTime(systemDate)
 
             // the message is sent at the same time as the system, meaning we sleep for BUFFER_CONVERSION_SECONDS * 1000
-            batch.batch.messages[0].timestamp = systemDate
+            const batch = createBatch(event, systemDate)
 
             await expect(eachBatchBuffer(batch, queue)).rejects.toThrow()
 
@@ -143,7 +170,8 @@ describe('eachBatchX', () => {
             jest.useFakeTimers('modern')
             jest.setSystemTime(systemDate)
 
-            batch.batch.messages[0].timestamp = new Date(2020, 1, 1, 1, 0, 0, 0)
+            // the message is sent at the same time as the system, meaning we sleep for BUFFER_CONVERSION_SECONDS * 1000
+            const batch = createBatch(event, new Date(2020, 1, 1, 1, 0, 0, 0))
 
             await eachBatchBuffer(batch, queue)
 

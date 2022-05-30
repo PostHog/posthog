@@ -396,6 +396,11 @@ code.code {
 
 // Spacing & layout
 
+.ma {
+    // Margin all
+    margin: $default_spacing;
+}
+
 .mb {
     margin-bottom: 1rem;
 }
@@ -517,6 +522,14 @@ code.code {
     & > * + * {
         @extend .ml;
     }
+}
+
+.gap {
+    gap: 1rem;
+}
+
+.gap-05 {
+    gap: 0.5rem;
 }
 
 .col {

@@ -1,15 +1,17 @@
-.insight-legend-button {
+@import '~/vars';
+
+.InsightLegendButton {
     display: flex;
     align-items: center;
 
-    .insight-legend-button-title {
+    .InsightLegendButton-title {
         margin-left: 0.5rem;
         font-size: 14px;
         font-weight: 500;
     }
 }
 
-.insight-legend-menu {
+.InsightLegendMenu {
     box-shadow: none !important;
     border: 1px solid var(--border);
     background-color: var(--bg-light);
@@ -22,11 +24,11 @@
     display: flex;
     flex-direction: column;
 
-    .insight-legend-menu-scroll {
-        .insight-legend-menu-item {
+    .InsightLegendMenu-scroll {
+        .InsightLegendMenu-item {
             width: 100%;
 
-            .insight-legend-menu-item-inner {
+            .InsightLegendMenu-item-inner {
                 cursor: pointer;
                 display: flex;
                 align-items: center;
@@ -35,6 +37,27 @@
                     width: 100%;
                     font-size: 0.75rem;
                 }
+            }
+        }
+    }
+
+    &.InsightLegendMenu--horizontal {
+        max-width: 100%;
+
+        .InsightLegendMenu-scroll {
+            display: flex;
+            flex-wrap: wrap;
+
+            .InsightLegendMenu-item {
+                width: auto;
+            }
+        }
+    }
+
+    &.InsightLegendMenu--readonly {
+        .LemonCheckbox--checked {
+            svg path {
+                stroke: none;
             }
         }
     }

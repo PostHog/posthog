@@ -23,11 +23,11 @@ Let's get you developing the plugin server in no time:
 
 1. Start the plugin server in autoreload mode with `yarn start`, or in compiled mode with `yarn build && yarn start:dist`, and develop away!
 
-1. To run migrations for the test, run `yarn setup:test`. Run Postgres pipeline tests with `yarn test:postgres:{1,2}`. Run ClickHouse pipeline tests with `yarn test:clickhouse:{1,2}`. Run benchmarks with `yarn benchmark`. Run a specific test with `yarn run jest --runInBand --forceExit tests/postgres/vm.test.ts`.
+1. To run migrations for the test, run `yarn setup:test`. Run Postgres pipeline tests with `yarn test:postgres`. Run ClickHouse pipeline tests with `yarn test:clickhouse:{1,2}`. Run benchmarks with `yarn benchmark`. Run a specific test with `yarn run jest --runInBand --forceExit tests/postgres/vm.test.ts`.
 
-## Alternative modes
+## CLI flags
 
-This program's main mode of operation is processing PostHog events, but there are also a few alternative utility ones.
+There are also a few alternative utility options on how to boot plugin-server.
 Each one does a single thing. They are listed in the table below, in order of precedence.
 
 | Name        | Description                                                | CLI flags         |
@@ -36,6 +36,25 @@ Each one does a single thing. They are listed in the table below, in order of pr
 | Version     | Only show currently running plugin server version          | `-v`, `--version` |
 | Healthcheck | Check plugin server health and exit with 0 or 1            | `--healthcheck`   |
 | Migrate     | Migrate Graphile job queue                                 | `--migrate`       |
+
+## Alternative modes
+
+By default, plugin-server is responsible for and executes all of the following:
+
+1. Ingestion (calling plugins and writing event and person data to ClickHouse and Postgres, buffering events)
+2. Scheduled tasks (runEveryX type plugin tasks)
+3. Processing plugin jobs
+4. Async plugin tasks (onEvent, onSnapshot, onAction plugin tasks)
+
+Ingestion can be split into its own process at higher scales. To do so, you need to run two different instances of
+plugin-server, with the following environment variables set:
+
+| Env Var                        | Description                                                                                                                     |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------- |
+| `PLUGIN_SERVER_MODE=ingestion` | This plugin server instance only runs ingestion (1)                                                                             |
+| `PLUGIN_SERVER_MODE=async`     | This plugin server processes all async tasks (2-4). Note that async plugin tasks are triggered based on ClickHouse events topic |
+
+If `PLUGIN_SERVER_MODE` is not set the plugin server will execute all of its tasks (1-4).
 
 ## Configuration
 
@@ -81,6 +100,7 @@ There's a multitude of settings you can use to control the plugin server. Use th
 | HEALTHCHECK_MAX_STALE_SECONDS          | 'maximum number of seconds the plugin server can go without ingesting events before the healthcheck fails'                                                                                                     | `7200`                                |
 | MAX_PENDING_PROMISES_PER_WORKER        | (advanced) maximum number of promises that a worker can have running at once in the background. currently only targets the exportEvents buffer.                                                                | `100`                                 |
 | KAFKA_PARTITIONS_CONSUMED_CONCURRENTLY | (advanced) how many kafka partitions the plugin server should consume from concurrently                                                                                                                        | `1`                                   |
+| PLUGIN_SERVER_MODE                     | (advanced) see alternative modes section                                                                                                                                                                       | `null`                                |
 
 ## Releasing a new version
 

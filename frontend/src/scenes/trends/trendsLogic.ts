@@ -2,7 +2,7 @@ import { kea } from 'kea'
 import { dayjs } from 'lib/dayjs'
 import api from 'lib/api'
 import { insightLogic } from '../insights/insightLogic'
-import { InsightLogicProps, FilterType, InsightType, TrendResult, ActionFilter } from '~/types'
+import { InsightLogicProps, FilterType, InsightType, TrendResult, ActionFilter, ChartDisplayType } from '~/types'
 import { trendsLogicType } from './trendsLogicType'
 import { IndexedTrendResult } from 'scenes/trends/types'
 import { isTrendsInsight, keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
@@ -89,6 +89,9 @@ export const trendsLogic = kea<trendsLogicType>({
                 let results = _results || []
                 if (filters.insight === InsightType.LIFECYCLE) {
                     results = results.filter((result) => toggledLifecycles.includes(String(result.status)))
+                }
+                if (filters.display === ChartDisplayType.ActionsBarValue) {
+                    results.sort((a, b) => b.aggregated_value - a.aggregated_value)
                 }
                 return results.map((result, index) => ({ ...result, id: index }))
             },

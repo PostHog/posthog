@@ -51,7 +51,9 @@ $glyph_height: 22px;
             .funnel-inspect-button {
                 padding: 0 4px 0 0;
                 .value-inspector-button-icon {
-                    padding-right: 8px;
+                    font-size: 1.5rem;
+                    margin-right: 0.25rem;
+                    vertical-align: -0.25em;
                 }
             }
             .conversion-metadata-caption {
@@ -172,6 +174,10 @@ $glyph_height: 22px;
 
             .property-key-info {
                 flex-wrap: wrap;
+            }
+
+            button {
+                margin-left: 0.375rem;
             }
         }
     }

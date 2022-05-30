@@ -1,8 +1,10 @@
+.retention-container {
+    width: 100%;
+}
+
 // Here we override based on retention-container the graph-container styling, so
 // as to not change the global styling. We need the extra nesting to ensure we
 // are more specific than the other insights css
-// NOTE: I get different css ordering in storybooks as opposed to via `yarn
-// start-http` so that's something to watch out for if you update this
 .insights-page {
     .insights-graph-container {
         .retention-container {

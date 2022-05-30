@@ -9,7 +9,7 @@ import { IconPathsCompletedArrow, IconPathsDropoffArrow } from 'lib/components/i
 import { ClockCircleOutlined } from '@ant-design/icons'
 import { humanFriendlyDuration } from 'lib/utils'
 import './Paths.scss'
-import { ValueInspectorButton } from 'scenes/funnels/FunnelBarGraph'
+import { ValueInspectorButton } from 'scenes/funnels/ValueInspectorButton'
 import {
     roundedRect,
     pageUrl,
