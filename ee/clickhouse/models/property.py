@@ -520,7 +520,7 @@ def property_table(property: Property) -> TableWithProperties:
 def get_single_or_multi_property_string_expr(
     breakdown,
     table: TableWithProperties,
-    query_alias: Literal["prop", "value", None],
+    query_alias: Literal["prop", "value", "prop_basic", None],
     column: str,
     allow_denormalized_props=True,
 ):
@@ -542,6 +542,7 @@ def get_single_or_multi_property_string_expr(
         expression, _ = get_property_string_expr(
             table, str(breakdown), escape_param(breakdown), column, allow_denormalized_props
         )
+        expression = f"array({expression})"
     else:
         expressions = []
         for b in breakdown:

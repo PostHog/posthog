@@ -414,7 +414,7 @@ class ClickhouseFunnelBase(ABC):
                 values = self._get_breakdown_conditions()
                 self.params.update({"breakdown_values": values})
 
-        return FUNNEL_INNER_EVENT_STEPS_QUERY.format(
+        inner_query = FUNNEL_INNER_EVENT_STEPS_QUERY.format(
             steps=steps,
             event_query=event_query,
             extra_join=extra_join,
@@ -422,6 +422,18 @@ class ClickhouseFunnelBase(ABC):
             select_prop=select_prop,
             extra_fields=parsed_extra_fields,
         )
+
+        if self._filter.breakdown:
+            return f"""
+                SELECT *, prop
+                FROM (
+                    SELECT *, groupUniqArray(prop) over (PARTITION by aggregation_target) as prop_vals
+                    FROM ({inner_query})
+                )
+                ARRAY JOIN prop_vals as prop
+            """
+
+        return inner_query
 
     def _get_steps_conditions(self, length: int) -> str:
         step_conditions: List[str] = []
@@ -622,28 +634,29 @@ class ClickhouseFunnelBase(ABC):
         raise NotImplementedError()
 
     def _get_breakdown_select_prop(self) -> str:
+        basic_prop_selector = ""
         if self._filter.breakdown:
             self.params.update({"breakdown": self._filter.breakdown})
             if self._filter.breakdown_type == "person":
 
                 if self._team.actor_on_events_querying_enabled:
-                    return get_single_or_multi_property_string_expr(
+                    basic_prop_selector = get_single_or_multi_property_string_expr(
                         self._filter.breakdown,
                         table="events",
-                        query_alias="prop",
+                        query_alias="prop_basic",
                         column="person_properties",
                         allow_denormalized_props=False,
                     )
                 else:
-                    return get_single_or_multi_property_string_expr(
-                        self._filter.breakdown, table="person", query_alias="prop", column="person_props"
+                    basic_prop_selector = get_single_or_multi_property_string_expr(
+                        self._filter.breakdown, table="person", query_alias="prop_basic", column="person_props"
                     )
             elif self._filter.breakdown_type == "event":
-                return get_single_or_multi_property_string_expr(
-                    self._filter.breakdown, table="events", query_alias="prop", column="properties"
+                basic_prop_selector = get_single_or_multi_property_string_expr(
+                    self._filter.breakdown, table="events", query_alias="prop_basic", column="properties"
                 )
             elif self._filter.breakdown_type == "cohort":
-                return "value AS prop"
+                basic_prop_selector = "value AS prop_basic"
             elif self._filter.breakdown_type == "group":
                 # :TRICKY: We only support string breakdown for group properties
                 assert isinstance(self._filter.breakdown, str)
@@ -665,9 +678,21 @@ class ClickhouseFunnelBase(ABC):
                         var="%(breakdown)s",
                         column=properties_field,
                     )
-                return f"{expression} AS prop"
+                basic_prop_selector = f"{expression} AS prop_basic"
 
-        return ""
+            select_columns = []
+            prop_aliases = []
+            # get prop value from each step
+            for index, _ in enumerate(self._filter.entities):
+                prop_alias = f"prop_{index}"
+                select_columns.append(f"if(step_{index} = 1, prop_basic, []) as {prop_alias}")
+                prop_aliases.append(prop_alias)
+
+            # TODO: look at options for first-touch/last-touch/step_num
+            final_select = f"coalesce({','.join(prop_aliases)}) as prop"
+            return ",".join([basic_prop_selector, *select_columns, final_select])
+
+        return basic_prop_selector
 
     def _get_cohort_breakdown_join(self) -> str:
         cohort_queries, ids, cohort_params = format_breakdown_cohort_join_query(self._team, self._filter)
@@ -694,7 +719,12 @@ class ClickhouseFunnelBase(ABC):
             first_entity = self._filter.entities[0]
 
             return get_breakdown_prop_values(
-                self._filter, first_entity, "count(*)", self._team, extra_params={"offset": 0}
+                self._filter,
+                first_entity,
+                "count(*)",
+                self._team,
+                extra_params={"offset": 0},
+                use_all_funnel_entities=True,
             )
 
         return None
