@@ -153,7 +153,7 @@ $glyph_height: 22px;
             position: relative;
 
             .funnel-step-title {
-                @extend .text-ellipsis;
+                @extend %mixin-text-ellipsis;
                 font-weight: bold;
             }
 

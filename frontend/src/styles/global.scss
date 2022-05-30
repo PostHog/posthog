@@ -10,6 +10,7 @@ Font weights: only `normal` (400), `var(--font-medium)` (500) or `bold` (700) sh
 @import '../../../node_modules/react-toastify/dist/ReactToastify';
 @import 'breakpoints';
 @import 'fonts';
+@import 'mixins';
 
 // These vars are modified via SCSS for legacy reasons (e.g. darken/lighten), so keeping as SCSS vars for now.
 $primary: #5375ff;
@@ -240,6 +241,10 @@ body strong {
 .text-xxs {
     @extend .text-default;
     font-size: 8px;
+}
+
+.text-ellipsis {
+    @extend %mixin-text-ellipsis;
 }
 
 .no-wrap {

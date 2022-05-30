@@ -98,7 +98,7 @@
 
     .dashboard-select {
         flex: 1;
-        @extend .text-ellipsis;
+        @extend %mixin-text-ellipsis;
         padding-right: 2rem;
 
         .ant-select-single {
