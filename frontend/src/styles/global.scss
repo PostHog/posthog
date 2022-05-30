@@ -571,6 +571,11 @@ code.code {
     display: flex;
 }
 
+.flex-column {
+    display: flex;
+    flex-direction: column;
+}
+
 .flex-auto {
     flex: auto;
 }

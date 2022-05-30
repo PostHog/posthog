@@ -41,7 +41,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
-import { InsightSubscriptionModal } from 'lib/components/InsightSubscription/InsightSubscriptionModal'
+import { InsightSubscriptionsModal } from 'lib/components/InsightSubscription/InsightSubscriptionsModal'
 
 export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): JSX.Element {
     const { insightMode } = useValues(insightSceneLogic)
@@ -118,11 +118,10 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
 
     const insightScene = (
         <div className="insights-page">
-            <InsightSubscriptionModal
+            <InsightSubscriptionsModal
                 visible={subscribeModalOpen}
                 closeModal={() => setSubscribeModalOpen(false)}
                 insight={insight}
-                canEditInsight={true}
             />
             <PageHeader
                 title={

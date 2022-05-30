@@ -1,40 +1,62 @@
-import { kea } from 'kea'
-import { InsightModel, SubscriptionType } from '~/types'
+import { actions, afterMount, kea, key, path, props } from 'kea'
+import { SubscriptionType } from '~/types'
+
+import api from 'lib/api'
+import { loaders } from 'kea-loaders'
+import { forms } from 'kea-forms'
 
 import type { insightSubscriptionLogicType } from './insightSubscriptionLogicType'
-import api from 'lib/api'
+
+const NEW_SUBSCRIPTION: Partial<SubscriptionType> = {
+    schedule: '0 0 0 0 0',
+    title: 'New Subscription',
+    emails: [],
+}
 
 export interface InsightSubscriptionLogicProps {
-    insight: Partial<InsightModel>
+    id: number | 'new'
+    insightId: number
 }
-export const insightSubscriptionLogic = kea<insightSubscriptionLogicType>({
-    path: ['lib', 'components', 'InsightSubscription', 'insightSubscriptionLogic'],
-    props: {} as InsightSubscriptionLogicProps,
-    key: ({ insight }) => {
-        if (!insight.short_id) {
-            throw Error('must provide an insight with a short id')
-        }
-        return insight.short_id
-    },
-    actions: {
-        addSubscription: true,
-    },
+export const insightSubscriptionLogic = kea<insightSubscriptionLogicType>([
+    path(['lib', 'components', 'InsightSubscription', 'insightSubscriptionLogic']),
+    props({} as InsightSubscriptionLogicProps),
+    key(({ id, insightId }) => `${insightId}-${id ?? 'new'}`),
+    actions({
+        createSubscription: (subscription) => ({ subscription }),
+    }),
 
-    loaders: ({ props }) => ({
-        subscriptions: {
-            __default: [] as SubscriptionType[],
-            loadSubscriptions: async () => {
-                if (!props.insight.id) {
-                    return []
+    loaders(({ props }) => ({
+        subscription: {
+            __default: {} as SubscriptionType,
+            loadSubscription: async () => {
+                if (props.id && props.id !== 'new') {
+                    return await api.subscriptions.get(props.id)
                 }
-
-                const response = await api.subscriptions.list(props.insight.id)
-                return response.results
+                return { ...NEW_SUBSCRIPTION }
             },
         },
-    }),
+    })),
 
-    events: ({ actions }) => ({
-        afterMount: () => actions.loadSubscriptions(),
-    }),
-})
+    forms(({ actions, props }) => ({
+        subscription: {
+            defaults: { ...NEW_SUBSCRIPTION } as SubscriptionType,
+            errors: ({ schedule, title, emails }) => ({
+                schedule: !schedule ? 'You need to set a schedule' : undefined,
+                title: !title ? 'You need to set a title' : undefined,
+                emails:
+                    !emails || emails?.length === 0
+                        ? ['At least one email is required']
+                        : emails.every((email) => email === '1')
+                        ? ['All emails must be valid']
+                        : undefined,
+            }),
+            submit: (subscription) => {
+                subscription.insight = props.insightId
+                actions.createSubscription(subscription)
+                console.log('SUBMITTED', subscription)
+            },
+        },
+    })),
+
+    afterMount(({ actions }) => actions.loadSubscription()),
+])
