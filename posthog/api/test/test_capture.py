@@ -51,7 +51,11 @@ class TestCapture(BaseTest):
             "distinct_id": args["distinct_id"],
             "ip": args["ip"],
             "site_url": args["site_url"],
-            "data": json.loads(args["data"]),
+            "properties": json.loads(args["properties"] or "{}"),
+            "$set": json.loads(args["$set"] or "{}"),
+            "$set_once": json.loads(args["$set_once"] or "{}"),
+            "timestamp": args["timestamp"],
+            "event": args["event"],
             "team_id": args["team_id"],
             "now": args["now"],
             "sent_at": args["sent_at"],
@@ -204,19 +208,16 @@ class TestCapture(BaseTest):
                 "distinct_id": "94b03e599131fd5026b",
                 "ip": "127.0.0.1",
                 "site_url": "http://testserver",
-                "data": {
-                    "event": "$pageleave",
-                    "api_key": key.value,
-                    "project_id": self.team.id,
-                    "properties": {
-                        "$os": "Linux",
-                        "$browser": "Chrome",
-                        "$device_type": "Desktop",
-                        "distinct_id": "94b03e599131fd5026b",
-                        "token": "fake token",
-                    },
-                    "timestamp": "2021-04-20T19:11:33.841Z",
+                "event": "$pageleave",
+                "api_key": key.value,
+                "properties": {
+                    "$os": "Linux",
+                    "$browser": "Chrome",
+                    "$device_type": "Desktop",
+                    "distinct_id": "94b03e599131fd5026b",
+                    "token": "fake token",
                 },
+                "timestamp": "2021-04-20T19:11:33.841Z",
                 "team_id": self.team.id,
             },
         )
@@ -371,7 +372,8 @@ class TestCapture(BaseTest):
                 "distinct_id": "2",
                 "ip": "127.0.0.1",
                 "site_url": "http://testserver",
-                "data": {**data, "properties": {}},  # type: ignore
+                "event": "user signed up",
+                "properties": {},
                 "team_id": self.team.pk,
             },
         )
@@ -420,7 +422,8 @@ class TestCapture(BaseTest):
                 "distinct_id": "2",
                 "ip": "127.0.0.1",
                 "site_url": "http://testserver",
-                "data": {**data["batch"][0], "properties": {}},
+                "event": "user signed up",
+                "properties": {},
                 "team_id": self.team.pk,
             },
         )
@@ -448,7 +451,8 @@ class TestCapture(BaseTest):
                 "distinct_id": "2",
                 "ip": "127.0.0.1",
                 "site_url": "http://testserver",
-                "data": {**data["batch"][0], "properties": {}},
+                "event": "user signed up",
+                "properties": {},
                 "team_id": self.team.pk,
             },
         )
@@ -477,7 +481,7 @@ class TestCapture(BaseTest):
                 "distinct_id": "2",
                 "ip": "127.0.0.1",
                 "site_url": "http://testserver",
-                "data": {**data["batch"][0], "properties": {}},
+                "event": "user signed up",
                 "team_id": self.team.pk,
             },
         )
@@ -494,7 +498,7 @@ class TestCapture(BaseTest):
         )
         self.assertEqual(response.status_code, 200)
         arguments = self._to_arguments(kafka_produce)
-        self.assertEqual(arguments["data"]["event"], "🤓")
+        self.assertEqual(arguments["event"], "🤓")
 
     def test_batch_incorrect_token(self):
         response = self.client.post(
@@ -569,10 +573,12 @@ class TestCapture(BaseTest):
             HTTP_ORIGIN="https://localhost",
         )
         arguments = self._to_arguments(kafka_produce)
-        self.assertEqual(arguments["data"]["event"], "$identify")
+        self.assertEqual(arguments["event"], "$identify")
         arguments.pop("now")  # can't compare fakedate
         arguments.pop("sent_at")  # can't compare fakedate
-        arguments.pop("data")  # can't compare fakedate
+        arguments.pop("properties")
+        arguments.pop("$set")
+
         self.assertDictEqual(
             arguments,
             {"distinct_id": "3", "ip": "127.0.0.1", "site_url": "http://testserver", "team_id": self.team.pk,},
@@ -642,7 +648,7 @@ class TestCapture(BaseTest):
 
         timediff = sent_at.timestamp() - tomorrow_sent_at.timestamp()
         self.assertLess(abs(timediff), 1)
-        self.assertEqual(arguments["data"]["timestamp"], tomorrow.isoformat())
+        self.assertEqual(arguments["timestamp"], tomorrow.isoformat())
 
     @patch("ee.kafka_client.client._KafkaProducer.produce")
     def test_long_distinct_id(self, kafka_produce):
@@ -686,7 +692,7 @@ class TestCapture(BaseTest):
         # right time sent as sent_at to process_event
         timediff = sent_at.timestamp() - tomorrow_sent_at.timestamp()
         self.assertLess(abs(timediff), 1)
-        self.assertEqual(arguments["data"]["timestamp"], tomorrow.isoformat())
+        self.assertEqual(arguments["timestamp"], tomorrow.isoformat())
 
     def test_incorrect_json(self):
         response = self.client.post(
@@ -772,7 +778,7 @@ class TestCapture(BaseTest):
             },
         )
         arguments = self._to_arguments(kafka_produce)
-        self.assertEqual(arguments["data"]["properties"]["$active_feature_flags"], ["test-ff"])
+        self.assertEqual(arguments["properties"]["$active_feature_flags"], ["test-ff"])
 
     @patch("ee.kafka_client.client._KafkaProducer.produce")
     def test_add_feature_flags_with_overrides_if_missing(self, kafka_produce) -> None:
@@ -795,8 +801,8 @@ class TestCapture(BaseTest):
             },
         )
         arguments = self._to_arguments(kafka_produce)
-        self.assertEqual(arguments["data"]["properties"]["$feature/test-ff"], True)
-        self.assertEqual(arguments["data"]["properties"]["$active_feature_flags"], ["test-ff"])
+        self.assertEqual(arguments["properties"]["$feature/test-ff"], True)
+        self.assertEqual(arguments["properties"]["$active_feature_flags"], ["test-ff"])
 
     def test_handle_lacking_event_name_field(self):
         response = self.client.post(
