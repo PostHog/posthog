@@ -1,5 +1,3 @@
-@import '~/vars';
-
 .taxonomic-breakdown-filter {
     &.tag-button.ant-btn-link {
         padding: 8px 12px 8px 0px;
@@ -12,9 +10,9 @@
         vertical-align: bottom;
         padding: 8px 12px;
         line-height: 16px;
-        color: $bg_depth;
-        background-color: $border;
-        border: 1px solid $border;
+        color: var(--bg-depth);
+        background-color: var(--border);
+        border: 1px solid var(--border);
         border-radius: 40px;
         font-weight: 400;
         font-size: 14px;
@@ -27,7 +25,7 @@
             vertical-align: bottom;
             line-height: 16px;
             font-size: 14px;
-            color: $bg_depth;
+            color: var(--bg-depth);
         }
     }
 }

@@ -1,32 +1,30 @@
-@import '~/vars';
-
 .toolbar-launch-page {
     margin-bottom: 48px;
 
     .footer-caption {
         text-align: center;
         color: var(--muted);
-        margin-top: $default_spacing;
+        margin-top: 1rem;
     }
 
     .feature-highlight-list {
         max-width: 800px;
         margin: 0 auto;
-        margin-top: $default_spacing * 2;
+        margin-top: 2rem;
 
         .fh-item {
             display: flex;
             align-items: center;
-            margin-top: $default_spacing;
+            margin-top: 1rem;
 
             .fh-icon {
-                color: $text_muted_alt;
+                color: var(--text-muted-alt);
                 margin-right: 8px;
                 font-size: 1.6em;
             }
 
             h4 {
-                color: $text_muted_alt;
+                color: var(--text-muted-alt);
                 margin-bottom: 0;
                 font-size: 1.2em;
             }
