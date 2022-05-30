@@ -12,7 +12,7 @@
        AND timestamp <= toDateTime('2020-01-06 00:00:00')
        AND (has(['control', 'test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature/a-b-test'), '^"|"$', '')))
      GROUP BY value
-     ORDER BY count DESC
+     ORDER BY count DESC, value DESC
      LIMIT 25
      OFFSET 0)
   '
@@ -108,7 +108,7 @@
        AND timestamp <= toDateTime('2020-01-06 00:00:00')
        AND (has(['control', 'test_1', 'test_2', 'test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature/a-b-test'), '^"|"$', '')))
      GROUP BY value
-     ORDER BY count DESC
+     ORDER BY count DESC, value DESC
      LIMIT 25
      OFFSET 0)
   '
@@ -204,7 +204,7 @@
        AND timestamp <= toDateTime('2020-01-06 00:00:00')
        AND (has(['control', 'test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature/a-b-test'), '^"|"$', '')))
      GROUP BY value
-     ORDER BY count DESC
+     ORDER BY count DESC, value DESC
      LIMIT 25
      OFFSET 0)
   '
@@ -271,7 +271,7 @@
        AND (has(['control', 'test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature_flag_response'), '^"|"$', ''))
             AND has(['a-b-test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature_flag'), '^"|"$', '')))
      GROUP BY value
-     ORDER BY count DESC
+     ORDER BY count DESC, value DESC
      LIMIT 25
      OFFSET 0)
   '
@@ -355,7 +355,7 @@
        AND timestamp <= toDateTime('2020-01-06 00:00:00')
        AND (has(['control', 'test_1', 'test_2', 'test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature/a-b-test'), '^"|"$', '')))
      GROUP BY value
-     ORDER BY count DESC
+     ORDER BY count DESC, value DESC
      LIMIT 25
      OFFSET 0)
   '
@@ -422,7 +422,7 @@
        AND (has(['control', 'test_1', 'test_2', 'test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature_flag_response'), '^"|"$', ''))
             AND has(['a-b-test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature_flag'), '^"|"$', '')))
      GROUP BY value
-     ORDER BY count DESC
+     ORDER BY count DESC, value DESC
      LIMIT 25
      OFFSET 0)
   '
