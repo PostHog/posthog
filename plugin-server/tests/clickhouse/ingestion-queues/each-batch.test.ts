@@ -1,3 +1,5 @@
+import { PluginEvent } from '@posthog/plugin-scaffold'
+
 import { eachBatch } from '../../../src/main/ingestion-queues/batch-processing/each-batch'
 import { eachBatchAsyncHandlers } from '../../../src/main/ingestion-queues/batch-processing/each-batch-async-handlers'
 import { eachBatchBuffer } from '../../../src/main/ingestion-queues/batch-processing/each-batch-buffer'
@@ -41,9 +43,27 @@ const captureEndpointEvent = {
     distinct_id: 'id',
     ip: null,
     site_url: '',
+    event: 'event',
+    properties: '{}',
+    timestamp: '2022-05-30T16:12:10.846000+00:00',
+    $set: '{ "foo": "bar" }',
+    $set_once: '{ "foo": "bar" }',
+    team_id: 1,
+    now: null,
+    sent_at: null,
+}
+
+const legacyCaptureEndpointEvent = {
+    uuid: 'uuid1',
+    distinct_id: 'id',
+    ip: null,
+    site_url: '',
     data: JSON.stringify({
         event: 'event',
         properties: {},
+        timestamp: '2022-05-30T16:12:10.846000+00:00',
+        $set: { foo: 'bar' },
+        $set_once: { foo: 'bar' },
     }),
     team_id: 1,
     now: null,
@@ -127,25 +147,48 @@ describe('eachBatchX', () => {
     })
 
     describe('eachBatchIngestion', () => {
+        let pluginEvent: PluginEvent
+
+        beforeEach(() => {
+            pluginEvent = {
+                distinct_id: 'id',
+                event: 'event',
+                properties: {},
+                $set: {
+                    foo: 'bar',
+                },
+                $set_once: {
+                    foo: 'bar',
+                },
+                timestamp: '2022-05-30T16:12:10.846000+00:00',
+                ip: null,
+                now: null,
+                sent_at: null,
+                site_url: '',
+                team_id: 1,
+                uuid: 'uuid1',
+            }
+        })
+
         it('calls runEventPipeline', async () => {
             const batch = createBatch(captureEndpointEvent)
             await eachBatchIngestion(batch, queue)
 
-            expect(queue.workerMethods.runEventPipeline).toHaveBeenCalledWith({
-                distinct_id: 'id',
-                event: 'event',
-                properties: {},
-                ip: null,
-                now: null,
-                sent_at: null,
-                site_url: null,
-                team_id: 1,
-                uuid: 'uuid1',
-            })
+            expect(queue.workerMethods.runEventPipeline).toHaveBeenCalledWith(pluginEvent)
             expect(queue.pluginsServer.statsd.timing).toHaveBeenCalledWith(
                 'kafka_queue.each_batch_ingestion',
                 expect.any(Date)
             )
+        })
+
+        it('correctly parses legacy event payloads', async () => {
+            await eachBatchIngestion(createBatch(captureEndpointEvent), queue)
+            expect(queue.workerMethods.runEventPipeline).toHaveBeenCalledWith(pluginEvent)
+
+            await eachBatchIngestion(createBatch(legacyCaptureEndpointEvent), queue)
+
+            expect(queue.workerMethods.runEventPipeline).toHaveBeenCalledTimes(2)
+            expect(queue.workerMethods.runEventPipeline).toHaveBeenLastCalledWith(pluginEvent)
         })
     })
 

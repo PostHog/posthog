@@ -41,12 +41,24 @@ def parse_kafka_event_data(
     sent_at: Optional[datetime],
     event_uuid: UUIDT,
 ) -> Dict:
+    event = data.get("event", "")
+    properties = data.get("properties", {})
+    timestamp = data.get("timestamp", "")
+
+    # TODO: Deprecate these and only accept $set/$set_once via properties
+    set_props = data.get("$set", {})
+    set_once_props = data.get("$set_once", {})
+
     return {
         "uuid": str(event_uuid),
         "distinct_id": safe_clickhouse_string(distinct_id),
         "ip": safe_clickhouse_string(ip) if ip else ip,
         "site_url": safe_clickhouse_string(site_url),
-        "data": json.dumps(data),
+        "event": safe_clickhouse_string(event),
+        "properties": json.dumps(properties),
+        "$set": json.dumps(set_props),
+        "$set_once": json.dumps(set_once_props),
+        "timestamp": safe_clickhouse_string(timestamp),
         "team_id": team_id,
         "now": now.isoformat(),
         "sent_at": sent_at.isoformat() if sent_at else "",
@@ -75,22 +87,26 @@ def log_event_to_dead_letter_queue(
     error_location: str,
     topic: str = KAFKA_DEAD_LETTER_QUEUE,
 ):
-    data = event.copy()
+    dead_letter_queue_payload = event.copy()
 
-    data["error_timestamp"] = datetime.now().isoformat()
-    data["error_location"] = safe_clickhouse_string(error_location)
-    data["error"] = safe_clickhouse_string(error_message)
-    data["elements_chain"] = ""
-    data["id"] = str(UUIDT())
-    data["event"] = safe_clickhouse_string(event_name)
-    data["raw_payload"] = json.dumps(raw_payload)
-    data["now"] = datetime.fromisoformat(data["now"]).replace(tzinfo=None).isoformat() if data["now"] else None
-    data["tags"] = ["django_server"]
-    data["event_uuid"] = event["uuid"]
-    del data["uuid"]
+    dead_letter_queue_payload["error_timestamp"] = datetime.now().isoformat()
+    dead_letter_queue_payload["error_location"] = safe_clickhouse_string(error_location)
+    dead_letter_queue_payload["error"] = safe_clickhouse_string(error_message)
+    dead_letter_queue_payload["elements_chain"] = ""
+    dead_letter_queue_payload["id"] = str(UUIDT())
+    dead_letter_queue_payload["event"] = safe_clickhouse_string(event_name)
+    dead_letter_queue_payload["raw_payload"] = json.dumps(raw_payload)
+    dead_letter_queue_payload["now"] = (
+        datetime.fromisoformat(dead_letter_queue_payload["now"]).replace(tzinfo=None).isoformat()
+        if dead_letter_queue_payload["now"]
+        else None
+    )
+    dead_letter_queue_payload["tags"] = ["django_server"]
+    dead_letter_queue_payload["event_uuid"] = event["uuid"]
+    del dead_letter_queue_payload["uuid"]
 
     try:
-        KafkaProducer().produce(topic=topic, data=data)
+        KafkaProducer().produce(topic=topic, data=dead_letter_queue_payload)
         statsd.incr(settings.EVENTS_DEAD_LETTER_QUEUE_STATSD_METRIC)
     except Exception as e:
         capture_exception(e)

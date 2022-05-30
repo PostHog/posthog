@@ -6,14 +6,36 @@ import { status } from '../../../utils/status'
 import { sanitizeEvent } from '../../../utils/utils'
 import { KafkaQueue } from '../kafka-queue'
 import { eachBatch } from './each-batch'
+export interface KafkaEvent {
+    uuid: string
+    distinct_id: string
+    ip: string | null
+    site_url: string
+    team_id: number
+    now: string
+    sent_at?: string
+    offset?: number
+    event: string
+    properties?: string
+    timestamp?: string
+    $set?: string
+    $set_once?: string
+
+    // KLUDGE: We need to make sure the plugin server can still process events in the old format during the transition period
+    // `data` is deprecated and we should remove it in the future
+    data: string
+}
 
 export async function eachMessageIngestion(message: KafkaMessage, queue: KafkaQueue): Promise<void> {
-    const { data: dataStr, ...rawEvent } = JSON.parse(message.value!.toString())
-    const combinedEvent = { ...rawEvent, ...JSON.parse(dataStr) }
+    const { data: dataStr, ...rawEvent } = JSON.parse(message.value!.toString()) as KafkaEvent
     const event: PluginEvent = sanitizeEvent({
-        ...combinedEvent,
-        site_url: combinedEvent.site_url || null,
-        ip: combinedEvent.ip || null,
+        ...rawEvent,
+        properties: JSON.parse(rawEvent.properties || '{}'),
+        $set: JSON.parse(rawEvent.$set || '{}'),
+        $set_once: JSON.parse(rawEvent.$set_once || '{}'),
+        site_url: rawEvent.site_url || '',
+        ip: rawEvent.ip || null,
+        ...JSON.parse(dataStr || '{}'),
     })
     await ingestEvent(queue.pluginsServer, queue.workerMethods, event)
 }
