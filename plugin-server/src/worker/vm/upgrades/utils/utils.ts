@@ -3,10 +3,10 @@ import { Plugin } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 import { Client } from 'pg'
 
-import { ClickHouseEvent, Element, Event, TimestampFormat } from '../../../../types'
+import { ClickHouseEvent, Element, TimestampFormat } from '../../../../types'
 import { DB } from '../../../../utils/db/db'
-import { chainToElements, transformPostgresElementsToEventPayloadFormat } from '../../../../utils/db/utils'
-import { castTimestampToClickhouseFormat, UUIDT } from '../../../../utils/utils'
+import { chainToElements } from '../../../../utils/db/utils'
+import { castTimestampToClickhouseFormat } from '../../../../utils/utils'
 
 export interface RawElement extends Element {
     $el_text?: string
@@ -133,44 +133,6 @@ export const convertClickhouseEventToPluginEvent = (event: ClickHouseEvent): His
     properties['$$historical_export_source_db'] = 'clickhouse'
     const parsedEvent = {
         uuid,
-        team_id,
-        distinct_id,
-        properties,
-        timestamp,
-        now: DateTime.now().toISO(),
-        event: eventName || '',
-        ip: properties?.['$ip'] || '',
-        site_url: '',
-        sent_at: created_at,
-    }
-    return addHistoricalExportEventProperties(parsedEvent)
-}
-
-export const convertPostgresEventToPluginEvent = async (db: DB, event: Event): Promise<HistoricalExportEvent> => {
-    const {
-        event: eventName,
-        timestamp,
-        team_id,
-        distinct_id,
-        created_at,
-        properties,
-        elements,
-        id,
-        elements_hash,
-    } = event
-    properties['$$postgres_event_id'] = id
-    if (eventName === '$autocapture') {
-        if (elements && elements.length > 0) {
-            properties['$elements'] = convertDatabaseElementsToRawElements(elements)
-        } else {
-            const dbElements = await db.fetchPostgresElementsByHash(team_id, elements_hash)
-            properties['$elements'] = transformPostgresElementsToEventPayloadFormat(dbElements)
-        }
-    }
-
-    properties['$$historical_export_source_db'] = 'postgres'
-    const parsedEvent = {
-        uuid: new UUIDT().toString(), // postgres events don't store a uuid
         team_id,
         distinct_id,
         properties,
