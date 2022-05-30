@@ -46,7 +46,7 @@ $color-transition: color $transition_params;
             justify-content: center;
             transition: background-color $transition_params;
             svg {
-                color: var(--depr-purple-300);
+                color: var(--purple-light);
                 font-size: 32px;
                 transition: $color-transition;
             }
