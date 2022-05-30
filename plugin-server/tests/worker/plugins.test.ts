@@ -19,10 +19,10 @@ import {
 import { resetTestDatabase } from '../helpers/sql'
 import { getPluginAttachmentRows, getPluginConfigRows, getPluginRows, setPluginCapabilities } from '../helpers/sqlMock'
 
-jest.mock('../src/utils/db/sql')
-jest.mock('../src/utils/status')
-jest.mock('../src/utils/db/error')
-jest.mock('../src/worker/plugins/loadPlugin', () => {
+jest.mock('../../src/utils/db/sql')
+jest.mock('../../src/utils/status')
+jest.mock('../../src/utils/db/error')
+jest.mock('../../src/worker/plugins/loadPlugin', () => {
     const { loadPlugin } = jest.requireActual('../src/worker/plugins/loadPlugin')
     return { loadPlugin: jest.fn().mockImplementation(loadPlugin) }
 })

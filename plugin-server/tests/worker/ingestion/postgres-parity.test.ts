@@ -16,7 +16,7 @@ import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../../help
 import { resetKafka } from '../../helpers/kafka'
 import { getFirstTeam, resetTestDatabase } from '../../helpers/sql'
 
-jest.mock('../../src/utils/status')
+jest.mock('../../../src/utils/status')
 jest.setTimeout(60000) // 60 sec timeout
 
 const extraServerConfig: Partial<PluginsServerConfig> = {
