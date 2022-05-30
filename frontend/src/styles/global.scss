@@ -13,41 +13,41 @@ Font weights: only `normal` (400), `var(--font-medium)` (500) or `bold` (700) sh
 @import 'mixins';
 
 // These vars are modified via SCSS for legacy reasons (e.g. darken/lighten), so keeping as SCSS vars for now.
-$primary: #5375ff;
-$primary_alt: #35416b;
-$primary_bg_hover: rgba($primary, 0.1);
-$primary_bg_active: rgba($primary, 0.2);
-$warning: #f7a501;
-$danger: #f96132;
-$text_default: #2d2d2d;
-$text_light: rgba(255, 255, 255, 0.88);
-$bg_menu: #2c3035;
-$border: rgba(0, 0, 0, 0.15);
-$lifecycle_new: #99c5ff;
-$lifecycle_returning: #71b96b;
-$lifecycle_resurrecting: #c277cf;
-$lifecycle_dormant: #f86234;
+$_primary: #5375ff;
+$_primary_alt: #35416b;
+$_primary_bg_hover: rgba($_primary, 0.1);
+$_primary_bg_active: rgba($_primary, 0.2);
+$_warning: #f7a501;
+$_danger: #f96132;
+$_text_default: #2d2d2d;
+$_text_light: rgba(255, 255, 255, 0.88);
+$_bg_menu: #2c3035;
+$_border: rgba(0, 0, 0, 0.15);
+$_lifecycle_new: #99c5ff;
+$_lifecycle_returning: #71b96b;
+$_lifecycle_resurrecting: #c277cf;
+$_lifecycle_dormant: #f86234;
 
 :root {
-    --primary: #{$primary};
-    --primary-alt: #{$primary_alt};
+    --primary: #{$_primary};
+    --primary-alt: #{$_primary_alt};
     --primary-hover: #839af8;
     --primary-active: #3d57d9;
-    --primary-bg-hover: #{$primary_bg_hover};
-    --primary-bg-active: #{$primary_bg_active};
+    --primary-bg-hover: #{$_primary_bg_hover};
+    --primary-bg-active: #{$_primary_bg_active};
     --success: #77b96c;
-    --danger: #{$danger};
+    --danger: #{$_danger};
     --danger-hover: #fa754c;
     --danger-active: #f9430b;
     --danger-bridge: #df4313;
-    --warning: #{$warning};
+    --warning: #{$_warning};
     --warning-hover: #f3ba3e;
     --warning-active: #e69900;
     --brand-blue: #1d4aff;
     --brand-blue-active: #2148e4;
     --brand-yellow: #f9bd2b;
     --brand-red: #f54e00;
-    --bg-menu: #{$bg_menu};
+    --bg-menu: #{$_bg_menu};
     --bg-mid: #f2f2f2;
     --bg-side: #fafaf9;
     --bg-depth: #0f0f0f;
@@ -57,15 +57,15 @@ $lifecycle_dormant: #f86234;
     --bg-shaded: rgba(0, 0, 0, 0.05);
     --bg-light: #ffffff;
     --bg-overlay: #333333;
-    --text-default: #{$text_default};
-    --text-light: #{$text_light};
+    --text-default: #{$_text_default};
+    --text-light: #{$_text_light};
     --muted: rgba(0, 0, 0, 0.5);
     --muted-alt: #747ea1;
     --text-muted: var(--muted);
     --text-muted-alt: var(--muted-alt);
     --mark-color: #fdedc9;
     --border-light: rgba(0, 0, 0, 0.08);
-    --border: #{$border};
+    --border: #{$_border};
     --border-dark: rgba(0, 0, 0, 0.24);
     --border-active: rgba(0, 0, 0, 0.36);
     --radius: 4px;
@@ -114,14 +114,14 @@ $lifecycle_dormant: #f86234;
     --data-yellow: #e4a604;
     --data-lilac: #a56eff;
     // Lifecycle series
-    --lifecycle-new: #{$lifecycle_new};
-    --lifecycle-returning: #{$lifecycle_returning};
-    --lifecycle-resurrecting: #{$lifecycle_resurrecting};
-    --lifecycle-dormant: #{$lifecycle_dormant};
-    --lifecycle-new-hover: #{darken($lifecycle_new, 20%)};
-    --lifecycle-returning-hover: #{darken($lifecycle_returning, 20%)};
-    --lifecycle-resurrecting-hover: #{darken($lifecycle_resurrecting, 20%)};
-    --lifecycle-dormant-hover: #{darken($lifecycle_dormant, 20%)};
+    --lifecycle-new: #{$_lifecycle_new};
+    --lifecycle-returning: #{$_lifecycle_returning};
+    --lifecycle-resurrecting: #{$_lifecycle_resurrecting};
+    --lifecycle-dormant: #{$_lifecycle_dormant};
+    --lifecycle-new-hover: #{darken($_lifecycle_new, 20%)};
+    --lifecycle-returning-hover: #{darken($_lifecycle_returning, 20%)};
+    --lifecycle-resurrecting-hover: #{darken($_lifecycle_resurrecting, 20%)};
+    --lifecycle-dormant-hover: #{darken($_lifecycle_dormant, 20%)};
     // Funnels
     --funnel-default: var(--primary);
     --funnel-alt: var(--primary-alt);
@@ -181,25 +181,25 @@ $lifecycle_dormant: #f86234;
     --toastify-toast-max-height: 16rem;
 
     // Deprecated color transforms from SCSS var heydays
-    --depr-lighten-danger-40: lighten($danger, 40%);
-    --depr-darken-text-light-20: darken($text_light, 20%);
-    --depr-rgba-text-default-0-4: rgba($text_default, 0.4);
-    --depr-rgba-primary-alt-0-3: rgba($primary_alt, 0.3);
-    --depr-rgba-danger-0-6: rgba($danger, 0.6);
-    --depr-rgba-border-0-1: rgba($border, 0.1);
-    --depr-rgba-border-0-2: rgba($border, 0.2);
-    --depr-darken-primary-30: darken($primary, 30%);
-    --depr-lighten-primary-20: lighten($primary, 20%);
-    --depr-lighten-primary-10: lighten($primary, 10%);
-    --depr-lighten-primary-5: lighten($primary, 5%);
-    --depr-lighten-primary-15: lighten($primary, 15%);
-    --depr-rgba-primary_alt-0-09: rgba($primary_alt, 0.09);
-    --depr-rgba-warning-0-09: rgba($warning, 0.09);
-    --depr-rgba-danger-0-09: rgba($danger, 0.09);
-    --depr-rgba-danger-0-1: rgba($danger, 0.1);
-    --depr-rgba-primary-0-25: rgba($primary, 0.25);
-    --depr-rgba-primary_alt-0-25: rgba($primary_alt, 0.25);
-    --depr-darken-bg_menu-10: darken($bg_menu, 10%);
+    --depr-lighten-danger-40: lighten($_danger, 40%);
+    --depr-darken-text-light-20: darken($_text_light, 20%);
+    --depr-rgba-text-default-0-4: rgba($_text_default, 0.4);
+    --depr-rgba-primary-alt-0-3: rgba($_primary_alt, 0.3);
+    --depr-rgba-danger-0-6: rgba($_danger, 0.6);
+    --depr-rgba-border-0-1: rgba($_border, 0.1);
+    --depr-rgba-border-0-2: rgba($_border, 0.2);
+    --depr-darken-primary-30: darken($_primary, 30%);
+    --depr-lighten-primary-20: lighten($_primary, 20%);
+    --depr-lighten-primary-10: lighten($_primary, 10%);
+    --depr-lighten-primary-5: lighten($_primary, 5%);
+    --depr-lighten-primary-15: lighten($_primary, 15%);
+    --depr-rgba-primary_alt-0-09: rgba($_primary_alt, 0.09);
+    --depr-rgba-warning-0-09: rgba($_warning, 0.09);
+    --depr-rgba-danger-0-09: rgba($_danger, 0.09);
+    --depr-rgba-danger-0-1: rgba($_danger, 0.1);
+    --depr-rgba-primary-0-25: rgba($_primary, 0.25);
+    --depr-rgba-primary_alt-0-25: rgba($_primary_alt, 0.25);
+    --depr-darken-bg_menu-10: darken($_bg_menu, 10%);
 }
 
 // Text styles
@@ -807,9 +807,9 @@ input::-ms-clear {
     background-color: var(--danger) !important;
     border-color: var(--danger) !important;
     &:disabled {
-        background-color: lighten($danger, 20%) !important;
+        background-color: lighten($_danger, 20%) !important;
         color: lighten(#fff, 20%) !important;
-        border-color: lighten($danger, 20%) !important;
+        border-color: lighten($_danger, 20%) !important;
     }
 }
 
