@@ -43,7 +43,6 @@ describe('teardown', () => {
             {
                 WORKER_CONCURRENCY: 2,
                 LOG_LEVEL: LogLevel.Log,
-                KAFKA_ENABLED: false,
             },
             makePiscina
         )
@@ -75,7 +74,6 @@ describe('teardown', () => {
             {
                 WORKER_CONCURRENCY: 2,
                 LOG_LEVEL: LogLevel.Log,
-                KAFKA_ENABLED: false,
             },
             makePiscina
         )
@@ -105,7 +103,6 @@ describe('teardown', () => {
             {
                 WORKER_CONCURRENCY: 2,
                 LOG_LEVEL: LogLevel.Log,
-                KAFKA_ENABLED: false,
             },
             makePiscina
         )

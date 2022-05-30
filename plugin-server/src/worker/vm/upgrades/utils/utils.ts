@@ -57,37 +57,22 @@ export const clickhouseEventTimestampToDate = (timestamp: string): Date => {
 }
 
 export const fetchTimestampBoundariesForTeam = async (db: DB, teamId: number): Promise<TimestampBoundaries> => {
-    if (db.KAFKA_ENABLED) {
-        const clickhouseFetchTimestampsResult = await db.clickhouseQuery(`
-            SELECT min(_timestamp) as min, max(_timestamp) as max
-            FROM events
-            WHERE team_id = ${teamId}`)
-        const min = clickhouseFetchTimestampsResult.data[0].min
-        const max = clickhouseFetchTimestampsResult.data[0].max
+    const clickhouseFetchTimestampsResult = await db.clickhouseQuery(`
+        SELECT min(_timestamp) as min, max(_timestamp) as max
+        FROM events
+        WHERE team_id = ${teamId}`)
+    const min = clickhouseFetchTimestampsResult.data[0].min
+    const max = clickhouseFetchTimestampsResult.data[0].max
 
-        const minDate = new Date(clickhouseEventTimestampToDate(min))
-        const maxDate = new Date(clickhouseEventTimestampToDate(max))
+    const minDate = new Date(clickhouseEventTimestampToDate(min))
+    const maxDate = new Date(clickhouseEventTimestampToDate(max))
 
-        const isValidMin = minDate.getTime() !== new Date(0).getTime()
-        const isValidMax = maxDate.getTime() !== new Date(0).getTime()
+    const isValidMin = minDate.getTime() !== new Date(0).getTime()
+    const isValidMax = maxDate.getTime() !== new Date(0).getTime()
 
-        return {
-            min: isValidMin ? minDate : null,
-            max: isValidMax ? maxDate : null,
-        }
-    } else {
-        const postgresFetchTimestampsResult = await db.postgresQuery(
-            `SELECT min(timestamp), max(timestamp) FROM posthog_event WHERE team_id = $1`,
-            [teamId],
-            'fetchTimestampBoundariesForTeam'
-        )
-
-        const min = postgresFetchTimestampsResult.rows[0].min
-        const max = postgresFetchTimestampsResult.rows[0].max
-        return {
-            min: min ? new Date(min) : null,
-            max: max ? new Date(max) : null,
-        }
+    return {
+        min: isValidMin ? minDate : null,
+        max: isValidMax ? maxDate : null,
     }
 }
 
@@ -101,71 +86,43 @@ export const fetchEventsForInterval = async (
 ): Promise<HistoricalExportEvent[]> => {
     const timestampUpperBound = new Date(timestampLowerBound.getTime() + eventsTimeInterval)
 
-    if (db.KAFKA_ENABLED) {
-        const chTimestampLower = castTimestampToClickhouseFormat(
-            DateTime.fromISO(timestampLowerBound.toISOString()),
-            TimestampFormat.ClickHouseSecondPrecision
-        )
-        const chTimestampHigher = castTimestampToClickhouseFormat(
-            DateTime.fromISO(timestampUpperBound.toISOString()),
-            TimestampFormat.ClickHouseSecondPrecision
-        )
+    const chTimestampLower = castTimestampToClickhouseFormat(
+        DateTime.fromISO(timestampLowerBound.toISOString()),
+        TimestampFormat.ClickHouseSecondPrecision
+    )
+    const chTimestampHigher = castTimestampToClickhouseFormat(
+        DateTime.fromISO(timestampUpperBound.toISOString()),
+        TimestampFormat.ClickHouseSecondPrecision
+    )
 
-        const fetchEventsQuery = `
-        SELECT
-            uuid,
-            team_id,
-            distinct_id,
-            properties,
-            timestamp,
-            now,
-            event,
-            ip,
-            site_url,
-            sent_at
-        FROM events
-        WHERE team_id = ${teamId}
-        AND _timestamp >= '${chTimestampLower}'
-        AND _timestamp < '${chTimestampHigher}'
-        ORDER BY _offset
-        LIMIT ${eventsPerRun}
-        OFFSET ${offset}`
+    const fetchEventsQuery = `
+    SELECT
+        uuid,
+        team_id,
+        distinct_id,
+        properties,
+        timestamp,
+        now,
+        event,
+        ip,
+        site_url,
+        sent_at
+    FROM events
+    WHERE team_id = ${teamId}
+    AND _timestamp >= '${chTimestampLower}'
+    AND _timestamp < '${chTimestampHigher}'
+    ORDER BY _offset
+    LIMIT ${eventsPerRun}
+    OFFSET ${offset}`
 
-        const clickhouseFetchEventsResult = await db.clickhouseQuery(fetchEventsQuery)
+    const clickhouseFetchEventsResult = await db.clickhouseQuery(fetchEventsQuery)
 
-        return clickhouseFetchEventsResult.data.map((event) =>
-            convertClickhouseEventToPluginEvent({
-                ...(event as ClickHouseEvent),
-                properties: JSON.parse(event.properties || '{}'),
-            })
-        )
-    } else {
-        const postgresFetchEventsResult = await db.postgresQuery(
-            `
-            SELECT
-                event,
-                timestamp,
-                team_id,
-                distinct_id,
-                created_at,
-                properties,
-                elements,
-                id,
-                elements_hash
-            FROM posthog_event
-            WHERE team_id = $1 AND timestamp >= $2 AND timestamp < $3
-            ORDER BY id
-            LIMIT $4
-            OFFSET $5`,
-            [teamId, timestampLowerBound.toISOString(), timestampUpperBound.toISOString(), eventsPerRun, offset],
-            'fetchEventsForInterval'
-        )
-
-        const events = await Promise.all(
-            postgresFetchEventsResult.rows.map((event) => convertPostgresEventToPluginEvent(db, event))
-        )
-        return events
-    }
+    return clickhouseFetchEventsResult.data.map((event) =>
+        convertClickhouseEventToPluginEvent({
+            ...(event as ClickHouseEvent),
+            properties: JSON.parse(event.properties || '{}'),
+        })
+    )
 }
 
 export const convertClickhouseEventToPluginEvent = (event: ClickHouseEvent): HistoricalExportEvent => {
