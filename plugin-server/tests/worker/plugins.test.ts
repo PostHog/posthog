@@ -23,7 +23,7 @@ jest.mock('../../src/utils/db/sql')
 jest.mock('../../src/utils/status')
 jest.mock('../../src/utils/db/error')
 jest.mock('../../src/worker/plugins/loadPlugin', () => {
-    const { loadPlugin } = jest.requireActual('../src/worker/plugins/loadPlugin')
+    const { loadPlugin } = jest.requireActual('../../src/worker/plugins/loadPlugin')
     return { loadPlugin: jest.fn().mockImplementation(loadPlugin) }
 })
 
