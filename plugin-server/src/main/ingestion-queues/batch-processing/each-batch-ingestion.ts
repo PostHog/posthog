@@ -7,7 +7,8 @@ import { sanitizeEvent } from '../../../utils/utils'
 import { KafkaQueue } from '../kafka-queue'
 import { eachBatch } from './each-batch'
 
-export async function eachMessageIngestion(message: KafkaMessage, queue: KafkaQueue): Promise<void> {
+export function getPluginEvent(message: KafkaMessage): PluginEvent {
+    // TODO: inefficient to do this twice?
     const { data: dataStr, ...rawEvent } = JSON.parse(message.value!.toString())
     const combinedEvent = { ...rawEvent, ...JSON.parse(dataStr) }
     const event: PluginEvent = sanitizeEvent({
@@ -15,11 +16,42 @@ export async function eachMessageIngestion(message: KafkaMessage, queue: KafkaQu
         site_url: combinedEvent.site_url || null,
         ip: combinedEvent.ip || null,
     })
-    await ingestEvent(queue.pluginsServer, queue.workerMethods, event)
+    return event
+}
+
+export async function eachMessageIngestion(message: KafkaMessage, queue: KafkaQueue): Promise<void> {
+    await ingestEvent(queue.pluginsServer, queue.workerMethods, getPluginEvent(message))
 }
 
 export async function eachBatchIngestion(payload: EachBatchPayload, queue: KafkaQueue): Promise<void> {
-    await eachBatch(payload, queue, eachMessageIngestion, 'ingestion')
+    function groupIntoBatchesIngestion(array: KafkaMessage[], batchSize: number): KafkaMessage[][] {
+        // Once we see a distinct ID we've already seen break up the batch
+        const batches = []
+        const seenIds: Set<string> = new Set()
+        let currentBatch: KafkaMessage[] = []
+        for (let i = 0; i < array.length; i += 1) {
+            const message = array[i]
+            const pluginEvent = getPluginEvent(message)
+            const enabled = queue.pluginsServer.ingestionBatchBreakupByDistinctIdTeams.has(pluginEvent.team_id)
+            const seenKey = `${pluginEvent.team_id}:${pluginEvent.distinct_id}`
+            if (currentBatch.length == batchSize || (enabled && seenIds.has(seenKey))) {
+                console.log(seenKey)
+                seenIds.clear()
+                batches.push(currentBatch)
+                currentBatch = []
+            }
+            if (enabled) {
+                seenIds.add(seenKey)
+            }
+            currentBatch.push(message)
+        }
+        if (currentBatch) {
+            batches.push(currentBatch)
+        }
+        console.log(batches.map((batch) => batch.length))
+        return batches
+    }
+    await eachBatch(payload, queue, eachMessageIngestion, groupIntoBatchesIngestion, 'ingestion')
 }
 
 export async function ingestEvent(

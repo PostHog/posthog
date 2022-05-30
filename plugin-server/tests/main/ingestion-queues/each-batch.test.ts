@@ -3,6 +3,7 @@ import { eachBatchAsyncHandlers } from '../../../src/main/ingestion-queues/batch
 import { eachBatchBuffer } from '../../../src/main/ingestion-queues/batch-processing/each-batch-buffer'
 import { eachBatchIngestion } from '../../../src/main/ingestion-queues/batch-processing/each-batch-ingestion'
 import { ClickHouseEvent } from '../../../src/types'
+import { groupIntoBatches } from '../../../src/utils/utils'
 
 jest.mock('../../../src/utils/status')
 
@@ -53,16 +54,15 @@ const captureEndpointEvent = {
 describe('eachBatchX', () => {
     let queue: any
 
-    function createBatch(event: any, timestamp?: any): any {
+    function createBatchWithMultipleEvents(events: any[], timestamp?: any): any {
         return {
             batch: {
                 partition: 0,
-                messages: [
-                    {
-                        value: JSON.stringify(event),
-                        timestamp,
-                    },
-                ],
+                messages: events.map((event) => ({
+                    value: JSON.stringify(event),
+                    timestamp,
+                    offset: event.offset,
+                })),
             },
             resolveOffset: jest.fn(),
             heartbeat: jest.fn(),
@@ -70,6 +70,10 @@ describe('eachBatchX', () => {
             isRunning: jest.fn(() => true),
             isStale: jest.fn(() => false),
         }
+    }
+
+    function createBatch(event: any, timestamp?: any): any {
+        return createBatchWithMultipleEvents([event], timestamp)
     }
 
     beforeEach(() => {
@@ -83,6 +87,7 @@ describe('eachBatchX', () => {
                     timing: jest.fn(),
                     increment: jest.fn(),
                 },
+                ingestionBatchBreakupByDistinctIdTeams: new Set(),
             },
             workerMethods: {
                 runAsyncHandlersEventPipeline: jest.fn(),
@@ -95,14 +100,14 @@ describe('eachBatchX', () => {
     describe('eachBatch', () => {
         it('calls eachMessage with the correct arguments', async () => {
             const eachMessage = jest.fn()
-            await eachBatch(createBatch(event), queue, eachMessage, 'key')
+            await eachBatch(createBatch(event), queue, eachMessage, groupIntoBatches, 'key')
 
             expect(eachMessage).toHaveBeenCalledWith({ value: JSON.stringify(event) }, queue)
         })
 
         it('tracks metrics based on the key', async () => {
             const eachMessage = jest.fn()
-            await eachBatch(createBatch(event), queue, eachMessage, 'my_key')
+            await eachBatch(createBatch(event), queue, eachMessage, groupIntoBatches, 'my_key')
 
             expect(queue.pluginsServer.statsd.timing).toHaveBeenCalledWith(
                 'kafka_queue.each_batch_my_key',
@@ -146,6 +151,25 @@ describe('eachBatchX', () => {
                 'kafka_queue.each_batch_ingestion',
                 expect.any(Date)
             )
+        })
+
+        it('breaks up by teamId:distinctId for enabled teams', async () => {
+            const batch = createBatchWithMultipleEvents([
+                { ...captureEndpointEvent, offset: 1 },
+                { ...captureEndpointEvent, offset: 2, team_id: 3 },
+                { ...captureEndpointEvent, offset: 3, team_id: 3, distinct_id: 'id2' },
+                { ...captureEndpointEvent, offset: 4, team_id: 4 },
+                { ...captureEndpointEvent, offset: 5, team_id: 3 },
+                { ...captureEndpointEvent, offset: 6 },
+            ])
+            queue.pluginsServer.ingestionBatchBreakupByDistinctIdTeams.add(3)
+            queue.pluginsServer.ingestionBatchBreakupByDistinctIdTeams.add(4)
+
+            await eachBatchIngestion(batch, queue)
+
+            expect(batch.resolveOffset).toBeCalledTimes(2)
+            expect(batch.resolveOffset).toHaveBeenCalledWith(4) // 5 was the first repeating
+            expect(batch.resolveOffset).toHaveBeenCalledWith(6) // we get the last two in the batch together
         })
     })
 

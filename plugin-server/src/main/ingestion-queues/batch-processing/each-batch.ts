@@ -1,13 +1,13 @@
 import { EachBatchPayload, KafkaMessage } from 'kafkajs'
 
 import { status } from '../../../utils/status'
-import { groupIntoBatches } from '../../../utils/utils'
 import { KafkaQueue } from '../kafka-queue'
 
 export async function eachBatch(
     { batch, resolveOffset, heartbeat, commitOffsetsIfNecessary, isRunning, isStale }: EachBatchPayload,
     queue: KafkaQueue,
     eachMessage: (message: KafkaMessage, queue: KafkaQueue) => Promise<void>,
+    groupIntoBatches: (messages: KafkaMessage[], batchSize: number) => KafkaMessage[][],
     key: string
 ): Promise<void> {
     const batchStartTimer = new Date()
@@ -43,7 +43,7 @@ export async function eachBatch(
                 return
             }
 
-            await Promise.all(messageBatch.map((message) => eachMessage(message, queue)))
+            await Promise.all(messageBatch.map((message: KafkaMessage) => eachMessage(message, queue)))
 
             // this if should never be false, but who can trust computers these days
             if (messageBatch.length > 0) {
