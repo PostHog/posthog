@@ -689,8 +689,9 @@ class ClickhouseFunnelBase(ABC):
                 prop_aliases.append(prop_alias)
 
             # TODO: look at options for first-touch/last-touch/step_num
-            final_select = f"coalesce({','.join(prop_aliases)}) as prop"
-            return ",".join([basic_prop_selector, *select_columns, final_select])
+            # final_select = f"coalesce({','.join(prop_aliases)}) as prop"
+            # return ",".join([basic_prop_selector, *select_columns, final_select])
+            return basic_prop_selector
 
         return basic_prop_selector
 
