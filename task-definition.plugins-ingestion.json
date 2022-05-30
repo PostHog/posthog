@@ -29,10 +29,6 @@
                     "value": "True"
                 },
                 {
-                    "name": "KAFKA_ENABLED",
-                    "value": "True"
-                },
-                {
                     "name": "SITE_URL",
                     "value": "https://app.posthog.com"
                 },

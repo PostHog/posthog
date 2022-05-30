@@ -5,10 +5,9 @@
     "types": "dist/index.d.ts",
     "main": "dist/index.js",
     "scripts": {
-        "test": "jest --runInBand --forceExit tests/**/*.test.ts",
-        "test:postgres": "jest --runInBand --forceExit tests/postgres/",
-        "test:clickhouse:1": "jest --runInBand --forceExit tests/ --testPathIgnorePatterns tests/shared/ --testPathIgnorePatterns tests/postgres/",
-        "test:clickhouse:2": "jest --runInBand --forceExit tests/shared/",
+        "test": "jest --runInBand --forceExit tests/",
+        "test:1": "jest --runInBand --forceExit tests/ --testPathIgnorePatterns tests/worker/",
+        "test:2": "jest --runInBand --forceExit tests/worker/",
         "benchmark": "yarn run benchmarks:clickhouse && yarn run benchmark:postgres && yarn run benchmarks:vm",
         "benchmark:clickhouse": "node --expose-gc node_modules/.bin/jest --runInBand benchmarks/clickhouse/",
         "benchmark:postgres": "node --expose-gc node_modules/.bin/jest --runInBand benchmarks/postgres/",

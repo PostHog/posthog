@@ -45,8 +45,6 @@ describe('ingestion benchmarks', () => {
             }
         `)
         ;[hub, closeHub] = await createHub({
-            PLUGINS_CELERY_QUEUE: 'benchmark-plugins-celery-queue',
-            CELERY_DEFAULT_QUEUE: 'benchmark-celery-default-queue',
             LOG_LEVEL: LogLevel.Log,
         })
         eventsProcessor = new EventsProcessor(hub)

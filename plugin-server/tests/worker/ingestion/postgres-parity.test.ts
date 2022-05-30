@@ -1,6 +1,6 @@
 import { DateTime } from 'luxon'
 
-import { startPluginsServer } from '../../src/main/pluginsServer'
+import { startPluginsServer } from '../../../src/main/pluginsServer'
 import {
     Database,
     Hub,
@@ -9,14 +9,14 @@ import {
     PropertyUpdateOperation,
     Team,
     TimestampFormat,
-} from '../../src/types'
-import { castTimestampOrNow, UUIDT } from '../../src/utils/utils'
-import { makePiscina } from '../../src/worker/piscina'
-import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../helpers/clickhouse'
-import { resetKafka } from '../helpers/kafka'
-import { getFirstTeam, resetTestDatabase } from '../helpers/sql'
+} from '../../../src/types'
+import { castTimestampOrNow, UUIDT } from '../../../src/utils/utils'
+import { makePiscina } from '../../../src/worker/piscina'
+import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../../helpers/clickhouse'
+import { resetKafka } from '../../helpers/kafka'
+import { getFirstTeam, resetTestDatabase } from '../../helpers/sql'
 
-jest.mock('../../src/utils/status')
+jest.mock('../../../src/utils/status')
 jest.setTimeout(60000) // 60 sec timeout
 
 const extraServerConfig: Partial<PluginsServerConfig> = {
