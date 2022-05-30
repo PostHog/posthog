@@ -4,10 +4,10 @@ import { DateTime } from 'luxon'
 import * as fetch from 'node-fetch'
 import { join } from 'path'
 
-import { ServerInstance, startPluginsServer } from '../src/main/pluginsServer'
-import { fetchIpLocationInternally } from '../src/worker/mmdb'
-import { makePiscina } from '../src/worker/piscina'
-import { resetTestDatabase } from './helpers/sql'
+import { ServerInstance, startPluginsServer } from '../../src/main/pluginsServer'
+import { fetchIpLocationInternally } from '../../src/worker/mmdb'
+import { makePiscina } from '../../src/worker/piscina'
+import { resetTestDatabase } from '../helpers/sql'
 
 const mmdbBrotliContents = readFileSync(join(__dirname, 'assets', 'GeoLite2-City-Test.mmdb.br'))
 

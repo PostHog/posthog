@@ -1,8 +1,8 @@
-import { Hub } from '../src/types'
-import { createHub } from '../src/utils/db/hub'
-import { PluginsApiKeyManager } from '../src/worker/vm/extensions/helpers/api-key-manager'
-import { createUserTeamAndOrganization } from './helpers/sql'
-import { POSTGRES_TRUNCATE_TABLES_QUERY } from './helpers/sql'
+import { Hub } from '../../src/types'
+import { createHub } from '../../src/utils/db/hub'
+import { PluginsApiKeyManager } from '../../src/worker/vm/extensions/helpers/api-key-manager'
+import { createUserTeamAndOrganization } from '../helpers/sql'
+import { POSTGRES_TRUNCATE_TABLES_QUERY } from '../helpers/sql'
 
 describe('PluginsApiKeyManager', () => {
     let hub: Hub

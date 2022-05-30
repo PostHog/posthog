@@ -1,4 +1,4 @@
-import { chainToElements, elementsToString } from '../../src/utils/db/utils'
+import { chainToElements, elementsToString } from '../../../src/utils/db/utils'
 
 test('elementsToString and chainToElements', () => {
     const elementsString = elementsToString([

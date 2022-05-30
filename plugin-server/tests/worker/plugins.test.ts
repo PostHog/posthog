@@ -1,12 +1,12 @@
 import { PluginEvent } from '@posthog/plugin-scaffold/src/types'
 
-import { Hub, LogLevel } from '../src/types'
-import { processError } from '../src/utils/db/error'
-import { createHub } from '../src/utils/db/hub'
-import { delay, IllegalOperationError } from '../src/utils/utils'
-import { loadPlugin } from '../src/worker/plugins/loadPlugin'
-import { runProcessEvent } from '../src/worker/plugins/run'
-import { loadSchedule, setupPlugins } from '../src/worker/plugins/setup'
+import { Hub, LogLevel } from '../../src/types'
+import { processError } from '../../src/utils/db/error'
+import { createHub } from '../../src/utils/db/hub'
+import { delay, IllegalOperationError } from '../../src/utils/utils'
+import { loadPlugin } from '../../src/worker/plugins/loadPlugin'
+import { runProcessEvent } from '../../src/worker/plugins/run'
+import { loadSchedule, setupPlugins } from '../../src/worker/plugins/setup'
 import {
     commonOrganizationId,
     mockPluginSourceCode,
@@ -15,9 +15,9 @@ import {
     plugin60,
     pluginAttachment1,
     pluginConfig39,
-} from './helpers/plugins'
-import { resetTestDatabase } from './helpers/sql'
-import { getPluginAttachmentRows, getPluginConfigRows, getPluginRows, setPluginCapabilities } from './helpers/sqlMock'
+} from '../helpers/plugins'
+import { resetTestDatabase } from '../helpers/sql'
+import { getPluginAttachmentRows, getPluginConfigRows, getPluginRows, setPluginCapabilities } from '../helpers/sqlMock'
 
 jest.mock('../src/utils/db/sql')
 jest.mock('../src/utils/status')
