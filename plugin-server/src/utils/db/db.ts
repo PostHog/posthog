@@ -72,7 +72,6 @@ import {
 } from '../utils'
 import { OrganizationPluginsAccessLevel } from './../../types'
 import { KafkaProducerWrapper } from './kafka-producer-wrapper'
-import { PostgresLogsWrapper } from './postgres-logs-wrapper'
 import {
     chainToElements,
     generateKafkaPersonUpdateMessage,
@@ -162,9 +161,6 @@ export class DB {
     /** StatsD instance used to do instrumentation */
     statsd: StatsD | undefined
 
-    /** A buffer for Postgres logs to prevent too many log insert ueries */
-    postgresLogsWrapper: PostgresLogsWrapper
-
     /** How many unique group types to allow per team */
     MAX_GROUP_TYPES_PER_TEAM = 5
 
@@ -194,7 +190,6 @@ export class DB {
         this.kafkaProducer = kafkaProducer
         this.clickhouse = clickhouse
         this.statsd = statsd
-        this.postgresLogsWrapper = new PostgresLogsWrapper(this)
         this.KAFKA_ENABLED = kafkaEnabled
         this.PERSONS_AND_GROUPS_CACHE_TTL = personAndGroupsCacheTtl
         this.personAndGroupsCachingEnabledTeams = personAndGroupsCachingEnabledTeams
@@ -1358,15 +1353,11 @@ export class DB {
         return hash
     }
 
-    // PluginLogEntry
+    // PluginLogEntry (NOTE: not a Django model anymore, stored in ClickHouse table `plugin_log_entries`)
 
     public async fetchPluginLogEntries(): Promise<PluginLogEntry[]> {
-        if (this.KAFKA_ENABLED) {
-            return (await this.clickhouseQuery(`SELECT * FROM plugin_log_entries`)).data as PluginLogEntry[]
-        } else {
-            return (await this.postgresQuery('SELECT * FROM posthog_pluginlogentry', undefined, 'fetchAllPluginLogs'))
-                .rows as PluginLogEntry[]
-        }
+        const queryResult = await this.clickhouseQuery(`SELECT * FROM plugin_log_entries`)
+        return queryResult.data as PluginLogEntry[]
     }
 
     public async queuePluginLogEntry(entry: LogEntryPayload): Promise<void> {
@@ -1396,45 +1387,8 @@ export class DB {
             plugin_id: pluginConfig.plugin_id.toString(),
         })
 
-        if (this.KAFKA_ENABLED) {
-            try {
-                await this.kafkaProducer.queueMessage({
-                    topic: KAFKA_PLUGIN_LOG_ENTRIES,
-                    messages: [{ key: parsedEntry.id, value: Buffer.from(JSON.stringify(parsedEntry)) }],
-                })
-            } catch (e) {
-                captureException(e)
-                console.error(parsedEntry)
-                console.error(e)
-            }
-        } else {
-            await this.postgresLogsWrapper.addLog(parsedEntry)
-        }
-    }
-
-    public async batchInsertPostgresLogs(entries: ParsedLogEntry[]): Promise<void> {
-        const LOG_ENTRY_COLUMN_COUNT = 9
-
-        const rowStrings: string[] = []
-        const values: any[] = []
-
-        for (let rowIndex = 0; rowIndex < entries.length; ++rowIndex) {
-            const { id, team_id, plugin_id, plugin_config_id, timestamp, source, type, message, instance_id } =
-                entries[rowIndex]
-
-            rowStrings.push(generatePostgresValuesString(LOG_ENTRY_COLUMN_COUNT, rowIndex))
-
-            values.push(id, team_id, plugin_id, plugin_config_id, timestamp, source, type, message, instance_id)
-        }
         try {
-            await this.postgresQuery(
-                `INSERT INTO posthog_pluginlogentry
-                (id, team_id, plugin_id, plugin_config_id, timestamp, source, type, message, instance_id)
-                VALUES
-                ${rowStrings.join(', ')}`,
-                values,
-                'insertPluginLogEntries'
-            )
+            await this.kafkaProducer.queueSingleJsonMessage(KAFKA_PLUGIN_LOG_ENTRIES, parsedEntry.id, parsedEntry)
         } catch (e) {
             captureException(e)
             console.error(e)

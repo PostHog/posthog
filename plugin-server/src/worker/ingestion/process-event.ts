@@ -691,15 +691,7 @@ export class EventsProcessor {
             partitionKeyHash.update(`${bufferEvent.teamId}:${bufferEvent.distinctId}`)
             const partitionKey = partitionKeyHash.digest('hex')
 
-            await this.kafkaProducer.queueMessage({
-                topic: KAFKA_BUFFER,
-                messages: [
-                    {
-                        key: partitionKey,
-                        value: Buffer.from(JSON.stringify(bufferEvent)),
-                    },
-                ],
-            })
+            await this.kafkaProducer.queueSingleJsonMessage(KAFKA_BUFFER, partitionKey, bufferEvent)
         }
     }
 
@@ -734,10 +726,7 @@ export class EventsProcessor {
         }
 
         if (this.pluginsServer.KAFKA_ENABLED) {
-            await this.kafkaProducer.queueMessage({
-                topic: KAFKA_SESSION_RECORDING_EVENTS,
-                messages: [{ key: uuid, value: Buffer.from(JSON.stringify(data)) }],
-            })
+            await this.kafkaProducer.queueSingleJsonMessage(KAFKA_SESSION_RECORDING_EVENTS, uuid, data)
         } else {
             await this.db.postgresQuery(
                 'INSERT INTO posthog_sessionrecordingevent (created_at, team_id, distinct_id, session_id, window_id, timestamp, snapshot_data) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *',
