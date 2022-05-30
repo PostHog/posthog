@@ -49,8 +49,8 @@ class TestCaptureAPI(APIBaseTest):
         self.assertEqual(kafka_produce_call1["data"]["event"], "event1")
         self.assertEqual(kafka_produce_call2["data"]["event"], "event2")
 
-        self.assertEqual(kafka_produce_call1["data"]["properties"]["distinct_id"], "id1")
-        self.assertEqual(kafka_produce_call2["data"]["properties"]["distinct_id"], "id2")
+        self.assertEqual(json.loads(kafka_produce_call1["data"]["properties"])["distinct_id"], "id1")
+        self.assertEqual(json.loads(kafka_produce_call2["data"]["properties"])["distinct_id"], "id2")
 
         # Make sure we're producing data correctly in the way the plugin server expects
         self.assertEquals(type(kafka_produce_call1["data"]["distinct_id"]), str)
@@ -68,8 +68,8 @@ class TestCaptureAPI(APIBaseTest):
         self.assertEquals(type(kafka_produce_call1["data"]["sent_at"]), str)
         self.assertEquals(type(kafka_produce_call2["data"]["sent_at"]), str)
 
-        self.assertEquals(type(kafka_produce_call1["data"]["properties"]), dict)
-        self.assertEquals(type(kafka_produce_call1["data"]["properties"]), dict)
+        self.assertEquals(type(kafka_produce_call1["data"]["properties"]), str)
+        self.assertEquals(type(kafka_produce_call1["data"]["properties"]), str)
 
         self.assertEquals(type(kafka_produce_call1["data"]["uuid"]), str)
         self.assertEquals(type(kafka_produce_call2["data"]["uuid"]), str)
