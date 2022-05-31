@@ -127,9 +127,7 @@ class EmailMessage:
         reply_to: Optional[str] = None,
     ):
         if not is_email_available():
-            raise exceptions.ImproperlyConfigured(
-                "Email is not enabled in this instance.",
-            )
+            raise exceptions.ImproperlyConfigured("Email is not enabled in this instance.",)
 
         self.campaign_key = campaign_key
         self.subject = subject
