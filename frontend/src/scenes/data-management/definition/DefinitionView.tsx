@@ -16,6 +16,7 @@ import {
     DefinitionPageMode,
 } from 'scenes/data-management/definition/definitionLogic'
 import { LemonButton } from 'lib/components/LemonButton'
+import { DefinitionEdit } from 'scenes/data-management/definition/DefinitionEdit'
 import { formatTimeFromNow } from 'lib/components/DefinitionPopup/utils'
 import { humanFriendlyNumber, Loading } from 'lib/utils'
 import { ThirtyDayQueryCountTitle, ThirtyDayVolumeTitle } from 'lib/components/DefinitionPopup/DefinitionPopupContents'
@@ -42,7 +43,7 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
             {definitionLoading ? (
                 <Loading />
             ) : mode === DefinitionPageMode.Edit ? (
-                <div>TODO Definition Edit</div>
+                <DefinitionEdit {...props} />
             ) : (
                 <>
                     <PageHeader

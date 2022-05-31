@@ -84,7 +84,7 @@ export const definitionLogic = kea<definitionLogicType>([
     })),
     selectors({
         isEvent: [() => [router.selectors.location], ({ pathname }) => pathname.startsWith(urls.eventDefinitions())],
-        singular: [(s) => [s.isEvent], (isEvent) => (isEvent ? 'event' : 'event property')],
+        singular: [(s) => [s.isEvent], (isEvent): string => (isEvent ? 'event' : 'event property')],
         backDetailUrl: [
             (s) => [s.isEvent, s.definition],
             (isEvent, definition) =>
