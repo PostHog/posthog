@@ -1,5 +1,5 @@
 import inspect
-from typing import Any, Counter, Dict, Literal, Optional, Tuple, Union
+from typing import Any, Counter, Dict, Literal, Optional, Union
 
 from django.conf import settings
 from rest_framework.exceptions import ValidationError
@@ -10,7 +10,7 @@ from posthog.models.filters.mixins.funnel import FunnelFromToStepsMixin
 from posthog.models.filters.mixins.property import PropertyMixin
 from posthog.models.filters.utils import validate_group_type_index
 from posthog.models.property import GroupTypeIndex
-from posthog.models.utils import PersonPropertiesMode, sane_repr
+from posthog.models.utils import sane_repr
 
 MATH_TYPE = Literal[
     "total",
@@ -154,33 +154,3 @@ class ExclusionEntity(Entity, FunnelFromToStepsMixin):
                 ret.update(func())
 
         return ret
-
-
-def get_entity_filtering_params(
-    entity: Entity,
-    team_id: int,
-    table_name: str = "",
-    *,
-    person_properties_mode: PersonPropertiesMode = PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
-    person_id_joined_alias: str = "person_id",
-) -> Tuple[Dict, Dict]:
-    from posthog.models.action.util import format_action_filter
-
-    params: Dict[str, Any] = {}
-    content_sql_params: Dict[str, str]
-    if entity.type == TREND_FILTER_TYPE_ACTIONS:
-        action = entity.get_action()
-        action_query, action_params = format_action_filter(
-            team_id=team_id,
-            action=action,
-            table_name=table_name,
-            person_properties_mode=person_properties_mode,
-            person_id_joined_alias=person_id_joined_alias,
-        )
-        params.update(action_params)
-        content_sql_params = {"entity_query": f"AND {action_query}"}
-    else:
-        params["event"] = entity.id
-        content_sql_params = {"entity_query": f"AND event = %(event)s"}
-
-    return params, content_sql_params

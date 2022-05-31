@@ -12,7 +12,8 @@ from ee.clickhouse.sql.trends.top_elements import TOP_ELEMENTS_ARRAY_OF_KEY_SQL
 from posthog.client import sync_execute
 from posthog.constants import BREAKDOWN_TYPES, PropertyOperatorType
 from posthog.models.cohort import Cohort
-from posthog.models.entity import Entity, get_entity_filtering_params
+from posthog.models.entity import Entity
+from posthog.models.entity.util import get_entity_filtering_params
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.utils import GroupTypeIndex
 from posthog.models.property import PropertyGroup
