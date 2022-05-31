@@ -7,7 +7,7 @@ from ee.clickhouse.models.person import create_person, create_person_distinct_id
 from ee.clickhouse.util import ClickhouseDestroyTablesMixin, ClickhouseTestMixin
 from posthog.client import sync_execute
 from posthog.models import Team
-from posthog.models.team import delete_teams_data
+from posthog.models.team.util import delete_teams_data
 from posthog.test.base import BaseTest
 
 
