@@ -32,15 +32,16 @@ export async function eachBatchIngestion(payload: EachBatchPayload, queue: Kafka
         for (let i = 0; i < array.length; i += 1) {
             const message = array[i]
             const pluginEvent = getPluginEvent(message)
-            const enabled = queue.pluginsServer.ingestionBatchBreakupByDistinctIdTeams.has(pluginEvent.team_id)
+            const enabledBreakupById = queue.pluginsServer.ingestionBatchBreakupByDistinctIdTeams.has(
+                pluginEvent.team_id
+            )
             const seenKey = `${pluginEvent.team_id}:${pluginEvent.distinct_id}`
-            if (currentBatch.length == batchSize || (enabled && seenIds.has(seenKey))) {
-                console.log(seenKey)
+            if (currentBatch.length == batchSize || (enabledBreakupById && seenIds.has(seenKey))) {
                 seenIds.clear()
                 batches.push(currentBatch)
                 currentBatch = []
             }
-            if (enabled) {
+            if (enabledBreakupById) {
                 seenIds.add(seenKey)
             }
             currentBatch.push(message)
@@ -48,7 +49,6 @@ export async function eachBatchIngestion(payload: EachBatchPayload, queue: Kafka
         if (currentBatch) {
             batches.push(currentBatch)
         }
-        console.log(batches.map((batch) => batch.length))
         return batches
     }
     await eachBatch(payload, queue, eachMessageIngestion, groupIntoBatchesIngestion, 'ingestion')
