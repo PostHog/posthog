@@ -1,7 +1,6 @@
 import uuid
 
 import structlog
-
 from django.conf import settings
 from django.utils import timezone
 
