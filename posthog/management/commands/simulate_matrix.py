@@ -21,21 +21,21 @@ class Command(BaseCommand):
         parser.add_argument(
             "--start",
             type=lambda s: timezone.make_aware(timezone.datetime.strptime(s, "%Y-%m-%d")),
-            help="Simulation start date (default: 90 days ago)",
+            help="Simulation start date (default: 120 days ago)",
         )
         parser.add_argument(
             "--end",
             type=lambda s: timezone.make_aware(timezone.datetime.strptime(s, "%Y-%m-%d")),
             help="Simulation end date (default: today)",
         )
-        parser.add_argument("--n-clusters", type=int, default=20, help="Number of clusters")
+        parser.add_argument("--n-clusters", type=int, default=50, help="Number of clusters (default: 50)")
         parser.add_argument("--list-events", action="store_true", help="Print events individually")
 
     def handle(self, *args, **options):
         timer = time()
         matrix = HedgeboxMatrix(
             options["seed"],
-            start=options["start"] or timezone.now() - timezone.timedelta(90),
+            start=options["start"] or timezone.now() - timezone.timedelta(120),
             end=options["end"] or timezone.now(),
             n_clusters=options["n_clusters"],
         )
