@@ -6,7 +6,6 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS
 from posthog.models.action import Action
-from posthog.models.action.util import format_action_filter
 from posthog.models.filters.mixins.funnel import FunnelFromToStepsMixin
 from posthog.models.filters.mixins.property import PropertyMixin
 from posthog.models.filters.utils import validate_group_type_index
@@ -165,6 +164,8 @@ def get_entity_filtering_params(
     person_properties_mode: PersonPropertiesMode = PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
     person_id_joined_alias: str = "person_id",
 ) -> Tuple[Dict, Dict]:
+    from posthog.models.action.util import format_action_filter
+
     params: Dict[str, Any] = {}
     content_sql_params: Dict[str, str]
     if entity.type == TREND_FILTER_TYPE_ACTIONS:
