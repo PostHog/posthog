@@ -36,6 +36,10 @@ function cleanFilters(filter: Partial<Filters>): Filters {
 export const EVENT_DEFINITIONS_PER_PAGE = 50
 export const PROPERTY_DEFINITIONS_PER_EVENT = 5
 
+export function createDefinitionKey(event?: EventDefinition, property?: PropertyDefinition): string {
+    return `${event?.id ?? 'event'}-${property?.id ?? 'property'}`
+}
+
 export function normalizePropertyDefinitionEndpointUrl(
     url: string | null | undefined,
     searchParams: Record<string, any> = {},
@@ -48,10 +52,6 @@ export function normalizePropertyDefinitionEndpointUrl(
         ...(url ? combineUrl(url).searchParams : {}),
         ...searchParams,
     })
-}
-
-export function createDefinitionKey(event?: EventDefinition, property?: PropertyDefinition): string {
-    return `${event?.id ?? 'event'}-${property?.id ?? 'property'}`
 }
 
 function normalizeEventDefinitionEndpointUrl(
@@ -170,7 +170,6 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
             {} as Record<string, PropertyDefinitionsPaginatedResponse>,
             {
                 loadPropertiesForEvent: async ({ definition, url }, breakpoint) => {
-                    console.log('LOAD PROPS 1', definition)
                     if (url && url in (cache.apiCache ?? {})) {
                         return {
                             ...values.eventPropertiesCacheMap,
@@ -178,7 +177,6 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
                         }
                     }
 
-                    console.log('LOAD PROPS 2', definition)
                     if (!url) {
                         url = api.propertyDefinitions.determineListEndpoint({
                             event_names: [definition.name],
