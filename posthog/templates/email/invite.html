@@ -1,10 +1,12 @@
 {% extends "email/base_transactional.html" %} {% load posthog_assets %} {% block section %}
-
+<h1 class="invite-header">
+    <strong>{{ invite.created_by.first_name }}</strong> has invited you to join
+    <strong>{{ invite.organization.name }}</strong> on PostHog
+</h1>
 <p class="text-center">
     <strong>{{ invite.created_by.first_name }}</strong> ({{ invite.created_by.email }}) has invited you to join
     <strong>{{invite.organization.name }}</strong> on PostHog. PostHog is a product analytics tool that will help you
-    better understand your users.<br />
-    Build the best product <i>together</i>.
+    better understand your users. Build the best product <i>together</i>.
 </p>
 {% if invite.message %}
 <div class="invite-message">
@@ -26,9 +28,4 @@
 <div class="text-center">
     <img src="{% absolute_asset_url 'email/invite-email-welcome.png' %}" />
 </div>
-{% endblock %}{% load posthog_filters %} {% block heading %}
-<h1 class="invite-header">
-    <strong>{{ invite.created_by.first_name }}</strong> has invited you to join
-    <strong>{{ invite.organization.name }}</strong> on PostHog
-</h1>
-{% endblock %}
+{% endblock %}{% load posthog_filters %}
