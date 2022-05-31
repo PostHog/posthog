@@ -36,5 +36,5 @@ KAFKA_TOPIC_DEFINITIONS = [
     TopicDefinition(KAFKA_GROUPS, 128),
     TopicDefinition(KAFKA_EVENTS_PLUGIN_INGESTION, 128),
     TopicDefinition(KAFKA_BUFFER, 128),
-    TopicDefinition(KAFKA_HEALTHCHECK, 128),
+    TopicDefinition(KAFKA_HEALTHCHECK, 64),
 ]
