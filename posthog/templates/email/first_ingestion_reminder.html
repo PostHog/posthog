@@ -8,21 +8,32 @@
     <ul>
         <li class="mb">
             <strong>If you're an engineer:</strong> Integrate PostHog using
-            <a href="https://posthog.com/docs/integrate/client/js"><b>client libraries</b></a
-            >, <a href="https://posthog.com/docs/integrate/server/python"><strong>server libraries</strong></a
+            <a
+                href="https://posthog.com/docs/integrate/client/js?utm_source=posthog&utm_medium=email&utm_campaign=first_ingestion_reminder"
+                ><b>client libraries</b></a
+            >,
+            <a
+                href="https://posthog.com/docs/integrate/server/python?utm_source=posthog&utm_medium=email&utm_campaign=first_ingestion_reminder"
+                ><strong>server libraries</strong></a
             >, or a
-            <a href="https://posthog.com/docs/integrate/third-party/segment"><strong>third-party platform</strong></a
+            <a
+                href="https://posthog.com/docs/integrate/third-party/segment?utm_source=posthog&utm_medium=email&utm_campaign=first_ingestion_reminder"
+                ><strong>third-party platform</strong></a
             >. It’s easy. Our docs will show you how!
         </li>
         <li class="mb">
             <strong>If you're <i>not</i> an engineer:</strong>
-            <a href="{{invite_users_url}}" target="_blank"><strong>Invite a colleague with code access</strong></a> so
+            <a href="{{ invite_users_url }}" target="_blank"><strong>Invite a colleague with code access</strong></a> so
             they can set it up for you. PostHog works best with friends anyway.
         </li>
         <li class="mb">
             <strong>If you just want to play around:</strong>
-            <a target="_blank" href="https://demo.posthog.com/"><b>Try our demo environment</b></a> to get hands-on with
-            some sample data straight away. All the fun, none of the installation.
+            <a
+                target="_blank"
+                href="https://demo.posthog.com/?utm_source=posthog&utm_medium=email&utm_campaign=first_ingestion_reminder"
+                ><b>Try our demo environment</b></a
+            >
+            to get hands-on with some sample data straight away. All the fun, none of the installation.
         </li>
     </ul>
 
@@ -32,10 +43,20 @@
     </p>
 </div>
 <div class="text-center">
-    <a href="https://posthog.com" target="_blank"><button class="action-btn">Send some events!</button></a>
+    <a href="{{ ingest_events_url }}" target="_blank"><button class="action-btn">Send some events!</button></a>
 </div>
 <div class="mt text-center">
-    Need help? <a href="https://posthog.com/support" target="_blank"><b>Visit support</b></a> or
-    <a href="https://posthog.com/docs" target="_blank"><b>read our documentation</b></a>
+    Need help?
+    <a
+        href="https://posthog.com/support?utm_source=posthog&utm_medium=email&utm_campaign=first_ingestion_reminder"
+        target="_blank"
+        ><b>Visit support</b></a
+    >
+    or
+    <a
+        href="https://posthog.com/docs?utm_source=posthog&utm_medium=email&utm_campaign=first_ingestion_reminder"
+        target="_blank"
+        ><b>read our documentation</b></a
+    >
 </div>
 {% endblock %}

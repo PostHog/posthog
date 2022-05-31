@@ -137,7 +137,12 @@ def send_first_ingestion_reminder_emails() -> None:
                     template_name="first_ingestion_reminder",
                     template_context={
                         "first_name": user.first_name,
-                        "invite_users_url": absolute_uri("/organization/settings"),
+                        "invite_users_url": absolute_uri(
+                            "/organization/settings?utm_source=posthog&utm_medium=email&utm_campaign=first_ingestion_reminder"
+                        ),
+                        "ingest_events_url": absolute_uri(
+                            "ingestion/?utm_source=posthog&utm_medium=email&utm_campaign=first_ingestion_reminder"
+                        ),
                     },
                 )
 
@@ -163,6 +168,12 @@ def send_second_ingestion_reminder_emails() -> None:
                     subject="Your PostHog project is waiting for events",
                     reply_to="hey@posthog.com",
                     template_name="second_ingestion_reminder",
+                    template_context={
+                        "first_name": user.first_name,
+                        "ingest_events_url": absolute_uri(
+                            "ingestion/?utm_source=posthog&utm_medium=email&utm_campaign=second_ingestion_reminder"
+                        ),
+                    },
                 )
 
                 message.add_recipient(user.email)
