@@ -176,7 +176,9 @@
                               if(event = '$pageleave', 1, 0) as step_1,
                               if(step_1 = 1, timestamp, null) as latest_1,
                               array(replaceRegexpAll(JSONExtractRaw(properties, '$feature/a-b-test'), '^"|"$', '')) AS prop_basic,
-                              prop_basic as prop
+                              if(step_0 = 1, prop_basic, []) as prop_0,
+                              if(step_1 = 1, prop_basic, []) as prop_1,
+                              multiIf(notEmpty(prop_0), prop_0, notEmpty(prop_1), prop_1,[]) as prop
                        FROM
                          (SELECT e.event as event,
                                  e.team_id as team_id,
@@ -200,7 +202,8 @@
                             AND (has(['control', 'test_1', 'test_2', 'test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature/a-b-test'), '^"|"$', ''))) ) events
                        WHERE (step_0 = 1
                               OR step_1 = 1) )) ARRAY
-                 JOIN prop_vals as prop))
+                 JOIN prop_vals as prop
+                 WHERE prop != [] ))
            WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
      GROUP BY aggregation_target,
               steps,
