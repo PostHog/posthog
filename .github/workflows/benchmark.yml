@@ -96,7 +96,7 @@ jobs:
               run: asv machine --config ee/benchmarks/asv.conf.json --yes --machine ci-benchmarks
 
             - name: Run benchmarks
-              run: asv run --config ee/benchmarks/asv.conf.json --show-stderr --strict
+              run: asv run --config ee/benchmarks/asv.conf.json --show-stderr
 
             - name: Compare results
               run: |
