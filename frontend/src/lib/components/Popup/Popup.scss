@@ -1,9 +1,7 @@
-@import '~/vars';
-
 .Popup {
     perspective: 80rem;
     perspective-origin: top;
-    z-index: $z_popup;
+    z-index: var(--z-popup);
     h5 {
         margin: 0.25rem 0.5rem;
     }

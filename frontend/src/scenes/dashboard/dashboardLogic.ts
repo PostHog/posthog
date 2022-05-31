@@ -5,7 +5,7 @@ import { router } from 'kea-router'
 import { dayjs, now } from 'lib/dayjs'
 import { clearDOMTextSelection, isUserLoggedIn, toParams } from 'lib/utils'
 import { insightsModel } from '~/models/insightsModel'
-import { DashboardPrivilegeLevel, FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
+import { DashboardPrivilegeLevel, OrganizationMembershipLevel } from 'lib/constants'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import {
     AnyPropertyFilter,
@@ -25,7 +25,6 @@ import { Layout, Layouts } from 'react-grid-layout'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { teamLogic } from '../teamLogic'
 import { urls } from 'scenes/urls'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { userLogic } from 'scenes/userLogic'
 import { mergeWithDashboardTile } from 'scenes/insights/utils/dashboardTiles'
 
@@ -50,7 +49,7 @@ export const AUTO_REFRESH_INITIAL_INTERVAL_SECONDS = 300
 export const dashboardLogic = kea<dashboardLogicType>({
     path: ['scenes', 'dashboard', 'dashboardLogic'],
     connect: () => ({
-        values: [teamLogic, ['currentTeamId'], featureFlagLogic, ['featureFlags']],
+        values: [teamLogic, ['currentTeamId']],
         logic: [dashboardsModel, insightsModel, eventUsageLogic],
     }),
 
@@ -337,7 +336,7 @@ export const dashboardLogic = kea<dashboardLogicType>({
         ],
     }),
     selectors: () => ({
-        placement: [() => [(_, props) => props.placement], (placement) => placement],
+        placement: [() => [(_, props) => props.placement], (placement) => placement ?? DashboardPlacement.Dashboard],
         items: [(s) => [s.allItems], (allItems) => allItems?.items?.filter((i) => !i.deleted)],
         itemsLoading: [
             (s) => [s.allItemsLoading, s.refreshStatus],
@@ -577,7 +576,7 @@ export const dashboardLogic = kea<dashboardLogicType>({
                     values.items?.map((item) => {
                         const layouts: Record<string, Layout> = {}
                         Object.entries(item.layouts).forEach(([layoutKey, layout]) => {
-                            const { i, ...rest } = layout // eslint-disable-line
+                            const { i, ...rest } = layout
                             layouts[layoutKey] = rest
                         })
                         return { id: item.id, layouts }
@@ -721,11 +720,7 @@ export const dashboardLogic = kea<dashboardLogicType>({
         },
         loadDashboardItemsSuccess: () => {
             // Initial load of actual data for dashboard items after general dashboard is fetched
-            if (
-                values.lastRefreshed &&
-                values.lastRefreshed.isBefore(now().subtract(3, 'hours')) &&
-                values.featureFlags[FEATURE_FLAGS.AUTO_REFRESH_DASHBOARDS]
-            ) {
+            if (values.lastRefreshed && values.lastRefreshed.isBefore(now().subtract(3, 'hours'))) {
                 actions.refreshAllDashboardItems()
             } else {
                 const notYetLoadedItems = values.allItems?.items?.filter((i) => !i.result)

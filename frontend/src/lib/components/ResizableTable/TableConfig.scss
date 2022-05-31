@@ -1,8 +1,6 @@
-@import '~/vars';
-
 .column-configurator-modal {
     .text-blue {
-        color: $primary;
+        color: var(--primary);
     }
 
     .column-display-item {
@@ -10,23 +8,23 @@
         display: flex;
         align-items: center;
         justify-content: flex-start;
-        padding: $default_spacing / 2;
+        padding: 0.5rem;
         overflow: hidden;
-        border-radius: $radius;
-        margin: $radius/2 0;
+        border-radius: var(--radius);
+        margin: calc(var(--radius) / 2) 0;
 
         &:hover {
-            background-color: $bg_mid;
+            background-color: var(--bg-mid);
         }
 
         &.disabled {
             cursor: not-allowed;
-            color: $text_muted;
-            background-color: $bg_mid;
+            color: var(--text-muted);
+            background-color: var(--bg-mid);
         }
 
         &.selected {
-            background-color: $primary_hover;
+            background-color: var(--primary-hover);
         }
 
         .property-key-info {

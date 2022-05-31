@@ -13,7 +13,7 @@ def get_team_distinct_ids_query(team_id: int) -> str:
 
     global using_new_table
 
-    using_new_table = using_new_table or _fetch_person_distinct_id2_ready()
+    using_new_table = using_new_table or fetch_person_distinct_id2_ready()
 
     if using_new_table:
         return substitute_params(GET_TEAM_PERSON_DISTINCT_IDS_NEW_TABLE, {"team_id": team_id})
@@ -25,7 +25,7 @@ is_ready = False
 
 # :TRICKY: Avoid overly eagerly checking whether the migration is complete.
 # We instead cache negative responses for a minute and a positive one forever.
-def _fetch_person_distinct_id2_ready() -> bool:
+def fetch_person_distinct_id2_ready() -> bool:
     global is_ready
 
     if is_ready:

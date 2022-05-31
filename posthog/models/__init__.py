@@ -12,6 +12,7 @@ from .event import Event
 from .event_definition import EventDefinition
 from .event_property import EventProperty
 from .experiment import Experiment
+from .exported_asset import ExportedAsset
 from .feature_flag import FeatureFlag
 from .filters import Filter, RetentionFilter
 from .group import Group
@@ -51,6 +52,7 @@ __all__ = [
     "EventDefinition",
     "EventProperty",
     "Experiment",
+    "ExportedAsset",
     "FeatureFlag",
     "Filter",
     "Group",

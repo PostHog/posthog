@@ -52,6 +52,7 @@ export enum Scene {
     PasswordResetComplete = 'PasswordResetComplete',
     PreflightCheck = 'PreflightCheck',
     Ingestion = 'IngestionWizard',
+    OrganizationCreationConfirm = 'OrganizationCreationConfirm',
 }
 
 export type SceneProps = Record<string, any>

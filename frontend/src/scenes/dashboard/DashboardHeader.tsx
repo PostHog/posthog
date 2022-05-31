@@ -16,12 +16,14 @@ import { dashboardLogic } from './dashboardLogic'
 import { dashboardsLogic } from './dashboardsLogic'
 import { DASHBOARD_RESTRICTION_OPTIONS, ShareModal } from './ShareModal'
 import { userLogic } from 'scenes/userLogic'
-import { privilegeLevelToName } from 'lib/constants'
+import { FEATURE_FLAGS, privilegeLevelToName } from 'lib/constants'
 import { ProfileBubbles } from 'lib/components/ProfilePicture/ProfileBubbles'
 import { dashboardCollaboratorsLogic } from './dashboardCollaboratorsLogic'
 import { IconLock } from 'lib/components/icons'
 import { urls } from 'scenes/urls'
 import { Link } from 'lib/components/Link'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 
 export function DashboardHeader(): JSX.Element | null {
     const { dashboard, allItemsLoading, dashboardMode, canEditDashboard } = useValues(dashboardLogic)
@@ -33,6 +35,9 @@ export function DashboardHeader(): JSX.Element | null {
     const { hasAvailableFeature } = useValues(userLogic)
 
     const [isShareModalVisible, setIsShareModalVisible] = useState(false)
+
+    const { featureFlags } = useValues(featureFlagLogic)
+    const usingExportFeature = featureFlags[FEATURE_FLAGS.EXPORT_DASHBOARD_INSIGHTS]
 
     return dashboard || allItemsLoading ? (
         <>
@@ -157,6 +162,9 @@ export function DashboardHeader(): JSX.Element | null {
                                                         Pin dashboard
                                                     </LemonButton>
                                                 ))}
+                                            {usingExportFeature && (
+                                                <ExportButton dashboardId={dashboard.id} fullWidth type="stealth" />
+                                            )}
                                             <LemonDivider />
                                             <LemonButton
                                                 onClick={() =>

@@ -29,7 +29,10 @@ export function writeSourceCodeEditorTypes() {
         'react/global.d.ts': readFile('../node_modules/@types/react/global.d.ts'),
         'kea/index.d.ts': readFile('../node_modules/kea/lib/index.d.ts'),
     }
-    fse.writeFileSync(path.resolve(__dirname, './src/scenes/plugins/source/types/packages.json'), JSON.stringify(types))
+    fse.writeFileSync(
+        path.resolve(__dirname, './src/scenes/plugins/source/types/packages.json'),
+        JSON.stringify(types, null, 4) + '\n'
+    )
 }
 
 export function writeIndexHtml(chunks = {}, entrypoints = []) {
@@ -39,6 +42,10 @@ export function writeIndexHtml(chunks = {}, entrypoints = []) {
 
 export function writeSharedDashboardHtml(chunks = {}, entrypoints = []) {
     copyIndexHtml('src/shared_dashboard.html', 'dist/shared_dashboard.html', 'shared_dashboard', chunks, entrypoints)
+}
+
+export function writeExporterHtml(chunks = {}, entrypoints = []) {
+    copyIndexHtml('src/exporter.html', 'dist/exporter.html', 'exporter', chunks, entrypoints)
 }
 
 startDevServer()
@@ -64,6 +71,13 @@ buildInParallel(
             bundle: true,
             format: 'iife',
             outfile: path.resolve(__dirname, 'dist', 'shared_dashboard.js'),
+        },
+        {
+            name: 'Exporter',
+            entryPoints: ['src/exporter/ExportViewer.tsx'],
+            bundle: true,
+            format: 'iife',
+            outfile: path.resolve(__dirname, 'dist', 'exporter.js'),
         },
         {
             name: 'Toolbar',
@@ -95,6 +109,10 @@ buildInParallel(
 
             if (config.name === 'Shared Dashboard') {
                 writeSharedDashboardHtml(chunks, entrypoints)
+            }
+
+            if (config.name === 'Exporter') {
+                writeExporterHtml(chunks, entrypoints)
             }
 
             createHashlessEntrypoints(entrypoints)

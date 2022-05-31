@@ -1,9 +1,8 @@
 #!/bin/bash
 set -e
 
-
 export DEBUG=1
-export NO_RESTART_LOOP=1 
+export NO_RESTART_LOOP=1
 export CYPRESS_BASE_URL=http://localhost:8080
 export OPT_OUT_CAPTURE=1
 export SECURE_COOKIES=0
@@ -15,7 +14,7 @@ export CLICKHOUSE_SECURE=0
 export E2E_TESTING=1
 export SECRET_KEY=e2e_test
 export EMAIL_HOST=email.test.posthog.net
-export SITE_URL=test.posthog.net 
+export SITE_URL=http://localhost:8080
 export REDIS_URL=redis://localhost/
 DATABASE="posthog_e2e_test"
 export PGHOST="${PGHOST:=localhost}"

@@ -92,7 +92,12 @@ export function TaxonomicPropertyFilter({
     })
 
     return (
-        <div className={clsx('taxonomic-property-filter', { 'in-dropdown': !disablePopover })} ref={wrapperRef}>
+        <div
+            className={clsx('taxonomic-property-filter', {
+                'in-dropdown': !showInitialSearchInline && !disablePopover,
+            })}
+            ref={wrapperRef}
+        >
             {showInitialSearchInline ? (
                 taxonomicFilter
             ) : (

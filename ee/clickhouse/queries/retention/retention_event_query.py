@@ -141,6 +141,7 @@ class RetentionEventsQuery(EnterpriseEventQuery):
             person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS
             if self._using_person_on_events
             else PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
+            person_id_joined_alias=f"{self.EVENT_TABLE_ALIAS if self._using_person_on_events else self.DISTINCT_ID_TABLE_ALIAS}.person_id",
         )
 
         self.params.update(prop_params)
@@ -207,6 +208,7 @@ class RetentionEventsQuery(EnterpriseEventQuery):
                 person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS
                 if self._using_person_on_events
                 else PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
+                person_id_joined_alias=f"{self.DISTINCT_ID_TABLE_ALIAS if not self._using_person_on_events else self.EVENT_TABLE_ALIAS}.person_id",
             )
             condition = action_query
         elif entity.type == TREND_FILTER_TYPE_EVENTS:
@@ -234,10 +236,10 @@ class RetentionEventsQuery(EnterpriseEventQuery):
             end_date = end_date.replace(hour=0, minute=0, second=0, microsecond=0)
         params = {
             f"{self._event_query_type}_start_date": format_ch_timestamp(
-                start_date, convert_to_timezone=self._team.timezone_for_charts
+                start_date, convert_to_timezone=self._team.timezone
             ),
             f"{self._event_query_type}_end_date": format_ch_timestamp(
-                end_date, convert_to_timezone=self._team.timezone_for_charts
+                end_date, convert_to_timezone=self._team.timezone
             ),
         }
         return query, params

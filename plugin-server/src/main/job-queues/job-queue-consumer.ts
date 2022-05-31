@@ -28,7 +28,7 @@ export async function startJobQueueConsumer(server: Hub, piscina: Piscina): Prom
                 await server.jobQueueManager.startConsumer(onJob)
             } catch (error) {
                 try {
-                    logOrThrowJobQueueError(server, error, `Can not start job queue consumer!`)
+                    logOrThrowJobQueueError(server, error, `Cannot start job queue consumer!`)
                 } catch {
                     killProcess()
                 }

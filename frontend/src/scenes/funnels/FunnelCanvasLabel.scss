@@ -1,14 +1,12 @@
-@import '~/vars';
-
 .insights-graph-header.funnels {
-    border-bottom: 1px solid $border;
+    border-bottom: 1px solid var(--border);
 
     .funnel-canvas-label {
         .ant-btn-link {
             padding: 0;
             &:disabled {
                 cursor: default;
-                color: $text_default;
+                color: var(--text-default);
             }
         }
 

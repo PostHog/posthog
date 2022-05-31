@@ -36,7 +36,7 @@ describe('the column configurator lets the user change which columns should be v
         })
     })
 
-    it('can not duplicate columns', async () => {
+    it('cannot duplicate columns', async () => {
         await expectLogic(logic, () => {
             logic.actions.selectColumn('added')
             logic.actions.selectColumn('added')

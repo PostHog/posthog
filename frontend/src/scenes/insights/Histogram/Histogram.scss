@@ -1,4 +1,4 @@
-@import '~/vars';
+@import '../../../styles/breakpoints';
 
 .dashboard-wrapper {
     width: 95%;
@@ -14,12 +14,12 @@
         margin: auto;
 
         g#bars {
-            fill: $funnel_alt;
+            fill: var(--funnel-alt);
         }
 
         g#y-gridlines {
             g.tick:not(:first-child) {
-                color: $funnel_axis;
+                color: var(--funnel-axis);
             }
 
             .domain,
@@ -30,13 +30,13 @@
 
         g#y-axis {
             .domain {
-                stroke: $funnel_axis;
+                stroke: var(--funnel-axis);
             }
         }
 
         g#x-axis {
             .domain {
-                stroke: $funnel_axis_zero;
+                stroke: var(--funnel-axis-zero);
             }
         }
 
@@ -44,7 +44,7 @@
         g#y-axis {
             text {
                 font-size: 13px;
-                fill: $funnel_axis_zero;
+                fill: var(--funnel-axis-zero);
 
                 @media (max-width: $md) {
                     font-size: 11px;
@@ -56,9 +56,9 @@
             text.bar-label {
                 font-size: 14px;
                 font-weight: bold;
-                fill: $text_light;
+                fill: var(--text-light);
                 &.outside {
-                    fill: $funnel_alt;
+                    fill: var(--funnel-alt);
                 }
             }
         }

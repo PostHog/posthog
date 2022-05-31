@@ -25,6 +25,7 @@ from posthog.client import sync_execute
 from posthog.models.person import Person, PersonDistinctId
 from posthog.models.team import Team
 from posthog.models.utils import UUIDT
+from posthog.queries.person_distinct_id_query import fetch_person_distinct_id2_ready
 from posthog.settings import TEST
 
 if TEST:
@@ -122,7 +123,8 @@ def create_person(
 def create_person_distinct_id(team_id: int, distinct_id: str, person_id: str, version=0, sign=1) -> None:
     data = {"distinct_id": distinct_id, "person_id": person_id, "team_id": team_id, "_sign": sign}
     p = ClickhouseProducer()
-    p.produce(topic=KAFKA_PERSON_UNIQUE_ID, sql=INSERT_PERSON_DISTINCT_ID, data=data)
+    if not fetch_person_distinct_id2_ready():
+        p.produce(topic=KAFKA_PERSON_UNIQUE_ID, sql=INSERT_PERSON_DISTINCT_ID, data=data)
     if sign == 1:
         p.produce(
             topic=KAFKA_PERSON_DISTINCT_ID,

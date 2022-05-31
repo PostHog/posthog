@@ -148,14 +148,14 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
     forms(({ actions, values }) => ({
         cohort: {
             defaults: NEW_COHORT,
-            errors: ({ name, csv, is_static, groups, filters }) => ({
+            errors: ({ id, name, csv, is_static, groups, filters }) => ({
                 name: !name ? 'Cohort name cannot be empty' : undefined,
-                csv: is_static && !csv ? 'You need to upload a CSV file' : (null as any),
+                csv: is_static && id === 'new' && !csv ? 'You need to upload a CSV file' : (null as any),
                 ...(values.newCohortFiltersEnabled
                     ? {
                           filters: {
                               properties: {
-                                  values: filters.properties.values.map(validateGroup),
+                                  values: is_static ? undefined : filters.properties.values.map(validateGroup),
                               },
                           },
                       }

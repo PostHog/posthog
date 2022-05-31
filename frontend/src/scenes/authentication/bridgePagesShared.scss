@@ -1,32 +1,32 @@
-@import '~/vars';
+@import '../../styles/breakpoints';
 
 .bridge-page {
-    background-color: $bg_bridge;
+    background-color: var(--bg-bridge);
 
     // General styles; overrides
     a {
-        font-weight: $medium;
+        font-weight: var(--font-medium);
     }
 
     .ant-form-item-has-error {
         input[type='password'],
         input[type='text'] {
-            border-color: $danger_bridge !important;
+            border-color: var(--danger-bridge) !important;
         }
     }
 
     .ant-form-item-explain-error {
-        color: $danger_bridge;
-        padding-top: $default_spacing / 2;
-        padding-bottom: $default_spacing / 2;
+        color: var(--danger-bridge);
+        padding-top: 0.5rem;
+        padding-bottom: 0.5rem;
     }
 
     .btn-bridge {
         background-color: #000;
         color: white;
-        font-weight: $medium;
-        padding-top: $default_spacing * 0.7;
-        padding-bottom: $default_spacing * 0.7;
+        font-weight: var(--font-medium);
+        padding-top: 0.7rem;
+        padding-bottom: 0.7rem;
         font-size: 1.1em;
         height: unset;
         border: 2px solid #000;
@@ -45,7 +45,7 @@
         flex-direction: column;
         justify-content: center;
         align-items: center;
-        padding-top: $default_spacing * 2;
+        padding-top: 2rem;
         min-height: 100vh;
         padding-bottom: 64px;
 
@@ -59,7 +59,7 @@
             max-width: 400px; // 320px + 80px padding
             padding: 1rem 2.5rem 1.75rem;
             background-color: white;
-            border-radius: $radius;
+            border-radius: var(--radius);
         }
     }
 
@@ -69,16 +69,10 @@
     }
 
     .header-logo {
-        padding-bottom: $default_spacing * 2;
+        padding-bottom: 2rem;
         text-align: center;
         img {
             height: 24px;
-        }
-    }
-
-    @media screen and (max-width: $sm) {
-        .auth-main-content {
-            align-items: flex-start;
         }
     }
 }

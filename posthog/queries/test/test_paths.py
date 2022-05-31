@@ -22,7 +22,7 @@ class MockEvent:
     properties: Dict
 
 
-def paths_test_factory(paths, event_factory, person_factory, create_all_events):
+def paths_test_factory(paths, event_factory, person_factory):
     class TestPaths(APIBaseTest):
         def test_current_url_paths_and_logic(self):
             events = []
@@ -136,8 +136,6 @@ def paths_test_factory(paths, event_factory, person_factory, create_all_events):
                 )
             )
 
-            create_all_events(events)
-
             with freeze_time("2012-01-15T03:21:34.000Z"):
                 filter = PathFilter(data={"dummy": "dummy"})
                 response = paths(team=self.team, filter=filter).run(team=self.team, filter=filter)
@@ -226,7 +224,6 @@ def paths_test_factory(paths, event_factory, person_factory, create_all_events):
                 event_factory(distinct_id="person_4", event="custom_event_1", team=self.team, properties={}),
                 event_factory(distinct_id="person_4", event="custom_event_2", team=self.team, properties={}),
             ]
-            create_all_events(events)
 
             filter = PathFilter(data={"path_type": "custom_event"})
             response = paths(team=self.team, filter=filter).run(team=self.team, filter=filter)
@@ -281,8 +278,6 @@ def paths_test_factory(paths, event_factory, person_factory, create_all_events):
                     properties={"$screen_name": "/pricing"}, distinct_id="person_4", event="$screen", team=self.team,
                 ),
             ]
-
-            create_all_events(events)
 
             filter = PathFilter(data={"path_type": "$screen"})
             response = paths(team=self.team, filter=filter).run(team=self.team, filter=filter)
@@ -352,8 +347,6 @@ def paths_test_factory(paths, event_factory, person_factory, create_all_events):
                     properties={"$current_url": "/pricing"}, distinct_id="person_4", event="$pageview", team=self.team,
                 ),
             ]
-
-            create_all_events(events)
 
             filter = PathFilter(data={"properties": [{"key": "$browser", "value": "Chrome", "type": "event"}]})
 
@@ -425,8 +418,6 @@ def paths_test_factory(paths, event_factory, person_factory, create_all_events):
                 ),
             ]
 
-            create_all_events(events)
-
             response = self.client.get(
                 f"/api/projects/{self.team.id}/insights/path/?type=%24pageview&start=%2Fpricing"
             ).json()
@@ -497,7 +488,6 @@ def paths_test_factory(paths, event_factory, person_factory, create_all_events):
                 ),
             ]
 
-            create_all_events(events)
             filter = PathFilter(data={"date_from": "2020-04-13"})
             response = paths(team=self.team, filter=filter).run(team=self.team, filter=filter)
 

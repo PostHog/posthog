@@ -1,7 +1,7 @@
 import { kea } from 'kea'
 import api from 'lib/api'
 import Fuse from 'fuse.js'
-import { featureFlagsLogicType } from './featureFlagsLogicType'
+import type { featureFlagsLogicType } from './featureFlagsLogicType'
 import { Breadcrumb, FeatureFlagType } from '~/types'
 import { teamLogic } from '../teamLogic'
 import { urls } from 'scenes/urls'

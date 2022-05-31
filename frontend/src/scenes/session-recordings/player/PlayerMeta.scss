@@ -1,12 +1,10 @@
-@import '~/vars';
-
 .player-meta-container {
     display: flex;
     flex-direction: column;
-    background-color: $bg_light;
-    border: 1px solid $border;
-    border-radius: $radius;
-    padding: $recording_spacing;
+    background-color: var(--bg-light);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: var(--recording-spacing);
 
     .player-meta-person {
         margin-bottom: 0.5rem;
