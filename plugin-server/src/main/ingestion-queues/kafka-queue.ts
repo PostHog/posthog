@@ -1,5 +1,5 @@
 import * as Sentry from '@sentry/node'
-import { Consumer, ConsumerSubscribeTopics, EachBatchPayload, Kafka } from 'kafkajs'
+import { Consumer, EachBatchPayload, Kafka } from 'kafkajs'
 
 import { Hub, WorkerMethods } from '../../types'
 import { status } from '../../utils/status'
@@ -46,7 +46,7 @@ export class KafkaQueue {
         }
     }
 
-    topics(): ConsumerSubscribeTopics {
+    topics(): string[] {
         const topics = []
 
         if (this.pluginsServer.capabilities.ingestion) {
@@ -57,7 +57,7 @@ export class KafkaQueue {
             throw Error('No topics to consume, KafkaQueue should not be started')
         }
 
-        return { topics }
+        return topics
     }
 
     consumerGroupId(): string {
@@ -83,7 +83,10 @@ export class KafkaQueue {
             this.wasConsumerRan = true
 
             await this.consumer.connect()
-            await this.consumer.subscribe(this.topics())
+
+            for (const topic of this.topics()) {
+                await this.consumer.subscribe({ topic })
+            }
 
             // KafkaJS batching: https://kafka.js.org/docs/consuming#a-name-each-batch-a-eachbatch
             await this.consumer.run({
