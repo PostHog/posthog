@@ -4,7 +4,7 @@ import * as fs from 'fs'
 import { createPool } from 'generic-pool'
 import { StatsD } from 'hot-shots'
 import Redis from 'ioredis'
-import { Kafka, logLevel, Partitioners, SASLOptions } from 'kafkajs'
+import { Kafka, logLevel, SASLOptions } from 'kafkajs'
 import { DateTime } from 'luxon'
 import * as path from 'path'
 import { types as pgTypes } from 'pg'
@@ -179,7 +179,6 @@ export async function createHub(
     })
     const producer = kafka.producer({
         retry: { retries: 10, initialRetryTime: 1000, maxRetryTime: 30 },
-        createPartitioner: Partitioners.LegacyPartitioner,
     })
     await producer.connect()
 
@@ -220,7 +219,6 @@ export async function createHub(
         kafkaProducer,
         clickhouse,
         statsd,
-        serverConfig.KAFKA_ENABLED,
         serverConfig.PERSON_INFO_CACHE_TTL,
         new Set(serverConfig.PERSON_INFO_TO_REDIS_TEAMS.split(',').filter(String).map(Number))
     )
@@ -294,7 +292,6 @@ export async function createHub(
         }
 
         hub.mmdbUpdateJob?.cancel()
-        await hub.db?.postgresLogsWrapper.flushLogs()
         await hub.jobQueueManager?.disconnectProducer()
         await kafkaProducer.disconnect()
         await redisPool.drain()

@@ -1,6 +1,6 @@
 import { DateTime } from 'luxon'
 
-import { startPluginsServer } from '../../src/main/pluginsServer'
+import { startPluginsServer } from '../../../src/main/pluginsServer'
 import {
     Database,
     Hub,
@@ -9,14 +9,14 @@ import {
     PropertyUpdateOperation,
     Team,
     TimestampFormat,
-} from '../../src/types'
-import { castTimestampOrNow, UUIDT } from '../../src/utils/utils'
-import { makePiscina } from '../../src/worker/piscina'
-import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../helpers/clickhouse'
-import { resetKafka } from '../helpers/kafka'
-import { getFirstTeam, resetTestDatabase } from '../helpers/sql'
+} from '../../../src/types'
+import { castTimestampOrNow, UUIDT } from '../../../src/utils/utils'
+import { makePiscina } from '../../../src/worker/piscina'
+import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../../helpers/clickhouse'
+import { resetKafka } from '../../helpers/kafka'
+import { getFirstTeam, resetTestDatabase } from '../../helpers/sql'
 
-jest.mock('../../src/utils/status')
+jest.mock('../../../src/utils/status')
 jest.setTimeout(60000) // 60 sec timeout
 
 const extraServerConfig: Partial<PluginsServerConfig> = {
@@ -365,10 +365,9 @@ describe('postgres parity', () => {
         // :TODO: Update version
         const clickHouseDistinctIdValuesMoved = await hub.db.fetchDistinctIdValues(anotherPerson, Database.ClickHouse)
         const postgresDistinctIdValuesMoved = await hub.db.fetchDistinctIdValues(anotherPerson, Database.Postgres)
-        const newClickHouseDistinctIdValues = await hub.db.fetchDistinctIds(
-            anotherPerson,
-            Database.ClickHouse,
-            'person_distinct_id2'
+        const newClickHouseDistinctIdValues = await delayUntilEventIngested(
+            () => hub.db.fetchDistinctIds(anotherPerson, Database.ClickHouse, 'person_distinct_id2'),
+            2
         )
 
         expect(postgresDistinctIdValuesMoved).toEqual(expect.arrayContaining(['distinct1', 'another_distinct_id']))

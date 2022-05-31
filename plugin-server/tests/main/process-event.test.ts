@@ -74,8 +74,6 @@ export const getEventsByPerson = async (hub: Hub): Promise<EventsByPerson[]> => 
 }
 
 const TEST_CONFIG: Partial<PluginsServerConfig> = {
-    PLUGINS_CELERY_QUEUE: 'test-plugins-celery-queue',
-    CELERY_DEFAULT_QUEUE: 'test-celery-default-queue',
     LOG_LEVEL: LogLevel.Log,
     KAFKA_CONSUMPTION_TOPIC: KAFKA_EVENTS_PLUGIN_INGESTION,
 }
@@ -96,9 +94,6 @@ async function createTestHub(additionalProps?: Record<string, any>): Promise<[Hu
     })
 
     redis = await hub.redisPool.acquire()
-
-    await redis.del(hub.PLUGINS_CELERY_QUEUE)
-    await redis.del(hub.CELERY_DEFAULT_QUEUE)
 
     return [hub, closeHub]
 }

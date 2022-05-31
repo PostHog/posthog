@@ -5,8 +5,7 @@ from kombu import Exchange, Queue
 from posthog.settings.base_variables import TEST
 from posthog.settings.data_stores import REDIS_URL
 
-# Only listen to the default queue "celery", unless overridden via the cli
-# NB! This is set to explicitly exclude the "posthog-plugins" queue, handled by a nodejs process
+# Only listen to the default queue "celery", unless overridden via the CLI
 CELERY_QUEUES = (Queue("celery", Exchange("celery"), "celery"),)
 CELERY_DEFAULT_QUEUE = "celery"
 CELERY_IMPORTS = ["ee.tasks.materialized_columns"]

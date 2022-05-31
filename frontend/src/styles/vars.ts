@@ -1,5 +1,5 @@
 /*
-Values duplicated from ./vars.scss
+Values duplicated from global.scss
 
 If you edit this file, check there too
 */

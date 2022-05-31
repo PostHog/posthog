@@ -1,11 +1,9 @@
-@import '~/vars';
-
 .InsightLegendButton {
     display: flex;
     align-items: center;
 
     .InsightLegendButton-title {
-        margin-left: $default_spacing / 2;
+        margin-left: 0.5rem;
         font-size: 14px;
         font-weight: 500;
     }
@@ -13,9 +11,9 @@
 
 .InsightLegendMenu {
     box-shadow: none !important;
-    border: 1px solid $border;
-    background-color: $bg_light;
-    border-radius: $radius;
+    border: 1px solid var(--border);
+    background-color: var(--bg-light);
+    border-radius: var(--radius);
     max-width: 300px;
     width: 100%;
     max-height: 100%;

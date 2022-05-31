@@ -3,21 +3,21 @@
     body,
     .main {
         width: 100%;
-        font-size: 14px;
         font-family: 'MatterSQ', 'Helvetica Neue', helvetica, sans-serif;
         padding: 0;
         margin: 0;
-        background-color: #eeefe9;
         color: #2d2d2d;
         line-height: 1.4;
         border-top-left-radius: 4px;
         border-top-right-radius: 4px;
         border-bottom-left-radius: 4px;
         border-bottom-right-radius: 4px;
+        font-size: 16px;
+        background-color: #fafaf9;
     }
 
     .main {
-        max-width: 700px;
+        max-width: 600px;
         margin: 15px auto;
         border-collapse: separate;
         border-spacing: 0;
@@ -101,18 +101,26 @@
         color: #df4313;
     }
 
+    .action-btn {
+        background-color: #1d4aff;
+        color: white;
+        padding: 16px 40px 16px 40px;
+        font-size: 18px;
+        font-weight: 600;
+        border: none;
+        border-radius: 4px;
+    }
+
     .button {
-        padding-top: 12px;
-        padding-bottom: 12px;
-        padding-left: 24px;
-        padding-right: 24px;
-        background-color: #000000;
+        padding-top: 16px;
+        padding-bottom: 16px;
+        padding-left: 48px;
+        padding-right: 48px;
+        border-radius: 4px;
+        background-color: #1d4aff;
         font-weight: 500;
         color: #fff;
-        border-top-left-radius: 4px;
-        border-top-right-radius: 4px;
-        border-bottom-left-radius: 4px;
-        border-bottom-right-radius: 4px;
+        border-radius: 4px;
         text-decoration: none;
     }
 
@@ -124,13 +132,42 @@
         margin-bottom: 24px;
     }
 
+    .invite-header {
+        font-weight: 400;
+        text-align: center;
+        margin-top: -24px;
+    }
+
+    .dashed-border {
+        border-bottom: 3px dashed #bdbdbd;
+        padding-bottom: 16px;
+    }
+
+    .invite-bottom {
+        text-align: center;
+        padding-top: 8px;
+    }
+
+    .invite-message {
+        display: flex;
+        font-size: 18px;
+        font-weight: 500;
+        background-color: white;
+        padding: 16px;
+        margin-bottom: 8px;
+    }
+
+    .invite-message-divider {
+        height: auto;
+        width: 8px;
+        margin-right: 16px;
+        background-color: #db3707;
+    }
+
     /* Header & Footer */
 
     .header {
         text-align: left;
-        border-bottom-color: #d9d9d9;
-        border-bottom-width: 1px;
-        border-bottom-style: dashed;
     }
 
     .mainTitle div,

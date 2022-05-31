@@ -4,7 +4,6 @@ import { LazyPluginVM } from '../../src/worker/vm/lazy'
 import { createPluginConfigVM } from '../../src/worker/vm/vm'
 import { plugin60 } from '../helpers/plugins'
 import { disablePlugin } from '../helpers/sqlMock'
-import { PostgresLogsWrapper } from './../../src/utils/db/postgres-logs-wrapper'
 
 jest.mock('../../src/utils/db/error')
 jest.mock('../../src/utils/status')
@@ -19,15 +18,8 @@ const mockConfig = {
 }
 
 describe('LazyPluginVM', () => {
-    const baseDb = {
-        queuePluginLogEntry: jest.fn(),
-        batchInsertPostgresLogs: jest.fn(),
-    }
-    const postgresLogsWrapper = new PostgresLogsWrapper(baseDb as any)
-
     const db = {
-        ...baseDb,
-        postgresLogsWrapper,
+        queuePluginLogEntry: jest.fn(),
     }
 
     const mockServer: any = {

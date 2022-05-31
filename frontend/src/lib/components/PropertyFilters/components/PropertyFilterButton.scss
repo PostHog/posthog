@@ -1,15 +1,13 @@
-@import '~/vars';
-
 .PropertyFilterButton {
     overflow: hidden;
     color: #2d2d2d;
-    border-color: $dark-grey;
-    background: $dark-grey;
+    border-color: var(--dark-grey);
+    background: var(--dark-grey);
 
     &:hover,
     &:focus {
-        border-color: $dark-grey;
-        background: $dark-grey;
+        border-color: var(--dark-grey);
+        background: var(--dark-grey);
         color: #2d2d2d;
     }
 

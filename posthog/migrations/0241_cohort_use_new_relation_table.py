@@ -6,7 +6,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("posthog", "0238_exportedasset"),
+        ("posthog", "0240_organizationinvite_message"),
     ]
 
     operations = [
