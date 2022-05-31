@@ -1,7 +1,6 @@
 from typing import Any, Dict, List, Optional, Tuple, Union, cast
 
 from ee.clickhouse.models.cohort import format_filter_query
-from ee.clickhouse.models.entity import get_entity_filtering_params
 from ee.clickhouse.models.property import (
     get_property_string_expr,
     get_single_or_multi_property_string_expr,
@@ -13,7 +12,7 @@ from ee.clickhouse.sql.trends.top_elements import TOP_ELEMENTS_ARRAY_OF_KEY_SQL
 from posthog.client import sync_execute
 from posthog.constants import BREAKDOWN_TYPES, PropertyOperatorType
 from posthog.models.cohort import Cohort
-from posthog.models.entity import Entity
+from posthog.models.entity import Entity, get_entity_filtering_params
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.utils import GroupTypeIndex
 from posthog.models.property import PropertyGroup
