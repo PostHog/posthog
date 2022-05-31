@@ -24,7 +24,7 @@ KAFKA_HEALTHCHECK = f"{KAFKA_PREFIX}healthcheck{suffix}"
 
 
 KAFKA_TOPIC_DEFINITIONS = [
-    TopicDefinition(KAFKA_EVENTS_PLUGIN_INGESTION, 128),
+    TopicDefinition(KAFKA_EVENTS_PLUGIN_INGESTION, 128, retention_days=3),
     TopicDefinition(KAFKA_EVENTS, 128),
     TopicDefinition(KAFKA_EVENTS_JSON, 256),
     TopicDefinition(KAFKA_PERSON, 128),
