@@ -171,7 +171,7 @@ export async function createHub(
     const kafka = new Kafka({
         clientId: `plugin-server-v${version}-${instanceId}`,
         brokers: serverConfig.KAFKA_HOSTS.split(','),
-        logLevel: logLevel.WARN,
+        logLevel: logLevel.DEBUG,
         ssl: kafkaSsl,
         sasl: kafkaSasl,
         connectionTimeout: 3000, // default: 1000
