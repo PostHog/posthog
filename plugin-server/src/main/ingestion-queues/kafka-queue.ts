@@ -9,8 +9,6 @@ import { eachBatchAsyncHandlers } from './batch-processing/each-batch-async-hand
 import { eachBatchIngestion } from './batch-processing/each-batch-ingestion'
 import { addMetricsEventListeners, emitConsumerGroupMetrics } from './kafka-metrics'
 
-type ConsumerSubscribeTopics = { topics: (string | RegExp)[]; fromBeginning?: boolean }
-
 type ConsumerManagementPayload = {
     topic: string
     partitions?: number[] | undefined
@@ -48,7 +46,7 @@ export class KafkaQueue {
         }
     }
 
-    topics(): ConsumerSubscribeTopics {
+    topics(): string[] {
         const topics = []
 
         if (this.pluginsServer.capabilities.ingestion) {
@@ -59,7 +57,7 @@ export class KafkaQueue {
             throw Error('No topics to consume, KafkaQueue should not be started')
         }
 
-        return { topics }
+        return topics
     }
 
     consumerGroupId(): string {
@@ -85,7 +83,10 @@ export class KafkaQueue {
             this.wasConsumerRan = true
 
             await this.consumer.connect()
-            await this.consumer.subscribe(this.topics())
+
+            for (const topic of this.topics()) {
+                await this.consumer.subscribe({ topic })
+            }
 
             // KafkaJS batching: https://kafka.js.org/docs/consuming#a-name-each-batch-a-eachbatch
             await this.consumer.run({
