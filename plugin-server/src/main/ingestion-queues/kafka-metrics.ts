@@ -75,7 +75,6 @@ export function addMetricsEventListeners(consumer: Consumer, statsd: StatsD | un
         consumer.events.DISCONNECT,
         consumer.events.STOP,
         consumer.events.CRASH,
-        consumer.events.REBALANCING,
         consumer.events.RECEIVED_UNSUBSCRIBED_TOPICS,
         consumer.events.REQUEST_TIMEOUT,
     ]

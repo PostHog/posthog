@@ -1,5 +1,5 @@
 import * as Sentry from '@sentry/node'
-import { Consumer, ConsumerSubscribeTopics, EachBatchPayload, Kafka } from 'kafkajs'
+import { Consumer, EachBatchPayload, Kafka } from 'kafkajs'
 
 import { Hub, WorkerMethods } from '../../types'
 import { status } from '../../utils/status'
@@ -8,6 +8,8 @@ import { KAFKA_BUFFER, KAFKA_EVENTS_JSON, prefix as KAFKA_PREFIX } from './../..
 import { eachBatchAsyncHandlers } from './batch-processing/each-batch-async-handlers'
 import { eachBatchIngestion } from './batch-processing/each-batch-ingestion'
 import { addMetricsEventListeners, emitConsumerGroupMetrics } from './kafka-metrics'
+
+type ConsumerSubscribeTopics = { topics: (string | RegExp)[]; fromBeginning?: boolean }
 
 type ConsumerManagementPayload = {
     topic: string
