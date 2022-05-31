@@ -19,7 +19,7 @@ Let's get you developing the plugin server in no time:
 
 1. Start the plugin server in autoreload mode with `yarn start`, or in compiled mode with `yarn build && yarn start:dist`, and develop away!
 
-1. To run migrations in preparation for tests, run `yarn setup:test`. Run the tests with `yarn test:{1,2}`. Run benchmarks with `yarn benchmark`.
+1. Prepare for running tests with `yarn setup:test`, which will run the necessary migrations. Run the tests themselves with `yarn test:{1,2}`.
 
 ## CLI flags
 
