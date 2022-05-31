@@ -93,10 +93,6 @@
                     "value": "True"
                 },
                 {
-                    "name": "KAFKA_PARTITIONS_CONSUMED_CONCURRENTLY",
-                    "value": "3"
-                },
-                {
                     "name": "HISTORICAL_EXPORTS_ENABLED",
                     "value": "False"
                 },
