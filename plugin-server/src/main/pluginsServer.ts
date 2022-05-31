@@ -216,11 +216,11 @@ export async function startPluginsServer(
         })
 
         // every minute log information on kafka consumer
-        // if (queue) {
-        //     schedule.scheduleJob('0 * * * * *', async () => {
-        //         await queue?.emitConsumerGroupMetrics()
-        //     })
-        // }
+        if (queue) {
+            schedule.scheduleJob('0 * * * * *', async () => {
+                await queue?.emitConsumerGroupMetrics()
+            })
+        }
 
         // every minute flush internal metrics
         if (hub.internalMetrics) {
@@ -267,18 +267,16 @@ export async function startPluginsServer(
         serverInstance.queue = queue
         serverInstance.stop = closeJobs
 
-        if (hub.KAFKA_ENABLED) {
-            healthCheckConsumer = await setupKafkaHealthcheckConsumer(hub.kafka)
-            serverInstance.kafkaHealthcheckConsumer = healthCheckConsumer
+        healthCheckConsumer = await setupKafkaHealthcheckConsumer(hub.kafka)
+        serverInstance.kafkaHealthcheckConsumer = healthCheckConsumer
 
-            await healthCheckConsumer.connect()
+        await healthCheckConsumer.connect()
 
-            try {
-                healthCheckConsumer.pause([{ topic: KAFKA_HEALTHCHECK }])
-            } catch (err) {
-                // It's fine to do nothing for now - Kafka issues will be caught by the periodic healthcheck
-                status.error('🔴', 'Failed to pause Kafka healthcheck consumer on connect!')
-            }
+        try {
+            healthCheckConsumer.pause([{ topic: KAFKA_HEALTHCHECK }])
+        } catch (err) {
+            // It's fine to do nothing for now - Kafka issues will be caught by the periodic healthcheck
+            status.error('🔴', 'Failed to pause Kafka healthcheck consumer on connect!')
         }
 
         if (hub.capabilities.http) {

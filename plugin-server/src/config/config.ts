@@ -30,7 +30,6 @@ export function getDefaultConfig(): PluginsServerConfig {
         CLICKHOUSE_CA: null,
         CLICKHOUSE_SECURE: false,
         CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS: true,
-        KAFKA_ENABLED: true,
         KAFKA_HOSTS: 'kafka:9092', // KEEP IN SYNC WITH posthog/settings/data_stores.py
         KAFKA_CLIENT_CERT_B64: null,
         KAFKA_CLIENT_CERT_KEY_B64: null,
@@ -121,7 +120,6 @@ export function getConfigHelp(): Record<keyof PluginsServerConfig, string> {
         TASK_TIMEOUT: 'how many seconds until tasks are timed out',
         TASKS_PER_WORKER: 'number of parallel tasks per worker thread',
         LOG_LEVEL: 'minimum log level',
-        KAFKA_ENABLED: 'use Kafka instead of Celery to ingest events',
         KAFKA_HOSTS: 'comma-delimited Kafka hosts',
         KAFKA_CONSUMPTION_TOPIC: 'Kafka consumption topic override',
         KAFKA_CLIENT_CERT_B64: 'Kafka certificate in Base64',

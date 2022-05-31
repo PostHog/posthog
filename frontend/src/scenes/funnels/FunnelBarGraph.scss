@@ -1,20 +1,19 @@
-@import '~/vars';
+@import '../../styles/mixins';
 
 $label_position_offset: 8px;
 $series_container_width: 3rem;
 $glyph_margin_top: 10px;
 $glyph_height: 22px;
-$funnel_canvas_background: #fff;
 
 .funnel-bar-graph {
-    background-color: $funnel_canvas_background;
+    background-color: var(--funnel-canvas-background);
     min-height: 100%;
 
     .ant-popover {
         .ant-popover-content {
             background: #fafafa;
-            border-radius: $radius;
-            border: 1px solid $border;
+            border-radius: var(--radius);
+            border: 1px solid var(--border);
         }
 
         .ant-popover-inner {
@@ -82,7 +81,7 @@ $funnel_canvas_background: #fff;
                 left: 0;
                 width: calc(#{$series_container_width} / 2 + 1px);
                 box-sizing: border-box;
-                border-right: 2px solid $bg_mid;
+                border-right: 2px solid var(--bg-mid);
 
                 &.before {
                     top: 0;
@@ -103,10 +102,10 @@ $funnel_canvas_background: #fff;
             flex-wrap: wrap;
 
             .ant-btn.funnel-inspect-button {
-                color: $primary;
+                color: var(--primary);
 
                 .anticon {
-                    color: $primary_alt;
+                    color: var(--primary-alt);
                 }
 
                 .funnel-inspect-label {
@@ -119,11 +118,11 @@ $funnel_canvas_background: #fff;
                 }
 
                 &:disabled {
-                    color: $text_default;
+                    color: var(--text-default);
                     cursor: initial;
 
                     .anticon {
-                        color: $text_muted_alt;
+                        color: var(--text-muted-alt);
                     }
 
                     .funnel-inspect-label {
@@ -154,7 +153,7 @@ $funnel_canvas_background: #fff;
             position: relative;
 
             .funnel-step-title {
-                @extend .text-ellipsis;
+                @extend %mixin-text-ellipsis;
                 font-weight: bold;
             }
 
@@ -186,7 +185,7 @@ $funnel_canvas_background: #fff;
     .funnel-bar-wrapper {
         height: 32px;
         margin: 4px 0;
-        background-color: $funnel_background;
+        background-color: var(--funnel-background);
         border-radius: 4px;
         display: flex;
         flex-direction: row;
@@ -194,7 +193,7 @@ $funnel_canvas_background: #fff;
         .funnel-bar {
             position: relative;
             height: 100%;
-            background: $funnel_default;
+            background: var(--funnel-default);
             transition: width 0.2s ease, height 0.2s ease;
 
             &.first {
@@ -222,7 +221,7 @@ $funnel_canvas_background: #fff;
 
                 &.outside {
                     left: calc(100% + #{$label_position_offset});
-                    color: $funnel_default;
+                    color: var(--funnel-default);
                 }
             }
         }

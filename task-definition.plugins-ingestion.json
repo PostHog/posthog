@@ -29,10 +29,6 @@
                     "value": "True"
                 },
                 {
-                    "name": "KAFKA_ENABLED",
-                    "value": "True"
-                },
-                {
                     "name": "SITE_URL",
                     "value": "https://app.posthog.com"
                 },
@@ -95,10 +91,6 @@
                 {
                     "name": "CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS",
                     "value": "True"
-                },
-                {
-                    "name": "KAFKA_PARTITIONS_CONSUMED_CONCURRENTLY",
-                    "value": "3"
                 },
                 {
                     "name": "HISTORICAL_EXPORTS_ENABLED",

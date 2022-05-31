@@ -1,17 +1,15 @@
-@import '~/vars';
-
 .cohorts-drawer .ant-drawer-content-wrapper {
     max-width: 850px !important;
     width: 100% !important;
 }
 
 .cohort-recalculating {
-    background-color: $bg_mid;
-    padding: $default_spacing / 2 $default_spacing;
-    margin-top: $default_spacing;
-    border-radius: $radius;
+    background-color: var(--bg-mid);
+    padding: 0.5rem 1rem;
+    margin-top: 1rem;
+    border-radius: var(--radius);
     .ant-spin-spinning {
-        margin-right: $default_spacing * 0.375;
+        margin-right: 0.375rem;
     }
 }
 

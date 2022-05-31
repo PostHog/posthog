@@ -8,7 +8,6 @@ import {
     setError,
     setPluginMetrics,
 } from '../src/utils/db/sql'
-import { transformPostgresElementsToEventPayloadFormat } from '../src/utils/db/utils'
 import { commonOrganizationId } from './helpers/plugins'
 import { resetTestDatabase } from './helpers/sql'
 
@@ -220,10 +219,7 @@ describe('sql', () => {
 
         const result = await hub!.db.fetchPostgresElementsByHash(teamId, elementsHash)
 
-        expect(hub.db.redisGet).toHaveBeenCalledTimes(1)
-        expect(hub.db.redisSet).toHaveBeenCalledTimes(1)
-
-        expect(result).toEqual([
+        const expectedResult = [
             {
                 text: 'Sign up!',
                 attr_class: ['my-class'],
@@ -244,36 +240,17 @@ describe('sql', () => {
                 tag_name: 'div',
                 attributes: {},
             },
-        ])
+        ]
+        expect(hub.db.redisGet).toHaveBeenCalledTimes(1)
+        expect(hub.db.redisSet).toHaveBeenCalledTimes(1)
+        expect(result).toEqual(expectedResult)
 
-        // test cache and transformPostgresElementsToEventPayloadFormat util
+        // test cache
         const result2 = await hub!.db.fetchPostgresElementsByHash(teamId, elementsHash)
 
         // we hit the cache for the second result
         expect(hub.db.redisGet).toHaveBeenCalledTimes(2)
         expect(hub.db.redisSet).toHaveBeenCalledTimes(1)
-
-        const parsedResult = transformPostgresElementsToEventPayloadFormat(result2)
-
-        expect(parsedResult).toEqual([
-            {
-                $el_text: 'Sign up!',
-                attr__class: ['my-class'],
-                attr__href: 'posthog.com',
-                attr__id: 'my-id',
-                nth_child: null,
-                nth_of_type: null,
-                tag_name: 'button',
-            },
-            {
-                $el_text: null,
-                attr__class: null,
-                attr__href: null,
-                attr__id: null,
-                nth_child: 1,
-                nth_of_type: 2,
-                tag_name: 'div',
-            },
-        ])
+        expect(result2).toEqual(expectedResult)
     })
 })

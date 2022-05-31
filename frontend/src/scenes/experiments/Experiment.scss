@@ -1,44 +1,42 @@
-@import '~/vars.scss';
-
 .experiment-form {
     .metrics-selection {
-        border-top: 1px solid $border;
-        padding-top: $default_spacing;
+        border-top: 1px solid var(--border);
+        padding-top: 1rem;
 
         width: 100%;
     }
 
     .person-selection {
         width: 100%;
-        border-top: 1px solid $border;
-        padding-top: $default_spacing;
+        border-top: 1px solid var(--border);
+        padding-top: 1rem;
         align-items: center;
         justify-content: space-between;
     }
 
     .insights-graph-container {
-        margin-bottom: $default_spacing;
+        margin-bottom: 1rem;
         background-color: #fff;
 
         .ant-card-head {
-            border-bottom: 1px solid $border;
+            border-bottom: 1px solid var(--border);
             min-height: unset;
-            background-color: $bg_light;
-            padding-left: $default_spacing;
-            padding-right: $default_spacing;
+            background-color: var(--bg-light);
+            padding-left: 1rem;
+            padding-right: 1rem;
 
             .ant-card-head-title {
-                padding: $default_spacing / 2 0;
+                padding: 0.5rem 0;
 
                 span.filter {
                     font-size: 14px;
 
                     &:not(:last-child) {
-                        margin-right: $default_spacing / 2;
+                        margin-right: 0.5rem;
                     }
 
                     span.head-title-item {
-                        margin-right: $default_spacing / 2;
+                        margin-right: 0.5rem;
                     }
                 }
             }
@@ -63,7 +61,7 @@
                 width: 100%;
                 height: min(calc(90vh - 16rem), 36rem); // same as .trends-insights-container
                 max-width: 300px;
-                padding: 0 $default_spacing $default_spacing 0;
+                padding: 0 1rem 1rem 0;
                 display: flex;
                 align-items: center;
             }
@@ -78,14 +76,14 @@
     .insights-graph-header {
         margin-top: 0 !important;
         margin-bottom: 0 !important;
-        padding-left: $default_spacing;
-        padding-right: $default_spacing;
+        padding-left: 1rem;
+        padding-right: 1rem;
         min-height: 48px;
     }
 
     .experiment-preview {
-        margin-bottom: $default_spacing;
-        border-bottom: 1px solid $border;
+        margin-bottom: 1rem;
+        border-bottom: 1px solid var(--border);
 
         .mde-slider {
             .ant-slider-handle {
@@ -99,7 +97,7 @@
     }
 
     .variants {
-        margin-top: $default_spacing / 2;
+        margin-top: 0.5rem;
         padding-bottom: 1rem;
         .ant-form-horizontal {
             min-height: 32px;
@@ -122,18 +120,18 @@
             padding: 0 0.5rem;
             background: #ffffff;
             border-width: 1px;
-            border-color: $border;
+            border-color: var(--border);
             border-top-style: solid;
             border-left-style: solid;
             border-right-style: solid;
 
             .ant-form-item-explain-error {
-                margin-top: $default_spacing / 2;
-                color: $error_red;
+                margin-top: 0.5rem;
+                color: var(--error-red);
             }
 
             .ant-form-item-label {
-                padding: 0px;
+                padding: 0;
             }
         }
 
@@ -154,10 +152,10 @@
     }
 
     .secondary-metrics {
-        margin-top: $default_spacing;
-        padding-top: $default_spacing;
-        border-top: 1px solid $border;
-        margin-bottom: $default_spacing;
+        margin-top: 1rem;
+        padding-top: 1rem;
+        border-top: 1px solid var(--border);
+        margin-bottom: 1rem;
     }
 
     .ant-input-number-disabled {
@@ -171,21 +169,21 @@
 
 .view-experiment {
     .draft-header {
-        margin-bottom: $default_spacing;
-        border-bottom: 1px solid $border;
+        margin-bottom: 1rem;
+        border-bottom: 1px solid var(--border);
     }
 
     .exp-description {
         font-style: italic;
-        color: $text_muted;
+        color: var(--text-muted);
     }
 
     .participants {
         background-color: white;
         .ant-collapse-header {
-            padding-top: $default_spacing / 2;
-            padding-bottom: $default_spacing / 2;
-            padding-left: $default_spacing * 0.75;
+            padding-top: 0.5rem;
+            padding-bottom: 0.5rem;
+            padding-left: 0.75rem;
         }
     }
 
@@ -205,32 +203,32 @@
     }
 
     .experiment-result {
-        padding-top: $default_spacing;
+        padding-top: 1rem;
     }
 
     .significant-results {
-        padding: $default_spacing / 2;
+        padding: 0.5rem;
         width: 100%;
         background: rgba(119, 185, 108, 0.1);
         border-radius: 4px;
         text-align: center;
-        margin-bottom: $default_spacing;
+        margin-bottom: 1rem;
     }
 
     .not-significant-results {
-        padding: $default_spacing / 2;
+        padding: 0.5rem;
         width: 100%;
         background: rgba(83, 117, 255, 0.1);
         border-radius: 4px;
-        margin-bottom: $default_spacing;
+        margin-bottom: 1rem;
     }
 
     .feature-flag-mods {
-        padding: $default_spacing / 2;
+        padding: 0.5rem;
         width: 100%;
         background: #f6ebf8;
         border-radius: 4px;
-        margin-bottom: $default_spacing;
+        margin-bottom: 1rem;
     }
 
     .ant-collapse-content-box {
@@ -239,7 +237,7 @@
     }
 
     .secondary-progress {
-        margin-top: $default_spacing / 2;
+        margin-top: 0.5rem;
 
         li::before {
             content: '\2022';
@@ -261,16 +259,16 @@
         display: flex;
         justify-content: center;
         align-items: center;
-        margin-top: $default_spacing;
-        background-color: $bg_side;
-        border: 1px solid $border;
+        margin-top: 1rem;
+        background-color: var(--bg-side);
+        border: 1px solid var(--border);
         width: 100%;
         min-height: 320px;
         font-size: 24px;
     }
 
     .end-experiment-btn {
-        background: $success;
+        background: var(--success);
         color: white;
         &:hover {
             color: black;
@@ -282,16 +280,16 @@
     height: 24px;
     width: 24px;
     text-align: center;
-    background-color: $bg_side;
-    color: $primary_alt;
+    background-color: var(--bg-side);
+    color: var(--primary-alt);
     font-weight: 700;
-    margin-right: $default_spacing / 2;
+    margin-right: 0.5rem;
 }
 
 .experiment-preview-row {
-    border-bottom: 1px solid $border;
-    padding-bottom: $default_spacing;
-    margin-bottom: $default_spacing;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 1rem;
+    margin-bottom: 1rem;
     &:last-child {
         border-bottom: none;
         padding-bottom: 0;
@@ -300,28 +298,28 @@
 }
 
 .metric-name {
-    border: 1px solid $border;
+    border: 1px solid var(--border);
     border-radius: 4px;
     padding: 8px 8px 8px 16px;
-    margin-left: $default_spacing / 2;
+    margin-left: 0.5rem;
     flex: 1;
 }
 
 .experiment-implementation-details,
 .experiment-workflow {
-    border-color: $dark-grey;
+    border-color: var(--dark-grey);
     .ant-card-head {
-        padding-left: $default_spacing;
-        padding-right: $default_spacing;
+        padding-left: 1rem;
+        padding-right: 1rem;
         border: none;
     }
 
     .ant-card-head-title {
-        border-bottom: 1px solid $border;
+        border-bottom: 1px solid var(--border);
     }
     .exp-workflow-step {
-        margin-bottom: $default_spacing / 2;
-        padding: $default_spacing / 2;
+        margin-bottom: 0.5rem;
+        padding: 0.5rem;
         border-radius: 4px;
         &:hover {
             cursor: pointer;

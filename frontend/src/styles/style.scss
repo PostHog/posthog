@@ -1,6 +1,4 @@
 /* DEPRECATED in favor of global.scss */
-@import '~/vars';
-
 .layout-container {
     max-width: 100vw;
 }
@@ -55,16 +53,16 @@ label.disabled {
 }
 
 .ant-modal-mask {
-    z-index: $z_ant_modal_mask !important;
+    z-index: var(--z-ant-modal-mask) !important;
 }
 .ant-modal-wrap {
-    z-index: $z_ant_modal_wrap !important;
+    z-index: var(--z-ant-modal-wrap) !important;
 }
 .ant-message {
-    z-index: $z_ant_message !important;
+    z-index: var(--z-ant-message) !important;
 }
 .ant-select-dropdown {
-    z-index: $z_ant_select_dropdown !important;
+    z-index: var(--z-ant-select-dropdown) !important;
 }
 
 .ant-select-arrow .anticon {
