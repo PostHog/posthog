@@ -61,6 +61,7 @@ per-file-ignores =
     ./ee/management/commands/migrate_clickhouse.py: T001
     ./ee/management/commands/run_async_migrations.py: T001
     ./ee/management/commands/backfill_persons_and_groups_on_events.py: T001
+    ./ee/management/commands/create_kafka_topics.py: T001
     ./gunicorn.config.py: T001
     ./posthog/api/capture.py: T001
     ./posthog/apps.py: T001

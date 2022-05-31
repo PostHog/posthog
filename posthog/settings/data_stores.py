@@ -126,6 +126,8 @@ KAFKA_SASL_MECHANISM = os.getenv("KAFKA_SASL_MECHANISM", None)
 KAFKA_SASL_USER = os.getenv("KAFKA_SASL_USER", None)
 KAFKA_SASL_PASSWORD = os.getenv("KAFKA_SASL_PASSWORD", None)
 
+KAFKA_DEFAULT_TOPIC_REPLICATION_FACTOR = os.getenv("KAFKA_DEFAULT_TOPIC_REPLICATION_FACTOR", 1)
+
 # The last case happens when someone upgrades Heroku but doesn't have Redis installed yet. Collectstatic gets called before we can provision Redis.
 if TEST or DEBUG or IS_COLLECT_STATIC:
     REDIS_URL = os.getenv("REDIS_URL", "redis://localhost/")

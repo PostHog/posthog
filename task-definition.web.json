@@ -141,6 +141,10 @@
                 {
                     "name": "OBJECT_STORAGE_ENABLED",
                     "value": "True"
+                },
+                {
+                    "name": "KAFKA_DEFAULT_TOPIC_REPLICATION_FACTOR",
+                    "value": "3"
                 }
             ],
             "secrets": [
