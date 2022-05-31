@@ -1,4 +1,4 @@
-@import '~/vars';
+@import '../../styles/breakpoints';
 @import './bridgePagesShared';
 
 .bridge-page.login {
@@ -8,7 +8,7 @@
         align-items: center;
         justify-content: space-between;
         text-align: center;
-        padding-top: $default_spacing;
+        padding-top: 1rem;
     }
 
     @media screen and (max-width: $sm) {

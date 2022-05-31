@@ -1,8 +1,8 @@
-import { Hub } from '../src/types'
-import { createHub } from '../src/utils/db/hub'
-import { code } from '../src/utils/utils'
-import { transformCode } from '../src/worker/vm/transforms'
-import { resetTestDatabase } from './helpers/sql'
+import { Hub } from '../../src/types'
+import { createHub } from '../../src/utils/db/hub'
+import { code } from '../../src/utils/utils'
+import { transformCode } from '../../src/worker/vm/transforms'
+import { resetTestDatabase } from '../helpers/sql'
 
 describe('transforms', () => {
     let hub: Hub

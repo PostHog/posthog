@@ -220,7 +220,6 @@ export async function createHub(
         kafkaProducer,
         clickhouse,
         statsd,
-        serverConfig.KAFKA_ENABLED,
         serverConfig.PERSON_INFO_CACHE_TTL,
         new Set(serverConfig.PERSON_INFO_TO_REDIS_TEAMS.split(',').filter(String).map(Number))
     )
@@ -294,7 +293,6 @@ export async function createHub(
         }
 
         hub.mmdbUpdateJob?.cancel()
-        await hub.db?.postgresLogsWrapper.flushLogs()
         await hub.jobQueueManager?.disconnectProducer()
         await kafkaProducer.disconnect()
         await redisPool.drain()

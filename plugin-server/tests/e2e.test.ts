@@ -153,9 +153,8 @@ describe('e2e', () => {
             await delayUntilEventIngested(() => hub.db.fetchEvents())
             // :KLUDGE: Force workers to emit their logs, otherwise they might never get cpu time.
             await piscina.broadcastTask({ task: 'flushKafkaMessages' })
-            await delayUntilEventIngested(fetchLogs)
 
-            const pluginLogEntries = await fetchLogs()
+            const pluginLogEntries = await delayUntilEventIngested(fetchLogs)
             expect(pluginLogEntries).toContainEqual(
                 expect.objectContaining({
                     type: 'INFO',
