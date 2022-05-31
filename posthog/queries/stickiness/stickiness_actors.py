@@ -9,6 +9,7 @@ from posthog.queries.stickiness.stickiness_event_query import StickinessEventsQu
 
 
 class StickinessActors(ActorBaseQuery):
+    event_query_class = StickinessEventsQuery
     entity: Entity
     _filter: StickinessFilter
 
@@ -20,7 +21,7 @@ class StickinessActors(ActorBaseQuery):
         return None
 
     def actor_query(self, limit_actors: Optional[bool] = True) -> Tuple[str, Dict]:
-        events_query, event_params = StickinessEventsQuery(
+        events_query, event_params = self.event_query_class(
             entity=self.entity,
             filter=self._filter,
             team=self._team,

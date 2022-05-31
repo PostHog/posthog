@@ -16,7 +16,7 @@ from posthog.utils import encode_get_request_params
 
 class Stickiness:
     event_query_class = StickinessEventsQuery
-    actory_query_class = StickinessActors
+    actor_query_class = StickinessActors
 
     def run(self, filter: StickinessFilter, team: Team, *args, **kwargs) -> List[Dict[str, Any]]:
 
@@ -46,7 +46,7 @@ class Stickiness:
         return self.process_result(counts, filter, entity)
 
     def people(self, target_entity: Entity, filter: StickinessFilter, team: Team, request, *args, **kwargs):
-        _, serialized_actors = self.actory_query_class(entity=target_entity, filter=filter, team=team).get_actors()
+        _, serialized_actors = self.actor_query_class(entity=target_entity, filter=filter, team=team).get_actors()
         return serialized_actors
 
     def process_result(self, counts: List, filter: StickinessFilter, entity: Entity) -> Dict[str, Any]:
