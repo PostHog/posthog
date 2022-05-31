@@ -6,12 +6,12 @@
         margin-bottom: 32px;
         text-align: center;
     }
+
 </style>
 <div class="container">
     <div class="section">
-        {% if heading %}
         <h1 class="mb">{% block heading %}{% endblock %}</h1>
-        {% endif %} {% block section %}{% endblock %}
+        {% block section %}{% endblock %}
     </div>
 </div>
 {% endblock %} {% block footer %}
