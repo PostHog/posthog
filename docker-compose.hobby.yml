@@ -16,6 +16,8 @@ services:
             POSTGRES_PASSWORD: posthog
         ports:
             - '5432:5432'
+        volumes:
+            - postgres-data:/var/lib/postgresql/data
     redis:
         image: redis:6.2.7-alpine
         restart: on-failure
@@ -151,3 +153,4 @@ volumes:
     zookeeper-datalog:
     zookeeper-logs:
     object_storage:
+    postgres-data:
