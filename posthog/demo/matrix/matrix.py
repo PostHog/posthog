@@ -132,7 +132,7 @@ class Matrix(ABC):
     person_model: Type[SimPerson]
     cluster_model: Type[Cluster]
 
-    event_names: Set[str]
+    event_names: Dict[str, Tuple[timezone.datetime, timezone.datetime]]
     property_names: Set[str]
     event_property_pairs: Set[Tuple[str, str]]
 
@@ -173,7 +173,7 @@ class Matrix(ABC):
         self.groups = defaultdict(lambda: defaultdict(dict))
         self.clusters = [self.cluster_model(index=i, matrix=self) for i in range(n_clusters)]
         self.simulation_complete = None
-        self.event_names = set()
+        self.event_names = {}
         self.property_names = set()
         self.event_property_pairs = set()
 
@@ -194,8 +194,8 @@ class Matrix(ABC):
             raise Exception(f"Cannot add group type {group_type} to simulation, limit of {GROUP_TYPES_LIMIT} reached!")
         self.groups[group_type][group_key].update(set_properties)
 
-    def register_event_schema(self, event: str, properties: Iterable[str]):
-        self.event_names.add(event)
+    def register_event_schema(self, event: str, properties: Iterable[str], timestamp: timezone.datetime):
+        self.event_names[event] = (self.event_names[event][0] if event in self.event_names else timestamp, timestamp)
         for property_name in properties:
             self.property_names.add(property_name)
             self.event_property_pairs.add((event, property_name))

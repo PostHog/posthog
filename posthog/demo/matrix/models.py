@@ -195,7 +195,7 @@ class SimPerson(ABC):
         if combined_properties.get("$set"):
             self.properties.update(combined_properties["$set"])
         # Saving
-        self.cluster.matrix.register_event_schema(event, combined_properties.keys())
+        self.cluster.matrix.register_event_schema(event, combined_properties.keys(), self._simulation_time)
         self.events.append(SimEvent(event=event, properties=combined_properties or {}, timestamp=self._simulation_time))
 
     def _capture_pageview(

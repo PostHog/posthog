@@ -117,8 +117,8 @@ class MatrixManager:
         print(f"[DEMO] Saved (bulk part) {len(persons_to_bulk_save)} people in {time.time() - bulk_time:.2f} s")
         EventDefinition.objects.bulk_create(
             (
-                EventDefinition(team=team, name=event_definition, created_at=matrix.start)
-                for event_definition in matrix.event_names
+                EventDefinition(team=team, name=event_definition, created_at=first_seen_at, last_seen_at=last_seen_at)
+                for event_definition, (first_seen_at, last_seen_at) in matrix.event_names.items()
             )
         )
         PropertyDefinition.objects.bulk_create(
