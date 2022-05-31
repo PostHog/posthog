@@ -221,11 +221,11 @@ export function Signup(): JSX.Element | null {
                                     By {!preflight?.demo ? 'creating an account' : 'entering the demo environment'}, you
                                     agree to our{' '}
                                     <a href={`https://posthog.com/terms?${UTM_TAGS}`} target="_blank" rel="noopener">
-                                        Terms of Service
+                                        Terms of Service
                                     </a>{' '}
                                     and{' '}
                                     <a href={`https://posthog.com/privacy?${UTM_TAGS}`} target="_blank" rel="noopener">
-                                        Privacy Policy
+                                        Privacy Policy
                                     </a>
                                     .
                                 </Form.Item>
