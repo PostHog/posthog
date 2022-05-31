@@ -135,6 +135,18 @@
                 {
                     "name": "OBJECT_STORAGE_ENABLED",
                     "value": "True"
+                },
+                {
+                    "name": "CHROME_BIN",
+                    "value": "/usr/bin/chromium-browser"
+                },
+                {
+                    "name": "CHROME_PATH",
+                    "value": "/usr/lib/chromium/"
+                },
+                {
+                    "name": "CHROMEDRIVER_BIN",
+                    "value": "/usr/bin/chromedriver"
                 }
             ],
             "secrets": [
