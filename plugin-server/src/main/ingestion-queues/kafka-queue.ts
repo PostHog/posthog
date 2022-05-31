@@ -110,7 +110,8 @@ export class KafkaQueue {
                         if (
                             error.message &&
                             !error.message.includes('The group is rebalancing, so a rejoin is needed') &&
-                            !error.message.includes('Specified group generation id is not valid')
+                            !error.message.includes('Specified group generation id is not valid') &&
+                            !error.message.includes('Could not find person with distinct id')
                         ) {
                             Sentry.captureException(error)
                         }
