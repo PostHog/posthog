@@ -1,5 +1,3 @@
-@import '~/vars';
-
 .events {
     .events-table-button-clear {
         padding: 0 4px;
@@ -7,7 +5,7 @@
         &:hover,
         &:focus,
         &.visible {
-            border: 1px solid $primary;
+            border: 1px solid var(--primary);
         }
     }
     .event-row-new {
@@ -22,7 +20,7 @@
         text-align: center;
     }
     .event-row-is-exception {
-        background-color: lighten($danger, 40%);
+        background-color: var(--depr-lighten-danger-40);
     }
     td {
         max-width: 20rem;

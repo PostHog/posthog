@@ -1,8 +1,6 @@
-@import '~/vars';
-
 .not-found-component {
     text-align: center;
-    margin-top: $default_spacing * 2;
+    margin-top: 2rem;
     .graphic {
         background: url('../../../../public/not-found-rocket.svg') no-repeat center center;
         height: 270px;

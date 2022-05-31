@@ -1,5 +1,3 @@
-@import '~/vars';
-
 .plugins-scene {
     padding-bottom: 60px;
 }
@@ -81,7 +79,7 @@
 }
 
 .plugins-popconfirm {
-    z-index: $z_plugins-popconfirm;
+    z-index: var(--z-plugins-popconfirm);
 }
 
 .plugin-job-json-editor {
@@ -90,7 +88,7 @@
 }
 
 .plugin-run-job-button {
-    color: $success;
+    color: var(--success);
     cursor: pointer;
 }
 

@@ -1,7 +1,5 @@
-@import '~/vars';
-
 .palette__overlay {
-    z-index: $z_command_palette;
+    z-index: var(--z-command-palette);
     position: fixed;
     top: 0;
     left: 0;
@@ -21,9 +19,9 @@
     width: 36rem;
     max-width: 100%;
     max-height: 60%;
-    color: $text_light;
-    border-radius: $radius;
-    background-color: $bg_menu;
+    color: var(--text-light);
+    border-radius: var(--radius);
+    background-color: var(--bg-menu);
     overflow: hidden;
 
     @media (max-width: 500px) {
@@ -85,7 +83,7 @@
 }
 
 .palette__result--focused {
-    background: darken($bg_menu, 10%);
+    background: var(--depr-darken-bg_menu-10);
     &::before,
     &::after {
         content: '';
@@ -106,7 +104,7 @@
 .palette__result--executable {
     cursor: pointer;
     &::after {
-        background: $primary;
+        background: var(--primary);
     }
 }
 

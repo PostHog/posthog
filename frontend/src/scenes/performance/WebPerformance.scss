@@ -1,5 +1,3 @@
-@import '~/vars';
-
 .performance-popup {
     max-width: 400px;
 }
@@ -23,20 +21,20 @@
     padding-right: 3em;
 
     .control-row {
-        padding-bottom: $default_spacing;
-        padding-top: $default_spacing;
-        min-height: $default_spacing * 4;
+        padding-bottom: 1rem;
+        padding-top: 1rem;
+        min-height: 4rem;
         border-top: solid 1px var(--border);
     }
 
     tr.current-event {
-        background-color: $mark_color;
+        background-color: var(--mark-color);
     }
 
     .chart-title {
         display: flex;
         width: 100%;
-        padding-top: $default_spacing;
+        padding-top: 1rem;
 
         .property-key-info-logo {
             vertical-align: baseline;

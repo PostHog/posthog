@@ -1,5 +1,3 @@
-@import '~/vars';
-
 .flags-button-window {
     width: min(350px, 100vw);
 }
@@ -43,8 +41,8 @@
             border-left: 2px solid #fafafa;
 
             .ant-radio-wrapper-checked {
-                background-color: $primary_hover;
-                border-radius: $radius;
+                background-color: var(--primary-hover);
+                border-radius: var(--radius);
             }
 
             .ant-radio-wrapper-checked > span {

@@ -1,13 +1,13 @@
-@import '~/vars';
+@import '../../../styles/breakpoints';
 
 .player-events-container {
     display: flex;
     flex-direction: column;
-    background-color: $bg_light;
+    background-color: var(--bg-light);
     height: 100%;
-    border: 1px solid $border;
-    border-radius: $radius;
-    padding: $recording_spacing;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: var(--recording-spacing);
 
     @media (max-width: $md) {
         height: 100vh;
@@ -15,7 +15,7 @@
 
     .event-list {
         flex: 1;
-        margin-top: $recording_spacing;
+        margin-top: var(--recording-spacing);
 
         .event-list-empty-container {
             display: flex;
@@ -37,8 +37,8 @@
             left: 0;
             right: 0;
             height: 0;
-            background-color: $recording_hover_event;
-            border-radius: $radius;
+            background-color: var(--recording-hover-event);
+            border-radius: var(--radius);
             z-index: 0;
         }
 
@@ -47,7 +47,7 @@
             flex-direction: row;
             justify-content: space-around;
             position: absolute;
-            top: $recording_spacing;
+            top: var(--recording-spacing);
             left: 50%;
             transform: translateX(-50%);
             height: 35px;
@@ -66,28 +66,28 @@
             .left {
                 cursor: pointer;
                 flex: 1;
-                background-color: $primary;
+                background-color: var(--primary);
 
                 &:hover {
-                    background-color: lighten($primary, 10%);
+                    background-color: var(--depr-lighten-primary-10);
                 }
 
                 span.anticon {
-                    margin: 0 $recording_spacing 0 $default_spacing;
+                    margin: 0 var(--recording-spacing) 0 1rem;
                 }
             }
 
             .right {
                 cursor: pointer;
-                width: calc(35px + #{$recording_spacing} / 4);
-                background-color: lighten($primary, 5%);
+                width: calc(35px + var(--recording-spacing) / 4);
+                background-color: var(--depr-lighten-primary-5);
 
                 &:hover {
-                    background-color: lighten($primary, 15%);
+                    background-color: var(--depr-lighten-primary-15);
                 }
 
                 span.anticon {
-                    margin-right: $recording_spacing / 4;
+                    margin-right: calc(var(--recording-spacing) / 4);
                 }
             }
         }
@@ -97,19 +97,19 @@
         }
 
         .event-list-item {
-            padding: $recording_spacing;
+            padding: var(--recording-spacing);
             cursor: pointer;
-            border-radius: $radius;
+            border-radius: var(--radius);
 
             &:hover,
             &.current-event {
                 .event-item-icon {
                     .event-item-icon-wrapper {
-                        background-color: $recording_hover_event_dark;
+                        background-color: var(--recording-hover-event-dark);
 
                         svg {
                             path {
-                                fill: $bg_light;
+                                fill: var(--bg-light);
                             }
                         }
                     }
@@ -117,24 +117,24 @@
             }
 
             &:hover {
-                background-color: $recording_hover_event;
+                background-color: var(--recording-hover-event);
             }
 
             &.current-event:hover {
-                background-color: $recording_hover_event_mid;
+                background-color: var(--recording-hover-event-mid);
             }
 
             .event-item-icon {
                 display: flex;
-                margin-right: $recording_spacing;
+                margin-right: var(--recording-spacing);
 
                 .event-item-icon-wrapper {
                     display: flex;
                     justify-content: center;
                     align-items: center;
                     transition: background-color 100ms;
-                    background-color: $bg_mid;
-                    border-radius: $radius;
+                    background-color: var(--bg-mid);
+                    border-radius: var(--radius);
                     height: 44px;
                     width: 44px;
 
@@ -144,7 +144,7 @@
 
                         path {
                             transition: fill 100ms;
-                            fill: $bg_depth;
+                            fill: var(--bg-depth);
                         }
                     }
                 }
@@ -157,11 +157,11 @@
                 min-width: 0;
 
                 &.out-of-band-event {
-                    color: $text_muted;
+                    color: var(--text-muted);
                 }
 
                 .out-of-band-event-tooltip {
-                    color: $text_default;
+                    color: var(--text-default);
                 }
 
                 .event-item-content-top-row {
@@ -170,7 +170,7 @@
 
                     .event-item-content-title {
                         font-weight: 600;
-                        padding-right: $recording_spacing / 2;
+                        padding-right: calc(var(--recording-spacing) / 2);
                     }
                 }
 
@@ -193,7 +193,7 @@
                             padding: 1px 2px;
                             top: -1px;
                             left: -2px;
-                            border-radius: $radius;
+                            border-radius: var(--radius);
                         }
                     }
                 }

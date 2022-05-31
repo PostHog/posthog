@@ -2827,10 +2827,10 @@
     chartjs-color "^2.1.0"
     moment "^2.10.2"
 
-"@posthog/plugin-scaffold@1.0.1":
-  version "1.0.1"
-  resolved "https://registry.yarnpkg.com/@posthog/plugin-scaffold/-/plugin-scaffold-1.0.1.tgz#0a4e6096097f335625044a5167a52713562e808d"
-  integrity sha512-m9pgr+RqZW/ZYI5dz3YHTbMT4WT7iY6A3UgdCBg4C3c3p0A1XjG3MeSKMZPzqyGKVLcpZkNGO/zB2aunKmCoIw==
+"@posthog/plugin-scaffold@1.0.2":
+  version "1.0.2"
+  resolved "https://registry.yarnpkg.com/@posthog/plugin-scaffold/-/plugin-scaffold-1.0.2.tgz#2ef63bb87267b2c6d18ed60f0b42f88bdc48d520"
+  integrity sha512-BSe0IkfV+a9BqduUBzvV8Zzbpt/hQtS15MMEPHC/V24oH1feZQSvlAW/Bm1A6+kTv6PehumTOJaVuuXybiXmVw==
   dependencies:
     "@maxmind/geoip2-node" "^3.0.0"
 
@@ -4357,20 +4357,10 @@
   resolved "https://registry.yarnpkg.com/@types/node/-/node-14.14.6.tgz#146d3da57b3c636cc0d1769396ce1cfa8991147f"
   integrity sha512-6QlRuqsQ/Ox/aJEQWBEJG7A9+u7oSYl3mem/K8IzxXG/kAGbV1YPD9Bg9Zw3vyxC/YP+zONKwy8hGkSt1jxFMw==
 
-"@types/node@16.10.4":
-  version "16.10.4"
-  resolved "https://registry.yarnpkg.com/@types/node/-/node-16.10.4.tgz#592f12b0b5f357533ddc3310b0176d42ea3e45d1"
-  integrity sha512-EITwVTX5B4nDjXjGeQAfXOrm+Jn+qNjDmyDRtWoD+wZsl/RDPRTFRKivs4Mt74iOFlLOrE5+Kf+p5yjyhm3+cA==
-
 "@types/node@^14.0.10":
   version "14.17.11"
   resolved "https://registry.yarnpkg.com/@types/node/-/node-14.17.11.tgz#82d266d657aec5ff01ca59f2ffaff1bb43f7bf0f"
   integrity sha512-n2OQ+0Bz6WEsUjrvcHD1xZ8K+Kgo4cn9/w94s1bJS690QMUWfJPW/m7CCb7gPkA1fcYwL2UpjXP/rq/Eo41m6w==
-
-"@types/node@^15.9.0":
-  version "15.14.9"
-  resolved "https://registry.yarnpkg.com/@types/node/-/node-15.14.9.tgz#bc43c990c3c9be7281868bbc7b8fdd6e2b57adfa"
-  integrity sha512-qjd88DrCxupx/kJD5yQgZdcYKZKSIGBVDIBE1/LTGcNm3d2Np/jxojkdePDdfnBHJc5W7vSMpbJ1aB7p/Py69A==
 
 "@types/normalize-package-data@^2.4.0":
   version "2.4.0"
@@ -4489,11 +4479,6 @@
   dependencies:
     "@types/prop-types" "*"
     csstype "^3.0.2"
-
-"@types/resolve@1.20.1":
-  version "1.20.1"
-  resolved "https://registry.yarnpkg.com/@types/resolve/-/resolve-1.20.1.tgz#3727e48042fda81e374f5d5cf2fa92288bf698f8"
-  integrity sha512-Ku5+GPFa12S3W26Uwtw+xyrtIpaZsGYHH6zxNbZlstmlvMYSZRzOwzwsXbxlVUbHyUucctSyuFtu6bNxwYomIw==
 
 "@types/set-cookie-parser@^2.4.0":
   version "2.4.1"
@@ -7017,13 +7002,6 @@ cross-spawn@^7.0.0, cross-spawn@^7.0.2, cross-spawn@^7.0.3:
     path-key "^3.1.0"
     shebang-command "^2.0.0"
     which "^2.0.1"
-
-crosspath@0.0.9:
-  version "0.0.9"
-  resolved "https://registry.yarnpkg.com/crosspath/-/crosspath-0.0.9.tgz#2ac42b39b3b83eeb25851a4058ccd0722baea520"
-  integrity sha512-lhDiWhqHk1IQ0BiGN9/Ji7qEr9LwCG8taDCTgihII/6b91my+GvTNXDB7eKh/FySz488tkt2IboqBJTSZtc4Fw==
-  dependencies:
-    "@types/node" "^15.9.0"
 
 crypt@0.0.2:
   version "0.0.2"
@@ -12180,7 +12158,7 @@ minimalistic-crypto-utils@^1.0.0, minimalistic-crypto-utils@^1.0.1:
   resolved "https://registry.yarnpkg.com/minimalistic-crypto-utils/-/minimalistic-crypto-utils-1.0.1.tgz#f6c00c1c0b082246e5c4d99dfb8c7c083b2b582a"
   integrity sha1-9sAMHAsIIkblxNmd+4x8CDsrWCo=
 
-minimatch@3.0.4, minimatch@^3.0.2, minimatch@^3.0.4:
+minimatch@^3.0.2, minimatch@^3.0.4:
   version "3.0.4"
   resolved "https://registry.yarnpkg.com/minimatch/-/minimatch-3.0.4.tgz#5166e286457f03306064be5497e8dbb0c3d32083"
   integrity sha512-yJHVQEhyqPLUTgt9B83PXu6W3rx4MvvHvSUvToogpwoGDOUQ+yDrR0HRot+yOCdCO7u4hX3pWft6kWBBcqh0UA==
@@ -13180,6 +13158,13 @@ pirates@^4.0.0, pirates@^4.0.1:
   dependencies:
     node-modules-regexp "^1.0.0"
 
+pixelmatch@^5.3.0:
+  version "5.3.0"
+  resolved "https://registry.yarnpkg.com/pixelmatch/-/pixelmatch-5.3.0.tgz#5e5321a7abedfb7962d60dbf345deda87cb9560a"
+  integrity sha512-o8mkY4E/+LNUf6LzX96ht6k6CEDi65k9G2rjMtBe9Oo+VPKSvl+0GKHuH/AlG+GA5LPG/i5hrekkxUc3s2HU+Q==
+  dependencies:
+    pngjs "^6.0.0"
+
 pkg-dir@^3.0.0:
   version "3.0.0"
   resolved "https://registry.yarnpkg.com/pkg-dir/-/pkg-dir-3.0.0.tgz#2749020f239ed990881b1f71210d51eb6523bea3"
@@ -13207,6 +13192,11 @@ please-upgrade-node@^3.2.0:
   integrity sha512-gQR3WpIgNIKwBMVLkpMUeR3e1/E1y42bqDQZfql+kDeXd8COYfM8PQA4X6y7a8u9Ua9FHmsrrmirW2vHs45hWg==
   dependencies:
     semver-compare "^1.0.0"
+
+pngjs@^6.0.0:
+  version "6.0.0"
+  resolved "https://registry.yarnpkg.com/pngjs/-/pngjs-6.0.0.tgz#ca9e5d2aa48db0228a52c419c3308e87720da821"
+  integrity sha512-TRzzuFRRmEoSW/p1KVAmiOgPco2Irlah+bGFCeNfJXxxYGwSw7YwAOAcd7X28K/m5bjBWKsC29KyoMfHbypayg==
 
 pnp-webpack-plugin@1.6.4:
   version "1.6.4"
@@ -13595,10 +13585,10 @@ posthog-js-lite@^0.0.3:
   resolved "https://registry.yarnpkg.com/posthog-js-lite/-/posthog-js-lite-0.0.3.tgz#87e373706227a849c4e7c6b0cb2066a64ad5b6ed"
   integrity sha512-wEOs8DEjlFBwgd7l19grosaF7mTlliZ9G9pL0Qji189FDg2ukY5IegUxTyTs7gsTGt6WK9W47BF5yXA5+bwvZg==
 
-posthog-js@1.21.1:
-  version "1.21.1"
-  resolved "https://registry.yarnpkg.com/posthog-js/-/posthog-js-1.21.1.tgz#3f4242c2832b7fc80b4a177b0d0e1b71da2b8272"
-  integrity sha512-/mf0ezl9DAZp0LA0fupNvII/O0/1IWqsDiLma5oKHpGqyhFA2ObRENxiZvdSt+UFvcXtoieDsW5SoDPZMFvWgA==
+posthog-js@1.22.0:
+  version "1.22.0"
+  resolved "https://registry.yarnpkg.com/posthog-js/-/posthog-js-1.22.0.tgz#7cab894e9b1518737903008e188f1163240932c6"
+  integrity sha512-R0bCIDsh2PdTDTJjTicfDu9CLCcELDhaYsPE09yspIefVjDjzs+XbO8S4ERrgvwTO9jUejC8gQ3JAlcsOfznlA==
   dependencies:
     "@sentry/types" "^6.11.0"
     fflate "^0.4.1"
@@ -15302,17 +15292,6 @@ sane@^4.0.3:
     micromatch "^3.1.4"
     minimist "^1.1.1"
     walker "~1.0.5"
-
-sass-extended-importer@^0.4.2:
-  version "0.4.2"
-  resolved "https://registry.yarnpkg.com/sass-extended-importer/-/sass-extended-importer-0.4.2.tgz#58f86b8118d0739ba6e60797fa4f2744b6e0b3ee"
-  integrity sha512-3e9+iVB1vvoGS6ohq7OG2MiYvcwESkZqwV8g0uCDGvHeTt4kEt0E/T8eav18J03fvNFK1/mV47592E1tx1izgQ==
-  dependencies:
-    "@types/node" "16.10.4"
-    "@types/resolve" "1.20.1"
-    crosspath "0.0.9"
-    minimatch "3.0.4"
-    resolve "^1.20.0"
 
 sass-loader@^10.0.1:
   version "10.1.0"

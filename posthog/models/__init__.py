@@ -12,6 +12,7 @@ from .event import Event
 from .event_definition import EventDefinition
 from .event_property import EventProperty
 from .experiment import Experiment
+from .exported_asset import ExportedAsset
 from .feature_flag import FeatureFlag
 from .filters import Filter, RetentionFilter
 from .group import Group
@@ -23,7 +24,7 @@ from .organization import Organization, OrganizationInvite, OrganizationMembersh
 from .organization_domain import OrganizationDomain
 from .person import Person, PersonDistinctId
 from .personal_api_key import PersonalAPIKey
-from .plugin import Plugin, PluginAttachment, PluginConfig, PluginLogEntry, PluginSourceFile
+from .plugin import Plugin, PluginAttachment, PluginConfig, PluginSourceFile
 from .property import Property
 from .property_definition import PropertyDefinition
 from .session_recording_event import SessionRecordingEvent
@@ -51,6 +52,7 @@ __all__ = [
     "EventDefinition",
     "EventProperty",
     "Experiment",
+    "ExportedAsset",
     "FeatureFlag",
     "Filter",
     "Group",

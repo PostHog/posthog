@@ -20,7 +20,7 @@
        AND ((isNull(replaceRegexpAll(JSONExtractRaw(group_properties_0, 'out'), '^"|"$', ''))
              OR NOT JSONHas(group_properties_0, 'out')))
      GROUP BY value
-     ORDER BY count DESC
+     ORDER BY count DESC, value DESC
      LIMIT 5
      OFFSET 0)
   '
@@ -47,7 +47,7 @@
        AND ((isNull(replaceRegexpAll(JSONExtractRaw(group_properties_0, 'out'), '^"|"$', ''))
              OR NOT JSONHas(group_properties_0, 'out')))
      GROUP BY value
-     ORDER BY count DESC
+     ORDER BY count DESC, value DESC
      LIMIT 5
      OFFSET 0)
   '
@@ -79,7 +79,7 @@
        AND timestamp >= toDateTime('2019-12-21 00:00:00')
        AND timestamp <= toDateTime('2020-01-04 23:59:59')
      GROUP BY value
-     ORDER BY count DESC
+     ORDER BY count DESC, value DESC
      LIMIT 5
      OFFSET 0)
   '
@@ -111,7 +111,7 @@
        AND timestamp >= toDateTime('2019-12-21 00:00:00')
        AND timestamp <= toDateTime('2020-01-04 23:59:59')
      GROUP BY value
-     ORDER BY count DESC
+     ORDER BY count DESC, value DESC
      LIMIT 5
      OFFSET 0)
   '
@@ -146,7 +146,7 @@
        AND ((has(['test2'], replaceRegexpAll(JSONExtractRaw(person_props, '$os'), '^"|"$', ''))
              OR has(['val'], replaceRegexpAll(JSONExtractRaw(e.properties, 'key'), '^"|"$', ''))))
      GROUP BY value
-     ORDER BY count DESC
+     ORDER BY count DESC, value DESC
      LIMIT 5
      OFFSET 0)
   '

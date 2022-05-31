@@ -83,6 +83,7 @@ services:
             PGHOST: db
             PGUSER: posthog
             PGPASSWORD: posthog
+            SITE_URL: http://web:8000
         depends_on:
             - db
             - redis
@@ -106,7 +107,6 @@ services:
             - .:/code
         environment:
             DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
-            KAFKA_ENABLED: 'true'
             KAFKA_HOSTS: 'kafka:9092'
             REDIS_URL: 'redis://redis:6379/'
             CLICKHOUSE_HOST: 'clickhouse'

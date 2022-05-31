@@ -1,5 +1,3 @@
-@import '~/vars';
-
 .property-names-select-container {
     // Make sure we can absolutely position the popover
     position: relative;
@@ -20,12 +18,12 @@
         background: #ffffff;
         /* main/primary */
 
-        border: 1px solid $border;
+        border: 1px solid var(--border);
         border-radius: 4px;
 
         .checkbox-icon {
             font-size: 18px;
-            color: $primary;
+            color: var(--primary);
         }
 
         .selection-status-text {
@@ -36,8 +34,8 @@
         &:hover {
             cursor: pointer;
             .dropdown-icon {
-                border-radius: $radius;
-                background-color: $primary_hover;
+                border-radius: var(--radius);
+                background-color: var(--primary-hover);
             }
         }
 
@@ -45,7 +43,7 @@
             font-size: 1.5em;
             line-height: 0;
             margin-left: 4px;
-            color: $primary_alt;
+            color: var(--primary-alt);
         }
     }
 
@@ -67,9 +65,9 @@
         background: #ffffff;
         /* main/primary */
 
-        border: 1px solid $primary;
+        border: 1px solid var(--primary);
         box-shadow: 0px 4px 4px rgba(0, 0, 0, 0.25);
-        border-radius: $radius;
+        border-radius: var(--radius);
 
         .search-box {
             padding: 8px;
@@ -79,12 +77,12 @@
             background: #ffffff;
             /* border/default */
 
-            border: 1px solid $border;
+            border: 1px solid var(--border);
             box-sizing: border-box;
-            border-radius: $radius;
+            border-radius: var(--radius);
 
             &:focus-within {
-                border-color: $primary;
+                border-color: var(--primary);
             }
         }
 
@@ -101,10 +99,10 @@
                 width: 100%;
 
                 background: #ffffff;
-                border-radius: $radius;
+                border-radius: var(--radius);
 
                 &.checked {
-                    background: $primary_hover;
+                    background: var(--primary-hover);
                 }
             }
 
@@ -113,7 +111,7 @@
                 text-align: center;
                 font-size: 14px;
                 line-height: 24px;
-                color: $text_default;
+                color: var(--text-default);
                 margin: 1em 4px;
             }
         }

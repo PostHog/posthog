@@ -6,7 +6,7 @@ import { FunnelTab, PathTab, RetentionTab, TrendTab } from './InsightTabs'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { insightLogic } from './insightLogic'
 import { insightCommandLogic } from './insightCommandLogic'
-import { ItemMode, InsightType, AvailableFeature, InsightShortId } from '~/types'
+import { ItemMode, InsightType, AvailableFeature, InsightShortId, InsightModel } from '~/types'
 import { NPSPrompt } from 'lib/experimental/NPSPrompt'
 import { SaveCohortModal } from 'scenes/trends/SaveCohortModal'
 import { personsModalLogic } from 'scenes/trends/personsModalLogic'
@@ -33,11 +33,21 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import useBreakpoint from 'antd/lib/grid/hooks/useBreakpoint'
 import { CSSTransition } from 'react-transition-group'
 import { EditorFilters } from './EditorFilters/EditorFilters'
+import { ExportButton } from 'lib/components/ExportButton/ExportButton'
+import { More } from 'lib/components/LemonButton/More'
+import { LemonDivider } from 'lib/components/LemonDivider'
+import { deleteWithUndo } from 'lib/utils'
+import { teamLogic } from 'scenes/teamLogic'
+import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
+import { router } from 'kea-router'
+import { urls } from 'scenes/urls'
 
 export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): JSX.Element {
     const { insightMode } = useValues(insightSceneLogic)
     const { setInsightMode, syncInsightChanged } = useActions(insightSceneLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+    const { currentTeamId } = useValues(teamLogic)
+    const { push } = useActions(router)
 
     const logic = insightLogic({ dashboardItemId: insightId || 'new' })
     const {
@@ -55,6 +65,8 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
     useMountedLogic(insightCommandLogic(insightProps))
     const { saveInsight, setInsightMetadata, saveAs, cancelChanges, reportInsightViewedForRecentInsights } =
         useActions(logic)
+    const { duplicateInsight, loadInsights } = useActions(savedInsightsLogic)
+
     const { hasAvailableFeature } = useValues(userLogic)
     const { cohortModalVisible } = useValues(personsModalLogic)
     const { saveCohortWithUrl, setCohortModalVisible } = useActions(personsModalLogic)
@@ -68,6 +80,7 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
 
     const screens = useBreakpoint()
     const usingEditorPanels = featureFlags[FEATURE_FLAGS.INSIGHT_EDITOR_PANELS]
+    const usingExportFeature = featureFlags[FEATURE_FLAGS.EXPORT_DASHBOARD_INSIGHTS]
 
     useUnloadConfirmation(insightMode === ItemMode.Edit && insightChanged)
 
@@ -121,7 +134,49 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                     />
                 }
                 buttons={
-                    <div className="insights-tab-actions">
+                    <div className="space-between-items items-center gap-05">
+                        {insightMode === ItemMode.View && (
+                            <>
+                                <More
+                                    overlay={
+                                        <>
+                                            {usingExportFeature && insight.short_id && (
+                                                <>
+                                                    <ExportButton insightShortId={insight.short_id} fullWidth />
+                                                    <LemonDivider />
+                                                </>
+                                            )}
+                                            <LemonButton
+                                                type="stealth"
+                                                onClick={() => duplicateInsight(insight as InsightModel, true)}
+                                                fullWidth
+                                            >
+                                                Duplicate
+                                            </LemonButton>
+                                            <LemonDivider />
+                                            <LemonButton
+                                                type="stealth"
+                                                status="danger"
+                                                onClick={() =>
+                                                    deleteWithUndo({
+                                                        object: insight,
+                                                        endpoint: `projects/${currentTeamId}/insights`,
+                                                        callback: () => {
+                                                            loadInsights()
+                                                            push(urls.savedInsights())
+                                                        },
+                                                    })
+                                                }
+                                                fullWidth
+                                            >
+                                                Delete insight
+                                            </LemonButton>
+                                        </>
+                                    }
+                                />
+                                <LemonDivider vertical />
+                            </>
+                        )}
                         {insightMode === ItemMode.Edit && insight.saved && (
                             <LemonButton type="secondary" onClick={() => cancelChanges(true)}>
                                 Cancel
@@ -134,7 +189,6 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                             canEditInsight && (
                                 <LemonButton
                                     type="primary"
-                                    style={{ marginLeft: 8 }}
                                     onClick={() => setInsightMode(ItemMode.Edit, null)}
                                     data-attr="insight-edit-button"
                                 >

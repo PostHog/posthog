@@ -1,8 +1,3 @@
-/*
-    This module allows us to **use** feature flags in PostHog.
-
-    Use this instead of `window.posthog.isFeatureEnabled('feature')`
-*/
 import { kea } from 'kea'
 import type { featureFlagLogicType } from './featureFlagLogicType'
 import posthog from 'posthog-js'
