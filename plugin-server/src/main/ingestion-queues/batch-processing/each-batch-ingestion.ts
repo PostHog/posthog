@@ -29,8 +29,7 @@ export async function eachBatchIngestion(payload: EachBatchPayload, queue: Kafka
         const batches = []
         const seenIds: Set<string> = new Set()
         let currentBatch: KafkaMessage[] = []
-        for (let i = 0; i < array.length; i += 1) {
-            const message = array[i]
+        for (const message of array) {
             const pluginEvent = getPluginEvent(message)
             const enabledBreakupById = queue.pluginsServer.ingestionBatchBreakupByDistinctIdTeams.has(
                 pluginEvent.team_id
