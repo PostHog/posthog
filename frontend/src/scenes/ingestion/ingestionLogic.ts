@@ -125,13 +125,6 @@ export const ingestionLogic = kea<ingestionLogicType>([
                 return (verify ? 1 : 0) + (framework ? 1 : 0) + (platform ? 1 : 0)
             },
         ],
-        onboarding1: [
-            () => [],
-            (): boolean => {
-                const featFlags = values.featureFlags
-                return featFlags[FEATURE_FLAGS.ONBOARDING_1] === 'test'
-            },
-        ],
         onboardingSidebarEnabled: [
             () => [],
             (): boolean => {
