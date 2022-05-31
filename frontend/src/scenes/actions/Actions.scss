@@ -1,8 +1,6 @@
-@import '~/vars';
-
 // ActionsTable.js
 .tutorial-container {
-    color: $text_muted;
+    color: var(--text-muted);
     margin-top: 32px;
     margin-bottom: 2rem;
     display: flex;
@@ -10,7 +8,7 @@
 .t-element {
     display: flex;
     align-items: flex-start;
-    border-right: 0.75px solid $border;
+    border-right: 0.75px solid var(--border);
     padding-left: 32px;
 
     &:last-of-type {
@@ -80,8 +78,8 @@
 
     .action-step-caption {
         font-size: 0.8em;
-        color: $text_muted;
-        padding-bottom: $default_spacing;
+        color: var(--text-muted);
+        padding-bottom: 1rem;
     }
 
     .remove-wrapper {

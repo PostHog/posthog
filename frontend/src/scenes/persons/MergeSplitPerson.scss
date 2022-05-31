@@ -1,15 +1,14 @@
-@import '~/vars';
 .merge-split-person {
     .activity-header {
-        background-color: $bg_mid;
-        border-top: 1px solid $border;
-        border-bottom: 1px solid $border;
+        background-color: var(--bg-mid);
+        border-top: 1px solid var(--border);
+        border-bottom: 1px solid var(--border);
         margin-left: -24px;
         margin-right: -24px;
         padding: 8px 0;
         display: flex;
         justify-content: center;
-        margin-bottom: $default_spacing;
+        margin-bottom: 1rem;
     }
 
     .ant-modal-header {
@@ -25,14 +24,14 @@
     }
 
     .ant-col {
-        margin-right: $default_spacing;
+        margin-right: 1rem;
     }
 
     // TODO: consider moving this style globally
     code {
-        background-color: $bg_mid;
-        color: $primary-alt;
+        background-color: var(--bg-mid);
+        color: var(--primary-alt);
         padding: 4px 8px;
-        border-radius: $radius;
+        border-radius: var(--radius);
     }
 }

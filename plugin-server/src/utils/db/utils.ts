@@ -186,7 +186,15 @@ export function timeoutGuard(
     }, timeout)
 }
 
-const campaignParams = new Set(['utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term', 'gclid'])
+const campaignParams = new Set([
+    'utm_source',
+    'utm_medium',
+    'utm_campaign',
+    'utm_content',
+    'utm_term',
+    'gclid',
+    'fbclid',
+])
 const initialParams = new Set([
     '$browser',
     '$browser_version',
@@ -261,37 +269,12 @@ export function getFinalPostgresQuery(queryString: string, values: any[]): strin
     return queryString.replace(/\$([0-9]+)/g, (m, v) => JSON.stringify(values[parseInt(v) - 1]))
 }
 
-export function transformPostgresElementsToEventPayloadFormat(
-    rawElements: Record<string, any>[]
-): Record<string, any>[] {
-    const elementTransformations: Record<string, string> = {
-        text: '$el_text',
-        attr_class: 'attr__class',
-        attr_id: 'attr__id',
-        href: 'attr__href',
-    }
-
-    const elements = []
-    for (const element of rawElements) {
-        for (const [key, val] of Object.entries(element)) {
-            if (key in elementTransformations) {
-                element[elementTransformations[key]] = val
-                delete element[key]
-            }
-        }
-        delete element['attributes']
-        elements.push(element)
-    }
-
-    return elements
-}
-
 export function shouldStoreLog(
     pluginLogLevel: PluginLogLevel,
     source: PluginLogEntrySource,
     type: PluginLogEntryType
 ): boolean {
-    if (source === PluginLogEntrySource.System || !pluginLogLevel) {
+    if (source === PluginLogEntrySource.System) {
         return true
     }
 

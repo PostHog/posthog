@@ -51,10 +51,7 @@ export const EventSelect = ({ onChange, selectedEvents, addElement }: EventSelec
 }
 
 const popupLogic = {
-    // eslint-disable-next-line @typescript-eslint/explicit-function-return-type
     toggle: (open: boolean) => !open,
-
-    // eslint-disable-next-line @typescript-eslint/explicit-function-return-type
     hide: () => false,
 }
 

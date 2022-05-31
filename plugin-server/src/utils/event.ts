@@ -1,6 +1,7 @@
 import { ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 
 import { ClickHouseEvent, IngestionEvent } from '../types'
+import { chainToElements } from './db/utils'
 
 export function convertToProcessedPluginEvent(event: IngestionEvent): ProcessedPluginEvent {
     const timestamp = typeof event.timestamp === 'string' ? event.timestamp : event.timestamp.toUTC().toISO()
@@ -27,5 +28,6 @@ export function convertToIngestionEvent(event: ClickHouseEvent): IngestionEvent 
         distinctId: event.distinct_id,
         properties: event.properties,
         timestamp: event.timestamp,
+        elementsList: chainToElements(event.elements_chain),
     }
 }

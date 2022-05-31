@@ -1,6 +1,4 @@
 // This file has been DEPRECATED
-@import '~/vars';
-
 .image-showcase-container {
     height: 100%;
     position: relative;
@@ -11,10 +9,10 @@
         bottom: 0;
         left: 0;
         width: 100%;
-        background: $sky;
+        background: linear-gradient(180deg, #373088 0%, #d05783 60.94%, #ffb269 100%);
 
         .the-mountains {
-            z-index: $z_city_background_image;
+            z-index: var(--z-city-background-image);
             position: absolute;
             left: 0;
             right: 0;
@@ -25,8 +23,8 @@
         }
     }
     .main-logo {
-        padding: $default_spacing * 2;
-        z-index: $z_city_background_content;
+        padding: 2rem;
+        z-index: var(--z-city-background-content);
         position: relative;
         img {
             height: 28px;
@@ -38,28 +36,28 @@
     display: flex;
     justify-content: center;
     align-items: center;
-    padding-top: $default_spacing * 2;
+    padding-top: 2rem;
 
     .inner {
         width: 100%;
         max-width: 382px; // 350px + 32px padding
-        padding: $default_spacing;
+        padding: 1rem;
         background-color: white;
-        border-radius: $radius;
+        border-radius: var(--radius);
     }
 }
 
 .ant-alert-error {
     .ant-alert-message {
         font-weight: bold;
-        color: $danger;
+        color: var(--danger);
     }
 }
 
 .mobile-logo {
     display: none;
     padding: 0;
-    padding-bottom: $default_spacing * 2;
+    padding-bottom: 2rem;
 }
 
 @media (max-width: 992px) {

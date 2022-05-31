@@ -102,17 +102,10 @@ export const FEATURE_FLAGS = {
     NEW_INSIGHT_COHORTS: '7569-insight-cohorts', // owner: @EDsCODE
     DATA_MANAGEMENT: 'data-management', // owner: @alexkim205
     INVITE_TEAMMATES_BANNER: 'invite-teammates-prompt', // owner: @marcushyett-ph
-    EXPERIMENTS_SECONDARY_METRICS: 'experiments-secondary-metrics', // owner: @neilkakkar
     DASHBOARD_PERMISSIONS: 'dashboard-permissions', // owner: @Twixes
     SESSION_CONSOLE: 'session-recording-console', // owner: @timgl
-    AND_OR_FILTERING: 'and-or-filtering', // owner: @edscode
     SMOOTHING_INTERVAL: 'smoothing-interval', // owner: @timgl
-    TUNE_RECORDING_SNAPSHOT_LIMIT: 'tune-recording-snapshot-limit', // owner: @rcmarron
     BILLING_LIMIT: 'billing-limit', // owner: @timgl
-    UNIVERSAL_SEARCH: 'universal-search', // owner: @neilkakkar
-    HOMEPAGE_LISTS_EXPERIMENT: 'homepage-lists-experiment', // owner: @rcmarron
-    AUTO_REFRESH_DASHBOARDS: 'auto-refresh-dashboards', // owner: @rcmarron
-    LEMON_FUNNEL_VIZ: 'lemon-funnel-viz', // owner: @Twixes
     KAFKA_INSPECTOR: 'kafka-inspector', // owner: @yakkomajuri
     ONBOARDING_1: 'onboarding-1', // owner: @liyiy
     INSIGHT_EDITOR_PANELS: '8929-insight-editor-panels', // owner: @mariusandra
@@ -121,6 +114,8 @@ export const FEATURE_FLAGS = {
     COHORT_FILTERS: 'cohort-filters', // owner: @edscode
     FRONTEND_APPS: '9618-frontend-apps', // owner: @mariusandra
     PROPERTY_FILTER_ON_DASHBOARD: 'property-filter-on-dashboard', // owner: @edscode
+    EXPORT_DASHBOARD_INSIGHTS: 'export-dashboard-insights', // owner: @benjackwhite
+    ONBOARDING_1_5: 'onboarding-1_5', // owner: @liyiy
 }
 
 /** Which self-hosted plan's features are available with Cloud's "Standard" plan (aka card attached). */
@@ -167,11 +162,11 @@ export enum CohortTypeEnum {
  */
 export const MOCK_NODE_PROCESS = { cwd: () => '', env: {} } as unknown as NodeJS.Process
 
-export const SSOProviderNames: Record<SSOProviders, string> = {
+export const SSO_PROVIDER_NAMES: Record<SSOProviders, string> = {
     'google-oauth2': 'Google',
     github: 'GitHub',
     gitlab: 'GitLab',
-    saml: 'Single sign-on (SAML)',
+    saml: 'single sign-on (SAML)',
 }
 
 // TODO: Support checking minimum plan required for specific feature and highlight the relevant plan in the

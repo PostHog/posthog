@@ -94,7 +94,9 @@ export function createCohortFormData(cohort: CohortType, isNewCohortFilterEnable
             ? {
                   filters: JSON.stringify(
                       cohort.is_static
-                          ? {}
+                          ? {
+                                properties: {},
+                            }
                           : /* Overwrite value with value_property for cases where value is not a behavior enum (i.e., cohort and person filters) */
                             {
                                 properties: {

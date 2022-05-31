@@ -142,34 +142,35 @@ describe('e2e', () => {
         })
 
         test('console logging is persistent', async () => {
-            const logCount = (await hub.db.fetchPluginLogEntries()).length
-            const getLogsSinceStart = async () => (await hub.db.fetchPluginLogEntries()).slice(logCount)
+            const fetchLogs = async () => {
+                const logs = await hub.db.fetchPluginLogEntries()
+                return logs.filter(({ type, source }) => type === 'INFO' && source !== 'SYSTEM')
+            }
 
             await posthog.capture('custom event', { name: 'hehe', uuid: new UUIDT().toString() })
-
             await hub.kafkaProducer.flush()
+
             await delayUntilEventIngested(() => hub.db.fetchEvents())
-            await delayUntilEventIngested(getLogsSinceStart)
+            // :KLUDGE: Force workers to emit their logs, otherwise they might never get cpu time.
+            await piscina.broadcastTask({ task: 'flushKafkaMessages' })
 
-            await delay(2000)
-
-            const pluginLogEntries = await getLogsSinceStart()
-            expect(
-                pluginLogEntries.filter(({ message, type }) => message.includes('amogus') && type === 'INFO').length
-            ).toEqual(1)
+            const pluginLogEntries = await delayUntilEventIngested(fetchLogs)
+            expect(pluginLogEntries).toContainEqual(
+                expect.objectContaining({
+                    type: 'INFO',
+                    message: 'amogus',
+                })
+            )
         })
     })
 
     describe('onAction', () => {
-        const awaitOnActionLogs = async () =>
-            await new Promise((resolve) => {
-                resolve(testConsole.read().filter((log) => log[1] === 'onAction event'))
-            })
+        const getLogs = (): any[] => testConsole.read().filter((log) => log[1] === 'onAction event')
 
         test('onAction receives the action and event', async () => {
             await posthog.capture('onAction event', { foo: 'bar' })
 
-            await delayUntilEventIngested(awaitOnActionLogs as any, 1)
+            await delayUntilEventIngested(() => Promise.resolve(getLogs()), 1)
 
             const log = testConsole.read().filter((log) => log[0] === 'onAction')[0]
 

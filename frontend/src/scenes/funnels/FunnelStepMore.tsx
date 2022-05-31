@@ -1,9 +1,8 @@
 import React from 'react'
-import { FunnelPathType, PathType, InsightType, AvailableFeature } from '~/types'
+import { FunnelPathType, PathType, InsightType } from '~/types'
 import { funnelLogic } from './funnelLogic'
 import { useValues } from 'kea'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { userLogic } from 'scenes/userLogic'
 import { urls } from 'scenes/urls'
 import { More } from 'lib/components/LemonButton/More'
 import { LemonButton } from 'lib/components/LemonButton'
@@ -12,12 +11,6 @@ export function FunnelStepMore({ stepIndex }: { stepIndex: number }): JSX.Elemen
     const { insightProps } = useValues(insightLogic)
     const logic = funnelLogic(insightProps)
     const { propertiesForUrl: filterProps, filters } = useValues(logic)
-    const { user } = useValues(userLogic)
-
-    if (!user?.organization?.available_features?.includes(AvailableFeature.PATHS_ADVANCED)) {
-        // TODO: Consider showing the options but disabled with a prompt to upgrade
-        return null
-    }
 
     // Don't show paths modal if aggregating by groups - paths is user-based!
     if (filters.aggregation_group_type_index != undefined) {

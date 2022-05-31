@@ -1430,10 +1430,11 @@ export enum ItemMode { // todo: consolidate this and dashboardmode
 }
 
 export enum DashboardPlacement {
-    Public = 'public', // When viewing the dashboard publicly via a shareToken
+    Dashboard = 'dashboard', // When on the standard dashboard page
     InternalMetrics = 'internal-metrics', // When embedded in /instance/status
     ProjectHomepage = 'project-homepage', // When embedded on the project homepage
-    Dashboard = 'dashboard', // When on the standard dashboard page
+    Public = 'public', // When viewing the dashboard publicly via a shareToken
+    Export = 'export', // When the dashboard is being exported (alike to being printed)
 }
 
 export enum DashboardMode { // Default mode is null

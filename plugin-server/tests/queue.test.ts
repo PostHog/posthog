@@ -19,7 +19,6 @@ describe('queue', () => {
         beforeEach(async () => {
             ;[hub, closeHub] = await createHub({
                 LOG_LEVEL: LogLevel.Warn,
-                KAFKA_ENABLED: true,
                 KAFKA_HOSTS: process.env.KAFKA_HOSTS || 'kafka:9092',
             })
             piscina = { run: jest.fn() } as any
@@ -39,6 +38,7 @@ describe('queue', () => {
 
         it('handles ingestion being turned off', async () => {
             hub.capabilities.ingestion = false
+            hub.capabilities.processAsyncHandlers = false
 
             const queues = await startQueues(hub, piscina)
 

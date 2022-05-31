@@ -1,46 +1,18 @@
 import { ActivityChange, ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
 import React from 'react'
 import { PersonType } from '~/types'
-import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { PersonHeader } from 'scenes/persons/PersonHeader'
 import { SentenceList } from 'scenes/feature-flags/activityDescriptions'
-
-const isRecord = (candidate?: string | Record<string, any> | boolean): candidate is Record<string, any> =>
-    typeof candidate === 'object'
 
 const personActionsMapping: Record<
     keyof PersonType,
     (item: ActivityLogItem, change?: ActivityChange) => string | JSX.Element | null
 > = {
-    properties: function onChangedProperty(_, change) {
-        const before = change?.before
-        const after = change?.after
-
-        if (!after || !isRecord(after)) {
-            // must always have an after which is a record
-            return null
-        }
-
-        // UI only lets you add properties one at a time,
-        // so this can return the first changed property
-        // there should always and only be one... but it depends on how often the API is used to patch Persons
-        const changedProperties = Object.keys(after).filter((key) => isRecord(before) && !(key in before))
-        if (changedProperties[0]) {
-            return (
-                <>
-                    added property{' '}
-                    <strong>
-                        <PropertyKeyInfo value={changedProperties[0]} />
-                    </strong>{' '}
-                    with value:{' '}
-                    <strong>
-                        {after[changedProperties[0]] === null ? 'null' : String(after[changedProperties[0]])}
-                    </strong>
-                </>
-            )
-        }
-
-        return null
+    properties: function onChangedProperty() {
+        // These API property changes are asynchronous via the plugin server.
+        // So the API doesn't capture changes, as they couldn't be guaranteed.
+        // only report here that a certain user has manually edited properties
+        return <>edited this person's properties</>
     },
     // fields that are excluded on the backend
     id: () => null,

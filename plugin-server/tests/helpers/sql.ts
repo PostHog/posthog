@@ -48,7 +48,6 @@ TRUNCATE TABLE
     posthog_event,
     posthog_pluginstorage,
     posthog_pluginattachment,
-    posthog_pluginlogentry,
     posthog_pluginconfig,
     posthog_plugin,
     posthog_eventdefinition,
