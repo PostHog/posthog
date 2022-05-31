@@ -5,7 +5,7 @@ from django.test.client import Client
 from freezegun.api import freeze_time
 
 from ee.clickhouse.models.group import create_group
-from ee.clickhouse.queries.stickiness.clickhouse_stickiness import ClickhouseStickiness
+from ee.clickhouse.queries.stickiness.stickiness import ClickhouseStickiness
 from ee.clickhouse.test.test_journeys import journeys_for
 from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
 from posthog.api.test.test_stickiness import get_stickiness_time_series_ok, stickiness_test_factory

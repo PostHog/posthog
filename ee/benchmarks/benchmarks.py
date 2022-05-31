@@ -4,7 +4,7 @@ from .helpers import *
 from datetime import timedelta
 from typing import List, Tuple
 from ee.clickhouse.materialized_columns import backfill_materialized_columns, get_materialized_columns, materialize
-from ee.clickhouse.queries.stickiness.clickhouse_stickiness import ClickhouseStickiness
+from ee.clickhouse.queries.stickiness.stickiness import ClickhouseStickiness
 from ee.clickhouse.queries.funnels.funnel_correlation import FunnelCorrelation
 from ee.clickhouse.queries.funnels import ClickhouseFunnel
 from ee.clickhouse.queries.property_values import get_property_values_for_key, get_person_property_values_for_key
