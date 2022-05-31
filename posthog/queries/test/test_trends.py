@@ -1815,19 +1815,6 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                     self.team,
                 )
 
-            with freeze_time("2020-01-04"), override_instance_config("ENABLE_ACTOR_ON_EVENTS_TEAMS", f"{self.team.pk}"):
-                new_query_response = trends().run(
-                    Filter(
-                        data={
-                            "properties": [{"key": "name", "value": "person1", "type": "person",}],
-                            "events": [{"id": "watched movie"}],
-                        }
-                    ),
-                    self.team,
-                )
-
-            self.assertEqual(response, new_query_response)
-
             self.assertEqual(response[0]["labels"][4], "1-Jan-2020")
             self.assertEqual(response[0]["data"][4], 1.0)
             self.assertEqual(response[0]["labels"][5], "2-Jan-2020")

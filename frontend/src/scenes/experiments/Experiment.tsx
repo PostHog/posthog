@@ -25,7 +25,7 @@ import { IconDelete, IconJavascript, IconPlusMini } from 'lib/components/icons'
 import { CaretDownOutlined, ExclamationCircleFilled, InfoCircleOutlined, CloseOutlined } from '@ant-design/icons'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { dayjs } from 'lib/dayjs'
-import { FEATURE_FLAGS, FunnelLayout } from 'lib/constants'
+import { FunnelLayout } from 'lib/constants'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { capitalizeFirstLetter, convertPropertyGroupToProperties, humanFriendlyNumber } from 'lib/utils'
 import { SecondaryMetrics } from './SecondaryMetrics'
@@ -34,7 +34,6 @@ import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { Link } from 'lib/components/Link'
 import { urls } from 'scenes/urls'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ExperimentPreview } from './ExperimentPreview'
 import { ExperimentImplementationDetails } from './ExperimentImplementationDetails'
 import { LemonButton } from 'lib/components/LemonButton'
@@ -91,8 +90,6 @@ export function Experiment(): JSX.Element {
         setExperimentInsightType,
         archiveExperiment,
     } = useActions(experimentLogic)
-
-    const { featureFlags } = useValues(featureFlagLogic)
 
     const [form] = Form.useForm()
 
@@ -533,22 +530,20 @@ export function Experiment(): JSX.Element {
                                                     ]}
                                                 />
                                             )}
-                                            {featureFlags[FEATURE_FLAGS.EXPERIMENTS_SECONDARY_METRICS] && (
-                                                <Col className="secondary-metrics">
-                                                    <div>
-                                                        <b>Secondary metrics</b>
-                                                        <span className="text-muted ml-05">(optional)</span>
-                                                    </div>
-                                                    <div className="text-muted" style={{ marginTop: 4 }}>
-                                                        Use secondary metrics to monitor metrics related to your
-                                                        experiment goal. You can add up to three secondary metrics.{' '}
-                                                    </div>
-                                                    <SecondaryMetrics
-                                                        onMetricsChange={(metrics) => setSecondaryMetrics(metrics)}
-                                                        initialMetrics={parsedSecondaryMetrics}
-                                                    />
-                                                </Col>
-                                            )}
+                                            <Col className="secondary-metrics">
+                                                <div>
+                                                    <b>Secondary metrics</b>
+                                                    <span className="text-muted ml-05">(optional)</span>
+                                                </div>
+                                                <div className="text-muted" style={{ marginTop: 4 }}>
+                                                    Use secondary metrics to monitor metrics related to your experiment
+                                                    goal. You can add up to three secondary metrics.{' '}
+                                                </div>
+                                                <SecondaryMetrics
+                                                    onMetricsChange={(metrics) => setSecondaryMetrics(metrics)}
+                                                    initialMetrics={parsedSecondaryMetrics}
+                                                />
+                                            </Col>
                                         </Col>
                                         <Col span={12} className="pl">
                                             <div className="card-secondary mb">Goal preview</div>
@@ -752,143 +747,118 @@ export function Experiment(): JSX.Element {
                                     )}
                                     {(experimentResults || experimentData.secondary_metrics?.length > 0) && (
                                         <Col className="secondary-progress" span={experimentData?.start_date ? 12 : 24}>
-                                            {featureFlags[FEATURE_FLAGS.EXPERIMENTS_SECONDARY_METRICS] &&
-                                                !!experimentData?.secondary_metrics.length && (
-                                                    <Col className="border-bottom">
-                                                        <Row align="middle" justify="space-between" className="mb-05">
-                                                            <Col
-                                                                className="card-secondary"
-                                                                span={2 * secondaryColumnSpan}
-                                                            >
-                                                                Secondary metrics
-                                                            </Col>
-                                                            {experimentData?.parameters?.feature_flag_variants?.map(
-                                                                (variant, idx) => (
-                                                                    <Col
+                                            {!!experimentData?.secondary_metrics.length && (
+                                                <Col className="border-bottom">
+                                                    <Row align="middle" justify="space-between" className="mb-05">
+                                                        <Col className="card-secondary" span={2 * secondaryColumnSpan}>
+                                                            Secondary metrics
+                                                        </Col>
+                                                        {experimentData?.parameters?.feature_flag_variants?.map(
+                                                            (variant, idx) => (
+                                                                <Col
+                                                                    key={idx}
+                                                                    span={secondaryColumnSpan}
+                                                                    style={{
+                                                                        color: getSeriesColor(
+                                                                            getIndexForVariant(
+                                                                                variant.key,
+                                                                                experimentInsightType
+                                                                            )
+                                                                        ),
+                                                                    }}
+                                                                >
+                                                                    <span className="text-default">
+                                                                        {capitalizeFirstLetter(variant.key)}
+                                                                    </span>
+                                                                </Col>
+                                                            )
+                                                        )}
+                                                    </Row>
+
+                                                    {experimentData.start_date ? (
+                                                        secondaryMetricResultsLoading ? (
+                                                            <Skeleton active paragraph={false} />
+                                                        ) : (
+                                                            <>
+                                                                {experimentData.secondary_metrics.map((metric, idx) => (
+                                                                    <Row
+                                                                        className="border-top"
                                                                         key={idx}
-                                                                        span={secondaryColumnSpan}
+                                                                        justify="space-between"
                                                                         style={{
-                                                                            color: getSeriesColor(
-                                                                                getIndexForVariant(
-                                                                                    variant.key,
-                                                                                    experimentInsightType
-                                                                                )
-                                                                            ),
+                                                                            paddingTop: 8,
+                                                                            paddingBottom: 8,
                                                                         }}
                                                                     >
-                                                                        <span className="text-default">
-                                                                            {capitalizeFirstLetter(variant.key)}
-                                                                        </span>
-                                                                    </Col>
-                                                                )
-                                                            )}
-                                                        </Row>
-
-                                                        {featureFlags[FEATURE_FLAGS.EXPERIMENTS_SECONDARY_METRICS] &&
-                                                            (experimentData.start_date ? (
-                                                                secondaryMetricResultsLoading ? (
-                                                                    <Skeleton active paragraph={false} />
-                                                                ) : (
-                                                                    <>
-                                                                        {experimentData.secondary_metrics.map(
-                                                                            (metric, idx) => (
-                                                                                <Row
-                                                                                    className="border-top"
-                                                                                    key={idx}
-                                                                                    justify="space-between"
-                                                                                    style={{
-                                                                                        paddingTop: 8,
-                                                                                        paddingBottom: 8,
-                                                                                    }}
+                                                                        <Col span={2 * secondaryColumnSpan}>
+                                                                            {capitalizeFirstLetter(metric.name)}
+                                                                        </Col>
+                                                                        {experimentData?.parameters?.feature_flag_variants?.map(
+                                                                            (variant, index) => (
+                                                                                <Col
+                                                                                    key={index}
+                                                                                    span={secondaryColumnSpan}
                                                                                 >
-                                                                                    <Col span={2 * secondaryColumnSpan}>
-                                                                                        {capitalizeFirstLetter(
-                                                                                            metric.name
-                                                                                        )}
-                                                                                    </Col>
-                                                                                    {experimentData?.parameters?.feature_flag_variants?.map(
-                                                                                        (variant, index) => (
-                                                                                            <Col
-                                                                                                key={index}
-                                                                                                span={
-                                                                                                    secondaryColumnSpan
-                                                                                                }
-                                                                                            >
-                                                                                                {secondaryMetricResults?.[
-                                                                                                    idx
-                                                                                                ][variant.key] ? (
-                                                                                                    metric.filters
-                                                                                                        .insight ===
-                                                                                                    InsightType.FUNNELS ? (
-                                                                                                        <>
-                                                                                                            {(
-                                                                                                                secondaryMetricResults?.[
-                                                                                                                    idx
-                                                                                                                ][
-                                                                                                                    variant
-                                                                                                                        .key
-                                                                                                                ] * 100
-                                                                                                            ).toFixed(
-                                                                                                                1
-                                                                                                            )}
-                                                                                                            %
-                                                                                                        </>
-                                                                                                    ) : (
-                                                                                                        <>
-                                                                                                            {humanFriendlyNumber(
-                                                                                                                secondaryMetricResults?.[
-                                                                                                                    idx
-                                                                                                                ][
-                                                                                                                    variant
-                                                                                                                        .key
-                                                                                                                ]
-                                                                                                            )}
-                                                                                                        </>
-                                                                                                    )
-                                                                                                ) : (
-                                                                                                    <>--</>
+                                                                                    {secondaryMetricResults?.[idx][
+                                                                                        variant.key
+                                                                                    ] ? (
+                                                                                        metric.filters.insight ===
+                                                                                        InsightType.FUNNELS ? (
+                                                                                            <>
+                                                                                                {(
+                                                                                                    secondaryMetricResults?.[
+                                                                                                        idx
+                                                                                                    ][variant.key] * 100
+                                                                                                ).toFixed(1)}
+                                                                                                %
+                                                                                            </>
+                                                                                        ) : (
+                                                                                            <>
+                                                                                                {humanFriendlyNumber(
+                                                                                                    secondaryMetricResults?.[
+                                                                                                        idx
+                                                                                                    ][variant.key]
                                                                                                 )}
-                                                                                            </Col>
+                                                                                            </>
                                                                                         )
+                                                                                    ) : (
+                                                                                        <>--</>
                                                                                     )}
-                                                                                </Row>
+                                                                                </Col>
                                                                             )
                                                                         )}
-                                                                    </>
-                                                                )
-                                                            ) : (
-                                                                <>
-                                                                    {experimentData.secondary_metrics.map(
-                                                                        (metric, idx) => (
-                                                                            <Row
-                                                                                className="border-top"
-                                                                                key={idx}
-                                                                                justify="space-between"
-                                                                                style={{
-                                                                                    paddingTop: 8,
-                                                                                    paddingBottom: 8,
-                                                                                }}
-                                                                            >
-                                                                                <Col span={2 * secondaryColumnSpan}>
-                                                                                    {capitalizeFirstLetter(metric.name)}
-                                                                                </Col>
-                                                                                {experimentData?.parameters?.feature_flag_variants?.map(
-                                                                                    (_, index) => (
-                                                                                        <Col
-                                                                                            key={index}
-                                                                                            span={secondaryColumnSpan}
-                                                                                        >
-                                                                                            --
-                                                                                        </Col>
-                                                                                    )
-                                                                                )}
-                                                                            </Row>
+                                                                    </Row>
+                                                                ))}
+                                                            </>
+                                                        )
+                                                    ) : (
+                                                        <>
+                                                            {experimentData.secondary_metrics.map((metric, idx) => (
+                                                                <Row
+                                                                    className="border-top"
+                                                                    key={idx}
+                                                                    justify="space-between"
+                                                                    style={{
+                                                                        paddingTop: 8,
+                                                                        paddingBottom: 8,
+                                                                    }}
+                                                                >
+                                                                    <Col span={2 * secondaryColumnSpan}>
+                                                                        {capitalizeFirstLetter(metric.name)}
+                                                                    </Col>
+                                                                    {experimentData?.parameters?.feature_flag_variants?.map(
+                                                                        (_, index) => (
+                                                                            <Col key={index} span={secondaryColumnSpan}>
+                                                                                --
+                                                                            </Col>
                                                                         )
                                                                     )}
-                                                                </>
+                                                                </Row>
                                                             ))}
-                                                    </Col>
-                                                )}
+                                                        </>
+                                                    )}
+                                                </Col>
+                                            )}
                                             {experimentResults && (
                                                 <Col className="mt">
                                                     <div className="mb-05">

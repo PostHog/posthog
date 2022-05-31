@@ -1,5 +1,3 @@
-@import '~/vars';
-
 .Preflight {
     min-height: 100vh;
     align-items: center;
@@ -10,7 +8,7 @@
 
     .Preflight__header {
         p {
-            margin-bottom: $default_spacing/2;
+            margin-bottom: 0.5rem;
 
             &.Preflight__header--title-text {
                 font-size: 28px;
@@ -30,11 +28,11 @@
         box-shadow: var(--shadow-elevation);
         max-width: 480px;
         background-color: var(--bg-light);
-        border-radius: $radius;
+        border-radius: var(--radius);
         padding: 40px;
 
         .Preflight__checks-container {
-            border-radius: $radius;
+            border-radius: var(--radius);
             border: 1px solid var(--border);
 
             .Preflight__check-summary {
@@ -75,7 +73,7 @@
 
     .Preflight__cannot-continue {
         background-color: var(--bg-side);
-        border: 2px solid $light-grey;
+        border: 2px solid var(--light-grey);
         display: flex;
         align-items: center;
         justify-content: center;

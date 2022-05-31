@@ -5,7 +5,7 @@ import os
 from typing import Dict, List
 
 from ee.kafka_client.topics import KAFKA_EVENTS_PLUGIN_INGESTION as DEFAULT_KAFKA_EVENTS_PLUGIN_INGESTION
-from posthog.settings import AUTHENTICATION_BACKENDS, SITE_URL, TEST, get_from_env
+from posthog.settings import AUTHENTICATION_BACKENDS, SITE_URL, get_from_env
 
 # Zapier REST hooks
 HOOK_EVENTS: Dict[str, str] = {
@@ -43,9 +43,6 @@ if "SOCIAL_AUTH_GOOGLE_OAUTH2_WHITELISTED_DOMAINS" in os.environ:
     SOCIAL_AUTH_GOOGLE_OAUTH2_WHITELISTED_DOMAINS: List[str] = os.environ[
         "SOCIAL_AUTH_GOOGLE_OAUTH2_WHITELISTED_DOMAINS"
     ].split(",")
-
-# ClickHouse and Kafka
-KAFKA_ENABLED = not TEST
 
 # Schedule to run column materialization on. Follows crontab syntax.
 # Use empty string to prevent from materializing

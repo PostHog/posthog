@@ -520,6 +520,19 @@ export function IconExclamation(props: React.SVGProps<SVGSVGElement>): JSX.Eleme
         </svg>
     )
 }
+/** Material Design Push Pin icon. */
+export function IconPin(props: React.SVGProps<SVGSVGElement>): JSX.Element {
+    return (
+        <svg fill="none" width="1em" height="1em" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" {...props}>
+            <g fill="currentColor">
+                <path
+                    d="M16,9V4l1,0c0.55,0,1-0.45,1-1v0c0-0.55-0.45-1-1-1H7C6.45,2,6,2.45,6,3v0 c0,0.55,0.45,1,1,1l1,0v5c0,1.66-1.34,3-3,3h0v2h5.97v7l1,1l1-1v-7H19v-2h0C17.34,12,16,10.66,16,9z"
+                    fillRule="evenodd"
+                />
+            </g>
+        </svg>
+    )
+}
 
 /** Material Design Error Outline icon. */
 export function IconErrorOutline(props: React.SVGProps<SVGSVGElement>): JSX.Element {
@@ -622,9 +635,9 @@ export function IconArrowDropDown(props: React.SVGProps<SVGSVGElement>): JSX.Ele
 }
 
 /** Material Design Article icon. */
-export function IconArticle(): JSX.Element {
+export function IconArticle(props: React.SVGProps<SVGSVGElement>): JSX.Element {
     return (
-        <svg fill="none" width="1em" height="1em" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+        <svg fill="none" width="1em" height="1em" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" {...props}>
             <g fill="currentColor">
                 <path d="m19 5v14h-14v-14zm0-2h-14c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2v-14c0-1.1-.9-2-2-2z" />
                 <path d="m14 17h-7v-2h7zm3-4h-10v-2h10zm0-4h-10v-2h10z" />
@@ -634,9 +647,9 @@ export function IconArticle(): JSX.Element {
 }
 
 /** Material Design Question Answer icon. */
-export function IconQuestionAnswer(): JSX.Element {
+export function IconQuestionAnswer(props: React.SVGProps<SVGSVGElement>): JSX.Element {
     return (
-        <svg fill="none" width="1em" height="1em" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+        <svg fill="none" width="1em" height="1em" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" {...props}>
             <path
                 d="m15 4v7h-9.83l-1.17 1.17v-8.17zm1-2h-13c-.55 0-1 .45-1 1v14l4-4h10c.55 0 1-.45 1-1v-9c0-.55-.45-1-1-1zm5 4h-2v9h-13v2c0 .55.45 1 1 1h11l4 4v-15c0-.55-.45-1-1-1z"
                 fill="currentColor"
@@ -1328,7 +1341,8 @@ export function EventStackGearIcon({ width = 24, height = 24, ...props }: React.
     )
 }
 
-export function LiveIcon({ width = 24, height = 24, ...props }: React.SVGProps<SVGSVGElement>): JSX.Element {
+/** Material Design Sensors icon. */
+export function IconLive({ width = 24, height = 24, ...props }: React.SVGProps<SVGSVGElement>): JSX.Element {
     return (
         <svg
             width={width}

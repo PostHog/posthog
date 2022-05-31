@@ -1,8 +1,6 @@
-@import '~/vars';
-
 .bulk-invite-modal {
     .invite-row {
-        margin-top: $default_spacing;
+        margin-top: 1rem;
 
         &:first-of-type {
             margin-top: 0;

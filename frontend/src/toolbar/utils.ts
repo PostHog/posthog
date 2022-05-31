@@ -212,7 +212,7 @@ export function getElementForStep(step: ActionStepForm, allElements?: HTMLElemen
     try {
         elements = [...(querySelectorAllDeep(selector || '*', document, allElements) as unknown as HTMLElement[])]
     } catch (e) {
-        console.error('Can not use selector:', selector)
+        console.error('Cannot use selector:', selector)
         return null
     }
 

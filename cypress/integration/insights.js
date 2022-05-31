@@ -12,7 +12,8 @@ describe('Insights', () => {
         cy.get('[data-attr-insight-type="TRENDS"').click()
 
         // apply filter
-        cy.get('[data-attr=new-prop-filter-trends-filters]').click()
+        cy.get('[data-attr=trends-filters-add-filter-group]').click()
+        cy.get('[data-attr=property-select-toggle-0]').click()
         cy.get('[data-attr=taxonomic-filter-searchfield]').click()
         cy.get('[data-attr=expand-list-event_properties]').click()
         cy.get('[data-attr=prop-filter-event_properties-1]').click({ force: true })
@@ -45,6 +46,56 @@ describe('Insights', () => {
         cy.get('[data-attr="insight-name"]').should('contain', 'Pageview count (copy)')
         // Check we're in edit mode
         cy.get('[data-attr="insight-save-button"]').should('exist')
+    })
+
+    it('Requires confirmation when navigating away from an insight with unsaved changes', () => {
+        let count = 0
+        cy.on('window:confirm', () => {
+            count += 1
+            switch (count) {
+                case 1:
+                    return false
+                case 2:
+                    return true
+            }
+        })
+
+        cy.log('Can move away from an unchanged new insight without confirm()')
+        cy.get('[data-attr="menu-item-insight"]').click()
+        cy.log('Navigate away')
+        cy.get('[data-attr="menu-item-featureflags"]').click()
+
+        cy.log('Can navigate away from unchanged saved insight without confirm()')
+        cy.get('[data-attr="menu-item-insight"]').click()
+        cy.log('Add series')
+        cy.get('[data-attr=add-action-event-button]').click()
+        cy.log('Save')
+        cy.get('[data-attr="insight-save-button"]').click()
+        cy.wait(200)
+        cy.log('Navigate away')
+        cy.get('[data-attr="menu-item-annotations"]').click()
+        cy.log('We should be on the Annotations page now')
+        cy.url().should('include', '/annotations')
+
+        cy.log('Can keep editing changed new insight after navigating away with confirm() rejection (case 1)')
+        cy.get('[data-attr="menu-item-insight"]').click()
+        cy.log('Add series')
+        cy.get('[data-attr=add-action-event-button]').click()
+        cy.log('Navigate away')
+        cy.get('[data-attr="menu-item-featureflags"]').click()
+        cy.log('Save button should still be here because case 1 rejects confirm()')
+        cy.get('[data-attr="insight-save-button"]').should('exist')
+
+        cy.log('Can navigate away from changed new insight with confirm() acceptance (case 2)')
+        cy.get('[data-attr="menu-item-insight"]').click()
+        cy.log('Add series')
+        cy.get('[data-attr=add-action-event-button]').click()
+        cy.log('Navigate away')
+        cy.get('[data-attr="menu-item-featureflags"]').click()
+        cy.log('Save button should be gone because case 2 rejects accepts()')
+        cy.get('[data-attr="insight-save-button"]').should('not.exist')
+        cy.log('We should be on the Feature Flags page now')
+        cy.url().should('include', '/feature_flags')
     })
 
     it('Shows not found error with invalid short URL', () => {

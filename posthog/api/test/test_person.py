@@ -471,6 +471,58 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(people[2].distinct_ids, ["3"])
         self.assertTrue(response.json()["success"])
 
+    @mock.patch("posthog.api.person.capture_internal")
+    def test_update_person_properties(self, mock_capture) -> None:
+        person = _create_person(
+            team=self.team,
+            distinct_ids=["some_distinct_id"],
+            properties={"$browser": "whatever", "$os": "Mac OS X"},
+            immediate=True,
+        )
+
+        self.client.patch(f"/api/person/{person.id}", {"properties": {"foo": "bar"}})
+
+        mock_capture.assert_called_once_with(
+            distinct_id="some_distinct_id",
+            ip=None,
+            site_url=None,
+            team_id=self.team.id,
+            now=mock.ANY,
+            sent_at=None,
+            event={
+                "event": "$set",
+                "properties": {"$set": {"foo": "bar"}},
+                "distinct_id": "some_distinct_id",
+                "timestamp": mock.ANY,
+            },
+        )
+
+    @mock.patch("posthog.api.person.capture_internal")
+    def test_delete_person_properties(self, mock_capture) -> None:
+        person = _create_person(
+            team=self.team,
+            distinct_ids=["some_distinct_id"],
+            properties={"$browser": "whatever", "$os": "Mac OS X"},
+            immediate=True,
+        )
+
+        self.client.post(f"/api/person/{person.id}/delete_property", {"$unset": "foo"})
+
+        mock_capture.assert_called_once_with(
+            distinct_id="some_distinct_id",
+            ip=None,
+            site_url=None,
+            team_id=self.team.id,
+            now=mock.ANY,
+            sent_at=None,
+            event={
+                "event": "$delete_person_property",
+                "distinct_id": "some_distinct_id",
+                "properties": {"$unset": ["foo"]},
+                "timestamp": mock.ANY,
+            },
+        )
+
     def test_return_non_anonymous_name(self) -> None:
         _create_person(
             team=self.team,
@@ -558,7 +610,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         self.assertCountEqual(pdis2, [(pdi.person.uuid, pdi.distinct_id) for pdi in distinct_id_rows])
 
     @freeze_time("2021-08-25T22:09:14.252Z")
-    def test_patch_user_property(self):
+    def test_patch_user_property_activity(self):
         person = _create_person(
             team=self.team,
             distinct_ids=["1", "2", "3"],
@@ -569,31 +621,28 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         created_person = self.client.get("/api/person/%s/" % person.pk).json()
         created_person["properties"]["a"] = "b"
         response = self.client.patch("/api/person/%s/" % person.pk, created_person)
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
 
-        updated_person_response = self.client.get("/api/person/%s/" % person.pk)
-        person = updated_person_response.json()
-
-        self.assertEqual(person["properties"], {"$browser": "whatever", "$os": "Mac OS X", "a": "b"})
+        self.client.get("/api/person/%s/" % person.pk)
 
         self._assert_person_activity(
-            person_id=person["id"],
+            person_id=person.pk,
             expected=[
                 {
                     "user": {"first_name": self.user.first_name, "email": self.user.email},
                     "activity": "updated",
                     "created_at": "2021-08-25T22:09:14.252000Z",
                     "scope": "Person",
-                    "item_id": str(person["id"]),
+                    "item_id": str(person.pk),
                     "detail": {
                         "changes": [
                             {
                                 "type": "Person",
                                 "action": "changed",
                                 "field": "properties",
-                                "before": {"$browser": "whatever", "$os": "Mac OS X"},
-                                "after": {"$browser": "whatever", "$os": "Mac OS X", "a": "b"},
-                            },
+                                "before": None,
+                                "after": None,
+                            }
                         ],
                         "merge": None,
                         "name": None,

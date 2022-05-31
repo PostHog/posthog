@@ -16,7 +16,7 @@ export async function loadPlugin(hub: Hub, pluginConfig: PluginConfig): Promise<
     }
 
     try {
-        let getFile = (file: string): Promise<string | null> => Promise.resolve(null)
+        let getFile: (file: string) => Promise<string | null> = () => Promise.resolve(null)
         if (plugin.url?.startsWith('file:')) {
             const pluginPath = path.resolve(hub.BASE_DIR, plugin.url.substring(5))
             getFile = (file) => {
@@ -40,7 +40,7 @@ export async function loadPlugin(hub: Hub, pluginConfig: PluginConfig): Promise<
             await processError(
                 hub,
                 pluginConfig,
-                `Plugin ${pluginDigest(plugin)} is not a local, remote or source plugin. Can not load.`
+                `Plugin ${pluginDigest(plugin)} is not a local, remote or source plugin. Cannot load.`
             )
             return false
         }

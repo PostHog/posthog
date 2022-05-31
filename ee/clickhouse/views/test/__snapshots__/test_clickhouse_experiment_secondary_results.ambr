@@ -12,7 +12,7 @@
        AND timestamp <= toDateTime('2020-01-06 00:00:00')
        AND (has(['control', 'test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature/a-b-test'), '^"|"$', '')))
      GROUP BY value
-     ORDER BY count DESC
+     ORDER BY count DESC, value DESC
      LIMIT 25
      OFFSET 0)
   '
@@ -78,7 +78,7 @@
        AND timestamp <= toDateTime('2020-01-06 00:00:00')
        AND (has(['control', 'test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature/a-b-test'), '^"|"$', '')))
      GROUP BY value
-     ORDER BY count DESC
+     ORDER BY count DESC, value DESC
      LIMIT 25
      OFFSET 0)
   '
@@ -135,7 +135,8 @@
                            e.distinct_id as distinct_id,
                            e.timestamp as timestamp,
                            pdi.person_id as aggregation_target,
-                           e."properties" as "properties"
+                           e."properties" as "properties",
+                           pdi.person_id as person_id
                     FROM events e
                     INNER JOIN
                       (SELECT distinct_id,

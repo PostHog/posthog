@@ -1,5 +1,3 @@
-@import '~/vars';
-
 .console-log-container {
     display: flex;
     flex-direction: column;
@@ -8,15 +6,15 @@
 
 .console-log {
     flex: 1;
-    border: 1px solid $border;
-    border-radius: $radius;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
 }
 
 .log-line {
-    border-bottom: 1px solid $border;
+    border-bottom: 1px solid var(--border);
     font-size: 12px;
     cursor: pointer;
-    padding: $default_spacing/4 $default_spacing/2;
+    padding: 0.25rem 0.5rem;
     width: 100%;
 
     .log-text {
@@ -26,7 +24,7 @@
 
     .trace-string {
         float: right;
-        margin-left: $default_spacing/4;
+        margin-left: 0.25rem;
 
         a {
             text-decoration: underline;
@@ -49,12 +47,12 @@
 
 .more-logs-available {
     text-align: center;
-    margin: $default_spacing/2;
+    margin: 0.5rem;
 }
 
 .console-feedback-container {
-    border: 1px solid $border;
-    border-radius: $radius;
-    padding: $default_spacing;
-    margin-top: $default_spacing;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 1rem;
+    margin-top: 1rem;
 }

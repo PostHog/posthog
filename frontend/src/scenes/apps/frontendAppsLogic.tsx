@@ -68,27 +68,30 @@ export const frontendAppsLogic = kea<frontendAppsLogicType>([
                         }
                         if ('no_frontend' in app || 'transpiling' in app) {
                             // Also retry with "no frontend". We will get this error when using a github/zip
-                            // plugin, after it's saved in the db, but before loadPlugin runs the first time.
-                            const maxAttempts = 5
+                            // app, after it's saved in the db, but before loadPlugin runs the first time.
+                            // Wait up to 2min.
+                            const maxAttempts = 30
                             if (attempt < maxAttempts) {
                                 window.setTimeout(
                                     () => actions.loadFrontendApp(id, pluginId, true, attempt + 1),
-                                    1000 + attempt * 300
+                                    1000 + Math.min(attempt, 10) * 300
                                 )
+                            } else {
+                                lemonToast.error(`Timeout waiting for app ${id} to reload.`)
                             }
                             return values.frontendApps
                         }
                         if ('error' in app) {
-                            lemonToast.error(`Can not load frontend for plugin ${id}: ${app.error}`)
+                            lemonToast.error(`Cannot load frontend for app ${id}: ${app.error}`)
                             return values.frontendApps
                         }
-                        throw Error(`Could not find exported "scene" or "error" for plugin ${id}`)
+                        throw Error(`Could not find exported "scene" or "error" for app ${id}`)
                     }
-                    throw Error(`Could not find exported "getFrontendApp" for plugin ${id}`)
+                    throw Error(`Could not find exported "getFrontendApp" for app ${id}`)
                 } catch (error) {
-                    console.error(`Can not load frontend for plugin ${id}`)
+                    console.error(`Cannot load frontend for app ${id}`)
                     console.error(error)
-                    lemonToast.error(`Can not load frontend for plugin ${id}: ${error}`)
+                    lemonToast.error(`Cannot load frontend for app ${id}: ${error}`)
                     throw error
                 }
             },
@@ -97,8 +100,7 @@ export const frontendAppsLogic = kea<frontendAppsLogicType>([
     reducers({
         frontendApps: {
             unloadFrontendApp: (frontendApps, { id }) => {
-                // eslint-disable-next-line
-                const { [id]: _removed, ...rest } = frontendApps
+                const { [id]: _discard, ...rest } = frontendApps
                 return rest
             },
         },

@@ -35,30 +35,6 @@ class TestInsightEnterpriseAPI(APILicensedTest):
         )
         self.assertEqual(dashboard.name, original_name)
 
-    def test_cannot_delete_restricted_insight_as_other_user_who_is_project_member(self):
-        creator = User.objects.create_and_join(self.organization, "y@x.com", None)
-        self.organization_membership.level = OrganizationMembership.Level.MEMBER
-        self.organization_membership.save()
-        dashboard = Dashboard.objects.create(
-            team=self.team,
-            name="Edit-restricted dashboard",
-            created_by=creator,
-            restriction_level=Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT,
-        )
-        insight = Insight.objects.create(team=self.team, name="XYZ", created_by=self.user)
-        DashboardTile.objects.create(dashboard=dashboard, insight=insight)
-
-        response = self.client.delete(f"/api/projects/{self.team.id}/insights/{insight.id}")
-        response_data = response.json()
-
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertEquals(
-            response_data,
-            self.permission_denied_response(
-                "This insight is on a dashboard that can only be edited by its owner, team members invited to editing the dashboard, and project admins."
-            ),
-        )
-
     def test_event_definition_no_duplicate_tags(self):
         from ee.models.license import License, LicenseManager
 

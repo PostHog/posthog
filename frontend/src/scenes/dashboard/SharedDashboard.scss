@@ -1,0 +1,32 @@
+@import '../../styles/breakpoints';
+
+.SharedDashboard {
+    min-height: 100vh;
+    padding: 1rem;
+
+    &.SharedDashboard--embedded {
+        padding: 0.5rem 1rem;
+    }
+
+    .SharedDashboard-header {
+        .SharedDashboard-header-team {
+            display: none;
+        }
+
+        @media screen and (min-width: $md) {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 1rem;
+
+            .SharedDashboard-header-title {
+                max-width: 50%;
+                text-align: center;
+            }
+
+            .SharedDashboard-header-team {
+                display: block;
+            }
+        }
+    }
+}

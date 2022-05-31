@@ -1,12 +1,10 @@
-@import '~/vars';
-
 .retention-tab {
     .btn-retention-dropdown {
         display: flex;
     }
 
     .dropdown-indicator {
-        color: $text_muted;
+        color: var(--text-muted);
         padding-left: 4px;
         margin-top: 2px;
         color: #bdbdbd;

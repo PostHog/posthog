@@ -56,7 +56,7 @@ SITE_URL: str = os.getenv("SITE_URL", "http://localhost:8000").rstrip("/")
 if DEBUG:
     JS_URL = os.getenv("JS_URL", "http://localhost:8234").rstrip("/")
 else:
-    JS_URL = os.getenv("JS_URL", "")
+    JS_URL = os.getenv("JS_URL", "").rstrip("/")
 
 DISABLE_MMDB = get_from_env(
     "DISABLE_MMDB", TEST, type_cast=str_to_bool
@@ -66,9 +66,7 @@ PLUGINS_PREINSTALLED_URLS: List[str] = (
     if not DISABLE_MMDB
     else []
 )
-PLUGINS_CELERY_QUEUE = os.getenv("PLUGINS_CELERY_QUEUE", "posthog-plugins")
 PLUGINS_RELOAD_PUBSUB_CHANNEL = os.getenv("PLUGINS_RELOAD_PUBSUB_CHANNEL", "reload-plugins")
-PLUGINS_ALERT_CHANNEL = "plugins-alert"
 
 # Tokens used when installing plugins, for example to get the latest commit SHA or to download private repositories.
 # Used mainly to get around API limits and only if no ?private_token=TOKEN found in the plugin URL.

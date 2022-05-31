@@ -33,14 +33,7 @@ function createEntry(entry) {
                 ? 'source-map'
                 : 'inline-source-map',
         entry: {
-            [entry]:
-                entry === 'main' || entry === 'cypress'
-                    ? './frontend/src/index.tsx'
-                    : entry === 'toolbar'
-                    ? './frontend/src/toolbar/index.tsx'
-                    : entry === 'shared_dashboard'
-                    ? './frontend/src/scenes/dashboard/SharedDashboard.tsx'
-                    : null,
+            [entry]: entry === 'main' || entry === 'cypress' ? './frontend/src/index.tsx' : null,
         },
         watchOptions: {
             ignored: /node_modules/,
@@ -200,16 +193,6 @@ function createEntry(entry) {
                       }),
                       new HtmlWebpackHarddiskPlugin(),
                   ]
-                : entry === 'shared_dashboard'
-                ? [
-                      new HtmlWebpackPlugin({
-                          alwaysWriteToDisk: true,
-                          title: 'PostHog',
-                          filename: 'shared_dashboard.html',
-                          template: path.join(__dirname, 'frontend', 'src', 'shared_dashboard.ejs'),
-                      }),
-                      new HtmlWebpackHarddiskPlugin(),
-                  ]
                 : entry === 'cypress'
                 ? [new HtmlWebpackHarddiskPlugin()]
                 : []
@@ -218,7 +201,5 @@ function createEntry(entry) {
 }
 
 // main = app
-// toolbar = toolbar
-// shared_dashboard = publicly available dashboard
-module.exports = () => [createEntry('main'), createEntry('toolbar'), createEntry('shared_dashboard')]
+module.exports = () => [createEntry('main')]
 module.exports.createEntry = createEntry

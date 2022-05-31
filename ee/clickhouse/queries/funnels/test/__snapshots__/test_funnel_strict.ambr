@@ -19,7 +19,7 @@
        AND timestamp <= toDateTime('2020-01-08 23:59:59')
        AND (NOT has([''], "$group_0"))
      GROUP BY value
-     ORDER BY count DESC
+     ORDER BY count DESC, value DESC
      LIMIT 25
      OFFSET 0)
   '
@@ -75,7 +75,7 @@
                                         min(latest_2) over (PARTITION by aggregation_target,
                                                                          prop
                                                             ORDER BY timestamp DESC ROWS BETWEEN 2 PRECEDING AND 2 PRECEDING) latest_2 ,
-                                                           if(has(['finance', 'technology'], prop), prop, 'Other') as prop
+                                                           if(has(['technology', 'finance'], prop), prop, 'Other') as prop
               FROM
                 (SELECT aggregation_target,
                         timestamp,
@@ -135,7 +135,7 @@
        AND timestamp >= toDateTime('2020-01-01 00:00:00')
        AND timestamp <= toDateTime('2020-01-08 23:59:59')
      GROUP BY value
-     ORDER BY count DESC
+     ORDER BY count DESC, value DESC
      LIMIT 25
      OFFSET 0)
   '
@@ -208,6 +208,7 @@
                            e.distinct_id as distinct_id,
                            e.timestamp as timestamp,
                            pdi.person_id as aggregation_target,
+                           pdi.person_id as person_id,
                            groups_0.group_properties_0 as group_properties_0
                     FROM events e
                     INNER JOIN
@@ -256,7 +257,7 @@
        AND timestamp >= toDateTime('2020-01-01 00:00:00')
        AND timestamp <= toDateTime('2020-01-08 23:59:59')
      GROUP BY value
-     ORDER BY count DESC
+     ORDER BY count DESC, value DESC
      LIMIT 25
      OFFSET 0)
   '
@@ -322,6 +323,7 @@
                            e.distinct_id as distinct_id,
                            e.timestamp as timestamp,
                            pdi.person_id as aggregation_target,
+                           pdi.person_id as person_id,
                            groups_0.group_properties_0 as group_properties_0
                     FROM events e
                     INNER JOIN
@@ -374,7 +376,7 @@
        AND timestamp >= toDateTime('2020-01-01 00:00:00')
        AND timestamp <= toDateTime('2020-01-08 23:59:59')
      GROUP BY value
-     ORDER BY count DESC
+     ORDER BY count DESC, value DESC
      LIMIT 25
      OFFSET 0)
   '
@@ -440,6 +442,7 @@
                            e.distinct_id as distinct_id,
                            e.timestamp as timestamp,
                            pdi.person_id as aggregation_target,
+                           pdi.person_id as person_id,
                            groups_0.group_properties_0 as group_properties_0
                     FROM events e
                     INNER JOIN
@@ -492,7 +495,7 @@
        AND timestamp >= toDateTime('2020-01-01 00:00:00')
        AND timestamp <= toDateTime('2020-01-08 23:59:59')
      GROUP BY value
-     ORDER BY count DESC
+     ORDER BY count DESC, value DESC
      LIMIT 25
      OFFSET 0)
   '
@@ -558,6 +561,7 @@
                            e.distinct_id as distinct_id,
                            e.timestamp as timestamp,
                            pdi.person_id as aggregation_target,
+                           pdi.person_id as person_id,
                            groups_0.group_properties_0 as group_properties_0
                     FROM events e
                     INNER JOIN
@@ -610,7 +614,7 @@
        AND timestamp >= toDateTime('2020-01-01 00:00:00')
        AND timestamp <= toDateTime('2020-01-08 23:59:59')
      GROUP BY value
-     ORDER BY count DESC
+     ORDER BY count DESC, value DESC
      LIMIT 25
      OFFSET 0)
   '
@@ -676,6 +680,7 @@
                            e.distinct_id as distinct_id,
                            e.timestamp as timestamp,
                            pdi.person_id as aggregation_target,
+                           pdi.person_id as person_id,
                            groups_0.group_properties_0 as group_properties_0
                     FROM events e
                     INNER JOIN
