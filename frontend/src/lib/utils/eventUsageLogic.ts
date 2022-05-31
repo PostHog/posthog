@@ -444,6 +444,8 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         reportIngestionThirdPartyConfigureClicked: (name: string) => ({ name }),
         reportIngestionThirdPartyPluginInstalled: (name: string) => ({ name }),
         reportFailedToCreateFeatureFlagWithCohort: (code: string, detail: string) => ({ code, detail }),
+        reportInviteMembersButtonClicked: true,
+        reportIngestionSidebarButtonClicked: (name: string) => ({ name }),
     },
     listeners: ({ values }) => ({
         reportAnnotationViewed: async ({ annotations }, breakpoint) => {
@@ -1065,6 +1067,14 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         },
         reportFailedToCreateFeatureFlagWithCohort: ({ detail, code }) => {
             posthog.capture('failed to create feature flag with cohort', { detail, code })
+        },
+        reportInviteMembersButtonClicked: () => {
+            posthog.capture('invite members button clicked')
+        },
+        reportIngestionSidebarButtonClicked: ({ name }) => {
+            posthog.capture('ingestion sidebar button clicked', {
+                name: name,
+            })
         },
     }),
 })
