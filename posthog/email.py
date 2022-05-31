@@ -127,12 +127,15 @@ class EmailMessage:
         reply_to: Optional[str] = None,
     ):
         if not is_email_available():
-            raise exceptions.ImproperlyConfigured("Email is not enabled in this instance.",)
+            raise exceptions.ImproperlyConfigured(
+                "Email is not enabled in this instance.",
+            )
 
         self.campaign_key = campaign_key
         self.subject = subject
         template = get_template(f"email/{template_name}.html")
         self.html_body = inline_css(template.render(template_context))
+        self.txt_body = ""
         self.headers = headers if headers else {}
         self.to: List[Dict[str, str]] = []
         self.reply_to = reply_to

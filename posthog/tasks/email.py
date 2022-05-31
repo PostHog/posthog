@@ -1,9 +1,9 @@
 import uuid
 
 import structlog
-from datetime import timezone
 
 from django.conf import settings
+from django.utils import timezone
 
 from posthog.celery import app
 from posthog.email import EmailMessage
