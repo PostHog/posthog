@@ -92,7 +92,7 @@ class SignupSerializer(serializers.Serializer):
         matrix = HedgeboxMatrix(
             start=timezone.datetime.now() - timezone.timedelta(days=120), end=timezone.datetime.now(), n_clusters=50,
         )
-        self._organization, self._team, self._user = MatrixManager.ensure_account_and_run(
+        self._organization, self._team, self._user = MatrixManager.ensure_account_and_save(
             matrix, email, first_name, organization_name
         )
 

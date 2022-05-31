@@ -58,7 +58,7 @@ def save_sim_group(team: Team, type_index: Literal[0, 1, 2, 3, 4], key: str, pro
 
 class MatrixManager:
     @classmethod
-    def ensure_account_and_run(
+    def ensure_account_and_save(
         cls,
         matrix: Matrix,
         email: str,
@@ -89,7 +89,8 @@ class MatrixManager:
         team = Team.objects.create(
             organization=organization, ingested_event=True, completed_snippet_onboarding=True, is_demo=True, **kwargs
         )
-        return cls.run_on_team(matrix, team, user)
+        cls.run_on_team(matrix, team, user)
+        return team
 
     @classmethod
     def run_on_team(cls, matrix: Matrix, team: Team, user: User) -> Team:
