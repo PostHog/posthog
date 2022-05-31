@@ -4,11 +4,10 @@ from django.utils import timezone
 
 from posthog.constants import INSIGHT_TRENDS, TRENDS_LINEAR, TRENDS_WORLD_MAP
 from posthog.models import Cohort, Dashboard, DashboardTile, Experiment, FeatureFlag, Insight, InsightViewed
-from posthog.models.property_definition import PropertyType
 from posthog.models.utils import UUIDT
 
 from .matrix.matrix import Cluster, Matrix
-from .matrix.models import EVENT_GROUP_IDENTIFY, EVENT_IDENTIFY, EVENT_PAGELEAVE, EVENT_PAGEVIEW, SimPerson
+from .matrix.models import SimPerson
 
 PROJECT_NAME = "Hedgebox"
 
@@ -35,11 +34,12 @@ SIGNUP_SUCCESS_RATE_CONTROL = 0.4887
 class HedgeboxPerson(SimPerson):
     cluster: "HedgeboxCluster"
 
-    need: float  # 0 means no need, 1 means desperate
-    satisfaction: float  # -1 means hate, 0 means neutrality, 1 means love
-    usage_profile: float  # 0 means fully personal use intentions, 1 means fully professional
+    # Dynamic aspects
+    _need: float  # 0 means no need, 1 means desperate
+    _satisfaction: float  # -1 means hate, 0 means neutrality, 1 means love
     plan: Optional[Literal[0, 1, 2]]  # None means person has no account, 0 means free, 1 means 100 GB, 2 means 1 TB
 
+    # Static aspects
     name: str
     email: str
     country_code: str
@@ -48,16 +48,37 @@ class HedgeboxPerson(SimPerson):
         super().__init__(*args, **kwargs)
         self.need = self.cluster.random.uniform(0.6 if self.kernel else 0, 1 if self.kernel else 0.3)
         self.satisfaction = 0.0
-        self.usage_profile = self.cluster.random.betavariate(1, 2)  # Most users skew personal
         self.plan = None
         self.name = self.cluster.person_provider.full_name()
         self.email = self.cluster.person_provider.email()
         self.country_code = (
-            "US" if self.cluster.random.random() < 0.9532 else self.cluster.address_provider.country_code()
+            "US" if self.cluster.random.random() < 0.9132 else self.cluster.address_provider.country_code()
         )
 
     def __str__(self) -> str:
         return f"{self.name} <{self.email}>"
+
+    @property
+    def need(self) -> float:
+        return self._need
+
+    @need.setter
+    def need(self, value):
+        self._need = max(0, min(1, value))
+
+    @property
+    def satisfaction(self) -> float:
+        return self._satisfaction
+
+    @satisfaction.setter
+    def satisfaction(self, value):
+        self._satisfaction = max(-1, min(1, value))
+
+    def _move_satisfaction(self, delta: float):
+        self.satisfaction += delta
+
+    def _move_need(self, delta: float):
+        self.need += delta
 
     def _simulate_session(self):
         super()._simulate_session()
@@ -172,12 +193,6 @@ class HedgeboxPerson(SimPerson):
         self._capture_pageview(f"https://hedgebox.net/my_files/{file_name}/")
         self._consider_downloading_file()
 
-    def _move_satisfaction(self, delta: float):
-        self.satisfaction = max(-1, min(1, self.satisfaction + delta))
-
-    def _move_need(self, delta: float):
-        self.need = max(0, min(1, self.need + delta))
-
 
 class HedgeboxCluster(Cluster):
     matrix: "HedgeboxMatrix"
@@ -205,42 +220,6 @@ class HedgeboxMatrix(Matrix):
     person_model = HedgeboxPerson
     cluster_model = HedgeboxCluster
 
-    event_definitions = [
-        EVENT_PAGEVIEW,
-        EVENT_PAGELEAVE,
-        EVENT_IDENTIFY,
-        EVENT_GROUP_IDENTIFY,
-        EVENT_SIGNED_UP,
-        EVENT_PAID_BILL,
-        EVENT_UPLOADED_FILE,
-        EVENT_DELETED_FILE,
-    ]
-    property_definitions = [
-        ("$distinct_id", None),
-        ("$user_id", None),
-        ("$set", None),
-        ("$set_once", None),
-        ("$group_type", None),
-        ("$group_key", None),
-        ("$group_set", None),
-        ("$lib", PropertyType.String),
-        ("$device_type", PropertyType.String),
-        ("$os", PropertyType.String),
-        ("$browser", PropertyType.String),
-        ("$session_id", PropertyType.String),
-        ("$browser_id", PropertyType.String),
-        ("$current_url", PropertyType.String),
-        ("$host", PropertyType.String),
-        ("$pathname", PropertyType.String),
-        ("$referrer", PropertyType.String),
-        ("$referring_domain", PropertyType.String),
-        ("$timestamp", PropertyType.Datetime),
-        ("$time", PropertyType.Numeric),
-        ("$geoip_country_code", PropertyType.String),
-        (PROPERTY_NEW_SIGNUP_PAGE_FLAG, PropertyType.String),
-        ("email", PropertyType.String),
-    ]
-
     new_signup_page_experiment_start: timezone.datetime
     new_signup_page_experiment_end: timezone.datetime
 
@@ -264,7 +243,6 @@ class HedgeboxMatrix(Matrix):
         weekly_signups_insight = Insight.objects.create(
             team=team,
             dashboard=key_metrics_dashboard,
-            order=0,
             saved=True,
             name="Weekly signups",
             filters={
@@ -290,7 +268,6 @@ class HedgeboxMatrix(Matrix):
         signups_by_country_insight = Insight.objects.create(
             team=team,
             dashboard=key_metrics_dashboard,
-            order=0,
             saved=True,
             name="Last month's signups by country",
             filters={
@@ -316,7 +293,6 @@ class HedgeboxMatrix(Matrix):
         signup_from_homepage_funnel = Insight.objects.create(
             team=team,
             dashboard=key_metrics_dashboard,
-            order=0,
             saved=True,
             name="Homepage view to signup conversion",
             filters={
@@ -370,6 +346,33 @@ class HedgeboxMatrix(Matrix):
             layouts={
                 "sm": {"h": 5, "w": 6, "x": 0, "y": 5, "minH": 5, "minW": 3},
                 "xs": {"h": 5, "w": 1, "x": 0, "y": 10, "minH": 5, "minW": 3, "moved": False, "static": False},
+            },
+        )
+        weekly_uploader_retention = Insight.objects.create(
+            team=team,
+            dashboard=key_metrics_dashboard,
+            saved=True,
+            name="Weekly uploader retention",
+            filters={
+                "period": "Week",
+                "display": "ActionsTable",
+                "insight": "RETENTION",
+                "properties": [],
+                "target_entity": {"id": "uploaded_file", "name": "uploaded_file", "type": "events", "order": 0},
+                "retention_type": "retention_first_time",
+                "total_intervals": 11,
+                "returning_entity": {"id": "uploaded_file", "name": "uploaded_file", "type": "events", "order": 0},
+                "filter_test_accounts": True,
+            },
+            last_modified_at=timezone.now() - timezone.timedelta(days=34),
+            last_modified_by=user,
+        )
+        DashboardTile.objects.create(
+            dashboard=key_metrics_dashboard,
+            insight=weekly_uploader_retention,
+            layouts={
+                "sm": {"h": 5, "w": 6, "x": 6, "y": 5, "minH": 5, "minW": 3},
+                "xs": {"h": 5, "w": 1, "x": 0, "y": 15, "minH": 5, "minW": 3, "moved": False, "static": False},
             },
         )
 

@@ -30,7 +30,7 @@ EVENT_GROUP_IDENTIFY = "$groupidentify"
 
 Properties = Dict[str, Any]
 SP = TypeVar("SP", bound="SimPerson")
-Effect = Callable[[SP], None]
+Effect = Callable[[SP], Any]
 
 
 @dataclass
@@ -195,6 +195,7 @@ class SimPerson(ABC):
         if combined_properties.get("$set"):
             self.properties.update(combined_properties["$set"])
         # Saving
+        self.cluster.matrix.register_event_schema(event, combined_properties.keys())
         self.events.append(SimEvent(event=event, properties=combined_properties or {}, timestamp=self._simulation_time))
 
     def _capture_pageview(

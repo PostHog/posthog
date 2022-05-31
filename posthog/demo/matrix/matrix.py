@@ -4,9 +4,10 @@ from typing import (
     Any,
     DefaultDict,
     Dict,
+    Iterable,
     List,
     Optional,
-    Sequence,
+    Set,
     Tuple,
     Type,
 )
@@ -19,8 +20,6 @@ from django.utils import timezone
 from posthog.constants import GROUP_TYPES_LIMIT
 from posthog.demo.matrix.randomization import PropertiesProvider
 from posthog.models import Team, User
-from posthog.models.event_definition import EventDefinition
-from posthog.models.property_definition import PropertyDefinition, PropertyType
 
 from .models import SimPerson
 
@@ -132,8 +131,10 @@ class Cluster(ABC):
 class Matrix(ABC):
     person_model: Type[SimPerson]
     cluster_model: Type[Cluster]
-    event_definitions: Sequence[str]
-    property_definitions: Sequence[Tuple[str, Optional[PropertyType]]]
+
+    event_names: Set[str]
+    property_names: Set[str]
+    event_property_pairs: Set[Tuple[str, str]]
 
     start: timezone.datetime
     end: timezone.datetime
@@ -172,27 +173,13 @@ class Matrix(ABC):
         self.groups = defaultdict(lambda: defaultdict(dict))
         self.clusters = [self.cluster_model(index=i, matrix=self) for i in range(n_clusters)]
         self.simulation_complete = None
+        self.event_names = set()
+        self.property_names = set()
+        self.event_property_pairs = set()
 
     @abstractmethod
     def set_project_up(self, team: Team, user: User):
         """Project setup, such as relevant insights, dashboards, feature flags, etc."""
-        EventDefinition.objects.bulk_create(
-            (
-                EventDefinition(team=team, name=event_definition, created_at=self.start)
-                for event_definition in self.event_definitions
-            )
-        )
-        PropertyDefinition.objects.bulk_create(
-            (
-                PropertyDefinition(
-                    team=team,
-                    name=property_name,
-                    property_type=property_type,
-                    is_numerical=property_type == PropertyType.Numeric,
-                )
-                for (property_name, property_type) in self.property_definitions
-            )
-        )
 
     def simulate(self):
         if self.simulation_complete is not None:
@@ -206,6 +193,12 @@ class Matrix(ABC):
         if len(self.groups) == GROUP_TYPES_LIMIT and group_type not in self.groups:
             raise Exception(f"Cannot add group type {group_type} to simulation, limit of {GROUP_TYPES_LIMIT} reached!")
         self.groups[group_type][group_key].update(set_properties)
+
+    def register_event_schema(self, event: str, properties: Iterable[str]):
+        self.event_names.add(event)
+        for property_name in properties:
+            self.property_names.add(property_name)
+            self.event_property_pairs.add((event, property_name))
 
     @property
     def people(self) -> List[SimPerson]:

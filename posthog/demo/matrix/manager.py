@@ -1,9 +1,20 @@
 import time
 from typing import Any, Dict, List, Literal, Optional, Tuple, cast
 
-from posthog.models import Group, Organization, Person, PersonDistinctId, Team, User
-from posthog.models.organization import OrganizationMembership
+from posthog.models import (
+    EventDefinition,
+    EventProperty,
+    Group,
+    Organization,
+    OrganizationMembership,
+    Person,
+    PersonDistinctId,
+    PropertyDefinition,
+    Team,
+    User,
+)
 from posthog.models.utils import UUIDT
+from posthog.tasks.calculate_event_property_usage import calculate_event_property_usage_for_team
 
 from .matrix import Matrix
 from .models import SimPerson
@@ -104,7 +115,23 @@ class MatrixManager:
         Person.objects.bulk_create(persons_to_bulk_save)
         PersonDistinctId.objects.bulk_create(person_distinct_ids_to_bulk_save)
         print(f"[DEMO] Saved (bulk part) {len(persons_to_bulk_save)} people in {time.time() - bulk_time:.2f} s")
+        EventDefinition.objects.bulk_create(
+            (
+                EventDefinition(team=team, name=event_definition, created_at=matrix.start)
+                for event_definition in matrix.event_names
+            )
+        )
+        PropertyDefinition.objects.bulk_create(
+            (PropertyDefinition(team=team, name=property_name,) for property_name in matrix.property_names)
+        )
+        EventProperty.objects.bulk_create(
+            (
+                EventProperty(team=team, event=event_name, property=property_name,)
+                for (event_name, property_name) in matrix.event_property_pairs
+            )
+        )
         matrix.set_project_up(team, user)
+        calculate_event_property_usage_for_team(team.pk)
         set_time = time.time()  # FIXME
         team.save()
         print(f"[DEMO] Setting project up in {time.time() -set_time:.2f} s")
