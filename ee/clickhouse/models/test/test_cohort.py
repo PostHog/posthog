@@ -5,7 +5,6 @@ from django.utils import timezone
 from freezegun import freeze_time
 
 from ee.clickhouse.models.cohort import format_filter_query, get_person_ids_by_cohort_id
-from ee.clickhouse.models.person import create_person, create_person_distinct_id
 from ee.clickhouse.models.property import parse_prop_grouped_clauses
 from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.client import sync_execute
@@ -15,6 +14,7 @@ from posthog.models.cohort import Cohort
 from posthog.models.filters import Filter
 from posthog.models.organization import Organization
 from posthog.models.person import Person
+from posthog.models.person.util import create_person, create_person_distinct_id
 from posthog.models.team import Team
 from posthog.models.utils import UUIDT
 from posthog.test.base import BaseTest, _create_event

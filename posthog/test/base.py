@@ -15,10 +15,10 @@ from django.utils.timezone import now
 from rest_framework.test import APITestCase as DRFTestCase
 
 from ee.clickhouse.models.event import bulk_create_events
-from ee.clickhouse.models.person import bulk_create_persons, create_person
 from posthog.models import Organization, Team, User
 from posthog.models.organization import OrganizationMembership
 from posthog.models.person import Person
+from posthog.models.person.util import bulk_create_persons, create_person
 
 persons_cache_tests: List[Dict[str, Any]] = []
 events_cache_tests: List[Dict[str, Any]] = []

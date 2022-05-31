@@ -13,7 +13,7 @@ def save_sim_person(team: Team, subject: SimPerson) -> Optional[Tuple[Person, Li
     if not subject.events:
         return None  # Don't save a person who never participated
     from ee.clickhouse.models.event import create_event
-    from ee.clickhouse.models.person import create_person, create_person_distinct_id
+    from posthog.models.person.util import create_person, create_person_distinct_id
 
     person_uuid_str = str(UUIDT(unix_time_ms=int(subject.events[0].timestamp.timestamp() * 1000)))
     person = Person(team_id=team.pk, properties=subject.properties, uuid=person_uuid_str)
