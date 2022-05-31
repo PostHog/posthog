@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React from 'react'
 import { EventDefinition, PropertyDefinition } from '~/types'
 import {
     AutocaptureIcon,
@@ -11,17 +11,7 @@ import {
 } from 'lib/components/icons'
 import { keyMapping, PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { Tooltip } from 'lib/components/Tooltip'
-import { DefinitionPopupContents } from 'lib/components/DefinitionPopup/DefinitionPopupContents'
-import {
-    TaxonomicDefinitionTypes,
-    TaxonomicFilterGroup,
-    TaxonomicFilterGroupType,
-} from 'lib/components/TaxonomicFilter/types'
-import { useActions, useValues } from 'kea'
-import {
-    createDefinitionKey,
-    eventDefinitionsTableLogic,
-} from 'scenes/data-management/events/eventDefinitionsTableLogic'
+import { TaxonomicFilterGroup, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { getSingularType } from 'lib/components/DefinitionPopup/utils'
 import clsx from 'clsx'
 import { Link } from 'lib/components/Link'
@@ -83,55 +73,33 @@ export function getEventDefinitionIcon(definition: EventDefinition): JSX.Element
 interface SharedDefinitionHeaderProps {
     hideIcon?: boolean
     hideText?: boolean
-    hideView?: boolean
-    hideEdit?: boolean
     asLink?: boolean
-    updateRemoteItem?: (definition: TaxonomicDefinitionTypes) => void
 }
 
 function RawDefinitionHeader({
     definition,
-    definitionKey,
     group,
-    updateRemoteItem,
     hideIcon = false,
     hideText = false,
-    hideView = false,
-    hideEdit = false,
     asLink = false,
 }: {
     definition: EventDefinition | PropertyDefinition
-    definitionKey: string
     group: TaxonomicFilterGroup
 } & SharedDefinitionHeaderProps): JSX.Element {
-    const [referenceEl, setReferenceEl] = useState<HTMLSpanElement | null>(null)
-    const { hoveredDefinition } = useValues(eventDefinitionsTableLogic)
-    const { setHoveredDefinition } = useActions(eventDefinitionsTableLogic)
-
     const fullDetailUrl = group.getFullDetailUrl?.(definition)
     const icon = group.getIcon?.(definition)
     const isLink = asLink && fullDetailUrl
 
     const innerContent = (
-        <span
-            ref={setReferenceEl}
-            onMouseOver={() => {
-                setHoveredDefinition(definitionKey)
+        <PropertyKeyInfo
+            value={definition.name ?? ''}
+            disablePopover
+            disableIcon
+            className={clsx('definition-column-name-content-title', asLink && 'text-primary')}
+            style={{
+                cursor: isLink ? 'pointer' : 'text',
             }}
-            onMouseOut={() => {
-                setHoveredDefinition(null)
-            }}
-        >
-            <PropertyKeyInfo
-                value={definition.name ?? ''}
-                disablePopover
-                disableIcon
-                className={clsx('definition-column-name-content-title', asLink && 'text-primary')}
-                style={{
-                    cursor: isLink ? 'pointer' : 'text',
-                }}
-            />
-        </span>
+        />
     )
     const linkedInnerContent = isLink ? (
         <Link to={fullDetailUrl} preventClick={!fullDetailUrl}>
@@ -146,29 +114,7 @@ function RawDefinitionHeader({
             {!hideIcon && icon && <div className="definition-column-name-icon">{icon}</div>}
             {!hideText && (
                 <div className="definition-column-name-content">
-                    <div>
-                        {hoveredDefinition !== definitionKey ? (
-                            linkedInnerContent
-                        ) : (
-                            <DefinitionPopupContents
-                                item={definition}
-                                group={group}
-                                referenceEl={referenceEl}
-                                onMouseLeave={() => {
-                                    setHoveredDefinition(null)
-                                }}
-                                onCancel={() => {
-                                    setHoveredDefinition(null)
-                                }}
-                                updateRemoteItem={updateRemoteItem}
-                                hideView={hideView}
-                                hideEdit={hideEdit}
-                                openDetailInNewTab
-                            >
-                                {linkedInnerContent}
-                            </DefinitionPopupContents>
-                        )}
-                    </div>
+                    <div>{linkedInnerContent}</div>
                     <div className="definition-column-name-content-description">
                         {definition.description || <i>Add a description for this {getSingularType(group.type)}</i>}
                     </div>
@@ -187,7 +133,6 @@ export function EventDefinitionHeader({
     return (
         <RawDefinitionHeader
             definition={definition}
-            definitionKey={createDefinitionKey(definition)}
             group={{
                 name: 'Events',
                 searchPlaceholder: 'events',
@@ -213,7 +158,6 @@ export function PropertyDefinitionHeader({
     return (
         <RawDefinitionHeader
             definition={definition}
-            definitionKey={createDefinitionKey(event, definition)}
             group={{
                 name: 'Event properties',
                 searchPlaceholder: 'event properties',

@@ -6,7 +6,6 @@ import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
-
 import type { definitionLogicType } from './definitionLogicType'
 
 export enum DefinitionPageMode {
@@ -90,17 +89,17 @@ export const definitionLogic = kea<definitionLogicType>([
             (isEvent, definition) =>
                 isEvent ? urls.eventDefinition(definition.id) : urls.eventPropertyDefinition(definition.id),
         ],
-        backListUrl: [
-            (s) => [s.isEvent],
-            (isEvent) => (isEvent ? urls.eventDefinitions() : urls.eventPropertyDefinitions()),
-        ],
         breadcrumbs: [
-            (s) => [s.backListUrl, s.definition],
-            (backListUrl, definition): Breadcrumb[] => {
+            (s) => [s.definition, s.isEvent],
+            (definition, isEvent): Breadcrumb[] => {
                 return [
                     {
-                        name: 'Data Management',
-                        path: backListUrl,
+                        name: `Data Management`,
+                        path: isEvent ? urls.eventDefinitions() : urls.eventPropertyDefinitions(),
+                    },
+                    {
+                        name: isEvent ? 'Events' : 'Event Properties',
+                        path: isEvent ? urls.eventDefinitions() : urls.eventPropertyDefinitions(),
                     },
                     {
                         name: definition?.id !== 'new' ? definition?.name || 'Untitled' : 'Untitled',

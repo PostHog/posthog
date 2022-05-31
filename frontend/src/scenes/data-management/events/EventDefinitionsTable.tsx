@@ -30,8 +30,7 @@ export function EventDefinitionsTable(): JSX.Element {
     const { preflight } = useValues(preflightLogic)
     const { eventDefinitions, eventDefinitionsLoading, openedDefinitionId, filters } =
         useValues(eventDefinitionsTableLogic)
-    const { loadEventDefinitions, setOpenedDefinition, setLocalEventDefinition, setFilters } =
-        useActions(eventDefinitionsTableLogic)
+    const { loadEventDefinitions, setOpenedDefinition, setFilters } = useActions(eventDefinitionsTableLogic)
     const { hasDashboardCollaboration, hasIngestionTaxonomy } = useValues(organizationLogic)
 
     const columns: LemonTableColumns<EventDefinition> = [
@@ -39,7 +38,7 @@ export function EventDefinitionsTable(): JSX.Element {
             key: 'icon',
             className: 'definition-column-icon',
             render: function Render(_, definition: EventDefinition) {
-                return <EventDefinitionHeader definition={definition} hideView hideText />
+                return <EventDefinitionHeader definition={definition} hideText />
             },
         },
         {
@@ -47,17 +46,7 @@ export function EventDefinitionsTable(): JSX.Element {
             key: 'name',
             className: 'definition-column-name',
             render: function Render(_, definition: EventDefinition) {
-                return (
-                    <EventDefinitionHeader
-                        definition={definition}
-                        hideView
-                        hideIcon
-                        asLink
-                        updateRemoteItem={(nextEventDefinition) =>
-                            setLocalEventDefinition(nextEventDefinition as EventDefinition)
-                        }
-                    />
-                )
+                return <EventDefinitionHeader definition={definition} hideIcon asLink />
             },
             sorter: (a, b) => a.name.localeCompare(b.name),
         },

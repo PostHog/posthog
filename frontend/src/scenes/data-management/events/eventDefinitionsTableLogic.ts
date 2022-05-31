@@ -78,7 +78,6 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
         loadEventExample: (definition: EventDefinition) => ({ definition }),
         loadPropertiesForEvent: (definition: EventDefinition, url: string | null = '') => ({ definition, url }),
         setFilters: (filters: Partial<Filters>) => ({ filters }),
-        setHoveredDefinition: (definitionKey: string | null) => ({ definitionKey }),
         setOpenedDefinition: (id: string | null) => ({ id }),
         setLocalEventDefinition: (definition: EventDefinition) => ({ definition }),
         setLocalPropertyDefinition: (event: EventDefinition, definition: PropertyDefinition) => ({ event, definition }),
@@ -93,12 +92,6 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
                     ...filters,
                     properties: convertPropertyGroupToProperties(filters.properties) ?? [],
                 }),
-            },
-        ],
-        hoveredDefinition: [
-            null as string | null,
-            {
-                setHoveredDefinition: (_, { definitionKey }) => definitionKey,
             },
         ],
         openedDefinitionId: [
@@ -177,6 +170,7 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
             {} as Record<string, PropertyDefinitionsPaginatedResponse>,
             {
                 loadPropertiesForEvent: async ({ definition, url }, breakpoint) => {
+                    console.log('LOAD PROPS 1', definition)
                     if (url && url in (cache.apiCache ?? {})) {
                         return {
                             ...values.eventPropertiesCacheMap,
@@ -184,6 +178,7 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
                         }
                     }
 
+                    console.log('LOAD PROPS 2', definition)
                     if (!url) {
                         url = api.propertyDefinitions.determineListEndpoint({
                             event_names: [definition.name],
