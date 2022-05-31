@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import List
 
 import posthoganalytics
@@ -35,7 +35,7 @@ def send_invite(invite_id: str) -> None:
         template_name="invite",
         template_context={
             "invite": invite,
-            "expiry_date": (invite.created_at + timedelta(days=3)).strftime("%b %d %Y"),
+            "expiry_date": (timezone.now() + timezone.timedelta(days=3)).strftime("%b %d %Y"),
         },
         reply_to=invite.created_by.email if invite.created_by and invite.created_by.email else "",
     )
@@ -106,7 +106,8 @@ def get_users_for_orgs_with_no_ingested_events(org_created_from: datetime, org_c
     # Get all users for organization that haven't ingested any events
     users = []
     recently_created_organizations = Organization.objects.filter(
-        created_at__gte=org_created_from, created_at__lte=org_created_to,
+        created_at__gte=org_created_from,
+        created_at__lte=org_created_to,
     )
 
     for organization in recently_created_organizations:
