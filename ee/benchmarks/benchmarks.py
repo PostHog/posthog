@@ -285,6 +285,34 @@ class QuerySuite:
         ClickhouseFunnel(filter, self.team).run()
 
     @benchmark_clickhouse
+    def track_funnel_breakdown(self):
+        filter = Filter(
+            data={
+                "insight": "FUNNELS",
+                "events": [{"id": "$pageview", "order": 0}, {"id": "insight analyzed", "order": 1}],
+                **DATE_RANGE,
+                "breakdown_type": "event",
+                "breakdown": "$browser",
+            },
+            team=self.team,
+        )
+        ClickhouseFunnel(filter, self.team).run()
+
+    @benchmark_clickhouse
+    def track_funnel_breakdown_on_person_properties(self):
+        filter = Filter(
+            data={
+                "insight": "FUNNELS",
+                "events": [{"id": "$pageview", "order": 0}, {"id": "insight analyzed", "order": 1}],
+                **DATE_RANGE,
+                "breakdown_type": "person",
+                "breakdown": "$geoip_country_code",
+            },
+            team=self.team,
+        )
+        ClickhouseFunnel(filter, self.team).run()
+
+    @benchmark_clickhouse
     def track_correlations_by_events(self):
         filter = Filter(
             data={"events": [{"id": "user signed up"}, {"id": "insight analyzed"}], **SHORT_DATE_RANGE,},
