@@ -861,6 +861,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                 "funnel_window_days": 7,
                 "breakdown_type": "event",
                 "breakdown": ["$browser"],
+                "breakdown_attribution_type": "all_events",
             }
 
             filter = Filter(data=filters)
@@ -893,8 +894,9 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                 },
                 self.team,
             )
-
             result = funnel.run()
+
+            self.assertEqual(len(result), 2)
 
             assert_funnel_breakdown_result_is_correct(
                 result[0],
@@ -1348,6 +1350,13 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                     ),
                 ],
             )
+
+    # TODO: New test cases for attribution type
+    # Also consider:
+    # Person1 starts funnel with 3 different breakdowns
+    # And rest of events have no properties.
+    # Almost sounds like a partition by (aggregation_target, step_0) ?
+    # Nah, that implies other steps don't get it
 
     return TestFunnelBreakdown
 

@@ -542,7 +542,6 @@ def get_single_or_multi_property_string_expr(
         expression, _ = get_property_string_expr(
             table, str(breakdown), escape_param(breakdown), column, allow_denormalized_props
         )
-        # expression = f"array({expression})"
     else:
         expressions = []
         for b in breakdown:

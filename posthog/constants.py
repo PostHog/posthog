@@ -109,6 +109,8 @@ INSIGHT = "insight"
 SESSION = "session"
 BREAKDOWN = "breakdown"
 BREAKDOWNS = "breakdowns"
+BREAKDOWN_ATTRIBUTION_TYPE = "breakdown_attribution_type"
+BREAKDOWN_ATTRIBUTION_VALUE = "breakdown_attribution_value"
 BREAKDOWN_LIMIT = "breakdown_limit"
 FROM_DASHBOARD = "from_dashboard"
 PATH_TYPE = "path_type"
@@ -228,6 +230,13 @@ class ExperimentSignificanceCode(str, Enum):
 class PropertyOperatorType(str, Enum):
     AND = "AND"
     OR = "OR"
+
+
+class BreakdownAttributionType(str, Enum):
+    FIRST_TOUCH = "first_touch"
+    LAST_TOUCH = "last_touch"
+    STEP = "step"
+    ALL_EVENTS = "all_events"
 
 
 MAX_SLUG_LENGTH = 48

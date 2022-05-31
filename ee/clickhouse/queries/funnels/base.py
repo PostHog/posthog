@@ -22,6 +22,7 @@ from posthog.constants import (
     LIMIT,
     OFFSET,
     TREND_FILTER_TYPE_ACTIONS,
+    BreakdownAttributionType,
 )
 from posthog.models import Entity, Filter, Team
 from posthog.models.action.util import format_action_filter
@@ -423,7 +424,11 @@ class ClickhouseFunnelBase(ABC):
             extra_fields=parsed_extra_fields,
         )
 
-        if self._filter.breakdown:
+        if self._filter.breakdown and self._filter.breakdown_attribution_type != BreakdownAttributionType.ALL_EVENTS:
+            # TODO: Can play around with ordering in partition to get more precise
+            #  but seems unnecessary right now?
+            # Person1 completes funnel 3 times with different breakdown values
+            # => Go ALL_EVENTS route if you want that
             return f"""
                 SELECT *, prop
                 FROM (
@@ -431,6 +436,7 @@ class ClickhouseFunnelBase(ABC):
                     FROM ({inner_query})
                 )
                 ARRAY JOIN prop_vals as prop
+                {"WHERE prop != []" if self._query_has_array_breakdown() else ''}
             """
 
         return inner_query
@@ -635,65 +641,85 @@ class ClickhouseFunnelBase(ABC):
 
     def _get_breakdown_select_prop(self) -> str:
         basic_prop_selector = ""
-        if self._filter.breakdown:
-            self.params.update({"breakdown": self._filter.breakdown})
-            if self._filter.breakdown_type == "person":
+        if not self._filter.breakdown:
+            return basic_prop_selector
 
-                if self._team.actor_on_events_querying_enabled:
-                    basic_prop_selector = get_single_or_multi_property_string_expr(
-                        self._filter.breakdown,
-                        table="events",
-                        query_alias="prop_basic",
-                        column="person_properties",
-                        allow_denormalized_props=False,
-                    )
-                else:
-                    basic_prop_selector = get_single_or_multi_property_string_expr(
-                        self._filter.breakdown, table="person", query_alias="prop_basic", column="person_props"
-                    )
-            elif self._filter.breakdown_type == "event":
+        self.params.update({"breakdown": self._filter.breakdown})
+        if self._filter.breakdown_type == "person":
+
+            if self._team.actor_on_events_querying_enabled:
                 basic_prop_selector = get_single_or_multi_property_string_expr(
-                    self._filter.breakdown, table="events", query_alias="prop_basic", column="properties"
+                    self._filter.breakdown,
+                    table="events",
+                    query_alias="prop_basic",
+                    column="person_properties",
+                    allow_denormalized_props=False,
                 )
-            elif self._filter.breakdown_type == "cohort":
-                basic_prop_selector = "value AS prop_basic"
-            elif self._filter.breakdown_type == "group":
-                # :TRICKY: We only support string breakdown for group properties
-                assert isinstance(self._filter.breakdown, str)
+            else:
+                basic_prop_selector = get_single_or_multi_property_string_expr(
+                    self._filter.breakdown, table="person", query_alias="prop_basic", column="person_props"
+                )
+        elif self._filter.breakdown_type == "event":
+            basic_prop_selector = get_single_or_multi_property_string_expr(
+                self._filter.breakdown, table="events", query_alias="prop_basic", column="properties"
+            )
+        elif self._filter.breakdown_type == "cohort":
+            basic_prop_selector = "value AS prop_basic"
+        elif self._filter.breakdown_type == "group":
+            # :TRICKY: We only support string breakdown for group properties
+            assert isinstance(self._filter.breakdown, str)
 
-                if self._team.actor_on_events_querying_enabled:
-                    properties_field = f"group{self._filter.breakdown_group_type_index}_properties"
-                    expression, _ = get_property_string_expr(
-                        table="events",
-                        property_name=self._filter.breakdown,
-                        var="%(breakdown)s",
-                        column=properties_field,
-                        allow_denormalized_props=False,
-                    )
-                else:
-                    properties_field = f"group_properties_{self._filter.breakdown_group_type_index}"
-                    expression, _ = get_property_string_expr(
-                        table="groups",
-                        property_name=self._filter.breakdown,
-                        var="%(breakdown)s",
-                        column=properties_field,
-                    )
-                basic_prop_selector = f"{expression} AS prop_basic"
+            if self._team.actor_on_events_querying_enabled:
+                properties_field = f"group{self._filter.breakdown_group_type_index}_properties"
+                expression, _ = get_property_string_expr(
+                    table="events",
+                    property_name=self._filter.breakdown,
+                    var="%(breakdown)s",
+                    column=properties_field,
+                    allow_denormalized_props=False,
+                )
+            else:
+                properties_field = f"group_properties_{self._filter.breakdown_group_type_index}"
+                expression, _ = get_property_string_expr(
+                    table="groups", property_name=self._filter.breakdown, var="%(breakdown)s", column=properties_field,
+                )
+            basic_prop_selector = f"{expression} AS prop_basic"
 
-            select_columns = []
-            prop_aliases = []
-            # get prop value from each step
-            for index, _ in enumerate(self._filter.entities):
-                prop_alias = f"prop_{index}"
-                select_columns.append(f"if(step_{index} = 1, prop_basic, []) as {prop_alias}")
-                prop_aliases.append(prop_alias)
-
-            # TODO: look at options for first-touch/last-touch/step_num
-            # final_select = f"coalesce({','.join(prop_aliases)}) as prop"
-            # return ",".join([basic_prop_selector, *select_columns, final_select])
+        if self._filter.breakdown_attribution_type == BreakdownAttributionType.ALL_EVENTS:
             return ",".join([basic_prop_selector, "prop_basic as prop"])
 
-        return basic_prop_selector
+        # TODO: simplify once array and string breakdowns are sorted
+        select_columns = []
+        prop_aliases = []
+        default_breakdown_selector = "[]" if self._query_has_array_breakdown() else "NULL"
+        # get prop value from each step
+        for index, _ in enumerate(self._filter.entities):
+            prop_alias = f"prop_{index}"
+            select_columns.append(f"if(step_{index} = 1, prop_basic, {default_breakdown_selector}) as {prop_alias}")
+            prop_aliases.append(prop_alias)
+
+        if self._filter.breakdown_attribution_type in [
+            BreakdownAttributionType.FIRST_TOUCH,
+            BreakdownAttributionType.LAST_TOUCH,
+        ]:
+            if self._filter.breakdown_attribution_type == BreakdownAttributionType.LAST_TOUCH:
+                prop_aliases.reverse()
+
+            if not self._query_has_array_breakdown():
+                final_select = f"coalesce({','.join(prop_aliases)}) as prop"
+            else:
+                multi_if_conditions = []
+                for prop_alias in prop_aliases:
+                    multi_if_conditions.append(f"notEmpty({prop_alias}), {prop_alias}")
+
+                # final else condition
+                multi_if_conditions.append(default_breakdown_selector)
+
+                final_select = f"multiIf({','.join(multi_if_conditions)}) as prop"
+        else:
+            final_select = f"prop_{self._filter.breakdown_attribution_value} as prop"
+
+        return ",".join([basic_prop_selector, *select_columns, final_select])
 
     def _get_cohort_breakdown_join(self) -> str:
         cohort_queries, ids, cohort_params = format_breakdown_cohort_join_query(self._team, self._filter)
@@ -753,3 +779,6 @@ class ClickhouseFunnelBase(ABC):
 
         parsed_fields = f", {', '.join(fields)}" if fields else ""
         return parsed_fields
+
+    def _query_has_array_breakdown(self) -> bool:
+        return not isinstance(self._filter.breakdown, str) and self._filter.breakdown_type != "cohort"

@@ -40,6 +40,7 @@ class TestFunnelUnorderedStepsBreakdown(ClickhouseTestMixin, funnel_breakdown_te
             "funnel_window_days": 7,
             "breakdown_type": "event",
             "breakdown": "$browser",
+            "breakdown_attribution_type": "all_events",
         }
 
         filter = Filter(data=filters)

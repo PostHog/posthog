@@ -11,6 +11,8 @@ from rest_framework.exceptions import ValidationError
 from posthog.constants import (
     ACTIONS,
     BREAKDOWN,
+    BREAKDOWN_ATTRIBUTION_TYPE,
+    BREAKDOWN_ATTRIBUTION_VALUE,
     BREAKDOWN_GROUP_TYPE_INDEX,
     BREAKDOWN_LIMIT,
     BREAKDOWN_TYPE,
@@ -39,6 +41,7 @@ from posthog.constants import (
     TREND_FILTER_TYPE_ACTIONS,
     TREND_FILTER_TYPE_EVENTS,
     TRENDS_WORLD_MAP,
+    BreakdownAttributionType,
 )
 from posthog.models.entity import MATH_TYPE, Entity, ExclusionEntity
 from posthog.models.filters.mixins.base import BaseParamMixin, BreakdownType
@@ -128,6 +131,23 @@ class BreakdownMixin(BaseParamMixin):
             return breakdown
 
     @cached_property
+    def breakdown_attribution_type(self) -> Optional[BreakdownAttributionType]:
+        attribution_type = self._data.get(BREAKDOWN_ATTRIBUTION_TYPE)
+        if not attribution_type:
+            return BreakdownAttributionType.FIRST_TOUCH
+
+        return attribution_type
+
+    @cached_property
+    def breakdown_attribution_value(self) -> Optional[int]:
+        attribution_value = self._data.get(BREAKDOWN_ATTRIBUTION_VALUE)
+
+        if attribution_value is None and self.breakdown_attribution_type == BreakdownAttributionType.STEP:
+            raise ValueError(f'Missing required parameter "{BREAKDOWN_ATTRIBUTION_VALUE}" for attribution type "step"')
+
+        return attribution_value
+
+    @cached_property
     def breakdowns(self) -> Optional[List[Dict[str, Any]]]:
         breakdowns = self._data.get(BREAKDOWNS)
 
@@ -168,6 +188,10 @@ class BreakdownMixin(BaseParamMixin):
             result[BREAKDOWNS] = self.breakdowns
         if self._breakdown_limit:
             result[BREAKDOWN_LIMIT] = self._breakdown_limit
+        if self.breakdown_attribution_type:
+            result[BREAKDOWN_ATTRIBUTION_TYPE] = self.breakdown_attribution_type
+        if self.breakdown_attribution_value is not None:
+            result[BREAKDOWN_ATTRIBUTION_VALUE] = self.breakdown_attribution_value
 
         return result
 
