@@ -29,9 +29,7 @@ export function EventPropertyDefinitionsTable(): JSX.Element {
     const { eventPropertyDefinitions, eventPropertyDefinitionsLoading, openedDefinitionId, filters } = useValues(
         eventPropertyDefinitionsTableLogic
     )
-    const { loadEventPropertyDefinitions, setLocalEventPropertyDefinition, setFilters } = useActions(
-        eventPropertyDefinitionsTableLogic
-    )
+    const { loadEventPropertyDefinitions, setFilters } = useActions(eventPropertyDefinitionsTableLogic)
     const { hasDashboardCollaboration, hasIngestionTaxonomy } = useValues(organizationLogic)
 
     const columns: LemonTableColumns<PropertyDefinition> = [
@@ -39,7 +37,7 @@ export function EventPropertyDefinitionsTable(): JSX.Element {
             key: 'icon',
             className: 'definition-column-icon',
             render: function Render(_, definition: PropertyDefinition) {
-                return <PropertyDefinitionHeader definition={definition} hideView hideText />
+                return <PropertyDefinitionHeader definition={definition} hideText />
             },
         },
         {
@@ -47,17 +45,7 @@ export function EventPropertyDefinitionsTable(): JSX.Element {
             key: 'name',
             className: 'definition-column-name',
             render: function Render(_, definition: PropertyDefinition) {
-                return (
-                    <PropertyDefinitionHeader
-                        definition={definition}
-                        hideIcon
-                        hideView
-                        asLink
-                        updateRemoteItem={(nextPropertyDefinition) => {
-                            setLocalEventPropertyDefinition(nextPropertyDefinition as PropertyDefinition)
-                        }}
-                    />
-                )
+                return <PropertyDefinitionHeader definition={definition} hideIcon asLink />
             },
             sorter: (a, b) => a.name.localeCompare(b.name),
         },
