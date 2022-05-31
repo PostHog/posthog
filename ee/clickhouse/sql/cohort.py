@@ -42,14 +42,6 @@ Order By (team_id, cohort_id, person_id)
 
 TRUNCATE_COHORTPEOPLE2_TABLE_SQL = f"TRUNCATE TABLE IF EXISTS cohortpeople2 ON CLUSTER '{CLICKHOUSE_CLUSTER}'"
 
-
-REMOVE_PEOPLE_NOT_MATCHING_COHORT_ID_SQL = """
-INSERT INTO cohortpeople2
-SELECT person_id, cohort_id, team_id, -1 as sign, version
-FROM cohortpeople2
-WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s AND version = %(version)s AND sign = 1
-"""
-
 GET_COHORT_SIZE_SQL = """
 SELECT count(*)
 FROM (
@@ -61,14 +53,18 @@ FROM (
 )
 """
 
-INSERT_PEOPLE_MATCHING_COHORT_ID_SQL = """
+RECALCULATE_COHORT_BY_ID = """
 INSERT INTO cohortpeople2
-SELECT id, %(cohort_id)s as cohort_id, %(team_id)s as team_id, 1 AS sign, %(version)s AS version
+SELECT id, %(cohort_id)s as cohort_id, %(team_id)s as team_id, 1 AS sign, %(new_version)s AS version
 FROM (
     SELECT id, argMax(properties, person._timestamp) as properties, sum(is_deleted) as is_deleted FROM person WHERE team_id = %(team_id)s GROUP BY id
 ) as person
 WHERE person.is_deleted = 0
 AND id IN ({cohort_filter})
+UNION ALL
+SELECT person_id, cohort_id, team_id, -1 as sign, version
+FROM cohortpeople2
+WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s AND version = %(previous_version)s AND sign = 1
 """
 
 GET_DISTINCT_ID_BY_ENTITY_SQL = """
