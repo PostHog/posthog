@@ -193,8 +193,8 @@ export class KafkaQueue {
             groupId,
             readUncommitted: false,
             retry: {
-                maxRetryTime: 100_000, // default: 30_000
-                retries: 15, // default: 5
+                maxRetryTime: 200_000, // default: 30_000
+                retries: 20, // default: 5
             },
         })
         const { GROUP_JOIN, CRASH, CONNECT, DISCONNECT } = consumer.events

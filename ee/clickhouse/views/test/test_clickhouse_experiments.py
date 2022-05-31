@@ -507,7 +507,7 @@ class TestExperimentCRUD(APILicensedTest):
         response = self.client.post(f"/api/projects/{self.team.id}/experiments/", data)
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
-    def test_deleting_feature_flag_deletes_experiment(self):
+    def test_soft_deleting_feature_flag_does_not_delete_experiment(self):
         ff_key = "a-b-tests"
         response = self.client.post(
             f"/api/projects/{self.team.id}/experiments/",
@@ -543,8 +543,7 @@ class TestExperimentCRUD(APILicensedTest):
         feature_flag_response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/{created_ff.pk}/")
         self.assertEqual(feature_flag_response.json().get("deleted"), True)
 
-        with self.assertRaises(Experiment.DoesNotExist):
-            Experiment.objects.get(pk=id)
+        self.assertIsNotNone(Experiment.objects.get(pk=id))
 
     def test_creating_updating_experiment_with_group_aggregation(self):
         ff_key = "a-b-tests"

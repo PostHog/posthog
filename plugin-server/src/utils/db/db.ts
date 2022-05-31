@@ -167,8 +167,6 @@ export class DB {
     /** Whether to write to clickhouse_person_unique_id topic */
     writeToPersonUniqueId?: boolean
 
-    KAFKA_ENABLED: boolean
-
     /** How many seconds to keep person info in Redis cache */
     PERSONS_AND_GROUPS_CACHE_TTL: number
 
@@ -181,7 +179,6 @@ export class DB {
         kafkaProducer: KafkaProducerWrapper,
         clickhouse: ClickHouse,
         statsd: StatsD | undefined,
-        kafkaEnabled = true,
         personAndGroupsCacheTtl = 1,
         personAndGroupsCachingEnabledTeams: Set<number> = new Set<number>()
     ) {
@@ -190,7 +187,6 @@ export class DB {
         this.kafkaProducer = kafkaProducer
         this.clickhouse = clickhouse
         this.statsd = statsd
-        this.KAFKA_ENABLED = kafkaEnabled
         this.PERSONS_AND_GROUPS_CACHE_TTL = personAndGroupsCacheTtl
         this.personAndGroupsCachingEnabledTeams = personAndGroupsCachingEnabledTeams
     }
@@ -795,11 +791,9 @@ export class DB {
                 version: Number(personCreated.version || 0),
             } as Person
 
-            if (this.KAFKA_ENABLED) {
-                kafkaMessages.push(
-                    generateKafkaPersonUpdateMessage(createdAt, properties, teamId, isIdentified, uuid, person.version)
-                )
-            }
+            kafkaMessages.push(
+                generateKafkaPersonUpdateMessage(createdAt, properties, teamId, isIdentified, uuid, person.version)
+            )
 
             for (const distinctId of distinctIds || []) {
                 const messages = await this.addDistinctIdPooled(person, distinctId, client)
@@ -809,9 +803,7 @@ export class DB {
             return person
         })
 
-        if (this.KAFKA_ENABLED) {
-            await this.kafkaProducer.queueMessages(kafkaMessages)
-        }
+        await this.kafkaProducer.queueMessages(kafkaMessages)
 
         // Update person info cache - we want to await to make sure the Event gets the right properties
         await Promise.all(
@@ -863,20 +855,18 @@ export class DB {
         const updatedPerson: Person = { ...person, ...update, version: updatedPersonVersion }
 
         const kafkaMessages = []
-        if (this.KAFKA_ENABLED) {
-            const message = generateKafkaPersonUpdateMessage(
-                updatedPerson.created_at,
-                updatedPerson.properties,
-                updatedPerson.team_id,
-                updatedPerson.is_identified,
-                updatedPerson.uuid,
-                updatedPersonVersion
-            )
-            if (client) {
-                kafkaMessages.push(message)
-            } else {
-                await this.kafkaProducer.queueMessage(message)
-            }
+        const message = generateKafkaPersonUpdateMessage(
+            updatedPerson.created_at,
+            updatedPerson.properties,
+            updatedPerson.team_id,
+            updatedPerson.is_identified,
+            updatedPerson.uuid,
+            updatedPersonVersion
+        )
+        if (client) {
+            kafkaMessages.push(message)
+        } else {
+            await this.kafkaProducer.queueMessage(message)
         }
 
         // Update person info cache - we want to await to make sure the Event gets the right properties
@@ -888,20 +878,17 @@ export class DB {
 
     public async deletePerson(person: Person, client: PoolClient): Promise<ProducerRecord[]> {
         await client.query('DELETE FROM posthog_person WHERE team_id = $1 AND id = $2', [person.team_id, person.id])
-        const kafkaMessages = []
-        if (this.KAFKA_ENABLED) {
-            kafkaMessages.push(
-                generateKafkaPersonUpdateMessage(
-                    person.created_at,
-                    person.properties,
-                    person.team_id,
-                    person.is_identified,
-                    person.uuid,
-                    null,
-                    1
-                )
-            )
-        }
+        const kafkaMessages = [
+            generateKafkaPersonUpdateMessage(
+                person.created_at,
+                person.properties,
+                person.team_id,
+                person.is_identified,
+                person.uuid,
+                null,
+                1
+            ),
+        ]
         // TODO: remove from cache
         return kafkaMessages
     }
@@ -952,7 +939,7 @@ export class DB {
 
     public async addDistinctId(person: Person, distinctId: string): Promise<void> {
         const kafkaMessages = await this.addDistinctIdPooled(person, distinctId)
-        if (this.KAFKA_ENABLED && kafkaMessages.length) {
+        if (kafkaMessages.length) {
             await this.kafkaProducer.queueMessages(kafkaMessages)
         }
         // Update person info cache - we want to await to make sure the Event gets the right properties
@@ -972,47 +959,43 @@ export class DB {
         )
 
         const { id, version: versionStr, ...personDistinctIdCreated } = insertResult.rows[0] as PersonDistinctId
-        if (this.KAFKA_ENABLED) {
-            const version = Number(versionStr || 0)
-            const messages = [
-                {
-                    topic: KAFKA_PERSON_DISTINCT_ID,
-                    messages: [
-                        {
-                            value: Buffer.from(
-                                JSON.stringify({
-                                    ...personDistinctIdCreated,
-                                    version,
-                                    person_id: person.uuid,
-                                    is_deleted: 0,
-                                })
-                            ),
-                        },
-                    ],
-                },
-            ]
+        const version = Number(versionStr || 0)
+        const messages = [
+            {
+                topic: KAFKA_PERSON_DISTINCT_ID,
+                messages: [
+                    {
+                        value: Buffer.from(
+                            JSON.stringify({
+                                ...personDistinctIdCreated,
+                                version,
+                                person_id: person.uuid,
+                                is_deleted: 0,
+                            })
+                        ),
+                    },
+                ],
+            },
+        ]
 
-            if (await this.fetchWriteToPersonUniqueId()) {
-                messages.push({
-                    topic: KAFKA_PERSON_UNIQUE_ID,
-                    messages: [
-                        {
-                            value: Buffer.from(
-                                JSON.stringify({
-                                    ...personDistinctIdCreated,
-                                    person_id: person.uuid,
-                                    is_deleted: 0,
-                                })
-                            ),
-                        },
-                    ],
-                })
-            }
-
-            return messages
-        } else {
-            return []
+        if (await this.fetchWriteToPersonUniqueId()) {
+            messages.push({
+                topic: KAFKA_PERSON_UNIQUE_ID,
+                messages: [
+                    {
+                        value: Buffer.from(
+                            JSON.stringify({
+                                ...personDistinctIdCreated,
+                                person_id: person.uuid,
+                                is_deleted: 0,
+                            })
+                        ),
+                    },
+                ],
+            })
         }
+
+        return messages
     }
 
     public async moveDistinctIds(source: Person, target: Person, client?: PoolClient): Promise<ProducerRecord[]> {
@@ -1055,45 +1038,39 @@ export class DB {
         }
 
         const kafkaMessages = []
-        if (this.KAFKA_ENABLED) {
-            for (const row of movedDistinctIdResult.rows) {
-                const { id, version: versionStr, ...usefulColumns } = row as PersonDistinctId
-                const version = Number(versionStr || 0)
+        for (const row of movedDistinctIdResult.rows) {
+            const { id, version: versionStr, ...usefulColumns } = row as PersonDistinctId
+            const version = Number(versionStr || 0)
+            kafkaMessages.push({
+                topic: KAFKA_PERSON_DISTINCT_ID,
+                messages: [
+                    {
+                        value: Buffer.from(
+                            JSON.stringify({ ...usefulColumns, version, person_id: target.uuid, is_deleted: 0 })
+                        ),
+                    },
+                ],
+            })
+
+            if (await this.fetchWriteToPersonUniqueId()) {
                 kafkaMessages.push({
-                    topic: KAFKA_PERSON_DISTINCT_ID,
+                    topic: KAFKA_PERSON_UNIQUE_ID,
                     messages: [
                         {
                             value: Buffer.from(
-                                JSON.stringify({ ...usefulColumns, version, person_id: target.uuid, is_deleted: 0 })
+                                JSON.stringify({ ...usefulColumns, person_id: target.uuid, is_deleted: 0 })
+                            ),
+                        },
+                        {
+                            value: Buffer.from(
+                                JSON.stringify({ ...usefulColumns, person_id: source.uuid, is_deleted: 1 })
                             ),
                         },
                     ],
                 })
-
-                if (await this.fetchWriteToPersonUniqueId()) {
-                    kafkaMessages.push({
-                        topic: KAFKA_PERSON_UNIQUE_ID,
-                        messages: [
-                            {
-                                value: Buffer.from(
-                                    JSON.stringify({ ...usefulColumns, person_id: target.uuid, is_deleted: 0 })
-                                ),
-                            },
-                            {
-                                value: Buffer.from(
-                                    JSON.stringify({ ...usefulColumns, person_id: source.uuid, is_deleted: 1 })
-                                ),
-                            },
-                        ],
-                    })
-                }
-                // Update person info cache - we want to await to make sure the Event gets the right properties
-                await this.updatePersonIdCache(
-                    usefulColumns.team_id,
-                    usefulColumns.distinct_id,
-                    usefulColumns.person_id
-                )
             }
+            // Update person info cache - we want to await to make sure the Event gets the right properties
+            await this.updatePersonIdCache(usefulColumns.team_id, usefulColumns.distinct_id, usefulColumns.person_id)
         }
         return kafkaMessages
     }
@@ -1128,20 +1105,18 @@ export class DB {
         person: CachedPersonData | Person,
         teamId: Team['id']
     ): Promise<boolean> {
-        if (this.KAFKA_ENABLED) {
-            const chResult = await this.clickhouseQuery(
-                `SELECT 1 FROM person_static_cohort
-                WHERE
-                    team_id = ${teamId}
-                    AND cohort_id = ${cohortId}
-                    AND person_id = '${escapeClickHouseString(person.uuid)}'
-                LIMIT 1`
-            )
+        const chResult = await this.clickhouseQuery(
+            `SELECT 1 FROM person_static_cohort
+            WHERE
+                team_id = ${teamId}
+                AND cohort_id = ${cohortId}
+                AND person_id = '${escapeClickHouseString(person.uuid)}'
+            LIMIT 1`
+        )
 
-            if (chResult.rows > 0) {
-                // Cohort is static and our person belongs to it
-                return true
-            }
+        if (chResult.rows > 0) {
+            // Cohort is static and our person belongs to it
+            return true
         }
 
         const psqlResult = await this.postgresQuery(
@@ -1164,47 +1139,38 @@ export class DB {
     // Event
 
     public async fetchEvents(): Promise<Event[] | ClickHouseEvent[]> {
-        if (this.KAFKA_ENABLED) {
-            const events = (await this.clickhouseQuery(`SELECT * FROM events ORDER BY timestamp ASC`))
-                .data as ClickHouseEvent[]
-            return (
-                events?.map(
-                    (event) =>
-                        ({
-                            ...event,
-                            ...(typeof event['properties'] === 'string'
-                                ? { properties: JSON.parse(event.properties) }
-                                : {}),
-                            ...(!!event['person_properties'] && typeof event['person_properties'] === 'string'
-                                ? { person_properties: JSON.parse(event.person_properties) }
-                                : {}),
-                            ...(!!event['group0_properties'] && typeof event['group0_properties'] === 'string'
-                                ? { group0_properties: JSON.parse(event.group0_properties) }
-                                : {}),
-                            ...(!!event['group1_properties'] && typeof event['group1_properties'] === 'string'
-                                ? { group1_properties: JSON.parse(event.group1_properties) }
-                                : {}),
-                            ...(!!event['group2_properties'] && typeof event['group2_properties'] === 'string'
-                                ? { group2_properties: JSON.parse(event.group2_properties) }
-                                : {}),
-                            ...(!!event['group3_properties'] && typeof event['group3_properties'] === 'string'
-                                ? { group3_properties: JSON.parse(event.group3_properties) }
-                                : {}),
-                            ...(!!event['group4_properties'] && typeof event['group4_properties'] === 'string'
-                                ? { group4_properties: JSON.parse(event.group4_properties) }
-                                : {}),
-                            timestamp: clickHouseTimestampToISO(event.timestamp),
-                        } as ClickHouseEvent)
-                ) || []
-            )
-        } else {
-            const result = await this.postgresQuery(
-                'SELECT * FROM posthog_event ORDER BY timestamp ASC',
-                undefined,
-                'fetchAllEvents'
-            )
-            return result.rows as Event[]
-        }
+        const events = (await this.clickhouseQuery(`SELECT * FROM events ORDER BY timestamp ASC`))
+            .data as ClickHouseEvent[]
+        return (
+            events?.map(
+                (event) =>
+                    ({
+                        ...event,
+                        ...(typeof event['properties'] === 'string'
+                            ? { properties: JSON.parse(event.properties) }
+                            : {}),
+                        ...(!!event['person_properties'] && typeof event['person_properties'] === 'string'
+                            ? { person_properties: JSON.parse(event.person_properties) }
+                            : {}),
+                        ...(!!event['group0_properties'] && typeof event['group0_properties'] === 'string'
+                            ? { group0_properties: JSON.parse(event.group0_properties) }
+                            : {}),
+                        ...(!!event['group1_properties'] && typeof event['group1_properties'] === 'string'
+                            ? { group1_properties: JSON.parse(event.group1_properties) }
+                            : {}),
+                        ...(!!event['group2_properties'] && typeof event['group2_properties'] === 'string'
+                            ? { group2_properties: JSON.parse(event.group2_properties) }
+                            : {}),
+                        ...(!!event['group3_properties'] && typeof event['group3_properties'] === 'string'
+                            ? { group3_properties: JSON.parse(event.group3_properties) }
+                            : {}),
+                        ...(!!event['group4_properties'] && typeof event['group4_properties'] === 'string'
+                            ? { group4_properties: JSON.parse(event.group4_properties) }
+                            : {}),
+                        timestamp: clickHouseTimestampToISO(event.timestamp),
+                    } as ClickHouseEvent)
+            ) || []
+        )
     }
 
     public async fetchDeadLetterQueueEvents(): Promise<DeadLetterQueueEvent[]> {
@@ -1216,40 +1182,27 @@ export class DB {
     // SessionRecordingEvent
 
     public async fetchSessionRecordingEvents(): Promise<PostgresSessionRecordingEvent[] | SessionRecordingEvent[]> {
-        if (this.KAFKA_ENABLED) {
-            const events = (
-                (await this.clickhouseQuery(`SELECT * FROM session_recording_events`)).data as SessionRecordingEvent[]
-            ).map((event) => {
-                return {
-                    ...event,
-                    snapshot_data: event.snapshot_data ? JSON.parse(event.snapshot_data) : null,
-                }
-            })
-            return events
-        } else {
-            const result = await this.postgresQuery(
-                'SELECT * FROM posthog_sessionrecordingevent',
-                undefined,
-                'fetchAllSessionRecordingEvents'
-            )
-            return result.rows as PostgresSessionRecordingEvent[]
-        }
+        const events = (
+            (await this.clickhouseQuery(`SELECT * FROM session_recording_events`)).data as SessionRecordingEvent[]
+        ).map((event) => {
+            return {
+                ...event,
+                snapshot_data: event.snapshot_data ? JSON.parse(event.snapshot_data) : null,
+            }
+        })
+        return events
     }
 
     // Element
 
     public async fetchElements(event?: Event): Promise<Element[]> {
-        if (this.KAFKA_ENABLED) {
-            const events = (
-                await this.clickhouseQuery(
-                    `SELECT elements_chain FROM events WHERE uuid='${escapeClickHouseString((event as any).uuid)}'`
-                )
-            ).data as ClickHouseEvent[]
-            const chain = events?.[0]?.elements_chain
-            return chainToElements(chain)
-        } else {
-            return (await this.postgresQuery('SELECT * FROM posthog_element', undefined, 'fetchAllElements')).rows
-        }
+        const events = (
+            await this.clickhouseQuery(
+                `SELECT elements_chain FROM events WHERE uuid='${escapeClickHouseString((event as any).uuid)}'`
+            )
+        ).data as ClickHouseEvent[]
+        const chain = events?.[0]?.elements_chain
+        return chainToElements(chain)
     }
 
     public async fetchPostgresElementsByHash(teamId: number, elementsHash: string): Promise<Record<string, any>[]> {
@@ -1815,25 +1768,23 @@ export class DB {
         createdAt: DateTime,
         version: number
     ): Promise<void> {
-        if (this.KAFKA_ENABLED) {
-            await this.kafkaProducer.queueMessage({
-                topic: KAFKA_GROUPS,
-                messages: [
-                    {
-                        value: Buffer.from(
-                            JSON.stringify({
-                                group_type_index: groupTypeIndex,
-                                group_key: groupKey,
-                                team_id: teamId,
-                                group_properties: JSON.stringify(properties),
-                                created_at: castTimestampOrNow(createdAt, TimestampFormat.ClickHouseSecondPrecision),
-                                version,
-                            })
-                        ),
-                    },
-                ],
-            })
-        }
+        await this.kafkaProducer.queueMessage({
+            topic: KAFKA_GROUPS,
+            messages: [
+                {
+                    value: Buffer.from(
+                        JSON.stringify({
+                            group_type_index: groupTypeIndex,
+                            group_key: groupKey,
+                            team_id: teamId,
+                            group_properties: JSON.stringify(properties),
+                            created_at: castTimestampOrNow(createdAt, TimestampFormat.ClickHouseSecondPrecision),
+                            version,
+                        })
+                    ),
+                },
+            ],
+        })
     }
 
     // Used in tests

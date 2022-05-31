@@ -220,7 +220,6 @@ export async function createHub(
         kafkaProducer,
         clickhouse,
         statsd,
-        serverConfig.KAFKA_ENABLED,
         serverConfig.PERSON_INFO_CACHE_TTL,
         new Set(serverConfig.PERSON_INFO_TO_REDIS_TEAMS.split(',').filter(String).map(Number))
     )

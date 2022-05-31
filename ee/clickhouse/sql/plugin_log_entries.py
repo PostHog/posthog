@@ -2,9 +2,9 @@ from ee.clickhouse.sql.clickhouse import KAFKA_COLUMNS, kafka_engine, ttl_period
 from ee.clickhouse.sql.table_engines import ReplacingMergeTree
 from ee.kafka_client.topics import KAFKA_PLUGIN_LOG_ENTRIES
 from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
-from posthog.tasks.delete_old_plugin_logs import TTL_WEEKS
 
 PLUGIN_LOG_ENTRIES_TABLE = "plugin_log_entries"
+PLUGIN_LOG_ENTRIES_TTL_WEEKS = 1
 
 PLUGIN_LOG_ENTRIES_TABLE_BASE_SQL = """
 CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
@@ -34,7 +34,7 @@ SETTINGS index_granularity=512
     cluster=CLICKHOUSE_CLUSTER,
     extra_fields=KAFKA_COLUMNS,
     engine=PLUGIN_LOG_ENTRIES_TABLE_ENGINE(),
-    ttl_period=ttl_period("timestamp", TTL_WEEKS),
+    ttl_period=ttl_period("timestamp", PLUGIN_LOG_ENTRIES_TTL_WEEKS),
 )
 
 KAFKA_PLUGIN_LOG_ENTRIES_TABLE_SQL = lambda: PLUGIN_LOG_ENTRIES_TABLE_BASE_SQL.format(
