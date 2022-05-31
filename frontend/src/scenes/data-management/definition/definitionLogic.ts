@@ -1,4 +1,4 @@
-import { actions, afterMount, kea, key, props, path, beforeUnmount, selectors, reducers } from 'kea'
+import { actions, afterMount, kea, key, props, path, selectors, reducers } from 'kea'
 import { Breadcrumb, Definition, EventDefinition, PropertyDefinition } from '~/types'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
@@ -7,6 +7,7 @@ import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
 import type { definitionLogicType } from './definitionLogicType'
+import { getPropertyLabel } from 'lib/components/PropertyKeyInfo'
 
 export enum DefinitionPageMode {
     View = 'view',
@@ -102,21 +103,17 @@ export const definitionLogic = kea<definitionLogicType>([
                         path: isEvent ? urls.eventDefinitions() : urls.eventPropertyDefinitions(),
                     },
                     {
-                        name: definition?.id !== 'new' ? definition?.name || 'Untitled' : 'Untitled',
+                        name: definition?.id !== 'new' ? getPropertyLabel(definition?.name) || 'Untitled' : 'Untitled',
                     },
                 ]
             },
         ],
     }),
     afterMount(({ actions, values, props }) => {
-        console.log('MOUNT', props.id)
         if (!props.id || props.id === 'new') {
             actions.setDefinition(createNewDefinition(values.isEvent))
         } else {
             actions.loadDefinition(props.id)
         }
-    }),
-    beforeUnmount(({ props }) => {
-        console.log('UNMOUNT', props.id)
     }),
 ])

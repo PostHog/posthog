@@ -119,6 +119,15 @@
                 margin: 0 0.25rem;
             }
         }
+
+        .definition-matching-events {
+            .definition-matching-events-header {
+                font-weight: 600;
+            }
+            .definition-matching-events-subtext {
+                margin: 0;
+            }
+        }
     }
 
     &.definition-edit-page {

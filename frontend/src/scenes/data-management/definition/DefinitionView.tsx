@@ -1,5 +1,7 @@
 import './Definition.scss'
 import React from 'react'
+import clsx from 'clsx'
+import { Divider } from 'antd'
 import { SceneExport } from 'scenes/sceneTypes'
 import { PageHeader } from 'lib/components/PageHeader'
 import { EditableField } from 'lib/components/EditableField/EditableField'
@@ -15,13 +17,12 @@ import {
 } from 'scenes/data-management/definition/definitionLogic'
 import { LemonButton } from 'lib/components/LemonButton'
 import { DefinitionEdit } from 'scenes/data-management/definition/DefinitionEdit'
-import clsx from 'clsx'
-import { Divider } from 'antd'
 import { formatTimeFromNow } from 'lib/components/DefinitionPopup/utils'
 import { humanFriendlyNumber, Loading } from 'lib/utils'
 import { ThirtyDayQueryCountTitle, ThirtyDayVolumeTitle } from 'lib/components/DefinitionPopup/DefinitionPopupContents'
 import { EventDefinitionProperties } from 'scenes/data-management/events/EventDefinitionProperties'
 import { getPropertyLabel } from 'lib/components/PropertyKeyInfo'
+import { EventsTable } from 'scenes/events'
 
 export const scene: SceneExport = {
     component: DefinitionView,
@@ -33,7 +34,7 @@ export const scene: SceneExport = {
 
 export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
     const logic = definitionLogic(props)
-    const { definition, definitionLoading, singular, mode, isEvent } = useValues(logic)
+    const { definition, definitionLoading, singular, mode, isEvent, backDetailUrl } = useValues(logic)
     const { setPageMode } = useActions(logic)
     const { hasAvailableFeature } = useValues(userLogic)
 
@@ -130,6 +131,22 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
                     </DefinitionPopup.Grid>
                     <Divider />
                     {isEvent && definition.id !== 'new' && <EventDefinitionProperties definition={definition} />}
+                    <Divider />
+                    <div className="definition-matching-events">
+                        <span className="definition-matching-events-header">Matching raw events</span>
+                        <p className="definition-matching-events-subtext">
+                            This is the list of recent raw events that match this event.
+                        </p>
+                        <EventsTable
+                            sceneUrl={backDetailUrl}
+                            pageKey={`definition-page-${definition.id}`}
+                            showEventFilter={false}
+                            fetchMonths={3}
+                            fixedFilters={{
+                                event_filter: definition.name,
+                            }}
+                        />
+                    </div>
                 </>
             )}
         </div>
