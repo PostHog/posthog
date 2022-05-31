@@ -93,7 +93,7 @@ class MatrixManager:
         return team
 
     @classmethod
-    def run_on_team(cls, matrix: Matrix, team: Team, user: User) -> Team:
+    def run_on_team(cls, matrix: Matrix, team: Team, user: User):
         persons_to_bulk_save: List[Person] = []
         person_distinct_ids_to_bulk_save: List[PersonDistinctId] = []
         simulation_time = time.time()  # FIXME
@@ -136,4 +136,3 @@ class MatrixManager:
         set_time = time.time()  # FIXME
         team.save()
         print(f"[DEMO] Setting project up in {time.time() -set_time:.2f} s")
-        return team
