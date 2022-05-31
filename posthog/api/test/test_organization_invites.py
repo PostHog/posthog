@@ -88,6 +88,7 @@ class TestOrganizationInvitesAPI(APIBaseTest):
                 },
                 "is_expired": False,
                 "emailing_attempt_made": True,
+                "message": None,
             },
         )
 
