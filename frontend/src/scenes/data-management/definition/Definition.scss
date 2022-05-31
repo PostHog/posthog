@@ -106,20 +106,6 @@
             }
         }
 
-        .definition-sent-as {
-            display: flex;
-            align-items: center;
-            flex-direction: row;
-            color: var(--text-muted);
-            margin: 0.5rem 0;
-
-            pre {
-                font-size: 13px;
-                font-weight: 600;
-                margin: 0 0.25rem;
-            }
-        }
-
         .definition-matching-events {
             .definition-matching-events-header {
                 font-weight: 600;
@@ -135,6 +121,21 @@
             display: flex;
             flex-direction: row;
             justify-content: flex-end;
+        }
+    }
+
+    // Shared across definition view and edit modes
+    .definition-sent-as {
+        display: flex;
+        align-items: center;
+        flex-direction: row;
+        color: var(--text-muted);
+        margin: 0.5rem 0;
+
+        pre {
+            font-size: 13px;
+            font-weight: 600;
+            margin: 0 0.25rem;
         }
     }
 }

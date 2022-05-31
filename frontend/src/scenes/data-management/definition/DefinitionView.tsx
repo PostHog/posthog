@@ -43,7 +43,7 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
             {definitionLoading ? (
                 <Loading />
             ) : mode === DefinitionPageMode.Edit ? (
-                <DefinitionEdit {...props} />
+                <DefinitionEdit {...props} definition={definition} />
             ) : (
                 <>
                     <PageHeader

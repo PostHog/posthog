@@ -1,5 +1,5 @@
-import { kea, props, path, key, connect } from 'kea'
-import { Definition, EventDefinition, PropertyDefinition } from '~/types'
+import { kea, props, path, key, connect, selectors } from 'kea'
+import { AvailableFeature, Definition, EventDefinition, PropertyDefinition } from '~/types'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
@@ -9,8 +9,9 @@ import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
 import { definitionLogic, DefinitionLogicProps } from 'scenes/data-management/definition/definitionLogic'
 import type { definitionEditLogicType } from './definitionEditLogicType'
 import { capitalizeFirstLetter } from 'lib/utils'
+import { userLogic } from 'scenes/userLogic'
 
-interface DefinitionEditLogicProps extends DefinitionLogicProps {
+export interface DefinitionEditLogicProps extends DefinitionLogicProps {
     definition: Definition
 }
 
@@ -19,9 +20,17 @@ export const definitionEditLogic = kea<definitionEditLogicType>([
     props({} as DefinitionEditLogicProps),
     key((props) => props.id || 'new'),
     connect(({ id }: DefinitionEditLogicProps) => ({
-        values: [definitionLogic({ id }), ['isEvent', 'singular', 'mode']],
+        values: [definitionLogic({ id }), ['isEvent', 'singular', 'mode'], userLogic, ['hasAvailableFeature']],
         actions: [definitionLogic({ id }), ['setDefinition', 'setPageMode']],
     })),
+    selectors({
+        hasTaxonomyFeatures: [
+            (s) => [s.hasAvailableFeature],
+            (hasAvailableFeature) =>
+                hasAvailableFeature(AvailableFeature.INGESTION_TAXONOMY) ||
+                hasAvailableFeature(AvailableFeature.TAGGING),
+        ],
+    }),
     forms(({ actions, props }) => ({
         definition: {
             defaults: { ...props.definition } as Definition,
