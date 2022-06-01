@@ -1,7 +1,7 @@
 import { kea } from 'kea'
 import { PlayerPosition, RecordingEventsFilters, RecordingEventType } from '~/types'
 import { sessionRecordingLogic } from 'scenes/session-recordings/sessionRecordingLogic'
-import { eventsListLogicType } from './eventsListLogicType'
+import type { eventsListLogicType } from './eventsListLogicType'
 import { clamp, colonDelimitedDuration, findLastIndex, floorMsToClosestSecond, ceilMsToClosestSecond } from 'lib/utils'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import List, { RenderedRows } from 'react-virtualized/dist/es/List'
