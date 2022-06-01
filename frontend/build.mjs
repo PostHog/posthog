@@ -25,9 +25,10 @@ function startDevServer() {
 export function writeSourceCodeEditorTypes() {
     const readFile = (p) => fse.readFileSync(path.resolve(__dirname, p), { encoding: 'utf-8' })
     const types = {
-        'react/index.d.ts': readFile('../node_modules/@types/react/index.d.ts'),
-        'react/global.d.ts': readFile('../node_modules/@types/react/global.d.ts'),
-        'kea/index.d.ts': readFile('../node_modules/kea/lib/index.d.ts'),
+        '@types/react/index.d.ts': readFile('../node_modules/@types/react/index.d.ts'),
+        '@types/react/global.d.ts': readFile('../node_modules/@types/react/global.d.ts'),
+        '@types/kea/index.d.ts': readFile('../node_modules/kea/lib/index.d.ts'),
+        '@posthog/apps-common/index.d.ts': readFile('./src/packages/apps-common/dist/index.d.ts'),
     }
     fse.writeFileSync(
         path.resolve(__dirname, './src/scenes/plugins/source/types/packages.json'),
