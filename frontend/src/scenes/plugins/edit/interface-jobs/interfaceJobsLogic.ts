@@ -25,7 +25,7 @@ export const interfaceJobsLogic = kea<interfaceJobsLogicType>({
         setRunJobAvailable: (isAvailable: boolean) => ({ isAvailable }),
         runJob: (form: FormInstance<any>) => ({ form }),
         playButtonOnClick: (form: FormInstance<any>, jobHasEmptyPayload: boolean) => ({ form, jobHasEmptyPayload }),
-        setRunJobAvailableTimeout: (timeout: NodeJS.Timeout) => ({ timeout }),
+        setRunJobAvailableTimeout: (timeout: number) => ({ timeout }),
     },
     reducers: {
         isJobModalOpen: [
@@ -41,7 +41,7 @@ export const interfaceJobsLogic = kea<interfaceJobsLogicType>({
             },
         ],
         runJobAvailableTimeout: [
-            null as NodeJS.Timeout | null,
+            null as number | null,
             {
                 setRunJobAvailableTimeout: (_, { timeout }) => timeout,
             },
@@ -87,8 +87,8 @@ export const interfaceJobsLogic = kea<interfaceJobsLogicType>({
             if (values.runJobAvailableTimeout) {
                 clearTimeout(values.runJobAvailableTimeout)
             }
-            setTimeout(() => {
-                const timeout = actions.setRunJobAvailable(true)
+            const timeout = window.setTimeout(() => {
+                actions.setRunJobAvailable(true)
                 actions.setRunJobAvailableTimeout(timeout)
             }, 15000)
 
