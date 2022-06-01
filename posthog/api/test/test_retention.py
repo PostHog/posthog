@@ -5,6 +5,7 @@ from typing import Any, Dict, List, Optional
 from django.test import Client
 
 from posthog.api.test.test_event_definition import EventData, capture_event
+from posthog.models.person.util import Person, PersonDistinctId
 
 
 def identify(
@@ -21,8 +22,6 @@ def identify(
     database in the right state
     """
     properties = properties or {}
-
-    from posthog.models.person.util import Person, PersonDistinctId
 
     person = Person.objects.create(team_id=team_id, properties=properties)
     PersonDistinctId.objects.create(distinct_id=distinct_id, team_id=team_id, person_id=person.id)
