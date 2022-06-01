@@ -1,4 +1,4 @@
-import { MutableRefObject as ReactMutableRefObject } from 'react'
+import { MutableRefObject } from 'react'
 import { kea } from 'kea'
 import { seekbarLogicType } from './seekbarLogicType'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
@@ -36,8 +36,8 @@ export const seekbarLogic = kea<seekbarLogicType>({
         handleDown: (event: ReactInteractEvent) => ({ event }),
         handleClick: (event: ReactInteractEvent) => ({ event }),
         handleTickClick: (playerPosition: PlayerPosition) => ({ playerPosition }),
-        setSlider: (ref: ReactMutableRefObject<HTMLDivElement | null>) => ({ ref }),
-        setThumb: (ref: ReactMutableRefObject<HTMLDivElement | null>) => ({ ref }),
+        setSlider: (ref: MutableRefObject<HTMLDivElement | null>) => ({ ref }),
+        setThumb: (ref: MutableRefObject<HTMLDivElement | null>) => ({ ref }),
         debouncedSetTime: (time: number) => ({ time }),
         endSeeking: true,
     },
