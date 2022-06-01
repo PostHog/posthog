@@ -82,6 +82,8 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
         name="send event usage report",
     )
 
+    if getattr(settings, "MULTI_TENANCY", False):
+        sender.add_periodic_task(120, ingestion_lag.s(), name="ingestion lag")
     sender.add_periodic_task(120, clickhouse_lag.s(), name="clickhouse table lag")
     sender.add_periodic_task(120, clickhouse_row_count.s(), name="clickhouse events table row count")
     sender.add_periodic_task(120, clickhouse_part_count.s(), name="clickhouse table parts count")
@@ -190,6 +192,21 @@ def clickhouse_lag():
             gauge("posthog_celery_clickhouse__table_lag_seconds", lag, tags={"table": table})
         except:
             pass
+
+
+@app.task(ignore_result=True)
+def ingestion_lag():
+    from posthog.client import sync_execute
+    from posthog.internal_metrics import gauge
+
+    # Requires https://github.com/PostHog/posthog-heartbeat-plugin to be enabled on team 2
+
+    try:
+        query = """select max(toDateTime(timestamp)) observed_ts, now() now_ts, now() - max(toDateTime(timestamp)) as lag from events where team_id = 2 and event = 'heartbeat';"""
+        lag = sync_execute(query)[0][2]
+        gauge("posthog_celery_ingestion_lag_seconds", lag)
+    except:
+        pass
 
 
 @app.task(ignore_result=True)
