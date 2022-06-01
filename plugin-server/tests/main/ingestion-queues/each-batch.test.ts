@@ -155,21 +155,31 @@ describe('eachBatchX', () => {
 
         it('breaks up by teamId:distinctId for enabled teams', async () => {
             const batch = createBatchWithMultipleEvents([
-                { ...captureEndpointEvent, offset: 1 },
-                { ...captureEndpointEvent, offset: 2, team_id: 3 },
-                { ...captureEndpointEvent, offset: 3, team_id: 3, distinct_id: 'id2' },
-                { ...captureEndpointEvent, offset: 4, team_id: 4 },
-                { ...captureEndpointEvent, offset: 5, team_id: 3 },
+                { ...captureEndpointEvent, offset: 1, team_id: 3 },
+                { ...captureEndpointEvent, offset: 2, team_id: 3 }, // repeat
+                { ...captureEndpointEvent, offset: 3, team_id: 3 }, // repeat
+                { ...captureEndpointEvent, offset: 4, team_id: 3, distinct_id: 'id2' },
+                { ...captureEndpointEvent, offset: 5, team_id: 4 },
                 { ...captureEndpointEvent, offset: 6 },
+                { ...captureEndpointEvent, offset: 7 }, // repeat, but not enabled
+                { ...captureEndpointEvent, offset: 8, team_id: 3, distinct_id: 'id2' }, // repeat
+                { ...captureEndpointEvent, offset: 9, team_id: 4 },
+                { ...captureEndpointEvent, offset: 10, team_id: 4 }, // repeat
+                { ...captureEndpointEvent, offset: 11, team_id: 3 },
+                { ...captureEndpointEvent, offset: 12 },
             ])
             queue.pluginsServer.ingestionBatchBreakupByDistinctIdTeams.add(3)
             queue.pluginsServer.ingestionBatchBreakupByDistinctIdTeams.add(4)
 
             await eachBatchIngestion(batch, queue)
 
-            expect(batch.resolveOffset).toBeCalledTimes(2)
-            expect(batch.resolveOffset).toHaveBeenCalledWith(4) // 5 was the first repeating
-            expect(batch.resolveOffset).toHaveBeenCalledWith(6) // we get the last two in the batch together
+            // Check the breakpoints in the batches matching repeating teamId:distinctId
+            expect(batch.resolveOffset).toBeCalledTimes(5)
+            expect(batch.resolveOffset).toHaveBeenCalledWith(1)
+            expect(batch.resolveOffset).toHaveBeenCalledWith(2)
+            expect(batch.resolveOffset).toHaveBeenCalledWith(7)
+            expect(batch.resolveOffset).toHaveBeenCalledWith(9)
+            expect(batch.resolveOffset).toHaveBeenCalledWith(12)
         })
     })
 
