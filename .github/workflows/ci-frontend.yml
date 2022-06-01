@@ -35,8 +35,7 @@ jobs:
               run: yarn eslint
 
             - name: Run typescript with strict
-              run: |
-                  ./bin/check-typescript-strict
+              run: yarn typescript:check
 
     jest-setup:
         # Split the tests into multiple chunks
