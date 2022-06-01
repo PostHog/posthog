@@ -14,7 +14,7 @@
           AND group_type_index = 0
         GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
      WHERE team_id = 2
-       AND event = 'sign up'
+       AND event IN ['buy', 'play movie', 'sign up']
        AND timestamp >= toDateTime('2020-01-01 00:00:00')
        AND timestamp <= toDateTime('2020-01-08 23:59:59')
        AND (NOT has([''], "$group_0"))
@@ -40,7 +40,7 @@
           AND group_type_index = 0
         GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
      WHERE team_id = 2
-       AND event = 'sign up'
+       AND event IN ['buy', 'play movie', 'sign up']
        AND timestamp >= toDateTime('2020-01-01 00:00:00')
        AND timestamp <= toDateTime('2020-01-08 23:59:59')
        AND (NOT has([''], "$group_0"))
@@ -66,7 +66,7 @@
           AND group_type_index = 0
         GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
      WHERE team_id = 2
-       AND event = 'sign up'
+       AND event IN ['buy', 'play movie', 'sign up']
        AND timestamp >= toDateTime('2020-01-01 00:00:00')
        AND timestamp <= toDateTime('2020-01-08 23:59:59')
        AND (NOT has([''], "$group_0"))
@@ -127,39 +127,44 @@
                                                             ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
                                                            if(has(['technology', 'finance'], prop), prop, 'Other') as prop
               FROM
-                (SELECT aggregation_target,
-                        timestamp,
-                        if(event = 'sign up', 1, 0) as step_0,
-                        if(step_0 = 1, timestamp, null) as latest_0,
-                        if(event = 'play movie', 1, 0) as step_1,
-                        if(step_1 = 1, timestamp, null) as latest_1,
-                        if(event = 'buy', 1, 0) as step_2,
-                        if(step_2 = 1, timestamp, null) as latest_2,
-                        replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS prop
+                (SELECT *,
+                        prop_vals as prop
                  FROM
-                   (SELECT e.event as event,
-                           e.team_id as team_id,
-                           e.distinct_id as distinct_id,
-                           e.timestamp as timestamp,
-                           e."$group_0" as aggregation_target,
-                           e."$group_0" as "$group_0",
-                           groups_0.group_properties_0 as group_properties_0
-                    FROM events e
-                    INNER JOIN
-                      (SELECT group_key,
-                              argMax(group_properties, _timestamp) AS group_properties_0
-                       FROM groups
+                   (SELECT aggregation_target,
+                           timestamp,
+                           if(event = 'sign up', 1, 0) as step_0,
+                           if(step_0 = 1, timestamp, null) as latest_0,
+                           if(event = 'play movie', 1, 0) as step_1,
+                           if(step_1 = 1, timestamp, null) as latest_1,
+                           if(event = 'buy', 1, 0) as step_2,
+                           if(step_2 = 1, timestamp, null) as latest_2,
+                           replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS prop_basic,
+                           prop_basic as prop,
+                           argMinIf(prop, timestamp, isNotNull(prop)) over (PARTITION by aggregation_target) as prop_vals
+                    FROM
+                      (SELECT e.event as event,
+                              e.team_id as team_id,
+                              e.distinct_id as distinct_id,
+                              e.timestamp as timestamp,
+                              e."$group_0" as aggregation_target,
+                              e."$group_0" as "$group_0",
+                              groups_0.group_properties_0 as group_properties_0
+                       FROM events e
+                       INNER JOIN
+                         (SELECT group_key,
+                                 argMax(group_properties, _timestamp) AS group_properties_0
+                          FROM groups
+                          WHERE team_id = 2
+                            AND group_type_index = 0
+                          GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
                        WHERE team_id = 2
-                         AND group_type_index = 0
-                       GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
-                    WHERE team_id = 2
-                      AND event IN ['buy', 'play movie', 'sign up']
-                      AND timestamp >= toDateTime('2020-01-01 00:00:00')
-                      AND timestamp <= toDateTime('2020-01-08 23:59:59')
-                      AND (NOT has([''], "$group_0")) ) events
-                 WHERE (step_0 = 1
-                        OR step_1 = 1
-                        OR step_2 = 1) ))
+                         AND event IN ['buy', 'play movie', 'sign up']
+                         AND timestamp >= toDateTime('2020-01-01 00:00:00')
+                         AND timestamp <= toDateTime('2020-01-08 23:59:59')
+                         AND (NOT has([''], "$group_0")) ) events
+                    WHERE (step_0 = 1
+                           OR step_1 = 1
+                           OR step_2 = 1) )))
            WHERE step_0 = 1
            UNION ALL SELECT *,
                             arraySort([latest_0,latest_1,latest_2]) as event_times,
@@ -184,39 +189,44 @@
                                                             ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
                                                            if(has(['technology', 'finance'], prop), prop, 'Other') as prop
               FROM
-                (SELECT aggregation_target,
-                        timestamp,
-                        if(event = 'play movie', 1, 0) as step_0,
-                        if(step_0 = 1, timestamp, null) as latest_0,
-                        if(event = 'buy', 1, 0) as step_1,
-                        if(step_1 = 1, timestamp, null) as latest_1,
-                        if(event = 'sign up', 1, 0) as step_2,
-                        if(step_2 = 1, timestamp, null) as latest_2,
-                        replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS prop
+                (SELECT *,
+                        prop_vals as prop
                  FROM
-                   (SELECT e.event as event,
-                           e.team_id as team_id,
-                           e.distinct_id as distinct_id,
-                           e.timestamp as timestamp,
-                           e."$group_0" as aggregation_target,
-                           e."$group_0" as "$group_0",
-                           groups_0.group_properties_0 as group_properties_0
-                    FROM events e
-                    INNER JOIN
-                      (SELECT group_key,
-                              argMax(group_properties, _timestamp) AS group_properties_0
-                       FROM groups
+                   (SELECT aggregation_target,
+                           timestamp,
+                           if(event = 'play movie', 1, 0) as step_0,
+                           if(step_0 = 1, timestamp, null) as latest_0,
+                           if(event = 'buy', 1, 0) as step_1,
+                           if(step_1 = 1, timestamp, null) as latest_1,
+                           if(event = 'sign up', 1, 0) as step_2,
+                           if(step_2 = 1, timestamp, null) as latest_2,
+                           replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS prop_basic,
+                           prop_basic as prop,
+                           argMinIf(prop, timestamp, isNotNull(prop)) over (PARTITION by aggregation_target) as prop_vals
+                    FROM
+                      (SELECT e.event as event,
+                              e.team_id as team_id,
+                              e.distinct_id as distinct_id,
+                              e.timestamp as timestamp,
+                              e."$group_0" as aggregation_target,
+                              e."$group_0" as "$group_0",
+                              groups_0.group_properties_0 as group_properties_0
+                       FROM events e
+                       INNER JOIN
+                         (SELECT group_key,
+                                 argMax(group_properties, _timestamp) AS group_properties_0
+                          FROM groups
+                          WHERE team_id = 2
+                            AND group_type_index = 0
+                          GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
                        WHERE team_id = 2
-                         AND group_type_index = 0
-                       GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
-                    WHERE team_id = 2
-                      AND event IN ['buy', 'play movie', 'sign up']
-                      AND timestamp >= toDateTime('2020-01-01 00:00:00')
-                      AND timestamp <= toDateTime('2020-01-08 23:59:59')
-                      AND (NOT has([''], "$group_0")) ) events
-                 WHERE (step_0 = 1
-                        OR step_1 = 1
-                        OR step_2 = 1) ))
+                         AND event IN ['buy', 'play movie', 'sign up']
+                         AND timestamp >= toDateTime('2020-01-01 00:00:00')
+                         AND timestamp <= toDateTime('2020-01-08 23:59:59')
+                         AND (NOT has([''], "$group_0")) ) events
+                    WHERE (step_0 = 1
+                           OR step_1 = 1
+                           OR step_2 = 1) )))
            WHERE step_0 = 1
            UNION ALL SELECT *,
                             arraySort([latest_0,latest_1,latest_2]) as event_times,
@@ -241,39 +251,44 @@
                                                             ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
                                                            if(has(['technology', 'finance'], prop), prop, 'Other') as prop
               FROM
-                (SELECT aggregation_target,
-                        timestamp,
-                        if(event = 'buy', 1, 0) as step_0,
-                        if(step_0 = 1, timestamp, null) as latest_0,
-                        if(event = 'sign up', 1, 0) as step_1,
-                        if(step_1 = 1, timestamp, null) as latest_1,
-                        if(event = 'play movie', 1, 0) as step_2,
-                        if(step_2 = 1, timestamp, null) as latest_2,
-                        replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS prop
+                (SELECT *,
+                        prop_vals as prop
                  FROM
-                   (SELECT e.event as event,
-                           e.team_id as team_id,
-                           e.distinct_id as distinct_id,
-                           e.timestamp as timestamp,
-                           e."$group_0" as aggregation_target,
-                           e."$group_0" as "$group_0",
-                           groups_0.group_properties_0 as group_properties_0
-                    FROM events e
-                    INNER JOIN
-                      (SELECT group_key,
-                              argMax(group_properties, _timestamp) AS group_properties_0
-                       FROM groups
+                   (SELECT aggregation_target,
+                           timestamp,
+                           if(event = 'buy', 1, 0) as step_0,
+                           if(step_0 = 1, timestamp, null) as latest_0,
+                           if(event = 'sign up', 1, 0) as step_1,
+                           if(step_1 = 1, timestamp, null) as latest_1,
+                           if(event = 'play movie', 1, 0) as step_2,
+                           if(step_2 = 1, timestamp, null) as latest_2,
+                           replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS prop_basic,
+                           prop_basic as prop,
+                           argMinIf(prop, timestamp, isNotNull(prop)) over (PARTITION by aggregation_target) as prop_vals
+                    FROM
+                      (SELECT e.event as event,
+                              e.team_id as team_id,
+                              e.distinct_id as distinct_id,
+                              e.timestamp as timestamp,
+                              e."$group_0" as aggregation_target,
+                              e."$group_0" as "$group_0",
+                              groups_0.group_properties_0 as group_properties_0
+                       FROM events e
+                       INNER JOIN
+                         (SELECT group_key,
+                                 argMax(group_properties, _timestamp) AS group_properties_0
+                          FROM groups
+                          WHERE team_id = 2
+                            AND group_type_index = 0
+                          GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
                        WHERE team_id = 2
-                         AND group_type_index = 0
-                       GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
-                    WHERE team_id = 2
-                      AND event IN ['buy', 'play movie', 'sign up']
-                      AND timestamp >= toDateTime('2020-01-01 00:00:00')
-                      AND timestamp <= toDateTime('2020-01-08 23:59:59')
-                      AND (NOT has([''], "$group_0")) ) events
-                 WHERE (step_0 = 1
-                        OR step_1 = 1
-                        OR step_2 = 1) ))
+                         AND event IN ['buy', 'play movie', 'sign up']
+                         AND timestamp >= toDateTime('2020-01-01 00:00:00')
+                         AND timestamp <= toDateTime('2020-01-08 23:59:59')
+                         AND (NOT has([''], "$group_0")) ) events
+                    WHERE (step_0 = 1
+                           OR step_1 = 1
+                           OR step_2 = 1) )))
            WHERE step_0 = 1 ))
      GROUP BY aggregation_target,
               steps,
@@ -298,7 +313,7 @@
           AND group_type_index = 0
         GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
      WHERE team_id = 2
-       AND event = 'sign up'
+       AND event IN ['buy', 'play movie', 'sign up']
        AND timestamp >= toDateTime('2020-01-01 00:00:00')
        AND timestamp <= toDateTime('2020-01-08 23:59:59')
      GROUP BY value
@@ -323,7 +338,7 @@
           AND group_type_index = 0
         GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
      WHERE team_id = 2
-       AND event = 'sign up'
+       AND event IN ['buy', 'play movie', 'sign up']
        AND timestamp >= toDateTime('2020-01-01 00:00:00')
        AND timestamp <= toDateTime('2020-01-08 23:59:59')
      GROUP BY value
@@ -348,7 +363,7 @@
           AND group_type_index = 0
         GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
      WHERE team_id = 2
-       AND event = 'sign up'
+       AND event IN ['buy', 'play movie', 'sign up']
        AND timestamp >= toDateTime('2020-01-01 00:00:00')
        AND timestamp <= toDateTime('2020-01-08 23:59:59')
      GROUP BY value
@@ -401,45 +416,50 @@
                                                             ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
                                                            if(has(['technology', 'finance'], prop), prop, 'Other') as prop
               FROM
-                (SELECT aggregation_target,
-                        timestamp,
-                        if(event = 'sign up', 1, 0) as step_0,
-                        if(step_0 = 1, timestamp, null) as latest_0,
-                        if(event = 'play movie', 1, 0) as step_1,
-                        if(step_1 = 1, timestamp, null) as latest_1,
-                        if(event = 'buy', 1, 0) as step_2,
-                        if(step_2 = 1, timestamp, null) as latest_2,
-                        replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS prop
+                (SELECT *,
+                        prop_vals as prop
                  FROM
-                   (SELECT e.event as event,
-                           e.team_id as team_id,
-                           e.distinct_id as distinct_id,
-                           e.timestamp as timestamp,
-                           pdi.person_id as aggregation_target,
-                           pdi.person_id as person_id,
-                           groups_0.group_properties_0 as group_properties_0
-                    FROM events e
-                    INNER JOIN
-                      (SELECT distinct_id,
-                              argMax(person_id, version) as person_id
-                       FROM person_distinct_id2
+                   (SELECT aggregation_target,
+                           timestamp,
+                           if(event = 'sign up', 1, 0) as step_0,
+                           if(step_0 = 1, timestamp, null) as latest_0,
+                           if(event = 'play movie', 1, 0) as step_1,
+                           if(step_1 = 1, timestamp, null) as latest_1,
+                           if(event = 'buy', 1, 0) as step_2,
+                           if(step_2 = 1, timestamp, null) as latest_2,
+                           replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS prop_basic,
+                           prop_basic as prop,
+                           argMinIf(prop, timestamp, isNotNull(prop)) over (PARTITION by aggregation_target) as prop_vals
+                    FROM
+                      (SELECT e.event as event,
+                              e.team_id as team_id,
+                              e.distinct_id as distinct_id,
+                              e.timestamp as timestamp,
+                              pdi.person_id as aggregation_target,
+                              pdi.person_id as person_id,
+                              groups_0.group_properties_0 as group_properties_0
+                       FROM events e
+                       INNER JOIN
+                         (SELECT distinct_id,
+                                 argMax(person_id, version) as person_id
+                          FROM person_distinct_id2
+                          WHERE team_id = 2
+                          GROUP BY distinct_id
+                          HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+                       INNER JOIN
+                         (SELECT group_key,
+                                 argMax(group_properties, _timestamp) AS group_properties_0
+                          FROM groups
+                          WHERE team_id = 2
+                            AND group_type_index = 0
+                          GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
                        WHERE team_id = 2
-                       GROUP BY distinct_id
-                       HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-                    INNER JOIN
-                      (SELECT group_key,
-                              argMax(group_properties, _timestamp) AS group_properties_0
-                       FROM groups
-                       WHERE team_id = 2
-                         AND group_type_index = 0
-                       GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
-                    WHERE team_id = 2
-                      AND event IN ['buy', 'play movie', 'sign up']
-                      AND timestamp >= toDateTime('2020-01-01 00:00:00')
-                      AND timestamp <= toDateTime('2020-01-08 23:59:59') ) events
-                 WHERE (step_0 = 1
-                        OR step_1 = 1
-                        OR step_2 = 1) ))
+                         AND event IN ['buy', 'play movie', 'sign up']
+                         AND timestamp >= toDateTime('2020-01-01 00:00:00')
+                         AND timestamp <= toDateTime('2020-01-08 23:59:59') ) events
+                    WHERE (step_0 = 1
+                           OR step_1 = 1
+                           OR step_2 = 1) )))
            WHERE step_0 = 1
            UNION ALL SELECT *,
                             arraySort([latest_0,latest_1,latest_2]) as event_times,
@@ -464,45 +484,50 @@
                                                             ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
                                                            if(has(['technology', 'finance'], prop), prop, 'Other') as prop
               FROM
-                (SELECT aggregation_target,
-                        timestamp,
-                        if(event = 'play movie', 1, 0) as step_0,
-                        if(step_0 = 1, timestamp, null) as latest_0,
-                        if(event = 'buy', 1, 0) as step_1,
-                        if(step_1 = 1, timestamp, null) as latest_1,
-                        if(event = 'sign up', 1, 0) as step_2,
-                        if(step_2 = 1, timestamp, null) as latest_2,
-                        replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS prop
+                (SELECT *,
+                        prop_vals as prop
                  FROM
-                   (SELECT e.event as event,
-                           e.team_id as team_id,
-                           e.distinct_id as distinct_id,
-                           e.timestamp as timestamp,
-                           pdi.person_id as aggregation_target,
-                           pdi.person_id as person_id,
-                           groups_0.group_properties_0 as group_properties_0
-                    FROM events e
-                    INNER JOIN
-                      (SELECT distinct_id,
-                              argMax(person_id, version) as person_id
-                       FROM person_distinct_id2
+                   (SELECT aggregation_target,
+                           timestamp,
+                           if(event = 'play movie', 1, 0) as step_0,
+                           if(step_0 = 1, timestamp, null) as latest_0,
+                           if(event = 'buy', 1, 0) as step_1,
+                           if(step_1 = 1, timestamp, null) as latest_1,
+                           if(event = 'sign up', 1, 0) as step_2,
+                           if(step_2 = 1, timestamp, null) as latest_2,
+                           replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS prop_basic,
+                           prop_basic as prop,
+                           argMinIf(prop, timestamp, isNotNull(prop)) over (PARTITION by aggregation_target) as prop_vals
+                    FROM
+                      (SELECT e.event as event,
+                              e.team_id as team_id,
+                              e.distinct_id as distinct_id,
+                              e.timestamp as timestamp,
+                              pdi.person_id as aggregation_target,
+                              pdi.person_id as person_id,
+                              groups_0.group_properties_0 as group_properties_0
+                       FROM events e
+                       INNER JOIN
+                         (SELECT distinct_id,
+                                 argMax(person_id, version) as person_id
+                          FROM person_distinct_id2
+                          WHERE team_id = 2
+                          GROUP BY distinct_id
+                          HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+                       INNER JOIN
+                         (SELECT group_key,
+                                 argMax(group_properties, _timestamp) AS group_properties_0
+                          FROM groups
+                          WHERE team_id = 2
+                            AND group_type_index = 0
+                          GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
                        WHERE team_id = 2
-                       GROUP BY distinct_id
-                       HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-                    INNER JOIN
-                      (SELECT group_key,
-                              argMax(group_properties, _timestamp) AS group_properties_0
-                       FROM groups
-                       WHERE team_id = 2
-                         AND group_type_index = 0
-                       GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
-                    WHERE team_id = 2
-                      AND event IN ['buy', 'play movie', 'sign up']
-                      AND timestamp >= toDateTime('2020-01-01 00:00:00')
-                      AND timestamp <= toDateTime('2020-01-08 23:59:59') ) events
-                 WHERE (step_0 = 1
-                        OR step_1 = 1
-                        OR step_2 = 1) ))
+                         AND event IN ['buy', 'play movie', 'sign up']
+                         AND timestamp >= toDateTime('2020-01-01 00:00:00')
+                         AND timestamp <= toDateTime('2020-01-08 23:59:59') ) events
+                    WHERE (step_0 = 1
+                           OR step_1 = 1
+                           OR step_2 = 1) )))
            WHERE step_0 = 1
            UNION ALL SELECT *,
                             arraySort([latest_0,latest_1,latest_2]) as event_times,
@@ -527,45 +552,50 @@
                                                             ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
                                                            if(has(['technology', 'finance'], prop), prop, 'Other') as prop
               FROM
-                (SELECT aggregation_target,
-                        timestamp,
-                        if(event = 'buy', 1, 0) as step_0,
-                        if(step_0 = 1, timestamp, null) as latest_0,
-                        if(event = 'sign up', 1, 0) as step_1,
-                        if(step_1 = 1, timestamp, null) as latest_1,
-                        if(event = 'play movie', 1, 0) as step_2,
-                        if(step_2 = 1, timestamp, null) as latest_2,
-                        replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS prop
+                (SELECT *,
+                        prop_vals as prop
                  FROM
-                   (SELECT e.event as event,
-                           e.team_id as team_id,
-                           e.distinct_id as distinct_id,
-                           e.timestamp as timestamp,
-                           pdi.person_id as aggregation_target,
-                           pdi.person_id as person_id,
-                           groups_0.group_properties_0 as group_properties_0
-                    FROM events e
-                    INNER JOIN
-                      (SELECT distinct_id,
-                              argMax(person_id, version) as person_id
-                       FROM person_distinct_id2
+                   (SELECT aggregation_target,
+                           timestamp,
+                           if(event = 'buy', 1, 0) as step_0,
+                           if(step_0 = 1, timestamp, null) as latest_0,
+                           if(event = 'sign up', 1, 0) as step_1,
+                           if(step_1 = 1, timestamp, null) as latest_1,
+                           if(event = 'play movie', 1, 0) as step_2,
+                           if(step_2 = 1, timestamp, null) as latest_2,
+                           replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS prop_basic,
+                           prop_basic as prop,
+                           argMinIf(prop, timestamp, isNotNull(prop)) over (PARTITION by aggregation_target) as prop_vals
+                    FROM
+                      (SELECT e.event as event,
+                              e.team_id as team_id,
+                              e.distinct_id as distinct_id,
+                              e.timestamp as timestamp,
+                              pdi.person_id as aggregation_target,
+                              pdi.person_id as person_id,
+                              groups_0.group_properties_0 as group_properties_0
+                       FROM events e
+                       INNER JOIN
+                         (SELECT distinct_id,
+                                 argMax(person_id, version) as person_id
+                          FROM person_distinct_id2
+                          WHERE team_id = 2
+                          GROUP BY distinct_id
+                          HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+                       INNER JOIN
+                         (SELECT group_key,
+                                 argMax(group_properties, _timestamp) AS group_properties_0
+                          FROM groups
+                          WHERE team_id = 2
+                            AND group_type_index = 0
+                          GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
                        WHERE team_id = 2
-                       GROUP BY distinct_id
-                       HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-                    INNER JOIN
-                      (SELECT group_key,
-                              argMax(group_properties, _timestamp) AS group_properties_0
-                       FROM groups
-                       WHERE team_id = 2
-                         AND group_type_index = 0
-                       GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
-                    WHERE team_id = 2
-                      AND event IN ['buy', 'play movie', 'sign up']
-                      AND timestamp >= toDateTime('2020-01-01 00:00:00')
-                      AND timestamp <= toDateTime('2020-01-08 23:59:59') ) events
-                 WHERE (step_0 = 1
-                        OR step_1 = 1
-                        OR step_2 = 1) ))
+                         AND event IN ['buy', 'play movie', 'sign up']
+                         AND timestamp >= toDateTime('2020-01-01 00:00:00')
+                         AND timestamp <= toDateTime('2020-01-08 23:59:59') ) events
+                    WHERE (step_0 = 1
+                           OR step_1 = 1
+                           OR step_2 = 1) )))
            WHERE step_0 = 1 ))
      GROUP BY aggregation_target,
               steps,
@@ -594,7 +624,7 @@
           AND group_type_index = 0
         GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
      WHERE team_id = 2
-       AND event = 'sign up'
+       AND event IN ['buy', 'play movie', 'sign up']
        AND timestamp >= toDateTime('2020-01-01 00:00:00')
        AND timestamp <= toDateTime('2020-01-08 23:59:59')
      GROUP BY value
@@ -619,7 +649,7 @@
           AND group_type_index = 0
         GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
      WHERE team_id = 2
-       AND event = 'sign up'
+       AND event IN ['buy', 'play movie', 'sign up']
        AND timestamp >= toDateTime('2020-01-01 00:00:00')
        AND timestamp <= toDateTime('2020-01-08 23:59:59')
      GROUP BY value
@@ -644,7 +674,7 @@
           AND group_type_index = 0
         GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
      WHERE team_id = 2
-       AND event = 'sign up'
+       AND event IN ['buy', 'play movie', 'sign up']
        AND timestamp >= toDateTime('2020-01-01 00:00:00')
        AND timestamp <= toDateTime('2020-01-08 23:59:59')
      GROUP BY value
@@ -697,45 +727,50 @@
                                                             ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
                                                            if(has(['technology', 'finance'], prop), prop, 'Other') as prop
               FROM
-                (SELECT aggregation_target,
-                        timestamp,
-                        if(event = 'sign up', 1, 0) as step_0,
-                        if(step_0 = 1, timestamp, null) as latest_0,
-                        if(event = 'play movie', 1, 0) as step_1,
-                        if(step_1 = 1, timestamp, null) as latest_1,
-                        if(event = 'buy', 1, 0) as step_2,
-                        if(step_2 = 1, timestamp, null) as latest_2,
-                        replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS prop
+                (SELECT *,
+                        prop_vals as prop
                  FROM
-                   (SELECT e.event as event,
-                           e.team_id as team_id,
-                           e.distinct_id as distinct_id,
-                           e.timestamp as timestamp,
-                           pdi.person_id as aggregation_target,
-                           pdi.person_id as person_id,
-                           groups_0.group_properties_0 as group_properties_0
-                    FROM events e
-                    INNER JOIN
-                      (SELECT distinct_id,
-                              argMax(person_id, version) as person_id
-                       FROM person_distinct_id2
+                   (SELECT aggregation_target,
+                           timestamp,
+                           if(event = 'sign up', 1, 0) as step_0,
+                           if(step_0 = 1, timestamp, null) as latest_0,
+                           if(event = 'play movie', 1, 0) as step_1,
+                           if(step_1 = 1, timestamp, null) as latest_1,
+                           if(event = 'buy', 1, 0) as step_2,
+                           if(step_2 = 1, timestamp, null) as latest_2,
+                           replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS prop_basic,
+                           prop_basic as prop,
+                           argMinIf(prop, timestamp, isNotNull(prop)) over (PARTITION by aggregation_target) as prop_vals
+                    FROM
+                      (SELECT e.event as event,
+                              e.team_id as team_id,
+                              e.distinct_id as distinct_id,
+                              e.timestamp as timestamp,
+                              pdi.person_id as aggregation_target,
+                              pdi.person_id as person_id,
+                              groups_0.group_properties_0 as group_properties_0
+                       FROM events e
+                       INNER JOIN
+                         (SELECT distinct_id,
+                                 argMax(person_id, version) as person_id
+                          FROM person_distinct_id2
+                          WHERE team_id = 2
+                          GROUP BY distinct_id
+                          HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+                       INNER JOIN
+                         (SELECT group_key,
+                                 argMax(group_properties, _timestamp) AS group_properties_0
+                          FROM groups
+                          WHERE team_id = 2
+                            AND group_type_index = 0
+                          GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
                        WHERE team_id = 2
-                       GROUP BY distinct_id
-                       HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-                    INNER JOIN
-                      (SELECT group_key,
-                              argMax(group_properties, _timestamp) AS group_properties_0
-                       FROM groups
-                       WHERE team_id = 2
-                         AND group_type_index = 0
-                       GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
-                    WHERE team_id = 2
-                      AND event IN ['buy', 'play movie', 'sign up']
-                      AND timestamp >= toDateTime('2020-01-01 00:00:00')
-                      AND timestamp <= toDateTime('2020-01-08 23:59:59') ) events
-                 WHERE (step_0 = 1
-                        OR step_1 = 1
-                        OR step_2 = 1) ))
+                         AND event IN ['buy', 'play movie', 'sign up']
+                         AND timestamp >= toDateTime('2020-01-01 00:00:00')
+                         AND timestamp <= toDateTime('2020-01-08 23:59:59') ) events
+                    WHERE (step_0 = 1
+                           OR step_1 = 1
+                           OR step_2 = 1) )))
            WHERE step_0 = 1
            UNION ALL SELECT *,
                             arraySort([latest_0,latest_1,latest_2]) as event_times,
@@ -760,45 +795,50 @@
                                                             ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
                                                            if(has(['technology', 'finance'], prop), prop, 'Other') as prop
               FROM
-                (SELECT aggregation_target,
-                        timestamp,
-                        if(event = 'play movie', 1, 0) as step_0,
-                        if(step_0 = 1, timestamp, null) as latest_0,
-                        if(event = 'buy', 1, 0) as step_1,
-                        if(step_1 = 1, timestamp, null) as latest_1,
-                        if(event = 'sign up', 1, 0) as step_2,
-                        if(step_2 = 1, timestamp, null) as latest_2,
-                        replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS prop
+                (SELECT *,
+                        prop_vals as prop
                  FROM
-                   (SELECT e.event as event,
-                           e.team_id as team_id,
-                           e.distinct_id as distinct_id,
-                           e.timestamp as timestamp,
-                           pdi.person_id as aggregation_target,
-                           pdi.person_id as person_id,
-                           groups_0.group_properties_0 as group_properties_0
-                    FROM events e
-                    INNER JOIN
-                      (SELECT distinct_id,
-                              argMax(person_id, version) as person_id
-                       FROM person_distinct_id2
+                   (SELECT aggregation_target,
+                           timestamp,
+                           if(event = 'play movie', 1, 0) as step_0,
+                           if(step_0 = 1, timestamp, null) as latest_0,
+                           if(event = 'buy', 1, 0) as step_1,
+                           if(step_1 = 1, timestamp, null) as latest_1,
+                           if(event = 'sign up', 1, 0) as step_2,
+                           if(step_2 = 1, timestamp, null) as latest_2,
+                           replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS prop_basic,
+                           prop_basic as prop,
+                           argMinIf(prop, timestamp, isNotNull(prop)) over (PARTITION by aggregation_target) as prop_vals
+                    FROM
+                      (SELECT e.event as event,
+                              e.team_id as team_id,
+                              e.distinct_id as distinct_id,
+                              e.timestamp as timestamp,
+                              pdi.person_id as aggregation_target,
+                              pdi.person_id as person_id,
+                              groups_0.group_properties_0 as group_properties_0
+                       FROM events e
+                       INNER JOIN
+                         (SELECT distinct_id,
+                                 argMax(person_id, version) as person_id
+                          FROM person_distinct_id2
+                          WHERE team_id = 2
+                          GROUP BY distinct_id
+                          HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+                       INNER JOIN
+                         (SELECT group_key,
+                                 argMax(group_properties, _timestamp) AS group_properties_0
+                          FROM groups
+                          WHERE team_id = 2
+                            AND group_type_index = 0
+                          GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
                        WHERE team_id = 2
-                       GROUP BY distinct_id
-                       HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-                    INNER JOIN
-                      (SELECT group_key,
-                              argMax(group_properties, _timestamp) AS group_properties_0
-                       FROM groups
-                       WHERE team_id = 2
-                         AND group_type_index = 0
-                       GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
-                    WHERE team_id = 2
-                      AND event IN ['buy', 'play movie', 'sign up']
-                      AND timestamp >= toDateTime('2020-01-01 00:00:00')
-                      AND timestamp <= toDateTime('2020-01-08 23:59:59') ) events
-                 WHERE (step_0 = 1
-                        OR step_1 = 1
-                        OR step_2 = 1) ))
+                         AND event IN ['buy', 'play movie', 'sign up']
+                         AND timestamp >= toDateTime('2020-01-01 00:00:00')
+                         AND timestamp <= toDateTime('2020-01-08 23:59:59') ) events
+                    WHERE (step_0 = 1
+                           OR step_1 = 1
+                           OR step_2 = 1) )))
            WHERE step_0 = 1
            UNION ALL SELECT *,
                             arraySort([latest_0,latest_1,latest_2]) as event_times,
@@ -823,45 +863,50 @@
                                                             ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
                                                            if(has(['technology', 'finance'], prop), prop, 'Other') as prop
               FROM
-                (SELECT aggregation_target,
-                        timestamp,
-                        if(event = 'buy', 1, 0) as step_0,
-                        if(step_0 = 1, timestamp, null) as latest_0,
-                        if(event = 'sign up', 1, 0) as step_1,
-                        if(step_1 = 1, timestamp, null) as latest_1,
-                        if(event = 'play movie', 1, 0) as step_2,
-                        if(step_2 = 1, timestamp, null) as latest_2,
-                        replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS prop
+                (SELECT *,
+                        prop_vals as prop
                  FROM
-                   (SELECT e.event as event,
-                           e.team_id as team_id,
-                           e.distinct_id as distinct_id,
-                           e.timestamp as timestamp,
-                           pdi.person_id as aggregation_target,
-                           pdi.person_id as person_id,
-                           groups_0.group_properties_0 as group_properties_0
-                    FROM events e
-                    INNER JOIN
-                      (SELECT distinct_id,
-                              argMax(person_id, version) as person_id
-                       FROM person_distinct_id2
+                   (SELECT aggregation_target,
+                           timestamp,
+                           if(event = 'buy', 1, 0) as step_0,
+                           if(step_0 = 1, timestamp, null) as latest_0,
+                           if(event = 'sign up', 1, 0) as step_1,
+                           if(step_1 = 1, timestamp, null) as latest_1,
+                           if(event = 'play movie', 1, 0) as step_2,
+                           if(step_2 = 1, timestamp, null) as latest_2,
+                           replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS prop_basic,
+                           prop_basic as prop,
+                           argMinIf(prop, timestamp, isNotNull(prop)) over (PARTITION by aggregation_target) as prop_vals
+                    FROM
+                      (SELECT e.event as event,
+                              e.team_id as team_id,
+                              e.distinct_id as distinct_id,
+                              e.timestamp as timestamp,
+                              pdi.person_id as aggregation_target,
+                              pdi.person_id as person_id,
+                              groups_0.group_properties_0 as group_properties_0
+                       FROM events e
+                       INNER JOIN
+                         (SELECT distinct_id,
+                                 argMax(person_id, version) as person_id
+                          FROM person_distinct_id2
+                          WHERE team_id = 2
+                          GROUP BY distinct_id
+                          HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+                       INNER JOIN
+                         (SELECT group_key,
+                                 argMax(group_properties, _timestamp) AS group_properties_0
+                          FROM groups
+                          WHERE team_id = 2
+                            AND group_type_index = 0
+                          GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
                        WHERE team_id = 2
-                       GROUP BY distinct_id
-                       HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-                    INNER JOIN
-                      (SELECT group_key,
-                              argMax(group_properties, _timestamp) AS group_properties_0
-                       FROM groups
-                       WHERE team_id = 2
-                         AND group_type_index = 0
-                       GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
-                    WHERE team_id = 2
-                      AND event IN ['buy', 'play movie', 'sign up']
-                      AND timestamp >= toDateTime('2020-01-01 00:00:00')
-                      AND timestamp <= toDateTime('2020-01-08 23:59:59') ) events
-                 WHERE (step_0 = 1
-                        OR step_1 = 1
-                        OR step_2 = 1) ))
+                         AND event IN ['buy', 'play movie', 'sign up']
+                         AND timestamp >= toDateTime('2020-01-01 00:00:00')
+                         AND timestamp <= toDateTime('2020-01-08 23:59:59') ) events
+                    WHERE (step_0 = 1
+                           OR step_1 = 1
+                           OR step_2 = 1) )))
            WHERE step_0 = 1 ))
      GROUP BY aggregation_target,
               steps,
@@ -890,7 +935,7 @@
           AND group_type_index = 0
         GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
      WHERE team_id = 2
-       AND event = 'sign up'
+       AND event IN ['buy', 'play movie', 'sign up']
        AND timestamp >= toDateTime('2020-01-01 00:00:00')
        AND timestamp <= toDateTime('2020-01-08 23:59:59')
      GROUP BY value
@@ -915,7 +960,7 @@
           AND group_type_index = 0
         GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
      WHERE team_id = 2
-       AND event = 'sign up'
+       AND event IN ['buy', 'play movie', 'sign up']
        AND timestamp >= toDateTime('2020-01-01 00:00:00')
        AND timestamp <= toDateTime('2020-01-08 23:59:59')
      GROUP BY value
@@ -940,7 +985,7 @@
           AND group_type_index = 0
         GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
      WHERE team_id = 2
-       AND event = 'sign up'
+       AND event IN ['buy', 'play movie', 'sign up']
        AND timestamp >= toDateTime('2020-01-01 00:00:00')
        AND timestamp <= toDateTime('2020-01-08 23:59:59')
      GROUP BY value
@@ -993,45 +1038,50 @@
                                                             ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
                                                            if(has(['technology', 'finance'], prop), prop, 'Other') as prop
               FROM
-                (SELECT aggregation_target,
-                        timestamp,
-                        if(event = 'sign up', 1, 0) as step_0,
-                        if(step_0 = 1, timestamp, null) as latest_0,
-                        if(event = 'play movie', 1, 0) as step_1,
-                        if(step_1 = 1, timestamp, null) as latest_1,
-                        if(event = 'buy', 1, 0) as step_2,
-                        if(step_2 = 1, timestamp, null) as latest_2,
-                        replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS prop
+                (SELECT *,
+                        prop_vals as prop
                  FROM
-                   (SELECT e.event as event,
-                           e.team_id as team_id,
-                           e.distinct_id as distinct_id,
-                           e.timestamp as timestamp,
-                           pdi.person_id as aggregation_target,
-                           pdi.person_id as person_id,
-                           groups_0.group_properties_0 as group_properties_0
-                    FROM events e
-                    INNER JOIN
-                      (SELECT distinct_id,
-                              argMax(person_id, version) as person_id
-                       FROM person_distinct_id2
+                   (SELECT aggregation_target,
+                           timestamp,
+                           if(event = 'sign up', 1, 0) as step_0,
+                           if(step_0 = 1, timestamp, null) as latest_0,
+                           if(event = 'play movie', 1, 0) as step_1,
+                           if(step_1 = 1, timestamp, null) as latest_1,
+                           if(event = 'buy', 1, 0) as step_2,
+                           if(step_2 = 1, timestamp, null) as latest_2,
+                           replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS prop_basic,
+                           prop_basic as prop,
+                           argMinIf(prop, timestamp, isNotNull(prop)) over (PARTITION by aggregation_target) as prop_vals
+                    FROM
+                      (SELECT e.event as event,
+                              e.team_id as team_id,
+                              e.distinct_id as distinct_id,
+                              e.timestamp as timestamp,
+                              pdi.person_id as aggregation_target,
+                              pdi.person_id as person_id,
+                              groups_0.group_properties_0 as group_properties_0
+                       FROM events e
+                       INNER JOIN
+                         (SELECT distinct_id,
+                                 argMax(person_id, version) as person_id
+                          FROM person_distinct_id2
+                          WHERE team_id = 2
+                          GROUP BY distinct_id
+                          HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+                       INNER JOIN
+                         (SELECT group_key,
+                                 argMax(group_properties, _timestamp) AS group_properties_0
+                          FROM groups
+                          WHERE team_id = 2
+                            AND group_type_index = 0
+                          GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
                        WHERE team_id = 2
-                       GROUP BY distinct_id
-                       HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-                    INNER JOIN
-                      (SELECT group_key,
-                              argMax(group_properties, _timestamp) AS group_properties_0
-                       FROM groups
-                       WHERE team_id = 2
-                         AND group_type_index = 0
-                       GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
-                    WHERE team_id = 2
-                      AND event IN ['buy', 'play movie', 'sign up']
-                      AND timestamp >= toDateTime('2020-01-01 00:00:00')
-                      AND timestamp <= toDateTime('2020-01-08 23:59:59') ) events
-                 WHERE (step_0 = 1
-                        OR step_1 = 1
-                        OR step_2 = 1) ))
+                         AND event IN ['buy', 'play movie', 'sign up']
+                         AND timestamp >= toDateTime('2020-01-01 00:00:00')
+                         AND timestamp <= toDateTime('2020-01-08 23:59:59') ) events
+                    WHERE (step_0 = 1
+                           OR step_1 = 1
+                           OR step_2 = 1) )))
            WHERE step_0 = 1
            UNION ALL SELECT *,
                             arraySort([latest_0,latest_1,latest_2]) as event_times,
@@ -1056,45 +1106,50 @@
                                                             ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
                                                            if(has(['technology', 'finance'], prop), prop, 'Other') as prop
               FROM
-                (SELECT aggregation_target,
-                        timestamp,
-                        if(event = 'play movie', 1, 0) as step_0,
-                        if(step_0 = 1, timestamp, null) as latest_0,
-                        if(event = 'buy', 1, 0) as step_1,
-                        if(step_1 = 1, timestamp, null) as latest_1,
-                        if(event = 'sign up', 1, 0) as step_2,
-                        if(step_2 = 1, timestamp, null) as latest_2,
-                        replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS prop
+                (SELECT *,
+                        prop_vals as prop
                  FROM
-                   (SELECT e.event as event,
-                           e.team_id as team_id,
-                           e.distinct_id as distinct_id,
-                           e.timestamp as timestamp,
-                           pdi.person_id as aggregation_target,
-                           pdi.person_id as person_id,
-                           groups_0.group_properties_0 as group_properties_0
-                    FROM events e
-                    INNER JOIN
-                      (SELECT distinct_id,
-                              argMax(person_id, version) as person_id
-                       FROM person_distinct_id2
+                   (SELECT aggregation_target,
+                           timestamp,
+                           if(event = 'play movie', 1, 0) as step_0,
+                           if(step_0 = 1, timestamp, null) as latest_0,
+                           if(event = 'buy', 1, 0) as step_1,
+                           if(step_1 = 1, timestamp, null) as latest_1,
+                           if(event = 'sign up', 1, 0) as step_2,
+                           if(step_2 = 1, timestamp, null) as latest_2,
+                           replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS prop_basic,
+                           prop_basic as prop,
+                           argMinIf(prop, timestamp, isNotNull(prop)) over (PARTITION by aggregation_target) as prop_vals
+                    FROM
+                      (SELECT e.event as event,
+                              e.team_id as team_id,
+                              e.distinct_id as distinct_id,
+                              e.timestamp as timestamp,
+                              pdi.person_id as aggregation_target,
+                              pdi.person_id as person_id,
+                              groups_0.group_properties_0 as group_properties_0
+                       FROM events e
+                       INNER JOIN
+                         (SELECT distinct_id,
+                                 argMax(person_id, version) as person_id
+                          FROM person_distinct_id2
+                          WHERE team_id = 2
+                          GROUP BY distinct_id
+                          HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+                       INNER JOIN
+                         (SELECT group_key,
+                                 argMax(group_properties, _timestamp) AS group_properties_0
+                          FROM groups
+                          WHERE team_id = 2
+                            AND group_type_index = 0
+                          GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
                        WHERE team_id = 2
-                       GROUP BY distinct_id
-                       HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-                    INNER JOIN
-                      (SELECT group_key,
-                              argMax(group_properties, _timestamp) AS group_properties_0
-                       FROM groups
-                       WHERE team_id = 2
-                         AND group_type_index = 0
-                       GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
-                    WHERE team_id = 2
-                      AND event IN ['buy', 'play movie', 'sign up']
-                      AND timestamp >= toDateTime('2020-01-01 00:00:00')
-                      AND timestamp <= toDateTime('2020-01-08 23:59:59') ) events
-                 WHERE (step_0 = 1
-                        OR step_1 = 1
-                        OR step_2 = 1) ))
+                         AND event IN ['buy', 'play movie', 'sign up']
+                         AND timestamp >= toDateTime('2020-01-01 00:00:00')
+                         AND timestamp <= toDateTime('2020-01-08 23:59:59') ) events
+                    WHERE (step_0 = 1
+                           OR step_1 = 1
+                           OR step_2 = 1) )))
            WHERE step_0 = 1
            UNION ALL SELECT *,
                             arraySort([latest_0,latest_1,latest_2]) as event_times,
@@ -1119,45 +1174,50 @@
                                                             ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
                                                            if(has(['technology', 'finance'], prop), prop, 'Other') as prop
               FROM
-                (SELECT aggregation_target,
-                        timestamp,
-                        if(event = 'buy', 1, 0) as step_0,
-                        if(step_0 = 1, timestamp, null) as latest_0,
-                        if(event = 'sign up', 1, 0) as step_1,
-                        if(step_1 = 1, timestamp, null) as latest_1,
-                        if(event = 'play movie', 1, 0) as step_2,
-                        if(step_2 = 1, timestamp, null) as latest_2,
-                        replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS prop
+                (SELECT *,
+                        prop_vals as prop
                  FROM
-                   (SELECT e.event as event,
-                           e.team_id as team_id,
-                           e.distinct_id as distinct_id,
-                           e.timestamp as timestamp,
-                           pdi.person_id as aggregation_target,
-                           pdi.person_id as person_id,
-                           groups_0.group_properties_0 as group_properties_0
-                    FROM events e
-                    INNER JOIN
-                      (SELECT distinct_id,
-                              argMax(person_id, version) as person_id
-                       FROM person_distinct_id2
+                   (SELECT aggregation_target,
+                           timestamp,
+                           if(event = 'buy', 1, 0) as step_0,
+                           if(step_0 = 1, timestamp, null) as latest_0,
+                           if(event = 'sign up', 1, 0) as step_1,
+                           if(step_1 = 1, timestamp, null) as latest_1,
+                           if(event = 'play movie', 1, 0) as step_2,
+                           if(step_2 = 1, timestamp, null) as latest_2,
+                           replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS prop_basic,
+                           prop_basic as prop,
+                           argMinIf(prop, timestamp, isNotNull(prop)) over (PARTITION by aggregation_target) as prop_vals
+                    FROM
+                      (SELECT e.event as event,
+                              e.team_id as team_id,
+                              e.distinct_id as distinct_id,
+                              e.timestamp as timestamp,
+                              pdi.person_id as aggregation_target,
+                              pdi.person_id as person_id,
+                              groups_0.group_properties_0 as group_properties_0
+                       FROM events e
+                       INNER JOIN
+                         (SELECT distinct_id,
+                                 argMax(person_id, version) as person_id
+                          FROM person_distinct_id2
+                          WHERE team_id = 2
+                          GROUP BY distinct_id
+                          HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+                       INNER JOIN
+                         (SELECT group_key,
+                                 argMax(group_properties, _timestamp) AS group_properties_0
+                          FROM groups
+                          WHERE team_id = 2
+                            AND group_type_index = 0
+                          GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
                        WHERE team_id = 2
-                       GROUP BY distinct_id
-                       HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-                    INNER JOIN
-                      (SELECT group_key,
-                              argMax(group_properties, _timestamp) AS group_properties_0
-                       FROM groups
-                       WHERE team_id = 2
-                         AND group_type_index = 0
-                       GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
-                    WHERE team_id = 2
-                      AND event IN ['buy', 'play movie', 'sign up']
-                      AND timestamp >= toDateTime('2020-01-01 00:00:00')
-                      AND timestamp <= toDateTime('2020-01-08 23:59:59') ) events
-                 WHERE (step_0 = 1
-                        OR step_1 = 1
-                        OR step_2 = 1) ))
+                         AND event IN ['buy', 'play movie', 'sign up']
+                         AND timestamp >= toDateTime('2020-01-01 00:00:00')
+                         AND timestamp <= toDateTime('2020-01-08 23:59:59') ) events
+                    WHERE (step_0 = 1
+                           OR step_1 = 1
+                           OR step_2 = 1) )))
            WHERE step_0 = 1 ))
      GROUP BY aggregation_target,
               steps,
@@ -1186,7 +1246,7 @@
           AND group_type_index = 0
         GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
      WHERE team_id = 2
-       AND event = 'sign up'
+       AND event IN ['buy', 'play movie', 'sign up']
        AND timestamp >= toDateTime('2020-01-01 00:00:00')
        AND timestamp <= toDateTime('2020-01-08 23:59:59')
      GROUP BY value
@@ -1246,45 +1306,50 @@
                                                             ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
                                                            if(has(['technology', 'finance'], prop), prop, 'Other') as prop
               FROM
-                (SELECT aggregation_target,
-                        timestamp,
-                        if(event = 'sign up', 1, 0) as step_0,
-                        if(step_0 = 1, timestamp, null) as latest_0,
-                        if(event = 'play movie', 1, 0) as step_1,
-                        if(step_1 = 1, timestamp, null) as latest_1,
-                        if(event = 'buy', 1, 0) as step_2,
-                        if(step_2 = 1, timestamp, null) as latest_2,
-                        replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS prop
+                (SELECT *,
+                        prop_vals as prop
                  FROM
-                   (SELECT e.event as event,
-                           e.team_id as team_id,
-                           e.distinct_id as distinct_id,
-                           e.timestamp as timestamp,
-                           pdi.person_id as aggregation_target,
-                           pdi.person_id as person_id,
-                           groups_0.group_properties_0 as group_properties_0
-                    FROM events e
-                    INNER JOIN
-                      (SELECT distinct_id,
-                              argMax(person_id, version) as person_id
-                       FROM person_distinct_id2
+                   (SELECT aggregation_target,
+                           timestamp,
+                           if(event = 'sign up', 1, 0) as step_0,
+                           if(step_0 = 1, timestamp, null) as latest_0,
+                           if(event = 'play movie', 1, 0) as step_1,
+                           if(step_1 = 1, timestamp, null) as latest_1,
+                           if(event = 'buy', 1, 0) as step_2,
+                           if(step_2 = 1, timestamp, null) as latest_2,
+                           replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS prop_basic,
+                           prop_basic as prop,
+                           argMinIf(prop, timestamp, isNotNull(prop)) over (PARTITION by aggregation_target) as prop_vals
+                    FROM
+                      (SELECT e.event as event,
+                              e.team_id as team_id,
+                              e.distinct_id as distinct_id,
+                              e.timestamp as timestamp,
+                              pdi.person_id as aggregation_target,
+                              pdi.person_id as person_id,
+                              groups_0.group_properties_0 as group_properties_0
+                       FROM events e
+                       INNER JOIN
+                         (SELECT distinct_id,
+                                 argMax(person_id, version) as person_id
+                          FROM person_distinct_id2
+                          WHERE team_id = 2
+                          GROUP BY distinct_id
+                          HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+                       INNER JOIN
+                         (SELECT group_key,
+                                 argMax(group_properties, _timestamp) AS group_properties_0
+                          FROM groups
+                          WHERE team_id = 2
+                            AND group_type_index = 0
+                          GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
                        WHERE team_id = 2
-                       GROUP BY distinct_id
-                       HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-                    INNER JOIN
-                      (SELECT group_key,
-                              argMax(group_properties, _timestamp) AS group_properties_0
-                       FROM groups
-                       WHERE team_id = 2
-                         AND group_type_index = 0
-                       GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
-                    WHERE team_id = 2
-                      AND event IN ['buy', 'play movie', 'sign up']
-                      AND timestamp >= toDateTime('2020-01-01 00:00:00')
-                      AND timestamp <= toDateTime('2020-01-08 23:59:59') ) events
-                 WHERE (step_0 = 1
-                        OR step_1 = 1
-                        OR step_2 = 1) ))
+                         AND event IN ['buy', 'play movie', 'sign up']
+                         AND timestamp >= toDateTime('2020-01-01 00:00:00')
+                         AND timestamp <= toDateTime('2020-01-08 23:59:59') ) events
+                    WHERE (step_0 = 1
+                           OR step_1 = 1
+                           OR step_2 = 1) )))
            WHERE step_0 = 1
            UNION ALL SELECT *,
                             arraySort([latest_0,latest_1,latest_2]) as event_times,
@@ -1309,45 +1374,50 @@
                                                             ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
                                                            if(has(['technology', 'finance'], prop), prop, 'Other') as prop
               FROM
-                (SELECT aggregation_target,
-                        timestamp,
-                        if(event = 'play movie', 1, 0) as step_0,
-                        if(step_0 = 1, timestamp, null) as latest_0,
-                        if(event = 'buy', 1, 0) as step_1,
-                        if(step_1 = 1, timestamp, null) as latest_1,
-                        if(event = 'sign up', 1, 0) as step_2,
-                        if(step_2 = 1, timestamp, null) as latest_2,
-                        replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS prop
+                (SELECT *,
+                        prop_vals as prop
                  FROM
-                   (SELECT e.event as event,
-                           e.team_id as team_id,
-                           e.distinct_id as distinct_id,
-                           e.timestamp as timestamp,
-                           pdi.person_id as aggregation_target,
-                           pdi.person_id as person_id,
-                           groups_0.group_properties_0 as group_properties_0
-                    FROM events e
-                    INNER JOIN
-                      (SELECT distinct_id,
-                              argMax(person_id, version) as person_id
-                       FROM person_distinct_id2
+                   (SELECT aggregation_target,
+                           timestamp,
+                           if(event = 'play movie', 1, 0) as step_0,
+                           if(step_0 = 1, timestamp, null) as latest_0,
+                           if(event = 'buy', 1, 0) as step_1,
+                           if(step_1 = 1, timestamp, null) as latest_1,
+                           if(event = 'sign up', 1, 0) as step_2,
+                           if(step_2 = 1, timestamp, null) as latest_2,
+                           replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS prop_basic,
+                           prop_basic as prop,
+                           argMinIf(prop, timestamp, isNotNull(prop)) over (PARTITION by aggregation_target) as prop_vals
+                    FROM
+                      (SELECT e.event as event,
+                              e.team_id as team_id,
+                              e.distinct_id as distinct_id,
+                              e.timestamp as timestamp,
+                              pdi.person_id as aggregation_target,
+                              pdi.person_id as person_id,
+                              groups_0.group_properties_0 as group_properties_0
+                       FROM events e
+                       INNER JOIN
+                         (SELECT distinct_id,
+                                 argMax(person_id, version) as person_id
+                          FROM person_distinct_id2
+                          WHERE team_id = 2
+                          GROUP BY distinct_id
+                          HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+                       INNER JOIN
+                         (SELECT group_key,
+                                 argMax(group_properties, _timestamp) AS group_properties_0
+                          FROM groups
+                          WHERE team_id = 2
+                            AND group_type_index = 0
+                          GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
                        WHERE team_id = 2
-                       GROUP BY distinct_id
-                       HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-                    INNER JOIN
-                      (SELECT group_key,
-                              argMax(group_properties, _timestamp) AS group_properties_0
-                       FROM groups
-                       WHERE team_id = 2
-                         AND group_type_index = 0
-                       GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
-                    WHERE team_id = 2
-                      AND event IN ['buy', 'play movie', 'sign up']
-                      AND timestamp >= toDateTime('2020-01-01 00:00:00')
-                      AND timestamp <= toDateTime('2020-01-08 23:59:59') ) events
-                 WHERE (step_0 = 1
-                        OR step_1 = 1
-                        OR step_2 = 1) ))
+                         AND event IN ['buy', 'play movie', 'sign up']
+                         AND timestamp >= toDateTime('2020-01-01 00:00:00')
+                         AND timestamp <= toDateTime('2020-01-08 23:59:59') ) events
+                    WHERE (step_0 = 1
+                           OR step_1 = 1
+                           OR step_2 = 1) )))
            WHERE step_0 = 1
            UNION ALL SELECT *,
                             arraySort([latest_0,latest_1,latest_2]) as event_times,
@@ -1372,45 +1442,50 @@
                                                             ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
                                                            if(has(['technology', 'finance'], prop), prop, 'Other') as prop
               FROM
-                (SELECT aggregation_target,
-                        timestamp,
-                        if(event = 'buy', 1, 0) as step_0,
-                        if(step_0 = 1, timestamp, null) as latest_0,
-                        if(event = 'sign up', 1, 0) as step_1,
-                        if(step_1 = 1, timestamp, null) as latest_1,
-                        if(event = 'play movie', 1, 0) as step_2,
-                        if(step_2 = 1, timestamp, null) as latest_2,
-                        replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS prop
+                (SELECT *,
+                        prop_vals as prop
                  FROM
-                   (SELECT e.event as event,
-                           e.team_id as team_id,
-                           e.distinct_id as distinct_id,
-                           e.timestamp as timestamp,
-                           pdi.person_id as aggregation_target,
-                           pdi.person_id as person_id,
-                           groups_0.group_properties_0 as group_properties_0
-                    FROM events e
-                    INNER JOIN
-                      (SELECT distinct_id,
-                              argMax(person_id, version) as person_id
-                       FROM person_distinct_id2
+                   (SELECT aggregation_target,
+                           timestamp,
+                           if(event = 'buy', 1, 0) as step_0,
+                           if(step_0 = 1, timestamp, null) as latest_0,
+                           if(event = 'sign up', 1, 0) as step_1,
+                           if(step_1 = 1, timestamp, null) as latest_1,
+                           if(event = 'play movie', 1, 0) as step_2,
+                           if(step_2 = 1, timestamp, null) as latest_2,
+                           replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS prop_basic,
+                           prop_basic as prop,
+                           argMinIf(prop, timestamp, isNotNull(prop)) over (PARTITION by aggregation_target) as prop_vals
+                    FROM
+                      (SELECT e.event as event,
+                              e.team_id as team_id,
+                              e.distinct_id as distinct_id,
+                              e.timestamp as timestamp,
+                              pdi.person_id as aggregation_target,
+                              pdi.person_id as person_id,
+                              groups_0.group_properties_0 as group_properties_0
+                       FROM events e
+                       INNER JOIN
+                         (SELECT distinct_id,
+                                 argMax(person_id, version) as person_id
+                          FROM person_distinct_id2
+                          WHERE team_id = 2
+                          GROUP BY distinct_id
+                          HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+                       INNER JOIN
+                         (SELECT group_key,
+                                 argMax(group_properties, _timestamp) AS group_properties_0
+                          FROM groups
+                          WHERE team_id = 2
+                            AND group_type_index = 0
+                          GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
                        WHERE team_id = 2
-                       GROUP BY distinct_id
-                       HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-                    INNER JOIN
-                      (SELECT group_key,
-                              argMax(group_properties, _timestamp) AS group_properties_0
-                       FROM groups
-                       WHERE team_id = 2
-                         AND group_type_index = 0
-                       GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
-                    WHERE team_id = 2
-                      AND event IN ['buy', 'play movie', 'sign up']
-                      AND timestamp >= toDateTime('2020-01-01 00:00:00')
-                      AND timestamp <= toDateTime('2020-01-08 23:59:59') ) events
-                 WHERE (step_0 = 1
-                        OR step_1 = 1
-                        OR step_2 = 1) ))
+                         AND event IN ['buy', 'play movie', 'sign up']
+                         AND timestamp >= toDateTime('2020-01-01 00:00:00')
+                         AND timestamp <= toDateTime('2020-01-08 23:59:59') ) events
+                    WHERE (step_0 = 1
+                           OR step_1 = 1
+                           OR step_2 = 1) )))
            WHERE step_0 = 1 ))
      GROUP BY aggregation_target,
               steps,
@@ -1435,7 +1510,7 @@
           AND group_type_index = 0
         GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
      WHERE team_id = 2
-       AND event = 'sign up'
+       AND event IN ['buy', 'play movie', 'sign up']
        AND timestamp >= toDateTime('2020-01-01 00:00:00')
        AND timestamp <= toDateTime('2020-01-08 23:59:59')
      GROUP BY value
@@ -1460,7 +1535,7 @@
           AND group_type_index = 0
         GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
      WHERE team_id = 2
-       AND event = 'sign up'
+       AND event IN ['buy', 'play movie', 'sign up']
        AND timestamp >= toDateTime('2020-01-01 00:00:00')
        AND timestamp <= toDateTime('2020-01-08 23:59:59')
      GROUP BY value
@@ -1485,7 +1560,7 @@
           AND group_type_index = 0
         GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
      WHERE team_id = 2
-       AND event = 'sign up'
+       AND event IN ['buy', 'play movie', 'sign up']
        AND timestamp >= toDateTime('2020-01-01 00:00:00')
        AND timestamp <= toDateTime('2020-01-08 23:59:59')
      GROUP BY value
@@ -1538,45 +1613,50 @@
                                                             ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
                                                            if(has(['technology', 'finance'], prop), prop, 'Other') as prop
               FROM
-                (SELECT aggregation_target,
-                        timestamp,
-                        if(event = 'sign up', 1, 0) as step_0,
-                        if(step_0 = 1, timestamp, null) as latest_0,
-                        if(event = 'play movie', 1, 0) as step_1,
-                        if(step_1 = 1, timestamp, null) as latest_1,
-                        if(event = 'buy', 1, 0) as step_2,
-                        if(step_2 = 1, timestamp, null) as latest_2,
-                        replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS prop
+                (SELECT *,
+                        prop_vals as prop
                  FROM
-                   (SELECT e.event as event,
-                           e.team_id as team_id,
-                           e.distinct_id as distinct_id,
-                           e.timestamp as timestamp,
-                           pdi.person_id as aggregation_target,
-                           pdi.person_id as person_id,
-                           groups_0.group_properties_0 as group_properties_0
-                    FROM events e
-                    INNER JOIN
-                      (SELECT distinct_id,
-                              argMax(person_id, version) as person_id
-                       FROM person_distinct_id2
+                   (SELECT aggregation_target,
+                           timestamp,
+                           if(event = 'sign up', 1, 0) as step_0,
+                           if(step_0 = 1, timestamp, null) as latest_0,
+                           if(event = 'play movie', 1, 0) as step_1,
+                           if(step_1 = 1, timestamp, null) as latest_1,
+                           if(event = 'buy', 1, 0) as step_2,
+                           if(step_2 = 1, timestamp, null) as latest_2,
+                           replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS prop_basic,
+                           prop_basic as prop,
+                           argMinIf(prop, timestamp, isNotNull(prop)) over (PARTITION by aggregation_target) as prop_vals
+                    FROM
+                      (SELECT e.event as event,
+                              e.team_id as team_id,
+                              e.distinct_id as distinct_id,
+                              e.timestamp as timestamp,
+                              pdi.person_id as aggregation_target,
+                              pdi.person_id as person_id,
+                              groups_0.group_properties_0 as group_properties_0
+                       FROM events e
+                       INNER JOIN
+                         (SELECT distinct_id,
+                                 argMax(person_id, version) as person_id
+                          FROM person_distinct_id2
+                          WHERE team_id = 2
+                          GROUP BY distinct_id
+                          HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+                       INNER JOIN
+                         (SELECT group_key,
+                                 argMax(group_properties, _timestamp) AS group_properties_0
+                          FROM groups
+                          WHERE team_id = 2
+                            AND group_type_index = 0
+                          GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
                        WHERE team_id = 2
-                       GROUP BY distinct_id
-                       HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-                    INNER JOIN
-                      (SELECT group_key,
-                              argMax(group_properties, _timestamp) AS group_properties_0
-                       FROM groups
-                       WHERE team_id = 2
-                         AND group_type_index = 0
-                       GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
-                    WHERE team_id = 2
-                      AND event IN ['buy', 'play movie', 'sign up']
-                      AND timestamp >= toDateTime('2020-01-01 00:00:00')
-                      AND timestamp <= toDateTime('2020-01-08 23:59:59') ) events
-                 WHERE (step_0 = 1
-                        OR step_1 = 1
-                        OR step_2 = 1) ))
+                         AND event IN ['buy', 'play movie', 'sign up']
+                         AND timestamp >= toDateTime('2020-01-01 00:00:00')
+                         AND timestamp <= toDateTime('2020-01-08 23:59:59') ) events
+                    WHERE (step_0 = 1
+                           OR step_1 = 1
+                           OR step_2 = 1) )))
            WHERE step_0 = 1
            UNION ALL SELECT *,
                             arraySort([latest_0,latest_1,latest_2]) as event_times,
@@ -1601,45 +1681,50 @@
                                                             ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
                                                            if(has(['technology', 'finance'], prop), prop, 'Other') as prop
               FROM
-                (SELECT aggregation_target,
-                        timestamp,
-                        if(event = 'play movie', 1, 0) as step_0,
-                        if(step_0 = 1, timestamp, null) as latest_0,
-                        if(event = 'buy', 1, 0) as step_1,
-                        if(step_1 = 1, timestamp, null) as latest_1,
-                        if(event = 'sign up', 1, 0) as step_2,
-                        if(step_2 = 1, timestamp, null) as latest_2,
-                        replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS prop
+                (SELECT *,
+                        prop_vals as prop
                  FROM
-                   (SELECT e.event as event,
-                           e.team_id as team_id,
-                           e.distinct_id as distinct_id,
-                           e.timestamp as timestamp,
-                           pdi.person_id as aggregation_target,
-                           pdi.person_id as person_id,
-                           groups_0.group_properties_0 as group_properties_0
-                    FROM events e
-                    INNER JOIN
-                      (SELECT distinct_id,
-                              argMax(person_id, version) as person_id
-                       FROM person_distinct_id2
+                   (SELECT aggregation_target,
+                           timestamp,
+                           if(event = 'play movie', 1, 0) as step_0,
+                           if(step_0 = 1, timestamp, null) as latest_0,
+                           if(event = 'buy', 1, 0) as step_1,
+                           if(step_1 = 1, timestamp, null) as latest_1,
+                           if(event = 'sign up', 1, 0) as step_2,
+                           if(step_2 = 1, timestamp, null) as latest_2,
+                           replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS prop_basic,
+                           prop_basic as prop,
+                           argMinIf(prop, timestamp, isNotNull(prop)) over (PARTITION by aggregation_target) as prop_vals
+                    FROM
+                      (SELECT e.event as event,
+                              e.team_id as team_id,
+                              e.distinct_id as distinct_id,
+                              e.timestamp as timestamp,
+                              pdi.person_id as aggregation_target,
+                              pdi.person_id as person_id,
+                              groups_0.group_properties_0 as group_properties_0
+                       FROM events e
+                       INNER JOIN
+                         (SELECT distinct_id,
+                                 argMax(person_id, version) as person_id
+                          FROM person_distinct_id2
+                          WHERE team_id = 2
+                          GROUP BY distinct_id
+                          HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+                       INNER JOIN
+                         (SELECT group_key,
+                                 argMax(group_properties, _timestamp) AS group_properties_0
+                          FROM groups
+                          WHERE team_id = 2
+                            AND group_type_index = 0
+                          GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
                        WHERE team_id = 2
-                       GROUP BY distinct_id
-                       HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-                    INNER JOIN
-                      (SELECT group_key,
-                              argMax(group_properties, _timestamp) AS group_properties_0
-                       FROM groups
-                       WHERE team_id = 2
-                         AND group_type_index = 0
-                       GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
-                    WHERE team_id = 2
-                      AND event IN ['buy', 'play movie', 'sign up']
-                      AND timestamp >= toDateTime('2020-01-01 00:00:00')
-                      AND timestamp <= toDateTime('2020-01-08 23:59:59') ) events
-                 WHERE (step_0 = 1
-                        OR step_1 = 1
-                        OR step_2 = 1) ))
+                         AND event IN ['buy', 'play movie', 'sign up']
+                         AND timestamp >= toDateTime('2020-01-01 00:00:00')
+                         AND timestamp <= toDateTime('2020-01-08 23:59:59') ) events
+                    WHERE (step_0 = 1
+                           OR step_1 = 1
+                           OR step_2 = 1) )))
            WHERE step_0 = 1
            UNION ALL SELECT *,
                             arraySort([latest_0,latest_1,latest_2]) as event_times,
@@ -1664,45 +1749,50 @@
                                                             ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
                                                            if(has(['technology', 'finance'], prop), prop, 'Other') as prop
               FROM
-                (SELECT aggregation_target,
-                        timestamp,
-                        if(event = 'buy', 1, 0) as step_0,
-                        if(step_0 = 1, timestamp, null) as latest_0,
-                        if(event = 'sign up', 1, 0) as step_1,
-                        if(step_1 = 1, timestamp, null) as latest_1,
-                        if(event = 'play movie', 1, 0) as step_2,
-                        if(step_2 = 1, timestamp, null) as latest_2,
-                        replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS prop
+                (SELECT *,
+                        prop_vals as prop
                  FROM
-                   (SELECT e.event as event,
-                           e.team_id as team_id,
-                           e.distinct_id as distinct_id,
-                           e.timestamp as timestamp,
-                           pdi.person_id as aggregation_target,
-                           pdi.person_id as person_id,
-                           groups_0.group_properties_0 as group_properties_0
-                    FROM events e
-                    INNER JOIN
-                      (SELECT distinct_id,
-                              argMax(person_id, version) as person_id
-                       FROM person_distinct_id2
+                   (SELECT aggregation_target,
+                           timestamp,
+                           if(event = 'buy', 1, 0) as step_0,
+                           if(step_0 = 1, timestamp, null) as latest_0,
+                           if(event = 'sign up', 1, 0) as step_1,
+                           if(step_1 = 1, timestamp, null) as latest_1,
+                           if(event = 'play movie', 1, 0) as step_2,
+                           if(step_2 = 1, timestamp, null) as latest_2,
+                           replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS prop_basic,
+                           prop_basic as prop,
+                           argMinIf(prop, timestamp, isNotNull(prop)) over (PARTITION by aggregation_target) as prop_vals
+                    FROM
+                      (SELECT e.event as event,
+                              e.team_id as team_id,
+                              e.distinct_id as distinct_id,
+                              e.timestamp as timestamp,
+                              pdi.person_id as aggregation_target,
+                              pdi.person_id as person_id,
+                              groups_0.group_properties_0 as group_properties_0
+                       FROM events e
+                       INNER JOIN
+                         (SELECT distinct_id,
+                                 argMax(person_id, version) as person_id
+                          FROM person_distinct_id2
+                          WHERE team_id = 2
+                          GROUP BY distinct_id
+                          HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+                       INNER JOIN
+                         (SELECT group_key,
+                                 argMax(group_properties, _timestamp) AS group_properties_0
+                          FROM groups
+                          WHERE team_id = 2
+                            AND group_type_index = 0
+                          GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
                        WHERE team_id = 2
-                       GROUP BY distinct_id
-                       HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-                    INNER JOIN
-                      (SELECT group_key,
-                              argMax(group_properties, _timestamp) AS group_properties_0
-                       FROM groups
-                       WHERE team_id = 2
-                         AND group_type_index = 0
-                       GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
-                    WHERE team_id = 2
-                      AND event IN ['buy', 'play movie', 'sign up']
-                      AND timestamp >= toDateTime('2020-01-01 00:00:00')
-                      AND timestamp <= toDateTime('2020-01-08 23:59:59') ) events
-                 WHERE (step_0 = 1
-                        OR step_1 = 1
-                        OR step_2 = 1) ))
+                         AND event IN ['buy', 'play movie', 'sign up']
+                         AND timestamp >= toDateTime('2020-01-01 00:00:00')
+                         AND timestamp <= toDateTime('2020-01-08 23:59:59') ) events
+                    WHERE (step_0 = 1
+                           OR step_1 = 1
+                           OR step_2 = 1) )))
            WHERE step_0 = 1 ))
      GROUP BY aggregation_target,
               steps,
@@ -1731,7 +1821,7 @@
           AND group_type_index = 0
         GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
      WHERE team_id = 2
-       AND event = 'sign up'
+       AND event IN ['buy', 'play movie', 'sign up']
        AND timestamp >= toDateTime('2020-01-01 00:00:00')
        AND timestamp <= toDateTime('2020-01-08 23:59:59')
      GROUP BY value
@@ -1756,12 +1846,181 @@
           AND group_type_index = 0
         GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
      WHERE team_id = 2
-       AND event = 'sign up'
+       AND event IN ['buy', 'play movie', 'sign up']
        AND timestamp >= toDateTime('2020-01-01 00:00:00')
        AND timestamp <= toDateTime('2020-01-08 23:59:59')
      GROUP BY value
      ORDER BY count DESC, value DESC
      LIMIT 25
      OFFSET 0)
+  '
+---
+# name: TestFunnelUnorderedStepsBreakdown.test_funnel_step_multiple_breakdown_snapshot
+  '
+  
+  SELECT groupArray(value)
+  FROM
+    (SELECT array(replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', ''), replaceRegexpAll(JSONExtractRaw(properties, '$version'), '^"|"$', '')) AS value,
+            count(*) as count
+     FROM events e
+     WHERE team_id = 2
+       AND event IN ['buy', 'sign up']
+       AND timestamp >= toDateTime('2020-01-01 00:00:00')
+       AND timestamp <= toDateTime('2020-01-08 23:59:59')
+     GROUP BY value
+     ORDER BY count DESC, value DESC
+     LIMIT 25
+     OFFSET 0)
+  '
+---
+# name: TestFunnelUnorderedStepsBreakdown.test_funnel_step_multiple_breakdown_snapshot.1
+  '
+  
+  SELECT groupArray(value)
+  FROM
+    (SELECT array(replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', ''), replaceRegexpAll(JSONExtractRaw(properties, '$version'), '^"|"$', '')) AS value,
+            count(*) as count
+     FROM events e
+     WHERE team_id = 2
+       AND event IN ['buy', 'sign up']
+       AND timestamp >= toDateTime('2020-01-01 00:00:00')
+       AND timestamp <= toDateTime('2020-01-08 23:59:59')
+     GROUP BY value
+     ORDER BY count DESC, value DESC
+     LIMIT 25
+     OFFSET 0)
+  '
+---
+# name: TestFunnelUnorderedStepsBreakdown.test_funnel_step_multiple_breakdown_snapshot.2
+  '
+  
+  SELECT countIf(steps = 1) step_1,
+         countIf(steps = 2) step_2,
+         avg(step_1_average_conversion_time_inner) step_1_average_conversion_time,
+         median(step_1_median_conversion_time_inner) step_1_median_conversion_time,
+         prop
+  FROM
+    (SELECT aggregation_target,
+            steps,
+            avg(step_1_conversion_time) step_1_average_conversion_time_inner,
+            median(step_1_conversion_time) step_1_median_conversion_time_inner,
+            prop
+     FROM
+       (SELECT aggregation_target,
+               steps,
+               max(steps) over (PARTITION BY aggregation_target,
+                                             prop) as max_steps,
+                               step_1_conversion_time,
+                               prop
+        FROM
+          (SELECT *,
+                  arraySort([latest_0,latest_1]) as event_times,
+                  arraySum([if(latest_0 < latest_1 AND latest_1 <= latest_0 + INTERVAL 7 DAY, 1, 0), 1]) AS steps ,
+                  arraySort([latest_0,latest_1]) as conversion_times,
+                  if(isNotNull(conversion_times[2])
+                     AND conversion_times[2] <= conversion_times[1] + INTERVAL 7 DAY, dateDiff('second', conversion_times[1], conversion_times[2]), NULL) step_1_conversion_time
+           FROM
+             (SELECT aggregation_target,
+                     timestamp,
+                     step_0,
+                     latest_0,
+                     step_1,
+                     min(latest_1) over (PARTITION by aggregation_target,
+                                                      prop
+                                         ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1 ,
+                                        if(has([['', ''], ['alakazam', ''], ['Safari', 'xyz'], ['Mac', ''], ['Chrome', 'xyz'], ['0', '0'], ['', 'no-mac']], prop), prop, ['Other']) as prop
+              FROM
+                (SELECT *,
+                        if(notEmpty(arrayFilter(x -> notEmpty(x), prop_vals)), prop_vals, ['','']) as prop
+                 FROM
+                   (SELECT aggregation_target,
+                           timestamp,
+                           if(event = 'sign up', 1, 0) as step_0,
+                           if(step_0 = 1, timestamp, null) as latest_0,
+                           if(event = 'buy', 1, 0) as step_1,
+                           if(step_1 = 1, timestamp, null) as latest_1,
+                           array(replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', ''), replaceRegexpAll(JSONExtractRaw(properties, '$version'), '^"|"$', '')) AS prop_basic,
+                           prop_basic as prop,
+                           argMinIf(prop, timestamp, notEmpty(arrayFilter(x -> notEmpty(x), prop))) over (PARTITION by aggregation_target) as prop_vals
+                    FROM
+                      (SELECT e.event as event,
+                              e.team_id as team_id,
+                              e.distinct_id as distinct_id,
+                              e.timestamp as timestamp,
+                              pdi.person_id as aggregation_target,
+                              e."properties" as "properties",
+                              pdi.person_id as person_id
+                       FROM events e
+                       INNER JOIN
+                         (SELECT distinct_id,
+                                 argMax(person_id, version) as person_id
+                          FROM person_distinct_id2
+                          WHERE team_id = 2
+                          GROUP BY distinct_id
+                          HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+                       WHERE team_id = 2
+                         AND event IN ['buy', 'sign up']
+                         AND timestamp >= toDateTime('2020-01-01 00:00:00')
+                         AND timestamp <= toDateTime('2020-01-08 23:59:59') ) events
+                    WHERE (step_0 = 1
+                           OR step_1 = 1) )))
+           WHERE step_0 = 1
+           UNION ALL SELECT *,
+                            arraySort([latest_0,latest_1]) as event_times,
+                            arraySum([if(latest_0 < latest_1 AND latest_1 <= latest_0 + INTERVAL 7 DAY, 1, 0), 1]) AS steps ,
+                            arraySort([latest_0,latest_1]) as conversion_times,
+                            if(isNotNull(conversion_times[2])
+                               AND conversion_times[2] <= conversion_times[1] + INTERVAL 7 DAY, dateDiff('second', conversion_times[1], conversion_times[2]), NULL) step_1_conversion_time
+           FROM
+             (SELECT aggregation_target,
+                     timestamp,
+                     step_0,
+                     latest_0,
+                     step_1,
+                     min(latest_1) over (PARTITION by aggregation_target,
+                                                      prop
+                                         ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1 ,
+                                        if(has([['', ''], ['alakazam', ''], ['Safari', 'xyz'], ['Mac', ''], ['Chrome', 'xyz'], ['0', '0'], ['', 'no-mac']], prop), prop, ['Other']) as prop
+              FROM
+                (SELECT *,
+                        if(notEmpty(arrayFilter(x -> notEmpty(x), prop_vals)), prop_vals, ['','']) as prop
+                 FROM
+                   (SELECT aggregation_target,
+                           timestamp,
+                           if(event = 'buy', 1, 0) as step_0,
+                           if(step_0 = 1, timestamp, null) as latest_0,
+                           if(event = 'sign up', 1, 0) as step_1,
+                           if(step_1 = 1, timestamp, null) as latest_1,
+                           array(replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', ''), replaceRegexpAll(JSONExtractRaw(properties, '$version'), '^"|"$', '')) AS prop_basic,
+                           prop_basic as prop,
+                           argMinIf(prop, timestamp, notEmpty(arrayFilter(x -> notEmpty(x), prop))) over (PARTITION by aggregation_target) as prop_vals
+                    FROM
+                      (SELECT e.event as event,
+                              e.team_id as team_id,
+                              e.distinct_id as distinct_id,
+                              e.timestamp as timestamp,
+                              pdi.person_id as aggregation_target,
+                              e."properties" as "properties",
+                              pdi.person_id as person_id
+                       FROM events e
+                       INNER JOIN
+                         (SELECT distinct_id,
+                                 argMax(person_id, version) as person_id
+                          FROM person_distinct_id2
+                          WHERE team_id = 2
+                          GROUP BY distinct_id
+                          HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+                       WHERE team_id = 2
+                         AND event IN ['buy', 'sign up']
+                         AND timestamp >= toDateTime('2020-01-01 00:00:00')
+                         AND timestamp <= toDateTime('2020-01-08 23:59:59') ) events
+                    WHERE (step_0 = 1
+                           OR step_1 = 1) )))
+           WHERE step_0 = 1 ))
+     GROUP BY aggregation_target,
+              steps,
+              prop
+     HAVING steps = max_steps)
+  GROUP BY prop SETTINGS allow_experimental_window_functions = 1
   '
 ---

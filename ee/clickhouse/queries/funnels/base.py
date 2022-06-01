@@ -425,20 +425,37 @@ class ClickhouseFunnelBase(ABC):
         )
 
         if self._filter.breakdown and self._filter.breakdown_attribution_type != BreakdownAttributionType.ALL_EVENTS:
-            # TODO: Can play around with ordering in partition to get more precise
-            #  but seems unnecessary right now?
-            # Person1 completes funnel 3 times with different breakdown values
-            # => Go ALL_EVENTS route if you want that
+            if self._filter.breakdown_attribution_type in [
+                BreakdownAttributionType.FIRST_TOUCH,
+                BreakdownAttributionType.LAST_TOUCH,
+            ]:
+                # When breaking down by first/last touch, each person can only have one prop value
+                # so just select that. Except for the empty case, where select the default
+
+                if self._query_has_array_breakdown():
+                    default_breakdown_value = f"""[{','.join(["''" for _ in range(len(self._filter.breakdown))])}]"""
+                    # default is [''] when dealing with a single breakdown array, otherwise ['', '', ...., '']
+                    breakdown_selelector = (
+                        f"if(notEmpty(arrayFilter(x -> notEmpty(x), prop_vals)), prop_vals, {default_breakdown_value})"
+                    )
+                else:
+                    breakdown_selelector = "prop_vals"
+
+                return f"""
+                    SELECT *, {breakdown_selelector} as prop
+                    FROM ({inner_query})
+                """
+
+            # When breaking down by specific step, each person can have multiple prop values
+            # so array join those to each event
             return f"""
                 SELECT *, prop
-                FROM (
-                    SELECT *, groupUniqArray(prop) over (PARTITION by aggregation_target) as prop_vals
-                    FROM ({inner_query})
-                )
+                FROM ({inner_query})
                 ARRAY JOIN prop_vals as prop
                 {"WHERE prop != []" if self._query_has_array_breakdown() else ''}
             """
 
+        # ALL_EVENTS attribution is the old default, where every event needs to have its own prop value
         return inner_query
 
     def _get_steps_conditions(self, length: int) -> str:
@@ -685,41 +702,44 @@ class ClickhouseFunnelBase(ABC):
                 )
             basic_prop_selector = f"{expression} AS prop_basic"
 
-        if self._filter.breakdown_attribution_type == BreakdownAttributionType.ALL_EVENTS:
-            return ",".join([basic_prop_selector, "prop_basic as prop"])
-
         # TODO: simplify once array and string breakdowns are sorted
-        select_columns = []
-        prop_aliases = []
-        default_breakdown_selector = "[]" if self._query_has_array_breakdown() else "NULL"
-        # get prop value from each step
-        for index, _ in enumerate(self._filter.entities):
-            prop_alias = f"prop_{index}"
-            select_columns.append(f"if(step_{index} = 1, prop_basic, {default_breakdown_selector}) as {prop_alias}")
-            prop_aliases.append(prop_alias)
+        if self._filter.breakdown_attribution_type == BreakdownAttributionType.STEP:
+            select_columns = []
+            prop_aliases = []
+            default_breakdown_selector = "[]" if self._query_has_array_breakdown() else "NULL"
+            # get prop value from each step
+            for index, _ in enumerate(self._filter.entities):
+                prop_alias = f"prop_{index}"
+                select_columns.append(f"if(step_{index} = 1, prop_basic, {default_breakdown_selector}) as {prop_alias}")
+                prop_aliases.append(prop_alias)
+            final_select = f"prop_{self._filter.breakdown_attribution_value} as prop"
 
-        if self._filter.breakdown_attribution_type in [
+            prop_window = "groupUniqArray(prop) over (PARTITION by aggregation_target) as prop_vals"
+
+            return ",".join([basic_prop_selector, *select_columns, final_select, prop_window])
+        elif self._filter.breakdown_attribution_type in [
             BreakdownAttributionType.FIRST_TOUCH,
             BreakdownAttributionType.LAST_TOUCH,
         ]:
-            if self._filter.breakdown_attribution_type == BreakdownAttributionType.LAST_TOUCH:
-                prop_aliases.reverse()
 
-            if not self._query_has_array_breakdown():
-                final_select = f"coalesce({','.join(prop_aliases)}) as prop"
-            else:
-                multi_if_conditions = []
-                for prop_alias in prop_aliases:
-                    multi_if_conditions.append(f"notEmpty({prop_alias}), {prop_alias}")
+            prop_conditional = (
+                "notEmpty(arrayFilter(x -> notEmpty(x), prop))"
+                if self._query_has_array_breakdown()
+                else "isNotNull(prop)"
+            )
 
-                # final else condition
-                multi_if_conditions.append(default_breakdown_selector)
+            aggregate_operation = (
+                "argMinIf"
+                if self._filter.breakdown_attribution_type == BreakdownAttributionType.FIRST_TOUCH
+                else "argMaxIf"
+            )
 
-                final_select = f"multiIf({','.join(multi_if_conditions)}) as prop"
+            breakdown_window_selector = f"{aggregate_operation}(prop, timestamp, {prop_conditional})"
+            prop_window = f"{breakdown_window_selector} over (PARTITION by aggregation_target) as prop_vals"
+            return ",".join([basic_prop_selector, "prop_basic as prop", prop_window])
         else:
-            final_select = f"prop_{self._filter.breakdown_attribution_value} as prop"
-
-        return ",".join([basic_prop_selector, *select_columns, final_select])
+            # ALL_EVENTS
+            return ",".join([basic_prop_selector, "prop_basic as prop"])
 
     def _get_cohort_breakdown_join(self) -> str:
         cohort_queries, ids, cohort_params = format_breakdown_cohort_join_query(self._team, self._filter)
@@ -758,11 +778,11 @@ class ClickhouseFunnelBase(ABC):
 
     def _get_breakdown_prop(self, group_remaining=False) -> str:
         if self._filter.breakdown:
-            if group_remaining and self._filter.breakdown_type in ["person", "event"]:
-                return ", if(has(%(breakdown_values)s, prop), prop, ['Other']) as prop"
-            elif group_remaining and self._filter.breakdown_type == "group":
-                return ", if(has(%(breakdown_values)s, prop), prop, 'Other') as prop"
+            other_aggregation = "['Other']" if self._query_has_array_breakdown() else "'Other'"
+            if group_remaining and self._filter.breakdown_type in ["person", "event", "group"]:
+                return f", if(has(%(breakdown_values)s, prop), prop, {other_aggregation}) as prop"
             else:
+                # Cohorts don't have "Other" aggregation
                 return ", prop"
         else:
             return ""

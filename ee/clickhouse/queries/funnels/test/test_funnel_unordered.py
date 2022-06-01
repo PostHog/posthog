@@ -1,12 +1,17 @@
+from datetime import datetime
+
 from rest_framework.exceptions import ValidationError
 
 from ee.clickhouse.queries.funnels.funnel_unordered import ClickhouseFunnelUnordered
 from ee.clickhouse.queries.funnels.funnel_unordered_persons import ClickhouseFunnelUnorderedActors
 from ee.clickhouse.queries.funnels.test.breakdown_cases import (
+    FunnelStepResult,
+    assert_funnel_breakdown_result_is_correct,
     assert_funnel_results_equal,
     funnel_breakdown_test_factory,
 )
 from ee.clickhouse.queries.funnels.test.conversion_time_cases import funnel_conversion_time_test_factory
+from ee.clickhouse.test.test_journeys import journeys_for
 from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.constants import INSIGHT_FUNNELS
 from posthog.models.action import Action
@@ -138,6 +143,352 @@ class TestFunnelUnorderedStepsBreakdown(ClickhouseTestMixin, funnel_breakdown_te
         )
         self.assertCountEqual(self._get_actor_ids_at_step(filter, 1, ["Safari"]), [person1.uuid])
         self.assertCountEqual(self._get_actor_ids_at_step(filter, 2, ["Safari"]), [person1.uuid])
+
+    def test_funnel_step_breakdown_with_step_attribution(self):
+        # overridden from factory, since with no order, step one is step zero, and vice versa
+
+        filters = {
+            "events": [{"id": "sign up", "order": 0}, {"id": "buy", "order": 1}],
+            "insight": INSIGHT_FUNNELS,
+            "date_from": "2020-01-01",
+            "date_to": "2020-01-08",
+            "funnel_window_days": 7,
+            "breakdown_type": "event",
+            "breakdown": ["$browser"],
+            "breakdown_attribution_type": "step",
+            "breakdown_attribution_value": "0",
+        }
+
+        filter = Filter(data=filters)
+        funnel = ClickhouseFunnelUnordered(filter, self.team)
+
+        # event
+        events_by_person = {
+            "person1": [
+                {"event": "sign up", "timestamp": datetime(2020, 1, 1, 12), "properties": {"$browser": "Chrome"}},
+                {"event": "buy", "timestamp": datetime(2020, 1, 1, 13)},
+            ],
+            "person2": [
+                {"event": "sign up", "timestamp": datetime(2020, 1, 1, 13),},
+                {"event": "buy", "timestamp": datetime(2020, 1, 2, 13), "properties": {"$browser": "Safari"}},
+            ],
+            "person3": [
+                {"event": "sign up", "timestamp": datetime(2020, 1, 2, 14), "properties": {"$browser": "Mac"}},
+                {"event": "buy", "timestamp": datetime(2020, 1, 2, 15)},
+            ],
+            "person4": [
+                {"event": "sign up", "timestamp": datetime(2020, 1, 2, 15), "properties": {"$browser": 0}},
+                # step attribution means alakazam is valid when step = 1
+                {"event": "buy", "timestamp": datetime(2020, 1, 2, 16), "properties": {"$browser": "alakazam"}},
+            ],
+        }
+        people = journeys_for(events_by_person, self.team)
+
+        result = funnel.run()
+        result = sorted(result, key=lambda res: res[0]["breakdown"])
+
+        self.assertEqual(len(result), 6)
+
+        # assert_funnel_breakdown_result_is_correct(
+        #     result[0], [FunnelStepResult(name="sign up", breakdown=[""], count=1), FunnelStepResult(name="buy", breakdown=[""], count=1, average_conversion_time=86400, median_conversion_time=86400)]
+        # )
+
+        # self.assertCountEqual(self._get_actor_ids_at_step(filter, 1, ""), [people["person2"].uuid])
+
+        # assert_funnel_breakdown_result_is_correct(
+        #     result[1], [FunnelStepResult(name="sign up", breakdown=["0"], count=1), FunnelStepResult(name="buy", breakdown=["0"], count=1, average_conversion_time=3600, median_conversion_time=3600)]
+        # )
+
+        # self.assertCountEqual(self._get_actor_ids_at_step(filter, 1, "0"), [people["person4"].uuid])
+
+        # assert_funnel_breakdown_result_is_correct(
+        #     result[2], [FunnelStepResult(name="sign up", count=1, breakdown=["Chrome"]),FunnelStepResult(name="buy", breakdown=["Chrome"], count=1, average_conversion_time=3600, median_conversion_time=3600)]
+        # )
+
+        # self.assertCountEqual(self._get_actor_ids_at_step(filter, 1, "Chrome"), [people["person1"].uuid])
+
+        # assert_funnel_breakdown_result_is_correct(
+        #     result[3], [FunnelStepResult(name="sign up", count=1, breakdown=["Mac"]),FunnelStepResult(name="buy", breakdown=["Mac"], count=1, average_conversion_time=3600, median_conversion_time=3600)]
+        # )
+
+        self.assertCountEqual(self._get_actor_ids_at_step(filter, 1, "Mac"), [people["person3"].uuid])
+
+    def test_funnel_step_breakdown_with_step_one_attribution(self):
+        # overridden from factory, since with no order, step one is step zero, and vice versa
+        filters = {
+            "events": [{"id": "sign up", "order": 0}, {"id": "buy", "order": 1}],
+            "insight": INSIGHT_FUNNELS,
+            "date_from": "2020-01-01",
+            "date_to": "2020-01-08",
+            "funnel_window_days": 7,
+            "breakdown_type": "event",
+            "breakdown": ["$browser"],
+            "breakdown_attribution_type": "step",
+            "breakdown_attribution_value": "1",
+        }
+
+        filter = Filter(data=filters)
+        funnel = ClickhouseFunnelUnordered(filter, self.team)
+
+        # event
+        events_by_person = {
+            "person1": [
+                {"event": "sign up", "timestamp": datetime(2020, 1, 1, 12), "properties": {"$browser": "Chrome"}},
+                {"event": "buy", "timestamp": datetime(2020, 1, 1, 13)},
+            ],
+            "person2": [
+                {"event": "sign up", "timestamp": datetime(2020, 1, 1, 13),},
+                {"event": "buy", "timestamp": datetime(2020, 1, 2, 13), "properties": {"$browser": "Safari"}},
+            ],
+            "person3": [
+                {"event": "sign up", "timestamp": datetime(2020, 1, 2, 14), "properties": {"$browser": "Mac"}},
+                {"event": "buy", "timestamp": datetime(2020, 1, 2, 15)},
+            ],
+            "person4": [
+                {"event": "sign up", "timestamp": datetime(2020, 1, 2, 15), "properties": {"$browser": 0}},
+                # step attribution means alakazam is valid when step = 1
+                {"event": "buy", "timestamp": datetime(2020, 1, 2, 16), "properties": {"$browser": "alakazam"}},
+            ],
+        }
+        people = journeys_for(events_by_person, self.team)
+
+        result = funnel.run()
+        result = sorted(result, key=lambda res: res[0]["breakdown"])
+
+        self.assertEqual(len(result), 6)
+        # unordered, so everything is step one too.
+
+        assert_funnel_breakdown_result_is_correct(
+            result[0],
+            [
+                FunnelStepResult(name="sign up", breakdown=[""], count=3),
+                FunnelStepResult(
+                    name="buy", breakdown=[""], count=2, average_conversion_time=3600, median_conversion_time=3600
+                ),
+            ],
+        )
+
+        self.assertCountEqual(
+            self._get_actor_ids_at_step(filter, 1, ""),
+            [people["person1"].uuid, people["person2"].uuid, people["person3"].uuid],
+        )
+        self.assertCountEqual(
+            self._get_actor_ids_at_step(filter, 2, ""), [people["person1"].uuid, people["person3"].uuid]
+        )
+
+        assert_funnel_breakdown_result_is_correct(
+            result[1],
+            [
+                FunnelStepResult(name="sign up", breakdown=["0"], count=1),
+                FunnelStepResult(name="buy", breakdown=["0"], count=0),
+            ],
+        )
+
+        self.assertCountEqual(self._get_actor_ids_at_step(filter, 1, "0"), [people["person4"].uuid])
+
+        # assert_funnel_breakdown_result_is_correct(
+        #     result[3], [FunnelStepResult(name="sign up", count=1, breakdown=["Safari"]),FunnelStepResult(name="buy", breakdown=["Safari"], count=1, average_conversion_time=86400, median_conversion_time=86400)]
+        # )
+
+        # self.assertCountEqual(self._get_actor_ids_at_step(filter, 1, "Safari"), [people["person2"].uuid])
+
+        # assert_funnel_breakdown_result_is_correct(
+        #     result[4], [FunnelStepResult(name="sign up", breakdown=["alakazam"], count=1), FunnelStepResult(name="buy", breakdown=["alakazam"], count=1, average_conversion_time=3600, median_conversion_time=3600)]
+        # )
+
+        # self.assertCountEqual(self._get_actor_ids_at_step(filter, 1, "alakazam"), [people["person4"].uuid])
+
+    def test_funnel_step_breakdown_with_step_one_attribution_incomplete_funnel(self):
+        # overridden from factory, since with no order, step one is step zero, and vice versa
+
+        filters = {
+            "events": [{"id": "sign up", "order": 0}, {"id": "buy", "order": 1}],
+            "insight": INSIGHT_FUNNELS,
+            "date_from": "2020-01-01",
+            "date_to": "2020-01-08",
+            "funnel_window_days": 7,
+            "breakdown_type": "event",
+            "breakdown": ["$browser"],
+            "breakdown_attribution_type": "step",
+            "breakdown_attribution_value": "1",
+        }
+
+        filter = Filter(data=filters)
+        funnel = ClickhouseFunnelUnordered(filter, self.team)
+
+        # event
+        events_by_person = {
+            "person1": [
+                {"event": "sign up", "timestamp": datetime(2020, 1, 1, 12), "properties": {"$browser": "Chrome"}},
+                {"event": "buy", "timestamp": datetime(2020, 1, 1, 13)},
+            ],
+            "person2": [
+                {"event": "sign up", "timestamp": datetime(2020, 1, 1, 13),},
+                # {"event": "buy", "timestamp": datetime(2020, 1, 2, 13), "properties": {"$browser": "Safari"}}
+            ],
+            "person3": [
+                {"event": "sign up", "timestamp": datetime(2020, 1, 2, 14), "properties": {"$browser": "Mac"}},
+                # {"event": "buy", "timestamp": datetime(2020, 1, 2, 15)}
+            ],
+            "person4": [
+                {"event": "sign up", "timestamp": datetime(2020, 1, 2, 15), "properties": {"$browser": 0}},
+                # step attribution means alakazam is valid when step = 1
+                {"event": "buy", "timestamp": datetime(2020, 1, 2, 16), "properties": {"$browser": "alakazam"}},
+            ],
+        }
+        people = journeys_for(events_by_person, self.team)
+
+        result = funnel.run()
+        result = sorted(result, key=lambda res: res[0]["breakdown"])
+
+        # Breakdown by step_1 means funnel items that never reach step_1 are NULLed out
+        # TODO: Confirm this is the behaviour we want
+        self.assertEqual(len(result), 4)
+        # Chrome and Mac and Safari goes away
+
+        assert_funnel_breakdown_result_is_correct(
+            result[0],
+            [
+                FunnelStepResult(name="sign up", breakdown=[""], count=1),
+                FunnelStepResult(
+                    name="buy", breakdown=[""], count=1, average_conversion_time=3600, median_conversion_time=3600
+                ),
+            ],
+        )
+
+        self.assertCountEqual(self._get_actor_ids_at_step(filter, 1, ""), [people["person1"].uuid])
+
+        assert_funnel_breakdown_result_is_correct(
+            result[1],
+            [
+                FunnelStepResult(name="sign up", breakdown=["0"], count=1),
+                FunnelStepResult(name="buy", breakdown=["0"], count=0),
+            ],
+        )
+
+        self.assertCountEqual(self._get_actor_ids_at_step(filter, 1, "0"), [people["person4"].uuid])
+
+        assert_funnel_breakdown_result_is_correct(
+            result[2],
+            [
+                FunnelStepResult(name="sign up", breakdown=["Chrome"], count=1),
+                FunnelStepResult(name="buy", breakdown=["Chrome"], count=0),
+            ],
+        )
+
+        self.assertCountEqual(self._get_actor_ids_at_step(filter, 1, "Chrome"), [people["person1"].uuid])
+
+        assert_funnel_breakdown_result_is_correct(
+            result[3],
+            [
+                FunnelStepResult(name="sign up", breakdown=["alakazam"], count=1),
+                FunnelStepResult(
+                    name="buy",
+                    breakdown=["alakazam"],
+                    count=1,
+                    average_conversion_time=3600,
+                    median_conversion_time=3600,
+                ),
+            ],
+        )
+
+        self.assertCountEqual(self._get_actor_ids_at_step(filter, 1, "alakazam"), [people["person4"].uuid])
+
+    def test_funnel_step_non_array_breakdown_with_step_one_attribution_incomplete_funnel(self):
+        # overridden from factory, since with no order, step one is step zero, and vice versa
+
+        filters = {
+            "events": [{"id": "sign up", "order": 0}, {"id": "buy", "order": 1}],
+            "insight": INSIGHT_FUNNELS,
+            "date_from": "2020-01-01",
+            "date_to": "2020-01-08",
+            "funnel_window_days": 7,
+            "breakdown_type": "event",
+            "breakdown": "$browser",
+            "breakdown_attribution_type": "step",
+            "breakdown_attribution_value": "1",
+        }
+
+        filter = Filter(data=filters)
+        funnel = ClickhouseFunnelUnordered(filter, self.team)
+
+        # event
+        events_by_person = {
+            "person1": [
+                {"event": "sign up", "timestamp": datetime(2020, 1, 1, 12), "properties": {"$browser": "Chrome"}},
+                {"event": "buy", "timestamp": datetime(2020, 1, 1, 13)},
+            ],
+            "person2": [
+                {"event": "sign up", "timestamp": datetime(2020, 1, 1, 13),},
+                # {"event": "buy", "timestamp": datetime(2020, 1, 2, 13), "properties": {"$browser": "Safari"}}
+            ],
+            "person3": [
+                {"event": "sign up", "timestamp": datetime(2020, 1, 2, 14), "properties": {"$browser": "Mac"}},
+                # {"event": "buy", "timestamp": datetime(2020, 1, 2, 15)}
+            ],
+            "person4": [
+                {"event": "sign up", "timestamp": datetime(2020, 1, 2, 15), "properties": {"$browser": 0}},
+                # step attribution means alakazam is valid when step = 1
+                {"event": "buy", "timestamp": datetime(2020, 1, 2, 16), "properties": {"$browser": "alakazam"}},
+            ],
+        }
+        people = journeys_for(events_by_person, self.team)
+
+        result = funnel.run()
+        result = sorted(result, key=lambda res: res[0]["breakdown"])
+
+        # Breakdown by step_1 means funnel items that never reach step_1 are NULLed out
+        # TODO: Confirm this is the behaviour we want
+        self.assertEqual(len(result), 4)
+        # Chrome and Mac and Safari goes away
+
+        assert_funnel_breakdown_result_is_correct(
+            result[0],
+            [
+                FunnelStepResult(name="sign up", breakdown=[""], count=1),
+                FunnelStepResult(
+                    name="buy", breakdown=[""], count=1, average_conversion_time=3600, median_conversion_time=3600
+                ),
+            ],
+        )
+
+        self.assertCountEqual(self._get_actor_ids_at_step(filter, 1, ""), [people["person1"].uuid])
+
+        assert_funnel_breakdown_result_is_correct(
+            result[1],
+            [
+                FunnelStepResult(name="sign up", breakdown=["0"], count=1),
+                FunnelStepResult(name="buy", breakdown=["0"], count=0),
+            ],
+        )
+
+        self.assertCountEqual(self._get_actor_ids_at_step(filter, 1, "0"), [people["person4"].uuid])
+
+        assert_funnel_breakdown_result_is_correct(
+            result[2],
+            [
+                FunnelStepResult(name="sign up", breakdown=["Chrome"], count=1),
+                FunnelStepResult(name="buy", breakdown=["Chrome"], count=0),
+            ],
+        )
+
+        self.assertCountEqual(self._get_actor_ids_at_step(filter, 1, "Chrome"), [people["person1"].uuid])
+
+        assert_funnel_breakdown_result_is_correct(
+            result[3],
+            [
+                FunnelStepResult(name="sign up", breakdown=["alakazam"], count=1),
+                FunnelStepResult(
+                    name="buy",
+                    breakdown=["alakazam"],
+                    count=1,
+                    average_conversion_time=3600,
+                    median_conversion_time=3600,
+                ),
+            ],
+        )
+
+        self.assertCountEqual(self._get_actor_ids_at_step(filter, 1, "alakazam"), [people["person4"].uuid])
 
 
 class TestFunnelUnorderedStepsConversionTime(ClickhouseTestMixin, funnel_conversion_time_test_factory(ClickhouseFunnelUnordered, ClickhouseFunnelUnorderedActors, _create_event, _create_person)):  # type: ignore
