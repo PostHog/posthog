@@ -53,7 +53,7 @@ exclude =
     ./env
 
 per-file-ignores =
-    __init__.py: F401
+    __init__.py:F401
     ./cypress/wait.py: T001
     ./docker-compose-config.py: T001
     ./posthog/client.py: T001
