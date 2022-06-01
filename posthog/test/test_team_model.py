@@ -20,9 +20,9 @@ class TestDeleteEvents(ClickhouseTestMixin, ClickhouseDestroyTablesMixin, BaseTe
         ]
 
     def test_delete_events(self):
-        _create_event(uuid4(), "event1", self.teams[0], "1")
-        _create_event(uuid4(), "event2", self.teams[1], "2")
-        _create_event(uuid4(), "event3", self.teams[2], "3")
+        _create_event(event_uuid=uuid4(), event="event1", team=self.teams[0], distinct_id="1")
+        _create_event(event_uuid=uuid4(), event="event2", team=self.teams[1], distinct_id="2")
+        _create_event(event_uuid=uuid4(), event="event3", team=self.teams[2], distinct_id="3")
 
         delete_teams_data([self.teams[0].pk, self.teams[1].pk])
         self.assertEqual(self.select_remaining("events", "event"), ["event3"])
