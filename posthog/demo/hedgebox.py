@@ -30,6 +30,9 @@ PROPERTY_NEW_SIGNUP_PAGE_FLAG = f"$feature/{NEW_SIGNUP_PAGE_FLAG_KEY}"
 SIGNUP_SUCCESS_RATE_TEST = 0.5794
 SIGNUP_SUCCESS_RATE_CONTROL = 0.4887
 
+# How many clusters should be companies (made up of professional users) as opposed to social circles (personal users)
+COMPANY_CLUSTERS_PROPORTION = 0.3
+
 
 class HedgeboxPerson(SimPerson):
     cluster: "HedgeboxCluster"
@@ -144,23 +147,23 @@ class HedgeboxPerson(SimPerson):
         self._capture_pageview("https://hedgebox.net/register/")  # Visiting the sign-up page
         self._advance_timer(15 + self.cluster.random.betavariate(1.1, 2) * 70)  # Looking at things, filling out forms
         # More likely to finish signing up with the new signup page
-        sucess_rate = (
+        success_rate = (
             SIGNUP_SUCCESS_RATE_TEST
             if self._super_properties.get(PROPERTY_NEW_SIGNUP_PAGE_FLAG) == "test"
             else SIGNUP_SUCCESS_RATE_CONTROL
         )
-        success = self.cluster.random.random() < sucess_rate  # What's the outlook?
+        success = self.cluster.random.random() < success_rate  # What's the outlook?
         if success:  # Let's do this!
             self._capture(EVENT_SIGNED_UP, current_url="https://hedgebox.net/register/")
             self._advance_timer(self.cluster.random.uniform(0.1, 0.2))
-            self._identify(self.email)
-            self._group_identify(GROUP_TYPE_ORGANIZATION, self.cluster.company_name)
+            self._identify(self.email, {"email": self.email, "name": self.name})
+            self._group_identify(GROUP_TYPE_ORGANIZATION, self.cluster.company_name or self.name)
             self.plan = 0
             self.satisfaction += (self.cluster.random.betavariate(1.5, 1.2) - 0.5) * 0.2
             self._capture_pageview("https://hedgebox.net/my_files/")
             self._consider_uploading_files()
         else:  # Something didn't go right...
-            self.satisfaction += (self.cluster.random.betavariate(1, 3) - 0.5) * 0.2
+            self.satisfaction += (self.cluster.random.betavariate(1, 3) - 0.75) * 0.5
         return success
 
     def _consider_uploading_files(self):
@@ -200,14 +203,16 @@ class HedgeboxCluster(Cluster):
     MIN_RADIUS: int = 1
     MAX_RADIUS: int = 6
 
-    company_name: str
+    # None means the cluster is a social circle instead of a company
+    company_name: Optional[str]
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.company_name = self.finance_provider.company()
+        is_company = self.random.random() < COMPANY_CLUSTERS_PROPORTION
+        self.company_name = self.finance_provider.company() if is_company else None
 
     def __str__(self) -> str:
-        return self.company_name
+        return self.company_name or f"social circle {self.index+1}"
 
     def _radius_distribution(self) -> int:
         return int(self.MIN_RADIUS + self.random.betavariate(1.5, 5) * (self.MAX_RADIUS - self.MIN_RADIUS))
