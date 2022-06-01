@@ -4,13 +4,13 @@ from typing import Callable, Dict, List, Tuple
 from django.db.models.query import Prefetch
 from rest_framework.request import Request
 
-from ee.clickhouse.models.entity import get_entity_filtering_params
 from ee.clickhouse.models.person import get_persons_by_uuids
 from ee.clickhouse.queries.event_query import EnterpriseEventQuery
 from ee.clickhouse.queries.trends.util import parse_response
 from ee.clickhouse.sql.trends.lifecycle import LIFECYCLE_PEOPLE_SQL, LIFECYCLE_SQL
 from posthog.client import sync_execute
 from posthog.models.entity import Entity
+from posthog.models.entity.util import get_entity_filtering_params
 from posthog.models.filters import Filter
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.team import Team
