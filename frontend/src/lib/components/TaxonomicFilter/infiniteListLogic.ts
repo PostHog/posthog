@@ -2,7 +2,7 @@ import { kea } from 'kea'
 import { combineUrl } from 'kea-router'
 import api from 'lib/api'
 import { RenderedRows } from 'react-virtualized/dist/es/List'
-import { infiniteListLogicType } from './infiniteListLogicType'
+import type { infiniteListLogicType } from './infiniteListLogicType'
 import { CohortType, EventDefinition } from '~/types'
 import Fuse from 'fuse.js'
 import {

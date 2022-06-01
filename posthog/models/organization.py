@@ -241,6 +241,7 @@ class OrganizationInvite(UUIDModel):
     emailing_attempt_made: models.BooleanField = models.BooleanField(default=False)
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True)
     updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
+    message: models.TextField = models.TextField(blank=True, null=True)
 
     def validate(self, *, user: Optional["User"] = None, email: Optional[str] = None) -> None:
         _email = email or getattr(user, "email", None)
