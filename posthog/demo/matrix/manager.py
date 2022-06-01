@@ -68,6 +68,7 @@ class MatrixManager:
             self.save_analytics_data(self.MASTER_TEAM if self.pre_save else team)
         if self.pre_save:
             self.copy_analytics_data_from_master_team(team)
+        self.sync_postgres_with_clickhouse_data(team)
         self.matrix.set_project_up(team, user)
         calculate_event_property_usage_for_team(team.pk)
         team.save()
@@ -83,23 +84,24 @@ class MatrixManager:
     @classmethod
     def copy_analytics_data_from_master_team(cls, target_team: Team):
         from ee.clickhouse.sql.events import COPY_EVENTS_BETWEEN_TEAMS
-        from ee.clickhouse.sql.person import (
-            COPY_PERSON_DISTINCT_ID2S_BETWEEN_TEAMS,
-            COPY_PERSONS_BETWEEN_TEAMS,
-            SELECT_PERSON_DISTINCT_ID2S_OF_TEAM,
-            SELECT_PERSONS_OF_TEAM,
-        )
+        from ee.clickhouse.sql.person import COPY_PERSON_DISTINCT_ID2S_BETWEEN_TEAMS, COPY_PERSONS_BETWEEN_TEAMS
 
         copy_params = {"source_team_id": cls.MASTER_TEAM_ID, "target_team_id": target_team.pk}
         sync_execute(COPY_PERSONS_BETWEEN_TEAMS, copy_params)
         sync_execute(COPY_PERSON_DISTINCT_ID2S_BETWEEN_TEAMS, copy_params)
         sync_execute(COPY_EVENTS_BETWEEN_TEAMS, copy_params)
+
+    @classmethod
+    def sync_postgres_with_clickhouse_data(cls, target_team: Team):
+        from ee.clickhouse.sql.person import SELECT_PERSON_DISTINCT_ID2S_OF_TEAM, SELECT_PERSONS_OF_TEAM
+
+        list_params = {"source_team_id": cls.MASTER_TEAM_ID}
         clickhouse_persons = query_with_columns(
-            SELECT_PERSONS_OF_TEAM, copy_params, ["team_id", "is_deleted", "_timestamp", "_offset"], {"id": "uuid"}
+            SELECT_PERSONS_OF_TEAM, list_params, ["team_id", "is_deleted", "_timestamp", "_offset"], {"id": "uuid"}
         )
         clickhouse_distinct_ids = query_with_columns(
             SELECT_PERSON_DISTINCT_ID2S_OF_TEAM,
-            copy_params,
+            list_params,
             ["team_id", "is_deleted", "_timestamp", "_offset", "_partition"],
             {"person_id": "person_uuid"},
         )
