@@ -1,18 +1,10 @@
-import time
-from typing import Any, Dict, List, Literal, Optional, Tuple, cast
+import json
+from typing import Any, Dict, Literal, Optional, Tuple, cast
 
-from posthog.models import (
-    EventDefinition,
-    EventProperty,
-    Group,
-    Organization,
-    OrganizationMembership,
-    Person,
-    PersonDistinctId,
-    PropertyDefinition,
-    Team,
-    User,
-)
+from django.core import exceptions
+
+from posthog.client import query_with_columns, sync_execute
+from posthog.models import Organization, OrganizationMembership, Person, PersonDistinctId, Team, User
 from posthog.models.utils import UUIDT
 from posthog.tasks.calculate_event_property_usage import calculate_event_property_usage_for_team
 
@@ -20,47 +12,21 @@ from .matrix import Matrix
 from .models import SimPerson
 
 
-def save_sim_person(team: Team, subject: SimPerson) -> Optional[Tuple[Person, List[PersonDistinctId]]]:
-    if not subject.events:
-        return None  # Don't save a person who never participated
-    from ee.clickhouse.models.event import create_event
-    from ee.clickhouse.models.person import create_person, create_person_distinct_id
-
-    person_uuid_str = str(UUIDT(unix_time_ms=int(subject.events[0].timestamp.timestamp() * 1000)))
-    person = Person(team_id=team.pk, properties=subject.properties, uuid=person_uuid_str)
-    person_distinct_ids = [
-        PersonDistinctId(team_id=team.pk, person=person, distinct_id=distinct_id)
-        for distinct_id in subject.distinct_ids
-    ]
-    create_person(
-        uuid=person_uuid_str, team_id=team.pk, properties=subject.properties,
-    )
-    for distinct_id in subject.distinct_ids:
-        create_person_distinct_id(team_id=team.pk, distinct_id=str(distinct_id), person_id=person_uuid_str)
-    for event in subject.events:
-        event_uuid = UUIDT(unix_time_ms=int(event.timestamp.timestamp() * 1000))
-        create_event(
-            event_uuid=event_uuid,
-            event=event.event,
-            team=team,
-            distinct_id=event.properties["$distinct_id"],
-            timestamp=event.timestamp,
-            properties=event.properties,
-        )
-    return (person, person_distinct_ids)
-
-
-def save_sim_group(team: Team, type_index: Literal[0, 1, 2, 3, 4], key: str, properties: Dict[str, Any]) -> Group:
-    from ee.clickhouse.models.group import create_group
-
-    return create_group(team.pk, type_index, key, properties)
-
-
 class MatrixManager:
-    @classmethod
+    # ID under which demo data is pre-saved
+    MASTER_TEAM_ID = 0
+    # Ephemeral pre-save project - DON'T SAVE
+    MASTER_TEAM = Team(id=MASTER_TEAM_ID)
+
+    matrix: Matrix
+    pre_save: bool
+
+    def __init__(self, matrix: Matrix, *, pre_save: bool):
+        self.matrix = matrix
+        self.pre_save = pre_save
+
     def ensure_account_and_save(
-        cls,
-        matrix: Matrix,
+        self,
         email: str,
         first_name: str,
         organization_name: str,
@@ -69,70 +35,123 @@ class MatrixManager:
         disallow_collision: bool = False,
     ) -> Tuple[Organization, Team, User]:
         """If there's an email collision in signup in the demo environment, we treat it as a login."""
-        existing_user = User.objects.filter(email=email).first()
+        existing_user: Optional[User] = User.objects.filter(email=email).first()
         if existing_user is None:
             organization = Organization.objects.create(name=organization_name)
             new_user = User.objects.create_and_join(
                 organization, email, password, first_name, OrganizationMembership.Level.ADMIN
             )
-            demo_time = time.time()
-            team = MatrixManager.create_team_and_run(matrix, organization, new_user)
-            print(f"[DEMO] Prepared in {time.time() - demo_time:.2f} s!")  # noqa: T001
+            team = self.create_team_and_run(organization, new_user)
             return (organization, team, new_user)
+        elif existing_user.is_staff:
+            raise exceptions.PermissionDenied("Cannot log in as staff user without password.")
         elif disallow_collision:
-            raise Exception(f"Cannot save simulation data - there already is an account with email {email}.")
+            raise exceptions.ValidationError(
+                f"Cannot save simulation data with email collision disallowed - there already is an account for {email}."
+            )
         else:
+            assert existing_user.organization is not None
+            assert existing_user.team is not None
             return (existing_user.organization, existing_user.team, existing_user)
 
-    @classmethod
-    def create_team_and_run(cls, matrix: Matrix, organization: Organization, user: User, **kwargs) -> Team:
+    def create_team_and_run(self, organization: Organization, user: User, **kwargs) -> Team:
         team = Team.objects.create(
             organization=organization, ingested_event=True, completed_snippet_onboarding=True, is_demo=True, **kwargs
         )
-        cls.run_on_team(matrix, team, user)
+        self.run_on_team(team, user)
         return team
 
-    @classmethod
-    def run_on_team(cls, matrix: Matrix, team: Team, user: User):
-        persons_to_bulk_save: List[Person] = []
-        person_distinct_ids_to_bulk_save: List[PersonDistinctId] = []
-        simulation_time = time.time()  # FIXME
-        if matrix.simulation_complete is None:
-            matrix.simulate()
-        for group_type_index, groups in enumerate(matrix.groups.values()):
-            for group_key, group in groups.items():
-                save_sim_group(team, cast(Literal[0, 1, 2, 3, 4], group_type_index), group_key, group)
-        sim_persons = matrix.people
-        print(f"[DEMO] Simulated {len(sim_persons)} people in {time.time() - simulation_time:.2f} s")
-        individual_time = time.time()  # FIXME
-        for sim_person in sim_persons:
-            sim_person_save_result = save_sim_person(team, sim_person)
-            if sim_person_save_result is not None:  # None is returned if the person wasn't ever seen
-                persons_to_bulk_save.append(sim_person_save_result[0])
-                for distinct_id in sim_person_save_result[1]:
-                    person_distinct_ids_to_bulk_save.append(distinct_id)
-        print(f"[DEMO] Saved (individual part) {len(sim_persons)} people in {time.time() - individual_time:.2f} s")
-        bulk_time = time.time()  # FIXME
-        Person.objects.bulk_create(persons_to_bulk_save)
-        PersonDistinctId.objects.bulk_create(person_distinct_ids_to_bulk_save)
-        print(f"[DEMO] Saved (bulk part) {len(persons_to_bulk_save)} people in {time.time() - bulk_time:.2f} s")
-        EventDefinition.objects.bulk_create(
-            (
-                EventDefinition(team=team, name=event_definition, created_at=first_seen_at, last_seen_at=last_seen_at)
-                for event_definition, (first_seen_at, last_seen_at) in matrix.event_names.items()
-            )
-        )
-        PropertyDefinition.objects.bulk_create(
-            (PropertyDefinition(team=team, name=property_name,) for property_name in matrix.property_names)
-        )
-        EventProperty.objects.bulk_create(
-            (
-                EventProperty(team=team, event=event_name, property=property_name,)
-                for (event_name, property_name) in matrix.event_property_pairs
-            )
-        )
-        matrix.set_project_up(team, user)
+    def run_on_team(self, team: Team, user: User):
+        if not self.pre_save or not self.is_demo_data_pre_saved():
+            if self.matrix.simulation_complete is None:
+                self.matrix.simulate()
+            self.save_analytics_data(self.MASTER_TEAM if self.pre_save else team)
+        if self.pre_save:
+            self.copy_analytics_data_from_master_team(team)
+        self.matrix.set_project_up(team, user)
         calculate_event_property_usage_for_team(team.pk)
-        set_time = time.time()  # FIXME
         team.save()
-        print(f"[DEMO] Setting project up in {time.time() -set_time:.2f} s")
+
+    def save_analytics_data(self, target_team: Team):
+        for group_type_index, groups in enumerate(self.matrix.groups.values()):
+            for group_key, group in groups.items():
+                self.save_sim_group(target_team, cast(Literal[0, 1, 2, 3, 4], group_type_index), group_key, group)
+        sim_persons = self.matrix.people
+        for sim_person in sim_persons:
+            self.save_sim_person(target_team, sim_person)
+
+    @classmethod
+    def copy_analytics_data_from_master_team(cls, target_team: Team):
+        from ee.clickhouse.sql.events import COPY_EVENTS_BETWEEN_TEAMS
+        from ee.clickhouse.sql.person import (
+            COPY_PERSON_DISTINCT_ID2S_BETWEEN_TEAMS,
+            COPY_PERSONS_BETWEEN_TEAMS,
+            SELECT_PERSON_DISTINCT_ID2S_OF_TEAM,
+            SELECT_PERSONS_OF_TEAM,
+        )
+
+        copy_params = {"source_team_id": cls.MASTER_TEAM_ID, "target_team_id": target_team.pk}
+        sync_execute(COPY_PERSONS_BETWEEN_TEAMS, copy_params)
+        sync_execute(COPY_PERSON_DISTINCT_ID2S_BETWEEN_TEAMS, copy_params)
+        sync_execute(COPY_EVENTS_BETWEEN_TEAMS, copy_params)
+        clickhouse_persons = query_with_columns(
+            SELECT_PERSONS_OF_TEAM, copy_params, ["team_id", "is_deleted", "_timestamp", "_offset"], {"id": "uuid"}
+        )
+        clickhouse_distinct_ids = query_with_columns(
+            SELECT_PERSON_DISTINCT_ID2S_OF_TEAM,
+            copy_params,
+            ["team_id", "is_deleted", "_timestamp", "_offset", "_partition"],
+            {"person_id": "person_uuid"},
+        )
+        bulk_persons = []
+        for row in clickhouse_persons:
+            properties = json.loads(row.pop("properties", "{}"))
+            bulk_persons.append(Person(team_id=target_team.pk, properties=properties, **row))
+        Person.objects.bulk_create(bulk_persons)
+        bulk_person_distinct_ids = []
+        for row in clickhouse_distinct_ids:
+            person_uuid = row.pop("person_uuid")
+            bulk_person_distinct_ids.append(
+                PersonDistinctId(
+                    team_id=target_team.pk, person=Person.objects.get(team_id=target_team.pk, uuid=person_uuid), **row
+                )
+            )
+        PersonDistinctId.objects.bulk_create(bulk_person_distinct_ids)
+        # TODO: Add groups
+
+    @staticmethod
+    def save_sim_person(team: Team, subject: SimPerson):
+        if not subject.events:
+            return  # Don't save a person who never participated
+        from ee.clickhouse.models.event import create_event
+        from ee.clickhouse.models.person import create_person, create_person_distinct_id
+
+        person_uuid_str = str(UUIDT(unix_time_ms=int(subject.events[0].timestamp.timestamp() * 1000)))
+        create_person(
+            uuid=person_uuid_str, team_id=team.pk, properties=subject.properties,
+        )
+        for distinct_id in subject.distinct_ids:
+            create_person_distinct_id(team_id=team.pk, distinct_id=str(distinct_id), person_id=person_uuid_str)
+        for event in subject.events:
+            event_uuid = UUIDT(unix_time_ms=int(event.timestamp.timestamp() * 1000))
+            create_event(
+                event_uuid=event_uuid,
+                event=event.event,
+                team=team,
+                distinct_id=event.properties["$distinct_id"],
+                timestamp=event.timestamp,
+                properties=event.properties,
+            )
+
+    @staticmethod
+    def save_sim_group(team: Team, type_index: Literal[0, 1, 2, 3, 4], key: str, properties: Dict[str, Any]):
+        from ee.clickhouse.models.group import create_group
+
+        create_group(team.pk, type_index, key, properties, clickhouse_only=True)
+
+    @classmethod
+    def is_demo_data_pre_saved(cls) -> bool:
+        from ee.clickhouse.sql.events import GET_TOTAL_EVENTS_VOLUME
+
+        total_events_volume = sync_execute(GET_TOTAL_EVENTS_VOLUME, {"team_id": cls.MASTER_TEAM_ID})[0][0]
+        return total_events_volume > 0

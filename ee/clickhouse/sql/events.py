@@ -5,6 +5,7 @@ from ee.clickhouse.sql.table_engines import Distributed, ReplacingMergeTree, Rep
 from ee.kafka_client.topics import KAFKA_EVENTS, KAFKA_EVENTS_JSON
 
 EVENTS_DATA_TABLE = lambda: "sharded_events" if settings.CLICKHOUSE_REPLICATION else "events"
+WRITABLE_EVENTS_DATA_TABLE = lambda: "writable_events" if settings.CLICKHOUSE_REPLICATION else EVENTS_DATA_TABLE()
 
 TRUNCATE_EVENTS_TABLE_SQL = (
     lambda: f"TRUNCATE TABLE IF EXISTS {EVENTS_DATA_TABLE()} ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'"
@@ -100,7 +101,7 @@ _timestamp,
 _offset
 FROM {database}.kafka_events
 """.format(
-    target_table="writable_events" if settings.CLICKHOUSE_REPLICATION else EVENTS_DATA_TABLE(),
+    target_table=WRITABLE_EVENTS_DATA_TABLE(),
     cluster=settings.CLICKHOUSE_CLUSTER,
     database=settings.CLICKHOUSE_DATABASE,
 )
@@ -145,7 +146,7 @@ _timestamp,
 _offset
 FROM {database}.kafka_events_json
 """.format(
-    target_table="writable_events" if settings.CLICKHOUSE_REPLICATION else EVENTS_DATA_TABLE(),
+    target_table=WRITABLE_EVENTS_DATA_TABLE(),
     cluster=settings.CLICKHOUSE_CLUSTER,
     database=settings.CLICKHOUSE_DATABASE,
 )
@@ -345,4 +346,19 @@ GET_CUSTOM_EVENTS = """
 SELECT DISTINCT event FROM events where team_id = %(team_id)s AND event NOT IN ['$autocapture', '$pageview', '$identify', '$pageleave', '$screen']
 """
 
-GET_EVENTS_VOLUME = "SELECT event, count(1) as count FROM events WHERE team_id = %(team_id)s AND timestamp > %(timestamp)s GROUP BY event ORDER BY count DESC"
+GET_EVENTS_VOLUME = "SELECT event, count() AS count, max(timestamp) AS last_seen_at FROM events WHERE team_id = %(team_id)s AND timestamp > %(timestamp)s GROUP BY event ORDER BY count DESC"
+
+GET_TOTAL_EVENTS_VOLUME = "SELECT count() AS count FROM events WHERE team_id = %(team_id)s"
+
+#
+# Copying demo data
+#
+
+COPY_EVENTS_BETWEEN_TEAMS = """
+INSERT INTO {table_name} (team_id, {columns_except_team_id}) SELECT %(target_team_id)s, {columns_except_team_id}
+FROM {table_name} WHERE team_id = %(source_team_id)s
+""".format(
+    table_name=WRITABLE_EVENTS_DATA_TABLE(),
+    columns_except_team_id="""uuid, event, properties, timestamp, distinct_id, elements_chain, created_at, person_id,
+    person_properties, group0_properties, group1_properties, group2_properties, group3_properties, group4_properties""",
+)

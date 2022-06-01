@@ -1,5 +1,6 @@
 from time import time
 
+from django.core import exceptions
 from django.core.management.base import BaseCommand
 from django.db import transaction
 from django.utils import timezone
@@ -83,7 +84,10 @@ class Command(BaseCommand):
         if email := options["save_as"]:
             print(f"Saving data as {email}…")
             with transaction.atomic():
-                MatrixManager.ensure_account_and_save(
-                    matrix, email, "Employee 427", "Hedgebox Inc.", password="12345678", disallow_collision=True
-                )
+                try:
+                    MatrixManager(matrix, pre_save=False).ensure_account_and_save(
+                        email, "Employee 427", "Hedgebox Inc.", password="12345678", disallow_collision=True
+                    )
+                except (exceptions.ValidationError, exceptions.PermissionDenied) as e:
+                    print(str(e))
             print(f"{email} is ready!")

@@ -1,16 +1,6 @@
 from abc import ABC, abstractmethod
 from collections import defaultdict
-from typing import (
-    Any,
-    DefaultDict,
-    Dict,
-    Iterable,
-    List,
-    Optional,
-    Set,
-    Tuple,
-    Type,
-)
+from typing import Any, DefaultDict, Dict, List, Optional, Type
 
 import mimesis
 import mimesis.random
@@ -132,10 +122,6 @@ class Matrix(ABC):
     person_model: Type[SimPerson]
     cluster_model: Type[Cluster]
 
-    event_names: Dict[str, Tuple[timezone.datetime, timezone.datetime]]
-    property_names: Set[str]
-    event_property_pairs: Set[Tuple[str, str]]
-
     start: timezone.datetime
     end: timezone.datetime
     # A mapping of groups. The first key is the group type, the second key is the group key.
@@ -173,9 +159,6 @@ class Matrix(ABC):
         self.groups = defaultdict(lambda: defaultdict(dict))
         self.clusters = [self.cluster_model(index=i, matrix=self) for i in range(n_clusters)]
         self.simulation_complete = None
-        self.event_names = {}
-        self.property_names = set()
-        self.event_property_pairs = set()
 
     @abstractmethod
     def set_project_up(self, team: Team, user: User):
@@ -193,12 +176,6 @@ class Matrix(ABC):
         if len(self.groups) == GROUP_TYPES_LIMIT and group_type not in self.groups:
             raise Exception(f"Cannot add group type {group_type} to simulation, limit of {GROUP_TYPES_LIMIT} reached!")
         self.groups[group_type][group_key].update(set_properties)
-
-    def register_event_schema(self, event: str, properties: Iterable[str], timestamp: timezone.datetime):
-        self.event_names[event] = (self.event_names[event][0] if event in self.event_names else timestamp, timestamp)
-        for property_name in properties:
-            self.property_names.add(property_name)
-            self.event_property_pairs.add((event, property_name))
 
     @property
     def people(self) -> List[SimPerson]:

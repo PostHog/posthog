@@ -212,8 +212,15 @@ export function Signup(): JSX.Element | null {
                                         center
                                         size="large"
                                         loading={signupResponseLoading}
+                                        disabled={signupResponse?.success}
                                     >
-                                        {!preflight?.demo ? 'Create account' : 'Enter the demo environment'}
+                                        {signupResponse?.success
+                                            ? 'Opening PostHog…'
+                                            : !preflight?.demo
+                                            ? 'Create account'
+                                            : !signupResponseLoading
+                                            ? 'Enter the demo environment'
+                                            : 'Preparing demo data…'}
                                     </LemonButton>
                                 </Form.Item>
 
