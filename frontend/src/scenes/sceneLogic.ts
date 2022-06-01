@@ -1,4 +1,4 @@
-import { kea } from 'kea'
+import { BuiltLogic, kea } from 'kea'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
 import { sceneLogicType } from './sceneLogicType'
@@ -146,7 +146,7 @@ export const sceneLogic = kea<sceneLogicType>({
         ],
         activeSceneLogic: [
             (s) => [s.activeLoadedScene, s.sceneParams],
-            (activeLoadedScene, sceneParams) =>
+            (activeLoadedScene, sceneParams): BuiltLogic | null =>
                 activeLoadedScene?.logic
                     ? activeLoadedScene.logic.build(activeLoadedScene.paramsToProps?.(sceneParams) || {})
                     : null,
