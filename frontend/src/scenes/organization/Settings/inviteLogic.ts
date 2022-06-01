@@ -31,6 +31,7 @@ export const inviteLogic = kea<inviteLogicType>({
     },
     connect: {
         values: [preflightLogic, ['preflight']],
+        actions: [router, ['locationChanged']],
     },
     reducers: () => ({
         isInviteModalShown: [
@@ -38,7 +39,7 @@ export const inviteLogic = kea<inviteLogicType>({
             {
                 showInviteModal: () => true,
                 hideInviteModal: () => false,
-                [router.actionTypes.locationChanged]: () => false,
+                locationChanged: () => false,
             },
         ],
         invitesToSend: [

@@ -38,6 +38,7 @@ export const sceneLogic = kea<sceneLogicType>({
     connect: () => ({
         logic: [router, userLogic, preflightLogic],
         values: [featureFlagLogic, ['featureFlags']],
+        actions: [router, ['locationChanged']],
     }),
     path: ['scenes', 'sceneLogic'],
     actions: {
@@ -376,7 +377,7 @@ export const sceneLogic = kea<sceneLogicType>({
         reloadBrowserDueToImportError: () => {
             window.location.reload()
         },
-        [router.actionTypes.locationChanged]: () => {
+        locationChanged: () => {
             // Remove trailing slash
             const {
                 location: { pathname, search, hash },
