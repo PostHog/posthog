@@ -10,7 +10,7 @@ import {
     THIRD_PARTY,
     ThirdPartySource,
 } from 'scenes/ingestion/constants'
-import { ingestionLogicType } from './ingestionLogicType'
+import type { ingestionLogicType } from './ingestionLogicType'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { teamLogic } from 'scenes/teamLogic'

@@ -7,7 +7,7 @@ import { dashboardsModel } from './dashboardsModel'
 import { Link } from 'lib/components/Link'
 import { urls } from 'scenes/urls'
 import { teamLogic } from 'scenes/teamLogic'
-import { insightsModelType } from './insightsModelType'
+import type { insightsModelType } from './insightsModelType'
 import { lemonToast } from 'lib/components/lemonToast'
 import { router } from 'kea-router'
 
