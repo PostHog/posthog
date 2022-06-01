@@ -1,5 +1,5 @@
 import re
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, List, Optional
 
 import pytz
 from django.contrib.postgres.fields import ArrayField
@@ -8,17 +8,14 @@ from django.db import models
 
 from posthog.constants import AvailableFeature
 from posthog.helpers.dashboard_templates import create_dashboard_from_template
+from posthog.models.dashboard import Dashboard
 from posthog.models.instance_setting import get_instance_setting
+from posthog.models.utils import UUIDClassicModel, generate_random_token_project, sane_repr
 from posthog.settings.utils import get_list
 from posthog.utils import GenericEmails
 
-from .dashboard import Dashboard
-from .utils import UUIDClassicModel, generate_random_token_project, sane_repr
-
 if TYPE_CHECKING:
     from posthog.models.organization import OrganizationMembership
-
-TEAM_CACHE: Dict[str, "Team"] = {}
 
 TIMEZONES = [(tz, tz) for tz in pytz.common_timezones]
 
