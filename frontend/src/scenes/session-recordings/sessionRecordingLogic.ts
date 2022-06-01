@@ -2,7 +2,7 @@ import { kea } from 'kea'
 import Fuse from 'fuse.js'
 import api from 'lib/api'
 import { eventToDescription, sum, toParams } from 'lib/utils'
-import { sessionRecordingLogicType } from './sessionRecordingLogicType'
+import type { sessionRecordingLogicType } from './sessionRecordingLogicType'
 import {
     EventType,
     PlayerPosition,

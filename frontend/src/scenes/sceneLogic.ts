@@ -1,7 +1,7 @@
 import { BuiltLogic, kea } from 'kea'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
-import { sceneLogicType } from './sceneLogicType'
+import type { sceneLogicType } from './sceneLogicType'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { preflightLogic } from './PreflightCheck/preflightLogic'
 import { AvailableFeature } from '~/types'
