@@ -1,4 +1,4 @@
-import { FormInstance } from 'antd'
+import type { FormInstance } from 'antd/lib/form/hooks/useForm.d'
 import { kea } from 'kea'
 import api from 'lib/api'
 import { interfaceJobsLogicType } from './interfaceJobsLogicType'
