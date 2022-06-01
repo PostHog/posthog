@@ -1,6 +1,6 @@
 import { kea } from 'kea'
 import { getConfig, HistogramConfig } from 'scenes/insights/Histogram/histogramUtils'
-import { histogramLogicType } from './histogramLogicType'
+import type { histogramLogicType } from './histogramLogicType'
 import { FunnelLayout } from 'lib/constants'
 
 export const histogramLogic = kea<histogramLogicType>({

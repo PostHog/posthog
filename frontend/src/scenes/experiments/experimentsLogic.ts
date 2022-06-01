@@ -1,6 +1,6 @@
 import { kea } from 'kea'
 import api from 'lib/api'
-import { experimentsLogicType } from './experimentsLogicType'
+import type { experimentsLogicType } from './experimentsLogicType'
 import { teamLogic } from 'scenes/teamLogic'
 import { Experiment, ExperimentsTabs, AvailableFeature } from '~/types'
 import { toParams } from 'lib/utils'
