@@ -5,7 +5,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import posthog from 'posthog-js'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { funnelsCueLogicType } from './funnelsCueLogicType'
+import type { funnelsCueLogicType } from './funnelsCueLogicType'
 
 export const funnelsCueLogic = kea<funnelsCueLogicType>({
     props: {} as InsightLogicProps,

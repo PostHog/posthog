@@ -3,7 +3,7 @@ import { actions, kea, key, listeners, path, props, propsChanged, reducers, sele
 import { PropertyGroupFilter, FilterLogicalOperator } from '~/types'
 import { PropertyGroupFilterLogicProps } from 'lib/components/PropertyFilters/types'
 
-import { propertyGroupFilterLogicType } from './propertyGroupFilterLogicType'
+import type { propertyGroupFilterLogicType } from './propertyGroupFilterLogicType'
 import { convertPropertiesToPropertyGroup, objectsEqual } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 

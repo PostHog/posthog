@@ -18,25 +18,37 @@
         line-height: 1.5rem;
         border-color: var(--border);
     }
+
+    .ant-modal-header {
+        border-bottom: none;
+    }
+
     .ant-modal-title {
         font-weight: 600;
+        width: 100%;
     }
+
     .ant-modal-footer {
         justify-content: flex-end;
     }
+
     section {
         width: 100%;
+
         &:not(:first-child) {
             padding-top: 0.75rem;
         }
+
         &:not(:last-child) {
             padding-bottom: 0.75rem;
             border-bottom: 1px solid var(--border);
         }
+
         > :not(:first-child) {
             margin-top: 0.5rem;
         }
     }
+
     h5 {
         line-height: 1.5rem;
         margin: 0;

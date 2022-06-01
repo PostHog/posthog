@@ -1,5 +1,5 @@
 import { kea } from 'kea'
-import { groupPropertiesModelType } from './groupPropertiesModelType'
+import type { groupPropertiesModelType } from './groupPropertiesModelType'
 import api from 'lib/api'
 import { GroupTypeProperties, PersonProperty } from '~/types'
 import { teamLogic } from 'scenes/teamLogic'
