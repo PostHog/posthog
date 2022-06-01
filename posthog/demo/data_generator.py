@@ -65,8 +65,8 @@ class DataGenerator:
         pass
 
     def bulk_import_events(self):
-        from ee.clickhouse.models.event import create_event
         from ee.clickhouse.models.session_recording_event import create_session_recording_event
+        from posthog.models.event.util import create_event
 
         for event_data in self.events:
             create_event(**event_data, team=self.team, event_uuid=uuid4())

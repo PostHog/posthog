@@ -1,22 +1,15 @@
 from datetime import datetime
-from uuid import uuid4
 
 import pytz
 from freezegun.api import freeze_time
 
-from ee.clickhouse.models.event import create_event
 from ee.clickhouse.queries.breakdown_props import _parse_breakdown_cohorts
 from posthog.client import sync_execute
 from posthog.models.action import Action
 from posthog.models.action_step import ActionStep
 from posthog.models.cohort import Cohort
 from posthog.queries.util import get_earliest_timestamp
-
-
-def _create_event(**kwargs):
-    pk = uuid4()
-    kwargs.update({"event_uuid": pk})
-    create_event(**kwargs)
+from posthog.test.base import _create_event
 
 
 @freeze_time("2021-01-21")

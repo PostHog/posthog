@@ -23,7 +23,6 @@ from ee.clickhouse.models.cohort import (
     format_static_cohort_query,
     get_count_operator,
 )
-from ee.clickhouse.models.util import is_json
 from ee.clickhouse.sql.clickhouse import trim_quotes_expr
 from ee.clickhouse.sql.groups import GET_GROUP_IDS_BY_PROPERTY_SQL
 from ee.clickhouse.sql.person import GET_DISTINCT_IDS_BY_PERSON_ID_FILTER, GET_DISTINCT_IDS_BY_PROPERTY_SQL
@@ -40,7 +39,7 @@ from posthog.models.property import (
 )
 from posthog.models.utils import PersonPropertiesMode
 from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
-from posthog.utils import is_valid_regex
+from posthog.utils import is_json, is_valid_regex
 
 # Property Groups Example:
 # {type: 'AND', groups: [
