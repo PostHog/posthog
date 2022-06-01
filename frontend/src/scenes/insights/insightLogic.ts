@@ -3,7 +3,7 @@ import { prompt } from 'lib/logic/prompt'
 import { getEventNamesForAction, objectsEqual, sum, toParams, uuid } from 'lib/utils'
 import posthog from 'posthog-js'
 import { eventUsageLogic, InsightEventSource } from 'lib/utils/eventUsageLogic'
-import { insightLogicType } from './insightLogicType'
+import type { insightLogicType } from './insightLogicType'
 import {
     ActionType,
     FilterType,

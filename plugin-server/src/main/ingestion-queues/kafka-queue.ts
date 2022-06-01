@@ -1,5 +1,5 @@
 import * as Sentry from '@sentry/node'
-import { Consumer, ConsumerSubscribeTopics, EachBatchPayload, Kafka } from 'kafkajs'
+import { Consumer, EachBatchPayload, Kafka } from 'kafkajs'
 
 import { Hub, WorkerMethods } from '../../types'
 import { status } from '../../utils/status'
@@ -7,7 +7,7 @@ import { killGracefully } from '../../utils/utils'
 import { KAFKA_BUFFER, KAFKA_EVENTS_JSON, prefix as KAFKA_PREFIX } from './../../config/kafka-topics'
 import { eachBatchAsyncHandlers } from './batch-processing/each-batch-async-handlers'
 import { eachBatchIngestion } from './batch-processing/each-batch-ingestion'
-import { addMetricsEventListeners, emitConsumerGroupMetrics } from './kafka-metrics'
+import { emitConsumerGroupMetrics } from './kafka-metrics'
 
 type ConsumerManagementPayload = {
     topic: string
@@ -46,7 +46,7 @@ export class KafkaQueue {
         }
     }
 
-    topics(): ConsumerSubscribeTopics {
+    topics(): string[] {
         const topics = []
 
         if (this.pluginsServer.capabilities.ingestion) {
@@ -57,7 +57,7 @@ export class KafkaQueue {
             throw Error('No topics to consume, KafkaQueue should not be started')
         }
 
-        return { topics }
+        return topics
     }
 
     consumerGroupId(): string {
@@ -72,7 +72,7 @@ export class KafkaQueue {
 
     async start(): Promise<void> {
         const startPromise = new Promise<void>(async (resolve, reject) => {
-            addMetricsEventListeners(this.consumer, this.pluginsServer.statsd)
+            // addMetricsEventListeners(this.consumer, this.pluginsServer.statsd)
             this.consumer.on(this.consumer.events.GROUP_JOIN, ({ payload }) => {
                 status.info('ℹ️', 'Kafka joined consumer group', JSON.stringify(payload))
                 this.consumerGroupMemberId = payload.memberId
@@ -83,7 +83,10 @@ export class KafkaQueue {
             this.wasConsumerRan = true
 
             await this.consumer.connect()
-            await this.consumer.subscribe(this.topics())
+
+            for (const topic of this.topics()) {
+                await this.consumer.subscribe({ topic })
+            }
 
             // KafkaJS batching: https://kafka.js.org/docs/consuming#a-name-each-batch-a-eachbatch
             await this.consumer.run({

@@ -27,8 +27,9 @@ export function Sidebar(): JSX.Element {
                         active={currentIndex === 1}
                         disabled={!platform}
                         onClick={() => {
-                            if (platform && currentIndex !== 1) {
+                            if (platform) {
                                 setVerify(false)
+                                setPlatform(platform)
                             }
                         }}
                     >
