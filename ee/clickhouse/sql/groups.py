@@ -67,3 +67,19 @@ SELECT DISTINCT group_key
 FROM groups
 WHERE team_id = %(team_id)s AND group_type_index = %({group_type_index_var})s {filters}
 """
+
+#
+# Copying demo data
+#
+
+COPY_GROUPS_BETWEEN_TEAMS = """
+INSERT INTO {table_name} (team_id, {columns_except_team_id}) SELECT %(target_team_id)s, {columns_except_team_id}
+FROM {table_name} WHERE team_id = %(source_team_id)s
+""".format(
+    table_name=GROUPS_TABLE,
+    columns_except_team_id="""group_type_index, group_key, group_properties, created_at, _timestamp, _offset""",
+)
+
+SELECT_GROUPS_OF_TEAM = """SELECT * FROM {table_name} WHERE team_id = %(source_team_id)s""".format(
+    table_name=GROUPS_TABLE,
+)

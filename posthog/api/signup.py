@@ -95,9 +95,10 @@ class SignupSerializer(serializers.Serializer):
             end=timezone.datetime.now(),
             n_clusters=50,
         )
-        self._organization, self._team, self._user = MatrixManager(matrix, pre_save=True).ensure_account_and_save(
-            email, first_name, organization_name
-        )
+        with transaction.atomic():
+            self._organization, self._team, self._user = MatrixManager(matrix, pre_save=True).ensure_account_and_save(
+                email, first_name, organization_name
+            )
 
         login(
             self.context["request"], self._user, backend="django.contrib.auth.backends.ModelBackend",
