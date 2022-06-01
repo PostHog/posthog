@@ -312,7 +312,7 @@ class CohortQuery(EnterpriseEventQuery):
                 q += f"({subq_query}) {subq_alias}"
                 fields = f"{subq_alias}.person_id"
             elif prev_alias:  # can't join without a previous alias
-                if subq_alias == self.PERSON_TABLE_ALIAS and self.should_pushdown_persons():
+                if subq_alias == self.PERSON_TABLE_ALIAS and self.should_pushdown_persons:
                     if self._using_person_on_events:
                         # when using person-on-events, instead of inner join, we filter inside
                         # the event query itself
@@ -349,7 +349,7 @@ class CohortQuery(EnterpriseEventQuery):
             ]
             _fields.extend(self._fields)
 
-            if self.should_pushdown_persons() and self._using_person_on_events:
+            if self.should_pushdown_persons and self._using_person_on_events:
                 person_prop_query, person_prop_params = self._get_prop_groups(
                     self._inner_property_groups,
                     person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS,
@@ -384,6 +384,7 @@ class CohortQuery(EnterpriseEventQuery):
 
         return query, params, self.PERSON_TABLE_ALIAS
 
+    @cached_property
     def should_pushdown_persons(self) -> bool:
         return "person" not in [
             prop.type for prop in getattr(self._outer_property_groups, "flat", [])
@@ -638,7 +639,7 @@ class CohortQuery(EnterpriseEventQuery):
 
         event_param_name = f"{self._cohort_pk}_event_ids"
 
-        if self.should_pushdown_persons() and self._using_person_on_events:
+        if self.should_pushdown_persons and self._using_person_on_events:
             person_prop_query, person_prop_params = self._get_prop_groups(
                 self._inner_property_groups,
                 person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS,
