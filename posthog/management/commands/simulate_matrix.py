@@ -1,3 +1,4 @@
+import logging
 from time import time
 
 from django.core import exceptions
@@ -7,6 +8,8 @@ from django.utils import timezone
 
 from posthog.demo.hedgebox import HedgeboxMatrix
 from posthog.demo.matrix.manager import MatrixManager
+
+logging.getLogger("kafka").setLevel(logging.WARNING)  # Hide kafka-python's logspam
 
 
 class Command(BaseCommand):
