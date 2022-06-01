@@ -1,6 +1,6 @@
 from collections import defaultdict
 from dataclasses import asdict, dataclass, field
-from typing import Dict, Tuple
+from typing import DefaultDict, Dict, Tuple
 
 from celery.app import shared_task
 from django.utils import timezone
@@ -26,8 +26,8 @@ class EventDefinitionPayload:
 @shared_task(ignore_result=True, max_retries=1)
 def calculate_event_property_usage_for_team(team_id: int) -> None:
     team = Team.objects.get(pk=team_id)
-    event_definition_payloads = defaultdict(EventDefinitionPayload)
-    property_insight_usage = defaultdict(int)
+    event_definition_payloads: DefaultDict[str, EventDefinitionPayload] = defaultdict(EventDefinitionPayload)
+    property_insight_usage: DefaultDict[str, int] = defaultdict(int)
 
     since = timezone.now() - timezone.timedelta(days=30)
 
