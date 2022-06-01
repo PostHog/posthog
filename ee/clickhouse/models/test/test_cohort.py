@@ -14,7 +14,6 @@ from posthog.models.cohort import Cohort
 from posthog.models.filters import Filter
 from posthog.models.organization import Organization
 from posthog.models.person import Person
-from posthog.models.person.util import create_person, create_person_distinct_id
 from posthog.models.team import Team
 from posthog.models.utils import PersonPropertiesMode
 from posthog.test.base import BaseTest, _create_event, _create_person
