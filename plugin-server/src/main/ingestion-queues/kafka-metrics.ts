@@ -3,6 +3,8 @@ import { StatsD } from 'hot-shots'
 import { Consumer } from 'kafkajs'
 
 import { Hub } from '../../types'
+import { status } from '../../utils/status'
+import { killGracefully } from '../../utils/utils'
 
 type PartitionAssignment = {
     readonly topic: string
@@ -14,6 +16,8 @@ type MemberAssignment = {
     readonly partitionAssignments: readonly PartitionAssignment[]
     readonly userData: Buffer
 }
+
+let notLiveCount = 0
 
 export async function emitConsumerGroupMetrics(
     consumer: Consumer,
@@ -58,6 +62,13 @@ export async function emitConsumerGroupMetrics(
             groupId: description.groupId,
             instanceId: pluginsServer.instanceId.toString(),
         })
+
+        // :KLUDGE: Work around kafka broker timeouts/consumers never connecting. Remove this before release!
+        notLiveCount = isLive ? 0 : notLiveCount + 1
+        if (notLiveCount > 5) {
+            status.warn('🔴', 'Kafka consumer is not coming live, trying to restart.')
+            killGracefully()
+        }
     } catch (error) {
         pluginsServer.statsd?.increment('kafka_consumer_emit_describe_failure', {
             memberId: consumerGroupMemberId || 'unknown',
