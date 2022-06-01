@@ -1,7 +1,7 @@
 import type { FormInstance } from 'antd/lib/form/hooks/useForm.d'
 import { kea } from 'kea'
 import api from 'lib/api'
-import { interfaceJobsLogicType } from './interfaceJobsLogicType'
+import type { interfaceJobsLogicType } from './interfaceJobsLogicType'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
 import { JobSpec } from '~/types'
 import { lemonToast } from 'lib/components/lemonToast'
@@ -89,8 +89,8 @@ export const interfaceJobsLogic = kea<interfaceJobsLogicType>({
             }
             const timeout = window.setTimeout(() => {
                 actions.setRunJobAvailable(true)
-                actions.setRunJobAvailableTimeout(timeout)
             }, 15000)
+            actions.setRunJobAvailableTimeout(timeout)
 
             lemonToast.success('Job has been enqueued')
         },
