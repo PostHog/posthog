@@ -1,3 +1,4 @@
+import '../../globals.d'
 export * from 'lib/components/LemonBubble/LemonBubble'
 export * from 'lib/components/LemonButton/LemonButton'
 export * from 'lib/components/LemonCheckbox/LemonCheckbox'

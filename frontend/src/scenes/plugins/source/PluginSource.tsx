@@ -54,7 +54,7 @@ export function PluginSource({
         }
         import('./types/packages.json').then((files) => {
             for (const fileName in files) {
-                const fakePath = `file:///node_modules/@types/${fileName}`
+                const fakePath = `file:///node_modules/${fileName}`
                 monaco?.languages.typescript.typescriptDefaults.addExtraLib(files[fileName], fakePath)
             }
         })
