@@ -16,7 +16,7 @@ from posthog.models.filters import Filter
 from posthog.models.organization import Organization
 from posthog.models.person import Person
 from posthog.models.team import Team
-from posthog.models.utils import UUIDT
+from posthog.models.utils import UUIDT, PersonPropertiesMode
 from posthog.test.base import BaseTest, _create_event
 
 
@@ -74,7 +74,14 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         )
 
         filter = Filter(data={"properties": [{"key": "id", "value": cohort1.pk, "type": "cohort"}],})
-        query, params = parse_prop_grouped_clauses(team_id=self.team.pk, property_group=filter.property_groups)
+        query, params = parse_prop_grouped_clauses(
+            team_id=self.team.pk,
+            property_group=filter.property_groups,
+            person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS
+            if self.team.actor_on_events_querying_enabled
+            else PersonPropertiesMode.USING_SUBQUERY,
+        )
+
         final_query = "SELECT uuid FROM events WHERE team_id = %(team_id)s {}".format(query)
         result = sync_execute(final_query, {**params, "team_id": self.team.pk})
         self.assertEqual(len(result), 1)
@@ -110,7 +117,14 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         cohort1 = Cohort.objects.create(team=self.team, groups=[{"action_id": action.pk, "days": 3}], name="cohort1",)
 
         filter = Filter(data={"properties": [{"key": "id", "value": cohort1.pk, "type": "cohort"}],}, team=self.team)
-        query, params = parse_prop_grouped_clauses(team_id=self.team.pk, property_group=filter.property_groups)
+        query, params = parse_prop_grouped_clauses(
+            team_id=self.team.pk,
+            property_group=filter.property_groups,
+            person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS
+            if self.team.actor_on_events_querying_enabled
+            else PersonPropertiesMode.USING_SUBQUERY,
+        )
+
         final_query = "SELECT uuid FROM events WHERE team_id = %(team_id)s {}".format(query)
         result = sync_execute(final_query, {**params, "team_id": self.team.pk})
         self.assertEqual(len(result), 1)
@@ -144,7 +158,14 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         cohort1 = Cohort.objects.create(team=self.team, groups=[{"event_id": "$pageview", "days": 1}], name="cohort1",)
 
         filter = Filter(data={"properties": [{"key": "id", "value": cohort1.pk, "type": "cohort"}],}, team=self.team)
-        query, params = parse_prop_grouped_clauses(team_id=self.team.pk, property_group=filter.property_groups)
+        query, params = parse_prop_grouped_clauses(
+            team_id=self.team.pk,
+            property_group=filter.property_groups,
+            person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS
+            if self.team.actor_on_events_querying_enabled
+            else PersonPropertiesMode.USING_SUBQUERY,
+        )
+
         final_query = "SELECT uuid FROM events WHERE team_id = %(team_id)s {}".format(query)
         result = sync_execute(final_query, {**params, "team_id": self.team.pk})
         self.assertEqual(len(result), 1)
@@ -152,7 +173,14 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         cohort2 = Cohort.objects.create(team=self.team, groups=[{"event_id": "$pageview", "days": 7}], name="cohort2",)
 
         filter = Filter(data={"properties": [{"key": "id", "value": cohort2.pk, "type": "cohort"}],}, team=self.team)
-        query, params = parse_prop_grouped_clauses(team_id=self.team.pk, property_group=filter.property_groups)
+        query, params = parse_prop_grouped_clauses(
+            team_id=self.team.pk,
+            property_group=filter.property_groups,
+            person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS
+            if self.team.actor_on_events_querying_enabled
+            else PersonPropertiesMode.USING_SUBQUERY,
+        )
+
         final_query = "SELECT uuid FROM events WHERE team_id = %(team_id)s {}".format(query)
         result = sync_execute(final_query, {**params, "team_id": self.team.pk})
         self.assertEqual(len(result), 2)
@@ -187,7 +215,14 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         cohort1 = Cohort.objects.create(team=self.team, groups=[{"action_id": action.pk, "days": 1}], name="cohort1",)
 
         filter = Filter(data={"properties": [{"key": "id", "value": cohort1.pk, "type": "cohort"}],}, team=self.team)
-        query, params = parse_prop_grouped_clauses(team_id=self.team.pk, property_group=filter.property_groups)
+        query, params = parse_prop_grouped_clauses(
+            team_id=self.team.pk,
+            property_group=filter.property_groups,
+            person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS
+            if self.team.actor_on_events_querying_enabled
+            else PersonPropertiesMode.USING_SUBQUERY,
+        )
+
         final_query = "SELECT uuid FROM events WHERE team_id = %(team_id)s {}".format(query)
         result = sync_execute(final_query, {**params, "team_id": self.team.pk})
         self.assertEqual(len(result), 1)
@@ -195,7 +230,14 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         cohort2 = Cohort.objects.create(team=self.team, groups=[{"action_id": action.pk, "days": 7}], name="cohort2",)
 
         filter = Filter(data={"properties": [{"key": "id", "value": cohort2.pk, "type": "cohort"}],}, team=self.team)
-        query, params = parse_prop_grouped_clauses(team_id=self.team.pk, property_group=filter.property_groups)
+        query, params = parse_prop_grouped_clauses(
+            team_id=self.team.pk,
+            property_group=filter.property_groups,
+            person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS
+            if self.team.actor_on_events_querying_enabled
+            else PersonPropertiesMode.USING_SUBQUERY,
+        )
+
         final_query = "SELECT uuid FROM events WHERE team_id = %(team_id)s {}".format(query)
         result = sync_execute(final_query, {**params, "team_id": self.team.pk})
         self.assertEqual(len(result), 2)
@@ -223,7 +265,14 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         )
 
         filter = Filter(data={"properties": [{"key": "id", "value": cohort1.pk, "type": "cohort"}],}, team=self.team)
-        query, params = parse_prop_grouped_clauses(team_id=self.team.pk, property_group=filter.property_groups)
+        query, params = parse_prop_grouped_clauses(
+            team_id=self.team.pk,
+            property_group=filter.property_groups,
+            person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS
+            if self.team.actor_on_events_querying_enabled
+            else PersonPropertiesMode.USING_SUBQUERY,
+        )
+
         final_query = "SELECT uuid FROM events WHERE team_id = %(team_id)s {}".format(query)
         result = sync_execute(final_query, {**params, "team_id": self.team.pk})
         self.assertEqual(len(result), 2)
@@ -251,7 +300,14 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         )
 
         filter = Filter(data={"properties": [{"key": "id", "value": cohort1.pk, "type": "cohort"}],}, team=self.team)
-        query, params = parse_prop_grouped_clauses(team_id=self.team.pk, property_group=filter.property_groups)
+        query, params = parse_prop_grouped_clauses(
+            team_id=self.team.pk,
+            property_group=filter.property_groups,
+            person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS
+            if self.team.actor_on_events_querying_enabled
+            else PersonPropertiesMode.USING_SUBQUERY,
+        )
+
         final_query = "SELECT uuid FROM events WHERE team_id = %(team_id)s {}".format(query)
         self.assertIn("\nFROM person_distinct_id2\n", final_query)
 

@@ -25,6 +25,7 @@ from posthog.constants import PropertyOperatorType
 from posthog.models import Action, Cohort, Filter, Team
 from posthog.models.action.util import format_action_filter
 from posthog.models.property import Property, PropertyGroup
+from posthog.models.utils import PersonPropertiesMode
 from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
 
 # temporary marker to denote when cohortpeople table started being populated
@@ -251,9 +252,13 @@ def get_person_ids_by_cohort_id(team: Team, cohort_id: int, limit: Optional[int]
 
     filters = Filter(data={"properties": [{"key": "id", "value": cohort_id, "type": "cohort"}],})
     filter_query, filter_params = parse_prop_grouped_clauses(
-        team_id=team.pk, property_group=filters.property_groups, table_name="pdi"
+        team_id=team.pk,
+        property_group=filters.property_groups,
+        table_name="pdi",
+        person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS
+        if team.actor_on_events_querying_enabled
+        else PersonPropertiesMode.USING_SUBQUERY,
     )
-
     results = sync_execute(
         GET_PERSON_IDS_BY_FILTER.format(
             distinct_query=filter_query,
