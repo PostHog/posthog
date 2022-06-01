@@ -24,21 +24,12 @@
        AND ((event = '$pageview'
              AND (has(['p1', 'p2', 'p3'], replaceRegexpAll(JSONExtractRaw(person_props, 'name'), '^"|"$', ''))
                   AND pdi.person_id IN
-                    (select id
-                     from
-                       (SELECT *
-                        FROM person
-                        JOIN
-                          (SELECT id,
-                                  max(_timestamp) as _timestamp,
-                                  max(is_deleted) as is_deleted
-                           FROM person
-                           WHERE team_id = 2
-                           GROUP BY id) as person_max ON person.id = person_max.id
-                        AND person._timestamp = person_max._timestamp
-                        WHERE team_id = 2
-                          AND person_max.is_deleted = 0
-                          AND (has(['p1', 'p2'], replaceRegexpAll(JSONExtractRaw(properties, 'name'), '^"|"$', ''))) )))))
+                    (SELECT id
+                     FROM person
+                     WHERE team_id = 2
+                     GROUP BY id
+                     HAVING max(is_deleted) = 0
+                     AND ((has(['p1', 'p2'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'name'), '^"|"$', ''))))))))
        AND timestamp >= toDateTime('2020-01-01 00:00:00')
        AND timestamp <= toDateTime('2020-01-12 23:59:59')
      GROUP BY value
@@ -113,21 +104,12 @@
                    AND ((event = '$pageview'
                          AND (has(['p1', 'p2', 'p3'], replaceRegexpAll(JSONExtractRaw(person_props, 'name'), '^"|"$', ''))
                               AND pdi.person_id IN
-                                (select id
-                                 from
-                                   (SELECT *
-                                    FROM person
-                                    JOIN
-                                      (SELECT id,
-                                              max(_timestamp) as _timestamp,
-                                              max(is_deleted) as is_deleted
-                                       FROM person
-                                       WHERE team_id = 2
-                                       GROUP BY id) as person_max ON person.id = person_max.id
-                                    AND person._timestamp = person_max._timestamp
-                                    WHERE team_id = 2
-                                      AND person_max.is_deleted = 0
-                                      AND (has(['p1', 'p2'], replaceRegexpAll(JSONExtractRaw(properties, 'name'), '^"|"$', ''))) )))))
+                                (SELECT id
+                                 FROM person
+                                 WHERE team_id = 2
+                                 GROUP BY id
+                                 HAVING max(is_deleted) = 0
+                                 AND ((has(['p1', 'p2'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'name'), '^"|"$', ''))))))))
                  GROUP BY timestamp,
                           person_id,
                           breakdown_value) e

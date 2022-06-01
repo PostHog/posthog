@@ -1,7 +1,7 @@
 import React from 'react'
 import { kea } from 'kea'
 import api from 'lib/api'
-import { membersLogicType } from './membersLogicType'
+import type { membersLogicType } from './membersLogicType'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { OrganizationMemberType } from '~/types'
 import { organizationLogic } from 'scenes/organizationLogic'
