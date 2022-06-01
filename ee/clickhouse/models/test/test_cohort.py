@@ -5,7 +5,6 @@ from django.utils import timezone
 from freezegun import freeze_time
 
 from ee.clickhouse.models.cohort import format_filter_query, get_person_ids_by_cohort_id
-from ee.clickhouse.models.person import create_person, create_person_distinct_id
 from ee.clickhouse.models.property import parse_prop_grouped_clauses
 from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.client import sync_execute
@@ -16,8 +15,8 @@ from posthog.models.filters import Filter
 from posthog.models.organization import Organization
 from posthog.models.person import Person
 from posthog.models.team import Team
-from posthog.models.utils import UUIDT, PersonPropertiesMode
-from posthog.test.base import BaseTest, _create_event
+from posthog.models.utils import PersonPropertiesMode
+from posthog.test.base import BaseTest, _create_event, _create_person
 
 
 def _create_action(**kwargs):
@@ -26,19 +25,6 @@ def _create_action(**kwargs):
     action = Action.objects.create(team=team, name=name)
     ActionStep.objects.create(action=action, event=name)
     return action
-
-
-# Some custom stuff for this test as going via Person postgres model won't allow 2 people with same ID
-def _create_person(**kwargs) -> Person:
-    if kwargs.get("uuid"):
-        uuid = str(kwargs.pop("uuid"))
-    else:
-        uuid = str(UUIDT())
-    distinct_ids = kwargs.pop("distinct_ids")
-    person = create_person(uuid=uuid, **kwargs)
-    for id in distinct_ids:
-        create_person_distinct_id(kwargs["team_id"], id, str(person))
-    return Person(id=person, uuid=person)
 
 
 class TestCohort(ClickhouseTestMixin, BaseTest):
@@ -301,8 +287,8 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
 
         results = get_person_ids_by_cohort_id(self.team, cohort.id)
         self.assertEqual(len(results), 2)
-        self.assertIn(user1.uuid, results)
-        self.assertIn(user3.uuid, results)
+        self.assertIn(str(user1.uuid), results)
+        self.assertIn(str(user3.uuid), results)
 
     def test_insert_by_distinct_id_or_email(self):
         Person.objects.create(team_id=self.team.pk, distinct_ids=["1"])
