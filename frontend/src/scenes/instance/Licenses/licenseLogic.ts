@@ -1,6 +1,6 @@
 import api from 'lib/api'
 import { kea } from 'kea'
-import { licenseLogicType } from './licenseLogicType'
+import type { licenseLogicType } from './licenseLogicType'
 import { APIErrorType, LicensePlan, LicenseType } from '~/types'
 import { preflightLogic } from '../../PreflightCheck/preflightLogic'
 import { lemonToast } from 'lib/components/lemonToast'

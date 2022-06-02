@@ -1,6 +1,6 @@
 import { kea } from 'kea'
 import { groupsModel } from '~/models/groupsModel'
-import { groupAnalyticsConfigLogicType } from './groupAnalyticsConfigLogicType'
+import type { groupAnalyticsConfigLogicType } from './groupAnalyticsConfigLogicType'
 
 export const groupAnalyticsConfigLogic = kea<groupAnalyticsConfigLogicType>({
     path: ['scenes', 'project', 'Settings', 'groupAnalyticsConfigLogic'],

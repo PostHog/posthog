@@ -1,6 +1,6 @@
 import { kea } from 'kea'
 
-import { propertyFilterLogicType } from './propertyFilterLogicType'
+import type { propertyFilterLogicType } from './propertyFilterLogicType'
 import { AnyPropertyFilter, EmptyPropertyFilter, PropertyFilter } from '~/types'
 import { isValidPropertyFilter, parseProperties } from 'lib/components/PropertyFilters/utils'
 import { PropertyFilterLogicProps } from 'lib/components/PropertyFilters/types'

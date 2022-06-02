@@ -1,6 +1,6 @@
 import { kea } from 'kea'
 
-import { propertySelectLogicType } from './propertyNamesSelectLogicType'
+import type { propertySelectLogicType } from './propertyNamesSelectLogicType'
 export const propertySelectLogic = kea<propertySelectLogicType>({
     path: (key) => ['lib', 'components', 'PropertyNamesSelect', 'propertyNamesSelectLogic', key],
     props: {
