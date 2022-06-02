@@ -1,10 +1,9 @@
-from ee.clickhouse.models.element import chain_to_elements, elements_to_string
 from ee.clickhouse.util import ClickhouseTestMixin
-from posthog.models import Element
+from posthog.models.element import Element, chain_to_elements, elements_to_string
 from posthog.test.base import BaseTest
 
 
-class TestClickhouseElement(ClickhouseTestMixin, BaseTest):
+class TestElement(ClickhouseTestMixin, BaseTest):
     def test_elements_to_string(self) -> None:
         self.maxDiff = None
         elements_string = elements_to_string(

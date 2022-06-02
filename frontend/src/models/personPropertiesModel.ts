@@ -1,5 +1,5 @@
 import { kea } from 'kea'
-import { personPropertiesModelType } from './personPropertiesModelType'
+import type { personPropertiesModelType } from './personPropertiesModelType'
 import api from 'lib/api'
 import { PersonProperty } from '~/types'
 import { isUserLoggedIn } from 'lib/utils'
