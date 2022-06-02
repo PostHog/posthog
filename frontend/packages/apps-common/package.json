@@ -10,7 +10,6 @@
         "build:types": "echo \"Building types for @posthog/apps-common\" && tsup index.ts --dts-only"
     },
     "devDependencies": {
-        "antd": "^4.20.7",
         "tsup": "^5.12.8",
         "typescript": ">=4.0.0"
     }
