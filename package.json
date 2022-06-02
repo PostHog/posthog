@@ -22,7 +22,7 @@
         "test": "jest",
         "start": "concurrently -n ESBUILD,TYPEGEN -c yellow,green \"yarn start-http\" \"yarn run typegen:watch\"",
         "start-http": "yarn start-http:esbuild",
-        "start-http:esbuild": "yarn clean && yarn copy-scripts && yarn build:packages:types && node frontend/build.mjs --dev",
+        "start-http:esbuild": "yarn clean && yarn copy-scripts && node frontend/build.mjs --dev",
         "start-http:webpack": "mkdir -p frontend/dist/ && cp -a frontend/public/* frontend/dist/ && npm run copy-scripts && webpack serve",
         "start-https": "yarn start-https:webpack",
         "start-https:webpack": "yarn start-http:webpack --https",

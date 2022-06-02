@@ -23,7 +23,19 @@ function startDevServer() {
 }
 
 export function writeSourceCodeEditorTypes() {
-    const readFile = (p) => fse.readFileSync(path.resolve(__dirname, p), { encoding: 'utf-8' })
+    const readFile = (p) => {
+        try {
+            return fse.readFileSync(path.resolve(__dirname, p), { encoding: 'utf-8' })
+        } catch (e) {
+            if (isDev) {
+                console.warn(
+                    `🙈 Didn't find "${p}" for the app source editor. Build it with: yarn build:packages:types`
+                )
+            } else {
+                throw e
+            }
+        }
+    }
     const types = {
         '@types/react/index.d.ts': readFile('../node_modules/@types/react/index.d.ts'),
         '@types/react/global.d.ts': readFile('../node_modules/@types/react/global.d.ts'),
