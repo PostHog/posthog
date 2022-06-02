@@ -1,12 +1,12 @@
-const plugins = [require('postcss-advanced-variables')(), require('postcss-nested')(), require('autoprefixer')()]
+/* eslint-disable @typescript-eslint/no-var-requires */
+/* eslint-env node */
+
+const plugins = [require('autoprefixer')] // postCSS modules here
 
 if (process.env.NODE_ENV === 'production') {
     plugins.push(require('cssnano'))
 }
 
 module.exports = {
-    // syntax: 'postcss-scss',
-    parser: 'postcss-scss',
     plugins,
-    processors: [require('postcss-strip-inline-comments')],
 }
