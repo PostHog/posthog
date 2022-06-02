@@ -314,13 +314,7 @@ def recalculate_cohortpeople(cohort: Cohort, pending_version: int) -> Optional[i
     insert_cohortpeople_sql = RECALCULATE_COHORT_BY_ID.format(cohort_filter=cohort_filter)
     sync_execute(
         insert_cohortpeople_sql,
-        {
-            **cohort_params,
-            "cohort_id": cohort.pk,
-            "team_id": cohort.team_id,
-            "new_version": pending_version,
-            "previous_version": pending_version - 1,
-        },
+        {**cohort_params, "cohort_id": cohort.pk, "team_id": cohort.team_id, "new_version": pending_version,},
     )
 
     count = get_cohort_size(cohort.pk, cohort.team_id, pending_version)
