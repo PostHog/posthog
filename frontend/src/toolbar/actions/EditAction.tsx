@@ -41,7 +41,7 @@ export function EditAction(): JSX.Element {
                 Cancel <CloseOutlined />
             </Button>
             <h1 className="section-title" style={{ paddingTop: 4 }}>
-                {selectedActionId === 'new' ? 'New Action' : 'Edit Action'}
+                {selectedActionId === 'new' ? 'New Event' : 'Edit Event'}
             </h1>
 
             <Form
@@ -58,7 +58,7 @@ export function EditAction(): JSX.Element {
                 <Form.Item
                     name="name"
                     className="action-title-field"
-                    rules={[{ required: true, message: 'Please enter a name for this action!' }]}
+                    rules={[{ required: true, message: 'Please enter a name for this event!' }]}
                 >
                     <Input placeholder="E.g: Clicked Sign Up" />
                 </Form.Item>
@@ -164,7 +164,7 @@ export function EditAction(): JSX.Element {
                         </Button>
                     ) : null}
                     <Button type="primary" htmlType="submit">
-                        {selectedActionId === 'new' ? 'Create Action' : 'Save Action'}
+                        {selectedActionId === 'new' ? 'Create Event' : 'Save Event'}
                     </Button>
                 </Form.Item>
             </Form>

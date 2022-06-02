@@ -24,7 +24,7 @@ export function ActionsTab(): JSX.Element {
                         <ActionsList />
                         <div style={{ textAlign: 'right' }}>
                             <a href={`${apiURL}${urls.actions()}`} target="_blank" rel="noopener noreferrer">
-                                View &amp; edit all actions <ExportOutlined />
+                                View &amp; edit all events <ExportOutlined />
                             </a>
                         </div>
                     </>

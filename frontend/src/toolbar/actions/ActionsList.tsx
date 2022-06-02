@@ -28,7 +28,7 @@ export function ActionsList(): JSX.Element {
             <div className="actions-list">
                 <Row className="actions-list-header">
                     <Button type="primary" size="small" onClick={() => newAction()} style={{ float: 'right' }}>
-                        <PlusOutlined /> New Action
+                        <PlusOutlined /> New Event
                     </Button>
                 </Row>
                 {allActions.length === 0 && allActionsLoading ? (

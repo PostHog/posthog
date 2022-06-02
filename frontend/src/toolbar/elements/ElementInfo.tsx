@@ -52,16 +52,16 @@ export function ElementInfo(): JSX.Element | null {
             ) : null}
 
             <div style={{ padding: 15, borderLeft: '5px solid #94D674', background: 'hsla(100, 74%, 98%, 1)' }}>
-                <h1 className="section-title">Actions ({activeMeta.actions.length})</h1>
+                <h1 className="section-title">Events ({activeMeta.actions.length})</h1>
 
                 {activeMeta.actions.length === 0 ? (
-                    <p>No actions include this element</p>
+                    <p>No events include this element</p>
                 ) : (
                     <ActionsListView actions={activeMeta.actions.map((a) => a.action)} />
                 )}
 
                 <Button size="small" onClick={() => createAction(element)}>
-                    <PlusOutlined /> Create a new action
+                    <PlusOutlined /> Create a new event
                 </Button>
             </div>
         </>

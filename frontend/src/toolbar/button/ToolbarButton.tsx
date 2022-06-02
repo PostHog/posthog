@@ -260,7 +260,7 @@ export function ToolbarButton(): JSX.Element {
                         y={toolbarListVerticalPadding + n++ * 60}
                         extensionPercentage={actionsExtensionPercentage}
                         rotationFixer={(r) => (side === 'right' && r < 0 ? 360 : 0)}
-                        label={buttonActionsVisible && (!allActionsLoading || actionCount > 0) ? null : 'Actions'}
+                        label={buttonActionsVisible && (!allActionsLoading || actionCount > 0) ? null : 'Events'}
                         labelPosition={side === 'left' ? 'right' : 'left'}
                         labelStyle={{
                             opacity: actionsExtensionPercentage > 0.8 ? (actionsExtensionPercentage - 0.8) / 0.2 : 0,
