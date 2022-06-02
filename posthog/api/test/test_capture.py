@@ -70,16 +70,10 @@ class TestCapture(BaseTest):
                 ],
             },
         }
-        now = timezone.now()
-        with freeze_time(now):
-            with self.assertNumQueries(1):
-                response = self.client.get("/e/?data=%s" % quote(self._to_json(data)), HTTP_ORIGIN="https://localhost",)
+        with self.assertNumQueries(1):
+            response = self.client.get("/e/?data=%s" % quote(self._to_json(data)), HTTP_ORIGIN="https://localhost",)
         self.assertEqual(response.get("access-control-allow-origin"), "https://localhost")
-        arguments = self._to_arguments(kafka_produce)
-        arguments.pop("now")  # can't compare fakedate
-        arguments.pop("sent_at")  # can't compare fakedate
-        self.assertDictEqual(
-            arguments,
+        self.assertDictContainsSubset(
             {
                 "distinct_id": "2",
                 "ip": "127.0.0.1",
@@ -87,6 +81,40 @@ class TestCapture(BaseTest):
                 "data": data,
                 "team_id": self.team.pk,
             },
+            self._to_arguments(kafka_produce),
+        )
+
+    @patch("ee.kafka_client.client._KafkaProducer.produce")
+    def test_capture_event_ip(self, kafka_produce):
+        data = {"event": "some_event", "properties": {"distinct_id": 2, "token": self.team.api_token,}}
+
+        self.client.get(
+            "/e/?data=%s" % quote(self._to_json(data)), HTTP_X_FORWARDED_FOR="1.2.3.4", HTTP_ORIGIN="https://localhost"
+        )
+        self.assertDictContainsSubset(
+            {
+                "distinct_id": "2",
+                "ip": "1.2.3.4",
+                "site_url": "http://testserver",
+                "data": data,
+                "team_id": self.team.pk,
+            },
+            self._to_arguments(kafka_produce),
+        )
+
+    @patch("ee.kafka_client.client._KafkaProducer.produce")
+    def test_capture_event_ip_anonymize(self, kafka_produce):
+        data = {"event": "some_event", "properties": {"distinct_id": 2, "token": self.team.api_token,}}
+
+        self.team.anonymize_ips = True
+        self.team.save()
+
+        self.client.get(
+            "/e/?data=%s" % quote(self._to_json(data)), HTTP_X_FORWARDED_FOR="1.2.3.4", HTTP_ORIGIN="https://localhost"
+        )
+        self.assertDictContainsSubset(
+            {"distinct_id": "2", "ip": None, "site_url": "http://testserver", "data": data, "team_id": self.team.pk,},
+            self._to_arguments(kafka_produce),
         )
 
     @patch("posthog.api.capture.configure_scope")
