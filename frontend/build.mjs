@@ -48,13 +48,12 @@ export function writeExporterHtml(chunks = {}, entrypoints = []) {
 
 startDevServer()
 copyPublicFolder()
-
 writeSourceCodeEditorTypes()
 writeIndexHtml()
 writeSharedDashboardHtml()
 
 let buildsInProgress = 0
-await buildInParallel(
+buildInParallel(
     [
         {
             name: 'PostHog App',
@@ -93,6 +92,8 @@ await buildInParallel(
             outfile: path.resolve(__dirname, 'packages', 'apps-common', 'dist', 'index.js'),
             chunkNames: '[name]',
             entryNames: '[dir]/[name]',
+            external: ['react', 'react-dom'],
+            minify: true,
         },
     ],
     {
