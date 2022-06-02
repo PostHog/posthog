@@ -7,6 +7,7 @@ ADD_COLUMNS_BASE_SQL = """
 ALTER TABLE {table}
 ON CLUSTER '{cluster}'
 ADD COLUMN IF NOT EXISTS version UInt64
+MODIFY ORDER BY (team_id, cohort_id, person_id, version)
 """
 
 
