@@ -2,7 +2,7 @@ import './Animation.scss'
 import { Player } from '@lottiefiles/react-lottie-player'
 import React, { useEffect, useState } from 'react'
 import clsx from 'clsx'
-import { AnimationType, getAnimationSource } from 'lib/animations/animations'
+import { AnimationType, getAnimationSource, animations } from 'lib/animations/animations'
 import { Spinner } from 'lib/components/Spinner/Spinner'
 
 export interface AnimationProps {
@@ -23,6 +23,7 @@ export function Animation({
     const [visible, setVisible] = useState(delay === 0)
     const [source, setSource] = useState<null | Record<string, any>>(null)
     const [showFallbackSpinner, setShowFallbackSpinner] = useState(false)
+    const { width, height } = animations[type]
 
     // Delay 300ms before showing Animation, to not confuse users with subliminal hedgehogs
     // that flash before their eyes. Then take 400ms to fade in the animation.
@@ -58,7 +59,7 @@ export function Animation({
                 { Animation__hidden: !(visible && (source || showFallbackSpinner)) },
                 className
             )}
-            style={style}
+            style={{ aspectRatio: `${width} / ${height}`, ...style }}
         >
             {source ? (
                 <Player className="Animation-player" autoplay loop src={source} />

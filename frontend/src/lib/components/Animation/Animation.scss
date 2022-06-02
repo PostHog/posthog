@@ -1,7 +1,9 @@
 .Animation {
     width: 100%;
     max-width: 300px;
-    aspect-ratio: 1/1;
+    // A true aspect-ration will be passed in via a style prop
+    aspect-ratio: 1 / 1;
+    overflow: hidden;
     opacity: 1;
     transition: 400ms ease opacity;
 
@@ -12,8 +14,13 @@
     &.Animation__hidden {
         opacity: 0;
     }
+
     .Animation-player {
+        display: block;
         width: 100%;
         height: 100%;
+        svg {
+            display: block;
+        }
     }
 }

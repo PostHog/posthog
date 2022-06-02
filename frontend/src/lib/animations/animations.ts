@@ -17,7 +17,11 @@ export enum AnimationType {
     SportsHog = 'sportshog',
 }
 
-export const animations: Record<AnimationType, string> = { laptophog, musichog, sportshog }
+export const animations: Record<AnimationType, { url: string; width: number; height: number }> = {
+    laptophog: { url: laptophog, width: 800, height: 800 },
+    musichog: { url: musichog, width: 800, height: 800 },
+    sportshog: { url: sportshog, width: 800, height: 800 },
+}
 
 const animationCache: Record<string, Record<string, any>> = {}
 const fetchCache: Record<string, Promise<Record<string, any>>> = {}
@@ -30,7 +34,7 @@ async function fetchJson(url: string): Promise<Record<string, any>> {
 export async function getAnimationSource(animation: AnimationType): Promise<Record<string, any>> {
     if (!animationCache[animation]) {
         if (!fetchCache[animation]) {
-            fetchCache[animation] = fetchJson(animations[animation])
+            fetchCache[animation] = fetchJson(animations[animation].url)
         }
         animationCache[animation] = await fetchCache[animation]
     }
