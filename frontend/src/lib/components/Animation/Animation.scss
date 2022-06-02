@@ -1,0 +1,19 @@
+.Animation {
+    width: 100%;
+    max-width: 300px;
+    aspect-ratio: 1/1;
+    opacity: 1;
+    transition: 400ms ease opacity;
+
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+
+    &.Animation__hidden {
+        opacity: 0;
+    }
+    .Animation-player {
+        width: 100%;
+        height: 100%;
+    }
+}
