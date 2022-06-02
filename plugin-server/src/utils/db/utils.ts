@@ -256,7 +256,7 @@ export function generateKafkaPersonUpdateMessage(
                         team_id: teamId,
                         is_identified: isIdentified,
                         is_deleted: isDeleted,
-                        ...(version ? { version } : {}),
+                        ...(version !== null ? { version } : {}),
                     })
                 ),
             },
