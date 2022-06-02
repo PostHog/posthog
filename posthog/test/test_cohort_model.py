@@ -2,7 +2,7 @@ from unittest.mock import patch
 
 import pytest
 
-from ee.clickhouse.sql.cohort import GET_COHORTPEOPLE_BY_COHORT_ID_VERSIONED
+from ee.clickhouse.sql.cohort import GET_COHORTPEOPLE_BY_COHORT_ID
 from posthog.client import sync_execute
 from posthog.models import Cohort, FeatureFlag, Person, Team
 from posthog.models.cohort import CohortPeople, batch_delete_cohort_people
@@ -53,10 +53,7 @@ class TestCohort(BaseTest):
 
         uuids = [
             row[0]
-            for row in sync_execute(
-                GET_COHORTPEOPLE_BY_COHORT_ID_VERSIONED,
-                {"cohort_id": cohort.pk, "team_id": self.team.pk, "version": cohort.version},
-            )
+            for row in sync_execute(GET_COHORTPEOPLE_BY_COHORT_ID, {"cohort_id": cohort.pk, "team_id": self.team.pk},)
         ]
         self.assertCountEqual(uuids, [person1.uuid, person3.uuid])
 

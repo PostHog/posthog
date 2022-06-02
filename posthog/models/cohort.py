@@ -90,7 +90,6 @@ class Cohort(models.Model):
     errors_calculating: models.IntegerField = models.IntegerField(default=0)
 
     is_static: models.BooleanField = models.BooleanField(default=False)
-    use_new_relation_table: models.BooleanField = models.BooleanField(null=True, blank=True)
 
     objects = CohortManager()
 
@@ -226,10 +225,6 @@ class Cohort(models.Model):
 
         try:
             count = recalculate_cohortpeople(self, pending_version)
-
-            # Every calculation going forward should set this as true
-            # TODO: clean up this field when it's no longer useful
-            self.use_new_relation_table = True
 
             # only precalculate if used in feature flag
             ids = get_cohort_ids_in_feature_flags()

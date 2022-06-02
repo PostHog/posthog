@@ -1,5 +1,5 @@
 from ee.clickhouse.sql.person import PERSON_STATIC_COHORT_TABLE
-from ee.clickhouse.sql.table_engines import CollapsingMergeTree, VersionedCollapsingMergeTree
+from ee.clickhouse.sql.table_engines import CollapsingMergeTree
 from posthog.settings import CLICKHOUSE_CLUSTER
 
 CALCULATE_COHORT_PEOPLE_SQL = """
@@ -14,8 +14,9 @@ CREATE TABLE IF NOT EXISTS cohortpeople ON CLUSTER '{cluster}'
     cohort_id Int64,
     team_id Int64,
     sign Int8
+    version UInt64
 ) ENGINE = {engine}
-Order By (team_id, cohort_id, person_id)
+Order By (team_id, cohort_id, person_id, version)
 {storage_policy}
 """.format(
     cluster=CLICKHOUSE_CLUSTER, engine=COHORTPEOPLE_TABLE_ENGINE(), storage_policy="",
@@ -23,38 +24,19 @@ Order By (team_id, cohort_id, person_id)
 
 TRUNCATE_COHORTPEOPLE_TABLE_SQL = f"TRUNCATE TABLE IF EXISTS cohortpeople ON CLUSTER '{CLICKHOUSE_CLUSTER}'"
 
-
-COHORTPEOPLE2_TABLE_ENGINE = lambda: VersionedCollapsingMergeTree("cohortpeople2", sign="sign", ver="version")
-CREATE_COHORTPEOPLE2_TABLE_SQL = lambda: """
-CREATE TABLE IF NOT EXISTS cohortpeople2 ON CLUSTER '{cluster}'
-(
-    person_id UUID,
-    cohort_id Int64,
-    team_id Int64,
-    sign Int8,
-    version UInt64
-) ENGINE = {engine}
-Order By (team_id, cohort_id, person_id)
-{storage_policy}
-""".format(
-    cluster=CLICKHOUSE_CLUSTER, engine=COHORTPEOPLE2_TABLE_ENGINE(), storage_policy="",
-)
-
-TRUNCATE_COHORTPEOPLE2_TABLE_SQL = f"TRUNCATE TABLE IF EXISTS cohortpeople2 ON CLUSTER '{CLICKHOUSE_CLUSTER}'"
-
 GET_COHORT_SIZE_SQL = """
 SELECT count(*)
 FROM (
     SELECT 1
-    FROM cohortpeople2
-    WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s AND version = %(version)s
+    FROM cohortpeople
+    WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s
     GROUP BY person_id, cohort_id, team_id
     HAVING sum(sign) > 0
 )
 """
 
 RECALCULATE_COHORT_BY_ID = """
-INSERT INTO cohortpeople2
+INSERT INTO cohortpeople
 SELECT id, %(cohort_id)s as cohort_id, %(team_id)s as team_id, 1 AS sign, %(new_version)s AS version
 FROM (
     SELECT id, argMax(properties, person._timestamp) as properties, sum(is_deleted) as is_deleted FROM person WHERE team_id = %(team_id)s GROUP BY id
@@ -63,7 +45,7 @@ WHERE person.is_deleted = 0
 AND id IN ({cohort_filter})
 UNION ALL
 SELECT person_id, cohort_id, team_id, -1, version
-FROM cohortpeople2
+FROM cohortpeople
 WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s AND version <= %(new_version)s AND sign = 1
 """
 
@@ -83,23 +65,11 @@ GET_PERSON_ID_BY_PRECALCULATED_COHORT_ID = """
 SELECT person_id FROM cohortpeople WHERE team_id = %(team_id)s AND cohort_id = %({prepend}_cohort_id_{index})s GROUP BY person_id, cohort_id, team_id HAVING sum(sign) > 0
 """
 
-GET_PERSON_ID_BY_PRECALCULATED_COHORT_ID_VERSIONED = """
-SELECT person_id FROM cohortpeople2 WHERE team_id = %(team_id)s AND version = %(version)s AND cohort_id = %({prepend}_cohort_id_{index})s GROUP BY person_id, cohort_id, team_id, version HAVING sum(sign) > 0
-"""
-
 GET_COHORTS_BY_PERSON_UUID = """
 SELECT cohort_id
 FROM cohortpeople
 WHERE team_id = %(team_id)s AND person_id = %(person_id)s
 GROUP BY person_id, cohort_id, team_id
-HAVING sum(sign) > 0
-"""
-
-GET_COHORTS_BY_PERSON_UUID_VERSIONED = """
-SELECT DISTINCT cohort_id
-FROM cohortpeople2
-WHERE team_id = %(team_id)s AND person_id = %(person_id)s
-GROUP BY person_id, cohort_id, team_id, version
 HAVING sum(sign) > 0
 """
 
@@ -114,15 +84,6 @@ SELECT person_id
 FROM cohortpeople
 WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s
 GROUP BY person_id, cohort_id, team_id
-HAVING sum(sign) > 0
-ORDER BY person_id
-"""
-
-GET_COHORTPEOPLE_BY_COHORT_ID_VERSIONED = """
-SELECT person_id
-FROM cohortpeople2
-WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s AND version = %(version)s
-GROUP BY person_id, cohort_id, team_id, version
 HAVING sum(sign) > 0
 ORDER BY person_id
 """

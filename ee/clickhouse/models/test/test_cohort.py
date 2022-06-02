@@ -7,7 +7,7 @@ from freezegun import freeze_time
 from ee.clickhouse.models.cohort import format_filter_query, get_person_ids_by_cohort_id
 from ee.clickhouse.models.person import create_person, create_person_distinct_id
 from ee.clickhouse.models.property import parse_prop_grouped_clauses
-from ee.clickhouse.sql.cohort import GET_COHORTPEOPLE_BY_COHORT_ID_VERSIONED
+from ee.clickhouse.sql.cohort import GET_COHORTPEOPLE_BY_COHORT_ID
 from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.client import sync_execute
 from posthog.models.action import Action
@@ -44,10 +44,7 @@ def _create_person(**kwargs) -> Person:
 
 class TestCohort(ClickhouseTestMixin, BaseTest):
     def _get_cohortpeople(self, cohort: Cohort):
-        return sync_execute(
-            GET_COHORTPEOPLE_BY_COHORT_ID_VERSIONED,
-            {"team_id": self.team.pk, "cohort_id": cohort.pk, "version": cohort.version},
-        )
+        return sync_execute(GET_COHORTPEOPLE_BY_COHORT_ID, {"team_id": self.team.pk, "cohort_id": cohort.pk},)
 
     def test_prop_cohort_basic(self):
 

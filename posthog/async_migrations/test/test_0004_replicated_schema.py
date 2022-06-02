@@ -81,7 +81,6 @@ class Test0004ReplicatedSchema(AsyncMigrationBaseTest, ClickhouseTestMixin):
                 "ReplicatedCollapsingMergeTree",
                 "Distributed",
                 "Kafka",
-                "VersionedCollapsingMergeTree",
             )
         )
         self.assertEqual(self.get_event_table_row_count(), 2)
@@ -105,9 +104,7 @@ class Test0004ReplicatedSchema(AsyncMigrationBaseTest, ClickhouseTestMixin):
         self.assertFalse(migration_successful)
         self.assertEqual(AsyncMigration.objects.get(name=MIGRATION_NAME).status, MigrationStatus.RolledBack)
 
-        self.verify_table_engines_correct(
-            expected_engine_types=("ReplacingMergeTree", "CollapsingMergeTree", "Kafka", "VersionedCollapsingMergeTree")
-        )
+        self.verify_table_engines_correct(expected_engine_types=("ReplacingMergeTree", "CollapsingMergeTree", "Kafka"))
 
     def verify_table_engines_correct(self, expected_engine_types):
         table_engines = sync_execute(

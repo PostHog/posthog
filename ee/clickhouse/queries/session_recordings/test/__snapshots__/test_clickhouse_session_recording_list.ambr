@@ -116,7 +116,7 @@
   SELECT count(*)
   FROM
     (SELECT 1
-     FROM cohortpeople2
+     FROM cohortpeople
      WHERE team_id = 2
        AND cohort_id = 2
        AND version = -1
@@ -132,7 +132,7 @@
   SELECT count(*)
   FROM
     (SELECT 1
-     FROM cohortpeople2
+     FROM cohortpeople
      WHERE team_id = 2
        AND cohort_id = 2
        AND version = 0
@@ -182,7 +182,7 @@
   WHERE 1 = 1
     AND (pdi.person_id IN
            (SELECT person_id
-            FROM cohortpeople2
+            FROM cohortpeople
             WHERE team_id = 2
               AND version = 0
               AND cohort_id = 2

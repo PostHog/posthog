@@ -12,11 +12,9 @@ from ee.clickhouse.sql.cohort import (
     CALCULATE_COHORT_PEOPLE_SQL,
     GET_COHORT_SIZE_SQL,
     GET_COHORTS_BY_PERSON_UUID,
-    GET_COHORTS_BY_PERSON_UUID_VERSIONED,
     GET_DISTINCT_ID_BY_ENTITY_SQL,
     GET_PERSON_ID_BY_ENTITY_COUNT_SQL,
     GET_PERSON_ID_BY_PRECALCULATED_COHORT_ID,
-    GET_PERSON_ID_BY_PRECALCULATED_COHORT_ID_VERSIONED,
     GET_STATIC_COHORTPEOPLE_BY_PERSON_UUID,
     RECALCULATE_COHORT_BY_ID,
 )
@@ -66,17 +64,13 @@ def format_precalculated_cohort_query(
     cohort_id: int, index: int, prepend: str = "", custom_match_field="person_id"
 ) -> Tuple[str, Dict[str, Any]]:
     cohort = Cohort.objects.get(pk=cohort_id)
-    query = (
-        GET_PERSON_ID_BY_PRECALCULATED_COHORT_ID_VERSIONED
-        if cohort.use_new_relation_table
-        else GET_PERSON_ID_BY_PRECALCULATED_COHORT_ID
-    )
-    filter_query = query.format(index=index, prepend=prepend)
+
+    filter_query = GET_PERSON_ID_BY_PRECALCULATED_COHORT_ID.format(index=index, prepend=prepend)
     return (
         f"""
         {custom_match_field} IN ({filter_query})
         """,
-        {f"{prepend}_cohort_id_{index}": cohort.pk, "version": cohort.version},
+        {f"{prepend}_cohort_id_{index}": cohort.pk},
     )
 
 
@@ -293,7 +287,7 @@ def recalculate_cohortpeople(cohort: Cohort, pending_version: int) -> Optional[i
 
     cohort_filter, cohort_params = format_person_query(cohort, 0, custom_match_field="id")
 
-    before_count = get_cohort_size(cohort.pk, cohort.team_id, pending_version - 1)
+    before_count = get_cohort_size(cohort.pk, cohort.team_id)
 
     if before_count:
         logger.info(
@@ -317,7 +311,7 @@ def recalculate_cohortpeople(cohort: Cohort, pending_version: int) -> Optional[i
         {**cohort_params, "cohort_id": cohort.pk, "team_id": cohort.team_id, "new_version": pending_version,},
     )
 
-    count = get_cohort_size(cohort.pk, cohort.team_id, pending_version)
+    count = get_cohort_size(cohort.pk, cohort.team_id)
 
     if count is not None and before_count is not None:
         logger.info(
@@ -331,8 +325,8 @@ def recalculate_cohortpeople(cohort: Cohort, pending_version: int) -> Optional[i
     return count
 
 
-def get_cohort_size(cohort_id: int, team_id: int, version: int) -> Optional[int]:
-    count_result = sync_execute(GET_COHORT_SIZE_SQL, {"cohort_id": cohort_id, "team_id": team_id, "version": version})
+def get_cohort_size(cohort_id: int, team_id: int) -> Optional[int]:
+    count_result = sync_execute(GET_COHORT_SIZE_SQL, {"cohort_id": cohort_id, "team_id": team_id})
 
     if count_result and len(count_result) and len(count_result[0]):
         return count_result[0][0]
@@ -384,8 +378,7 @@ def simplified_cohort_filter_properties(cohort: Cohort, team: Team, is_negated=F
 
 def _get_cohort_ids_by_person_uuid(uuid: str, team_id: int) -> List[int]:
     res = sync_execute(GET_COHORTS_BY_PERSON_UUID, {"person_id": uuid, "team_id": team_id})
-    versioned_res = sync_execute(GET_COHORTS_BY_PERSON_UUID_VERSIONED, {"person_id": uuid, "team_id": team_id})
-    return list(set([row[0] for row in res] + [row[0] for row in versioned_res]))
+    return [row[0] for row in res]
 
 
 def _get_static_cohort_ids_by_person_uuid(uuid: str, team_id: int) -> List[int]:

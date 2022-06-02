@@ -65,11 +65,6 @@ class CollapsingMergeTree(MergeTreeEngine):
     REPLICATED_ENGINE = "ReplicatedCollapsingMergeTree('{zk_path}', '{replica_key}', {ver})"
 
 
-class VersionedCollapsingMergeTree(MergeTreeEngine):
-    ENGINE = "VersionedCollapsingMergeTree({sign}, {ver})"
-    REPLICATED_ENGINE = "ReplicatedVersionedCollapsingMergeTree('{zk_path}', '{replica_key}', {sign}, {ver})"
-
-
 class Distributed:
     def __init__(self, data_table: str, sharding_key: str):
         self.data_table = data_table
