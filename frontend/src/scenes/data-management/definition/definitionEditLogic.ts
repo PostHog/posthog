@@ -14,6 +14,8 @@ import {
 import type { definitionEditLogicType } from './definitionEditLogicType'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { userLogic } from 'scenes/userLogic'
+import { eventDefinitionsTableLogic } from 'scenes/data-management/events/eventDefinitionsTableLogic'
+import { eventPropertyDefinitionsTableLogic } from 'scenes/data-management/event-properties/eventPropertyDefinitionsTableLogic'
 
 export interface DefinitionEditLogicProps extends DefinitionLogicProps {
     definition: Definition
@@ -86,6 +88,12 @@ export const definitionEditLogic = kea<definitionEditLogicType>([
 
                     lemonToast.success(`${capitalizeFirstLetter(values.singular)} saved`)
                     eventDefinitionsModel.actions.loadEventDefinitions(true) // reload definitions so they are immediately available
+                    // Update table values
+                    if (values.isEvent) {
+                        eventDefinitionsTableLogic.actions.setLocalEventDefinition(definition)
+                    } else {
+                        eventPropertyDefinitionsTableLogic.actions.setLocalEventPropertyDefinition(definition)
+                    }
                     actions.setPageMode(DefinitionPageMode.View)
                     actions.setDefinition(definition)
                     return definition

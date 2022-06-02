@@ -5,6 +5,10 @@ import { initKeaTests } from '~/test/init'
 import { definitionEditLogic } from 'scenes/data-management/definition/definitionEditLogic'
 import { expectLogic } from 'kea-test-utils'
 import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
+import { eventDefinitionsTableLogic } from 'scenes/data-management/events/eventDefinitionsTableLogic'
+import { eventPropertyDefinitionsTableLogic } from 'scenes/data-management/event-properties/eventPropertyDefinitionsTableLogic'
+import { router } from 'kea-router'
+import { urls } from 'scenes/urls'
 
 describe('definitionEditLogic', () => {
     let logic: ReturnType<typeof definitionEditLogic.build>
@@ -31,16 +35,21 @@ describe('definitionEditLogic', () => {
         initKeaTests()
         await expectLogic(definitionLogic({ id: '1' })).toFinishAllListeners()
         eventDefinitionsModel.mount()
+        eventDefinitionsTableLogic.mount()
+        eventPropertyDefinitionsTableLogic.mount()
         logic = definitionEditLogic({ id: '1', definition: mockEventDefinitions[0] })
         logic.mount()
     })
 
     it('save definition', async () => {
+        router.actions.push(urls.eventDefinition('1'))
         await expectLogic(logic, () => {
-            logic.actions.saveDefinition({
-                ...mockEventDefinitions[0],
-                description: 'doesnt matter',
-            })
-        }).toDispatchActions(['saveDefinition', 'setPageMode', 'setDefinition', 'saveDefinitionSuccess'])
+            logic.actions.saveDefinition(mockEventDefinitions[0])
+        }).toDispatchActionsInAnyOrder([
+            'saveDefinition',
+            'setPageMode',
+            'setDefinition',
+            eventDefinitionsTableLogic.actionCreators.setLocalEventDefinition(mockEventDefinitions[0]),
+        ])
     })
 })
