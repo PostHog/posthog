@@ -7,7 +7,6 @@ from ee.clickhouse.models.property import (
     parse_prop_grouped_clauses,
 )
 from ee.clickhouse.queries.column_optimizer import EnterpriseColumnOptimizer
-from ee.clickhouse.queries.funnels.funnel_event_query import FunnelEventQuery
 from ee.clickhouse.queries.groups_join_query import GroupsJoinQuery
 from ee.clickhouse.sql.trends.top_elements import TOP_ELEMENTS_ARRAY_OF_KEY_SQL
 from posthog.client import sync_execute
@@ -92,6 +91,8 @@ def get_breakdown_prop_values(
     )
 
     if use_all_funnel_entities:
+        from ee.clickhouse.queries.funnels.funnel_event_query import FunnelEventQuery
+
         entity_filter, entity_params = FunnelEventQuery(
             filter, team, using_person_on_events=team.actor_on_events_querying_enabled,
         )._get_entity_query()
