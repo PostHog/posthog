@@ -83,7 +83,7 @@ export function HelpButton({
                                 hideHelp()
                             }}
                         >
-                            Ask a question
+                            Ask us a question
                         </LemonButton>
                     </a>
                     <a href="https://github.com/PostHog/posthog/issues/new/choose" rel="noopener" target="_blank">
