@@ -9,6 +9,7 @@ from django.utils import timezone
 
 from posthog.celery import app
 from posthog.email import EmailMessage, is_email_available
+from posthog.event_usage import report_first_ingestion_reminder_email_sent, report_second_ingestion_reminder_email_sent
 from posthog.models import Organization, OrganizationInvite, User
 from posthog.models.team import Team
 from posthog.utils import absolute_uri
@@ -148,6 +149,7 @@ def send_first_ingestion_reminder_emails() -> None:
 
                 message.add_recipient(user.email)
                 message.send()
+                report_first_ingestion_reminder_email_sent()
 
 
 @app.task(max_retries=1)
@@ -178,3 +180,4 @@ def send_second_ingestion_reminder_emails() -> None:
 
                 message.add_recipient(user.email)
                 message.send()
+                report_second_ingestion_reminder_email_sent()
