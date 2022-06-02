@@ -18,6 +18,7 @@ frontend/.cache/
 .mypy_cache
 frontend/dist/
 frontend/types/
+frontend/packages/apps-common/dist/
 *Type.ts
 frontend/yarn-error.log
 frontend/tmp
