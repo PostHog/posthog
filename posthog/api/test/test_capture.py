@@ -103,6 +103,47 @@ class TestCapture(BaseTest):
         )
 
     @patch("ee.kafka_client.client._KafkaProducer.produce")
+    def test_capture_event_ipv6(self, kafka_produce):
+        data = {"event": "some_event", "properties": {"distinct_id": 2, "token": self.team.api_token,}}
+
+        self.client.get(
+            "/e/?data=%s" % quote(self._to_json(data)),
+            HTTP_X_FORWARDED_FOR="2345:0425:2CA1:0000:0000:0567:5673:23b5",
+            HTTP_ORIGIN="https://localhost",
+        )
+        self.assertDictContainsSubset(
+            {
+                "distinct_id": "2",
+                "ip": "2345:0425:2CA1:0000:0000:0567:5673:23b5",
+                "site_url": "http://testserver",
+                "data": data,
+                "team_id": self.team.pk,
+            },
+            self._to_arguments(kafka_produce),
+        )
+
+    # Regression test as Azure Gateway forwards ipv4 ips with a port number
+    @patch("ee.kafka_client.client._KafkaProducer.produce")
+    def test_capture_event_ip_with_port(self, kafka_produce):
+        data = {"event": "some_event", "properties": {"distinct_id": 2, "token": self.team.api_token,}}
+
+        self.client.get(
+            "/e/?data=%s" % quote(self._to_json(data)),
+            HTTP_X_FORWARDED_FOR="1.2.3.4:5555",
+            HTTP_ORIGIN="https://localhost",
+        )
+        self.assertDictContainsSubset(
+            {
+                "distinct_id": "2",
+                "ip": "1.2.3.4",
+                "site_url": "http://testserver",
+                "data": data,
+                "team_id": self.team.pk,
+            },
+            self._to_arguments(kafka_produce),
+        )
+
+    @patch("ee.kafka_client.client._KafkaProducer.produce")
     def test_capture_event_ip_anonymize(self, kafka_produce):
         data = {"event": "some_event", "properties": {"distinct_id": 2, "token": self.team.api_token,}}
 
