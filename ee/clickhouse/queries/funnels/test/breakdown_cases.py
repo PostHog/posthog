@@ -1356,15 +1356,6 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                 ],
             )
 
-        # TODO: New test cases for attribution type
-        # Also consider:
-        # Person1 starts funnel with 3 different breakdowns
-        # And rest of events have no properties.
-        # Almost sounds like a partition by (aggregation_target, step_0) ?
-        # Nah, that implies other steps don't get it
-
-        # Also elsewhere: one test with person property filters on funnel step with person-on-events
-
         def test_funnel_step_breakdown_with_first_touch_attribution(self):
 
             filters = {
@@ -1854,8 +1845,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
             }
             people = journeys_for(events_by_person, self.team)
 
-            with self.settings(SHELL_PLUS_PRINT_SQL=False):
-                result = funnel.run()
+            result = funnel.run()
             result = sorted(result, key=lambda res: res[0]["breakdown"])
 
             self.assertEqual(len(result), 5)
@@ -1874,10 +1864,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                 ],
             )
 
-            # TODO: Breakdown array person search seems wonky
-            # even others aren't quite right, as they compare the array values, vs the arrays themselves
-            # with self.settings(SHELL_PLUS_PRINT_SQL=True):
-            #     self.assertCountEqual(self._get_actor_ids_at_step(filter, 1, [""]), [people["person5"].uuid])
+            self.assertCountEqual(self._get_actor_ids_at_step(filter, 1, ["", ""]), [people["person5"].uuid])
 
             assert_funnel_breakdown_result_is_correct(
                 result[1],
@@ -1942,6 +1929,133 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
 
             self.assertCountEqual(self._get_actor_ids_at_step(filter, 1, ["Safari", "xyz"]), [people["person2"].uuid])
 
+        def test_funnel_step_multiple_breakdown_with_first_touch_attribution_incomplete_funnel(self):
+
+            filters = {
+                "events": [{"id": "sign up", "order": 0}, {"id": "buy", "order": 1}],
+                "insight": INSIGHT_FUNNELS,
+                "date_from": "2020-01-01",
+                "date_to": "2020-01-08",
+                "funnel_window_days": 7,
+                "breakdown_type": "event",
+                "breakdown": ["$browser", "$version"],
+                "breakdown_attribution_type": "first_touch",
+            }
+
+            filter = Filter(data=filters)
+            funnel = Funnel(filter, self.team)
+
+            # event
+            events_by_person = {
+                "person1": [
+                    {
+                        "event": "sign up",
+                        "timestamp": datetime(2020, 1, 1, 12),
+                        "properties": {"$browser": "Chrome", "$version": "xyz"},
+                    },
+                    {"event": "buy", "timestamp": datetime(2020, 1, 1, 13)},
+                ],
+                "person2": [
+                    {"event": "sign up", "timestamp": datetime(2020, 1, 1, 13),},
+                    {
+                        "event": "buy",
+                        "timestamp": datetime(2020, 1, 2, 13),
+                        "properties": {"$browser": "Safari", "$version": "xyz"},
+                    },
+                ],
+                "person3": [
+                    {"event": "sign up", "timestamp": datetime(2020, 1, 2, 14), "properties": {"$browser": "Mac"}},
+                    # {"event": "buy", "timestamp": datetime(2020, 1, 2, 15), "properties": {"$version": "no-mac"}},
+                ],
+                "person4": [
+                    {
+                        "event": "sign up",
+                        "timestamp": datetime(2020, 1, 2, 15),
+                        "properties": {"$browser": 0, "$version": 0},
+                    },
+                    # {"event": "buy", "timestamp": datetime(2020, 1, 2, 16), "properties": {"$browser": "alakazam"}},
+                ],
+                # no properties dude, represented by ''
+                "person5": [
+                    {"event": "sign up", "timestamp": datetime(2020, 1, 2, 15),},
+                    {"event": "buy", "timestamp": datetime(2020, 1, 2, 16),},
+                ],
+            }
+            people = journeys_for(events_by_person, self.team)
+
+            result = funnel.run()
+            result = sorted(result, key=lambda res: res[0]["breakdown"])
+
+            self.assertEqual(len(result), 5)
+
+            assert_funnel_breakdown_result_is_correct(
+                result[0],
+                [
+                    FunnelStepResult(name="sign up", breakdown=["", ""], count=1),
+                    FunnelStepResult(
+                        name="buy",
+                        breakdown=["", ""],
+                        count=1,
+                        average_conversion_time=3600,
+                        median_conversion_time=3600,
+                    ),
+                ],
+            )
+
+            self.assertCountEqual(self._get_actor_ids_at_step(filter, 1, ["", ""]), [people["person5"].uuid])
+
+            assert_funnel_breakdown_result_is_correct(
+                result[1],
+                [
+                    FunnelStepResult(name="sign up", breakdown=["0", "0"], count=1),
+                    FunnelStepResult(name="buy", breakdown=["0", "0"], count=0,),
+                ],
+            )
+            self.assertCountEqual(self._get_actor_ids_at_step(filter, 1, ["0", "0"]), [people["person4"].uuid])
+
+            assert_funnel_breakdown_result_is_correct(
+                result[2],
+                [
+                    FunnelStepResult(name="sign up", count=1, breakdown=["Chrome", "xyz"]),
+                    FunnelStepResult(
+                        name="buy",
+                        breakdown=["Chrome", "xyz"],
+                        count=1,
+                        average_conversion_time=3600,
+                        median_conversion_time=3600,
+                    ),
+                ],
+            )
+
+            self.assertCountEqual(self._get_actor_ids_at_step(filter, 1, ["Chrome", "xyz"]), [people["person1"].uuid])
+
+            assert_funnel_breakdown_result_is_correct(
+                result[3],
+                [
+                    FunnelStepResult(name="sign up", count=1, breakdown=["Mac", ""]),
+                    FunnelStepResult(name="buy", breakdown=["Mac", ""], count=0,),
+                ],
+            )
+
+            self.assertCountEqual(self._get_actor_ids_at_step(filter, 1, ["Mac", ""]), [people["person3"].uuid])
+            self.assertCountEqual(self._get_actor_ids_at_step(filter, 2, ["Mac", ""]), [])
+
+            assert_funnel_breakdown_result_is_correct(
+                result[4],
+                [
+                    FunnelStepResult(name="sign up", count=1, breakdown=["Safari", "xyz"]),
+                    FunnelStepResult(
+                        name="buy",
+                        breakdown=["Safari", "xyz"],
+                        count=1,
+                        average_conversion_time=86400,
+                        median_conversion_time=86400,
+                    ),
+                ],
+            )
+
+            self.assertCountEqual(self._get_actor_ids_at_step(filter, 1, ["Safari", "xyz"]), [people["person2"].uuid])
+
         def test_funnel_step_breakdown_with_step_one_attribution_incomplete_funnel(self):
 
             filters = {
@@ -1985,7 +2099,6 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
             result = sorted(result, key=lambda res: res[0]["breakdown"])
 
             # Breakdown by step_1 means funnel items that never reach step_1 are NULLed out
-            # TODO: Confirm this is the behaviour we want
             self.assertEqual(len(result), 2)
             # Chrome and Mac and Safari goes away
 
@@ -2060,7 +2173,6 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
             result = sorted(result, key=lambda res: res[0]["breakdown"])
 
             # Breakdown by step_1 means funnel items that never reach step_1 are NULLed out
-            # TODO: Confirm this is the behaviour we want
             self.assertEqual(len(result), 2)
             # Chrome and Mac and Safari goes away
 

@@ -145,7 +145,7 @@ class BreakdownMixin(BaseParamMixin):
         if attribution_value is None and self.breakdown_attribution_type == BreakdownAttributionType.STEP:
             raise ValueError(f'Missing required parameter "{BREAKDOWN_ATTRIBUTION_VALUE}" for attribution type "step"')
 
-        return int(attribution_value)
+        return int(attribution_value) if attribution_value is not None else None
 
     @cached_property
     def breakdowns(self) -> Optional[List[Dict[str, Any]]]:
