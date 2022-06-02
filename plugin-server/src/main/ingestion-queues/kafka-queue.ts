@@ -200,6 +200,8 @@ export class KafkaQueue {
                 maxRetryTime: 200_000, // default: 30_000
                 retries: 20, // default: 5
             },
+            sessionTimeout: 200_000, // default: 30_000
+            rebalanceTimeout: 200_000, // default: 60_000
         })
         const { GROUP_JOIN, CRASH, CONNECT, DISCONNECT } = consumer.events
         consumer.on(GROUP_JOIN, ({ payload: { groupId } }) => {
