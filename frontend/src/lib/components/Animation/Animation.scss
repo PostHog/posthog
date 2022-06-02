@@ -1,7 +1,7 @@
 .Animation {
     width: 100%;
     max-width: 300px;
-    // A true aspect-ration will be passed in via a style prop
+    // A correct aspect-ratio is be passed via a style prop. This is as a fallback.
     aspect-ratio: 1 / 1;
     overflow: hidden;
     opacity: 1;
