@@ -840,19 +840,24 @@ export class DB {
 
         const values = [...updateValues, person.id]
 
+        // Potentially overriding values badly if there was an update to the person after computing updatValues above
         const queryString = `UPDATE posthog_person SET version = COALESCE(version, 0)::numeric + 1, ${Object.keys(
             update
         ).map((field, index) => `"${sanitizeSqlIdentifier(field)}" = $${index + 1}`)} WHERE id = $${
             Object.values(update).length + 1
         }
-        RETURNING version`
+        RETURNING *`
 
         const updateResult: QueryResult = await this.postgresQuery(queryString, values, 'updatePerson', client)
         if (updateResult.rows.length == 0) {
             throw new Error(`Person with team_id="${person.team_id}" and uuid="${person.uuid} couldn't be updated`)
         }
-        const updatedPersonVersion: Person['version'] = Number(updateResult.rows[0].version)
-        const updatedPerson: Person = { ...person, ...update, version: updatedPersonVersion }
+        const updatedPersonRaw = updateResult.rows[0] as RawPerson
+        const updatedPerson = {
+            ...updatedPersonRaw,
+            created_at: DateTime.fromISO(updatedPersonRaw.created_at).toUTC(),
+            version: Number(updatedPersonRaw.version || 0),
+        } as Person
 
         const kafkaMessages = []
         const message = generateKafkaPersonUpdateMessage(
@@ -861,7 +866,7 @@ export class DB {
             updatedPerson.team_id,
             updatedPerson.is_identified,
             updatedPerson.uuid,
-            updatedPersonVersion
+            updatedPerson.version
         )
         if (client) {
             kafkaMessages.push(message)
