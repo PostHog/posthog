@@ -2265,6 +2265,133 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
 
             self.assertEqual(len(result), 5)
 
+        @snapshot_clickhouse_queries
+        def test_funnel_breakdown_correct_breakdown_props_are_chosen(self):
+            # No person querying here, so snapshots are more legible
+
+            filters = {
+                "events": [
+                    {"id": "sign up", "order": 0},
+                    {"id": "buy", "properties": [{"type": "event", "key": "$version", "value": "xyz"}], "order": 1},
+                ],
+                "insight": INSIGHT_FUNNELS,
+                "date_from": "2020-01-01",
+                "date_to": "2020-01-08",
+                "funnel_window_days": 7,
+                "breakdown_type": "event",
+                "breakdown": "$browser",
+                "breakdown_attribution_type": "first_touch",
+            }
+
+            filter = Filter(data=filters)
+            funnel = Funnel(filter, self.team)
+
+            # event
+            events_by_person = {
+                "person1": [
+                    {
+                        "event": "sign up",
+                        "timestamp": datetime(2020, 1, 1, 12),
+                        "properties": {"$browser": "Chrome", "$version": "xyz"},
+                    },
+                    {"event": "buy", "timestamp": datetime(2020, 1, 1, 13), "properties": {"$browser": "Chrome"},},
+                    # discarded at step 1 because doesn't meet criteria
+                ],
+                "person2": [
+                    {"event": "sign up", "timestamp": datetime(2020, 1, 1, 13),},
+                    {
+                        "event": "buy",
+                        "timestamp": datetime(2020, 1, 2, 13),
+                        "properties": {"$browser": "Safari", "$version": "xyz"},
+                    },
+                ],
+                "person3": [
+                    {"event": "sign up", "timestamp": datetime(2020, 1, 2, 14), "properties": {"$browser": "Mac"}},
+                    {
+                        "event": "buy",
+                        "timestamp": datetime(2020, 1, 2, 15),
+                        "properties": {"$version": "xyz", "$browser": "Mac"},
+                    },
+                ],
+                # no properties dude, represented by '', who finished step 0
+                "person5": [
+                    {"event": "sign up", "timestamp": datetime(2020, 1, 2, 15),},
+                    {"event": "buy", "timestamp": datetime(2020, 1, 2, 16),},
+                ],
+            }
+            journeys_for(events_by_person, self.team)
+
+            result = funnel.run()
+            result = sorted(result, key=lambda res: res[0]["breakdown"])
+
+            self.assertEqual(len(result), 4)
+
+            self.assertCountEqual([res[0]["breakdown"] for res in result], [["Mac"], ["Chrome"], ["Safari"], [""]])
+
+        @snapshot_clickhouse_queries
+        def test_funnel_breakdown_correct_breakdown_props_are_chosen_for_step(self):
+            # No person querying here, so snapshots are more legible
+
+            filters = {
+                "events": [
+                    {"id": "sign up", "order": 0},
+                    {"id": "buy", "properties": [{"type": "event", "key": "$version", "value": "xyz"}], "order": 1},
+                ],
+                "insight": INSIGHT_FUNNELS,
+                "date_from": "2020-01-01",
+                "date_to": "2020-01-08",
+                "funnel_window_days": 7,
+                "breakdown_type": "event",
+                "breakdown": "$browser",
+                "breakdown_attribution_type": "step",
+                "breakdown_attribution_value": "1",
+            }
+
+            filter = Filter(data=filters)
+            funnel = Funnel(filter, self.team)
+
+            # event
+            events_by_person = {
+                "person1": [
+                    {
+                        "event": "sign up",
+                        "timestamp": datetime(2020, 1, 1, 12),
+                        "properties": {"$browser": "Chrome", "$version": "xyz"},
+                    },
+                    {"event": "buy", "timestamp": datetime(2020, 1, 1, 13), "properties": {"$browser": "Chrome"},},
+                    # discarded because doesn't meet criteria
+                ],
+                "person2": [
+                    {"event": "sign up", "timestamp": datetime(2020, 1, 1, 13),},
+                    {
+                        "event": "buy",
+                        "timestamp": datetime(2020, 1, 2, 13),
+                        "properties": {"$browser": "Safari", "$version": "xyz"},
+                    },
+                ],
+                "person3": [
+                    {"event": "sign up", "timestamp": datetime(2020, 1, 2, 14), "properties": {"$browser": "Mac"}},
+                    {
+                        "event": "buy",
+                        "timestamp": datetime(2020, 1, 2, 15),
+                        "properties": {"$version": "xyz", "$browser": "Mac"},
+                    },
+                ],
+                # no properties dude, doesn't make it to step 1, and since breakdown on step 1, is discarded completely
+                "person5": [
+                    {"event": "sign up", "timestamp": datetime(2020, 1, 2, 15),},
+                    {"event": "buy", "timestamp": datetime(2020, 1, 2, 16),},
+                ],
+            }
+            journeys_for(events_by_person, self.team)
+
+            result = funnel.run()
+            result = sorted(result, key=lambda res: res[0]["breakdown"])
+
+            self.assertEqual(len(result), 2)
+
+            self.assertCountEqual([res[0]["breakdown"] for res in result], [["Mac"], ["Safari"]])
+
     return TestFunnelBreakdown
 
 

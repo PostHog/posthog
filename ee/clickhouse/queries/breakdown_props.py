@@ -45,7 +45,12 @@ def get_breakdown_prop_values(
     column_optimizer = column_optimizer or EnterpriseColumnOptimizer(filter, team.id)
     parsed_date_from, parsed_date_to, date_params = parse_timestamps(filter=filter, team=team)
 
-    props_to_filter = filter.property_groups.combine_property_group(PropertyOperatorType.AND, entity.property_groups)
+    if use_all_funnel_entities:
+        props_to_filter = filter.property_groups.combine_property_group(
+            PropertyOperatorType.AND, entity.property_groups
+        )
+    else:
+        props_to_filter = filter.property_groups
 
     person_join_clauses = ""
     person_join_params: Dict = {}
@@ -60,7 +65,9 @@ def get_breakdown_prop_values(
         outer_properties = column_optimizer.property_optimizer.parse_property_groups(props_to_filter).outer
         person_id_joined_alias = "pdi.person_id"
 
-        person_query = PersonQuery(filter, team.pk, column_optimizer=column_optimizer, entity=entity)
+        person_query = PersonQuery(
+            filter, team.pk, column_optimizer=column_optimizer, entity=entity if not use_all_funnel_entities else None
+        )
         if person_query.is_used:
             person_subquery, person_join_params = person_query.get_query()
             person_join_clauses = f"""

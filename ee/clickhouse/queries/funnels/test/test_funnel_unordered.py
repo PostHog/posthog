@@ -157,6 +157,7 @@ class TestFunnelUnorderedStepsBreakdown(ClickhouseTestMixin, funnel_breakdown_te
             "breakdown": ["$browser"],
             "breakdown_attribution_type": "step",
             "breakdown_attribution_value": "0",
+            "funnel_order_type": "unordered",
         }
 
         filter = Filter(data=filters)
@@ -189,28 +190,6 @@ class TestFunnelUnorderedStepsBreakdown(ClickhouseTestMixin, funnel_breakdown_te
 
         self.assertEqual(len(result), 6)
 
-        # assert_funnel_breakdown_result_is_correct(
-        #     result[0], [FunnelStepResult(name="sign up", breakdown=[""], count=1), FunnelStepResult(name="buy", breakdown=[""], count=1, average_conversion_time=86400, median_conversion_time=86400)]
-        # )
-
-        # self.assertCountEqual(self._get_actor_ids_at_step(filter, 1, ""), [people["person2"].uuid])
-
-        # assert_funnel_breakdown_result_is_correct(
-        #     result[1], [FunnelStepResult(name="sign up", breakdown=["0"], count=1), FunnelStepResult(name="buy", breakdown=["0"], count=1, average_conversion_time=3600, median_conversion_time=3600)]
-        # )
-
-        # self.assertCountEqual(self._get_actor_ids_at_step(filter, 1, "0"), [people["person4"].uuid])
-
-        # assert_funnel_breakdown_result_is_correct(
-        #     result[2], [FunnelStepResult(name="sign up", count=1, breakdown=["Chrome"]),FunnelStepResult(name="buy", breakdown=["Chrome"], count=1, average_conversion_time=3600, median_conversion_time=3600)]
-        # )
-
-        # self.assertCountEqual(self._get_actor_ids_at_step(filter, 1, "Chrome"), [people["person1"].uuid])
-
-        # assert_funnel_breakdown_result_is_correct(
-        #     result[3], [FunnelStepResult(name="sign up", count=1, breakdown=["Mac"]),FunnelStepResult(name="buy", breakdown=["Mac"], count=1, average_conversion_time=3600, median_conversion_time=3600)]
-        # )
-
         self.assertCountEqual(self._get_actor_ids_at_step(filter, 1, "Mac"), [people["person3"].uuid])
 
     def test_funnel_step_breakdown_with_step_one_attribution(self):
@@ -225,6 +204,7 @@ class TestFunnelUnorderedStepsBreakdown(ClickhouseTestMixin, funnel_breakdown_te
             "breakdown": ["$browser"],
             "breakdown_attribution_type": "step",
             "breakdown_attribution_value": "1",
+            "funnel_order_type": "unordered",
         }
 
         filter = Filter(data=filters)
@@ -286,18 +266,6 @@ class TestFunnelUnorderedStepsBreakdown(ClickhouseTestMixin, funnel_breakdown_te
 
         self.assertCountEqual(self._get_actor_ids_at_step(filter, 1, "0"), [people["person4"].uuid])
 
-        # assert_funnel_breakdown_result_is_correct(
-        #     result[3], [FunnelStepResult(name="sign up", count=1, breakdown=["Safari"]),FunnelStepResult(name="buy", breakdown=["Safari"], count=1, average_conversion_time=86400, median_conversion_time=86400)]
-        # )
-
-        # self.assertCountEqual(self._get_actor_ids_at_step(filter, 1, "Safari"), [people["person2"].uuid])
-
-        # assert_funnel_breakdown_result_is_correct(
-        #     result[4], [FunnelStepResult(name="sign up", breakdown=["alakazam"], count=1), FunnelStepResult(name="buy", breakdown=["alakazam"], count=1, average_conversion_time=3600, median_conversion_time=3600)]
-        # )
-
-        # self.assertCountEqual(self._get_actor_ids_at_step(filter, 1, "alakazam"), [people["person4"].uuid])
-
     def test_funnel_step_breakdown_with_step_one_attribution_incomplete_funnel(self):
         # overridden from factory, since with no order, step one is step zero, and vice versa
 
@@ -311,6 +279,7 @@ class TestFunnelUnorderedStepsBreakdown(ClickhouseTestMixin, funnel_breakdown_te
             "breakdown": ["$browser"],
             "breakdown_attribution_type": "step",
             "breakdown_attribution_value": "1",
+            "funnel_order_type": "unordered",
         }
 
         filter = Filter(data=filters)
@@ -342,7 +311,6 @@ class TestFunnelUnorderedStepsBreakdown(ClickhouseTestMixin, funnel_breakdown_te
         result = sorted(result, key=lambda res: res[0]["breakdown"])
 
         # Breakdown by step_1 means funnel items that never reach step_1 are NULLed out
-        # TODO: Confirm this is the behaviour we want
         self.assertEqual(len(result), 4)
         # Chrome and Mac and Safari goes away
 
@@ -407,6 +375,7 @@ class TestFunnelUnorderedStepsBreakdown(ClickhouseTestMixin, funnel_breakdown_te
             "breakdown": "$browser",
             "breakdown_attribution_type": "step",
             "breakdown_attribution_value": "1",
+            "funnel_order_type": "unordered",
         }
 
         filter = Filter(data=filters)
@@ -438,7 +407,6 @@ class TestFunnelUnorderedStepsBreakdown(ClickhouseTestMixin, funnel_breakdown_te
         result = sorted(result, key=lambda res: res[0]["breakdown"])
 
         # Breakdown by step_1 means funnel items that never reach step_1 are NULLed out
-        # TODO: Confirm this is the behaviour we want
         self.assertEqual(len(result), 4)
         # Chrome and Mac and Safari goes away
 

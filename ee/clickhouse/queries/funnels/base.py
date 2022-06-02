@@ -23,6 +23,7 @@ from posthog.constants import (
     OFFSET,
     TREND_FILTER_TYPE_ACTIONS,
     BreakdownAttributionType,
+    FunnelOrderType,
 )
 from posthog.models import Entity, Filter, Team
 from posthog.models.action.util import format_action_filter
@@ -424,45 +425,42 @@ class ClickhouseFunnelBase(ABC):
             extra_fields=parsed_extra_fields,
         )
 
-        if self._filter.breakdown:
+        if self._filter.breakdown and self._filter.breakdown_attribution_type != BreakdownAttributionType.ALL_EVENTS:
+            # ALL_EVENTS attribution is the old default, which doesn't need the subquery
             return self._add_breakdown_attribution_subquery(inner_query)
 
         return inner_query
 
     def _add_breakdown_attribution_subquery(self, inner_query: str) -> str:
-        if self._filter.breakdown and self._filter.breakdown_attribution_type != BreakdownAttributionType.ALL_EVENTS:
-            if self._filter.breakdown_attribution_type in [
-                BreakdownAttributionType.FIRST_TOUCH,
-                BreakdownAttributionType.LAST_TOUCH,
-            ]:
-                # When breaking down by first/last touch, each person can only have one prop value
-                # so just select that. Except for the empty case, where select the default
+        if self._filter.breakdown_attribution_type in [
+            BreakdownAttributionType.FIRST_TOUCH,
+            BreakdownAttributionType.LAST_TOUCH,
+        ]:
+            # When breaking down by first/last touch, each person can only have one prop value
+            # so just select that. Except for the empty case, where select the default
 
-                if self._query_has_array_breakdown():
-                    default_breakdown_value = f"""[{','.join(["''" for _ in range(len(self._filter.breakdown))])}]"""
-                    # default is [''] when dealing with a single breakdown array, otherwise ['', '', ...., '']
-                    breakdown_selelector = (
-                        f"if(notEmpty(arrayFilter(x -> notEmpty(x), prop_vals)), prop_vals, {default_breakdown_value})"
-                    )
-                else:
-                    breakdown_selelector = "prop_vals"
+            if self._query_has_array_breakdown():
+                default_breakdown_value = f"""[{','.join(["''" for _ in range(len(self._filter.breakdown or []))])}]"""
+                # default is [''] when dealing with a single breakdown array, otherwise ['', '', ...., '']
+                breakdown_selelector = (
+                    f"if(notEmpty(arrayFilter(x -> notEmpty(x), prop_vals)), prop_vals, {default_breakdown_value})"
+                )
+            else:
+                breakdown_selelector = "prop_vals"
 
-                return f"""
-                    SELECT *, {breakdown_selelector} as prop
-                    FROM ({inner_query})
-                """
-
-            # When breaking down by specific step, each person can have multiple prop values
-            # so array join those to each event
             return f"""
-                SELECT *, prop
+                SELECT *, {breakdown_selelector} as prop
                 FROM ({inner_query})
-                ARRAY JOIN prop_vals as prop
-                {"WHERE prop != []" if self._query_has_array_breakdown() else ''}
             """
 
-        # ALL_EVENTS attribution is the old default, where every event needs to have its own prop value
-        return inner_query
+        # When breaking down by specific step, each person can have multiple prop values
+        # so array join those to each event
+        return f"""
+            SELECT *, prop
+            FROM ({inner_query})
+            ARRAY JOIN prop_vals as prop
+            {"WHERE prop != []" if self._query_has_array_breakdown() else ''}
+        """
 
     def _get_steps_conditions(self, length: int) -> str:
         step_conditions: List[str] = []
@@ -557,7 +555,7 @@ class ClickhouseFunnelBase(ABC):
                 breakdown_prop_value = str(breakdown_prop_value)
 
             self.params.update({"breakdown_prop_value": breakdown_prop_value})
-            conditions.append("prop = %(breakdown_prop_value)s")
+            conditions.append("arrayFlatten(array(prop)) = arrayFlatten(array(%(breakdown_prop_value)s))")
 
         return " AND ".join(conditions)
 
@@ -762,17 +760,18 @@ class ClickhouseFunnelBase(ABC):
         """
         For people, pagination sets the offset param, which is common across filters
         and gives us the wrong breakdown values here, so we override it.
-        For events, we assume breakdown values remain stable across the funnel,
-        so using just the first entity to get breakdown values is ok.
+        For events, depending on the attribution type, we either look at only one entity,
+        or all of them in the funnel.
         if this is a multi property breakdown then the breakdown values are misleading
         e.g. [Chrome, Safari], [95, 15] doesn't make clear that Chrome 15 isn't valid but Safari 15 is
         so the generated list here must be [[Chrome, 95], [Safari, 15]]
         """
         if self._filter.breakdown:
-            use_all_funnel_entities = self._filter.breakdown_attribution_type in [
-                BreakdownAttributionType.FIRST_TOUCH,
-                BreakdownAttributionType.LAST_TOUCH,
-            ]
+            use_all_funnel_entities = (
+                self._filter.breakdown_attribution_type
+                in [BreakdownAttributionType.FIRST_TOUCH, BreakdownAttributionType.LAST_TOUCH,]
+                or self._filter.funnel_order_type == FunnelOrderType.UNORDERED
+            )
             first_entity = self._filter.entities[0]
 
             target_entity = first_entity
