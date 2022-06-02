@@ -161,6 +161,7 @@
         "babel-jest": "^27.0.6",
         "babel-loader": "^8.0.6",
         "babel-plugin-import": "^1.13.0",
+        "canvas": "^2.9.1",
         "concurrently": "^5.3.0",
         "cors": "^2.8.5",
         "css-loader": "^3.4.2",
