@@ -4,23 +4,88 @@ import {
     __dirname,
     copyPublicFolder,
     isDev,
-    startServer,
+    startDevServer,
     createHashlessEntrypoints,
     buildInParallel,
     copyIndexHtml,
 } from './utils.mjs'
 import fse from 'fs-extra'
 
-let server
-function startDevServer() {
-    if (isDev) {
-        console.log(`👀 Starting dev server`)
-        return startServer()
-    } else {
-        console.log(`🛳 Starting production build`)
-        return null
+startDevServer()
+copyPublicFolder()
+writeSourceCodeEditorTypes()
+writeIndexHtml()
+writeSharedDashboardHtml()
+
+buildInParallel(
+    [
+        {
+            name: 'PostHog App',
+            entryPoints: ['src/index.tsx'],
+            bundle: true,
+            splitting: true,
+            format: 'esm',
+            outdir: path.resolve(__dirname, 'dist'),
+        },
+        {
+            name: 'Shared Dashboard',
+            entryPoints: ['src/scenes/dashboard/SharedDashboard.tsx'],
+            bundle: true,
+            format: 'iife',
+            outfile: path.resolve(__dirname, 'dist', 'shared_dashboard.js'),
+        },
+        {
+            name: 'Exporter',
+            entryPoints: ['src/exporter/ExportViewer.tsx'],
+            bundle: true,
+            format: 'iife',
+            outfile: path.resolve(__dirname, 'dist', 'exporter.js'),
+        },
+        {
+            name: 'Toolbar',
+            entryPoints: ['src/toolbar/index.tsx'],
+            bundle: true,
+            format: 'iife',
+            outfile: path.resolve(__dirname, 'dist', 'toolbar.js'),
+        },
+        {
+            name: 'Apps Common',
+            entryPoints: ['packages/apps-common/index.ts'],
+            bundle: true,
+            format: 'cjs',
+            outfile: path.resolve(__dirname, 'packages', 'apps-common', 'dist', 'index.js'),
+            chunkNames: '[name]',
+            entryNames: '[dir]/[name]',
+            external: ['react', 'react-dom'],
+            publicPath: '',
+        },
+    ],
+    {
+        onBuildComplete(config, buildResponse) {
+            const { chunks, entrypoints } = buildResponse
+
+            if (config.name === 'PostHog App') {
+                if (Object.keys(chunks).length === 0) {
+                    throw new Error('Could not get chunk metadata for bundle "PostHog App."')
+                }
+                if (!isDev && Object.keys(entrypoints).length === 0) {
+                    throw new Error('Could not get entrypoint for bundle "PostHog App."')
+                }
+                writeIndexHtml(chunks, entrypoints)
+            }
+
+            if (config.name === 'Shared Dashboard') {
+                writeSharedDashboardHtml(chunks, entrypoints)
+            }
+
+            if (config.name === 'Exporter') {
+                writeExporterHtml(chunks, entrypoints)
+            }
+
+            createHashlessEntrypoints(entrypoints)
+        },
     }
-}
+)
 
 export function writeSourceCodeEditorTypes() {
     const readFile = (p) => {
@@ -57,91 +122,3 @@ export function writeSharedDashboardHtml(chunks = {}, entrypoints = []) {
 export function writeExporterHtml(chunks = {}, entrypoints = []) {
     copyIndexHtml('src/exporter.html', 'dist/exporter.html', 'exporter', chunks, entrypoints)
 }
-
-startDevServer()
-copyPublicFolder()
-writeSourceCodeEditorTypes()
-writeIndexHtml()
-writeSharedDashboardHtml()
-
-let buildsInProgress = 0
-buildInParallel(
-    [
-        {
-            name: 'PostHog App',
-            entryPoints: ['src/index.tsx'],
-            bundle: true,
-            splitting: true,
-            format: 'esm',
-            outdir: path.resolve(__dirname, 'dist'),
-        },
-        {
-            name: 'Shared Dashboard',
-            entryPoints: ['src/scenes/dashboard/SharedDashboard.tsx'],
-            bundle: true,
-            format: 'iife',
-            outfile: path.resolve(__dirname, 'dist', 'shared_dashboard.js'),
-        },
-        {
-            name: 'Exporter',
-            entryPoints: ['src/exporter/ExportViewer.tsx'],
-            bundle: true,
-            format: 'iife',
-            outfile: path.resolve(__dirname, 'dist', 'exporter.js'),
-        },
-        {
-            name: 'Toolbar',
-            entryPoints: ['src/toolbar/index.tsx'],
-            bundle: true,
-            format: 'iife',
-            outfile: path.resolve(__dirname, 'dist', 'toolbar.js'),
-        },
-        {
-            name: 'Apps Common',
-            entryPoints: ['packages/apps-common/index.ts'],
-            bundle: true,
-            format: 'iife',
-            outfile: path.resolve(__dirname, 'packages', 'apps-common', 'dist', 'index.js'),
-            chunkNames: '[name]',
-            entryNames: '[dir]/[name]',
-            external: ['react', 'react-dom'],
-            minify: true,
-        },
-    ],
-    {
-        onBuildStart: () => {
-            if (buildsInProgress === 0) {
-                server?.pauseServer()
-            }
-            buildsInProgress++
-        },
-        onBuildComplete(config, buildResponse) {
-            const { chunks, entrypoints } = buildResponse
-
-            if (config.name === 'PostHog App') {
-                if (Object.keys(chunks).length === 0) {
-                    throw new Error('Could not get chunk metadata for bundle "PostHog App."')
-                }
-                if (!isDev && Object.keys(entrypoints).length === 0) {
-                    throw new Error('Could not get entrypoint for bundle "PostHog App."')
-                }
-                writeIndexHtml(chunks, entrypoints)
-            }
-
-            if (config.name === 'Shared Dashboard') {
-                writeSharedDashboardHtml(chunks, entrypoints)
-            }
-
-            if (config.name === 'Exporter') {
-                writeExporterHtml(chunks, entrypoints)
-            }
-
-            createHashlessEntrypoints(entrypoints)
-
-            buildsInProgress--
-            if (buildsInProgress === 0) {
-                server?.resumeServer()
-            }
-        },
-    }
-)

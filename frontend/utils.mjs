@@ -211,6 +211,8 @@ function getBuiltEntryPoints(config, result) {
     return builtFiles
 }
 
+let buildsInProgress = 0
+
 export async function buildOrWatch(config) {
     const { name, onBuildStart, onBuildComplete, ..._config } = config
 
@@ -229,12 +231,20 @@ export async function buildOrWatch(config) {
             return
         }
         buildAgain = false
+        if (buildsInProgress === 0) {
+            server?.pauseServer()
+        }
+        buildsInProgress++
         onBuildStart?.(config)
         reloadLiveServer()
         buildPromise = runBuild()
         const buildResponse = await buildPromise
         buildPromise = null
         onBuildComplete?.(config, buildResponse)
+        buildsInProgress--
+        if (buildsInProgress === 0) {
+            server?.resumeServer()
+        }
         if (isDev && buildAgain) {
             void debouncedBuild()
         }
@@ -294,6 +304,18 @@ let clients = new Set()
 
 function reloadLiveServer() {
     clients.forEach((client) => client.write(`data: reload\n\n`))
+}
+
+let server
+export function startDevServer() {
+    if (isDev) {
+        console.log(`👀 Starting dev server`)
+        server = startServer()
+        return server
+    } else {
+        console.log(`🛳 Starting production build`)
+        return null
+    }
 }
 
 export function startServer(opts = {}) {
