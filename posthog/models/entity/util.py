@@ -14,6 +14,7 @@ def get_entity_filtering_params(
     person_properties_mode: PersonPropertiesMode = PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
     person_id_joined_alias: str = "person_id",
 ) -> Tuple[Dict, Dict]:
+
     params: Dict[str, Any] = {}
     content_sql_params: Dict[str, str]
     if entity.type == TREND_FILTER_TYPE_ACTIONS:

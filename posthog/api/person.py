@@ -27,7 +27,6 @@ from rest_framework_csv import renderers as csvrenderers
 from statshog.defaults.django import statsd
 
 from ee.clickhouse.models.cohort import get_all_cohort_ids_by_person_uuid
-from ee.clickhouse.models.person import delete_person
 from ee.clickhouse.queries.funnels import ClickhouseFunnelActors, ClickhouseFunnelTrendsActors
 from ee.clickhouse.queries.funnels.base import ClickhouseFunnelBase
 from ee.clickhouse.queries.funnels.funnel_correlation_persons import FunnelCorrelationActors
@@ -67,6 +66,7 @@ from posthog.models.activity_logging.serializers import ActivityLogSerializer
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
+from posthog.models.person.util import delete_person
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.queries.util import get_earliest_timestamp
 from posthog.tasks.split_person import split_person
