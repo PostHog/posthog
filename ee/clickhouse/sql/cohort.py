@@ -13,7 +13,7 @@ CREATE TABLE IF NOT EXISTS cohortpeople ON CLUSTER '{cluster}'
     person_id UUID,
     cohort_id Int64,
     team_id Int64,
-    sign Int8
+    sign Int8,
     version UInt64
 ) ENGINE = {engine}
 Order By (team_id, cohort_id, person_id, version)
@@ -46,7 +46,7 @@ AND id IN ({cohort_filter})
 UNION ALL
 SELECT person_id, cohort_id, team_id, -1, version
 FROM cohortpeople
-WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s AND version <= %(new_version)s AND sign = 1
+WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s AND version < %(new_version)s AND sign = 1
 """
 
 GET_DISTINCT_ID_BY_ENTITY_SQL = """
@@ -62,14 +62,14 @@ GROUP BY person_id {count_condition}
 """
 
 GET_PERSON_ID_BY_PRECALCULATED_COHORT_ID = """
-SELECT person_id FROM cohortpeople WHERE team_id = %(team_id)s AND cohort_id = %({prepend}_cohort_id_{index})s GROUP BY person_id, cohort_id, team_id HAVING sum(sign) > 0
+SELECT person_id FROM cohortpeople WHERE team_id = %(team_id)s AND cohort_id = %({prepend}_cohort_id_{index})s GROUP BY person_id, cohort_id, team_id, version HAVING sum(sign) > 0
 """
 
 GET_COHORTS_BY_PERSON_UUID = """
 SELECT cohort_id
 FROM cohortpeople
 WHERE team_id = %(team_id)s AND person_id = %(person_id)s
-GROUP BY person_id, cohort_id, team_id
+GROUP BY person_id, cohort_id, team_id, version
 HAVING sum(sign) > 0
 """
 
@@ -83,7 +83,7 @@ GET_COHORTPEOPLE_BY_COHORT_ID = """
 SELECT person_id
 FROM cohortpeople
 WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s
-GROUP BY person_id, cohort_id, team_id
+GROUP BY person_id, cohort_id, team_id, version
 HAVING sum(sign) > 0
 ORDER BY person_id
 """
