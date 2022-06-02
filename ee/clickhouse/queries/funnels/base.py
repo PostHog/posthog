@@ -424,6 +424,12 @@ class ClickhouseFunnelBase(ABC):
             extra_fields=parsed_extra_fields,
         )
 
+        if self._filter.breakdown:
+            return self._add_breakdown_attribution_subquery(inner_query)
+
+        return inner_query
+
+    def _add_breakdown_attribution_subquery(self, inner_query: str) -> str:
         if self._filter.breakdown and self._filter.breakdown_attribution_type != BreakdownAttributionType.ALL_EVENTS:
             if self._filter.breakdown_attribution_type in [
                 BreakdownAttributionType.FIRST_TOUCH,
@@ -763,15 +769,26 @@ class ClickhouseFunnelBase(ABC):
         so the generated list here must be [[Chrome, 95], [Safari, 15]]
         """
         if self._filter.breakdown:
+            use_all_funnel_entities = self._filter.breakdown_attribution_type in [
+                BreakdownAttributionType.FIRST_TOUCH,
+                BreakdownAttributionType.LAST_TOUCH,
+            ]
             first_entity = self._filter.entities[0]
+
+            target_entity = first_entity
+            if (
+                self._filter.breakdown_attribution_value is not None
+                and self._filter.breakdown_attribution_type == BreakdownAttributionType.STEP
+            ):
+                target_entity = self._filter.entities[self._filter.breakdown_attribution_value]
 
             return get_breakdown_prop_values(
                 self._filter,
-                first_entity,
+                target_entity,
                 "count(*)",
                 self._team,
                 extra_params={"offset": 0},
-                use_all_funnel_entities=True,
+                use_all_funnel_entities=use_all_funnel_entities,
             )
 
         return None
