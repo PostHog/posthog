@@ -1,6 +1,6 @@
 import { Command, commandPaletteLogic } from 'lib/components/CommandPalette/commandPaletteLogic'
 import { kea } from 'kea'
-import { insightCommandLogicType } from './insightCommandLogicType'
+import type { insightCommandLogicType } from './insightCommandLogicType'
 import { compareFilterLogic } from 'lib/components/CompareFilter/compareFilterLogic'
 import { RiseOutlined } from '@ant-design/icons'
 import { dateMapping } from 'lib/utils'

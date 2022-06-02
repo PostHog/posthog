@@ -1,11 +1,17 @@
 import uuid
+from datetime import datetime
+from typing import List
 
+import posthoganalytics
 import structlog
 from django.conf import settings
+from django.utils import timezone
 
 from posthog.celery import app
-from posthog.email import EmailMessage
+from posthog.email import EmailMessage, is_email_available
 from posthog.models import Organization, OrganizationInvite, User
+from posthog.models.team import Team
+from posthog.utils import absolute_uri
 
 logger = structlog.get_logger(__name__)
 
@@ -27,7 +33,10 @@ def send_invite(invite_id: str) -> None:
         campaign_key=campaign_key,
         subject=f"{invite.created_by.first_name} invited you to join {invite.organization.name} on PostHog",
         template_name="invite",
-        template_context={"invite": invite},
+        template_context={
+            "invite": invite,
+            "expiry_date": (timezone.now() + timezone.timedelta(days=3)).strftime("%b %d %Y"),
+        },
         reply_to=invite.created_by.email if invite.created_by and invite.created_by.email else "",
     )
     message.add_recipient(email=invite.target_email)
@@ -91,3 +100,81 @@ def send_async_migration_errored_email(migration_key: str, time: str, error: str
     )
 
     send_message_to_all_staff_users(message)
+
+
+def get_users_for_orgs_with_no_ingested_events(org_created_from: datetime, org_created_to: datetime) -> List[User]:
+    # Get all users for organization that haven't ingested any events
+    users = []
+    recently_created_organizations = Organization.objects.filter(
+        created_at__gte=org_created_from, created_at__lte=org_created_to,
+    )
+
+    for organization in recently_created_organizations:
+        orgs_teams = Team.objects.filter(organization=organization)
+        have_ingested = orgs_teams.filter(ingested_event=True).exists()
+        if not have_ingested:
+            users.extend(organization.members.all())
+    return users
+
+
+@app.task(max_retries=1)
+def send_first_ingestion_reminder_emails() -> None:
+    if is_email_available():
+        one_day_ago = timezone.now() - timezone.timedelta(days=1)
+        two_days_ago = timezone.now() - timezone.timedelta(days=2)
+        users_to_email = get_users_for_orgs_with_no_ingested_events(
+            org_created_from=two_days_ago, org_created_to=one_day_ago
+        )
+
+        campaign_key = "first_ingestion_reminder"
+
+        for user in users_to_email:
+            if posthoganalytics.feature_enabled("re-engagement-emails", user.distinct_id):
+                message = EmailMessage(
+                    campaign_key=campaign_key,
+                    subject="Get started: How to send events to PostHog",
+                    reply_to="hey@posthog.com",
+                    template_name="first_ingestion_reminder",
+                    template_context={
+                        "first_name": user.first_name,
+                        "invite_users_url": absolute_uri(
+                            "/organization/settings?utm_source=posthog&utm_medium=email&utm_campaign=first_ingestion_reminder"
+                        ),
+                        "ingest_events_url": absolute_uri(
+                            "ingestion/?utm_source=posthog&utm_medium=email&utm_campaign=first_ingestion_reminder"
+                        ),
+                    },
+                )
+
+                message.add_recipient(user.email)
+                message.send()
+
+
+@app.task(max_retries=1)
+def send_second_ingestion_reminder_emails() -> None:
+    if is_email_available():
+        four_days_ago = timezone.now() - timezone.timedelta(days=4)
+        five_days_ago = timezone.now() - timezone.timedelta(days=5)
+        users_to_email = get_users_for_orgs_with_no_ingested_events(
+            org_created_from=five_days_ago, org_created_to=four_days_ago
+        )
+
+        campaign_key = "second_ingestion_reminder"
+
+        for user in users_to_email:
+            if posthoganalytics.feature_enabled("re-engagement-emails", user.distinct_id):
+                message = EmailMessage(
+                    campaign_key=campaign_key,
+                    subject="Your PostHog project is waiting for events",
+                    reply_to="hey@posthog.com",
+                    template_name="second_ingestion_reminder",
+                    template_context={
+                        "first_name": user.first_name,
+                        "ingest_events_url": absolute_uri(
+                            "ingestion/?utm_source=posthog&utm_medium=email&utm_campaign=second_ingestion_reminder"
+                        ),
+                    },
+                )
+
+                message.add_recipient(user.email)
+                message.send()

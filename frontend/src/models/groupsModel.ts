@@ -2,7 +2,7 @@ import { kea } from 'kea'
 import api from 'lib/api'
 import { GroupType } from '~/types'
 import { teamLogic } from 'scenes/teamLogic'
-import { groupsModelType } from './groupsModelType'
+import type { groupsModelType } from './groupsModelType'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { groupsAccessLogic, GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
 
