@@ -1559,7 +1559,7 @@
               prop
      HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
   WHERE steps IN [1, 2, 3]
-    AND hasAll(arrayFlatten(array(prop)), arrayFlatten(array('finance')))
+    AND arrayFlatten(array(prop)) = arrayFlatten(array('finance'))
   ORDER BY aggregation_target
   LIMIT 100
   OFFSET 0 SETTINGS allow_experimental_window_functions = 1
@@ -1709,7 +1709,7 @@
               prop
      HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
   WHERE steps IN [2, 3]
-    AND hasAll(arrayFlatten(array(prop)), arrayFlatten(array('finance')))
+    AND arrayFlatten(array(prop)) = arrayFlatten(array('finance'))
   ORDER BY aggregation_target
   LIMIT 100
   OFFSET 0 SETTINGS allow_experimental_window_functions = 1
@@ -1859,7 +1859,7 @@
               prop
      HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
   WHERE steps IN [1, 2, 3]
-    AND hasAll(arrayFlatten(array(prop)), arrayFlatten(array('technology')))
+    AND arrayFlatten(array(prop)) = arrayFlatten(array('technology'))
   ORDER BY aggregation_target
   LIMIT 100
   OFFSET 0 SETTINGS allow_experimental_window_functions = 1
@@ -2009,7 +2009,7 @@
               prop
      HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
   WHERE steps IN [2, 3]
-    AND hasAll(arrayFlatten(array(prop)), arrayFlatten(array('technology')))
+    AND arrayFlatten(array(prop)) = arrayFlatten(array('technology'))
   ORDER BY aggregation_target
   LIMIT 100
   OFFSET 0 SETTINGS allow_experimental_window_functions = 1
