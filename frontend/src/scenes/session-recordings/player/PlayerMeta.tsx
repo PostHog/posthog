@@ -6,8 +6,8 @@ import { ProfilePicture } from 'lib/components/ProfilePicture'
 import { useValues } from 'kea'
 import { PersonHeader } from 'scenes/persons/PersonHeader'
 import { metaLogic } from 'scenes/session-recordings/player/metaLogic'
-import { formatDisplayPercentage } from 'scenes/funnels/funnelUtils'
 import { TZLabel } from 'lib/components/TimezoneAware'
+import { percentage } from 'lib/utils'
 
 export function PlayerMeta(): JSX.Element {
     const { sessionPerson, description, resolution, scale, recordingStartTime, loading } = useValues(metaLogic)
@@ -56,8 +56,7 @@ export function PlayerMeta(): JSX.Element {
                         <span>
                             {resolution ? (
                                 <>
-                                    Resolution: {resolution.width} x {resolution.height} (
-                                    {formatDisplayPercentage(scale)}%)
+                                    Resolution: {resolution.width} x {resolution.height} ({percentage(scale, 1, true)})
                                 </>
                             ) : (
                                 <>Resolution: ...</>

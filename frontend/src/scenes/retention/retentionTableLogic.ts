@@ -15,7 +15,7 @@ import {
 import { actionsModel } from '~/models/actionsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { ActionType, FilterType, InsightLogicProps, InsightType } from '~/types'
-import { retentionTableLogicType } from './retentionTableLogicType'
+import type { retentionTableLogicType } from './retentionTableLogicType'
 
 export const dateOptions = ['Hour', 'Day', 'Week', 'Month']
 

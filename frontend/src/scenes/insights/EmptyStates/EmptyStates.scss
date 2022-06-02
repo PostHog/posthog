@@ -1,13 +1,11 @@
-@import '~/vars';
-
 .insight-empty-state {
     display: flex;
     flex-direction: column;
     justify-content: center;
     align-items: center;
-    padding-top: $default_spacing * 2;
-    padding-bottom: $default_spacing * 2;
-    color: $text_muted;
+    padding-top: 2rem;
+    padding-bottom: 2rem;
+    color: var(--text-muted);
     padding: 1rem;
     font-size: 1.1em;
     flex-grow: 1;
@@ -15,22 +13,22 @@
     &.error {
         .illustration-main,
         .spinner {
-            color: #fb8c6a; // $danger with increased lightness
+            color: #fb8c6a; // var(--danger) with increased lightness
         }
 
         h2 {
-            color: $danger;
+            color: var(--danger);
         }
     }
 
     &.warning {
         .illustration-main,
         .spinner {
-            color: #fec34d; // $warning with increased lightness
+            color: #fec34d; // var(--warning) with increased lightness
         }
 
         h2 {
-            color: $warning;
+            color: var(--warning);
         }
     }
 
@@ -38,11 +36,11 @@
         font-weight: 600;
         font-size: 1.5rem;
         line-height: 1.6rem;
-        color: $primary_alt;
+        color: var(--primary-alt);
     }
 
     .illustration-main {
-        color: rgba($primary_alt, 0.3);
+        color: var(--depr-rgba-primary-alt-0-3);
     }
 
     button.ant-btn-lg {
@@ -53,6 +51,8 @@
         max-width: 600px;
 
         .illustration-main {
+            display: flex;
+            justify-content: center;
             font-size: 4rem;
             height: 4rem;
             line-height: 1em;
@@ -76,7 +76,7 @@
         }
 
         ol {
-            margin-top: $default_spacing / 2;
+            margin-top: 0.5rem;
         }
     }
 }

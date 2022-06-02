@@ -1,6 +1,6 @@
 import { kea } from 'kea'
 import api from 'lib/api'
-import { cohortsModelType } from './cohortsModelType'
+import type { cohortsModelType } from './cohortsModelType'
 import { CohortType } from '~/types'
 import { personsLogic } from 'scenes/persons/personsLogic'
 import { deleteWithUndo } from 'lib/utils'
@@ -12,7 +12,7 @@ export const cohortsModel = kea<cohortsModelType>({
     actions: () => ({
         setPollTimeout: (pollTimeout: number | null) => ({ pollTimeout }),
         updateCohort: (cohort: CohortType) => ({ cohort }),
-        deleteCohort: (cohort: CohortType) => ({ cohort }),
+        deleteCohort: (cohort: Partial<CohortType>) => ({ cohort }),
         cohortCreated: (cohort: CohortType) => ({ cohort }),
         exportCohortPersons: (id: CohortType['id']) => ({ id }),
     }),

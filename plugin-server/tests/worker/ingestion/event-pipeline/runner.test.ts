@@ -52,7 +52,6 @@ const preIngestionEvent: PreIngestionEvent = {
     eventUuid: 'uuid1',
     distinctId: 'my_id',
     ip: '127.0.0.1',
-    siteUrl: 'example.com',
     teamId: 2,
     timestamp: '2020-02-23T02:15:00Z',
     event: '$pageview',
@@ -102,7 +101,7 @@ describe('EventPipelineRunner', () => {
             await runner.runEventPipeline(pluginEvent)
 
             expect(hub.statsd.timing).toHaveBeenCalledTimes(5)
-            expect(hub.statsd.increment).toBeCalledTimes(7)
+            expect(hub.statsd.increment).toBeCalledTimes(8)
 
             expect(hub.statsd.increment).toHaveBeenCalledWith('kafka_queue.event_pipeline.step', {
                 step: 'createEventStep',
@@ -116,7 +115,7 @@ describe('EventPipelineRunner', () => {
 
         describe('early exits from pipeline', () => {
             beforeEach(() => {
-                mocked(prepareEventStep).mockResolvedValue(null)
+                jest.mocked(prepareEventStep).mockResolvedValue(null)
             })
 
             it('stops processing after step', async () => {
@@ -180,9 +179,22 @@ describe('EventPipelineRunner', () => {
 
     describe('runBufferEventPipeline()', () => {
         it('runs remaining steps', async () => {
+            jest.mocked(hub.db.fetchPerson).mockResolvedValue('testPerson')
+
             await runner.runBufferEventPipeline(preIngestionEvent)
 
             expect(runner.steps).toEqual(['createEventStep', 'runAsyncHandlersStep'])
+            expect(runner.stepsWithArgs).toMatchSnapshot()
+        })
+    })
+
+    describe('runAsyncHandlersEventPipeline()', () => {
+        it('runs remaining steps', async () => {
+            jest.mocked(hub.db.fetchPerson).mockResolvedValue('testPerson')
+
+            await runner.runAsyncHandlersEventPipeline(preIngestionEvent)
+
+            expect(runner.steps).toEqual(['runAsyncHandlersStep'])
             expect(runner.stepsWithArgs).toMatchSnapshot()
         })
     })

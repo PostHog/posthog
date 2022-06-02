@@ -4,7 +4,7 @@ import api from 'lib/api'
 import { delay, idToKey, isUserLoggedIn } from 'lib/utils'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import React from 'react'
-import { dashboardsModelType } from './dashboardsModelType'
+import type { dashboardsModelType } from './dashboardsModelType'
 import { InsightModel, DashboardType, InsightShortId } from '~/types'
 import { urls } from 'scenes/urls'
 import { teamLogic } from 'scenes/teamLogic'
@@ -56,7 +56,9 @@ export const dashboardsModel = kea<dashboardsModelType>({
                         // If user is anonymous (i.e. viewing a shared dashboard logged out), don't load authenticated stuff
                         return []
                     }
-                    const { results } = await api.get(`api/projects/${teamLogic.values.currentTeamId}/dashboards/`)
+                    const { results } = await api.get(
+                        `api/projects/${teamLogic.values.currentTeamId}/dashboards/?limit=300`
+                    )
                     return idToKey(results ?? [])
                 },
             },
@@ -153,8 +155,8 @@ export const dashboardsModel = kea<dashboardsModelType>({
                 [dashboard.id]: { ...state[dashboard.id], deleted: true },
             }),
             delayedDeleteDashboard: (state, { id }) => {
-                // this gives us time to leave the /dashboard/:deleted_id page
-                const { [id]: _discard, ...rest } = state // eslint-disable-line
+                // This gives us time to leave the /dashboard/:deleted_id page
+                const { [id]: _discard, ...rest } = state
                 return rest
             },
             pinDashboardSuccess: (state, { dashboard }) => ({ ...state, [dashboard.id]: dashboard }),

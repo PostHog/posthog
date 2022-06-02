@@ -134,8 +134,7 @@ export function chainToElements(chain: string): Element[] {
                 const tagAndClass = elStringSplit[1].split('.')
                 element.tag_name = tagAndClass[0]
                 if (tagAndClass.length > 1) {
-                    const [_, ...rest] = tagAndClass
-                    element.attr_class = rest.filter((t) => t)
+                    element.attr_class = tagAndClass.slice(1).filter(Boolean)
                 }
             }
 
@@ -187,7 +186,15 @@ export function timeoutGuard(
     }, timeout)
 }
 
-const campaignParams = new Set(['utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term', 'gclid'])
+const campaignParams = new Set([
+    'utm_source',
+    'utm_medium',
+    'utm_campaign',
+    'utm_content',
+    'utm_term',
+    'gclid',
+    'fbclid',
+])
 const initialParams = new Set([
     '$browser',
     '$browser_version',
@@ -203,10 +210,10 @@ const combinedParams = new Set([...campaignParams, ...initialParams])
 /** If we get new UTM params, make sure we set those  **/
 export function personInitialAndUTMProperties(properties: Properties): Properties {
     const propertiesCopy = { ...properties }
-    const maybeSet = Object.entries(properties).filter(([key, value]) => campaignParams.has(key))
+    const maybeSet = Object.entries(properties).filter(([key]) => campaignParams.has(key))
 
     const maybeSetInitial = Object.entries(properties)
-        .filter(([key, value]) => combinedParams.has(key))
+        .filter(([key]) => combinedParams.has(key))
         .map(([key, value]) => [`$initial_${key.replace('$', '')}`, value])
     if (Object.keys(maybeSet).length > 0) {
         propertiesCopy.$set = { ...(properties.$set || {}), ...Object.fromEntries(maybeSet) }
@@ -262,37 +269,12 @@ export function getFinalPostgresQuery(queryString: string, values: any[]): strin
     return queryString.replace(/\$([0-9]+)/g, (m, v) => JSON.stringify(values[parseInt(v) - 1]))
 }
 
-export function transformPostgresElementsToEventPayloadFormat(
-    rawElements: Record<string, any>[]
-): Record<string, any>[] {
-    const elementTransformations: Record<string, string> = {
-        text: '$el_text',
-        attr_class: 'attr__class',
-        attr_id: 'attr__id',
-        href: 'attr__href',
-    }
-
-    const elements = []
-    for (const element of rawElements) {
-        for (const [key, val] of Object.entries(element)) {
-            if (key in elementTransformations) {
-                element[elementTransformations[key]] = val
-                delete element[key]
-            }
-        }
-        delete element['attributes']
-        elements.push(element)
-    }
-
-    return elements
-}
-
 export function shouldStoreLog(
     pluginLogLevel: PluginLogLevel,
     source: PluginLogEntrySource,
     type: PluginLogEntryType
 ): boolean {
-    if (source === PluginLogEntrySource.System || !pluginLogLevel) {
+    if (source === PluginLogEntrySource.System) {
         return true
     }
 
@@ -310,7 +292,7 @@ export function shouldStoreLog(
 // keep in sync with posthog/posthog/api/utils.py::safe_clickhouse_string
 export function safeClickhouseString(str: string): string {
     // character is a surrogate
-    return str.replace(/[\ud800-\udfff]/gu, (match, _) => {
+    return str.replace(/[\ud800-\udfff]/gu, (match) => {
         const res = JSON.stringify(match)
         return res.slice(1, res.length - 1) + `\\`
     })

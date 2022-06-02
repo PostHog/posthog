@@ -10,15 +10,17 @@ import * as path from 'path'
 import { types as pgTypes } from 'pg'
 import { ConnectionOptions } from 'tls'
 
+import { getPluginServerCapabilities } from '../../capabilities'
 import { defaultConfig } from '../../config/config'
 import { JobQueueManager } from '../../main/job-queues/job-queue-manager'
-import { connectObjectStorage, ObjectStorage } from '../../main/services/object_storage'
+import { connectObjectStorage } from '../../main/services/object_storage'
 import { Hub, KafkaSecurityProtocol, PluginServerCapabilities, PluginsServerConfig } from '../../types'
 import { ActionManager } from '../../worker/ingestion/action-manager'
 import { ActionMatcher } from '../../worker/ingestion/action-matcher'
 import { HookCommander } from '../../worker/ingestion/hooks'
 import { OrganizationManager } from '../../worker/ingestion/organization-manager'
 import { EventsProcessor } from '../../worker/ingestion/process-event'
+import { SiteUrlManager } from '../../worker/ingestion/site-url-manager'
 import { TeamManager } from '../../worker/ingestion/team-manager'
 import { InternalMetrics } from '../internal-metrics'
 import { killProcess } from '../kill'
@@ -57,8 +59,9 @@ export async function createHub(
         ...config,
     }
     if (capabilities === null) {
-        capabilities = { ingestion: true, pluginScheduledTasks: true, processJobs: true }
+        capabilities = getPluginServerCapabilities(serverConfig)
     }
+    status.updatePrompt(serverConfig.PLUGIN_SERVER_MODE)
     const instanceId = new UUIDT()
 
     let statsd: StatsD | undefined
@@ -174,8 +177,10 @@ export async function createHub(
         connectionTimeout: 3000, // default: 1000
         authenticationTimeout: 3000, // default: 1000
     })
-    const producer = kafka.producer({ retry: { retries: 10, initialRetryTime: 1000, maxRetryTime: 30 } })
-    await producer?.connect()
+    const producer = kafka.producer({
+        retry: { retries: 10, initialRetryTime: 1000, maxRetryTime: 30 },
+    })
+    await producer.connect()
 
     const kafkaProducer = new KafkaProducerWrapper(producer, statsd, serverConfig)
     status.info('👍', `Kafka ready`)
@@ -201,15 +206,11 @@ export async function createHub(
     status.info('👍', `Redis ready`)
 
     status.info('🤔', `Connecting to object storage...`)
-    const objectStorage: ObjectStorage = connectObjectStorage(serverConfig)
     try {
-        if (serverConfig.OBJECT_STORAGE_ENABLED && (await objectStorage.healthCheck())) {
-            status.info('👍', 'Object storage ready')
-        } else {
-            status.info('🪣', 'Object storage not in use')
-        }
+        connectObjectStorage(serverConfig)
+        status.info('👍', 'Object storage ready')
     } catch (e) {
-        status.warn('🪣', `Object storage failed healthcheck: ${e}`)
+        status.warn('🪣', `Object storage could not be created: ${e}`)
     }
 
     const db = new DB(
@@ -218,7 +219,6 @@ export async function createHub(
         kafkaProducer,
         clickhouse,
         statsd,
-        serverConfig.KAFKA_ENABLED,
         serverConfig.PERSON_INFO_CACHE_TTL,
         new Set(serverConfig.PERSON_INFO_TO_REDIS_TEAMS.split(',').filter(String).map(Number))
     )
@@ -227,10 +227,11 @@ export async function createHub(
     const pluginsApiKeyManager = new PluginsApiKeyManager(db)
     const rootAccessManager = new RootAccessManager(db)
     const promiseManager = new PromiseManager(serverConfig, statsd)
+    const siteUrlManager = new SiteUrlManager(db, serverConfig.SITE_URL)
     const actionManager = new ActionManager(db)
     await actionManager.prepare()
 
-    const hub: Omit<Hub, 'eventsProcessor'> = {
+    const hub: Partial<Hub> = {
         ...serverConfig,
         instanceId,
         capabilities,
@@ -256,15 +257,16 @@ export async function createHub(
         pluginsApiKeyManager,
         rootAccessManager,
         promiseManager,
+        siteUrlManager,
         actionManager,
         actionMatcher: new ActionMatcher(db, actionManager, statsd),
-        hookCannon: new HookCommander(db, teamManager, organizationManager, statsd),
         conversionBufferEnabledTeams,
     }
 
     // :TODO: This is only used on worker threads, not main
     hub.eventsProcessor = new EventsProcessor(hub as Hub)
     hub.jobQueueManager = new JobQueueManager(hub as Hub)
+    hub.hookCannon = new HookCommander(db, teamManager, organizationManager, siteUrlManager, statsd)
 
     if (serverConfig.CAPTURE_INTERNAL_METRICS) {
         hub.internalMetrics = new InternalMetrics(hub as Hub)
@@ -274,7 +276,7 @@ export async function createHub(
         await hub.jobQueueManager.connectProducer()
     } catch (error) {
         try {
-            logOrThrowJobQueueError(hub as Hub, error, `Can not start job queue producer!`)
+            logOrThrowJobQueueError(hub as Hub, error, `Cannot start job queue producer!`)
         } catch {
             killProcess()
         }
@@ -290,16 +292,11 @@ export async function createHub(
         }
 
         hub.mmdbUpdateJob?.cancel()
-        await hub.db.postgresLogsWrapper.flushLogs()
         await hub.jobQueueManager?.disconnectProducer()
-        if (kafkaProducer) {
-            clearInterval(kafkaProducer.flushInterval)
-            await kafkaProducer.flush()
-            await kafkaProducer.producer.disconnect()
-        }
+        await kafkaProducer.disconnect()
         await redisPool.drain()
         await redisPool.clear()
-        await hub.postgres.end()
+        await hub.postgres?.end()
     }
 
     return [hub as Hub, closeHub]

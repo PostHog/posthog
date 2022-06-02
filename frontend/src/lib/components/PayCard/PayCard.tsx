@@ -8,14 +8,22 @@ import { AvailableFeature } from '~/types'
 import { router } from 'kea-router'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { UPGRADE_LINK } from 'lib/constants'
+
 interface PayCardProps {
     title: string
     caption: string
     docsLink?: string
     identifier: AvailableFeature
+    dismissable?: boolean
 }
 
-export function PayCard({ title, caption, docsLink, identifier }: PayCardProps): JSX.Element | null {
+export function PayCard({
+    title,
+    caption,
+    docsLink,
+    identifier,
+    dismissable = true,
+}: PayCardProps): JSX.Element | null {
     const { preflight } = useValues(preflightLogic)
     const { push } = useActions(router)
     const [shown, setShown] = useState(false)
@@ -40,11 +48,11 @@ export function PayCard({ title, caption, docsLink, identifier }: PayCardProps):
     }
 
     useEffect(() => {
-        if (!window.localStorage.getItem(storageKey)) {
+        if (!dismissable || !window.localStorage.getItem(storageKey)) {
             setShown(true)
             reportPayGateShown(identifier)
         }
-    }, [])
+    }, [dismissable])
 
     if (!shown) {
         return null
@@ -52,9 +60,11 @@ export function PayCard({ title, caption, docsLink, identifier }: PayCardProps):
 
     return (
         <div className="pay-card">
-            <div className="close-button" onClick={close}>
-                <CloseOutlined />
-            </div>
+            {dismissable && (
+                <div className="close-button" onClick={close}>
+                    <CloseOutlined />
+                </div>
+            )}
             <Row onClick={handleClick}>
                 <Col span={23}>
                     <h3>{title}</h3>

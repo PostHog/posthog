@@ -125,11 +125,17 @@ def build_actor_activity_query(
     person_ids
     """
     returning_event_query = build_returning_event_query(
-        filter=filter, team=team, aggregate_users_by_distinct_id=aggregate_users_by_distinct_id
+        filter=filter,
+        team=team,
+        aggregate_users_by_distinct_id=aggregate_users_by_distinct_id,
+        using_person_on_events=team.actor_on_events_querying_enabled,
     )
 
     target_event_query = build_target_event_query(
-        filter=filter, team=team, aggregate_users_by_distinct_id=aggregate_users_by_distinct_id
+        filter=filter,
+        team=team,
+        aggregate_users_by_distinct_id=aggregate_users_by_distinct_id,
+        using_person_on_events=team.actor_on_events_querying_enabled,
     )
 
     all_params = {

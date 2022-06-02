@@ -15,7 +15,7 @@ import { clearError, processError } from '../../utils/db/error'
 import { disablePlugin, setPluginCapabilities } from '../../utils/db/sql'
 import { status } from '../../utils/status'
 import { pluginDigest } from '../../utils/utils'
-import { getVMPluginCapabilities } from '../vm/capabilities'
+import { getVMPluginCapabilities, shouldSetupPluginInServer } from '../vm/capabilities'
 import { createPluginConfigVM } from './vm'
 
 export const VM_INIT_MAX_RETRIES = 5
@@ -69,10 +69,6 @@ export class LazyPluginVM {
         return await this.getVmMethod('processEvent')
     }
 
-    public async getHandleAlert(): Promise<PluginConfigVMResponse['methods']['handleAlert'] | null> {
-        return await this.getVmMethod('handleAlert')
-    }
-
     public async getTeardownPlugin(): Promise<PluginConfigVMResponse['methods']['teardownPlugin'] | null> {
         // if we never ran `setupPlugin`, there's no reason to run `teardownPlugin` - it's essentially "tore down" already
         if (!this.ready) {
@@ -82,25 +78,40 @@ export class LazyPluginVM {
     }
 
     public async getTask(name: string, type: PluginTaskType): Promise<PluginTask | null> {
-        const task = (await this.resolveInternalVm)?.tasks?.[type]?.[name] || null
+        let task = (await this.resolveInternalVm)?.tasks?.[type]?.[name] || null
         if (!this.ready && task) {
-            await this.setupPluginIfNeeded()
+            const pluginReady = await this.setupPluginIfNeeded()
+            if (!pluginReady) {
+                task = null
+            }
         }
         return task
     }
 
-    public async getTasks(type: PluginTaskType): Promise<Record<string, PluginTask>> {
-        const tasks = (await this.resolveInternalVm)?.tasks?.[type] || null
+    public async getScheduledTasks(): Promise<Record<string, PluginTask>> {
+        let tasks = (await this.resolveInternalVm)?.tasks?.[PluginTaskType.Schedule] || null
         if (!this.ready && tasks && Object.values(tasks).length > 0) {
-            await this.setupPluginIfNeeded()
+            const pluginReady = await this.setupPluginIfNeeded()
+            if (!pluginReady) {
+                tasks = null
+                // KLUDGE: setupPlugin is retried, meaning methods may fail initially but work after a retry
+                // Schedules on the other hand need to be loaded in advance, so retries cannot turn on scheduled tasks after the fact.
+                await this.createLogEntry(
+                    'Cannot load scheduled tasks because the plugin errored during setup.',
+                    PluginLogEntryType.Error
+                )
+            }
         }
         return tasks || {}
     }
 
     private async getVmMethod<T extends keyof VMMethods>(method: T): Promise<VMMethods[T] | null> {
-        const vmMethod = (await this.resolveInternalVm)?.methods[method] || null
+        let vmMethod = (await this.resolveInternalVm)?.methods[method] || null
         if (!this.ready && vmMethod) {
-            await this.setupPluginIfNeeded()
+            const pluginReady = await this.setupPluginIfNeeded()
+            if (!pluginReady) {
+                vmMethod = null
+            }
         }
         return vmMethod
     }
@@ -117,18 +128,35 @@ export class LazyPluginVM {
                 try {
                     const vm = createPluginConfigVM(this.hub, this.pluginConfig, indexJs)
                     this.vmResponseVariable = vm.vmResponseVariable
+
+                    if (!this.pluginConfig.plugin) {
+                        throw new Error(`'PluginConfig missing plugin: ${this.pluginConfig}`)
+                    }
+
+                    await this.updatePluginCapabilitiesIfNeeded(vm)
+
+                    const shouldSetupPlugin = shouldSetupPluginInServer(
+                        this.hub.capabilities,
+                        this.pluginConfig.plugin!.capabilities!
+                    )
+
+                    if (!shouldSetupPlugin) {
+                        resolve(null)
+                        return
+                    }
+
                     const shouldSetupNow =
                         (!this.ready && // harmless check used to skip setup in tests
                             vm.tasks?.schedule &&
                             Object.values(vm.tasks?.schedule).length > 0) ||
                         (vm.tasks?.job && Object.values(vm.tasks?.job).length > 0)
+
                     if (shouldSetupNow) {
                         await this._setupPlugin(vm.vm)
                         this.ready = true
                     }
                     await this.createLogEntry(`Plugin loaded (instance ID ${this.hub.instanceId}).`)
                     status.info('🔌', `Loaded ${logInfo}`)
-                    await this.updatePluginCapabilitiesIfNeeded(vm)
                     resolve(vm)
                 } catch (error) {
                     status.warn('⚠️', error.message)
@@ -144,16 +172,21 @@ export class LazyPluginVM {
         })
     }
 
-    public async setupPluginIfNeeded(): Promise<void> {
-        if (this.ready || this.inErroredState) {
-            return
+    public async setupPluginIfNeeded(): Promise<boolean> {
+        if (this.inErroredState) {
+            return false
         }
-        const vm = (await this.resolveInternalVm)?.vm
-        try {
-            await this._setupPlugin(vm)
-        } catch (error) {
-            status.warn('⚠️', error.message)
+
+        if (!this.ready) {
+            const vm = (await this.resolveInternalVm)?.vm
+            try {
+                await this._setupPlugin(vm)
+            } catch (error) {
+                status.warn('⚠️', error.message)
+                return false
+            }
         }
+        return true
     }
 
     public async _setupPlugin(vm?: VM): Promise<void> {
@@ -216,16 +249,12 @@ export class LazyPluginVM {
     }
 
     private async updatePluginCapabilitiesIfNeeded(vm: PluginConfigVMResponse): Promise<void> {
-        if (!this.pluginConfig.plugin) {
-            throw new Error(`'PluginConfig missing plugin: ${this.pluginConfig}`)
-        }
-
         const capabilities = getVMPluginCapabilities(vm)
 
-        const prevCapabilities = this.pluginConfig.plugin.capabilities
+        const prevCapabilities = this.pluginConfig.plugin!.capabilities
         if (!equal(prevCapabilities, capabilities)) {
             await setPluginCapabilities(this.hub, this.pluginConfig, capabilities)
-            this.pluginConfig.plugin.capabilities = capabilities
+            this.pluginConfig.plugin!.capabilities = capabilities
         }
     }
 }

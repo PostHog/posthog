@@ -19,20 +19,22 @@ export function CardContainer({
     showFooter?: boolean
     onSubmit?: () => void
 }): JSX.Element {
-    const { onboarding1 } = useValues(ingestionLogic)
+    const { onboarding1, onboardingSidebarEnabled } = useValues(ingestionLogic)
 
     return (
         <div className="ingestion-card-container">
-            <Row align="middle" data-attr="wizard-step-counter">
-                {index !== 0 && (
-                    <ArrowLeftOutlined
-                        className="button-border clickable"
-                        style={{ marginRight: 4 }}
-                        onClick={onBack}
-                    />
-                )}
-                <PanelHeader index={index} />
-            </Row>
+            {!onboardingSidebarEnabled && (
+                <Row align="middle" data-attr="wizard-step-counter">
+                    {index !== 0 && (
+                        <ArrowLeftOutlined
+                            className="button-border clickable"
+                            style={{ marginRight: 4 }}
+                            onClick={onBack}
+                        />
+                    )}
+                    <PanelHeader index={index} />
+                </Row>
+            )}
             {children}
             <div>
                 {showFooter &&

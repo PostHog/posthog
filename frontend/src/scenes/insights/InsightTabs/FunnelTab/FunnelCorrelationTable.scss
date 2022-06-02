@@ -1,13 +1,11 @@
-@import '~/vars';
-
 .funnel-correlation-table {
-    margin-top: $default_spacing;
-    border: 1px solid $border;
-    border-radius: $radius;
+    margin-top: 1rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
 
     .ant-table {
         thead th {
-            border-bottom: 1px solid $border;
+            border-bottom: 1px solid var(--border);
         }
     }
 
@@ -17,10 +15,9 @@
         align-self: stretch;
         justify-content: space-between;
         align-content: space-between;
-        border-top-left-radius: $radius;
-        border-top-right-radius: $radius;
+        border-top-left-radius: var(--radius);
+        border-top-right-radius: var(--radius);
         padding-bottom: 5px;
-        overflow: auto;
 
         .table-header {
             font-style: normal;
@@ -34,9 +31,9 @@
             letter-spacing: 0.02em;
             text-transform: uppercase;
 
-            color: $text_default;
-            margin-left: $default_spacing;
-            margin-top: $default_spacing/2;
+            color: var(--text-default);
+            margin-left: 1rem;
+            margin-top: 0.5rem;
         }
 
         .table-options {
@@ -66,30 +63,30 @@
     }
 
     .column-info {
-        color: $text_muted_alt;
+        color: var(--text-muted-alt);
         cursor: pointer;
         padding-left: 4px;
     }
 
     .nested-properties-table {
-        margin: $default_spacing;
-        border: 1px solid $border;
-        border-radius: $radius;
+        margin: 1rem;
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
         thead th {
-            border-bottom: 1px solid $border;
+            border-bottom: 1px solid var(--border);
         }
     }
 
     .nested-properties-loading {
         text-align: center;
-        padding: $default_spacing * 2 0;
+        padding: 2rem 0;
 
         h3 {
             font-size: 1rem;
             font-weight: bold;
             margin-bottom: 0;
             p {
-                color: $text_muted_alt;
+                color: var(--text-muted-alt);
             }
         }
     }

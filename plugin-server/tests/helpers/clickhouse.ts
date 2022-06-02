@@ -3,9 +3,10 @@ import { performance } from 'perf_hooks'
 
 import { defaultConfig } from '../../src/config/config'
 import { PluginsServerConfig } from '../../src/types'
+import { determineNodeEnv, NodeEnv } from '../../src/utils/env-utils'
 import { delay } from '../../src/utils/utils'
 
-export async function resetTestDatabaseClickhouse(extraServerConfig: Partial<PluginsServerConfig>): Promise<void> {
+export async function resetTestDatabaseClickhouse(extraServerConfig?: Partial<PluginsServerConfig>): Promise<void> {
     const config = { ...defaultConfig, ...extraServerConfig }
     const clickhouse = new ClickHouse({
         host: config.CLICKHOUSE_HOST,
@@ -29,26 +30,29 @@ export async function resetTestDatabaseClickhouse(extraServerConfig: Partial<Plu
     ])
 }
 
-export async function delayUntilEventIngested(
-    fetchEvents: () => Promise<any[] | any>,
-    minCount = 1,
+export async function delayUntilEventIngested<T extends any[] | number>(
+    fetchData: () => Promise<T>,
+    minLength = 1,
     delayMs = 100,
-    maxDelayCount = 100,
-    debug = false
-): Promise<void> {
+    maxDelayCount = 100
+): Promise<T> {
     const timer = performance.now()
+    let data: T
+    let dataLength = 0
     for (let i = 0; i < maxDelayCount; i++) {
-        const events = await fetchEvents()
-        if (debug) {
+        data = await fetchData()
+        dataLength = typeof data === 'number' ? data : data.length
+        if (determineNodeEnv() === NodeEnv.Development) {
             console.log(
-                `Waiting. ${Math.round((performance.now() - timer) / 100) / 10}s since the start. ${
-                    typeof events === 'number' ? events : events.length
-                } events.`
+                `Waiting. ${Math.round((performance.now() - timer) / 100) / 10}s since the start. ${dataLength} event${
+                    dataLength !== 1 ? 's' : ''
+                }.`
             )
         }
-        if ((typeof events === 'number' ? events : events.length) >= minCount) {
-            return
+        if (dataLength >= minLength) {
+            return data
         }
         await delay(delayMs)
     }
+    return data
 }

@@ -70,7 +70,8 @@
                                     e.team_id as team_id,
                                     e.distinct_id as distinct_id,
                                     e.timestamp as timestamp,
-                                    pdi.person_id as aggregation_target
+                                    pdi.person_id as aggregation_target,
+                                    pdi.person_id as person_id
                              FROM events e
                              INNER JOIN
                                (SELECT distinct_id,
@@ -183,7 +184,8 @@
                               e.team_id as team_id,
                               e.distinct_id as distinct_id,
                               e.timestamp as timestamp,
-                              pdi.person_id as aggregation_target
+                              pdi.person_id as aggregation_target,
+                              pdi.person_id as person_id
                        FROM events e
                        INNER JOIN
                          (SELECT distinct_id,
@@ -291,7 +293,8 @@
                               e.team_id as team_id,
                               e.distinct_id as distinct_id,
                               e.timestamp as timestamp,
-                              pdi.person_id as aggregation_target
+                              pdi.person_id as aggregation_target,
+                              pdi.person_id as person_id
                        FROM events e
                        INNER JOIN
                          (SELECT distinct_id,
@@ -341,7 +344,8 @@
                               e.team_id as team_id,
                               e.distinct_id as distinct_id,
                               e.timestamp as timestamp,
-                              pdi.person_id as aggregation_target
+                              pdi.person_id as aggregation_target,
+                              pdi.person_id as person_id
                        FROM events e
                        INNER JOIN
                          (SELECT distinct_id,
@@ -391,7 +395,8 @@
                               e.team_id as team_id,
                               e.distinct_id as distinct_id,
                               e.timestamp as timestamp,
-                              pdi.person_id as aggregation_target
+                              pdi.person_id as aggregation_target,
+                              pdi.person_id as person_id
                        FROM events e
                        INNER JOIN
                          (SELECT distinct_id,

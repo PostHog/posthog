@@ -3,28 +3,29 @@ import { OrganizationInviteType } from '~/types'
 import api from 'lib/api'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { inviteLogicType } from './inviteLogicType'
+import type { inviteLogicType } from './inviteLogicType'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { router } from 'kea-router'
-import { urls } from 'scenes/urls'
 import { lemonToast } from 'lib/components/lemonToast'
 
 /** State of a single invite row (with input data) in bulk invite creation. */
-interface InviteRowState {
+export interface InviteRowState {
     target_email: string
     first_name: string
     isValid: boolean
+    message?: string
 }
 
 const EMPTY_INVITE: InviteRowState = { target_email: '', first_name: '', isValid: true }
 
-export const inviteLogic = kea<inviteLogicType<InviteRowState>>({
+export const inviteLogic = kea<inviteLogicType>({
     path: ['scenes', 'organization', 'Settings', 'inviteLogic'],
     actions: {
         showInviteModal: true,
         hideInviteModal: true,
         updateInviteAtIndex: (payload, index: number) => ({ payload, index }),
         deleteInviteAtIndex: (index: number) => ({ index }),
+        updateMessage: (message: string) => ({ message }),
         appendInviteRow: true,
         resetInviteRows: true,
     },
@@ -37,7 +38,6 @@ export const inviteLogic = kea<inviteLogicType<InviteRowState>>({
             {
                 showInviteModal: () => true,
                 hideInviteModal: () => false,
-                inviteTeamMembersSuccess: () => false,
                 [router.actionTypes.locationChanged]: () => false,
             },
         ],
@@ -59,6 +59,12 @@ export const inviteLogic = kea<inviteLogicType<InviteRowState>>({
                 inviteTeamMembersSuccess: () => [EMPTY_INVITE],
             },
         ],
+        message: [
+            '',
+            {
+                updateMessage: (_, { message }) => message,
+            },
+        ],
     }),
     selectors: {
         canSubmit: [
@@ -77,13 +83,15 @@ export const inviteLogic = kea<inviteLogicType<InviteRowState>>({
                         return { invites: [] }
                     }
 
-                    const payload: Pick<OrganizationInviteType, 'target_email' | 'first_name'>[] =
+                    const payload: Pick<OrganizationInviteType, 'target_email' | 'first_name' | 'message'>[] =
                         values.invitesToSend.filter((invite) => invite.target_email)
                     eventUsageLogic.actions.reportBulkInviteAttempted(
                         payload.length,
                         payload.filter((invite) => !!invite.first_name).length
                     )
-
+                    if (values.message) {
+                        payload.forEach((payload) => (payload.message = values.message))
+                    }
                     return await api.create('api/organizations/@current/invites/bulk/', payload)
                 },
             },
@@ -106,15 +114,17 @@ export const inviteLogic = kea<inviteLogicType<InviteRowState>>({
     listeners: ({ values, actions }) => ({
         inviteTeamMembersSuccess: (): void => {
             const inviteCount = values.invitedTeamMembersInternal.length
-            lemonToast.success(`Invited ${inviteCount} new team member${inviteCount === 1 ? '' : 's'}`)
+            if (values.preflight?.email_service_available) {
+                lemonToast.success(`Invited ${inviteCount} new team member${inviteCount === 1 ? '' : 's'}`)
+            } else {
+                lemonToast.success('Team invite links generated')
+            }
+
             organizationLogic.actions.loadCurrentOrganization()
             actions.loadInvites()
-            if (
-                router.values.location.pathname !== urls.organizationSettings() &&
-                !values.preflight?.email_service_available
-            ) {
-                // If email service is not available, take user to org settings page to copy invite(s) link(s)
-                router.actions.push(`${urls.organizationSettings()}#invites`)
+
+            if (values.preflight?.email_service_available) {
+                actions.hideInviteModal()
             }
         },
     }),

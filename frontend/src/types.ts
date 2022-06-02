@@ -718,6 +718,11 @@ export interface SessionRecordingEvents {
     events: RecordingEventType[]
 }
 
+export interface CurrentBillCycleType {
+    current_period_start: number
+    current_period_end: number
+}
+
 export interface BillingType {
     should_setup_billing: boolean
     is_billing_active: boolean
@@ -727,9 +732,11 @@ export interface BillingType {
     current_usage: number | null
     subscription_url: string
     current_bill_amount: number | null
+    current_bill_usage: number | null
     should_display_current_bill: boolean
     billing_limit: number | null
     billing_limit_exceeded: boolean | null
+    current_bill_cycle: CurrentBillCycleType
     tiers: BillingTierType[] | null
 }
 
@@ -843,6 +850,7 @@ export interface OrganizationInviteType {
     created_by: UserBasicType | null
     created_at: string
     updated_at: string
+    message?: string
 }
 
 export interface PluginType {
@@ -1423,10 +1431,11 @@ export enum ItemMode { // todo: consolidate this and dashboardmode
 }
 
 export enum DashboardPlacement {
-    Public = 'public', // When viewing the dashboard publicly via a shareToken
+    Dashboard = 'dashboard', // When on the standard dashboard page
     InternalMetrics = 'internal-metrics', // When embedded in /instance/status
     ProjectHomepage = 'project-homepage', // When embedded on the project homepage
-    Dashboard = 'dashboard', // When on the standard dashboard page
+    Public = 'public', // When viewing the dashboard publicly via a shareToken
+    Export = 'export', // When the dashboard is being exported (alike to being printed)
 }
 
 export enum DashboardMode { // Default mode is null

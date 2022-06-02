@@ -1,30 +1,25 @@
-@import '~/vars';
+@import '../../styles/breakpoints';
 @import './bridgePagesShared';
 
 .bridge-page.login {
     .helper-links {
+        display: flex;
+        gap: 0.5rem;
+        align-items: center;
+        justify-content: space-between;
         text-align: center;
-        padding-top: $default_spacing;
-        .lhs {
-            float: left;
-        }
-        &.cloud {
-            .rhs {
-                float: right;
-            }
-        }
+        padding-top: 1rem;
     }
 
     @media screen and (max-width: $sm) {
         .helper-links {
-            .lhs,
-            .rhs {
-                float: unset;
-            }
+            flex-direction: column;
             a {
                 display: block;
                 width: 100%;
-                padding-top: 4px;
+                a {
+                    flex-grow: 1;
+                }
             }
         }
     }

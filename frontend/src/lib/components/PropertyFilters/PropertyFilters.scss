@@ -1,10 +1,9 @@
-@import '~/vars';
-
 .PropertyFilters {
     display: flex;
     gap: 0.5rem;
 
     .PropertyFilters-content {
+        flex: 1;
         display: flex;
         flex-wrap: wrap;
         gap: 0.5rem;

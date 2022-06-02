@@ -1,26 +1,12 @@
 import Piscina from '@posthog/piscina'
-import { PluginEvent, ProcessedPluginEvent } from '@posthog/plugin-scaffold'
-import * as Sentry from '@sentry/node'
+import { PluginEvent } from '@posthog/plugin-scaffold'
 
-import {
-    CeleryTriggeredJobOperation,
-    Hub,
-    PluginConfig,
-    PreIngestionEvent,
-    Queue,
-    Team,
-    WorkerMethods,
-} from '../../types'
+import { Hub, IngestionEvent, PreIngestionEvent, WorkerMethods } from '../../types'
 import { status } from '../../utils/status'
-import { sanitizeEvent, UUIDT } from '../../utils/utils'
-import { Action } from './../../types'
-import { CeleryQueue } from './celery-queue'
-import { ingestEvent } from './ingest-event'
 import { KafkaQueue } from './kafka-queue'
 
 interface Queues {
-    ingestion: Queue | null
-    auxiliary: Queue | null
+    ingestion: KafkaQueue | null
 }
 
 export function pauseQueueIfWorkerFull(
@@ -44,6 +30,11 @@ export async function startQueues(
             server.lastActivityType = 'runBufferEventPipeline'
             return piscina.run({ task: 'runBufferEventPipeline', args: { event } })
         },
+        runAsyncHandlersEventPipeline: (event: IngestionEvent) => {
+            server.lastActivity = new Date().valueOf()
+            server.lastActivityType = 'runAsyncHandlersEventPipeline'
+            return piscina.run({ task: 'runAsyncHandlersEventPipeline', args: { event } })
+        },
         runEventPipeline: (event: PluginEvent) => {
             server.lastActivity = new Date().valueOf()
             server.lastActivityType = 'runEventPipeline'
@@ -53,13 +44,8 @@ export async function startQueues(
     }
 
     try {
-        const redisQueue = startQueueRedis(server, piscina, mergedWorkerMethods)
-        const queues = {
-            ingestion: redisQueue,
-            auxiliary: redisQueue,
-        }
-        if (server.KAFKA_ENABLED) {
-            queues.ingestion = await startQueueKafka(server, mergedWorkerMethods)
+        const queues: Queues = {
+            ingestion: await startQueueKafka(server, mergedWorkerMethods),
         }
         return queues
     } catch (error) {
@@ -68,62 +54,12 @@ export async function startQueues(
     }
 }
 
-function startQueueRedis(server: Hub, piscina: Piscina, workerMethods: WorkerMethods): Queue | null {
-    const celeryQueue = new CeleryQueue(server.db, server.PLUGINS_CELERY_QUEUE)
-
-    let startQueue = false
-
-    // if kafka is enabled, we'll process events from there
-    if (!server.KAFKA_ENABLED && server.capabilities.ingestion) {
-        startQueue = true
-
-        celeryQueue.register(
-            'posthog.tasks.process_event.process_event_with_plugins',
-            async (
-                distinct_id: string,
-                ip: string | null,
-                site_url: string,
-                data: Record<string, unknown>,
-                team_id: number,
-                now: string,
-                sent_at?: string
-            ) => {
-                const event = sanitizeEvent({
-                    distinct_id,
-                    ip,
-                    site_url,
-                    team_id,
-                    now,
-                    sent_at,
-                    uuid: new UUIDT().toString(),
-                    ...data,
-                } as PluginEvent)
-                try {
-                    const checkAndPause = () => pauseQueueIfWorkerFull(() => celeryQueue.pause(), server, piscina)
-                    await ingestEvent(server, workerMethods, event, checkAndPause)
-                } catch (e) {
-                    Sentry.captureException(e)
-                }
-            }
-        )
-    }
-
-    if (startQueue) {
-        // run in the background
-        void celeryQueue.start()
-
-        return celeryQueue
-    } else {
-        return null
-    }
-}
-
-async function startQueueKafka(server: Hub, workerMethods: WorkerMethods): Promise<Queue | null> {
-    if (!server.capabilities.ingestion) {
+async function startQueueKafka(server: Hub, workerMethods: WorkerMethods): Promise<KafkaQueue | null> {
+    if (!server.capabilities.ingestion && !server.capabilities.processAsyncHandlers) {
         return null
     }
 
-    const kafkaQueue: Queue = new KafkaQueue(server, workerMethods)
+    const kafkaQueue = new KafkaQueue(server, workerMethods)
     await kafkaQueue.start()
 
     return kafkaQueue

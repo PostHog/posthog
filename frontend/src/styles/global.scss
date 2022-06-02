@@ -2,64 +2,93 @@
 nimble to simplify maintenance. We separate variables and mixins in vars.scss to be able to import those into local
 style files without adding already imported styles.
 
-Font weights: only `normal` (400), `$medium` (500) or `bold` (700) should be used.
-NOTE: $medium is a SCSS var; not a keyword
+Font weights:
+Only 400 (`normal`), 500 (`var(--font-medium)`), 600 (`var(--font-semibold)`), or 700 (`bold`) should be used
 
 */
 
 // Global components
-@import 'react-toastify/dist/ReactToastify';
-@import '~/vars';
+@import '../../../node_modules/react-toastify/dist/ReactToastify';
+@import 'breakpoints';
 @import 'fonts';
+@import 'mixins';
+
+// These vars are modified via SCSS for legacy reasons (e.g. darken/lighten), so keeping as SCSS vars for now.
+$_primary: #5375ff;
+$_primary_alt: #35416b;
+$_primary_bg_hover: rgba($_primary, 0.1);
+$_primary_bg_active: rgba($_primary, 0.2);
+$_warning: #f7a501;
+$_danger: #f96132;
+$_text_default: #2d2d2d;
+$_text_light: rgba(255, 255, 255, 0.88);
+$_bg_menu: #2c3035;
+$_border: rgba(0, 0, 0, 0.15);
+$_lifecycle_new: #99c5ff;
+$_lifecycle_returning: #71b96b;
+$_lifecycle_resurrecting: #c277cf;
+$_lifecycle_dormant: #f86234;
 
 :root {
-    --primary: #{$primary};
-    --primary-alt: #{$primary_alt};
-    --primary-hover: #{$primary_hover};
-    --primary-active: #{$primary_active};
-    --primary-bg-hover: #{$primary_bg_hover};
-    --primary-bg-active: #{$primary_bg_active};
-    --success: #{$success};
-    --danger: #{$danger};
-    --danger-hover: #{$danger_hover};
-    --danger-active: #{$danger_active};
-    --warning: #{$warning};
-    --warning-hover: #{$warning_hover};
-    --warning-active: #{$warning_active};
-    --brand-blue: #{$brand_blue};
-    --brand-blue-active: #{$brand_blue_active};
-    --brand-yellow: #{$brand_yellow};
-    --brand-red: #{$brand_red};
-    --bg-menu: #{$bg_menu};
-    --bg-mid: #{$bg_mid};
-    --bg-side: #{$bg_side};
-    --bg-depth: #{$bg_depth};
-    --bg-navy: #{$bg_navy};
-    --bg-charcoal: #{$bg_charcoal};
-    --bg-bridge: #{$bg_bridge};
-    --bg-shaded: #{$bg_shaded};
-    --bg-light: #{$bg_light};
-    --text-default: #{$text_default};
-    --text-muted: #{$text_muted};
-    --text-light: #{$text_light};
-    --muted: #{$text_muted};
-    --muted-alt: #{$text_muted_alt};
-    --border-light: #{$border_light};
-    --border: #{$border};
-    --border-dark: #{$border_dark};
-    --border-active: #{$border_active};
-    --radius: #{$radius};
-    --shadow-elevation: #{$shadow_elevation};
-    --opacity-disabled: #{$opacity_disabled};
+    --primary: #{$_primary};
+    --primary-alt: #{$_primary_alt};
+    --primary-hover: #839af8;
+    --primary-active: #3d57d9;
+    --primary-bg-hover: #{$_primary_bg_hover};
+    --primary-bg-active: #{$_primary_bg_active};
+    --success: #77b96c;
+    --danger: #{$_danger};
+    --danger-hover: #fa754c;
+    --danger-active: #f9430b;
+    --danger-bridge: #df4313;
+    --warning: #{$_warning};
+    --warning-hover: #f3ba3e;
+    --warning-active: #e69900;
+    --brand-blue: #1d4aff;
+    --brand-blue-active: #2148e4;
+    --brand-yellow: #f9bd2b;
+    --brand-red: #f54e00;
+    --bg-menu: #{$_bg_menu};
+    --bg-mid: #f2f2f2;
+    --bg-side: #fafaf9;
+    --bg-depth: #0f0f0f;
+    --bg-navy: #35416b;
+    --bg-charcoal: #2d2d2d;
+    --bg-bridge: #ebece8;
+    --bg-shaded: rgba(0, 0, 0, 0.05);
+    --bg-light: #ffffff;
+    --bg-overlay: #333333;
+    --text-default: #{$_text_default};
+    --text-light: #{$_text_light};
+    --muted: rgba(0, 0, 0, 0.5);
+    --muted-alt: #747ea1;
+    --text-muted: var(--muted);
+    --text-muted-alt: var(--muted-alt);
+    --mark-color: #fdedc9;
+    --border-light: rgba(0, 0, 0, 0.08);
+    --border: #{$_border};
+    --border-dark: rgba(0, 0, 0, 0.24);
+    --border-active: rgba(0, 0, 0, 0.36);
+    --radius: 4px;
+    --shadow-elevation: 0px 16px 16px -16px rgba(0, 0, 0, 0.35);
+    --opacity-disabled: 0.6;
+    --font-medium: 500;
+    --font-semibold: 600;
+    --dark-grey: #d9d9d9;
+    --light-grey: #f2f2f2;
+    --error-red: #bf411a;
     // LEGACY data colors (e.g. insight series). Note: colors.ts relies on these values being hexadecimal
-    --blue: #{$blue_500};
-    --blue-light: #{$blue_300};
-    --purple: #{$purple_500};
-    --indigo: #{$purple_700};
-    --purple-light: #{$purple_300};
+    --blue: #597dce;
+    --blue-light: #8da9e7;
+    --blue-lightest: #b8cefds;
+    --purple: #c278cf;
+    --indigo: #7c4286;
+    --purple-light: #dcb1e3;
     --salmon: #ff906e;
     --yellow: #ffc035;
-    --green: #{$success};
+    --yellow-light: #fbdd99;
+    --yellow-lightest: #fdedc9;
+    --green: var(--success);
     --cyan: #17a2b8;
     --pink: #e83e8c;
     --white: #f4f6ff;
@@ -87,18 +116,62 @@ NOTE: $medium is a SCSS var; not a keyword
     --data-yellow: #e4a604;
     --data-lilac: #a56eff;
     // Lifecycle series
-    --lifecycle-new: #{$lifecycle_new};
-    --lifecycle-returning: #{$lifecycle_returning};
-    --lifecycle-resurrecting: #{$lifecycle_resurrecting};
-    --lifecycle-dormant: #{$lifecycle_dormant};
-    --lifecycle-new-hover: #{darken($lifecycle_new, 20%)};
-    --lifecycle-returning-hover: #{darken($lifecycle_returning, 20%)};
-    --lifecycle-resurrecting-hover: #{darken($lifecycle_resurrecting, 20%)};
-    --lifecycle-dormant-hover: #{darken($lifecycle_dormant, 20%)};
-    // Insights
-    --z-graph-tooltip: #{$z_graph_tooltip};
+    --lifecycle-new: #{$_lifecycle_new};
+    --lifecycle-returning: #{$_lifecycle_returning};
+    --lifecycle-resurrecting: #{$_lifecycle_resurrecting};
+    --lifecycle-dormant: #{$_lifecycle_dormant};
+    --lifecycle-new-hover: #{darken($_lifecycle_new, 20%)};
+    --lifecycle-returning-hover: #{darken($_lifecycle_returning, 20%)};
+    --lifecycle-resurrecting-hover: #{darken($_lifecycle_resurrecting, 20%)};
+    --lifecycle-dormant-hover: #{darken($_lifecycle_dormant, 20%)};
+    // Funnels
+    --funnel-default: var(--primary);
+    --funnel-alt: var(--primary-alt);
+    --funnel-background: var(--border-light);
+    --funnel-axis-zero: var(--bg-depth);
+    --funnel-axis: var(--border-dark);
+    --funnel-axis-label: var(--text-muted);
+    --funnel-canvas-background: #ffffff;
+    --antd-table-background-dark: #fafafa;
+    // Session Recording
+    --recording-spacing: calc(2rem / 3);
+    --recording-player-container-bg: #797973;
+    --recording-buffer-bg: #faaf8c;
+    --recording-hover-event: var(--primary-bg-hover);
+    --recording-hover-event-mid: var(--primary-bg-active);
+    --recording-hover-event-dark: var(--primary);
+    --recording-current-event: #eef2ff;
+    --recording-current-event-dark: #35416b;
+    --recording-failure-event: #fee9e2;
+    --recording-failure-event-dark: #cd3000;
+    --recording-highlight-event: #fdedc9;
+    --recording-highlight-event-dark: #946508;
+
+    // Z-indexes, synced with vars.ts
+    --z-nps-overlay: 5200;
+    --z-bottom-notice: 5100;
+    --z-command-palette: 1875;
+    --z-ant-select-dropdown: 1065;
+    --z-ant-message: 1070;
+    --z-popup: 1061;
+    --z-ant-modal-wrap: 1060;
+    --z-ant-modal-mask: 1050;
+    --z-plugins-popconfirm: 1001;
+    --z-pinned-dashboards-popup: 962;
+    --z-graph-tooltip: 951;
+    --z-drawer: 950;
+    --z-main-nav: 948;
+    --z-lemon-sidebar: 940;
+    --z-mobile-nav-overlay: 931;
+    --z-top-navigation: 800;
+    --z-content-overlay: 488;
+    --z-graph-annotation-prompt: 99;
+    --z-raised: 5;
+    --z-city-background-content: 1;
+    --z-city-background-image: 0;
+
     // Taxonomy
-    --taxonomy-icon-muted: #{$taxonomy_icon_muted};
+    --taxonomy-icon-muted: #747ea1;
     // Toasts
     --toastify-color-info: var(--primary);
     --toastify-color-success: var(--success);
@@ -108,6 +181,27 @@ NOTE: $medium is a SCSS var; not a keyword
     --toastify-toast-width: 26rem;
     --toastify-toast-min-height: 3.5rem;
     --toastify-toast-max-height: 16rem;
+
+    // Deprecated color transforms from SCSS var heydays
+    --depr-lighten-danger-40: #{lighten($_danger, 40%)};
+    --depr-darken-text-light-20: #{darken($_text_light, 20%)};
+    --depr-rgba-text-default-0-4: #{rgba($_text_default, 0.4)};
+    --depr-rgba-primary-alt-0-3: #{rgba($_primary_alt, 0.3)};
+    --depr-rgba-danger-0-6: #{rgba($_danger, 0.6)};
+    --depr-rgba-border-0-1: #{rgba($_border, 0.1)};
+    --depr-rgba-border-0-2: #{rgba($_border, 0.2)};
+    --depr-darken-primary-30: #{darken($_primary, 30%)};
+    --depr-lighten-primary-20: #{lighten($_primary, 20%)};
+    --depr-lighten-primary-10: #{lighten($_primary, 10%)};
+    --depr-lighten-primary-5: #{lighten($_primary, 5%)};
+    --depr-lighten-primary-15: #{lighten($_primary, 15%)};
+    --depr-rgba-primary_alt-0-09: #{rgba($_primary_alt, 0.09)};
+    --depr-rgba-warning-0-09: #{rgba($_warning, 0.09)};
+    --depr-rgba-danger-0-09: #{rgba($_danger, 0.09)};
+    --depr-rgba-danger-0-1: #{rgba($_danger, 0.1)};
+    --depr-rgba-primary-0-25: #{rgba($_primary, 0.25)};
+    --depr-rgba-primary_alt-0-25: #{rgba($_primary_alt, 0.25)};
+    --depr-darken-bg_menu-10: #{darken($_bg_menu, 10%)};
 }
 
 // Text styles
@@ -150,6 +244,10 @@ body strong {
 .text-xxs {
     @extend .text-default;
     font-size: 8px;
+}
+
+.text-ellipsis {
+    @extend %mixin-text-ellipsis;
 }
 
 .no-wrap {
@@ -207,7 +305,7 @@ body strong {
     font-weight: bold;
 
     &.highlighted {
-        padding: $default_spacing $default_spacing $default_spacing $default_spacing / 2;
+        padding: 1rem 1rem 1rem 0.5rem;
     }
 }
 
@@ -242,26 +340,26 @@ body strong {
 }
 
 .text-muted {
-    color: $text_muted;
+    color: var(--text-muted);
 }
 
 .text-muted-alt {
-    color: $text_muted_alt;
+    color: var(--text-muted-alt);
 }
 
 .primary {
-    color: $primary;
+    color: var(--primary);
 }
 
 .primary-alt {
-    color: $primary_alt;
+    color: var(--primary-alt);
 }
 
 .secondary {
     font-size: 0.9em;
     letter-spacing: 1px;
-    color: $primary_alt;
-    font-weight: $medium;
+    color: var(--primary-alt);
+    font-weight: var(--font-medium);
     text-transform: uppercase;
     border: 0;
     background: none;
@@ -269,15 +367,15 @@ body strong {
 
 .card-secondary {
     font-size: 11px;
-    color: $text_muted;
+    color: var(--text-muted);
     letter-spacing: 0.5px;
     text-transform: uppercase;
     font-weight: 600;
 }
 
 mark {
-    background-color: $mark_color !important;
-    border-radius: $radius;
+    background-color: var(--mark-color) !important;
+    border-radius: var(--radius);
 }
 
 .uppercase {
@@ -298,44 +396,49 @@ mark {
 
 code.code {
     // Temporary: .code class to transition legacy elements
-    color: $danger;
-    background-color: $bg_mid;
-    border-radius: $radius;
+    color: var(--danger);
+    background-color: var(--bg-mid);
+    border-radius: var(--radius);
     padding: 2px 6px;
 }
 
 // Spacing & layout
 
+.ma {
+    // Margin all
+    margin: 1rem;
+}
+
 .mb {
-    margin-bottom: $default_spacing;
+    margin-bottom: 1rem;
 }
 
 .mt {
-    margin-top: $default_spacing;
+    margin-top: 1rem;
 }
 
 .mb-2 {
-    margin-bottom: $default_spacing * 2;
+    margin-bottom: 2rem;
 }
 
 .mt-2 {
-    margin-top: $default_spacing * 2;
+    margin-top: 2rem;
 }
 
 .mb-05 {
-    margin-bottom: $default_spacing * 0.5;
+    margin-bottom: 0.5rem;
 }
 
 .mb-025 {
-    margin-bottom: $default_spacing * 0.25;
+    margin-bottom: 0.25rem;
 }
 
 .mt-05 {
-    margin-top: $default_spacing * 0.5;
+    margin-top: 0.5rem;
 }
 
 .mt-025 {
-    margin-top: $default_spacing * 0.25;
+    margin-top: 0.25rem;
 }
 
 .mb-0 {
@@ -343,31 +446,31 @@ code.code {
 }
 
 .mr {
-    margin-right: $default_spacing;
+    margin-right: 1rem;
 }
 
 .ml {
-    margin-left: $default_spacing;
+    margin-left: 1rem;
 }
 
 .ml-2 {
-    margin-left: $default_spacing * 2;
+    margin-left: 2rem;
 }
 
 .mr-05 {
-    margin-right: $default_spacing * 0.5;
+    margin-right: 0.5rem;
 }
 
 .mr-025 {
-    margin-right: $default_spacing * 0.25;
+    margin-right: 0.25rem;
 }
 
 .ml-05 {
-    margin-left: $default_spacing * 0.5;
+    margin-left: 0.5rem;
 }
 
 .ml-025 {
-    margin-left: $default_spacing * 0.25;
+    margin-left: 0.25rem;
 }
 
 .mx-0 {
@@ -382,27 +485,27 @@ code.code {
 
 .pa {
     // Padding all
-    padding: $default_spacing;
+    padding: 1rem;
 }
 
 .pb {
-    padding-bottom: $default_spacing;
+    padding-bottom: 1rem;
 }
 
 .pb-05 {
-    padding-bottom: $default_spacing * 0.5;
+    padding-bottom: 0.5rem;
 }
 
 .pt {
-    padding-top: $default_spacing;
+    padding-top: 1rem;
 }
 
 .pr {
-    padding-right: $default_spacing;
+    padding-right: 1rem;
 }
 
 .pl {
-    padding-left: $default_spacing;
+    padding-left: 1rem;
 }
 
 .space-y-05 {
@@ -427,6 +530,14 @@ code.code {
     & > * + * {
         @extend .ml;
     }
+}
+
+.gap {
+    gap: 1rem;
+}
+
+.gap-05 {
+    gap: 0.5rem;
 }
 
 .col {
@@ -470,16 +581,16 @@ code.code {
 }
 
 .border-all {
-    border: 1px solid $border;
+    border: 1px solid var(--border);
     border-radius: 4px;
 }
 
 .border-top {
-    border-top: 1px solid $border;
+    border-top: 1px solid var(--border);
 }
 
 .border-bottom {
-    border-bottom: 1px solid $border;
+    border-bottom: 1px solid var(--border);
 }
 // Vendor-specific adjustments
 
@@ -489,7 +600,7 @@ input::-ms-clear {
 
 // Color styles
 .bg-primary {
-    background-color: $primary;
+    background-color: var(--primary);
 }
 
 .text-primary {
@@ -515,7 +626,7 @@ input::-ms-clear {
 }
 
 .highlighted {
-    border-radius: $radius;
+    border-radius: var(--radius);
     animation: highlight 2000ms ease-out;
 }
 
@@ -523,7 +634,7 @@ input::-ms-clear {
 
 @keyframes highlight {
     0% {
-        background-color: $yellow_50;
+        background-color: var(--yellow-lightest);
     }
     100% {
         background-color: initial;
@@ -598,7 +709,7 @@ input::-ms-clear {
 // Table styles
 
 .table-bordered td {
-    border: 1px solid $border;
+    border: 1px solid var(--border);
 }
 
 // Card styles
@@ -648,8 +759,8 @@ input::-ms-clear {
 // Form & input styles
 
 .input-set {
-    padding-bottom: $default_spacing;
-    color: $text_default;
+    padding-bottom: 1rem;
+    color: var(--text-default);
 
     label {
         font-weight: bold;
@@ -657,7 +768,7 @@ input::-ms-clear {
     }
 
     .caption {
-        color: $text_muted;
+        color: var(--text-muted);
         @extend .text-small;
     }
 
@@ -669,25 +780,25 @@ input::-ms-clear {
 
     &.errored {
         .caption {
-            color: $danger;
+            color: var(--danger);
         }
         input[type='password'],
         input[type='text'] {
-            border-color: $danger !important;
+            border-color: var(--danger) !important;
         }
     }
 }
 
 .error-on-blur {
     &.errored:not(:focus) {
-        border-color: $danger !important;
+        border-color: var(--danger) !important;
     }
 }
 
 // Button styles
 
 .btn-close {
-    color: $text_muted;
+    color: var(--text-muted);
 }
 
 .ant-btn-sm {
@@ -695,12 +806,12 @@ input::-ms-clear {
 }
 
 .ant-btn-primary.btn-danger {
-    background-color: $danger !important;
-    border-color: $danger !important;
+    background-color: var(--danger) !important;
+    border-color: var(--danger) !important;
     &:disabled {
-        background-color: lighten($danger, 20%) !important;
+        background-color: lighten($_danger, 20%) !important;
         color: lighten(#fff, 20%) !important;
-        border-color: lighten($danger, 20%) !important;
+        border-color: lighten($_danger, 20%) !important;
     }
 }
 
@@ -712,7 +823,7 @@ input::-ms-clear {
 }
 
 .info-indicator {
-    color: $primary_alt !important;
+    color: var(--primary-alt) !important;
     cursor: pointer;
     margin-left: 4px;
 
@@ -740,7 +851,7 @@ input::-ms-clear {
 .LemonLinkButton {
     // TODO: This should become a component at some point
     padding: 1.3rem 1rem !important;
-    font-weight: $medium !important;
+    font-weight: var(--font-medium) !important;
     display: flex !important;
     align-items: center;
     justify-content: center;
@@ -749,7 +860,7 @@ input::-ms-clear {
         padding-top: 1.3rem !important;
     }
     &:not(.ant-btn-primary) {
-        color: $primary;
+        color: var(--primary);
     }
 }
 
@@ -757,7 +868,7 @@ input::-ms-clear {
 
 .graph-series-glyph {
     border-radius: 50%;
-    border: 2px solid $text_default;
+    border: 2px solid var(--text-default);
     font-weight: bold;
     font-size: 12px;
     height: 22px;
@@ -770,9 +881,9 @@ input::-ms-clear {
 
     // variants
     &.funnel-step-glyph {
-        border-color: $border;
+        border-color: var(--border);
         background-color: white;
-        color: $primary_alt;
+        color: var(--primary-alt);
         height: 23px;
         width: 23px;
         font-size: unset;
@@ -782,7 +893,7 @@ input::-ms-clear {
 // Bottom notice (DEBUG=1 mode)
 
 #bottom-notice {
-    z-index: $z_bottom_notice;
+    z-index: var(--z-bottom-notice);
     display: flex !important;
     flex-direction: row;
     position: fixed;
@@ -799,18 +910,18 @@ input::-ms-clear {
     }
     &.warning div {
         height: auto;
-        background: $danger;
+        background: var(--danger);
     }
     &.tricolor {
         cursor: pointer;
         div:nth-child(1) {
-            background: $brand_blue;
+            background: var(--brand-blue);
         }
         div:nth-child(2) {
-            background: $brand_red;
+            background: var(--brand-red);
         }
         div:nth-child(3) {
-            background: $brand_yellow;
+            background: var(--brand-yellow);
         }
         span {
             cursor: text;
@@ -885,14 +996,14 @@ input::-ms-clear {
     font-weight: bold;
 
     &.or {
-        background-color: $blue_300;
+        background-color: var(--blue-light);
         text-align: center;
         max-width: 50px;
     }
 
     &.or-light-grey {
         font-family: Inter;
-        background-color: $light-grey;
+        background-color: var(--light-grey);
         text-align: center;
         max-width: 50px;
     }
@@ -903,8 +1014,8 @@ input::-ms-clear {
     }
 
     &.and {
-        background-color: $yellow_100;
-        color: $primary_alt;
+        background-color: var(--yellow-light);
+        color: var(--primary-alt);
     }
 
     &.pos-center-end {
@@ -917,18 +1028,18 @@ input::-ms-clear {
 // Tags
 
 .simple-tag {
-    border-radius: $radius;
+    border-radius: var(--radius);
     padding: 2px 6px;
 
     &.tag-light-blue {
-        background-color: $blue_100;
+        background-color: var(--blue-lightest);
     }
 }
 
 .lemonade-tag {
-    color: $primary_alt !important;
-    background-color: $bg_mid !important;
-    border-color: $border !important;
+    color: var(--primary-alt) !important;
+    background-color: var(--bg-mid) !important;
+    border-color: var(--border) !important;
 }
 
 // Main app/body styles
@@ -1013,7 +1124,7 @@ body {
     background: rgba(255, 255, 255, 0.5);
     text-align: center;
     min-height: 6rem;
-    z-index: $z_content_overlay;
+    z-index: var(--z-content-overlay);
     display: flex;
     align-items: center;
     justify-content: center;

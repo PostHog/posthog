@@ -9,7 +9,6 @@ import {
 } from '~/types'
 import { EFInsightType } from 'scenes/insights/EditorFilters/EFInsightType'
 import { EFTrendsSteps } from 'scenes/insights/EditorFilters/EFTrendsSteps'
-import { EFTrendsGlobalFilters } from 'scenes/insights/EditorFilters/EFTrendsGlobalFilters'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { EFTrendsGlobalAndOrFilters } from 'scenes/insights/EditorFilters/EFTrendsGlobalAndOrFilters'
 import { EFTrendsFormula } from 'scenes/insights/EditorFilters/EFTrendsFormula'
@@ -32,6 +31,7 @@ import { insightLogic } from '../insightLogic'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { EFPathsAdvancedPaywall } from './EFPathsAdvancedPaywall'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 export interface EditorFiltersProps {
     insightProps: InsightLogicProps
@@ -44,6 +44,7 @@ export function EditorFilters({ insightProps }: EditorFiltersProps): JSX.Element
 
     const logic = insightLogic(insightProps)
     const { filters, insight, filterPropertiesCount } = useValues(logic)
+    const { preflight } = useValues(preflightLogic)
 
     const { advancedOptionsUsedCount } = useValues(funnelLogic(insightProps))
 
@@ -153,9 +154,7 @@ export function EditorFilters({ insightProps }: EditorFiltersProps): JSX.Element
                 hasPropertyFilters && filters.properties
                     ? {
                           key: 'properties',
-                          component: featureFlags[FEATURE_FLAGS.AND_OR_FILTERING]
-                              ? EFTrendsGlobalAndOrFilters
-                              : EFTrendsGlobalFilters,
+                          component: EFTrendsGlobalAndOrFilters,
                       }
                     : null,
             ]),
@@ -213,15 +212,17 @@ export function EditorFilters({ insightProps }: EditorFiltersProps): JSX.Element
                       }
                     : null,
                 isPaths &&
-                    (!hasPathsAdvanced
+                    (hasPathsAdvanced
                         ? {
                               key: 'paths-advanced',
                               component: EFPathsAdvanced,
                           }
-                        : {
+                        : !preflight?.instance_preferences?.disable_paid_fs
+                        ? {
                               key: 'paths-paywall',
                               component: EFPathsAdvancedPaywall,
-                          }),
+                          }
+                        : undefined),
                 isFunnels && {
                     key: 'funnels-advanced',
                     component: EFFunnelsAdvanced,

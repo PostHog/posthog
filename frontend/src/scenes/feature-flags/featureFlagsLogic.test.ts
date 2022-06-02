@@ -19,23 +19,23 @@ describe('the feature flags logic', () => {
 
     it('can set tab to "history"', async () => {
         await expectLogic(logic, () => {
-            logic.actions.setActiveTab('history')
+            logic.actions.setActiveTab(FeatureFlagsTabs.HISTORY)
         }).toMatchValues({ activeTab: FeatureFlagsTabs.HISTORY })
         expect(router.values.searchParams['tab']).toEqual('history')
     })
 
     it('can set tab back to "overview"', async () => {
         await expectLogic(logic, () => {
-            logic.actions.setActiveTab('history')
-            logic.actions.setActiveTab('overview')
+            logic.actions.setActiveTab(FeatureFlagsTabs.HISTORY)
+            logic.actions.setActiveTab(FeatureFlagsTabs.OVERVIEW)
         }).toMatchValues({ activeTab: FeatureFlagsTabs.OVERVIEW })
         expect(router.values.searchParams['tab']).toEqual('overview')
     })
 
     it('ignores unexpected tab keys', async () => {
         await expectLogic(logic, () => {
-            logic.actions.setActiveTab('history')
-            logic.actions.setActiveTab('tomato')
+            logic.actions.setActiveTab(FeatureFlagsTabs.HISTORY)
+            logic.actions.setActiveTab('tomato' as FeatureFlagsTabs)
         }).toMatchValues({
             activeTab: FeatureFlagsTabs.HISTORY,
         })

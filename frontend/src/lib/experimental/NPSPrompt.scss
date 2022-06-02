@@ -1,17 +1,15 @@
-@import '~/vars';
-
 .nps-prompt {
-    background-color: $bg_menu;
-    border-radius: $radius;
-    padding: $default_spacing;
+    background-color: var(--bg-menu);
+    border-radius: var(--radius);
+    padding: 1rem;
     padding-top: 6px;
-    color: $text_light;
+    color: var(--text-light);
     position: fixed;
     bottom: 16px;
     right: 16px;
     width: calc(100% - 32px);
     max-width: 360px;
-    z-index: $z_nps_overlay;
+    z-index: var(--z-nps-overlay);
     font-size: 0.85rem;
     text-align: center;
     transition: transform 1s ease-in-out;
@@ -24,7 +22,7 @@
     .prompt-title {
         font-size: 1rem;
         font-weight: bold;
-        margin-bottom: $default_spacing;
+        margin-bottom: 1rem;
         max-width: 90%;
         margin-left: auto;
         margin-right: auto;
@@ -41,7 +39,7 @@
     .nps-header {
         display: flex;
         align-items: center;
-        margin-bottom: $default_spacing / 2;
+        margin-bottom: 0.5rem;
     }
 
     .nps-progress {
@@ -52,46 +50,46 @@
             width: 12px;
             height: 12px;
             border-radius: 50%;
-            background-color: $border;
-            margin-right: $default_spacing / 2;
+            background-color: var(--border);
+            margin-right: 0.5rem;
             &:last-of-type {
                 margin-right: 0;
             }
             &.completed {
-                background-color: $success;
+                background-color: var(--success);
             }
         }
     }
 
     .question {
         text-align: left;
-        padding-bottom: $default_spacing / 2;
+        padding-bottom: 0.5rem;
     }
 
     .action-buttons {
         .ant-btn {
-            margin-bottom: $default_spacing / 2;
+            margin-bottom: 0.5rem;
             width: 100%;
         }
         width: 200px;
         margin: 0 auto;
-        padding-top: $default_spacing / 2;
+        padding-top: 0.5rem;
     }
 
     .ant-btn:not(.ant-btn-link) {
-        background-color: $bg_depth;
+        background-color: var(--bg-depth);
         border: 1px solid #000;
-        color: $text_light;
+        color: var(--text-light);
     }
 
     textarea {
-        color: $text_light;
-        background-color: $bg_depth;
+        color: var(--text-light);
+        background-color: var(--bg-depth);
         border-color: #000;
     }
 
     .ant-btn-link span {
-        color: $text_light;
+        color: var(--text-light);
         text-decoration: underline !important;
     }
 }

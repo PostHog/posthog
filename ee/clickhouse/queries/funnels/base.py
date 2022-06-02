@@ -37,6 +37,8 @@ class ClickhouseFunnelBase(ABC):
     _include_preceding_timestamp: Optional[bool]
     _extra_event_fields: List[ColumnName]
     _extra_event_properties: List[PropertyName]
+    _include_person_properties: Optional[bool]
+    _include_group_properties: List[int]
 
     def __init__(
         self,
@@ -45,17 +47,21 @@ class ClickhouseFunnelBase(ABC):
         include_timestamp: Optional[bool] = None,
         include_preceding_timestamp: Optional[bool] = None,
         base_uri: str = "/",
+        include_person_properties: Optional[bool] = None,
+        include_group_properties: Optional[List[int]] = None,  # group_type_index for respective group type to get
     ) -> None:
         self._filter = filter
         self._team = team
         self._base_uri = base_uri
         self.params = {
             "team_id": self._team.pk,
-            "timezone": self._team.timezone_for_charts,
+            "timezone": self._team.timezone,
             "events": [],  # purely a speed optimization, don't need this for filtering
         }
         self._include_timestamp = include_timestamp
         self._include_preceding_timestamp = include_preceding_timestamp
+        self._include_person_properties = include_person_properties
+        self._include_group_properties = include_group_properties or []
 
         # handle default if window isn't provided
         if not self._filter.funnel_window_days and not self._filter.funnel_window_interval:
@@ -352,16 +358,26 @@ class ClickhouseFunnelBase(ABC):
         return f"if({' AND '.join(conditions)}, {curr_index}, {self._get_sorting_condition(curr_index - 1, max_steps)})"
 
     def _get_inner_event_query(
-        self, entities=None, entity_name="events", skip_entity_filter=False, skip_step_filter=False, extra_fields=[]
+        self, entities=None, entity_name="events", skip_entity_filter=False, skip_step_filter=False,
     ) -> str:
-        parsed_extra_fields = f", {', '.join(extra_fields)}" if extra_fields else ""
         entities_to_use = entities or self._filter.entities
+
+        extra_fields = []
+        if self._team.actor_on_events_querying_enabled:
+            if self._include_person_properties:
+                extra_fields.append("person_properties")
+
+            for group_index in self._include_group_properties:
+                extra_fields.append(f"group{group_index}_properties")
+
+        parsed_extra_fields = f", {', '.join(extra_fields)}" if extra_fields else ""
 
         event_query, params = FunnelEventQuery(
             filter=self._filter,
             team=self._team,
             extra_fields=[*self._extra_event_fields, *extra_fields],
             extra_event_properties=self._extra_event_properties,
+            using_person_on_events=self._team.actor_on_events_querying_enabled,
         ).get_query(entities_to_use, entity_name, skip_entity_filter=skip_entity_filter)
 
         self.params.update(params)
@@ -438,8 +454,15 @@ class ClickhouseFunnelBase(ABC):
             for action_step in action.steps.all():
                 if entity_name not in self.params[entity_name]:
                     self.params[entity_name].append(action_step.event)
+
             action_query, action_params = format_action_filter(
-                team_id=self._team.pk, action=action, prepend=f"{entity_name}_{step_prefix}step_{index}"
+                team_id=self._team.pk,
+                action=action,
+                prepend=f"{entity_name}_{step_prefix}step_{index}",
+                person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS
+                if self._team.actor_on_events_querying_enabled
+                else PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
+                person_id_joined_alias="person_id",
             )
             if action_query == "":
                 return ""
@@ -459,8 +482,10 @@ class ClickhouseFunnelBase(ABC):
             team_id=self._team.pk,
             property_group=entity.property_groups,
             prepend=str(index),
-            person_properties_mode=PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
-            person_id_joined_alias="aggregation_target",
+            person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS
+            if self._team.actor_on_events_querying_enabled
+            else PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
+            person_id_joined_alias="person_id",
         )
         self.params.update(prop_filter_params)
         return prop_filters
@@ -600,22 +625,46 @@ class ClickhouseFunnelBase(ABC):
         if self._filter.breakdown:
             self.params.update({"breakdown": self._filter.breakdown})
             if self._filter.breakdown_type == "person":
-                return get_single_or_multi_property_string_expr(
-                    self._filter.breakdown, table="person", query_alias="prop"
-                )
+
+                if self._team.actor_on_events_querying_enabled:
+                    return get_single_or_multi_property_string_expr(
+                        self._filter.breakdown,
+                        table="events",
+                        query_alias="prop",
+                        column="person_properties",
+                        allow_denormalized_props=False,
+                    )
+                else:
+                    return get_single_or_multi_property_string_expr(
+                        self._filter.breakdown, table="person", query_alias="prop", column="person_props"
+                    )
             elif self._filter.breakdown_type == "event":
                 return get_single_or_multi_property_string_expr(
-                    self._filter.breakdown, table="events", query_alias="prop"
+                    self._filter.breakdown, table="events", query_alias="prop", column="properties"
                 )
             elif self._filter.breakdown_type == "cohort":
                 return "value AS prop"
             elif self._filter.breakdown_type == "group":
                 # :TRICKY: We only support string breakdown for group properties
                 assert isinstance(self._filter.breakdown, str)
-                properties_field = f"group_properties_{self._filter.breakdown_group_type_index}"
-                expression, _ = get_property_string_expr(
-                    table="groups", property_name=self._filter.breakdown, var="%(breakdown)s", column=properties_field
-                )
+
+                if self._team.actor_on_events_querying_enabled:
+                    properties_field = f"group{self._filter.breakdown_group_type_index}_properties"
+                    expression, _ = get_property_string_expr(
+                        table="events",
+                        property_name=self._filter.breakdown,
+                        var="%(breakdown)s",
+                        column=properties_field,
+                        allow_denormalized_props=False,
+                    )
+                else:
+                    properties_field = f"group_properties_{self._filter.breakdown_group_type_index}"
+                    expression, _ = get_property_string_expr(
+                        table="groups",
+                        property_name=self._filter.breakdown,
+                        var="%(breakdown)s",
+                        column=properties_field,
+                    )
                 return f"{expression} AS prop"
 
         return ""
@@ -660,3 +709,16 @@ class ClickhouseFunnelBase(ABC):
                 return ", prop"
         else:
             return ""
+
+    def _get_person_and_group_properties(self, aggregate: bool = False) -> str:
+        fields = []
+        if self._team.actor_on_events_querying_enabled:
+            if self._include_person_properties:
+                fields.append("any(person_properties) as person_properties" if aggregate else "person_properties")
+
+            for group_index in self._include_group_properties:
+                group_label = f"group{group_index}_properties"
+                fields.append(f"any({group_label}) as {group_label}" if aggregate else group_label)
+
+        parsed_fields = f", {', '.join(fields)}" if fields else ""
+        return parsed_fields

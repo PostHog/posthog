@@ -4,15 +4,15 @@ from typing import Callable, Dict, List, Tuple
 from django.db.models.query import Prefetch
 from rest_framework.request import Request
 
-from ee.clickhouse.models.entity import get_entity_filtering_params
-from ee.clickhouse.models.person import get_persons_by_uuids
 from ee.clickhouse.queries.event_query import EnterpriseEventQuery
 from ee.clickhouse.queries.trends.util import parse_response
 from ee.clickhouse.sql.trends.lifecycle import LIFECYCLE_PEOPLE_SQL, LIFECYCLE_SQL
 from posthog.client import sync_execute
 from posthog.models.entity import Entity
+from posthog.models.entity.util import get_entity_filtering_params
 from posthog.models.filters import Filter
 from posthog.models.filters.mixins.utils import cached_property
+from posthog.models.person.util import get_persons_by_uuids
 from posthog.models.team import Team
 from posthog.queries.person_query import PersonQuery
 from posthog.queries.util import parse_timestamps
@@ -87,7 +87,9 @@ class LifecycleEventQuery(EnterpriseEventQuery):
         date_query, date_params = self._get_date_filter()
         self.params.update(date_params)
 
-        prop_query, prop_params = self._get_prop_groups(self._filter.property_groups)
+        prop_query, prop_params = self._get_prop_groups(
+            self._filter.property_groups, person_id_joined_alias=f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id"
+        )
 
         self.params.update(prop_params)
 

@@ -1,3 +1,9 @@
+#
+# `docker-compose` file used ONLY for hobby deployments.
+#
+# Please take a look at https://posthog.com/docs/self-host/deploy/hobby
+# for more info.
+#
 version: '3'
 
 services:
@@ -21,7 +27,7 @@ services:
         # Note: please keep the default version in sync across
         #       `posthog` and the `charts-clickhouse` repos
         #
-        image: ${CLICKHOUSE_SERVER_IMAGE:-clickhouse/clickhouse-server:21.11.11.1}
+        image: ${CLICKHOUSE_SERVER_IMAGE:-clickhouse/clickhouse-server:22.3}
         restart: on-failure
         depends_on:
             - kafka
@@ -88,6 +94,7 @@ services:
     web:
         <<: *worker
         command: /compose/start
+        restart: on-failure
         ports:
             - '8000:8000'
             - '8234:8234'
@@ -109,7 +116,6 @@ services:
         restart: on-failure
         environment:
             DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
-            KAFKA_ENABLED: 'true'
             KAFKA_HOSTS: 'kafka:9092'
             REDIS_URL: 'redis://redis:6379/'
             CLICKHOUSE_HOST: 'clickhouse'
@@ -122,6 +128,7 @@ services:
 
     object_storage:
         image: minio/minio
+        restart: on-failure
         ports:
             - '19000:19000'
             - '19001:19001'

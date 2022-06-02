@@ -3,7 +3,7 @@ import { router } from 'kea-router'
 import api from 'lib/api'
 import { objectDiffShallow, objectsEqual, toParams } from 'lib/utils'
 import { InsightModel, LayoutView, SavedInsightsTabs } from '~/types'
-import { savedInsightsLogicType } from './savedInsightsLogicType'
+import type { savedInsightsLogicType } from './savedInsightsLogicType'
 import { dayjs } from 'lib/dayjs'
 import { insightsModel } from '~/models/insightsModel'
 import { teamLogic } from '../teamLogic'
@@ -50,7 +50,7 @@ function cleanFilters(values: Partial<SavedInsightFilters>): SavedInsightFilters
     }
 }
 
-export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult, SavedInsightFilters>>({
+export const savedInsightsLogic = kea<savedInsightsLogicType>({
     path: ['scenes', 'saved-insights', 'savedInsightsLogic'],
     connect: {
         values: [teamLogic, ['currentTeamId']],
@@ -60,7 +60,10 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult, Sav
         setSavedInsightsFilters: (filters: Partial<SavedInsightFilters>, merge = true) => ({ filters, merge }),
         updateFavoritedInsight: (insight: InsightModel, favorited: boolean) => ({ insight, favorited }),
         renameInsight: (insight: InsightModel) => ({ insight }),
-        duplicateInsight: (insight: InsightModel) => ({ insight }),
+        duplicateInsight: (insight: InsightModel, redirectToInsight = false) => ({
+            insight,
+            redirectToInsight,
+        }),
         loadInsights: true,
     },
     loaders: ({ values }) => ({
@@ -73,7 +76,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult, Sav
                 const { filters } = values
                 const params = values.paramsFromFilters
                 const response = await api.get(
-                    `api/projects/${teamLogic.values.currentTeamId}/insights/?${toParams(params)}`
+                    `api/projects/${teamLogic.values.currentTeamId}/insights/?${toParams({ ...params, basic: true })}`
                 )
 
                 if (filters.search && String(filters.search).match(/^[0-9]+$/)) {
@@ -233,9 +236,10 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult, Sav
         renameInsight: async ({ insight }) => {
             insightsModel.actions.renameInsight(insight)
         },
-        duplicateInsight: async ({ insight }) => {
-            await api.create(`api/projects/${values.currentTeamId}/insights`, insight)
+        duplicateInsight: async ({ insight, redirectToInsight }) => {
+            const newInsight = await api.create(`api/projects/${values.currentTeamId}/insights`, insight)
             actions.loadInsights()
+            redirectToInsight && router.actions.push(urls.insightView(newInsight.short_id))
         },
         setDates: () => {
             actions.loadInsights()

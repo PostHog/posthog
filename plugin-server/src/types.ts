@@ -27,6 +27,7 @@ import { ActionMatcher } from './worker/ingestion/action-matcher'
 import { HookCommander } from './worker/ingestion/hooks'
 import { OrganizationManager } from './worker/ingestion/organization-manager'
 import { EventsProcessor } from './worker/ingestion/process-event'
+import { SiteUrlManager } from './worker/ingestion/site-url-manager'
 import { TeamManager } from './worker/ingestion/team-manager'
 import { PluginsApiKeyManager } from './worker/vm/extensions/helpers/api-key-manager'
 import { RootAccessManager } from './worker/vm/extensions/helpers/root-acess-manager'
@@ -68,7 +69,6 @@ export interface PluginsServerConfig extends Record<string, any> {
     WORKER_CONCURRENCY: number
     TASKS_PER_WORKER: number
     TASK_TIMEOUT: number
-    CELERY_DEFAULT_QUEUE: string
     DATABASE_URL: string | null
     POSTHOG_DB_NAME: string | null
     POSTHOG_DB_USER: string
@@ -81,7 +81,6 @@ export interface PluginsServerConfig extends Record<string, any> {
     CLICKHOUSE_PASSWORD: string | null
     CLICKHOUSE_CA: string | null
     CLICKHOUSE_SECURE: boolean
-    KAFKA_ENABLED: boolean
     KAFKA_HOSTS: string
     KAFKA_CLIENT_CERT_B64: string | null
     KAFKA_CLIENT_CERT_KEY_B64: string | null
@@ -94,7 +93,6 @@ export interface PluginsServerConfig extends Record<string, any> {
     KAFKA_PRODUCER_MAX_QUEUE_SIZE: number
     KAFKA_MAX_MESSAGE_BATCH_SIZE: number
     KAFKA_FLUSH_FREQUENCY_MS: number
-    PLUGINS_CELERY_QUEUE: string
     REDIS_URL: string
     POSTHOG_REDIS_PASSWORD: string
     POSTHOG_REDIS_HOST: string
@@ -149,6 +147,7 @@ export interface PluginsServerConfig extends Record<string, any> {
     OBJECT_STORAGE_SECRET_ACCESS_KEY: string
     OBJECT_STORAGE_SESSION_RECORDING_FOLDER: string
     OBJECT_STORAGE_BUCKET: string
+    PLUGIN_SERVER_MODE: 'ingestion' | 'async' | null
 }
 
 export interface Hub extends PluginsServerConfig {
@@ -187,6 +186,7 @@ export interface Hub extends PluginsServerConfig {
     hookCannon: HookCommander
     eventsProcessor: EventsProcessor
     jobQueueManager: JobQueueManager
+    siteUrlManager: SiteUrlManager
     // diagnostics
     lastActivity: number
     lastActivityType: string
@@ -198,17 +198,8 @@ export interface PluginServerCapabilities {
     ingestion?: boolean
     pluginScheduledTasks?: boolean
     processJobs?: boolean
-}
-
-export interface Pausable {
-    pause: () => Promise<void> | void
-    resume: () => Promise<void> | void
-    isPaused: () => boolean
-}
-
-export interface Queue extends Pausable {
-    start: () => Promise<void> | void
-    stop: () => Promise<void> | void
+    processAsyncHandlers?: boolean
+    http?: boolean
 }
 
 export type OnJobCallback = (queue: EnqueuedJob[]) => Promise<void> | void
@@ -395,6 +386,7 @@ export interface PluginTask {
 
 export type WorkerMethods = {
     runBufferEventPipeline: (event: PreIngestionEvent) => Promise<IngestEventResponse>
+    runAsyncHandlersEventPipeline: (event: IngestionEvent) => Promise<void>
     runEventPipeline: (event: PluginEvent) => Promise<void>
 }
 
@@ -406,7 +398,6 @@ export type VMMethods = {
     onSnapshot?: (event: ProcessedPluginEvent) => Promise<void>
     exportEvents?: (events: PluginEvent[]) => Promise<void>
     processEvent?: (event: PluginEvent) => Promise<PluginEvent>
-    handleAlert?: (alert: Alert) => Promise<void>
 }
 
 export enum AlertLevel {
@@ -903,11 +894,7 @@ export interface EventPropertyType {
     team_id: number
 }
 
-export type PluginFunction = 'onEvent' | 'onAction' | 'processEvent' | 'onSnapshot' | 'pluginTask' | 'handleAlert'
-
-export enum CeleryTriggeredJobOperation {
-    Start = 'start',
-}
+export type PluginFunction = 'onEvent' | 'onAction' | 'processEvent' | 'onSnapshot' | 'pluginTask'
 
 export type GroupTypeToColumnIndex = Record<string, GroupTypeIndex>
 
@@ -931,11 +918,6 @@ export enum OrganizationMembershipLevel {
     Owner = 15,
 }
 
-export enum PluginServerMode {
-    Ingestion = 'INGESTION',
-    Runner = 'RUNNER',
-}
-
 export interface PreIngestionEvent {
     eventUuid: string
     event: string
@@ -945,5 +927,6 @@ export interface PreIngestionEvent {
     properties: Properties
     timestamp: DateTime | string
     elementsList: Element[]
-    siteUrl: string
 }
+
+export type IngestionEvent = PreIngestionEvent

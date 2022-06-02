@@ -1,53 +1,51 @@
-@import '~/vars';
-
 .funnel-correlation {
-    margin-bottom: $default_spacing * 3;
+    margin-bottom: 3rem;
 
     .skew-warning {
-        margin-top: $default_spacing;
+        margin-top: 1rem;
         line-height: 2em;
-        border: 1px solid $warning;
+        border: 1px solid var(--warning);
 
         .ant-card-body {
-            padding: $default_spacing / 2 $default_spacing;
+            padding: 0.5rem 1rem;
         }
 
         h4 {
             font-size: 1.1em;
             display: flex;
             align-items: center;
-            border-bottom: 1px solid $border;
-            padding: $default_spacing / 2 $default_spacing;
-            margin-left: -$default_spacing;
-            margin-right: -$default_spacing;
+            border-bottom: 1px solid var(--border);
+            padding: 0.5rem 1rem;
+            margin-left: -1rem;
+            margin-right: -1rem;
             position: relative;
 
             .close-button {
                 position: absolute;
                 right: 16px;
-                color: $text_muted !important;
+                color: var(--text-muted) !important;
                 cursor: pointer;
             }
         }
 
         b {
-            padding-bottom: $default_spacing / 2;
-            font-weight: $medium;
+            padding-bottom: 0.5rem;
+            font-weight: var(--font-medium);
         }
     }
 
     .correlation-feedback {
-        margin-top: $default_spacing;
+        margin-top: 1rem;
 
         .ant-card-body {
-            padding: $default_spacing / 2 $default_spacing;
+            padding: 0.5rem 1rem;
         }
 
         h4 {
             padding: 0;
             margin: 0;
             font-weight: bold;
-            color: $text_muted_alt;
+            color: var(--text-muted-alt);
         }
 
         .emoji-button {
@@ -69,13 +67,13 @@
         }
 
         .close-button {
-            color: $text_muted !important;
+            color: var(--text-muted) !important;
             cursor: pointer;
-            z-index: $z_raised;
+            z-index: var(--z-raised);
         }
 
         .feedback-button {
-            margin: $default_spacing 0;
+            margin: 1rem 0;
         }
     }
 }

@@ -1,4 +1,4 @@
-import { EnqueuedJob, JobQueue, OnJobCallback, PluginsServerConfig } from '../../types'
+import { EnqueuedJob, JobQueue, OnJobCallback } from '../../types'
 
 export class JobQueueBase implements JobQueue {
     started: boolean
@@ -22,7 +22,7 @@ export class JobQueueBase implements JobQueue {
     }
 
     enqueue(retry: EnqueuedJob): void
-    // eslint-disable-next-line @typescript-eslint/require-await
+    // eslint-disable-next-line @typescript-eslint/require-await, @typescript-eslint/no-unused-vars
     async enqueue(retry: EnqueuedJob): Promise<void> {
         throw new Error('enqueue() not implemented for job queue!')
     }
@@ -34,7 +34,6 @@ export class JobQueueBase implements JobQueue {
     }
 
     startConsumer(onJob: OnJobCallback): void
-    // eslint-disable-next-line @typescript-eslint/require-await
     async startConsumer(onJob: OnJobCallback): Promise<void> {
         this.onJob = onJob
         if (!this.started) {
@@ -44,14 +43,12 @@ export class JobQueueBase implements JobQueue {
     }
 
     stopConsumer(): void
-    // eslint-disable-next-line @typescript-eslint/require-await
     async stopConsumer(): Promise<void> {
         this.started = false
         await this.syncState()
     }
 
     pauseConsumer(): void
-    // eslint-disable-next-line @typescript-eslint/require-await
     async pauseConsumer(): Promise<void> {
         this.paused = true
         await this.syncState()
@@ -62,7 +59,6 @@ export class JobQueueBase implements JobQueue {
     }
 
     resumeConsumer(): void
-    // eslint-disable-next-line @typescript-eslint/require-await
     async resumeConsumer(): Promise<void> {
         if (this.paused) {
             this.paused = false
@@ -80,7 +76,6 @@ export class JobQueueBase implements JobQueue {
             if (this.timeout) {
                 clearTimeout(this.timeout)
             }
-            // eslint-disable-next-line @typescript-eslint/await-thenable
             const hadSomething = await this.readState()
             this.timeout = setTimeout(() => this.syncState(), hadSomething ? 0 : this.intervalSeconds * 1000)
         } else {

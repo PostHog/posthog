@@ -26,11 +26,6 @@ CONSTANCE_CONFIG = {
         "Whether unique users should be counted by distinct IDs. Speeds up queries at the cost of accuracy.",
         str,
     ),
-    "NEW_COHORT_QUERY_TEAMS": (
-        get_from_env("NEW_COHORT_QUERY_TEAMS", ""),
-        "Whether cohort calculations should use the new query or the old query.",
-        str,
-    ),
     "ENABLE_ACTOR_ON_EVENTS_TEAMS": (
         get_from_env("ENABLE_ACTOR_ON_EVENTS_TEAMS", ""),
         "Whether to use query path using person_id, person_properties, and group_properties on events or the old query",
@@ -108,6 +103,7 @@ CONSTANCE_CONFIG = {
         "Used to disable emails from async migrations service",
         bool,
     ),
+    "INGESTION_SITE_URL": (None, "Used in ingestion pipeline to determine sites url", str),
 }
 
 SETTINGS_ALLOWING_API_OVERRIDE = (
@@ -127,7 +123,7 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "EMAIL_DEFAULT_FROM",
     "EMAIL_REPLY_TO",
     "ASYNC_MIGRATIONS_OPT_OUT_EMAILS",
-    "NEW_COHORT_QUERY_TEAMS",
+    "ENABLE_ACTOR_ON_EVENTS_TEAMS",
 )
 
 # SECRET_SETTINGS can only be updated but will never be exposed through the API (we do store them plain text in the DB)

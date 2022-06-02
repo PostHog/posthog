@@ -1,6 +1,6 @@
 import { kea } from 'kea'
 import { objectsEqual } from 'lib/utils'
-import { intervalFilterLogicType } from './intervalFilterLogicType'
+import type { intervalFilterLogicType } from './intervalFilterLogicType'
 import { IntervalKeyType } from 'lib/components/IntervalFilter/intervals'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { InsightLogicProps } from '~/types'

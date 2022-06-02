@@ -37,6 +37,7 @@ class ClickhouseTrendsTotalVolume:
             if join_condition != ""
             or (entity.math in [WEEKLY_ACTIVE, MONTHLY_ACTIVE] and not team.aggregate_users_by_distinct_id)
             else False,
+            using_person_on_events=team.actor_on_events_querying_enabled,
         )
         event_query, event_query_params = trend_event_query.get_query()
 
@@ -45,7 +46,7 @@ class ClickhouseTrendsTotalVolume:
             "timestamp": "e.timestamp",
             "interval": trunc_func,
         }
-        params: Dict = {"team_id": team.id, "timezone": team.timezone_for_charts}
+        params: Dict = {"team_id": team.id, "timezone": team.timezone}
         params = {**params, **math_params, **event_query_params}
 
         if filter.display in NON_TIME_SERIES_DISPLAY_TYPES:
