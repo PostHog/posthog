@@ -31,7 +31,7 @@ import { Tooltip } from 'lib/components/Tooltip'
 import { LemonButton } from 'lib/components/LemonButton'
 import { IconExport } from 'lib/components/icons'
 import { FunnelStepsTable } from './InsightTabs/FunnelTab/FunnelStepsTable'
-import { Player } from '@lottiefiles/react-lottie-player'
+import { LoadingHog } from 'lib/components/LoadingHog/LoadingHog'
 
 const VIEW_MAP = {
     [`${InsightType.TRENDS}`]: <TrendInsight view={InsightType.TRENDS} />,
@@ -73,23 +73,7 @@ export function InsightContainer(
     // Empty states that completely replace the graph
     const BlockingEmptyState = (() => {
         if (activeView !== loadedView || (insightLoading && !showTimeoutMessage)) {
-            return (
-                <>
-                    <Player
-                        autoplay
-                        loop
-                        src="https://assets4.lottiefiles.com/packages/lf20_c96ZBR.json"
-                        style={{ height: '300px', width: '300px' }}
-                    />
-                    <br />
-                    <br />
-                    {/*{filters.display !== ChartDisplayType.ActionsTable &&*/}
-                    {/*    filters.display !== ChartDisplayType.WorldMap && (*/}
-                    {/* Tables and world map don't need this padding, but graphs do for sizing */}
-                    {/*        <div className="trends-insights-container" />*/}
-                    {/*    )}*/}
-                </>
-            )
+            return <LoadingHog />
         }
         // Insight specific empty states - note order is important here
         if (loadedView === InsightType.FUNNELS) {
