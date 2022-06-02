@@ -14,7 +14,7 @@ export enum DefinitionPageMode {
     Edit = 'edit',
 }
 
-const createNewDefinition = (isEvent: boolean): Definition => ({
+export const createNewDefinition = (isEvent: boolean): Definition => ({
     id: 'new',
     name: `New ${isEvent ? 'Event' : 'Event property'}`,
     volume_30_day: null,
