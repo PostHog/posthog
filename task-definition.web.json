@@ -190,7 +190,7 @@
                 },
                 {
                     "name": "KAFKA_URL",
-                    "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:MSKProduction-ZnkrjC:MSK_BROKER_URLS::"
+                    "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:MSKProduction-ZnkrjC:KAFKA_URL::"
                 },
                 {
                     "name": "POSTHOG_PERSONAL_API_KEY",
