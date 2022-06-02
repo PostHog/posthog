@@ -31,7 +31,8 @@ import { Tooltip } from 'lib/components/Tooltip'
 import { LemonButton } from 'lib/components/LemonButton'
 import { IconExport } from 'lib/components/icons'
 import { FunnelStepsTable } from './InsightTabs/FunnelTab/FunnelStepsTable'
-import { LoadingHog } from 'lib/components/LoadingHog/LoadingHog'
+import { Animation } from 'lib/components/Animation/Animation'
+import { AnimationType } from 'lib/animations/animations'
 
 const VIEW_MAP = {
     [`${InsightType.TRENDS}`]: <TrendInsight view={InsightType.TRENDS} />,
@@ -73,7 +74,11 @@ export function InsightContainer(
     // Empty states that completely replace the graph
     const BlockingEmptyState = (() => {
         if (activeView !== loadedView || (insightLoading && !showTimeoutMessage)) {
-            return <LoadingHog />
+            return (
+                <div className="text-center">
+                    <Animation type={AnimationType.LaptopHog} />
+                </div>
+            )
         }
         // Insight specific empty states - note order is important here
         if (loadedView === InsightType.FUNNELS) {
