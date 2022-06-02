@@ -38,7 +38,6 @@
         "prettier": "prettier --write \"./**/*.{js,mjs,ts,tsx,json,yaml,yml,css,scss}\"",
         "prettier:check": "prettier --check \"./**/*.{js,mjs,ts,tsx,json,yaml,yml,css,scss}\"",
         "typescript:check": "yarn typegen:write &> /dev/null && tsc --strict",
-        "typescript:clean": "tsc --build --clean",
         "eslint": "eslint frontend/src",
         "typegen:write": "kea-typegen write",
         "typegen:check": "kea-typegen check",
