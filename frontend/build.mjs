@@ -30,11 +30,7 @@ export function writeSourceCodeEditorTypes() {
         '@types/kea/index.d.ts': readFile('../node_modules/kea/lib/index.d.ts'),
         '@posthog/apps-common/index.d.ts': readFile('./packages/apps-common/dist/index.d.ts'),
     }
-    fse.mkdirpSync(path.resolve(__dirname, './src/scenes/plugins/source/types'))
-    fse.writeFileSync(
-        path.resolve(__dirname, './src/scenes/plugins/source/types/packages.json'),
-        JSON.stringify(types, null, 4) + '\n'
-    )
+    fse.writeFileSync(path.resolve(__dirname, './packages/imports.json'), JSON.stringify(types, null, 4) + '\n')
 }
 
 export function writeIndexHtml(chunks = {}, entrypoints = []) {

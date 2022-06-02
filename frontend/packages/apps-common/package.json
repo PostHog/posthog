@@ -7,7 +7,7 @@
     "types": "dist/index.d.ts",
     "scripts": {
         "build": "echo \"This package is built via the main build script.\" && exit 1",
-        "build:types": "tsup index.ts --dts-only"
+        "build:types": "echo \"Building types for @posthog/apps-common\" && tsup index.ts --dts-only"
     },
     "devDependencies": {
         "antd": "^4.20.7",
