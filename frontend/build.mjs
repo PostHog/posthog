@@ -30,6 +30,7 @@ export function writeSourceCodeEditorTypes() {
         '@types/kea/index.d.ts': readFile('../node_modules/kea/lib/index.d.ts'),
         '@posthog/apps-common/index.d.ts': readFile('./packages/apps-common/dist/index.d.ts'),
     }
+    fse.mkdirpSync(path.resolve(__dirname, './src/scenes/plugins/source/types'))
     fse.writeFileSync(
         path.resolve(__dirname, './src/scenes/plugins/source/types/packages.json'),
         JSON.stringify(types, null, 4) + '\n'
@@ -52,24 +53,10 @@ export function writeExporterHtml(chunks = {}, entrypoints = []) {
 startDevServer()
 copyPublicFolder()
 
-// Build packages
-await buildInParallel([
-    {
-        name: 'Apps Common',
-        entryPoints: ['packages/apps-common/index.ts'],
-        bundle: true,
-        format: 'iife',
-        outfile: path.resolve(__dirname, 'packages', 'apps-common', 'dist', 'index.js'),
-        chunkNames: '[name]',
-        entryNames: '[dir]/[name]',
-    },
-])
-
 writeSourceCodeEditorTypes()
 writeIndexHtml()
 writeSharedDashboardHtml()
 
-// Build main bundles
 let buildsInProgress = 0
 await buildInParallel(
     [
@@ -101,6 +88,15 @@ await buildInParallel(
             bundle: true,
             format: 'iife',
             outfile: path.resolve(__dirname, 'dist', 'toolbar.js'),
+        },
+        {
+            name: 'Apps Common',
+            entryPoints: ['packages/apps-common/index.ts'],
+            bundle: true,
+            format: 'iife',
+            outfile: path.resolve(__dirname, 'packages', 'apps-common', 'dist', 'index.js'),
+            chunkNames: '[name]',
+            entryNames: '[dir]/[name]',
         },
     ],
     {
