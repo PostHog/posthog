@@ -75,10 +75,6 @@
                     "value": "True"
                 },
                 {
-                    "name": "KAFKA_BASE64_KEYS",
-                    "value": "True"
-                },
-                {
                     "name": "SITE_URL",
                     "value": "https://app.posthog.com"
                 },
