@@ -311,9 +311,9 @@ def recalculate_cohortpeople(cohort: Cohort, pending_version: int) -> Optional[i
         GET_TEAM_PERSON_DISTINCT_IDS=get_team_distinct_ids_query(cohort.team_id),
     )
 
-    insert_cohortpeople_sql = RECALCULATE_COHORT_BY_ID.format(cohort_filter=cohort_filter)
+    recalcluate_cohortpeople_sql = RECALCULATE_COHORT_BY_ID.format(cohort_filter=cohort_filter)
     sync_execute(
-        insert_cohortpeople_sql,
+        recalcluate_cohortpeople_sql,
         {**cohort_params, "cohort_id": cohort.pk, "team_id": cohort.team_id, "new_version": pending_version,},
     )
 
@@ -385,7 +385,7 @@ def simplified_cohort_filter_properties(cohort: Cohort, team: Team, is_negated=F
 def _get_cohort_ids_by_person_uuid(uuid: str, team_id: int) -> List[int]:
     res = sync_execute(GET_COHORTS_BY_PERSON_UUID, {"person_id": uuid, "team_id": team_id})
     versioned_res = sync_execute(GET_COHORTS_BY_PERSON_UUID_VERSIONED, {"person_id": uuid, "team_id": team_id})
-    return [row[0] for row in res] + [row[0] for row in versioned_res]
+    return list(set([row[0] for row in res] + [row[0] for row in versioned_res]))
 
 
 def _get_static_cohort_ids_by_person_uuid(uuid: str, team_id: int) -> List[int]:

@@ -96,7 +96,7 @@ HAVING sum(sign) > 0
 """
 
 GET_COHORTS_BY_PERSON_UUID_VERSIONED = """
-SELECT cohort_id
+SELECT DISTINCT cohort_id
 FROM cohortpeople2
 WHERE team_id = %(team_id)s AND person_id = %(person_id)s
 GROUP BY person_id, cohort_id, team_id, version
