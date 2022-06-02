@@ -12,7 +12,7 @@ from ee.clickhouse.queries.funnels.test.breakdown_cases import (
 )
 from ee.clickhouse.queries.funnels.test.conversion_time_cases import funnel_conversion_time_test_factory
 from ee.clickhouse.test.test_journeys import journeys_for
-from ee.clickhouse.util import ClickhouseTestMixin
+from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
 from posthog.constants import INSIGHT_FUNNELS
 from posthog.models.action import Action
 from posthog.models.action_step import ActionStep
@@ -457,6 +457,72 @@ class TestFunnelUnorderedStepsBreakdown(ClickhouseTestMixin, funnel_breakdown_te
         )
 
         self.assertCountEqual(self._get_actor_ids_at_step(filter, 1, "alakazam"), [people["person4"].uuid])
+
+    @snapshot_clickhouse_queries
+    def test_funnel_breakdown_correct_breakdown_props_are_chosen_for_step(self):
+        # No person querying here, so snapshots are more legible
+        # overridden from factory, since we need to add `funnel_order_type`
+
+        filters = {
+            "events": [
+                {"id": "sign up", "order": 0},
+                {"id": "buy", "properties": [{"type": "event", "key": "$version", "value": "xyz"}], "order": 1},
+            ],
+            "insight": INSIGHT_FUNNELS,
+            "date_from": "2020-01-01",
+            "date_to": "2020-01-08",
+            "funnel_window_days": 7,
+            "breakdown_type": "event",
+            "breakdown": "$browser",
+            "breakdown_attribution_type": "step",
+            "breakdown_attribution_value": "1",
+            "funnel_order_type": "unordered",
+        }
+
+        filter = Filter(data=filters)
+        funnel = ClickhouseFunnelUnordered(filter, self.team)
+
+        # event
+        events_by_person = {
+            "person1": [
+                {
+                    "event": "sign up",
+                    "timestamp": datetime(2020, 1, 1, 12),
+                    "properties": {"$browser": "Chrome", "$version": "xyz"},
+                },
+                {"event": "buy", "timestamp": datetime(2020, 1, 1, 13), "properties": {"$browser": "Chrome"},},
+                # discarded because doesn't meet criteria
+            ],
+            "person2": [
+                {"event": "sign up", "timestamp": datetime(2020, 1, 1, 13),},
+                {
+                    "event": "buy",
+                    "timestamp": datetime(2020, 1, 2, 13),
+                    "properties": {"$browser": "Safari", "$version": "xyz"},
+                },
+            ],
+            "person3": [
+                {"event": "sign up", "timestamp": datetime(2020, 1, 2, 14), "properties": {"$browser": "Mac"}},
+                {
+                    "event": "buy",
+                    "timestamp": datetime(2020, 1, 2, 15),
+                    "properties": {"$version": "xyz", "$browser": "Mac"},
+                },
+            ],
+            # no properties dude, doesn't make it to step 1, and since breakdown on step 1, is discarded completely
+            "person5": [
+                {"event": "sign up", "timestamp": datetime(2020, 1, 2, 15),},
+                {"event": "buy", "timestamp": datetime(2020, 1, 2, 16),},
+            ],
+        }
+        people = journeys_for(events_by_person, self.team)
+
+        result = funnel.run()
+        result = sorted(result, key=lambda res: res[0]["breakdown"])
+
+        self.assertEqual(len(result), 3)
+
+        self.assertCountEqual([res[0]["breakdown"] for res in result], [[""], ["Mac"], ["Safari"]])
 
 
 class TestFunnelUnorderedStepsConversionTime(ClickhouseTestMixin, funnel_conversion_time_test_factory(ClickhouseFunnelUnordered, ClickhouseFunnelUnorderedActors, _create_event, _create_person)):  # type: ignore

@@ -45,7 +45,7 @@ def get_breakdown_prop_values(
     column_optimizer = column_optimizer or EnterpriseColumnOptimizer(filter, team.id)
     parsed_date_from, parsed_date_to, date_params = parse_timestamps(filter=filter, team=team)
 
-    if use_all_funnel_entities:
+    if not use_all_funnel_entities:
         props_to_filter = filter.property_groups.combine_property_group(
             PropertyOperatorType.AND, entity.property_groups
         )
