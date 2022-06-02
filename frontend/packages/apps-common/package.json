@@ -1,12 +1,12 @@
 {
     "name": "@posthog/apps-common",
     "version": "0.0.0",
+    "license": "MIT",
     "source": "index.ts",
     "module": "dist/index.js",
     "types": "dist/index.d.ts",
     "scripts": {
-        "build": "yarn build:source && yarn build:types",
-        "build:source": "cd ../.. && yarn build",
+        "build": "echo \"This package is built via the main build script.\" && exit 1",
         "build:types": "tsup index.ts --dts-only"
     },
     "devDependencies": {
