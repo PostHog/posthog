@@ -10,7 +10,7 @@ import { LemonButton } from 'lib/components/LemonButton'
 import { AlertMessage } from 'lib/components/AlertMessage'
 import { LemonModal } from 'lib/components/LemonModal'
 import { LemonDivider } from 'lib/components/LemonDivider'
-import { LemonTextArea } from '~/packages/apps-common'
+import { LemonInput, LemonTextArea } from '~/packages/apps-common'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { OrganizationInviteType } from '~/types'
 import { userLogic } from 'scenes/userLogic'
@@ -44,20 +44,21 @@ function InviteRow({ index, isDeletable }: { index: number; isDeletable: boolean
     const { updateInviteAtIndex, inviteTeamMembers, deleteInviteAtIndex } = useActions(inviteLogic)
     const { preflight } = useValues(preflightLogic)
 
+    preflight.email_service_available = true
+
     return (
         <Row gutter={16} className="invite-row" align="middle">
             <Col xs={11}>
-                <Input
+                <LemonInput
                     placeholder={`${name.toLowerCase()}@posthog.com`}
                     type="email"
                     className={`error-on-blur${!invitesToSend[index]?.isValid ? ' errored' : ''}`}
-                    onChange={(e) => {
-                        const { value } = e.target
+                    onChange={(v) => {
                         let isValid = true
-                        if (value && !isEmail(value)) {
+                        if (v && !isEmail(v)) {
                             isValid = false
                         }
-                        updateInviteAtIndex({ target_email: e.target.value, isValid }, index)
+                        updateInviteAtIndex({ target_email: v, isValid }, index)
                     }}
                     style={{ padding: 16 }}
                     value={invitesToSend[index]?.target_email}
@@ -84,10 +85,10 @@ function InviteRow({ index, isDeletable }: { index: number; isDeletable: boolean
                         Submit
                     </LemonButton>
                 ) : (
-                    <Input
+                    <LemonInput
                         placeholder={name}
-                        onChange={(e) => {
-                            updateInviteAtIndex({ first_name: e.target.value }, index)
+                        onChange={(v) => {
+                            updateInviteAtIndex({ first_name: v }, index)
                         }}
                         style={{ padding: 16 }}
                         onKeyDown={(e) => {
@@ -126,6 +127,7 @@ export function InviteModal({ visible, onClose }: { visible: boolean; onClose: (
                     resetInviteRows()
                     onClose()
                 }}
+                destroyOnClose
                 closable={false}
                 title={
                     <div className="invite-modal-header">
