@@ -168,7 +168,7 @@ function getChunks(result) {
     return chunks
 }
 
-export async function buildInParallel(configs, { onBuildStart, onBuildComplete }) {
+export async function buildInParallel(configs, { onBuildStart, onBuildComplete } = {}) {
     await Promise.all(
         configs.map((config) =>
             buildOrWatch({
