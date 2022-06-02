@@ -1,4 +1,4 @@
-import { kea, props, path, key, connect, selectors } from 'kea'
+import { connect, kea, key, path, props, selectors } from 'kea'
 import { AvailableFeature, Definition, EventDefinition, PropertyDefinition } from '~/types'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
@@ -6,7 +6,11 @@ import api from 'lib/api'
 import { lemonToast } from 'lib/components/lemonToast'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
-import { definitionLogic, DefinitionLogicProps } from 'scenes/data-management/definition/definitionLogic'
+import {
+    definitionLogic,
+    DefinitionLogicProps,
+    DefinitionPageMode,
+} from 'scenes/data-management/definition/definitionLogic'
 import type { definitionEditLogicType } from './definitionEditLogicType'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { userLogic } from 'scenes/userLogic'
@@ -42,7 +46,7 @@ export const definitionEditLogic = kea<definitionEditLogicType>([
             },
         },
     })),
-    loaders(({ values, props }) => ({
+    loaders(({ values, props, actions }) => ({
         definition: [
             { ...props.definition } as Definition,
             {
@@ -81,7 +85,9 @@ export const definitionEditLogic = kea<definitionEditLogicType>([
                     }
 
                     lemonToast.success(`${capitalizeFirstLetter(values.singular)} saved`)
-                    eventDefinitionsModel.actions.loadEventDefinitions() // reload definitions so they are immediately available
+                    eventDefinitionsModel.actions.loadEventDefinitions(true) // reload definitions so they are immediately available
+                    actions.setPageMode(DefinitionPageMode.View)
+                    actions.setDefinition(definition)
                     return definition
                 },
             },
