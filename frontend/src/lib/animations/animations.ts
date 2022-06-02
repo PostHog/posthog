@@ -5,10 +5,8 @@ import sportshog from './sportshog.lottie'
 /**
  * We're keeping lottiefiles in this folder.
  *
- * Keep the filename as `.lottie`, otherwise prettier will explode their size.
- * We're just `fetch`-ing these files, so let's treat them as binaries.
- *
- * Add new animations to AnimiationType
+ * Even though these are `.json` files, we keep their filenames as `.lottie`. Doing otherwise makes prettier
+ * explode their size. We're just `fetch`-ing these files, so let's treat them as binaries.
  *
  * See more: https://lottiefiles.com/
  */
