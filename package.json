@@ -37,7 +37,7 @@
         "build:esbuild": "node frontend/build.mjs",
         "prettier": "prettier --write \"./**/*.{js,mjs,ts,tsx,json,yaml,yml,css,scss}\"",
         "prettier:check": "prettier --check \"./**/*.{js,mjs,ts,tsx,json,yaml,yml,css,scss}\"",
-        "typescript:check": "yarn typegen:write && tsc --strict",
+        "typescript:check": "tsc --noEmit --strict && echo \"No errors reported by tsc.\"",
         "eslint": "eslint frontend/src",
         "typegen:write": "kea-typegen write",
         "typegen:check": "kea-typegen check",
