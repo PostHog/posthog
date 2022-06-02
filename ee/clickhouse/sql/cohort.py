@@ -62,7 +62,7 @@ FROM (
 WHERE person.is_deleted = 0
 AND id IN ({cohort_filter})
 UNION ALL
-SELECT person_id, cohort_id, team_id, -1 as sign, version
+SELECT person_id, cohort_id, team_id, -1, version
 FROM cohortpeople2
 WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s AND version = %(previous_version)s AND sign = 1
 """
