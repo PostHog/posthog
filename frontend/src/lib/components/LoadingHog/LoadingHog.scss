@@ -4,4 +4,7 @@
     aspect-ratio: 1/1;
     opacity: 1;
     transition: 400ms ease opacity;
+    .LoadingHog__hidden {
+        opacity: 0;
+    }
 }
