@@ -24,7 +24,7 @@ def mutable_receiver(*args, **kwargs):
 
 
 @contextmanager
-def mute_signals():
+def muted_signals():
     global is_muted
     try:
         is_muted = True

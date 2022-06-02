@@ -11,7 +11,7 @@ from posthog.constants import AvailableFeature
 from posthog.event_usage import report_organization_deleted
 from posthog.models import Organization, User
 from posthog.models.organization import OrganizationMembership
-from posthog.models.signals import mute_signals
+from posthog.models.signals import muted_signals
 from posthog.permissions import (
     CREATE_METHODS,
     OrganizationAdminWritePermissions,
@@ -166,5 +166,5 @@ class OrganizationViewSet(viewsets.ModelViewSet):
         report_organization_deleted(user, organization)
         team_ids = [team.pk for team in organization.teams.all()]
         delete_clickhouse_data.delay(team_ids=team_ids)
-        with mute_signals():
+        with muted_signals():
             super().perform_destroy(organization)
