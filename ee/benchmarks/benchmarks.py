@@ -4,13 +4,13 @@ from .helpers import *
 from datetime import timedelta
 from typing import List, Tuple
 from ee.clickhouse.materialized_columns import backfill_materialized_columns, get_materialized_columns, materialize
-from ee.clickhouse.queries.stickiness.stickiness import ClickhouseStickiness
+from ee.clickhouse.queries.stickiness import ClickhouseStickiness
 from ee.clickhouse.queries.funnels.funnel_correlation import FunnelCorrelation
 from ee.clickhouse.queries.funnels import ClickhouseFunnel
 from ee.clickhouse.queries.property_values import get_property_values_for_key, get_person_property_values_for_key
 from ee.clickhouse.queries.trends.clickhouse_trends import ClickhouseTrends
 from ee.clickhouse.queries.session_recordings.clickhouse_session_recording_list import ClickhouseSessionRecordingList
-from ee.clickhouse.queries.retention.clickhouse_retention import ClickhouseRetention
+from ee.clickhouse.queries.retention import ClickhouseRetention
 from posthog.queries.util import get_earliest_timestamp
 from posthog.models import Action, ActionStep, Cohort, Team, Organization
 from posthog.models.filters.retention_filter import RetentionFilter

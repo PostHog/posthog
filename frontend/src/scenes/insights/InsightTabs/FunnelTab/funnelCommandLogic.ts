@@ -3,7 +3,7 @@ import { Command, commandPaletteLogic, CommandResultTemplate } from 'lib/compone
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { FunnelPlotOutlined } from '@ant-design/icons'
 
-import { funnelCommandLogicType } from './funnelCommandLogicType'
+import type { funnelCommandLogicType } from './funnelCommandLogicType'
 
 const FUNNEL_COMMAND_SCOPE = 'funnels'
 

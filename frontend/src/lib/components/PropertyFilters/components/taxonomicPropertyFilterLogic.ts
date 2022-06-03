@@ -1,7 +1,7 @@
 import { kea } from 'kea'
 import { TaxonomicPropertyFilterLogicProps } from 'lib/components/PropertyFilters/types'
 import { AnyPropertyFilter, PropertyFilterValue, PropertyOperator } from '~/types'
-import { taxonomicPropertyFilterLogicType } from './taxonomicPropertyFilterLogicType'
+import type { taxonomicPropertyFilterLogicType } from './taxonomicPropertyFilterLogicType'
 import { cohortsModel } from '~/models/cohortsModel'
 import { TaxonomicFilterGroup } from 'lib/components/TaxonomicFilter/types'
 import {

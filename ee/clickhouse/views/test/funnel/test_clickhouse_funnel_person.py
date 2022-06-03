@@ -139,7 +139,7 @@ class TestFunnelPerson(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(10, len(people))
         self.assertEqual(None, j["next"])
 
-    @patch("ee.clickhouse.models.person.delete_person")
+    @patch("posthog.models.person.util.delete_person")
     def test_basic_pagination_with_deleted(self, delete_person_patch):
         cache.clear()
         self._create_sample_data(110, delete=True)

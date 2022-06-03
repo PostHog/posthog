@@ -2847,18 +2847,18 @@
     use-debounce "^5.2.1"
     use-local-storage-state "^6.0.0"
 
-"@posthog/simmerjs@0.7.4":
-  version "0.7.4"
-  resolved "https://registry.yarnpkg.com/@posthog/simmerjs/-/simmerjs-0.7.4.tgz#48778bee9ce5dc08cefded6e5b6721b7c9b85584"
-  integrity sha512-pEbDRbX/dUdbRiaHIlUl5dkqVFqSjzekcVmnTkZa8CNIVrJZ0OOH0msZx77XYqntgomPuJx01sTpwHdzeZv3zQ==
+"@posthog/simmerjs@^0.7.7":
+  version "0.7.7"
+  resolved "https://registry.yarnpkg.com/@posthog/simmerjs/-/simmerjs-0.7.7.tgz#4f73f3b3c261134b17046f17a369979d4b38ff71"
+  integrity sha512-NZCTf5DXZGERfic2xYxxU8FCsML9uxDYsdWe1UzwA7fFBBhqDa6KEV/H/j7Y0N9mJMdnbbDF57JRb0p0nKyM6Q==
   dependencies:
-    "@babel/runtime" "^7.11.2"
+    "@babel/runtime" "^7.17.9"
     lodash.difference "^4.5.0"
     lodash.flatmap "^4.5.0"
     lodash.isfunction "^3.0.8"
     lodash.take "^4.1.1"
     lodash.takeright "^4.1.1"
-    query-selector-shadow-dom "0.8.0"
+    query-selector-shadow-dom "^1.0.0"
 
 "@react-hook/latest@^1.0.2":
   version "1.0.3"
@@ -8610,9 +8610,9 @@ events@^3.0.0, events@^3.3.0:
   integrity sha512-mQw+2fkQbALzQ7V0MY0IqdnXNOeTtP4r0lN9z7AAawCXgqea7bDii20AYrIBrFd/Hx0M2Ocz6S111CaFkUcb0Q==
 
 eventsource@^1.0.7:
-  version "1.0.7"
-  resolved "https://registry.yarnpkg.com/eventsource/-/eventsource-1.0.7.tgz#8fbc72c93fcd34088090bc0a4e64f4b5cee6d8d0"
-  integrity sha512-4Ln17+vVT0k8aWq+t/bF5arcS3EpT9gYtW66EPacdj/mAFevznsnyoHLPy2BA8gbIQeIHoPsvwmfBftfcG//BQ==
+  version "1.1.1"
+  resolved "https://registry.yarnpkg.com/eventsource/-/eventsource-1.1.1.tgz#4544a35a57d7120fba4fa4c86cb4023b2c09df2f"
+  integrity sha512-qV5ZC0h7jYIAOhArFJgSfdyz6rALJyb270714o7ZtNnw2WSJ+eexhKtE0O8LYPRsHZHf2osHKZBxGPvm3kPkCA==
   dependencies:
     original "^1.0.0"
 
@@ -13585,10 +13585,10 @@ posthog-js-lite@^0.0.3:
   resolved "https://registry.yarnpkg.com/posthog-js-lite/-/posthog-js-lite-0.0.3.tgz#87e373706227a849c4e7c6b0cb2066a64ad5b6ed"
   integrity sha512-wEOs8DEjlFBwgd7l19grosaF7mTlliZ9G9pL0Qji189FDg2ukY5IegUxTyTs7gsTGt6WK9W47BF5yXA5+bwvZg==
 
-posthog-js@1.22.0:
-  version "1.22.0"
-  resolved "https://registry.yarnpkg.com/posthog-js/-/posthog-js-1.22.0.tgz#7cab894e9b1518737903008e188f1163240932c6"
-  integrity sha512-R0bCIDsh2PdTDTJjTicfDu9CLCcELDhaYsPE09yspIefVjDjzs+XbO8S4ERrgvwTO9jUejC8gQ3JAlcsOfznlA==
+posthog-js@1.23.0:
+  version "1.23.0"
+  resolved "https://registry.yarnpkg.com/posthog-js/-/posthog-js-1.23.0.tgz#116059607f54b13cd487a4261b0405aa23481596"
+  integrity sha512-tO+RLn/SVKYj/1CVsct4j2KNzM14uNo+G/JrGsfMQkMDOmCLREfuOHCnWFrfMSu7W0l69WYadYRnyNnsgpDRFA==
   dependencies:
     "@sentry/types" "^6.11.0"
     fflate "^0.4.1"
@@ -13849,10 +13849,10 @@ qs@~6.5.2:
   resolved "https://registry.yarnpkg.com/qs/-/qs-6.5.2.tgz#cb3ae806e8740444584ef154ce8ee98d403f3e36"
   integrity sha512-N5ZAX4/LxJmF+7wN74pUD6qAh9/wnvdQcjq9TZjevvXzSUo7bfmw91saqMjzGS2xq91/odN2dW/WOl7qQHNDGA==
 
-query-selector-shadow-dom@0.8.0:
-  version "0.8.0"
-  resolved "https://registry.yarnpkg.com/query-selector-shadow-dom/-/query-selector-shadow-dom-0.8.0.tgz#74c7509e8b9bc24114febf076f89eb0eaf8e77a7"
-  integrity sha512-dY6R/X8hfGapwcW9Xl6zSpGR1guYNdSVV7XOrO3Xb9UUyo5tEcWON2siDpNyQ+skVjAH0fH3azm3GdnTpUC/2A==
+query-selector-shadow-dom@^1.0.0:
+  version "1.0.0"
+  resolved "https://registry.yarnpkg.com/query-selector-shadow-dom/-/query-selector-shadow-dom-1.0.0.tgz#8fa7459a4620f094457640e74e953a9dbe61a38e"
+  integrity sha512-bK0/0cCI+R8ZmOF1QjT7HupDUYCxbf/9TJgAmSXQxZpftXmTAeil9DRoCnTDkWbvOyZzhcMBwKpptWcdkGFIMg==
 
 querystring-es3@^0.2.0:
   version "0.2.1"

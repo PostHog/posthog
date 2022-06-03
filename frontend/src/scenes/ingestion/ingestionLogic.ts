@@ -10,7 +10,7 @@ import {
     THIRD_PARTY,
     ThirdPartySource,
 } from 'scenes/ingestion/constants'
-import { ingestionLogicType } from './ingestionLogicType'
+import type { ingestionLogicType } from './ingestionLogicType'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { teamLogic } from 'scenes/teamLogic'
@@ -18,7 +18,7 @@ import { PluginTypeWithConfig } from 'scenes/plugins/types'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { urls } from 'scenes/urls'
-import { actionToUrl, urlToAction } from 'kea-router'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 
 export const ingestionLogic = kea<ingestionLogicType>([
     path(['scenes', 'ingestion', 'ingestionLogic']),
@@ -167,7 +167,11 @@ export const ingestionLogic = kea<ingestionLogicType>([
         setPlatform: () => getUrl(values),
         setFramework: () => getUrl(values),
         setVerify: () => getUrl(values),
-        updateCurrentTeamSuccess: () => urls.events(),
+        updateCurrentTeamSuccess: () => {
+            if (router.values.location.pathname == '/ingestion/verify') {
+                return urls.events()
+            }
+        },
     })),
 
     urlToAction(({ actions }) => ({

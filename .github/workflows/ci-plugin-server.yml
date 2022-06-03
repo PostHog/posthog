@@ -128,4 +128,4 @@ jobs:
                   # Below DB name has `test_` prepended, as that's how Django (ran above) creates the test DB
                   DATABASE_URL: 'postgres://postgres:postgres@localhost:5432/test_posthog'
                   REDIS_URL: 'redis://localhost'
-              run: cd plugin-server && yarn typescript:check && yarn test:${{matrix.group}}
+              run: cd plugin-server && yarn test:${{matrix.group}}
