@@ -1,3 +1,4 @@
+import datetime as dt
 import json
 from typing import Any, Dict, Literal, Optional, Tuple, cast
 
@@ -94,7 +95,9 @@ class MatrixManager:
                 GroupTypeMapping(team=target_team, group_type_index=group_type_index, group_type=group_type)
             )
             for group_key, group in groups.items():
-                self.save_sim_group(target_team, cast(Literal[0, 1, 2, 3, 4], group_type_index), group_key, group)
+                self.save_sim_group(
+                    target_team, cast(Literal[0, 1, 2, 3, 4], group_type_index), group_key, group, self.matrix.end
+                )
         GroupTypeMapping.objects.bulk_create(bulk_group_type_mappings)
         sim_persons = self.matrix.people
         for sim_person in sim_persons:
@@ -192,10 +195,12 @@ class MatrixManager:
             )
 
     @staticmethod
-    def save_sim_group(team: Team, type_index: Literal[0, 1, 2, 3, 4], key: str, properties: Dict[str, Any]):
-        from ee.clickhouse.models.group import create_group
+    def save_sim_group(
+        team: Team, type_index: Literal[0, 1, 2, 3, 4], key: str, properties: Dict[str, Any], timestamp: dt.datetime
+    ):
+        from ee.clickhouse.models.group import create_group_ch
 
-        create_group(team.pk, type_index, key, properties, clickhouse_only=True)
+        create_group_ch(team.pk, type_index, key, properties, timestamp)
 
     @classmethod
     def is_demo_data_pre_saved(cls) -> bool:
