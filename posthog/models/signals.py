@@ -24,7 +24,7 @@ def mutable_receiver(*args, **kwargs):
 
 
 @contextmanager
-def muted_signals():
+def mute_selected_signals():
     """
     Code in this block does not call _any_ of the receive hooks set up with @mutable_receiver.
 
