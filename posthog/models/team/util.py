@@ -24,6 +24,7 @@ TABLES_TO_DELETE_FROM = lambda: [
 
 def delete_bulky_postgres_data(team_ids: List[int]):
     "Efficiently delete large tables for teams from postgres. Using normal CASCADE delete here can time out"
+
     _raw_delete(PersonDistinctId.objects.filter(team_id__in=team_ids))
     _raw_delete(Person.objects.filter(team_id__in=team_ids))
 
