@@ -56,13 +56,13 @@ export function Animation({
         <div
             className={clsx(
                 'Animation',
-                { Animation__hidden: !(visible && (source || showFallbackSpinner)) },
+                { 'Animation--hidden': !(visible && (source || showFallbackSpinner)) },
                 className
             )}
             style={{ aspectRatio: `${width} / ${height}`, ...style }}
         >
             {source ? (
-                <Player className="Animation-player" autoplay loop src={source} />
+                <Player className="Animation__player" autoplay loop src={source} />
             ) : showFallbackSpinner ? (
                 <Spinner />
             ) : null}
