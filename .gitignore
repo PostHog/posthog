@@ -19,7 +19,6 @@ frontend/.cache/
 frontend/dist/
 frontend/types/
 frontend/packages/apps-common/dist/
-frontend/packages/imports.json
 *Type.ts
 frontend/yarn-error.log
 frontend/tmp

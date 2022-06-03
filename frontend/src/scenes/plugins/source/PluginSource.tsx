@@ -52,7 +52,7 @@ export function PluginSource({
         if (!monaco) {
             return
         }
-        import('../../../../packages/imports.json').then((files) => {
+        import('./types/packages.json').then((files) => {
             for (const fileName in files) {
                 const fakePath = `file:///node_modules/${fileName}`
                 monaco?.languages.typescript.typescriptDefaults.addExtraLib(files[fileName], fakePath)
