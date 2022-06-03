@@ -5,8 +5,9 @@ from ee.clickhouse.queries.actor_base_query import ActorBaseQuery
 from posthog.client import substitute_params, sync_execute
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.team import Team
-from posthog.queries.retention import BreakdownValues, build_returning_event_query, build_target_event_query
+from posthog.queries.retention import build_returning_event_query, build_target_event_query
 from posthog.queries.retention.sql import RETENTION_BREAKDOWN_ACTOR_SQL
+from posthog.queries.retention.types import BreakdownValues
 
 
 @dataclasses.dataclass

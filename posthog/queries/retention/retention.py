@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, NamedTuple, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional
 from urllib.parse import urlencode
 
 from posthog.client import substitute_params, sync_execute
@@ -8,9 +8,7 @@ from posthog.models.team import Team
 from posthog.queries.retention.actors_query import RetentionActors, RetentionActorsByPeriod, build_actor_activity_query
 from posthog.queries.retention.event_query import RetentionEventsQuery
 from posthog.queries.retention.sql import RETENTION_BREAKDOWN_SQL
-
-BreakdownValues = Tuple[Union[str, int], ...]
-CohortKey = NamedTuple("CohortKey", (("breakdown_values", BreakdownValues), ("period", int)))
+from posthog.queries.retention.types import BreakdownValues, CohortKey
 
 
 class Retention:
