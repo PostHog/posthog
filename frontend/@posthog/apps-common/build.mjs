@@ -12,7 +12,7 @@ await buildInParallel(
         {
             name: 'Apps Common',
             absWorkingDir: __dirname,
-            entryPoints: ['./index.ts'],
+            entryPoints: ['./src/index.ts'],
             bundle: true,
             format: 'esm',
             outfile: 'dist/index.js',

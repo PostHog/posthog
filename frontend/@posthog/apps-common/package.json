@@ -2,13 +2,13 @@
     "name": "@posthog/apps-common",
     "version": "0.0.0",
     "license": "MIT",
-    "source": "index.ts",
+    "source": "src/index.ts",
     "module": "dist/index.js",
     "types": "dist/index.d.ts",
     "scripts": {
         "build": "yarn build:source && yarn build:types",
         "build:source": "echo \"Building source for @posthog/apps-common\" && node build.mjs",
-        "build:types": "echo \"Building types for @posthog/apps-common\" && tsup index.ts --dts-only",
+        "build:types": "echo \"Building types for @posthog/apps-common\" && tsup src/index.ts --dts-only",
         "prepublishOnly": "yarn build"
     },
     "devDependencies": {

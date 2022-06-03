@@ -5,7 +5,7 @@ import * as allKeaLoaders from 'kea-loaders'
 import * as allKeaForms from 'kea-forms'
 import * as allKeaWindowValues from 'kea-window-values'
 import * as allKeaSubscriptions from 'kea-subscriptions'
-import * as appsCommon from 'packages/apps-common'
+import * as appsCommon from '@posthog/apps-common'
 
 const packages = {
     react: React,
