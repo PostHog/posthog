@@ -26,8 +26,13 @@ class EventDefinitionPayload:
 @shared_task(ignore_result=True, max_retries=1)
 def calculate_event_property_usage_for_team(team_id: int) -> None:
     team = Team.objects.get(pk=team_id)
-    event_definition_payloads: DefaultDict[str, EventDefinitionPayload] = defaultdict(EventDefinitionPayload)
-    property_insight_usage: DefaultDict[str, int] = defaultdict(int)
+    event_definition_payloads: DefaultDict[str, EventDefinitionPayload] = defaultdict(
+        EventDefinitionPayload,
+        {event.name: EventDefinitionPayload() for event in EventDefinition.objects.filter(team_id=team_id)},
+    )
+    property_insight_usage: DefaultDict[str, int] = defaultdict(
+        int, {key.name: 0 for key in PropertyDefinition.objects.filter(team_id=team_id)}
+    )
 
     since = timezone.now() - timezone.timedelta(days=30)
 
@@ -43,10 +48,12 @@ def calculate_event_property_usage_for_team(team_id: int) -> None:
         event_definition_payloads[event].last_seen_at = last_seen_at
 
     for event, event_definition_payload in event_definition_payloads.items():
-        EventDefinition.objects.update_or_create(name=event, team_id=team_id, **asdict(event_definition_payload))
+        EventDefinition.objects.update_or_create(name=event, team_id=team_id, defaults=asdict(event_definition_payload))
 
     for property_name, usage in property_insight_usage.items():
-        PropertyDefinition.objects.update_or_create(name=property_name, team_id=team_id, query_usage_30_day=usage)
+        PropertyDefinition.objects.update_or_create(
+            name=property_name, team_id=team_id, defaults={"query_usage_30_day": usage or 0}
+        )
 
 
 def _get_events_volume(team: Team, since: timezone.datetime) -> Dict[str, Tuple[int, timezone.datetime]]:
