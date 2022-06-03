@@ -6,6 +6,7 @@ from django.db.models.signals import post_delete, post_save
 from django.dispatch.dispatcher import receiver
 from django.utils import timezone
 
+from posthog.models.signals import mutable_receiver
 from posthog.redis import get_client
 
 
@@ -52,6 +53,6 @@ def action_saved(sender, instance: Action, created, **kwargs):
     get_client().publish("reload-action", json.dumps({"teamId": instance.team_id, "actionId": instance.id}))
 
 
-@receiver(post_delete, sender=Action)
+@mutable_receiver(post_delete, sender=Action)
 def action_deleted(sender, instance: Action, **kwargs):
     get_client().publish("drop-action", json.dumps({"teamId": instance.team_id, "actionId": instance.id}))
