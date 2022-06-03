@@ -34,5 +34,6 @@ def mute_selected_signals():
     global is_muted
     try:
         is_muted = True
+        yield
     finally:
         is_muted = False
