@@ -5,6 +5,7 @@ from ee.clickhouse.queries.actor_base_query import ActorBaseQuery
 from posthog.client import substitute_params, sync_execute
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.team import Team
+from posthog.queries.retention.event_query import RetentionEventsQuery
 from posthog.queries.retention.sql import RETENTION_BREAKDOWN_ACTOR_SQL
 from posthog.queries.retention.types import BreakdownValues
 
@@ -23,6 +24,7 @@ class AppearanceRow:
 
 class RetentionActors(ActorBaseQuery):
     _filter: RetentionFilter
+    _retention_events_query = RetentionEventsQuery
 
     def __init__(self, team: Team, filter: RetentionFilter):
         super().__init__(team, filter)
@@ -33,6 +35,7 @@ class RetentionActors(ActorBaseQuery):
             team=self._team,
             filter_by_breakdown=self._filter.breakdown_values or (0,),
             selected_interval=self._filter.selected_interval,
+            retention_events_query=self._retention_events_query,
         )
 
         return actor_query, {}
@@ -41,6 +44,7 @@ class RetentionActors(ActorBaseQuery):
 # Note: This class does not respect the entire flor from ActorBaseQuery because the result shape differs from other actor queries
 class RetentionActorsByPeriod(ActorBaseQuery):
     _filter: RetentionFilter
+    _retention_events_query = RetentionEventsQuery
 
     def __init__(self, team: Team, filter: RetentionFilter):
         super().__init__(team, filter)
@@ -71,6 +75,7 @@ class RetentionActorsByPeriod(ActorBaseQuery):
                 if self._filter.selected_interval is not None
                 else None
             ),
+            retention_events_query=self._retention_events_query,
         )
 
         actor_appearances = [
@@ -102,6 +107,7 @@ def build_actor_activity_query(
     filter_by_breakdown: Optional[BreakdownValues] = None,
     selected_interval: Optional[int] = None,
     aggregate_users_by_distinct_id: Optional[bool] = None,
+    retention_events_query=RetentionEventsQuery,
 ) -> str:
     from posthog.queries.retention import build_returning_event_query, build_target_event_query
 
@@ -118,6 +124,7 @@ def build_actor_activity_query(
         team=team,
         aggregate_users_by_distinct_id=aggregate_users_by_distinct_id,
         using_person_on_events=team.actor_on_events_querying_enabled,
+        retention_events_query=retention_events_query,
     )
 
     target_event_query = build_target_event_query(
@@ -125,6 +132,7 @@ def build_actor_activity_query(
         team=team,
         aggregate_users_by_distinct_id=aggregate_users_by_distinct_id,
         using_person_on_events=team.actor_on_events_querying_enabled,
+        retention_events_query=retention_events_query,
     )
 
     all_params = {
@@ -145,6 +153,7 @@ def _build_actor_query(
     team: Team,
     filter_by_breakdown: Optional[BreakdownValues] = None,
     selected_interval: Optional[int] = None,
+    retention_events_query=RetentionEventsQuery,
 ):
     actor_activity_query = build_actor_activity_query(
         filter=filter,
@@ -152,6 +161,7 @@ def _build_actor_query(
         filter_by_breakdown=filter_by_breakdown,
         selected_interval=selected_interval,
         aggregate_users_by_distinct_id=False,
+        retention_events_query=retention_events_query,
     )
 
     actor_query_template = """
