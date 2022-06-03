@@ -1,6 +1,7 @@
 import os
 import time
 from random import randrange
+from typing import Optional
 
 from celery import Celery
 from celery.schedules import crontab
@@ -98,21 +99,13 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
     sender.add_periodic_task(
         crontab(hour=0, minute=randrange(0, 40)), clickhouse_send_license_usage.s()
     )  # every day at a random minute past midnight. Randomize to avoid overloading license.posthog.com
-    try:
-        from ee.settings import MATERIALIZE_COLUMNS_SCHEDULE_CRON
 
-        minute, hour, day_of_month, month_of_year, day_of_week = MATERIALIZE_COLUMNS_SCHEDULE_CRON.strip().split(" ")
-
+    materialize_columns_crontab = get_crontab(
+        settings.MATERIALIZE_COLUMNS_SCHEDULE_CRON, "clickhouse materialize columns"
+    )
+    if materialize_columns_crontab:
         sender.add_periodic_task(
-            crontab(
-                minute=minute,
-                hour=hour,
-                day_of_month=day_of_month,
-                month_of_year=month_of_year,
-                day_of_week=day_of_week,
-            ),
-            clickhouse_materialize_columns.s(),
-            name="clickhouse materialize columns",
+            materialize_columns_crontab, clickhouse_materialize_columns.s(), name="clickhouse materialize columns",
         )
 
         sender.add_periodic_task(
@@ -120,9 +113,6 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
             clickhouse_mark_all_materialized.s(),
             name="clickhouse mark all columns as materialized",
         )
-    except Exception as err:
-        capture_exception(err)
-        print(f"Scheduling materialized column task failed: {err}")
 
     sender.add_periodic_task(120, calculate_cohort.s(), name="recalculate cohorts")
 
@@ -132,6 +122,21 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
             calculate_event_property_usage.s(),
             name="calculate event property usage",
         )
+
+
+def get_crontab(schedule: Optional[str], name: str) -> Optional[crontab]:
+    if schedule is None or schedule == "":
+        return None
+
+    try:
+        minute, hour, day_of_month, month_of_year, day_of_week = schedule.strip().split(" ")
+        return crontab(
+            minute=minute, hour=hour, day_of_month=day_of_month, month_of_year=month_of_year, day_of_week=day_of_week,
+        )
+    except Exception as err:
+        capture_exception(err)
+        print(f"Scheduling {name} task failed: {err}")
+        return None
 
 
 # Set up clickhouse query instrumentation
