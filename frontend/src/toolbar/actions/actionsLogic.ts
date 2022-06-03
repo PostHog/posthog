@@ -1,6 +1,6 @@
 import { kea } from 'kea'
 import { toolbarLogic } from '~/toolbar/toolbarLogic'
-import { actionsLogicType } from './actionsLogicType'
+import type { actionsLogicType } from './actionsLogicType'
 import { ActionType } from '~/types'
 import Fuse from 'fuse.js'
 import { toolbarFetch } from '~/toolbar/utils'

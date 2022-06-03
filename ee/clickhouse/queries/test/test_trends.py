@@ -6,7 +6,6 @@ from freezegun import freeze_time
 from rest_framework.exceptions import ValidationError
 
 from ee.clickhouse.models.group import create_group
-from ee.clickhouse.models.person import create_person_distinct_id
 from ee.clickhouse.queries.trends.clickhouse_trends import ClickhouseTrends
 from ee.clickhouse.queries.trends.person import ClickhouseTrendsActors
 from ee.clickhouse.test.test_journeys import journeys_for
@@ -19,6 +18,7 @@ from posthog.models.entity import Entity
 from posthog.models.filters import Filter
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.person import Person
+from posthog.models.person.util import create_person_distinct_id
 from posthog.queries.test.test_trends import trend_test_factory
 from posthog.test.base import _create_event, _create_person, flush_persons_and_events, test_with_materialized_columns
 

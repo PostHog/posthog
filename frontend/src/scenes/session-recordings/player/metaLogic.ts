@@ -1,5 +1,5 @@
 import { kea } from 'kea'
-import { metaLogicType } from './metaLogicType'
+import type { metaLogicType } from './metaLogicType'
 import { sessionRecordingLogic } from 'scenes/session-recordings/sessionRecordingLogic'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { eventWithTime } from 'rrweb/typings/types'
