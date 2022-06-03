@@ -20,7 +20,7 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 export function ThirdPartyPanel(): JSX.Element {
     const { index } = useValues(ingestionLogic)
-    const { setPlatform, setVerify, setInstructionsModal, setThirdPartySource, openThirdPartyPluginModal } =
+    const { setPlatform, setInstructionsModal, setThirdPartySource, openThirdPartyPluginModal } =
         useActions(ingestionLogic)
     const { filteredUninstalledPlugins, installedPlugins } = useValues(pluginsLogic)
     const { installPlugin } = useActions(pluginsLogic)
@@ -31,12 +31,7 @@ export function ThirdPartyPanel(): JSX.Element {
     } = useActions(eventUsageLogic)
 
     return (
-        <CardContainer
-            index={index}
-            showFooter={true}
-            onSubmit={() => setVerify(true)}
-            onBack={() => setPlatform(null)}
-        >
+        <CardContainer index={index} showFooter={true} onBack={() => setPlatform(null)}>
             <div style={{ paddingLeft: 24, paddingRight: 24 }}>
                 <h1 className="ingestion-title">Set up apps</h1>
                 {thirdPartySources.map((source, idx) => {

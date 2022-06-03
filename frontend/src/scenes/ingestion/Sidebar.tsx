@@ -14,13 +14,19 @@ const HELP_UTM_TAGS = '?utm_medium=in-product-onboarding&utm_campaign=help-butto
 export function Sidebar(): JSX.Element {
     const { currentIndex, platform } = useValues(ingestionLogic)
     const { setVerify, setPlatform } = useActions(ingestionLogic)
-    const { reportIngestionHelpClicked } = useActions(eventUsageLogic)
+    const { reportIngestionHelpClicked, reportIngestionSidebarButtonClicked } = useActions(eventUsageLogic)
 
     return (
         <div className="IngestionSidebar">
             <div className="IngestionSidebar__content">
                 <div className="IngestionSidebar__steps">
-                    <LemonButton active={currentIndex === 0} onClick={() => setPlatform(null)}>
+                    <LemonButton
+                        active={currentIndex === 0}
+                        onClick={() => {
+                            setPlatform(null)
+                            reportIngestionSidebarButtonClicked('Get started')
+                        }}
+                    >
                         Get started
                     </LemonButton>
                     <LemonButton
@@ -31,6 +37,7 @@ export function Sidebar(): JSX.Element {
                                 setVerify(false)
                                 setPlatform(platform)
                             }
+                            reportIngestionSidebarButtonClicked('Connect your product')
                         }}
                     >
                         Connect your product
@@ -42,6 +49,7 @@ export function Sidebar(): JSX.Element {
                             if (platform) {
                                 setVerify(true)
                             }
+                            reportIngestionSidebarButtonClicked('Listen for events')
                         }}
                     >
                         Listen for events

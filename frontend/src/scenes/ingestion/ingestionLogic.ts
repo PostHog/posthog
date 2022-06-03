@@ -125,18 +125,10 @@ export const ingestionLogic = kea<ingestionLogicType>([
                 return (verify ? 1 : 0) + (framework ? 1 : 0) + (platform ? 1 : 0)
             },
         ],
-        onboarding1: [
-            () => [],
-            (): boolean => {
-                const featFlags = values.featureFlags
-                return featFlags[FEATURE_FLAGS.ONBOARDING_1] === 'test'
-            },
-        ],
         onboardingSidebarEnabled: [
             () => [],
             (): boolean => {
-                // DO NOT MAKE A FEATURE FLAG OUT OF THIS ON CLOUD IT'S PART OF EXPERIMENTS
-                return !!values.featureFlags[FEATURE_FLAGS.ONBOARDING_1_5]
+                return values.featureFlags[FEATURE_FLAGS.ONBOARDING_1_5] === 'test'
             },
         ],
         frameworkString: [
