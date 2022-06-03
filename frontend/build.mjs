@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import * as path from 'path'
+import { fileURLToPath } from 'url'
 import {
-    __dirname,
     copyPublicFolder,
     isDev,
     startDevServer,
@@ -11,16 +11,19 @@ import {
 } from './utils.mjs'
 import fse from 'fs-extra'
 
-startDevServer()
-copyPublicFolder()
+export const __dirname = path.dirname(fileURLToPath(import.meta.url))
+
+startDevServer(__dirname)
+copyPublicFolder(path.resolve(__dirname, 'public'), path.resolve(__dirname, 'dist'))
 writeSourceCodeEditorTypes()
 writeIndexHtml()
 writeSharedDashboardHtml()
 
-buildInParallel(
+await buildInParallel(
     [
         {
             name: 'PostHog App',
+            absWorkingDir: __dirname,
             entryPoints: ['src/index.tsx'],
             bundle: true,
             splitting: true,
@@ -29,6 +32,7 @@ buildInParallel(
         },
         {
             name: 'Shared Dashboard',
+            absWorkingDir: __dirname,
             entryPoints: ['src/scenes/dashboard/SharedDashboard.tsx'],
             bundle: true,
             format: 'iife',
@@ -36,6 +40,7 @@ buildInParallel(
         },
         {
             name: 'Exporter',
+            absWorkingDir: __dirname,
             entryPoints: ['src/exporter/ExportViewer.tsx'],
             bundle: true,
             format: 'iife',
@@ -43,25 +48,15 @@ buildInParallel(
         },
         {
             name: 'Toolbar',
+            absWorkingDir: __dirname,
             entryPoints: ['src/toolbar/index.tsx'],
             bundle: true,
             format: 'iife',
             outfile: path.resolve(__dirname, 'dist', 'toolbar.js'),
         },
-        {
-            name: 'Apps Common',
-            entryPoints: ['packages/apps-common/index.ts'],
-            bundle: true,
-            format: 'cjs',
-            outfile: path.resolve(__dirname, 'packages', 'apps-common', 'dist', 'index.js'),
-            chunkNames: '[name]',
-            entryNames: '[dir]/[name]',
-            external: ['react', 'react-dom'],
-            publicPath: '',
-        },
     ],
     {
-        onBuildComplete(config, buildResponse) {
+        async onBuildComplete(config, buildResponse) {
             const { chunks, entrypoints } = buildResponse
 
             if (config.name === 'PostHog App') {
@@ -82,7 +77,7 @@ buildInParallel(
                 writeExporterHtml(chunks, entrypoints)
             }
 
-            createHashlessEntrypoints(entrypoints)
+            createHashlessEntrypoints(__dirname, entrypoints)
         },
     }
 )
@@ -111,14 +106,21 @@ export function writeSourceCodeEditorTypes() {
 }
 
 export function writeIndexHtml(chunks = {}, entrypoints = []) {
-    copyIndexHtml('src/index.html', 'dist/index.html', 'index', chunks, entrypoints)
-    copyIndexHtml('src/layout.html', 'dist/layout.html', 'index', chunks, entrypoints)
+    copyIndexHtml(__dirname, 'src/index.html', 'dist/index.html', 'index', chunks, entrypoints)
+    copyIndexHtml(__dirname, 'src/layout.html', 'dist/layout.html', 'index', chunks, entrypoints)
 }
 
 export function writeSharedDashboardHtml(chunks = {}, entrypoints = []) {
-    copyIndexHtml('src/shared_dashboard.html', 'dist/shared_dashboard.html', 'shared_dashboard', chunks, entrypoints)
+    copyIndexHtml(
+        __dirname,
+        'src/shared_dashboard.html',
+        'dist/shared_dashboard.html',
+        'shared_dashboard',
+        chunks,
+        entrypoints
+    )
 }
 
 export function writeExporterHtml(chunks = {}, entrypoints = []) {
-    copyIndexHtml('src/exporter.html', 'dist/exporter.html', 'exporter', chunks, entrypoints)
+    copyIndexHtml(__dirname, 'src/exporter.html', 'dist/exporter.html', 'exporter', chunks, entrypoints)
 }
