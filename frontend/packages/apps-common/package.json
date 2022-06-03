@@ -6,11 +6,17 @@
     "module": "dist/index.js",
     "types": "dist/index.d.ts",
     "scripts": {
-        "build": "echo \"This package is built via the main build script.\" && exit 1",
-        "build:types": "echo \"Building types for @posthog/apps-common\" && tsup index.ts --dts-only"
+        "build": "yarn build:source && yarn build:types",
+        "build:source": "echo \"Building source for @posthog/apps-common\" && node build.mjs",
+        "build:types": "echo \"Building types for @posthog/apps-common\" && tsup index.ts --dts-only",
+        "prepublishOnly": "yarn build"
     },
     "devDependencies": {
         "tsup": "^5.12.8",
         "typescript": ">=4.0.0"
+    },
+    "peerDependencies": {
+        "react": "*",
+        "react-dom": "*"
     }
 }

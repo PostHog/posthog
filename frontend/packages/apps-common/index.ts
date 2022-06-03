@@ -13,8 +13,10 @@ export * from 'lib/components/LemonTag/LemonTag'
 export * from 'lib/components/LemonTextArea/LemonTextArea'
 export * from 'lib/components/lemonToast'
 
-export * from 'lib/components/AdHocInsight/AdHocInsight'
-export * from 'lib/components/Link'
+// export * from 'lib/components/AdHocInsight/AdHocInsight'
+// export * from 'lib/components/Link'
 
-import api_ from 'lib/api'
-export const api = api_
+// import api_ from 'lib/api'
+// export const api = api_
+//
+// import 'chart.js'
