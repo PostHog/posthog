@@ -1,6 +1,12 @@
 from django.conf import settings
 
-from ee.clickhouse.sql.clickhouse import KAFKA_COLUMNS, STORAGE_POLICY, kafka_engine, trim_quotes_expr
+from ee.clickhouse.sql.clickhouse import (
+    COPY_ROWS_BETWEEN_TEAMS_BASE_SQL,
+    KAFKA_COLUMNS,
+    STORAGE_POLICY,
+    kafka_engine,
+    trim_quotes_expr,
+)
 from ee.clickhouse.sql.table_engines import Distributed, ReplacingMergeTree, ReplicationScheme
 from ee.kafka_client.topics import KAFKA_EVENTS, KAFKA_EVENTS_JSON
 
@@ -354,10 +360,7 @@ GET_TOTAL_EVENTS_VOLUME = "SELECT count() AS count FROM events WHERE team_id = %
 # Copying demo data
 #
 
-COPY_EVENTS_BETWEEN_TEAMS = """
-INSERT INTO {table_name} (team_id, {columns_except_team_id}) SELECT %(target_team_id)s, {columns_except_team_id}
-FROM {table_name} WHERE team_id = %(source_team_id)s
-""".format(
+COPY_EVENTS_BETWEEN_TEAMS = COPY_ROWS_BETWEEN_TEAMS_BASE_SQL.format(
     table_name=WRITABLE_EVENTS_DATA_TABLE(),
     columns_except_team_id="""uuid, event, properties, timestamp, distinct_id, elements_chain, created_at, person_id,
     person_properties, group0_properties, group1_properties, group2_properties, group3_properties, group4_properties""",

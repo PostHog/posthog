@@ -1,4 +1,4 @@
-from ee.clickhouse.sql.clickhouse import KAFKA_COLUMNS, STORAGE_POLICY, kafka_engine
+from ee.clickhouse.sql.clickhouse import COPY_ROWS_BETWEEN_TEAMS_BASE_SQL, KAFKA_COLUMNS, STORAGE_POLICY, kafka_engine
 from ee.clickhouse.sql.table_engines import ReplacingMergeTree
 from ee.kafka_client.topics import KAFKA_GROUPS
 from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
@@ -72,10 +72,7 @@ WHERE team_id = %(team_id)s AND group_type_index = %({group_type_index_var})s {f
 # Copying demo data
 #
 
-COPY_GROUPS_BETWEEN_TEAMS = """
-INSERT INTO {table_name} (team_id, {columns_except_team_id}) SELECT %(target_team_id)s, {columns_except_team_id}
-FROM {table_name} WHERE team_id = %(source_team_id)s
-""".format(
+COPY_GROUPS_BETWEEN_TEAMS = COPY_ROWS_BETWEEN_TEAMS_BASE_SQL.format(
     table_name=GROUPS_TABLE,
     columns_except_team_id="""group_type_index, group_key, group_properties, created_at, _timestamp, _offset""",
 )

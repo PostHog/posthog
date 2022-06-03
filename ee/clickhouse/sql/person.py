@@ -1,4 +1,4 @@
-from ee.clickhouse.sql.clickhouse import KAFKA_COLUMNS, STORAGE_POLICY, kafka_engine
+from ee.clickhouse.sql.clickhouse import COPY_ROWS_BETWEEN_TEAMS_BASE_SQL, KAFKA_COLUMNS, STORAGE_POLICY, kafka_engine
 from ee.clickhouse.sql.table_engines import CollapsingMergeTree, ReplacingMergeTree
 from ee.kafka_client.topics import KAFKA_PERSON, KAFKA_PERSON_DISTINCT_ID, KAFKA_PERSON_UNIQUE_ID
 from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
@@ -250,18 +250,12 @@ INSERT_PERSON_STATIC_COHORT = (
 # Copying demo data
 #
 
-COPY_PERSONS_BETWEEN_TEAMS = """
-INSERT INTO {table_name} (team_id, {columns_except_team_id}) SELECT %(target_team_id)s, {columns_except_team_id}
-FROM {table_name} WHERE team_id = %(source_team_id)s
-""".format(
+COPY_PERSONS_BETWEEN_TEAMS = COPY_ROWS_BETWEEN_TEAMS_BASE_SQL.format(
     table_name=PERSONS_TABLE,
     columns_except_team_id="""id, created_at, properties, is_identified, _timestamp, _offset, is_deleted""",
 )
 
-COPY_PERSON_DISTINCT_ID2S_BETWEEN_TEAMS = """
-INSERT INTO {table_name} (team_id, {columns_except_team_id}) SELECT %(target_team_id)s, {columns_except_team_id}
-FROM {table_name} WHERE team_id = %(source_team_id)s
-""".format(
+COPY_PERSON_DISTINCT_ID2S_BETWEEN_TEAMS = COPY_ROWS_BETWEEN_TEAMS_BASE_SQL.format(
     table_name=PERSON_DISTINCT_ID2_TABLE,
     columns_except_team_id="""distinct_id, person_id, is_deleted, version, _timestamp, _offset, _partition""",
 )
