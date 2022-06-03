@@ -840,7 +840,7 @@ export class DB {
 
         const values = [...updateValues, person.id]
 
-        // Potentially overriding values badly if there was an update to the person after computing updatValues above
+        // Potentially overriding values badly if there was an update to the person after computing updateValues above
         const queryString = `UPDATE posthog_person SET version = COALESCE(version, 0)::numeric + 1, ${Object.keys(
             update
         ).map((field, index) => `"${sanitizeSqlIdentifier(field)}" = $${index + 1}`)} WHERE id = $${
