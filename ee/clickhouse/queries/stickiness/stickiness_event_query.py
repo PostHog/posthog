@@ -1,9 +1,9 @@
 from ee.clickhouse.models.group import get_aggregation_target_field
 from ee.clickhouse.queries.event_query import EnterpriseEventQuery
-from posthog.queries.stickiness.stickiness_event_query import stickiness_event_factory
+from posthog.queries.stickiness.stickiness_event_query import StickinessEventsQuery
 
 
-class ClickhouseStickinessEventsQuery(stickiness_event_factory(EnterpriseEventQuery)):  # type: ignore
+class ClickhouseStickinessEventsQuery(StickinessEventsQuery, EnterpriseEventQuery):
     def aggregation_target(self):
         return get_aggregation_target_field(
             self._entity.math_group_type_index,
