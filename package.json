@@ -101,7 +101,7 @@
         "posthog-js": "1.22.0",
         "posthog-js-lite": "^0.0.3",
         "prop-types": "^15.7.2",
-        "query-selector-shadow-dom": "0.8.0",
+        "query-selector-shadow-dom": "^1.0.0",
         "rc-trigger": "^5.2.5",
         "react": "^16.13.1",
         "react-dom": "^16.12.0",
