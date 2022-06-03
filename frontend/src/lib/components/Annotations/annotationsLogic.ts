@@ -1,6 +1,6 @@
 import { kea } from 'kea'
 import api from 'lib/api'
-import { dayjs, now } from 'lib/dayjs'
+import { dayjs, now, OpUnitType } from 'lib/dayjs'
 import { deleteWithUndo, determineDifferenceType, groupBy, toParams } from '~/lib/utils'
 import { annotationsModel } from '~/models/annotationsModel'
 import { getNextKey } from './utils'
@@ -29,7 +29,7 @@ export const annotationsLogic = kea<annotationsLogicType>({
         }),
         deleteAnnotation: (id: string) => ({ id }),
         updateDiffType: (dates: string[]) => ({ dates }),
-        setDiffType: (type: dayjs.OpUnitType) => ({ type }),
+        setDiffType: (type: OpUnitType) => ({ type }),
     }),
     loaders: ({ props }) => ({
         annotations: {
@@ -90,7 +90,7 @@ export const annotationsLogic = kea<annotationsLogicType>({
             (annotationsList, diffType) =>
                 groupBy(annotationsList, (annotation) =>
                     dayjs(annotation['date_marker'])
-                        .startOf(diffType as dayjs.OpUnitType)
+                        .startOf(diffType as OpUnitType)
                         .format('YYYY-MM-DD')
                 ),
         ],
