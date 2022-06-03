@@ -21,7 +21,6 @@ from sentry_sdk import capture_exception
 from ee.clickhouse.queries.funnels import ClickhouseFunnelTimeToConvert, ClickhouseFunnelTrends
 from ee.clickhouse.queries.funnels.utils import get_funnel_order_class
 from ee.clickhouse.queries.paths.paths import ClickhousePaths
-from ee.clickhouse.queries.stickiness import ClickhouseStickiness
 from ee.clickhouse.queries.trends.clickhouse_trends import ClickhouseTrends
 from posthog.api.documentation import extend_schema
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
@@ -65,6 +64,7 @@ from posthog.models.insight import InsightViewed, generate_insight_cache_key
 from posthog.models.utils import UUIDT
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.queries.retention import Retention
+from posthog.queries.stickiness import Stickiness
 from posthog.queries.util import get_earliest_timestamp
 from posthog.settings import SITE_URL
 from posthog.tasks.update_cache import update_insight_cache
@@ -392,6 +392,7 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDestr
     include_in_docs = True
 
     retention_query_class = Retention
+    stickiness_query_class = Stickiness
 
     def get_serializer_class(self) -> Type[serializers.BaseSerializer]:
 
@@ -577,7 +578,7 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDestr
             stickiness_filter = StickinessFilter(
                 request=request, team=team, get_earliest_timestamp=get_earliest_timestamp
             )
-            result = ClickhouseStickiness().run(stickiness_filter, team)
+            result = self.stickiness_query_class().run(stickiness_filter, team)
         else:
             trends_query = ClickhouseTrends()
             result = trends_query.run(filter, team)
