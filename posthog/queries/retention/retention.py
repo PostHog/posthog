@@ -30,7 +30,7 @@ class Retention:
         self, filter: RetentionFilter, team: Team,
     ) -> Dict[CohortKey, Dict[str, Any]]:
 
-        actor_query = build_actor_activity_query(filter=filter, team=team)
+        actor_query = build_actor_activity_query(filter=filter, team=team, retention_events_query=self.event_query)
 
         result = sync_execute(
             RETENTION_BREAKDOWN_SQL.format(actor_query=actor_query,),
@@ -145,8 +145,9 @@ def build_returning_event_query(
     team: Team,
     aggregate_users_by_distinct_id: Optional[bool] = None,
     using_person_on_events: bool = False,
+    retention_events_query=RetentionEventsQuery,
 ):
-    returning_event_query_templated, returning_event_params = RetentionEventsQuery(
+    returning_event_query_templated, returning_event_params = retention_events_query(
         filter=filter.with_data({"breakdowns": []}),  # Avoid pulling in breakdown values from returning event query
         team=team,
         event_query_type=RetentionQueryType.RETURNING,
@@ -164,8 +165,9 @@ def build_target_event_query(
     team: Team,
     aggregate_users_by_distinct_id: Optional[bool] = None,
     using_person_on_events: bool = False,
+    retention_events_query=RetentionEventsQuery,
 ):
-    target_event_query_templated, target_event_params = RetentionEventsQuery(
+    target_event_query_templated, target_event_params = retention_events_query(
         filter=filter,
         team=team,
         event_query_type=(
