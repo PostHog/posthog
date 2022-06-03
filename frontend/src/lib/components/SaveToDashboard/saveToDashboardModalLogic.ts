@@ -5,7 +5,7 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import type { saveToDashboardModalLogicType } from './saveToDashboardModalLogicType'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 import { DashboardType, InsightModel, InsightType } from '~/types'
-import Fuse from 'fuse.js'
+import FuseClass from 'fuse.js'
 import { lemonToast } from 'lib/components/lemonToast'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
@@ -15,6 +15,11 @@ export interface SaveToDashboardModalLogicProps {
     insight: Partial<InsightModel>
     fromDashboard?: number
 }
+
+// Helping kea-typegen navigate the exported default class for Fuse
+// eslint-disable-next-line @typescript-eslint/no-empty-interface
+export interface Fuse extends FuseClass<any> {}
+
 export const saveToDashboardModalLogic = kea<saveToDashboardModalLogicType>({
     path: ['lib', 'components', 'SaveToDashboard', 'saveToDashboardModalLogic'],
     props: {} as SaveToDashboardModalLogicProps,
@@ -71,8 +76,8 @@ export const saveToDashboardModalLogic = kea<saveToDashboardModalLogicType>({
         ],
         dashboardsFuse: [
             () => [dashboardsModel.selectors.nameSortedDashboards],
-            (nameSortedDashboards) => {
-                return new Fuse(nameSortedDashboards || [], {
+            (nameSortedDashboards): Fuse => {
+                return new FuseClass(nameSortedDashboards || [], {
                     keys: ['name', 'description', 'tags'],
                     threshold: 0.3,
                 })
@@ -82,7 +87,7 @@ export const saveToDashboardModalLogic = kea<saveToDashboardModalLogicType>({
             (s) => [s.searchQuery, s.dashboardsFuse, dashboardsModel.selectors.nameSortedDashboards],
             (searchQuery, dashboardsFuse, nameSortedDashboards): DashboardType[] =>
                 searchQuery.length
-                    ? dashboardsFuse.search(searchQuery).map((r: Fuse.FuseResult<DashboardType>) => r.item)
+                    ? dashboardsFuse.search(searchQuery).map((r: FuseClass.FuseResult<DashboardType>) => r.item)
                     : nameSortedDashboards,
         ],
         currentDashboards: [

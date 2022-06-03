@@ -42,7 +42,7 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
         deleteCohort: true,
         fetchCohort: (id: CohortType['id']) => ({ id }),
         onCriteriaChange: (newGroup: Partial<CohortGroupType>, id: string) => ({ newGroup, id }),
-        setPollTimeout: (pollTimeout: NodeJS.Timeout | null) => ({ pollTimeout }),
+        setPollTimeout: (pollTimeout: number | null) => ({ pollTimeout }),
         checkIfFinishedCalculating: (cohort: CohortType) => ({ cohort }),
 
         setOuterGroupsType: (type: FilterLogicalOperator) => ({ type }),
@@ -138,7 +138,7 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
             },
         ],
         pollTimeout: [
-            null as NodeJS.Timeout | null,
+            null as number | null,
             {
                 setPollTimeout: (_, { pollTimeout }) => pollTimeout,
             },
@@ -262,7 +262,7 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
         checkIfFinishedCalculating: async ({ cohort }, breakpoint) => {
             if (cohort.is_calculating) {
                 actions.setPollTimeout(
-                    setTimeout(async () => {
+                    window.setTimeout(async () => {
                         const newCohort = await api.cohorts.get(cohort.id)
                         breakpoint()
                         actions.checkIfFinishedCalculating(newCohort)
