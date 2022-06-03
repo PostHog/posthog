@@ -15,6 +15,7 @@ import { defaultConfig } from '../../config/config'
 import { JobQueueManager } from '../../main/job-queues/job-queue-manager'
 import { connectObjectStorage } from '../../main/services/object_storage'
 import { Hub, KafkaSecurityProtocol, PluginServerCapabilities, PluginsServerConfig } from '../../types'
+import { determineNodeEnv, NodeEnv } from '../../utils/env-utils'
 import { ActionManager } from '../../worker/ingestion/action-manager'
 import { ActionMatcher } from '../../worker/ingestion/action-matcher'
 import { HookCommander } from '../../worker/ingestion/hooks'
@@ -171,11 +172,11 @@ export async function createHub(
     const kafka = new Kafka({
         clientId: `plugin-server-v${version}-${instanceId}`,
         brokers: serverConfig.KAFKA_HOSTS.split(','),
-        logLevel: logLevel.WARN,
+        logLevel: determineNodeEnv() === NodeEnv.Test ? logLevel.ERROR : logLevel.DEBUG,
         ssl: kafkaSsl,
         sasl: kafkaSasl,
-        connectionTimeout: 3000, // default: 1000
-        authenticationTimeout: 3000, // default: 1000
+        connectionTimeout: 7000, // default: 1000
+        authenticationTimeout: 7000, // default: 1000
     })
     const producer = kafka.producer({
         retry: { retries: 10, initialRetryTime: 1000, maxRetryTime: 30 },
