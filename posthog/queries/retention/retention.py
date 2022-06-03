@@ -1,13 +1,13 @@
 from typing import Any, Dict, List, NamedTuple, Optional, Tuple, Union
 from urllib.parse import urlencode
 
-from ee.clickhouse.sql.retention.retention import RETENTION_BREAKDOWN_SQL
 from posthog.client import substitute_params, sync_execute
 from posthog.constants import RETENTION_FIRST_TIME, RetentionQueryType
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.team import Team
 from posthog.queries.retention.actors_query import RetentionActors, RetentionActorsByPeriod, build_actor_activity_query
 from posthog.queries.retention.event_query import RetentionEventsQuery
+from posthog.queries.retention.sql import RETENTION_BREAKDOWN_SQL
 
 BreakdownValues = Tuple[Union[str, int], ...]
 CohortKey = NamedTuple("CohortKey", (("breakdown_values", BreakdownValues), ("period", int)))
