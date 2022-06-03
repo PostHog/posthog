@@ -14,6 +14,7 @@ from posthog.mixins import AnalyticsDestroyModelMixin
 from posthog.models import Insight, Organization, Team, User
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.organization import OrganizationMembership
+from posthog.models.signals import mute_selected_signals
 from posthog.models.utils import generate_random_token_project
 from posthog.permissions import (
     CREATE_METHODS,
@@ -211,7 +212,8 @@ class TeamViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
 
     def perform_destroy(self, team: Team):
         team_id = team.pk
-        super().perform_destroy(team)
+        with mute_selected_signals():
+            super().perform_destroy(team)
         delete_clickhouse_data.delay(team_ids=[team_id])
 
     @action(methods=["PATCH"], detail=True)
