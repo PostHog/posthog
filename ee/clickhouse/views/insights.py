@@ -6,6 +6,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from ee.clickhouse.queries.funnels.funnel_correlation import FunnelCorrelation
+from ee.clickhouse.queries.retention.retention import ClickhouseRetention
 from posthog.api.insight import InsightViewSet
 from posthog.decorators import cached_function
 from posthog.models import Insight, User
@@ -27,6 +28,8 @@ class CanEditInsight(BasePermission):
 
 class ClickhouseInsightsViewSet(InsightViewSet):
     permission_classes = [*InsightViewSet.permission_classes, CanEditInsight]
+
+    retention_query_class = ClickhouseRetention
 
     # ******************************************
     # /projects/:id/insights/funnel/correlation
