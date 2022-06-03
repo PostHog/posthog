@@ -9,6 +9,7 @@ import { DateTime } from 'luxon'
 import * as path from 'path'
 import { types as pgTypes } from 'pg'
 import { ConnectionOptions } from 'tls'
+import { determineNodeEnv, NodeEnv } from 'utils/env-utils'
 
 import { getPluginServerCapabilities } from '../../capabilities'
 import { defaultConfig } from '../../config/config'
@@ -171,7 +172,7 @@ export async function createHub(
     const kafka = new Kafka({
         clientId: `plugin-server-v${version}-${instanceId}`,
         brokers: serverConfig.KAFKA_HOSTS.split(','),
-        logLevel: logLevel.DEBUG,
+        logLevel: determineNodeEnv() === NodeEnv.Test ? logLevel.ERROR : logLevel.DEBUG,
         ssl: kafkaSsl,
         sasl: kafkaSasl,
         connectionTimeout: 3000, // default: 1000
