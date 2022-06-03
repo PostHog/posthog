@@ -149,7 +149,7 @@ def send_first_ingestion_reminder_emails() -> None:
 
                 message.add_recipient(user.email)
                 message.send()
-                report_first_ingestion_reminder_email_sent()
+                report_first_ingestion_reminder_email_sent(user)
 
 
 @app.task(max_retries=1)
@@ -180,4 +180,4 @@ def send_second_ingestion_reminder_emails() -> None:
 
                 message.add_recipient(user.email)
                 message.send()
-                report_second_ingestion_reminder_email_sent()
+                report_second_ingestion_reminder_email_sent(user)
