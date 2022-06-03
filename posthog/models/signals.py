@@ -25,6 +25,12 @@ def mutable_receiver(*args, **kwargs):
 
 @contextmanager
 def muted_signals():
+    """
+    Code in this block does not call _any_ of the receive hooks set up with @mutable_receiver.
+
+    This can be useful for mass object deletion scenarios, where a given hook might be called thousands of times.
+    """
+
     global is_muted
     try:
         is_muted = True
