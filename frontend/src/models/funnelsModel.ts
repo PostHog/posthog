@@ -2,7 +2,7 @@ import { kea } from 'kea'
 import api from 'lib/api'
 import { toParams } from 'lib/utils'
 import { SavedFunnel, InsightType } from '~/types'
-import { funnelsModelType } from './funnelsModelType'
+import type { funnelsModelType } from './funnelsModelType'
 import { teamLogic } from '../scenes/teamLogic'
 
 const parseSavedFunnel = (result: Record<string, any>): SavedFunnel => {

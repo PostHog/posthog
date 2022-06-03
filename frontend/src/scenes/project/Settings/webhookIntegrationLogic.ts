@@ -3,7 +3,7 @@ import api from 'lib/api'
 import { lemonToast } from 'lib/components/lemonToast'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
-import { webhookIntegrationLogicType } from './webhookIntegrationLogicType'
+import type { webhookIntegrationLogicType } from './webhookIntegrationLogicType'
 
 function adjustDiscordWebhook(webhookUrl: string): string {
     // We need Discord webhook URLs to end with /slack for proper handling, this ensures that
