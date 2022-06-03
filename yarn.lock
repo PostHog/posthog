@@ -2847,18 +2847,18 @@
     use-debounce "^5.2.1"
     use-local-storage-state "^6.0.0"
 
-"@posthog/simmerjs@0.7.4":
-  version "0.7.4"
-  resolved "https://registry.yarnpkg.com/@posthog/simmerjs/-/simmerjs-0.7.4.tgz#48778bee9ce5dc08cefded6e5b6721b7c9b85584"
-  integrity sha512-pEbDRbX/dUdbRiaHIlUl5dkqVFqSjzekcVmnTkZa8CNIVrJZ0OOH0msZx77XYqntgomPuJx01sTpwHdzeZv3zQ==
+"@posthog/simmerjs@^0.7.7":
+  version "0.7.7"
+  resolved "https://registry.yarnpkg.com/@posthog/simmerjs/-/simmerjs-0.7.7.tgz#4f73f3b3c261134b17046f17a369979d4b38ff71"
+  integrity sha512-NZCTf5DXZGERfic2xYxxU8FCsML9uxDYsdWe1UzwA7fFBBhqDa6KEV/H/j7Y0N9mJMdnbbDF57JRb0p0nKyM6Q==
   dependencies:
-    "@babel/runtime" "^7.11.2"
+    "@babel/runtime" "^7.17.9"
     lodash.difference "^4.5.0"
     lodash.flatmap "^4.5.0"
     lodash.isfunction "^3.0.8"
     lodash.take "^4.1.1"
     lodash.takeright "^4.1.1"
-    query-selector-shadow-dom "0.8.0"
+    query-selector-shadow-dom "^1.0.0"
 
 "@react-hook/latest@^1.0.2":
   version "1.0.3"
@@ -13849,10 +13849,10 @@ qs@~6.5.2:
   resolved "https://registry.yarnpkg.com/qs/-/qs-6.5.2.tgz#cb3ae806e8740444584ef154ce8ee98d403f3e36"
   integrity sha512-N5ZAX4/LxJmF+7wN74pUD6qAh9/wnvdQcjq9TZjevvXzSUo7bfmw91saqMjzGS2xq91/odN2dW/WOl7qQHNDGA==
 
-query-selector-shadow-dom@0.8.0:
-  version "0.8.0"
-  resolved "https://registry.yarnpkg.com/query-selector-shadow-dom/-/query-selector-shadow-dom-0.8.0.tgz#74c7509e8b9bc24114febf076f89eb0eaf8e77a7"
-  integrity sha512-dY6R/X8hfGapwcW9Xl6zSpGR1guYNdSVV7XOrO3Xb9UUyo5tEcWON2siDpNyQ+skVjAH0fH3azm3GdnTpUC/2A==
+query-selector-shadow-dom@^1.0.0:
+  version "1.0.0"
+  resolved "https://registry.yarnpkg.com/query-selector-shadow-dom/-/query-selector-shadow-dom-1.0.0.tgz#8fa7459a4620f094457640e74e953a9dbe61a38e"
+  integrity sha512-bK0/0cCI+R8ZmOF1QjT7HupDUYCxbf/9TJgAmSXQxZpftXmTAeil9DRoCnTDkWbvOyZzhcMBwKpptWcdkGFIMg==
 
 querystring-es3@^0.2.0:
   version "0.2.1"
