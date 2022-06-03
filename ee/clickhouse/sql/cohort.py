@@ -35,6 +35,7 @@ FROM (
 )
 """
 
+# Continually ensure that all previous version rows are deleted and insert persons that match the criteria
 RECALCULATE_COHORT_BY_ID = """
 INSERT INTO cohortpeople
 SELECT id, %(cohort_id)s as cohort_id, %(team_id)s as team_id, 1 AS sign, %(new_version)s AS version
@@ -60,6 +61,9 @@ ON events.distinct_id = pdi.distinct_id
 WHERE team_id = %(team_id)s {date_query} AND {entity_query}
 GROUP BY person_id {count_condition}
 """
+
+# NOTE: Group by version id to ensure that signs are summed between corresponding rows.
+# Version filtering is not necessary as only positive rows of the latest version will be selected by sum(sign) > 0
 
 GET_PERSON_ID_BY_PRECALCULATED_COHORT_ID = """
 SELECT person_id FROM cohortpeople WHERE team_id = %(team_id)s AND cohort_id = %({prepend}_cohort_id_{index})s GROUP BY person_id, cohort_id, team_id, version HAVING sum(sign) > 0
