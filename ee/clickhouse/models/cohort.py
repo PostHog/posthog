@@ -63,14 +63,12 @@ def format_static_cohort_query(
 def format_precalculated_cohort_query(
     cohort_id: int, index: int, prepend: str = "", custom_match_field="person_id"
 ) -> Tuple[str, Dict[str, Any]]:
-    cohort = Cohort.objects.get(pk=cohort_id)
-
     filter_query = GET_PERSON_ID_BY_PRECALCULATED_COHORT_ID.format(index=index, prepend=prepend)
     return (
         f"""
         {custom_match_field} IN ({filter_query})
         """,
-        {f"{prepend}_cohort_id_{index}": cohort.pk},
+        {f"{prepend}_cohort_id_{index}": cohort_id},
     )
 
 
