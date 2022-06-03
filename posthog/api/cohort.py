@@ -19,7 +19,7 @@ from sentry_sdk.api import capture_exception
 from ee.clickhouse.queries.actor_base_query import ActorBaseQuery, get_people
 from ee.clickhouse.queries.funnels.funnel_correlation_persons import FunnelCorrelationActors
 from ee.clickhouse.queries.paths.paths_actors import ClickhousePathsActors
-from ee.clickhouse.queries.stickiness_actors import ClickhouseStickinessActors
+from ee.clickhouse.queries.stickiness.stickiness_actors import ClickhouseStickinessActors
 from ee.clickhouse.queries.trends.person import ClickhouseTrendsActors
 from ee.clickhouse.sql.person import INSERT_COHORT_ALL_PEOPLE_THROUGH_PERSON_ID, PERSON_STATIC_COHORT_TABLE
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
