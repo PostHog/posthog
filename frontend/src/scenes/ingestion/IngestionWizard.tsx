@@ -19,6 +19,7 @@ import { inviteLogic } from 'scenes/organization/Settings/inviteLogic'
 import { FriendlyLogo } from '~/toolbar/assets/FriendlyLogo'
 import { SitePopover } from '~/layout/navigation/TopBar/SitePopover'
 import { HelpButton } from 'lib/components/HelpButton/HelpButton'
+import useBreakpoint from 'antd/lib/grid/hooks/useBreakpoint'
 
 export const scene: SceneExport = {
     component: IngestionWizard,
@@ -90,6 +91,8 @@ function IngestionContainer({ children }: { children: React.ReactNode }): JSX.El
     const { isInviteModalShown } = useValues(inviteLogic)
     const { hideInviteModal } = useActions(inviteLogic)
     const { onboardingSidebarEnabled } = useValues(ingestionLogic)
+    const screens = useBreakpoint()
+    const isSmallScreen = screens.xs || (screens.sm && !screens.md)
 
     return (
         <div style={{ display: 'flex', height: '100%', flexDirection: 'column' }}>
@@ -102,10 +105,10 @@ function IngestionContainer({ children }: { children: React.ReactNode }): JSX.El
                     </div>
                 </div>
             )}
+            <InviteModal visible={isInviteModalShown} onClose={hideInviteModal} />
             <div style={{ display: 'flex', height: '100%' }}>
-                {onboardingSidebarEnabled && (
+                {onboardingSidebarEnabled && !isSmallScreen && (
                     <>
-                        <InviteModal visible={isInviteModalShown} onClose={hideInviteModal} />
                         <Sidebar />
                     </>
                 )}

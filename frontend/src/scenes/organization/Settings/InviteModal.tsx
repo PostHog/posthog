@@ -44,8 +44,6 @@ function InviteRow({ index, isDeletable }: { index: number; isDeletable: boolean
     const { updateInviteAtIndex, inviteTeamMembers, deleteInviteAtIndex } = useActions(inviteLogic)
     const { preflight } = useValues(preflightLogic)
 
-    preflight.email_service_available = true
-
     return (
         <Row gutter={16} className="invite-row" align="middle">
             <Col xs={11}>
