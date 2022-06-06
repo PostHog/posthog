@@ -5,7 +5,6 @@ import { useValues } from 'kea'
 import { PanelFooter, PanelHeader } from './panels/PanelComponents'
 import './panels/Panels.scss'
 import { ArrowLeftOutlined } from '@ant-design/icons'
-import useBreakpoint from 'antd/lib/grid/hooks/useBreakpoint'
 
 export function CardContainer({
     index,
@@ -18,9 +17,7 @@ export function CardContainer({
     children: React.ReactNode
     showFooter?: boolean
 }): JSX.Element {
-    const { onboardingSidebarEnabled } = useValues(ingestionLogic)
-    const screens = useBreakpoint()
-    const isSmallScreen = screens.xs || (screens.sm && !screens.md)
+    const { onboardingSidebarEnabled, isSmallScreen } = useValues(ingestionLogic)
 
     return (
         <div className="ingestion-card-container">

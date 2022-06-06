@@ -19,7 +19,6 @@ import { inviteLogic } from 'scenes/organization/Settings/inviteLogic'
 import { FriendlyLogo } from '~/toolbar/assets/FriendlyLogo'
 import { SitePopover } from '~/layout/navigation/TopBar/SitePopover'
 import { HelpButton } from 'lib/components/HelpButton/HelpButton'
-import useBreakpoint from 'antd/lib/grid/hooks/useBreakpoint'
 
 export const scene: SceneExport = {
     component: IngestionWizard,
@@ -90,21 +89,21 @@ export function IngestionWizard(): JSX.Element {
 function IngestionContainer({ children }: { children: React.ReactNode }): JSX.Element {
     const { isInviteModalShown } = useValues(inviteLogic)
     const { hideInviteModal } = useActions(inviteLogic)
-    const { onboardingSidebarEnabled } = useValues(ingestionLogic)
-    const screens = useBreakpoint()
-    const isSmallScreen = screens.xs || (screens.sm && !screens.md)
+    const { onboardingSidebarEnabled, isSmallScreen } = useValues(ingestionLogic)
 
     return (
         <div style={{ display: 'flex', height: '100%', flexDirection: 'column' }}>
             {onboardingSidebarEnabled && (
-                <div className="IngestionTopbar">
-                    <FriendlyLogo style={{ fontSize: '1.125rem' }} />
-                    <div style={{ display: 'flex' }}>
-                        <HelpButton />
-                        <SitePopover />
+                <>
+                    <div className="IngestionTopbar">
+                        <FriendlyLogo style={{ fontSize: '1.125rem' }} />
+                        <div style={{ display: 'flex' }}>
+                            <HelpButton />
+                            <SitePopover />
+                        </div>
                     </div>
                     <InviteModal visible={isInviteModalShown} onClose={hideInviteModal} />
-                </div>
+                </>
             )}
             <div style={{ display: 'flex', height: '100%' }}>
                 {onboardingSidebarEnabled && !isSmallScreen && (
