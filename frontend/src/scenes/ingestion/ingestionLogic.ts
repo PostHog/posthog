@@ -45,7 +45,7 @@ export const ingestionLogic = kea<ingestionLogicType>([
         completeOnboarding: true,
     }),
     windowValues({
-        isSmallScreen: (window) => window.innerWidth < getBreakpoint('md'),
+        isSmallScreen: (window: Window) => window.innerWidth < getBreakpoint('md'),
     }),
     reducers({
         platform: [
