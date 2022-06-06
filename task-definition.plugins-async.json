@@ -115,6 +115,10 @@
                 {
                     "name": "TASKS_PER_WORKER",
                     "value": "2"
+                },
+                {
+                    "name": "WORKER_CONCURRENCY",
+                    "value": "2"
                 }
             ],
             "secrets": [
