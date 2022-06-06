@@ -8,7 +8,6 @@ from django.db.models.expressions import ExpressionWrapper, RawSQL, Subquery
 from django.db.models.fields import BooleanField
 from django.db.models.query import QuerySet
 from django.db.models.signals import pre_delete
-from django.dispatch.dispatcher import receiver
 from django.utils import timezone
 from sentry_sdk.api import capture_exception
 
@@ -18,6 +17,7 @@ from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.group import Group
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.property import GroupTypeIndex, GroupTypeName
+from posthog.models.signals import mutable_receiver
 from posthog.models.user import User
 from posthog.queries.base import properties_to_Q
 
@@ -122,7 +122,7 @@ class FeatureFlag(models.Model):
                 update_cohort(cohort)
 
 
-@receiver(pre_delete, sender=Experiment)
+@mutable_receiver(pre_delete, sender=Experiment)
 def delete_experiment_flags(sender, instance, **kwargs):
     FeatureFlag.objects.filter(experiment=instance).update(deleted=True)
 

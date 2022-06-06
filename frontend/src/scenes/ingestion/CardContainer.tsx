@@ -11,15 +11,13 @@ export function CardContainer({
     onBack,
     children,
     showFooter,
-    onSubmit,
 }: {
     index: number
     onBack?: () => void
     children: React.ReactNode
     showFooter?: boolean
-    onSubmit?: () => void
 }): JSX.Element {
-    const { onboarding1, onboardingSidebarEnabled } = useValues(ingestionLogic)
+    const { onboardingSidebarEnabled } = useValues(ingestionLogic)
 
     return (
         <div className="ingestion-card-container">
@@ -36,30 +34,7 @@ export function CardContainer({
                 </Row>
             )}
             {children}
-            <div>
-                {showFooter &&
-                    (onboarding1 ? (
-                        <PanelFooter />
-                    ) : (
-                        <div
-                            data-attr="wizard-continue-button"
-                            className="bg-primary"
-                            role="button"
-                            style={{
-                                height: 70,
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                borderRadius: 5,
-                                cursor: 'pointer',
-                                margin: 16,
-                            }}
-                            onClick={onSubmit}
-                        >
-                            <span style={{ fontWeight: 500, fontSize: 18, color: 'white' }}>Continue</span>
-                        </div>
-                    ))}
-            </div>
+            <div>{showFooter && <PanelFooter />}</div>
         </div>
     )
 }

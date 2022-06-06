@@ -205,7 +205,7 @@ def ingestion_lag():
 
     # Requires https://github.com/PostHog/posthog-heartbeat-plugin to be enabled on team 2
     # Note that it runs every minute and we compare it with now(), so there's up to 60s delay
-    for metric, event in {"heartbeat": "ingestion", "heartbeat_api": "ingestion_api"}.items():
+    for event, metric in {"heartbeat": "ingestion", "heartbeat_api": "ingestion_api"}.items():
         try:
             query = """select now() - max(parseDateTimeBestEffortOrNull(JSONExtractString(properties, '$timestamp'))) from events where team_id = 2 and _timestamp > yesterday() and event = %(event)s;"""
             lag = sync_execute(query, {"event": event})[0][0]
