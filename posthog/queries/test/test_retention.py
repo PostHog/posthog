@@ -5,7 +5,7 @@ from unittest.mock import patch
 import pytz
 from rest_framework import status
 
-from ee.clickhouse.util import snapshot_clickhouse_queries
+from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
 from posthog.constants import (
     FILTER_TEST_ACCOUNTS,
     RETENTION_FIRST_TIME,
@@ -59,7 +59,7 @@ def _create_events(team, user_and_timestamps, event="$pageview"):
         i += 1
 
 
-class TestRetention(APIBaseTest):
+class TestRetention(ClickhouseTestMixin, APIBaseTest):
     def test_retention_default(self):
         _create_person(team_id=self.team.pk, distinct_ids=["person1", "alias1"])
         _create_person(team_id=self.team.pk, distinct_ids=["person2"])
