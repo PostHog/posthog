@@ -15,10 +15,16 @@ const nameOrLinkToInsight = (item: ActivityLogItem): string | JSX.Element => {
     return item.detail.short_id ? <Link to={urls.insightView(item.detail.short_id)}>{name}</Link> : name
 }
 
-function linkToDashboard(dashboardId: number): JSX.Element {
-    // todo need a name for the dashboard?
-    return <Link to={urls.dashboard(dashboardId)}>dashboard</Link>
+interface DashboardLink {
+    id: number
+    name: string
 }
+
+const linkToDashboard = (dashboard: DashboardLink): JSX.Element => (
+    <div className="highlighted-activity">
+        dashboard <Link to={urls.dashboard(dashboard.id)}>{dashboard.name}</Link>
+    </div>
+)
 
 const insightActionsMapping: Record<keyof InsightModel, (change?: ActivityChange) => ChangeDescriptions | null> = {
     name: function onName(change) {
@@ -129,15 +135,15 @@ const insightActionsMapping: Record<keyof InsightModel, (change?: ActivityChange
         return { descriptions: changes, bareName: false }
     },
     dashboards: function onDashboardsChange(change) {
-        const dashboardsBefore = (change?.before as string[]).map((dashboard) => {
-            return Number.parseInt(dashboard.replace('Dashboard object (', '').replace(')', ''))
-        })
-        const dashboardsAfter = (change?.after as string[]).map((dashboard) => {
-            return Number.parseInt(dashboard.replace('Dashboard object (', '').replace(')', ''))
-        })
+        const dashboardsBefore = change?.before as DashboardLink[]
+        const dashboardsAfter = change?.after as DashboardLink[]
 
-        const addedDashboards = dashboardsAfter.filter((da) => !dashboardsBefore.includes(da))
-        const removedDashboards = dashboardsBefore.filter((db) => !dashboardsAfter.includes(db))
+        const addedDashboards = dashboardsAfter.filter(
+            (after) => !dashboardsBefore.some((before) => before.id === after.id)
+        )
+        const removedDashboards = dashboardsBefore.filter(
+            (before) => !dashboardsAfter.some((after) => after.id === before.id)
+        )
 
         const describeAdded = addedDashboards.map((d) => <>added to {linkToDashboard(d)}</>)
         const describeRemoved = removedDashboards.map((d) => <>removed from {linkToDashboard(d)}</>)

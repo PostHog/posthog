@@ -969,14 +969,21 @@ describe('the activity log logic', () => {
                         type: 'Insight',
                         action: 'changed',
                         field: 'dashboards',
-                        before: ['1', '2'],
-                        after: ['1', '2', '3'],
+                        before: [
+                            { id: '1', name: 'anything' },
+                            { id: '2', name: 'another' },
+                        ],
+                        after: [
+                            { id: '1', name: 'anything' },
+                            { id: '2', name: 'another' },
+                            { id: '3', name: 'added' },
+                        ],
                     },
                 ])
                 const actual = logic.values.humanizedActivity
 
                 expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent(
-                    'added to dashboard test insight'
+                    'added to added test insight'
                 )
             })
 
@@ -986,14 +993,21 @@ describe('the activity log logic', () => {
                         type: 'Insight',
                         action: 'changed',
                         field: 'dashboards',
-                        before: ['1', '2', '3'],
-                        after: ['1', '2'],
+                        before: [
+                            { id: '1', name: 'anything' },
+                            { id: '2', name: 'another' },
+                            { id: '3', name: 'removed' },
+                        ],
+                        after: [
+                            { id: '1', name: 'anything' },
+                            { id: '2', name: 'another' },
+                        ],
                     },
                 ])
                 const actual = logic.values.humanizedActivity
 
                 expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent(
-                    'removed from dashboard test insight'
+                    'removed from removed test insight'
                 )
             })
         })

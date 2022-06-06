@@ -128,6 +128,13 @@ field_exclusions: Dict[Literal["FeatureFlag", "Person", "Insight"], List[str]] =
 }
 
 
+def _description(m: Any) -> Union[str, Dict]:
+    try:
+        return m.describe_to_activity_log()
+    except AttributeError:
+        return str(m)
+
+
 def changes_between(
     model_type: Literal["FeatureFlag", "Person", "Insight"],
     previous: Optional[models.Model],
@@ -149,10 +156,10 @@ def changes_between(
         for field in filtered_fields:
             left = getattr(previous, field, None)
             if isinstance(left, models.Manager):
-                left = sorted([str(x) for x in left.all()])
+                left = sorted([_description(x) for x in left.all()])
             right = getattr(current, field, None)
             if isinstance(right, models.Manager):
-                right = sorted([str(x) for x in right.all()])
+                right = sorted([_description(x) for x in right.all()])
 
             if field == "tagged_items":
                 field = "tags"  # or the UI needs to be coupled to this internal backend naming

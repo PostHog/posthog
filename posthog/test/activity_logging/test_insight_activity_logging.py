@@ -12,7 +12,7 @@ class TestChangesBetweenInsights(BaseTest):
     def test_a_change_of_insight_dashboard_can_be_logged(self) -> None:
         insight_before = self._an_insight_with(name="name", tagged_items=[])
         insight_after = self._an_insight_with(name="name", tagged_items=[])
-        dashboard = Dashboard.objects.create(team=self.team)
+        dashboard = Dashboard.objects.create(team=self.team, name="the dashboard")
         DashboardTile.objects.create(insight=insight_after, dashboard=dashboard)
 
         actual = changes_between(model_type="Insight", previous=insight_before, current=insight_after,)
@@ -22,7 +22,7 @@ class TestChangesBetweenInsights(BaseTest):
                 action="changed",
                 field="dashboards",
                 before=[],
-                after=[f"Dashboard object ({dashboard.id})"],
+                after=[{"id": dashboard.id, "name": dashboard.name}],
             )
         ]
 
