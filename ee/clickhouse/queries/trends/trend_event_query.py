@@ -1,7 +1,6 @@
 from typing import Any, Dict, Tuple
 
 from ee.clickhouse.models.property import get_property_string_expr
-from ee.clickhouse.queries.event_query import EnterpriseEventQuery
 from ee.clickhouse.queries.trends.util import get_active_user_params
 from posthog.constants import MONTHLY_ACTIVE, WEEKLY_ACTIVE, PropertyOperatorType
 from posthog.models import Entity
@@ -9,11 +8,12 @@ from posthog.models.entity.util import get_entity_filtering_params
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.utils import PersonPropertiesMode
+from posthog.queries.event_query import EventQuery
 from posthog.queries.person_query import PersonQuery
 from posthog.queries.util import date_from_clause, get_time_diff, get_trunc_func_ch, parse_timestamps
 
 
-class TrendsEventQuery(EnterpriseEventQuery):
+class TrendsEventQuery(EventQuery):
     _entity: Entity
     _filter: Filter
 
@@ -85,7 +85,7 @@ class TrendsEventQuery(EnterpriseEventQuery):
         return query, self.params
 
     def _determine_should_join_persons(self) -> None:
-        EnterpriseEventQuery._determine_should_join_persons(self)
+        EventQuery._determine_should_join_persons(self)
         if self._using_person_on_events:
             self._should_join_distinct_ids = False
             self._should_join_persons = False
