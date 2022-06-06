@@ -3,7 +3,7 @@
     "version": "0.0.0",
     "license": "MIT",
     "source": "src/index.ts",
-    "module": "dist/index.js",
+    "main": "dist/index.js",
     "types": "dist/index.d.ts",
     "scripts": {
         "build": "yarn build:source && yarn build:types",
