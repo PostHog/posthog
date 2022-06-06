@@ -983,7 +983,7 @@ describe('the activity log logic', () => {
                 const actual = logic.values.humanizedActivity
 
                 expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent(
-                    'added to added test insight'
+                    'added to dashboard added test insight'
                 )
             })
 
@@ -1007,7 +1007,7 @@ describe('the activity log logic', () => {
                 const actual = logic.values.humanizedActivity
 
                 expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent(
-                    'removed from removed test insight'
+                    'removed from dashboard removed test insight'
                 )
             })
         })
