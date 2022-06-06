@@ -1,7 +1,7 @@
-import { ActivityChange, ActivityLogItem, Describer } from 'lib/components/ActivityLog/humanizeActivity'
+import { ActivityChange, ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
 import { Link } from 'lib/components/Link'
 import { urls } from 'scenes/urls'
-import { ChangeDescriptions, DashboardType, FilterType, InsightModel } from '~/types'
+import { ChangeDescriptions, FilterType, InsightModel } from '~/types'
 import React from 'react'
 import { SentenceList } from 'scenes/feature-flags/activityDescriptions'
 import { BreakdownSummary, FiltersSummary, QuerySummary } from 'lib/components/InsightCard/InsightDetails'
@@ -15,27 +15,12 @@ const nameOrLinkToInsight = (item: ActivityLogItem): string | JSX.Element => {
     return item.detail.short_id ? <Link to={urls.insightView(item.detail.short_id)}>{name}</Link> : name
 }
 
-function linkToDashboard(dashboardId: number, dashboards: DashboardType[]): JSX.Element {
-    const matchedDashboard = dashboards.find((dash) => dash.id === dashboardId)
-    if (matchedDashboard) {
-        return (
-            <>
-                dashboard <Link to={urls.dashboard(dashboardId)}>{matchedDashboard.name}</Link>:{' '}
-            </>
-        )
-    } else {
-        return (
-            <>
-                <Link to={urls.dashboard(dashboardId)}>dashboard</Link>:{' '}
-            </>
-        )
-    }
+function linkToDashboard(dashboardId: number): JSX.Element {
+    // todo need a name for the dashboard?
+    return <Link to={urls.dashboard(dashboardId)}>dashboard</Link>
 }
 
-const insightActionsMapping: Record<
-    keyof InsightModel,
-    (change?: ActivityChange, dashboards?: DashboardType[]) => ChangeDescriptions | null
-> = {
+const insightActionsMapping: Record<keyof InsightModel, (change?: ActivityChange) => ChangeDescriptions | null> = {
     name: function onName(change) {
         return {
             descriptions: [
@@ -143,7 +128,7 @@ const insightActionsMapping: Record<
         }
         return { descriptions: changes, bareName: false }
     },
-    dashboards: function onDashboardsChange(change, dashboards) {
+    dashboards: function onDashboardsChange(change) {
         const dashboardsBefore = (change?.before as string[]).map((dashboard) => {
             return Number.parseInt(dashboard.replace('Dashboard object (', '').replace(')', ''))
         })
@@ -154,8 +139,8 @@ const insightActionsMapping: Record<
         const addedDashboards = dashboardsAfter.filter((da) => !dashboardsBefore.includes(da))
         const removedDashboards = dashboardsBefore.filter((db) => !dashboardsAfter.includes(db))
 
-        const describeAdded = addedDashboards.map((d) => <>added to {linkToDashboard(d, dashboards || [])}</>)
-        const describeRemoved = removedDashboards.map((d) => <>removed from {linkToDashboard(d, dashboards || [])}</>)
+        const describeAdded = addedDashboards.map((d) => <>added to {linkToDashboard(d)}</>)
+        const describeRemoved = removedDashboards.map((d) => <>removed from {linkToDashboard(d)}</>)
 
         return { descriptions: describeAdded.concat(describeRemoved), bareName: true }
     },
@@ -181,7 +166,7 @@ const insightActionsMapping: Record<
     effective_privilege_level: () => null, // read from dashboards
 }
 
-function insightActivityDescriber(logItem: ActivityLogItem, dashboards: DashboardType[]): string | JSX.Element | null {
+export function insightActivityDescriber(logItem: ActivityLogItem): string | JSX.Element | null {
     if (logItem.scope != 'Insight') {
         console.error('insight describer received a non-insight activity')
         return null
@@ -201,7 +186,7 @@ function insightActivityDescriber(logItem: ActivityLogItem, dashboards: Dashboar
                 continue // insight updates have to have a "field" to be described
             }
 
-            const nextChange: ChangeDescriptions | null = insightActionsMapping[change.field](change, dashboards)
+            const nextChange: ChangeDescriptions | null = insightActionsMapping[change.field](change)
             if (nextChange?.descriptions) {
                 changes.descriptions = changes.descriptions.concat(nextChange?.descriptions)
                 changes.bareName = nextChange?.bareName
@@ -224,8 +209,4 @@ function insightActivityDescriber(logItem: ActivityLogItem, dashboards: Dashboar
     }
 
     return null
-}
-
-export function insightActivityDescriberUsing(dashboards: DashboardType[]): Describer {
-    return (logItem: ActivityLogItem) => insightActivityDescriber(logItem, dashboards)
 }

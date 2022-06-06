@@ -21,8 +21,7 @@ import { Provider } from 'kea'
 import React from 'react'
 import { personActivityDescriber } from 'scenes/persons/activityDescriptions'
 import { MOCK_TEAM_ID } from 'lib/api.mock'
-import { insightActivityDescriberUsing } from 'scenes/saved-insights/activityDescriptions'
-import { DashboardType } from '~/types'
+import { insightActivityDescriber } from 'scenes/saved-insights/activityDescriptions'
 
 const keaRender = (children: React.ReactFragment): RenderResult => render(<Provider>{children}</Provider>)
 
@@ -66,7 +65,6 @@ describe('the activity log logic', () => {
             )
         })
     })
-
     describe('when scoped by ID', () => {
         beforeEach(() => {
             useMocks({
@@ -733,7 +731,7 @@ describe('the activity log logic', () => {
         describe('humanizing insights', () => {
             const insightTestSetup = makeTestSetup(
                 ActivityScope.INSIGHT,
-                insightActivityDescriberUsing([{ id: 12, name: 'known dashboard' } as DashboardType]),
+                insightActivityDescriber,
                 `/api/projects/${MOCK_TEAM_ID}/insights/activity/`
             )
 
@@ -978,24 +976,7 @@ describe('the activity log logic', () => {
                 const actual = logic.values.humanizedActivity
 
                 expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent(
-                    'added to dashboard: test insight'
-                )
-            })
-
-            it('can handle addition of dashboards link when dashboards model has loaded', async () => {
-                await insightTestSetup('test insight', 'updated', [
-                    {
-                        type: 'Insight',
-                        action: 'changed',
-                        field: 'dashboards',
-                        before: ['1', '2'],
-                        after: ['1', '2', '12'],
-                    },
-                ])
-                const actual = logic.values.humanizedActivity
-
-                expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent(
-                    'added to dashboard known dashboard: test insight'
+                    'added to dashboard test insight'
                 )
             })
 
@@ -1012,7 +993,7 @@ describe('the activity log logic', () => {
                 const actual = logic.values.humanizedActivity
 
                 expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent(
-                    'removed from dashboard: test insight'
+                    'removed from dashboard test insight'
                 )
             })
         })
