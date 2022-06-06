@@ -103,9 +103,9 @@ function IngestionContainer({ children }: { children: React.ReactNode }): JSX.El
                         <HelpButton />
                         <SitePopover />
                     </div>
+                    <InviteModal visible={isInviteModalShown} onClose={hideInviteModal} />
                 </div>
             )}
-            <InviteModal visible={isInviteModalShown} onClose={hideInviteModal} />
             <div style={{ display: 'flex', height: '100%' }}>
                 {onboardingSidebarEnabled && !isSmallScreen && (
                     <>
