@@ -82,7 +82,7 @@ if TEST:
             created_at = now().strftime("%Y-%m-%d %H:%M:%S.%f")
             timestamp = now().strftime("%Y-%m-%d %H:%M:%S")
             person_inserts.append(
-                f"('{person.uuid}', '{created_at}', {person.team_id}, '{json.dumps(person.properties)}', {'1' if person.is_identified else '0'}, '{timestamp}', 0, 0)"
+                f"('{person.uuid}', '{created_at}', {person.team_id}, '{json.dumps(person.properties)}', {'1' if person.is_identified else '0'}, '{timestamp}', 0, 0, 0)"
             )
 
         PersonDistinctId.objects.bulk_create(distinct_ids)

@@ -28,6 +28,6 @@ export function convertToIngestionEvent(event: ClickHouseEvent): IngestionEvent 
         distinctId: event.distinct_id,
         properties: event.properties,
         timestamp: event.timestamp,
-        elementsList: chainToElements(event.elements_chain),
+        elementsList: chainToElements(event.elements_chain || ''),
     }
 }

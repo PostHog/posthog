@@ -2507,6 +2507,7 @@ describe('ingestion in any order', () => {
             o023: 'o0f',
             s13o02: 's3g',
         })
+        expect(person.version).toEqual(4)
     }
 
     async function runProcessEvent(set: Properties, setOnce: Properties, ts: DateTime) {

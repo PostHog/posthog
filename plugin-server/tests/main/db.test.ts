@@ -3,6 +3,7 @@ import { DateTime } from 'luxon'
 import { Hub, Person, PropertyOperator, PropertyUpdateOperation, Team } from '../../src/types'
 import { DB } from '../../src/utils/db/db'
 import { createHub } from '../../src/utils/db/hub'
+import { generateKafkaPersonUpdateMessage } from '../../src/utils/db/utils'
 import { RaceConditionError, UUIDT } from '../../src/utils/utils'
 import { getFirstTeam, insertRow, resetTestDatabase } from '../helpers/sql'
 import { plugin60 } from './../helpers/plugins'
@@ -132,6 +133,46 @@ describe('DB', () => {
             })
             expect(fetched_person.uuid).toEqual(uuid)
             expect(fetched_person.team_id).toEqual(team.id)
+        })
+    })
+
+    describe('updatePerson', () => {
+        it('Clickhouse and Postgres are in sync if multiple updates concurrently', async () => {
+            jest.spyOn(db.kafkaProducer!, 'queueMessage')
+            const team = await getFirstTeam(hub)
+            const uuid = new UUIDT().toString()
+            const distinctId = 'distinct_id1'
+            // Note that we update the person badly in case of concurrent updates, but lets make sure we're consistent
+            const personDbBefore = await db.createPerson(TIMESTAMP, { c: 'aaa' }, {}, {}, team.id, null, false, uuid, [
+                distinctId,
+            ])
+            const providedPersonTs = DateTime.fromISO('2000-04-04T11:42:06.502Z').toUTC()
+            const personProvided = { ...personDbBefore, properties: { c: 'bbb' }, created_at: providedPersonTs }
+            const updateTs = DateTime.fromISO('2000-04-04T11:42:06.502Z').toUTC()
+            const update = { created_at: updateTs }
+            const updatedPerson = await db.updatePersonDeprecated(personProvided, update)
+
+            // verify we have the correct update in Postgres db
+            const personDbAfter = await fetchPersonByPersonId(personDbBefore.team_id, personDbBefore.id)
+            expect(personDbAfter.created_at).toEqual(updateTs.toISO())
+            // we didn't change properties so they should be what was in the db
+            console.log(personDbAfter.properties)
+            expect(personDbAfter.properties).toEqual({ c: 'aaa' })
+
+            //verify we got the expected updated person back
+            expect(updatedPerson.created_at).toEqual(updateTs)
+            expect(updatedPerson.properties).toEqual({ c: 'aaa' })
+
+            // verify correct Kafka message was sent
+            const expected_message = generateKafkaPersonUpdateMessage(
+                updateTs,
+                { c: 'aaa' },
+                personDbBefore.team_id,
+                personDbBefore.is_identified,
+                personDbBefore.uuid,
+                1
+            )
+            expect(db.kafkaProducer!.queueMessage).toHaveBeenLastCalledWith(expected_message)
         })
     })
 

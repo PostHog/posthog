@@ -135,6 +135,7 @@ export const commonConfig = {
         '.woff': 'file',
         '.woff2': 'file',
         '.mp3': 'file',
+        '.lottie': 'file',
     },
     metafile: true,
 }
