@@ -53,7 +53,7 @@ export function DefinitionEdit(props: DefinitionEditLogicProps): JSX.Element {
             <Row gutter={[16, 24]} style={{ maxWidth: 640 }} className="ph-ignore-input">
                 <Col span={24}>
                     <Field name="name" label="Name" className="definition-name">
-                        <LemonInput data-attr="definition-name" value={definition.name} />
+                        <LemonInput data-attr="definition-name" value={definition.name} readOnly disabled />
                     </Field>
                     <div className="definition-sent-as">
                         Raw event name: <pre>{definition.name}</pre>
