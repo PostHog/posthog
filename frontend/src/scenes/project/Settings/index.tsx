@@ -131,11 +131,16 @@ export function ProjectSettings(): JSX.Element {
                 integrate the library for the specific language or platform you're using. We support Python, Ruby, Node,
                 Go, PHP, iOS, Android, and more.
                 <Divider />
-                <h2 id="project-api-key" className="subtitle">
-                    Project API key
+                <h2 id="project-variables" className="subtitle mb">
+                    Project Variables
                 </h2>
-                You can use this write-only key in any one of{' '}
-                <a href="https://posthog.com/docs/integrations">our libraries</a>.
+                <h3 id="project-api-key" className="l3">
+                    Project API Key
+                </h3>
+                <p>
+                    You can use this write-only key in any one of{' '}
+                    <a href="https://posthog.com/docs/integrations">our libraries</a>.
+                </p>
                 <CodeSnippet
                     actions={[
                         {
@@ -159,8 +164,17 @@ export function ProjectSettings(): JSX.Element {
                 >
                     {currentTeam?.api_token || ''}
                 </CodeSnippet>
-                Write-only means it can only create new events. It can't read events or any of your other data stored
-                with PostHog, so it's safe to use in public apps.
+                <p>
+                    Write-only means it can only create new events. It can't read events or any of your other data
+                    stored with PostHog, so it's safe to use in public apps.
+                </p>
+                <h3 id="project-id" className="l3 mt">
+                    Project ID
+                </h3>
+                <p>
+                    You can use this ID to reference your project in our <a href="https://posthog.com/docs/api">API</a>.
+                </p>
+                <CodeSnippet copyDescription="project ID">{String(currentTeam?.id || '')}</CodeSnippet>
                 <Divider />
                 <h2 className="subtitle" id="timezone">
                     Timezone
