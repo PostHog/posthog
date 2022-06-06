@@ -14,6 +14,9 @@ jobs:
         runs-on: ubuntu-20.04
         # TODO: Don't sync until ee code relocation is done
         if: ${{false}}
+        permissions:
+            contents: read
+            id-token: write
         steps:
             - name: Checkout default branch
               if: github.repository == 'PostHog/posthog-foss'
@@ -48,7 +51,6 @@ jobs:
                   tags: |
                       posthog/posthog-foss:latest-release
                       posthog/posthog-foss:release-${{ env.TAG_NAME  }}
-                  token: ${{ secrets.DEPOT_TOKEN }}
 
             - name: Image digest
               if: github.repository == 'PostHog/posthog-foss'

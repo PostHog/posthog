@@ -12,6 +12,9 @@ jobs:
         name: Build & push Docker release image
         if: github.repository == 'PostHog/posthog'
         runs-on: ubuntu-20.04
+        permissions:
+            contents: read
+            id-token: write
         steps:
             - name: Checkout default branch
               uses: actions/checkout@v2
@@ -40,7 +43,6 @@ jobs:
                   tags: |
                       posthog/posthog:latest-release
                       posthog/posthog:release-${{ env.TAG_NAME  }}
-                  token: ${{ secrets.DEPOT_TOKEN }}
 
             - name: Image digest
               run: |

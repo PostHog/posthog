@@ -13,6 +13,9 @@ jobs:
         name: Build Docker images and push them
         if: github.repository == 'PostHog/posthog'
         runs-on: ubuntu-20.04
+        permissions:
+            contents: read
+            id-token: write
         steps:
             - name: Checkout default branch
               uses: actions/checkout@v2
@@ -36,7 +39,6 @@ jobs:
                   context: .
                   push: true
                   tags: posthog/posthog:latest
-                  token: ${{ secrets.DEPOT_TOKEN }}
 
             - name: Build and push dev
               id: docker-dev
@@ -46,7 +48,6 @@ jobs:
                   file: dev.Dockerfile
                   push: true
                   tags: posthog/posthog:dev
-                  token: ${{ secrets.DEPOT_TOKEN }}
 
             - name: Image digests
               run: |

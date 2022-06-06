@@ -16,6 +16,9 @@ jobs:
         name: Build & Deploy Production Docker image
         if: github.repository == 'PostHog/posthog'
         runs-on: ubuntu-20.04
+        permissions:
+            contents: read
+            id-token: write
         steps:
             - name: Set up Depot CLI
               uses: depot/setup-action@v1
@@ -43,15 +46,23 @@ jobs:
                   # ref: 'master'
                   path: 'deploy/'
 
-            - name: Build, tag, and push image to Amazon ECR
+            - name: Build image
+              uses: depot/build-push-action@v1
+              with:
+                  context: .
+                  file: prod.web.Dockerfile
+                  load: true
+                  tags: |
+                      ${{ steps.login-ecr.outputs.registry }}/posthog-production:${{ github.sha }}
+                      ${{ steps.login-ecr.outputs.registry }}/posthog-production:latest
+
+            - name: Push image to Amazon ECR
               id: build-image
               env:
                   ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
                   ECR_REPOSITORY: posthog-production
                   IMAGE_TAG: ${{ github.sha }}
-                  DEPOT_TOKEN: ${{ secrets.DEPOT_TOKEN }}
               run: |
-                  depot build --load -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG -t $ECR_REGISTRY/$ECR_REPOSITORY:latest -f prod.web.Dockerfile .
                   docker push --all-tags $ECR_REGISTRY/$ECR_REPOSITORY
                   echo "::set-output name=image::$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
 
