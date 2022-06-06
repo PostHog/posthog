@@ -116,6 +116,8 @@ export function chainToElements(chain: string): Element[] {
     const splitClassAttributes = /(.*?)($|:([a-zA-Z\-_0-9]*=.*))/g
     const parseAttributesRegex = /((.*?)="(.*?[^\\])")/gm
 
+    chain = chain.replaceAll('\n', '')
+
     try {
         Array.from(chain.matchAll(splitChainRegex))
             .map((r) => r[0])
