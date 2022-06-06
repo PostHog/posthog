@@ -8,6 +8,7 @@ from django.core.paginator import Paginator
 from django.db import models
 from django.utils import timezone
 
+from posthog.models.dashboard import Dashboard
 from posthog.models.user import User
 from posthog.models.utils import UUIDT, UUIDModel
 
@@ -128,11 +129,21 @@ field_exclusions: Dict[Literal["FeatureFlag", "Person", "Insight"], List[str]] =
 }
 
 
-def _description(m: Any) -> Union[str, Dict]:
-    try:
-        return m.describe_to_activity_log()
-    except AttributeError:
+def _description(m: List[Any]) -> Union[str, Dict]:
+    if isinstance(m, Dashboard):
+        return {"id": m.id, "name": m.name}
+    else:
         return str(m)
+
+
+def _read_through_relation(relation: models.Manager) -> List[Union[Dict, str]]:
+    described_models = [_description(r) for r in relation.all()]
+
+    if isinstance(described_models, list) and all(isinstance(elem, str) for elem in described_models):
+        # definitely a list of strings now but mypy doesn't know that
+        described_models = sorted(described_models)  # type: ignore
+
+    return described_models
 
 
 def changes_between(
@@ -156,10 +167,11 @@ def changes_between(
         for field in filtered_fields:
             left = getattr(previous, field, None)
             if isinstance(left, models.Manager):
-                left = sorted([_description(x) for x in left.all()])
+                left = _read_through_relation(left)
+
             right = getattr(current, field, None)
             if isinstance(right, models.Manager):
-                right = sorted([_description(x) for x in right.all()])
+                right = _read_through_relation(right)
 
             if field == "tagged_items":
                 field = "tags"  # or the UI needs to be coupled to this internal backend naming

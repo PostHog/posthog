@@ -82,6 +82,3 @@ class TaggedItem(UUIDModel):
 
     def __str__(self) -> str:
         return str(self.tag)
-
-    def describe_to_activity_log(self) -> str:
-        return str(self)

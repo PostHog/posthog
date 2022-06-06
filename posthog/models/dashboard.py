@@ -105,6 +105,3 @@ class Dashboard(models.Model):
             "has_description": self.description != "",
             "tags_count": self.tagged_items.count(),
         }
-
-    def describe_to_activity_log(self) -> Dict:
-        return {"id": self.id, "name": self.name}
