@@ -1890,6 +1890,15 @@
       "contributions": [
         "code"
       ]
+    },
+    {
+      "login": "asavoy",
+      "name": "Alvin Savoy",
+      "avatar_url": "https://avatars.githubusercontent.com/u/235466?v=4",
+      "profile": "https://github.com/asavoy",
+      "contributions": [
+        "code"
+      ]
     }
   ],
   "contributorsPerLine": 7,

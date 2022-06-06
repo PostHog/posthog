@@ -107,7 +107,6 @@ services:
             - .:/code
         environment:
             DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
-            KAFKA_ENABLED: 'true'
             KAFKA_HOSTS: 'kafka:9092'
             REDIS_URL: 'redis://redis:6379/'
             CLICKHOUSE_HOST: 'clickhouse'
@@ -124,8 +123,6 @@ services:
         ports:
             - '19000:19000'
             - '19001:19001'
-        volumes:
-            - ./object_storage:/data
         environment:
             MINIO_ROOT_USER: object_storage_root_user
             MINIO_ROOT_PASSWORD: object_storage_root_password

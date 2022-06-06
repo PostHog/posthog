@@ -1,4 +1,4 @@
-@import '~/vars.scss';
+@import '../../../styles/breakpoints';
 
 .Breadcrumbs {
     display: flex;
@@ -22,12 +22,12 @@
 .Breadcrumbs__breadcrumb {
     display: flex;
     align-items: center;
-    font-weight: $medium;
+    font-weight: var(--font-medium);
     white-space: pre;
     user-select: none;
 
     &--current {
-        color: $text_default;
+        color: var(--text-default);
         cursor: default;
     }
 
@@ -37,7 +37,7 @@
 
     &--actionable {
         cursor: pointer;
-        color: $primary;
+        color: var(--primary);
     }
 }
 

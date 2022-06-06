@@ -7,7 +7,7 @@ import { eventDefinitionsModel } from './eventDefinitionsModel'
 import { personPropertiesModel } from './personPropertiesModel'
 import { propertyDefinitionsModel } from './propertyDefinitionsModel'
 
-import { modelsType } from './indexType'
+import type { modelsType } from './indexType'
 
 /** "Models" are logics that are persistently mounted (start with app) */
 export const models = kea<modelsType>({

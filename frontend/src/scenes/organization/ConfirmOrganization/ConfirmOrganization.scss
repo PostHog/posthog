@@ -1,5 +1,3 @@
-@import '~/vars';
-
 .ConfirmOrganization {
     min-height: 100vh;
     align-items: center;
@@ -29,16 +27,16 @@
         box-shadow: var(--shadow-elevation);
         max-width: 480px;
         background-color: var(--bg-light);
-        border-radius: $radius;
+        border-radius: var(--radius);
         padding: 2.5rem;
     }
     .ConfirmOrganization__help-box {
         display: flex;
         flex-direction: row;
         background-color: var(--bg-side);
-        border-radius: $radius;
-        padding: $default_spacing;
-        margin-bottom: $default_spacing;
+        border-radius: var(--radius);
+        padding: 1rem;
+        margin-bottom: 1rem;
         p {
             margin-bottom: 0;
         }

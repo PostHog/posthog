@@ -1,23 +1,21 @@
-@import '~/vars';
-
 .session-recordings-popup {
     z-index: 1061; // >1060 to be above the person modal and <1070 to be under the recording
 
     .anticon-play-circle {
-        color: $primary;
+        color: var(--primary);
     }
 
     .session-recordings-popup-row {
         display: flex;
         align-items: center;
 
-        padding: $default_spacing/2;
+        padding: 0.5rem;
 
-        font-weight: $medium;
-        color: $text_default;
+        font-weight: var(--font-medium);
+        color: var(--text-default);
 
         &:hover {
-            color: $primary;
+            color: var(--primary);
         }
 
         .anticon {
@@ -29,10 +27,10 @@
 
 .session-recordings-button {
     .anticon-play-circle {
-        color: $primary;
+        color: var(--primary);
     }
     .session-recordings-button__indicator {
         font-size: 12px;
-        color: $text-muted;
+        color: var(--text-muted);
     }
 }

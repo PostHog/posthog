@@ -1,11 +1,15 @@
+import logging
 from time import time
 
+from django.core import exceptions
 from django.core.management.base import BaseCommand
 from django.db import transaction
 from django.utils import timezone
 
 from posthog.demo.hedgebox import HedgeboxMatrix
 from posthog.demo.matrix.manager import MatrixManager
+
+logging.getLogger("kafka").setLevel(logging.WARNING)  # Hide kafka-python's logspam
 
 
 class Command(BaseCommand):
@@ -21,21 +25,21 @@ class Command(BaseCommand):
         parser.add_argument(
             "--start",
             type=lambda s: timezone.make_aware(timezone.datetime.strptime(s, "%Y-%m-%d")),
-            help="Simulation start date (default: 90 days ago)",
+            help="Simulation start date (default: 120 days ago)",
         )
         parser.add_argument(
             "--end",
             type=lambda s: timezone.make_aware(timezone.datetime.strptime(s, "%Y-%m-%d")),
             help="Simulation end date (default: today)",
         )
-        parser.add_argument("--n-clusters", type=int, default=20, help="Number of clusters")
+        parser.add_argument("--n-clusters", type=int, default=50, help="Number of clusters (default: 50)")
         parser.add_argument("--list-events", action="store_true", help="Print events individually")
 
     def handle(self, *args, **options):
         timer = time()
         matrix = HedgeboxMatrix(
             options["seed"],
-            start=options["start"] or timezone.now() - timezone.timedelta(90),
+            start=options["start"] or timezone.now() - timezone.timedelta(120),
             end=options["end"] or timezone.now(),
             n_clusters=options["n_clusters"],
         )
@@ -81,9 +85,12 @@ class Command(BaseCommand):
             f"for a total of {total_event_count} event{'' if total_event_count == 1 else 's'}."
         )
         if email := options["save_as"]:
-            print(f"Saving as {email}…")
+            print(f"Saving data as {email}…")
             with transaction.atomic():
-                MatrixManager.ensure_account_and_run(
-                    matrix, email, "Employee 427", "Hedgebox Inc.", password="12345678", disallow_collision=True
-                )
+                try:
+                    MatrixManager(matrix, pre_save=False).ensure_account_and_save(
+                        email, "Employee 427", "Hedgebox Inc.", password="12345678", disallow_collision=True
+                    )
+                except (exceptions.ValidationError, exceptions.PermissionDenied) as e:
+                    print(str(e))
             print(f"{email} is ready!")

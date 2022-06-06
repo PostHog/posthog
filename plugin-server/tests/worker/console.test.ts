@@ -1,95 +1,63 @@
 import { ConsoleExtension } from '@posthog/plugin-scaffold'
 
-import { Hub, PluginLogEntryType } from '../../src/types'
+import { KAFKA_PLUGIN_LOG_ENTRIES } from '../../src/config/kafka-topics'
+import { Hub, PluginLogEntrySource, PluginLogEntryType } from '../../src/types'
 import { createHub } from '../../src/utils/db/hub'
-import { getPluginConfigRows } from '../../src/utils/db/sql'
 import { createConsole } from '../../src/worker/vm/extensions/console'
-import { resetTestDatabase } from '../helpers/sql'
+import { pluginConfig39 } from '../../tests/helpers/plugins'
+
+jest.setTimeout(60000) // 60 sec timeout
+jest.mock('../../src/utils/status')
+jest.mock('../../src/utils/db/kafka-producer-wrapper')
 
 describe('console extension', () => {
     let hub: Hub
     let closeHub: () => Promise<void>
 
-    beforeEach(async () => {
-        ;[hub, closeHub] = await createHub({ KAFKA_ENABLED: false })
-        await resetTestDatabase()
+    beforeAll(async () => {
+        ;[hub, closeHub] = await createHub()
     })
 
-    afterEach(async () => {
+    afterAll(async () => {
         await closeHub()
     })
 
     Object.values(PluginLogEntryType).map((type) => {
-        const method = type.toLowerCase() as keyof ConsoleExtension
-        describe(`console#${method}`, () => {
-            it('leaves an empty entry in the database', async () => {
-                const pluginConfig = (await getPluginConfigRows(hub))[0]
+        const typeMethod = type.toLowerCase() as keyof ConsoleExtension
 
-                const console = createConsole(hub, pluginConfig)
+        describe(`console#${typeMethod}`, () => {
+            const testCases: [string, any[], string][] = [
+                ['empty', [], ''],
+                ['string + number', ['number =', 987], 'number = 987'],
+                ['Error', [new Error('something')], 'Error: something'],
+                ['object', [{ 1: 'ein', 2: 'zwei' }], `{"1":"ein","2":"zwei"}`],
+                ['array', [[99, 79]], `[99,79]`],
+            ]
 
-                await (console[method]() as unknown as Promise<void>)
+            testCases.forEach(([description, args, expectedFinalMessage]) => {
+                it(`leaves a well-formed ${description} entry in the database`, async () => {
+                    const queueSingleJsonMessageSpy = jest.spyOn(hub.kafkaProducer, 'queueSingleJsonMessage')
+                    const console = createConsole(hub, pluginConfig39)
 
-                const pluginLogEntries = await hub.db.fetchPluginLogEntries()
+                    await (console[typeMethod](...args) as unknown as Promise<void>)
 
-                expect(pluginLogEntries.length).toBe(1)
-                expect(pluginLogEntries[0].type).toEqual(type)
-                expect(pluginLogEntries[0].message).toEqual('')
-            })
-
-            it('leaves a string + number entry in the database', async () => {
-                const pluginConfig = (await getPluginConfigRows(hub))[0]
-
-                const console = createConsole(hub, pluginConfig)
-
-                await (console[method]('number =', 987) as unknown as Promise<void>)
-
-                const pluginLogEntries = await hub.db.fetchPluginLogEntries()
-
-                expect(pluginLogEntries.length).toBe(1)
-                expect(pluginLogEntries[0].type).toEqual(type)
-                expect(pluginLogEntries[0].message).toEqual('number = 987')
-            })
-
-            it('leaves an error entry in the database', async () => {
-                const pluginConfig = (await getPluginConfigRows(hub))[0]
-
-                const console = createConsole(hub, pluginConfig)
-
-                await (console[method](new Error('something')) as unknown as Promise<void>)
-
-                const pluginLogEntries = await hub.db.fetchPluginLogEntries()
-
-                expect(pluginLogEntries.length).toBe(1)
-                expect(pluginLogEntries[0].type).toEqual(type)
-                expect(pluginLogEntries[0].message).toEqual('Error: something')
-            })
-
-            it('leaves an object entry in the database', async () => {
-                const pluginConfig = (await getPluginConfigRows(hub))[0]
-
-                const console = createConsole(hub, pluginConfig)
-
-                await (console[method]({ 1: 'ein', 2: 'zwei' }) as unknown as Promise<void>)
-
-                const pluginLogEntries = await hub.db.fetchPluginLogEntries()
-
-                expect(pluginLogEntries.length).toBe(1)
-                expect(pluginLogEntries[0].type).toEqual(type)
-                expect(pluginLogEntries[0].message).toEqual(`{"1":"ein","2":"zwei"}`)
-            })
-
-            it('leaves an object entry in the database', async () => {
-                const pluginConfig = (await getPluginConfigRows(hub))[0]
-
-                const console = createConsole(hub, pluginConfig)
-
-                await (console[method]([99, 79]) as unknown as Promise<void>)
-
-                const pluginLogEntries = await hub.db.fetchPluginLogEntries()
-
-                expect(pluginLogEntries.length).toBe(1)
-                expect(pluginLogEntries[0].type).toEqual(type)
-                expect(pluginLogEntries[0].message).toEqual(`[99,79]`)
+                    expect(queueSingleJsonMessageSpy).toHaveBeenCalledTimes(1)
+                    expect(queueSingleJsonMessageSpy).toHaveBeenCalledWith(
+                        KAFKA_PLUGIN_LOG_ENTRIES,
+                        expect.any(String),
+                        {
+                            source: PluginLogEntrySource.Console,
+                            type,
+                            id: expect.any(String),
+                            team_id: pluginConfig39.team_id,
+                            plugin_id: pluginConfig39.plugin_id,
+                            plugin_config_id: pluginConfig39.id,
+                            timestamp: expect.any(String),
+                            message: expectedFinalMessage,
+                            instance_id: hub.instanceId.toString(),
+                        }
+                    )
+                })
             })
         })
     })

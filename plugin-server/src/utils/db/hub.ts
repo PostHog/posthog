@@ -4,7 +4,7 @@ import * as fs from 'fs'
 import { createPool } from 'generic-pool'
 import { StatsD } from 'hot-shots'
 import Redis from 'ioredis'
-import { Kafka, logLevel, Partitioners, SASLOptions } from 'kafkajs'
+import { Kafka, logLevel, SASLOptions } from 'kafkajs'
 import { DateTime } from 'luxon'
 import * as path from 'path'
 import { types as pgTypes } from 'pg'
@@ -15,6 +15,7 @@ import { defaultConfig } from '../../config/config'
 import { JobQueueManager } from '../../main/job-queues/job-queue-manager'
 import { connectObjectStorage } from '../../main/services/object_storage'
 import { Hub, KafkaSecurityProtocol, PluginServerCapabilities, PluginsServerConfig } from '../../types'
+import { determineNodeEnv, NodeEnv } from '../../utils/env-utils'
 import { ActionManager } from '../../worker/ingestion/action-manager'
 import { ActionMatcher } from '../../worker/ingestion/action-matcher'
 import { HookCommander } from '../../worker/ingestion/hooks'
@@ -171,15 +172,14 @@ export async function createHub(
     const kafka = new Kafka({
         clientId: `plugin-server-v${version}-${instanceId}`,
         brokers: serverConfig.KAFKA_HOSTS.split(','),
-        logLevel: logLevel.WARN,
+        logLevel: determineNodeEnv() === NodeEnv.Test ? logLevel.ERROR : logLevel.DEBUG,
         ssl: kafkaSsl,
         sasl: kafkaSasl,
-        connectionTimeout: 3000, // default: 1000
-        authenticationTimeout: 3000, // default: 1000
+        connectionTimeout: 7000, // default: 1000
+        authenticationTimeout: 7000, // default: 1000
     })
     const producer = kafka.producer({
         retry: { retries: 10, initialRetryTime: 1000, maxRetryTime: 30 },
-        createPartitioner: Partitioners.LegacyPartitioner,
     })
     await producer.connect()
 
@@ -220,7 +220,6 @@ export async function createHub(
         kafkaProducer,
         clickhouse,
         statsd,
-        serverConfig.KAFKA_ENABLED,
         serverConfig.PERSON_INFO_CACHE_TTL,
         new Set(serverConfig.PERSON_INFO_TO_REDIS_TEAMS.split(',').filter(String).map(Number))
     )
@@ -294,7 +293,6 @@ export async function createHub(
         }
 
         hub.mmdbUpdateJob?.cancel()
-        await hub.db?.postgresLogsWrapper.flushLogs()
         await hub.jobQueueManager?.disconnectProducer()
         await kafkaProducer.disconnect()
         await redisPool.drain()

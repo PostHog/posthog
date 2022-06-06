@@ -34,19 +34,12 @@
                         timestamp,
                         if(event = 'user signed up'
                            AND (person_id IN
-                                  (select id
-                                   from
-                                     (SELECT *
-                                      FROM person
-                                      JOIN
-                                        (SELECT id, max(_timestamp) as _timestamp, max(is_deleted) as is_deleted
-                                         FROM person
-                                         WHERE team_id = 2
-                                         GROUP BY id) as person_max ON person.id = person_max.id
-                                      AND person._timestamp = person_max._timestamp
-                                      WHERE team_id = 2
-                                        AND person_max.is_deleted = 0
-                                        AND (replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', '') ILIKE '%.com%') ))), 1, 0) as step_0,
+                                  (SELECT id
+                                   FROM person
+                                   WHERE team_id = 2
+                                   GROUP BY id
+                                   HAVING max(is_deleted) = 0
+                                   AND ((replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'email'), '^"|"$', '') ILIKE '%.com%')))), 1, 0) as step_0,
                         if(step_0 = 1, timestamp, null) as latest_0,
                         if(event = 'paid', 1, 0) as step_1,
                         if(step_1 = 1, timestamp, null) as latest_1
@@ -803,7 +796,7 @@
        AND timestamp <= toDateTime('2020-01-08 23:59:59')
        AND (NOT has([''], "$group_0"))
      GROUP BY value
-     ORDER BY count DESC
+     ORDER BY count DESC, value DESC
      LIMIT 25
      OFFSET 0)
   '
@@ -882,7 +875,7 @@
                                               min(latest_2) over (PARTITION by aggregation_target,
                                                                                prop
                                                                   ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2 ,
-                                                                 if(has(['finance', 'technology'], prop), prop, 'Other') as prop
+                                                                 if(has(['technology', 'finance'], prop), prop, 'Other') as prop
                     FROM
                       (SELECT aggregation_target,
                               timestamp,
@@ -945,7 +938,7 @@
        AND timestamp >= toDateTime('2020-01-01 00:00:00')
        AND timestamp <= toDateTime('2020-01-08 23:59:59')
      GROUP BY value
-     ORDER BY count DESC
+     ORDER BY count DESC, value DESC
      LIMIT 25
      OFFSET 0)
   '
@@ -1093,7 +1086,7 @@
        AND timestamp >= toDateTime('2020-01-01 00:00:00')
        AND timestamp <= toDateTime('2020-01-08 23:59:59')
      GROUP BY value
-     ORDER BY count DESC
+     ORDER BY count DESC, value DESC
      LIMIT 25
      OFFSET 0)
   '
@@ -1238,7 +1231,7 @@
        AND timestamp >= toDateTime('2020-01-01 00:00:00')
        AND timestamp <= toDateTime('2020-01-08 23:59:59')
      GROUP BY value
-     ORDER BY count DESC
+     ORDER BY count DESC, value DESC
      LIMIT 25
      OFFSET 0)
   '
@@ -1383,7 +1376,7 @@
        AND timestamp >= toDateTime('2020-01-01 00:00:00')
        AND timestamp <= toDateTime('2020-01-08 23:59:59')
      GROUP BY value
-     ORDER BY count DESC
+     ORDER BY count DESC, value DESC
      LIMIT 25
      OFFSET 0)
   '
@@ -1528,7 +1521,7 @@
        AND timestamp >= toDateTime('2020-01-01 00:00:00')
        AND timestamp <= toDateTime('2020-01-08 23:59:59')
      GROUP BY value
-     ORDER BY count DESC
+     ORDER BY count DESC, value DESC
      LIMIT 25
      OFFSET 0)
   '

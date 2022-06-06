@@ -8,7 +8,6 @@ from kafka import KafkaProducer as KP
 from structlog import get_logger
 
 from ee.kafka_client import helper
-from ee.settings import KAFKA_ENABLED
 from posthog.client import async_execute, sync_execute
 from posthog.settings import (
     KAFKA_BASE64_KEYS,
@@ -171,18 +170,15 @@ def build_kafka_consumer(
 
 
 class ClickhouseProducer:
-    def __init__(self, kafka_enabled=KAFKA_ENABLED):
-        if kafka_enabled:
-            self.send_to_kafka = True
-            self.producer = KafkaProducer()
-        else:
-            self.send_to_kafka = False
+    producer: Optional[_KafkaProducer]
+
+    def __init__(self):
+        self.producer = KafkaProducer() if not TEST else None
 
     def produce(self, sql: str, topic: str, data: Dict[str, Any], sync: bool = True):
-        if self.send_to_kafka:
+        if self.producer is not None:
             self.producer.produce(topic=topic, data=data)
+        elif sync:
+            sync_execute(sql, data)
         else:
-            if sync:
-                sync_execute(sql, data)
-            else:
-                async_execute(sql, data)
+            async_execute(sql, data)

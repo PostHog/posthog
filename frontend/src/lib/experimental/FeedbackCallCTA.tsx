@@ -4,7 +4,7 @@ import { CloseOutlined } from '@ant-design/icons'
 import { Button } from 'antd'
 import { kea, useActions, useValues } from 'kea'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { feedbackCallLogicType } from './FeedbackCallCTAType'
+import type { feedbackCallLogicType } from './FeedbackCallCTAType'
 import posthog from 'posthog-js'
 import { lemonToast } from 'lib/components/lemonToast'
 

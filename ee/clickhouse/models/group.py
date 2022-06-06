@@ -17,7 +17,9 @@ def create_group(
     group_key: str,
     properties: Optional[Dict] = {},
     timestamp: Optional[datetime.datetime] = None,
-) -> Group:
+    *,
+    clickhouse_only: bool = False,
+):
     if not timestamp:
         timestamp = now()
 
@@ -32,9 +34,14 @@ def create_group(
     p = ClickhouseProducer()
     p.produce(topic=KAFKA_GROUPS, sql=INSERT_GROUP_SQL, data=data)
 
-    return Group.objects.create(
-        team_id=team_id, group_type_index=group_type_index, group_key=group_key, group_properties=properties, version=0,
-    )
+    if not clickhouse_only:
+        Group.objects.create(
+            team_id=team_id,
+            group_type_index=group_type_index,
+            group_key=group_key,
+            group_properties=properties,
+            version=0,
+        )
 
 
 def get_aggregation_target_field(

@@ -97,7 +97,7 @@ export async function setError(hub: Hub, pluginError: PluginError | null, plugin
             pluginConfig,
             source: PluginLogEntrySource.Plugin,
             type: PluginLogEntryType.Error,
-            message: pluginError.message,
+            message: pluginError.stack ?? pluginError.message,
             instanceId: hub.instanceId,
             timestamp: pluginError.time,
         })

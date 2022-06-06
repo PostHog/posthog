@@ -109,7 +109,7 @@ export function PluginLogs({ pluginConfigId }: PluginLogsProps): JSX.Element {
                 size="small"
                 className="ph-no-capture"
                 rowKey="id"
-                style={{ flexGrow: 1 }}
+                style={{ flexGrow: 1, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}
                 pagination={{ pageSize: 200, hideOnSinglePage: true }}
             />
             {!!pluginLogs.length && (
