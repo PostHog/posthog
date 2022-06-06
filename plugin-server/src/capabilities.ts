@@ -17,6 +17,6 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
         case 'ingestion':
             return { ingestion: true, ...sharedCapabilities }
         case 'async':
-            return { pluginScheduledTasks: true, processJobs: true, processAsyncHandlers: true, ...sharedCapabilities }
+            return { pluginScheduledTasks: true, processJobs: false, processAsyncHandlers: true, http: false }
     }
 }
