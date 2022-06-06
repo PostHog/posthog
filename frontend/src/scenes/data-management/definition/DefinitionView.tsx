@@ -134,23 +134,23 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
                         <>
                             <EventDefinitionProperties definition={definition} />
                             <Divider />
+                            <div className="definition-matching-events">
+                                <span className="definition-matching-events-header">Matching raw events</span>
+                                <p className="definition-matching-events-subtext">
+                                    This is the list of recent raw events that match this event.
+                                </p>
+                                <EventsTable
+                                    sceneUrl={backDetailUrl}
+                                    pageKey={`definition-page-${definition.id}`}
+                                    showEventFilter={false}
+                                    fetchMonths={3}
+                                    fixedFilters={{
+                                        event_filter: definition.name,
+                                    }}
+                                />
+                            </div>
                         </>
                     )}
-                    <div className="definition-matching-events">
-                        <span className="definition-matching-events-header">Matching raw events</span>
-                        <p className="definition-matching-events-subtext">
-                            This is the list of recent raw events that match this event.
-                        </p>
-                        <EventsTable
-                            sceneUrl={backDetailUrl}
-                            pageKey={`definition-page-${definition.id}`}
-                            showEventFilter={false}
-                            fetchMonths={3}
-                            fixedFilters={{
-                                event_filter: definition.name,
-                            }}
-                        />
-                    </div>
                 </>
             )}
         </div>
