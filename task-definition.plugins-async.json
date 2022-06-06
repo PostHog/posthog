@@ -107,6 +107,10 @@
                 {
                     "name": "KAFKA_SECURITY_PROTOCOL",
                     "value": "SSL"
+                },
+                {
+                    "name": "TASKS_PER_WORKER",
+                    "value": "2"
                 }
             ],
             "secrets": [
