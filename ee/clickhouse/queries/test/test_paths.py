@@ -20,13 +20,12 @@ from posthog.constants import (
 )
 from posthog.models.filters import Filter, PathFilter
 from posthog.models.group_type_mapping import GroupTypeMapping
-from posthog.queries.test.test_paths import paths_test_factory
-from posthog.test.base import _create_event, _create_person, test_with_materialized_columns
+from posthog.test.base import APIBaseTest, _create_event, _create_person, test_with_materialized_columns
 
 ONE_MINUTE = 60_000  # 1 minute in milliseconds
 
 
-class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePaths, _create_event, _create_person)):  # type: ignore
+class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
 
     maxDiff = None
 
@@ -63,11 +62,6 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
         )
         _, serialized_actors = ClickhousePathsActors(person_filter, self.team, funnel_filter).get_actors()
         return [row["id"] for row in serialized_actors]
-
-    @test_with_materialized_columns(["$current_url", "$screen_name"], person_properties=["email"])
-    def test_denormalized_properties(self):
-        # override base test to test with materialized columns
-        self.test_current_url_paths_and_logic()
 
     def test_step_limit(self):
 
