@@ -706,7 +706,8 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDestr
     def all_activity(self, request: request.Request, **kwargs):
         limit = int(request.query_params.get("limit", "10"))
         page = int(request.query_params.get("page", "1"))
-        activity_page = load_activity(scope="Insight", team_id=self.team_id)
+
+        activity_page = load_activity(scope="Insight", team_id=self.team_id, limit=limit, page=page)
         return self._return_activity_page(activity_page, limit, page, request)
 
     @action(methods=["GET"], detail=True)
