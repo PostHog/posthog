@@ -41,7 +41,8 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
-import { insightActivityDescriber } from 'scenes/saved-insights/activityDescriptions'
+import { insightActivityDescriberUsing } from 'scenes/saved-insights/activityDescriptions'
+import { dashboardsModel } from '~/models/dashboardsModel'
 
 const { TabPane } = Tabs
 
@@ -328,6 +329,8 @@ export function SavedInsights(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const showActivityLog = featureFlags[FEATURE_FLAGS.INSIGHT_ACTIVITY_LOG]
 
+    const { nameSortedDashboards } = useValues(dashboardsModel)
+
     return (
         <div className="saved-insights">
             <PageHeader title="Insights" buttons={<NewInsightButton />} />
@@ -344,7 +347,10 @@ export function SavedInsights(): JSX.Element {
             </Tabs>
 
             {tab === SavedInsightsTabs.History && showActivityLog ? (
-                <ActivityLog scope={ActivityScope.INSIGHT} describer={insightActivityDescriber} />
+                <ActivityLog
+                    scope={ActivityScope.INSIGHT}
+                    describer={insightActivityDescriberUsing(nameSortedDashboards)}
+                />
             ) : (
                 <>
                     <Row style={{ paddingBottom: 16, justifyContent: 'space-between', gap: '0.75rem' }}>
