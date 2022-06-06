@@ -1,4 +1,6 @@
 import dataclasses
+import json
+from itertools import groupby
 from typing import Any, Union
 
 from rest_framework import exceptions, request, response, serializers, viewsets
@@ -15,7 +17,7 @@ from posthog.models.filters.session_recordings_filter import SessionRecordingsFi
 from posthog.models.person import Person
 from posthog.models.session_recording_event import SessionRecordingViewed
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
-from posthog.utils import format_query_params_absolute_url
+from posthog.storage.object_storage import storage_client
 
 DEFAULT_RECORDING_CHUNK_LIMIT = 20  # Should be tuned to find the best value
 
@@ -159,23 +161,47 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
         limit = filter.limit if filter.limit else DEFAULT_RECORDING_CHUNK_LIMIT
         offset = filter.offset if filter.offset else 0
 
-        session_recording_snapshot_data = self._get_session_recording_snapshots(
-            request, session_recording_id, limit, offset
-        )
+        # TODO: handle pagination
+        # TODO: handle response compression
+        # TODO: handle response caching
+        store = storage_client()
+        assert store is not None
+        all_events = []
+        for obj in store.list_objects_v2(
+            Bucket="posthog",
+            Prefix=f"session-recordings/session-recordings/team_id=1/session_id={session_recording_id}/",
+        )["Contents"]:
+            resp = store.get_object(Bucket="posthog", Key=obj["Key"])
+            body = resp["Body"].read()
+            for line in body.split(b"\n"):
+                if not line:
+                    continue
+                event_wrapper = json.loads(line)
+                all_events += [json.loads(event_wrapper["data"])["data"]["properties"]]
 
-        if session_recording_snapshot_data.snapshot_data_by_window_id == {}:
-            raise exceptions.NotFound("Snapshots not found")
-        next_url = (
-            format_query_params_absolute_url(request, offset + limit, limit)
-            if session_recording_snapshot_data.has_next
-            else None
-        )
+        events_by_window_id = {
+            window_id: list(events)
+            for window_id, events in groupby(
+                sorted(all_events, key=lambda event: event["$window_id"]), lambda event: event["$window_id"]
+            )
+        }
 
-        return response.Response(
-            {
-                "result": {
-                    "next": next_url,
-                    "snapshot_data_by_window_id": session_recording_snapshot_data.snapshot_data_by_window_id,
-                }
-            }
-        )
+        def extract_rrweb_events_from_event(event):
+            # Some of the earlier events don't have the expected format locally
+            # so need to guard against that.
+            if isinstance(event["$snapshot_data"]["data"], str):
+                # At some point this data was base64 encoded before I removed
+                # this encoding, just ignore these. It's just bad data in my dev
+                # env.
+                return []
+            try:
+                return event["$snapshot_data"]["data"]
+            except KeyError:
+                return []
+
+        snapshot_data_by_window_id = {
+            window_id: [rrweb_event for event in events for rrweb_event in extract_rrweb_events_from_event(event)]
+            for window_id, events in events_by_window_id.items()
+        }
+
+        return response.Response({"result": {"next": None, "snapshot_data_by_window_id": snapshot_data_by_window_id}})

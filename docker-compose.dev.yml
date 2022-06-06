@@ -62,6 +62,44 @@ services:
             KAFKA_CFG_ZOOKEEPER_CONNECT: zookeeper:2181
             ALLOW_PLAINTEXT_LISTENER: 'true'
 
+    # TODO: add Kafka Connect support to Helm chart
+    # TODO: use MSK Connect in production
+    kafka-connect:
+        image: confluentinc/cp-kafka-connect-base:7.1.1
+        depends_on:
+            - zookeeper
+            - kafka
+        ports:
+            - '8083:8083'
+        environment:
+            CONNECT_BOOTSTRAP_SERVERS: kafka:9092
+            CONNECT_REST_PORT: '8083'
+            CONNECT_GROUP_ID: connect
+            CONNECT_CONFIG_STORAGE_TOPIC: connect-configs
+            CONNECT_OFFSET_STORAGE_TOPIC: connect-offsets
+            CONNECT_STATUS_STORAGE_TOPIC: connect-status
+            CONNECT_KEY_CONVERTER: org.apache.kafka.connect.converters.ByteArrayConverter
+            CONNECT_VALUE_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+            CONNECT_INTERNAL_KEY_CONVERTER: org.apache.kafka.connect.converters.ByteArrayConverter
+            CONNECT_INTERNAL_VALUE_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+            CONNECT_REST_ADVERTISED_HOST_NAME: 'kafka-connect'
+            CONNECT_CONFIG_STORAGE_REPLICATION_FACTOR: '1'
+            CONNECT_OFFSET_STORAGE_REPLICATION_FACTOR: '1'
+            CONNECT_STATUS_STORAGE_REPLICATION_FACTOR: '1'
+            AWS_ACCESS_KEY_ID: object_storage_root_user
+            AWS_SECRET_ACCESS_KEY: object_storage_root_password
+        command:
+            - bash
+            - -c
+            - |
+                echo "Installing S3 connector sink"
+                confluent-hub install --no-prompt confluentinc/kafka-connect-s3:10.0.8
+                #
+                echo "Launching Kafka Connect worker"
+                /etc/confluent/docker/run & 
+                #
+                sleep infinity
+
     worker: &worker
         build:
             context: .
@@ -89,7 +127,7 @@ services:
             - redis
             - clickhouse
             - kafka
-            - object_storage
+            - object-storage
     web:
         <<: *worker
         command: '${CH_WEB_SCRIPT:-./ee/bin/docker-ch-dev-web}'
@@ -115,9 +153,9 @@ services:
             - redis
             - clickhouse
             - kafka
-            - object_storage
+            - object-storage
 
-    object_storage:
+    object-storage:
         image: minio/minio
         restart: on-failure
         ports:

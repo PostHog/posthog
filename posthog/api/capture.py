@@ -1,5 +1,8 @@
+import base64
+import gzip
 import hashlib
 import json
+import logging
 import re
 from datetime import datetime
 from typing import Any, Dict, Optional
@@ -59,11 +62,79 @@ def log_event(data: Dict, event_name: str, partition_key: str) -> None:
 
     # TODO: Handle Kafka being unavailable with exponential backoff retries
     try:
+        if event_name == "$snapshot":
+            # If we have a rrweb event, push it to a separate topic
+            # TODO: remove unneeded wrapping of rrweb data
+            # TODO: remove pushing of message to events topic, instead we can
+            # just read into ClickHouse, from the 'session-recordings' topic the
+            # details we need to e.g. generate the "session length" etc.
+            # TODO: possibly find a nicer way to handle JSON Schemas
+            # TODO: avoid doing any expensive processing e.g. base64/gzip in
+            # this method (we could just offload it to read time for now as
+            # modifying at source may be too much for one refactor)
+            session_recording_data = json.loads(data["data"])
+            session_recording_data = {
+                "payload": {
+                    # Get rid of the multiple encodings and compression, we'll
+                    # have compression at S3 and Kafka levels and on transport
+                    # to handle making this smaller, plus it makes it difficult
+                    # to debug. The base64 likely increases the compression
+                    # ratio overall(?)
+                    #
+                    # We also need to ensure that it is a string as the Kafka
+                    # Connect JsonConverter doesn't use Json Schema and I can't
+                    # find an equivalent of `additionalProperties: true`
+                    "data": json.dumps(
+                        {
+                            **data,
+                            "data": {
+                                **session_recording_data,
+                                "properties": {
+                                    **session_recording_data["properties"],
+                                    "$snapshot_data": {
+                                        **session_recording_data["properties"]["$snapshot_data"],
+                                        "data": json.loads(
+                                            gzip.decompress(
+                                                base64.b64decode(
+                                                    session_recording_data["properties"]["$snapshot_data"]["data"]
+                                                )
+                                            ).decode("utf-16", "surrogatepass")
+                                        ),
+                                    },
+                                },
+                            },
+                        }
+                    ),
+                    "window_id": session_recording_data["properties"]["$window_id"],
+                    "session_id": session_recording_data["properties"]["$session_id"],
+                    "team_id": data["team_id"],
+                },
+                # To avoid needing to use a SchemaRegistry but still be able to
+                # use fields as partition key, we add an inline schema as
+                # expected by Kafka Connect JsonConverter. Perhaps a simpler
+                # approach would be to push with an appropriate key and use
+                # that.
+                "schema": {
+                    "type": "struct",
+                    "optional": False,
+                    "version": 1,
+                    "fields": [
+                        {"field": "data", "type": "string", "optional": False},
+                        {"field": "team_id", "type": "int32", "optional": False,},
+                        {"field": "session_id", "type": "string", "optional": False,},
+                        {"field": "window_id", "type": "string", "optional": False,},
+                    ],
+                },
+            }
+            KafkaProducer().produce(topic="session-recordings", data=session_recording_data, key=partition_key)
+
         KafkaProducer().produce(topic=KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC, data=data, key=partition_key)
         statsd.incr("posthog_cloud_plugin_server_ingestion")
     except Exception as e:
         statsd.incr("capture_endpoint_log_event_error")
-        print(f"Failed to produce event to Kafka topic {KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC} with error:", e)
+        logging.exception(
+            f"Failed to produce event to Kafka topic {KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC} with error:", e
+        )
         raise e
 
 
