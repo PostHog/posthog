@@ -139,7 +139,7 @@ def _description(m: List[Any]) -> Union[str, Dict]:
 def _read_through_relation(relation: models.Manager) -> List[Union[Dict, str]]:
     described_models = [_description(r) for r in relation.all()]
 
-    if isinstance(described_models, list) and all(isinstance(elem, str) for elem in described_models):
+    if all(isinstance(elem, str) for elem in described_models):
         # definitely a list of strings now but mypy doesn't know that
         described_models = sorted(described_models)  # type: ignore
 
