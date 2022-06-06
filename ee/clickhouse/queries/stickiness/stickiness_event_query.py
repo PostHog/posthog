@@ -1,16 +1,16 @@
 from typing import Any, Dict, Tuple
 
 from ee.clickhouse.models.group import get_aggregation_target_field
-from ee.clickhouse.queries.event_query import EnterpriseEventQuery
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, PropertyOperatorType
 from posthog.models import Entity
 from posthog.models.action.util import format_action_filter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.utils import PersonPropertiesMode
+from posthog.queries.event_query import EventQuery
 from posthog.queries.util import get_trunc_func_ch
 
 
-class StickinessEventsQuery(EnterpriseEventQuery):
+class StickinessEventsQuery(EventQuery):
     _entity: Entity
     _filter: StickinessFilter
 
@@ -63,7 +63,7 @@ class StickinessEventsQuery(EnterpriseEventQuery):
         self._should_join_distinct_ids = True
 
     def _determine_should_join_persons(self) -> None:
-        EnterpriseEventQuery._determine_should_join_persons(self)
+        EventQuery._determine_should_join_persons(self)
         if self._using_person_on_events:
             self._should_join_distinct_ids = False
             self._should_join_persons = False
