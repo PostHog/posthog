@@ -1,4 +1,3 @@
-@import '~/vars';
 @import '../authentication/bridgePagesShared';
 
 .billing-subscribed {
@@ -9,14 +8,14 @@
     }
 
     .support-footer {
-        margin-top: $default_spacing * 1.5;
-        padding-top: $default_spacing * 1.5;
-        border-top: 1.5px dashed $border;
+        margin-top: 1.5rem;
+        padding-top: 1.5rem;
+        border-top: 1.5px dashed var(--border);
         text-align: center;
     }
 
     .title-icon {
-        padding-top: $default_spacing;
+        padding-top: 1rem;
         font-size: 2rem;
     }
 }

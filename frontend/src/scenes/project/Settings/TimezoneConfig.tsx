@@ -1,8 +1,10 @@
-import { Select, Skeleton } from 'antd'
+import { Modal, Select, Skeleton } from 'antd'
 import { useActions, useValues } from 'kea'
 import React from 'react'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
+
+import { ExclamationCircleOutlined } from '@ant-design/icons'
 
 export function TimezoneConfig(): JSX.Element {
     const { preflight } = useValues(preflightLogic)
@@ -11,6 +13,19 @@ export function TimezoneConfig(): JSX.Element {
 
     if (!preflight?.available_timezones || !currentTeam) {
         return <Skeleton paragraph={{ rows: 0 }} active />
+    }
+    function onChange(val: string): void {
+        Modal.confirm({
+            title: `Do you want to change the timezone of this project?`,
+            content:
+                'This will change how every graph in this project is calculated, which means your data will look different than it did before.',
+            icon: <ExclamationCircleOutlined />,
+            okText: 'Change timezone',
+            okType: 'danger',
+            onOk() {
+                updateCurrentTeam({ timezone: val })
+            },
+        })
     }
 
     return (
@@ -22,7 +37,7 @@ export function TimezoneConfig(): JSX.Element {
                 loading={currentTeamLoading}
                 disabled={currentTeamLoading}
                 value={currentTeam.timezone}
-                onChange={(val) => updateCurrentTeam({ timezone: val })}
+                onChange={onChange}
                 data-attr="timezone-select"
             >
                 {Object.entries(preflight.available_timezones).map(([tz, offset]) => {

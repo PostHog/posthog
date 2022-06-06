@@ -6,7 +6,6 @@ from freezegun import freeze_time
 from rest_framework.exceptions import ValidationError
 
 from ee.clickhouse.models.group import create_group
-from ee.clickhouse.models.person import create_person_distinct_id
 from ee.clickhouse.queries.trends.clickhouse_trends import ClickhouseTrends
 from ee.clickhouse.queries.trends.person import ClickhouseTrendsActors
 from ee.clickhouse.test.test_journeys import journeys_for
@@ -19,6 +18,7 @@ from posthog.models.entity import Entity
 from posthog.models.filters import Filter
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.person import Person
+from posthog.models.person.util import create_person_distinct_id
 from posthog.queries.test.test_trends import trend_test_factory
 from posthog.test.base import _create_event, _create_person, flush_persons_and_events, test_with_materialized_columns
 
@@ -110,12 +110,24 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
 
         journey = {
             "person1": [
-                {"event": "sign up", "timestamp": datetime(2020, 1, 2, 12), "properties": {"$group_0": "org:5"},},
-                {"event": "sign up", "timestamp": datetime(2020, 1, 2, 13), "properties": {"$group_0": "org:6"},},
+                {
+                    "event": "sign up",
+                    "timestamp": datetime(2020, 1, 2, 12),
+                    "properties": {"$group_0": "org:5"},
+                    "group0_properties": {"industry": "finance"},
+                },
+                {
+                    "event": "sign up",
+                    "timestamp": datetime(2020, 1, 2, 13),
+                    "properties": {"$group_0": "org:6"},
+                    "group0_properties": {"industry": "technology"},
+                },
                 {
                     "event": "sign up",
                     "timestamp": datetime(2020, 1, 2, 15),
                     "properties": {"$group_0": "org:7", "$group_1": "company:10"},
+                    "group0_properties": {"industry": "finance"},
+                    "group1_properties": {"industry": "finance"},
                 },
             ],
         }
@@ -160,6 +172,8 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
             team=self.team,
             properties={"$group_0": "org:5"},
             timestamp="2020-01-02T12:00:00Z",
+            person_properties={"key": "value"},
+            group0_properties={"industry": "finance"},
         )
         _create_event(
             event="sign up",
@@ -167,22 +181,23 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
             team=self.team,
             properties={"$group_0": "org:6"},
             timestamp="2020-01-02T12:00:00Z",
+            person_properties={},
+            group0_properties={"industry": "technology"},
         )
 
-        response = ClickhouseTrends().run(
-            Filter(
-                data={
-                    "date_from": "2020-01-01T00:00:00Z",
-                    "date_to": "2020-01-12T00:00:00Z",
-                    "breakdown": "industry",
-                    "breakdown_type": "group",
-                    "breakdown_group_type_index": 0,
-                    "events": [{"id": "sign up", "name": "sign up", "type": "events", "order": 0,}],
-                    "properties": [{"key": "key", "value": "value", "type": "person"}],
-                }
-            ),
-            self.team,
+        filter = Filter(
+            data={
+                "date_from": "2020-01-01T00:00:00Z",
+                "date_to": "2020-01-12T00:00:00Z",
+                "breakdown": "industry",
+                "breakdown_type": "group",
+                "breakdown_group_type_index": 0,
+                "events": [{"id": "sign up", "name": "sign up", "type": "events", "order": 0,}],
+                "properties": [{"key": "key", "value": "value", "type": "person"}],
+            }
         )
+
+        response = ClickhouseTrends().run(filter, self.team,)
 
         self.assertEqual(len(response), 1)
         self.assertEqual(response[0]["breakdown_value"], "finance")
@@ -958,6 +973,89 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
         result = ClickhouseTrends().run(filter, self.team,)
         self.assertEqual(result[0]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2.0, 2.0, 2.0, 0.0])
 
+    @snapshot_clickhouse_queries
+    def test_breakdown_active_user_math_with_actions(self):
+
+        p1 = Person.objects.create(team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "p1"})
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p1",
+            timestamp="2020-01-09T12:00:00Z",
+            properties={"key": "val"},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p1",
+            timestamp="2020-01-10T12:00:00Z",
+            properties={"key": "val"},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p1",
+            timestamp="2020-01-11T12:00:00Z",
+            properties={"key": "val"},
+        )
+
+        p2 = Person.objects.create(team_id=self.team.pk, distinct_ids=["p2"], properties={"name": "p2"})
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p2",
+            timestamp="2020-01-09T12:00:00Z",
+            properties={"key": "val"},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p2",
+            timestamp="2020-01-11T12:00:00Z",
+            properties={"key": "val"},
+        )
+
+        p3 = Person.objects.create(team_id=self.team.pk, distinct_ids=["p3"], properties={"name": "p3"})
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p3",
+            timestamp="2020-01-09T12:00:00Z",
+            properties={"key": "val"},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p3",
+            timestamp="2020-01-11T12:00:00Z",
+            properties={"key": "val"},
+        )
+
+        cohort = Cohort.objects.create(
+            team=self.team,
+            groups=[{"properties": [{"key": "name", "operator": "exact", "value": ["p1", "p2"], "type": "person"}]}],
+        )
+
+        pageview_action = _create_action(
+            name="$pageview",
+            team=self.team,
+            properties=[
+                {"key": "name", "operator": "exact", "value": ["p1", "p2", "p3"], "type": "person"},
+                {"type": "cohort", "key": "id", "value": cohort.pk},
+            ],
+        )
+
+        data = {
+            "date_from": "2020-01-01T00:00:00Z",
+            "date_to": "2020-01-12T00:00:00Z",
+            "breakdown": "key",
+            "actions": [{"id": pageview_action.id, "type": "actions", "order": 0, "math": "weekly_active"}],
+        }
+
+        filter = Filter(data=data)
+        result = ClickhouseTrends().run(filter, self.team,)
+        self.assertEqual(result[0]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2.0, 2.0, 2.0, 0.0])
+
     @test_with_materialized_columns(event_properties=["key"], person_properties=["name"])
     def test_filter_test_accounts(self):
         p1 = Person.objects.create(team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "p1"})
@@ -1546,3 +1644,29 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
             self.team,
         )
         self.assertEqual(response[0]["data"], [1.0])
+
+    @test_with_materialized_columns(event_properties=["email", "name"], person_properties=["email", "name"])
+    def test_ilike_regression_with_current_clickhouse_version(self):
+        # CH upgrade to 22.3 has this problem: https://github.com/ClickHouse/ClickHouse/issues/36279
+        # While we're waiting to upgrade to a newer version, a workaround is to set `optimize_move_to_prewhere = 0`
+        # Only happens in the materialized version
+
+        # The requirements to end up in this case is
+        # 1. Having a JOIN
+        # 2. Having multiple properties that filter on the same value
+
+        with freeze_time("2020-01-04T13:01:01Z"):
+            event_response = ClickhouseTrends().run(
+                Filter(
+                    data={
+                        "date_from": "-14d",
+                        "events": [{"id": "watched movie", "name": "watched movie", "type": "events", "order": 0}],
+                        "properties": [
+                            {"key": "email", "type": "event", "value": "posthog.com", "operator": "not_icontains"},
+                            {"key": "name", "type": "event", "value": "posthog.com", "operator": "not_icontains"},
+                            {"key": "name", "type": "person", "value": "posthog.com", "operator": "not_icontains"},
+                        ],
+                    }
+                ),
+                self.team,
+            )

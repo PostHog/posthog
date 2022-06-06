@@ -13,9 +13,9 @@ export function createHttpServer(hub: Hub, serverInstance: ServerInstance, serve
         if (req.url === '/_health' && req.method === 'GET') {
             let serverHealthy = true
 
-            if (hub.KAFKA_ENABLED && serverInstance.kafkaHealthcheckConsumer) {
+            if (serverInstance.kafkaHealthcheckConsumer) {
                 const [kafkaHealthy, error] = await kafkaHealthcheck(
-                    hub.kafkaProducer.producer,
+                    hub.kafkaProducer,
                     serverInstance.kafkaHealthcheckConsumer,
                     hub.statsd,
                     serverConfig.KAFKA_HEALTHCHECK_SECONDS * 1000

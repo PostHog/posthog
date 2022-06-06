@@ -1,17 +1,17 @@
 import { kea } from 'kea'
 import api from 'lib/api'
-import { loginLogicType } from './loginLogicType'
+import type { loginLogicType } from './loginLogicType'
 import { router } from 'kea-router'
 import { SSOProviders } from '~/types'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
-interface AuthenticateResponseType {
+export interface AuthenticateResponseType {
     success: boolean
     errorCode?: string
     errorDetail?: string
 }
 
-interface PrecheckResponseType {
+export interface PrecheckResponseType {
     sso_enforcement?: SSOProviders | null
     saml_available: boolean
     status: 'pending' | 'completed'
@@ -30,7 +30,7 @@ export function handleLoginRedirect(): void {
     router.actions.replace(nextURL)
 }
 
-export const loginLogic = kea<loginLogicType<AuthenticateResponseType, PrecheckResponseType>>({
+export const loginLogic = kea<loginLogicType>({
     path: ['scenes', 'authentication', 'loginLogic'],
     connect: {
         values: [preflightLogic, ['preflight']],

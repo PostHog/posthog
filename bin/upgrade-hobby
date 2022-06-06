@@ -1,5 +1,7 @@
+#!/usr/bin/env bash
+
 set -e
-  
+
 echo "Upgrading PostHog. This will cause a few minutes of downtime."
 read -r -p "Do you want to upgarde PostHog? [y/N] " response
 if [[ "$response" =~ ^([yY][eE][sS]|[yY])+$ ]]
@@ -10,7 +12,7 @@ else
 fi
 
 [[ -f ".env" ]] && export $(cat .env | xargs) || ( echo "No .env file found. Please create it with POSTHOG_SECRET and DOMAIN set." && exit 1)
-export POSTHOG_APP_TAG="${POSTHOG_APP_TAG:-latest-release}" $POSTHOG_APP_TAG
+export POSTHOG_APP_TAG="${POSTHOG_APP_TAG:-latest-release}"
 
 cd posthog
 git pull

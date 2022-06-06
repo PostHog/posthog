@@ -3,7 +3,7 @@ import api from 'lib/api'
 import { toParams } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { ActorType } from '~/types'
-import { relatedGroupsLogicType } from './relatedGroupsLogicType'
+import type { relatedGroupsLogicType } from './relatedGroupsLogicType'
 
 export const relatedGroupsLogic = kea<relatedGroupsLogicType>({
     path: ['scenes', 'groups', 'relatedGroupsLogic'],

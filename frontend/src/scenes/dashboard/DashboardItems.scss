@@ -1,5 +1,3 @@
-@import '~/vars';
-
 .dashboard-items-wrapper {
     width: 100%; // This provides the width for the dashboard items grid
 }
@@ -89,12 +87,12 @@
     margin-right: 0.5rem;
 
     &.dive-btn-dive {
-        border-color: $primary;
-        color: $primary;
+        border-color: var(--primary);
+        color: var(--primary);
 
         &:hover {
-            border-color: darken($primary, 30%);
-            color: darken($primary, 30%);
+            border-color: var(--depr-darken-primary-30);
+            color: var(--depr-darken-primary-30);
         }
     }
 }

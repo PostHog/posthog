@@ -1,15 +1,6 @@
 import { PluginAttachment } from '@posthog/plugin-scaffold'
 
-import {
-    Hub,
-    Plugin,
-    PluginConfig,
-    PluginConfigId,
-    PluginId,
-    PluginTaskType,
-    StatelessVmMap,
-    TeamId,
-} from '../../types'
+import { Hub, Plugin, PluginConfig, PluginConfigId, PluginId, StatelessVmMap, TeamId } from '../../types'
 import { getPluginAttachmentRows, getPluginConfigRows, getPluginRows } from '../../utils/db/sql'
 import { status } from '../../utils/status'
 import { LazyPluginVM } from '../vm/lazy'
@@ -129,7 +120,7 @@ export async function loadSchedule(server: Hub): Promise<void> {
     let count = 0
 
     for (const [id, pluginConfig] of server.pluginConfigs) {
-        const tasks = (await pluginConfig.vm?.getTasks(PluginTaskType.Schedule)) ?? {}
+        const tasks = (await pluginConfig.vm?.getScheduledTasks()) ?? {}
         for (const [taskName, task] of Object.entries(tasks)) {
             if (task && taskName in pluginSchedule) {
                 pluginSchedule[taskName].push(id)

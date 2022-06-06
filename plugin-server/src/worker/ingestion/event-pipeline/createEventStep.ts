@@ -6,6 +6,6 @@ export async function createEventStep(
     event: PreIngestionEvent,
     person: Person | undefined
 ): Promise<StepResult> {
-    const [, , elements] = await runner.hub.eventsProcessor.createEvent(event)
-    return runner.nextStep('runAsyncHandlersStep', event, person, elements)
+    await runner.hub.eventsProcessor.createEvent(event)
+    return runner.nextStep('runAsyncHandlersStep', event, person)
 }

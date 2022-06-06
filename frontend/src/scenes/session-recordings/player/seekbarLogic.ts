@@ -1,6 +1,6 @@
-import { MutableRefObject as ReactMutableRefObject } from 'react'
+import { MutableRefObject } from 'react'
 import { kea } from 'kea'
-import { seekbarLogicType } from './seekbarLogicType'
+import type { seekbarLogicType } from './seekbarLogicType'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { sessionRecordingLogic } from 'scenes/session-recordings/sessionRecordingLogic'
 import { clamp } from 'lib/utils'
@@ -36,8 +36,8 @@ export const seekbarLogic = kea<seekbarLogicType>({
         handleDown: (event: ReactInteractEvent) => ({ event }),
         handleClick: (event: ReactInteractEvent) => ({ event }),
         handleTickClick: (playerPosition: PlayerPosition) => ({ playerPosition }),
-        setSlider: (ref: ReactMutableRefObject<HTMLDivElement | null>) => ({ ref }),
-        setThumb: (ref: ReactMutableRefObject<HTMLDivElement | null>) => ({ ref }),
+        setSlider: (ref: MutableRefObject<HTMLDivElement | null>) => ({ ref }),
+        setThumb: (ref: MutableRefObject<HTMLDivElement | null>) => ({ ref }),
         debouncedSetTime: (time: number) => ({ time }),
         endSeeking: true,
     },
@@ -198,7 +198,7 @@ export const seekbarLogic = kea<seekbarLogicType>({
             document.addEventListener('mouseup', actions.handleUp)
         },
         handleTickClick: ({ playerPosition }) => {
-            if (!values.isSeeking) {
+            if (!values.isSeeking && values.slider) {
                 actions.handleSeek(
                     convertPlayerPositionToX(
                         playerPosition,

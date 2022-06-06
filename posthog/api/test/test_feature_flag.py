@@ -421,48 +421,16 @@ class TestFeatureFlag(APIBaseTest):
             ],
         )
 
-    @freeze_time("2021-08-25T22:09:14.252Z")
-    def test_deleting_feature_flag(self):
+    def test_hard_deleting_feature_flag_is_forbidden(self):
         new_user = User.objects.create_and_join(self.organization, "new_annotations@posthog.com", None)
 
         instance = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="potato")
         self.client.force_login(new_user)
 
-        with patch("posthog.mixins.report_user_action") as mock_capture:
-            response = self.client.delete(f"/api/projects/{self.team.id}/feature_flags/{instance.pk}/")
+        response = self.client.delete(f"/api/projects/{self.team.id}/feature_flags/{instance.pk}/")
 
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
-        self.assertFalse(FeatureFlag.objects.filter(pk=instance.pk).exists())
-
-        # Assert analytics are sent (notice the event is sent on the user that executed the deletion, not the creator)
-        mock_capture.assert_called_once_with(
-            new_user,
-            "feature flag deleted",
-            {
-                "groups_count": 1,
-                "has_variants": False,
-                "variants_count": 0,
-                "has_rollout_percentage": False,
-                "has_filters": False,
-                "filter_count": 0,
-                "created_at": instance.created_at,
-                "aggregating_by_groups": False,
-            },
-        )
-
-        self.assert_feature_flag_activity(
-            flag_id=None,
-            expected=[
-                {
-                    "user": {"first_name": "", "email": "new_annotations@posthog.com"},
-                    "activity": "deleted",
-                    "scope": "FeatureFlag",
-                    "item_id": str(instance.pk),
-                    "detail": {"changes": None, "merge": None, "name": "potato", "short_id": None},
-                    "created_at": "2021-08-25T22:09:14.252000Z",
-                }
-            ],
-        )
+        self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
+        self.assertTrue(FeatureFlag.objects.filter(pk=instance.pk).exists())
 
     def test_get_feature_flag_activity(self):
         new_user = User.objects.create_and_join(
@@ -804,17 +772,6 @@ class TestFeatureFlag(APIBaseTest):
             second_page_json["previous"],
             f"http://testserver/api/projects/{self.team.id}/feature_flags/{flag_id}/activity?page=1&limit=10",
         )
-
-    @patch("posthog.api.feature_flag.report_user_action")
-    def test_cannot_delete_feature_flag_on_another_team(self, mock_capture):
-        _, other_team, other_user = User.objects.bootstrap("Test", "team2@posthog.com", None)
-        self.client.force_login(other_user)
-
-        response = self.client.delete(f"/api/projects/{other_team.id}/feature_flags/{self.feature_flag.pk}/")
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
-        self.assertTrue(FeatureFlag.objects.filter(pk=self.feature_flag.pk).exists())
-
-        mock_capture.assert_not_called()
 
     def test_get_flags_with_specified_token(self):
         _, _, user = User.objects.bootstrap("Test", "team2@posthog.com", None)

@@ -2,7 +2,7 @@ import { kea } from 'kea'
 import api from 'lib/api'
 import { lemonToast } from 'lib/components/lemonToast'
 import { PrevalidatedInvite } from '~/types'
-import { inviteSignupLogicType } from './inviteSignupLogicType'
+import type { inviteSignupLogicType } from './inviteSignupLogicType'
 
 export enum ErrorCodes {
     InvalidInvite = 'invalid_invite',
@@ -10,18 +10,18 @@ export enum ErrorCodes {
     Unknown = 'unknown',
 }
 
-interface ErrorInterface {
+export interface ErrorInterface {
     code: ErrorCodes
     detail?: string
 }
 
-interface AcceptInvitePayloadInterface {
+export interface AcceptInvitePayloadInterface {
     first_name?: string
     password: string
     email_opt_in: boolean
 }
 
-export const inviteSignupLogic = kea<inviteSignupLogicType<AcceptInvitePayloadInterface, ErrorInterface>>({
+export const inviteSignupLogic = kea<inviteSignupLogicType>({
     path: ['scenes', 'authentication', 'inviteSignupLogic'],
     actions: {
         setError: (payload: ErrorInterface) => ({ payload }),

@@ -6,13 +6,15 @@ const aws = require('aws-sdk')
 let S3: typeof aws.S3 | null = null
 
 export interface ObjectStorage {
-    healthCheck: () => Promise<boolean>
+    healthcheck: () => Promise<boolean>
 }
 
+// Object Storage added without any uses to flush out deployment concerns.
+// see https://github.com/PostHog/posthog/pull/9901
 export const connectObjectStorage = (serverConfig: Partial<PluginsServerConfig>): ObjectStorage => {
     let storage = {
-        healthCheck: async () => {
-            return Promise.resolve(false)
+        healthcheck: async () => {
+            return Promise.resolve(true) // healthy if object storage isn't configured
         },
     }
     try {
@@ -32,27 +34,29 @@ export const connectObjectStorage = (serverConfig: Partial<PluginsServerConfig>)
                 s3ForcePathStyle: true, // needed with minio?
                 signatureVersion: 'v4',
             })
-        }
 
-        storage = {
-            healthCheck: async () => {
-                if (!OBJECT_STORAGE_BUCKET) {
-                    status.error('😢', 'No object storage bucket configured')
-                    return false
-                }
+            storage = {
+                healthcheck: async () => {
+                    if (!OBJECT_STORAGE_BUCKET) {
+                        status.error('😢', 'No object storage bucket configured')
+                        return false
+                    }
 
-                try {
-                    await S3.headBucket({
-                        Bucket: OBJECT_STORAGE_BUCKET,
-                    }).promise()
-                    return true
-                } catch (error) {
-                    return false
-                }
-            },
+                    try {
+                        await S3.headBucket({
+                            Bucket: OBJECT_STORAGE_BUCKET,
+                        }).promise()
+                        return true
+                    } catch (error) {
+                        status.error('💣', 'Could not access bucket:', error)
+                        return false
+                    }
+                },
+            }
         }
     } catch (e) {
-        status.warn('😢', `could not initialise storage: ${e}`)
+        // only warn here... object storage is not mandatory until after #9901 at the earliest
+        status.warn('😢', 'could not initialise storage:', e)
     }
 
     return storage

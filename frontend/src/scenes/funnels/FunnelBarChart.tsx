@@ -2,20 +2,21 @@ import { useActions, useValues } from 'kea'
 import React, { useMemo, useRef } from 'react'
 import { funnelLogic } from './funnelLogic'
 import './FunnelBarChart.scss'
-import { ChartParams, FunnelStepWithConversionMetrics } from '~/types'
+import { AvailableFeature, ChartParams, FunnelStepWithConversionMetrics } from '~/types'
 import { LemonRow } from 'lib/components/LemonRow'
 import { Lettermark, LettermarkColor } from 'lib/components/Lettermark/Lettermark'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { getActionFilterFromFunnelStep } from 'scenes/insights/InsightTabs/FunnelTab/funnelStepTableUtils'
 import { IconSchedule, IconTrendingFlat, IconTrendingFlatDown } from 'lib/components/icons'
 import { humanFriendlyDuration, percentage, pluralize } from 'lib/utils'
-import { ValueInspectorButton } from './FunnelBarGraph'
+import { ValueInspectorButton } from './ValueInspectorButton'
 import clsx from 'clsx'
 import { useScrollable } from 'lib/hooks/useScrollable'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { getSeriesColor } from 'lib/colors'
-import { useFunnelTooltip } from './FunnelTooltip'
+import { useFunnelTooltip } from './useFunnelTooltip'
 import { FunnelStepMore } from './FunnelStepMore'
+import { userLogic } from 'scenes/userLogic'
 
 function StepBarLabels(): JSX.Element {
     return (
@@ -58,7 +59,7 @@ function StepBar({ step, stepIndex, series }: StepBarProps): JSX.Element {
             onMouseEnter={() => {
                 if (ref.current) {
                     const rect = ref.current.getBoundingClientRect()
-                    showTooltip([rect.x + rect.width, rect.y], stepIndex, series)
+                    showTooltip([rect.x, rect.y, rect.width], stepIndex, series)
                 }
             }}
             onMouseLeave={() => hideTooltip()}
@@ -104,6 +105,7 @@ interface StepLegendProps extends ChartParams {
 function StepLegend({ step, stepIndex, showTime, showPersonsModal }: StepLegendProps): JSX.Element {
     const { aggregationTargetLabel } = useValues(funnelLogic)
     const { openPersonsModalForStep } = useActions(funnelLogic)
+    const { hasAvailableFeature } = useValues(userLogic)
 
     const convertedCountPresentation = pluralize(
         step.count ?? 0,
@@ -120,7 +122,9 @@ function StepLegend({ step, stepIndex, showTime, showPersonsModal }: StepLegendP
         <div className="StepLegend">
             <LemonRow
                 icon={<Lettermark name={stepIndex + 1} color={LettermarkColor.Gray} />}
-                sideIcon={<FunnelStepMore stepIndex={stepIndex} />}
+                sideIcon={
+                    hasAvailableFeature(AvailableFeature.PATHS_ADVANCED) && <FunnelStepMore stepIndex={stepIndex} />
+                }
             >
                 <EntityFilterInfo filter={getActionFilterFromFunnelStep(step)} />
             </LemonRow>
@@ -203,7 +207,7 @@ export function FunnelBarChart({ showPersonsModal = true }: ChartParams): JSX.El
             ? 96
             : 192
 
-    const vizRef = useFunnelTooltip(showPersonsModal, barWidthPx)
+    const vizRef = useFunnelTooltip(showPersonsModal)
 
     const table = useMemo(() => {
         /** Average conversion time is only shown if it's known for at least one step. */
@@ -223,7 +227,8 @@ export function FunnelBarChart({ showPersonsModal = true }: ChartParams): JSX.El
                     {visibleStepsWithConversionMetrics.map((_, i) => (
                         <col key={i} width={0} />
                     ))}
-                    <col width="100%" /> {/* The last column is meant to fill up leftover space. */}
+                    <col width="100%" />
+                    {/* The last column is meant to fill up leftover space. */}
                 </colgroup>
                 <tbody>
                     <tr>

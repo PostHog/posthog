@@ -21,7 +21,6 @@ export function InsightSaveButton({
 
     return (
         <LemonButtonWithSideAction
-            style={{ marginLeft: 8 }}
             type="primary"
             onClick={() => saveInsight(true)}
             data-attr="insight-save-button"

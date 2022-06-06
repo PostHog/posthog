@@ -1,6 +1,6 @@
 import { Plugin, PluginEvent, PluginMeta, ProcessedPluginEvent, RetryError } from '@posthog/plugin-scaffold'
 
-import { Hub, MetricMathOperations, PluginConfig, PluginConfigVMInternalResponse, PluginTaskType } from '../../../types'
+import { Hub, PluginConfig, PluginConfigVMInternalResponse, PluginTaskType } from '../../../types'
 import { determineNodeEnv, NodeEnv } from '../../../utils/env-utils'
 import { status } from '../../../utils/status'
 import { stringClamp } from '../../../utils/utils'

@@ -1,8 +1,11 @@
 import json
+from datetime import datetime
 from typing import Dict, List, Optional, Tuple, Union
 
 from freezegun import freeze_time
 
+from ee.clickhouse.test.test_journeys import journeys_for
+from ee.clickhouse.util import snapshot_clickhouse_queries
 from posthog.constants import ENTITY_ID, ENTITY_TYPE, TREND_FILTER_TYPE_EVENTS, TRENDS_BAR_VALUE, TRENDS_TABLE
 from posthog.models import Action, ActionStep, Cohort, Entity, Filter, Organization, Person
 from posthog.models.instance_setting import override_instance_config
@@ -1770,73 +1773,35 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
 
         def _create_multiple_people(self):
             person1 = person_factory(team_id=self.team.pk, distinct_ids=["person1"], properties={"name": "person1"})
-            event_factory(
-                team=self.team,
-                event="watched movie",
-                distinct_id="person1",
-                timestamp="2020-01-01T12:00:00Z",
-                properties={"order": "1"},
-            )
-
             person2 = person_factory(team_id=self.team.pk, distinct_ids=["person2"], properties={"name": "person2"})
-            event_factory(
-                team=self.team,
-                event="watched movie",
-                distinct_id="person2",
-                timestamp="2020-01-01T12:00:00Z",
-                properties={"order": "1"},
-            )
-            event_factory(
-                team=self.team,
-                event="watched movie",
-                distinct_id="person2",
-                timestamp="2020-01-02T12:00:00Z",
-                properties={"order": "2"},
-            )
-            # same day
-            event_factory(
-                team=self.team,
-                event="watched movie",
-                distinct_id="person2",
-                timestamp="2020-01-02T12:00:00Z",
-                properties={"order": "2"},
-            )
-
             person3 = person_factory(team_id=self.team.pk, distinct_ids=["person3"], properties={"name": "person3"})
-            event_factory(
-                team=self.team,
-                event="watched movie",
-                distinct_id="person3",
-                timestamp="2020-01-01T12:00:00Z",
-                properties={"order": "1"},
-            )
-            event_factory(
-                team=self.team,
-                event="watched movie",
-                distinct_id="person3",
-                timestamp="2020-01-02T12:00:00Z",
-                properties={"order": "2"},
-            )
-            event_factory(
-                team=self.team,
-                event="watched movie",
-                distinct_id="person3",
-                timestamp="2020-01-03T12:00:00Z",
-                properties={"order": "2"},
-            )
-
             person4 = person_factory(team_id=self.team.pk, distinct_ids=["person4"], properties={"name": "person4"})
-            event_factory(
-                team=self.team,
-                event="watched movie",
-                distinct_id="person4",
-                timestamp="2020-01-05T12:00:00Z",
-                properties={"order": "1"},
-            )
+
+            journey = {
+                "person1": [
+                    {"event": "watched movie", "timestamp": datetime(2020, 1, 1, 12), "properties": {"order": "1"},},
+                ],
+                "person2": [
+                    {"event": "watched movie", "timestamp": datetime(2020, 1, 1, 12), "properties": {"order": "1"},},
+                    {"event": "watched movie", "timestamp": datetime(2020, 1, 2, 12), "properties": {"order": "2"},},
+                    {"event": "watched movie", "timestamp": datetime(2020, 1, 2, 12), "properties": {"order": "2"},},
+                ],
+                "person3": [
+                    {"event": "watched movie", "timestamp": datetime(2020, 1, 1, 12), "properties": {"order": "1"},},
+                    {"event": "watched movie", "timestamp": datetime(2020, 1, 2, 12), "properties": {"order": "2"},},
+                    {"event": "watched movie", "timestamp": datetime(2020, 1, 3, 12), "properties": {"order": "2"},},
+                ],
+                "person4": [
+                    {"event": "watched movie", "timestamp": datetime(2020, 1, 5, 12), "properties": {"order": "1"},},
+                ],
+            }
+
+            journeys_for(events_by_person=journey, team=self.team)
 
             return (person1, person2, person3, person4)
 
         @test_with_materialized_columns(person_properties=["name"])
+        @snapshot_clickhouse_queries
         def test_person_property_filtering(self):
             self._create_multiple_people()
             with freeze_time("2020-01-04"):
@@ -1849,6 +1814,7 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                     ),
                     self.team,
                 )
+
             self.assertEqual(response[0]["labels"][4], "1-Jan-2020")
             self.assertEqual(response[0]["data"][4], 1.0)
             self.assertEqual(response[0]["labels"][5], "2-Jan-2020")

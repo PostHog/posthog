@@ -1,5 +1,5 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
-import { featureFlagLogicType } from './featureFlagLogicType'
+import type { featureFlagLogicType } from './featureFlagLogicType'
 import {
     AnyPropertyFilter,
     Breadcrumb,
@@ -53,7 +53,7 @@ export interface FeatureFlagLogicProps {
     id: number | 'new'
 }
 
-export const featureFlagLogic = kea<featureFlagLogicType<FeatureFlagLogicProps>>([
+export const featureFlagLogic = kea<featureFlagLogicType>([
     path(['scenes', 'feature-flags', 'featureFlagLogic']),
     props({} as FeatureFlagLogicProps),
     key(({ id }) => id ?? 'new'),
@@ -265,7 +265,6 @@ export const featureFlagLogic = kea<featureFlagLogicType<FeatureFlagLogicProps>>
                 return NEW_FLAG
             },
             saveFeatureFlag: async (updatedFlag: Partial<FeatureFlagType>) => {
-                // eslint-disable-next-line @typescript-eslint/no-unused-vars
                 const { created_at, id, ...flag } = updatedFlag
 
                 try {

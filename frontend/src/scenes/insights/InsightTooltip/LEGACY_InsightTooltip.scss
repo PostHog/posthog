@@ -1,19 +1,17 @@
-@import '~/vars';
-
 .legacy-ph-graph-tooltip,
 .ant-popover {
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
     font-size: 14px;
     overflow-x: hidden;
-    z-index: $z_graph_tooltip;
+    z-index: var(--z-graph-tooltip);
     transition: all 0.4s;
 }
 
 .legacy-ph-graph-tooltip {
     max-width: 480px;
     padding: 8px 12px;
-    border: 1px solid $border;
-    border-radius: $radius;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
     background: #fafafa;
 }
 
@@ -21,26 +19,26 @@
     &.multiple {
         header {
             padding-bottom: 8px;
-            border-bottom: 1px solid $border;
+            border-bottom: 1px solid var(--border);
         }
 
         footer {
             margin-top: 0 !important;
             padding-top: 6px;
-            border-top: 1px solid $border;
+            border-top: 1px solid var(--border);
         }
     }
 
     header {
         font-weight: bold;
-        margin-bottom: $default_spacing / 2;
+        margin-bottom: 0.5rem;
     }
 
     footer {
         margin-top: 0.5rem;
         font-weight: bold;
         font-size: 85%;
-        color: $text_muted;
+        color: var(--text-muted);
         display: flex;
         justify-content: center;
         align-items: center;

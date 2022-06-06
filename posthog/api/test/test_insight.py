@@ -279,7 +279,11 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                 "last_refresh",
                 "refreshing",
                 "saved",
+                "tags",
                 "updated_at",
+                "created_by",
+                "created_at",
+                "last_modified_at",
             ],
         )
 
@@ -360,6 +364,27 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                     },
                 }
             ],
+        )
+
+    @freeze_time("2012-01-14T03:21:34.000Z")
+    def test_create_insight_with_no_names_logs_no_activity(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/insights",
+            data={
+                "filters": {
+                    "events": [{"id": "$pageview"}],
+                    "properties": [{"key": "$browser", "value": "Mac OS X"}],
+                    "date_from": "-90d",
+                },
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        response_data = response.json()
+        self.assertEqual(response_data["name"], None)
+        self.assertEqual(response_data["derived_name"], None)
+
+        self.assert_insight_activity(
+            response_data["id"], [],
         )
 
     def test_create_insight_items_on_a_dashboard(self):
@@ -479,43 +504,6 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                         "item_id": str(insight_id),
                         "detail": {"changes": None, "merge": None, "name": "insight name", "short_id": short_id},
                         "created_at": "2012-01-14T03:21:34Z",
-                    },
-                ],
-            )
-
-    def test_hard_delete_insight(self):
-        with freeze_time("2012-01-14T03:21:34.000Z") as frozen_time:
-            insight_id, insight = self._create_insight(
-                {"name": "insight new name", "description": "Internal system metrics.",}
-            )
-            short_id = insight["short_id"]
-
-            frozen_time.tick(delta=timedelta(minutes=10))
-
-            response = self.client.delete(f"/api/projects/{self.team.id}/insights/{insight_id}",)
-            self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
-
-            response = self.client.get(f"/api/projects/{self.team.id}/insights/{insight_id}",)
-            self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
-
-            self.assert_insight_activity(
-                insight_id=None,
-                expected=[
-                    {
-                        "user": {"first_name": "", "email": "user1@posthog.com"},
-                        "activity": "deleted",
-                        "created_at": "2012-01-14T03:31:34Z",
-                        "scope": "Insight",
-                        "item_id": str(insight_id),
-                        "detail": {"changes": None, "merge": None, "name": "insight new name", "short_id": short_id},
-                    },
-                    {
-                        "user": {"first_name": "", "email": "user1@posthog.com"},
-                        "activity": "created",
-                        "created_at": "2012-01-14T03:21:34Z",
-                        "scope": "Insight",
-                        "item_id": str(insight_id),
-                        "detail": {"changes": None, "merge": None, "name": "insight new name", "short_id": short_id},
                     },
                 ],
             )
@@ -1490,6 +1478,40 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         self.assertIsNotNone(before_save)
         self.assertIsNotNone(after_save)
         self.assertEqual(before_save, after_save)
+
+    def test_hard_delete_is_forbidden(self) -> None:
+        insight_id, _ = self._create_insight({"name": "to be deleted"})
+        api_response = self.client.delete(f"/api/projects/{self.team.id}/insights/{insight_id}")
+        self.assertEqual(api_response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
+        self.assertEqual(
+            self.client.get(f"/api/projects/{self.team.id}/insights/{insight_id}").status_code, status.HTTP_200_OK,
+        )
+
+    def test_soft_delete_causes_404(self) -> None:
+        insight_id, _ = self._create_insight({"name": "to be deleted"})
+        self._get_insight(insight_id=insight_id, expected_status=status.HTTP_200_OK)
+
+        update_response = self.client.patch(f"/api/projects/{self.team.id}/insights/{insight_id}", {"deleted": True})
+        self.assertEqual(update_response.status_code, status.HTTP_200_OK)
+
+        self._get_insight(insight_id=insight_id, expected_status=status.HTTP_404_NOT_FOUND)
+
+    def test_soft_delete_can_be_reversed_by_patch(self) -> None:
+        insight_id, _ = self._create_insight({"name": "an insight"})
+
+        self.client.patch(f"/api/projects/{self.team.id}/insights/{insight_id}", {"deleted": True})
+
+        self.assertEqual(
+            self.client.get(f"/api/projects/{self.team.id}/insights/{insight_id}").status_code,
+            status.HTTP_404_NOT_FOUND,
+        )
+
+        update_response = self.client.patch(f"/api/projects/{self.team.id}/insights/{insight_id}", {"deleted": False})
+        self.assertEqual(update_response.status_code, status.HTTP_200_OK)
+
+        self.assertEqual(
+            self.client.get(f"/api/projects/{self.team.id}/insights/{insight_id}").status_code, status.HTTP_200_OK
+        )
 
     def _create_insight(
         self, data: Dict[str, Any], team_id: Optional[int] = None, expected_status: int = status.HTTP_201_CREATED

@@ -4,6 +4,7 @@ from django.db import models
 from django.db.models.signals import post_delete, post_save
 from django.dispatch.dispatcher import receiver
 
+from posthog.models.signals import mutable_receiver
 from posthog.redis import get_client
 
 
@@ -38,7 +39,7 @@ def action_step_saved(sender, instance: ActionStep, created, **kwargs):
     )
 
 
-@receiver(post_delete, sender=ActionStep)
+@mutable_receiver(post_delete, sender=ActionStep)
 def action_step_deleted(sender, instance: ActionStep, **kwargs):
     get_client().publish(
         "reload-action", json.dumps({"teamId": instance.action.team_id, "actionId": instance.action.id})

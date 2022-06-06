@@ -1,18 +1,18 @@
 import { kea } from 'kea'
 import api from 'lib/api'
-import { dayjs, now } from 'lib/dayjs'
+import { dayjs, now, OpUnitType } from 'lib/dayjs'
 import { deleteWithUndo, determineDifferenceType, groupBy, toParams } from '~/lib/utils'
 import { annotationsModel } from '~/models/annotationsModel'
 import { getNextKey } from './utils'
-import { annotationsLogicType } from './annotationsLogicType'
+import type { annotationsLogicType } from './annotationsLogicType'
 import { AnnotationScope, AnnotationType } from '~/types'
 import { teamLogic } from 'scenes/teamLogic'
 
-interface AnnotationsLogicProps {
+export interface AnnotationsLogicProps {
     insightNumericId?: number
 }
 
-export const annotationsLogic = kea<annotationsLogicType<AnnotationsLogicProps>>({
+export const annotationsLogic = kea<annotationsLogicType>({
     path: (key) => ['lib', 'components', 'Annotations', 'annotationsLogic', key],
     props: {} as AnnotationsLogicProps,
     key: (props) => String(props.insightNumericId || 'default'),
@@ -29,7 +29,7 @@ export const annotationsLogic = kea<annotationsLogicType<AnnotationsLogicProps>>
         }),
         deleteAnnotation: (id: string) => ({ id }),
         updateDiffType: (dates: string[]) => ({ dates }),
-        setDiffType: (type: dayjs.OpUnitType) => ({ type }),
+        setDiffType: (type: OpUnitType) => ({ type }),
     }),
     loaders: ({ props }) => ({
         annotations: {
@@ -90,7 +90,7 @@ export const annotationsLogic = kea<annotationsLogicType<AnnotationsLogicProps>>
             (annotationsList, diffType) =>
                 groupBy(annotationsList, (annotation) =>
                     dayjs(annotation['date_marker'])
-                        .startOf(diffType as dayjs.OpUnitType)
+                        .startOf(diffType as OpUnitType)
                         .format('YYYY-MM-DD')
                 ),
         ],

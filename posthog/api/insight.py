@@ -1,6 +1,6 @@
 import json
 from functools import lru_cache
-from typing import Any, Dict, Optional, Type
+from typing import Any, Dict, List, Optional, Type
 
 import structlog
 from django.db.models import Count, OuterRef, QuerySet, Subquery
@@ -25,6 +25,7 @@ from ee.clickhouse.queries.retention.clickhouse_retention import ClickhouseReten
 from ee.clickhouse.queries.stickiness.clickhouse_stickiness import ClickhouseStickiness
 from ee.clickhouse.queries.trends.clickhouse_trends import ClickhouseTrends
 from posthog.api.documentation import extend_schema
+from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.insight_serializers import (
     FunnelSerializer,
     FunnelStepsResultsSerializer,
@@ -47,9 +48,10 @@ from posthog.constants import (
 )
 from posthog.decorators import cached_function
 from posthog.helpers.multi_property_breakdown import protect_old_clients_from_multi_property_default
-from posthog.models import DashboardTile, Filter, Insight, Team
+from posthog.models import DashboardTile, Filter, Insight, Team, User
 from posthog.models.activity_logging.activity_log import (
     ActivityPage,
+    Change,
     Detail,
     changes_between,
     load_activity,
@@ -61,6 +63,7 @@ from posthog.models.filters import RetentionFilter
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.insight import InsightViewed, generate_insight_cache_key
+from posthog.models.utils import UUIDT
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.queries.util import get_earliest_timestamp
 from posthog.settings import SITE_URL
@@ -76,15 +79,41 @@ from posthog.utils import (
 logger = structlog.get_logger(__name__)
 
 
-def choose_insight_name(insight):
-    name_for_logged_activity = insight.name if insight.name else insight.derived_name
-    return name_for_logged_activity or "(empty string)"
+def log_insight_activity(
+    activity: str,
+    insight: Insight,
+    insight_id: int,
+    insight_short_id: str,
+    organization_id: UUIDT,
+    team_id: int,
+    user: User,
+    changes: Optional[List[Change]] = None,
+) -> None:
+    """
+    Insight id and short_id are passed separately as some activities (like delete) alter the Insight instance
+
+    The experiments feature creates insights without a name, this does not log those
+    """
+
+    insight_name: Optional[str] = insight.name if insight.name else insight.derived_name
+    if insight_name:
+        log_activity(
+            organization_id=organization_id,
+            team_id=team_id,
+            user=user,
+            item_id=insight_id,
+            scope="Insight",
+            activity=activity,
+            detail=Detail(name=insight_name, changes=changes, short_id=insight_short_id),
+        )
 
 
-class InsightBasicSerializer(serializers.ModelSerializer):
+class InsightBasicSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
     """
     Simplified serializer to speed response times when loading large amounts of objects.
     """
+
+    created_by = UserBasicSerializer(read_only=True)
 
     class Meta:
         model = Insight
@@ -98,7 +127,11 @@ class InsightBasicSerializer(serializers.ModelSerializer):
             "last_refresh",
             "refreshing",
             "saved",
+            "tags",
             "updated_at",
+            "created_by",
+            "created_at",
+            "last_modified_at",
         ]
         read_only_fields = ("short_id", "updated_at", "last_refresh", "refreshing")
 
@@ -111,7 +144,7 @@ class InsightBasicSerializer(serializers.ModelSerializer):
         return representation
 
 
-class InsightSerializer(TaggedItemSerializerMixin, InsightBasicSerializer):
+class InsightSerializer(InsightBasicSerializer):
     result = serializers.SerializerMethodField()
     last_refresh = serializers.SerializerMethodField(
         read_only=True,
@@ -213,15 +246,16 @@ class InsightSerializer(TaggedItemSerializerMixin, InsightBasicSerializer):
         # Manual tag creation since this create method doesn't call super()
         self._attempt_set_tags(tags, insight)
 
-        log_activity(
+        log_insight_activity(
+            activity="created",
+            insight=insight,
+            insight_id=insight.id,
+            insight_short_id=insight.short_id,
             organization_id=self.context["request"].user.current_organization_id,
             team_id=team.id,
             user=self.context["request"].user,
-            item_id=insight.id,
-            scope="Insight",
-            activity="created",
-            detail=Detail(name=(choose_insight_name(insight)), short_id=insight.short_id),
         )
+
         return insight
 
     def update(self, instance: Insight, validated_data: Dict, **kwargs) -> Insight:
@@ -235,36 +269,39 @@ class InsightSerializer(TaggedItemSerializerMixin, InsightBasicSerializer):
         if validated_data.keys() & Insight.MATERIAL_INSIGHT_FIELDS:
             instance.last_modified_at = now()
             instance.last_modified_by = self.context["request"].user
-        dashboards = validated_data.pop("dashboards", None)
-        if dashboards is not None:
-            old_dashboard_ids = [tile.dashboard_id for tile in instance.dashboardtile_set.all()]
-            new_dashboard_ids = [d.id for d in dashboards]
 
-            ids_to_add = [id for id in new_dashboard_ids if id not in old_dashboard_ids]
-            ids_to_remove = [id for id in old_dashboard_ids if id not in new_dashboard_ids]
+        if validated_data.get("deleted", False):
+            DashboardTile.objects.filter(insight__id=instance.id).delete()
+        else:
+            dashboards = validated_data.pop("dashboards", None)
+            if dashboards is not None:
+                old_dashboard_ids = [tile.dashboard_id for tile in instance.dashboardtile_set.all()]
+                new_dashboard_ids = [d.id for d in dashboards]
 
-            for dashboard in Dashboard.objects.filter(id__in=ids_to_add):
-                if dashboard.team != instance.team:
-                    raise serializers.ValidationError("Dashboard not found")
-                DashboardTile.objects.create(insight=instance, dashboard=dashboard)
+                ids_to_add = [id for id in new_dashboard_ids if id not in old_dashboard_ids]
+                ids_to_remove = [id for id in old_dashboard_ids if id not in new_dashboard_ids]
 
-            if ids_to_remove:
-                DashboardTile.objects.filter(dashboard_id__in=ids_to_remove, insight=instance).delete()
+                for dashboard in Dashboard.objects.filter(id__in=ids_to_add):
+                    if dashboard.team != instance.team:
+                        raise serializers.ValidationError("Dashboard not found")
+                    DashboardTile.objects.create(insight=instance, dashboard=dashboard)
+
+                if ids_to_remove:
+                    DashboardTile.objects.filter(dashboard_id__in=ids_to_remove, insight=instance).delete()
 
         updated_insight = super().update(instance, validated_data)
 
         changes = changes_between("Insight", previous=before_update, current=updated_insight)
 
-        log_activity(
+        log_insight_activity(
+            activity="updated",
+            insight=updated_insight,
+            insight_id=updated_insight.id,
+            insight_short_id=updated_insight.short_id,
             organization_id=self.context["request"].user.current_organization_id,
             team_id=self.context["team_id"],
             user=self.context["request"].user,
-            item_id=updated_insight.id,
-            scope="Insight",
-            activity="updated",
-            detail=Detail(
-                name=(choose_insight_name(updated_insight)), changes=changes, short_id=updated_insight.short_id
-            ),
+            changes=changes,
         )
 
         return updated_insight
@@ -300,7 +337,7 @@ class InsightSerializer(TaggedItemSerializerMixin, InsightBasicSerializer):
 
     def get_timezone(self, insight: Insight):
         if should_refresh(self.context["request"]):
-            return insight.team.timezone_for_charts
+            return insight.team.timezone
         result = get_safe_cache(insight.filters_hash)
         if not result or result.get("task_id", None):
             return None
@@ -345,7 +382,7 @@ class InsightSerializer(TaggedItemSerializerMixin, InsightBasicSerializer):
         return representation
 
 
-class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, viewsets.ModelViewSet):
+class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     queryset = Insight.objects.all()
     serializer_class = InsightSerializer
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
@@ -364,6 +401,11 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, viewsets.Mo
 
     def get_queryset(self) -> QuerySet:
         queryset = super().get_queryset()
+
+        if not self.action.endswith("update"):
+            # Soft-deleted insights can be brought back with a PATCH request
+            queryset = queryset.filter(deleted=False)
+
         queryset = queryset.prefetch_related(
             "dashboards", "dashboards__created_by", "dashboards__team", "dashboards__team__organization",
         )
@@ -538,7 +580,7 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, viewsets.Mo
             trends_query = ClickhouseTrends()
             result = trends_query.run(filter, team)
 
-        return {"result": result, "timezone": team.timezone_for_charts}
+        return {"result": result, "timezone": team.timezone}
 
     # ******************************************
     # /projects/:id/insights/funnel
@@ -582,16 +624,16 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, viewsets.Mo
         if filter.funnel_viz_type == FunnelVizType.TRENDS:
             return {
                 "result": ClickhouseFunnelTrends(team=team, filter=filter).run(),
-                "timezone": team.timezone_for_charts,
+                "timezone": team.timezone,
             }
         elif filter.funnel_viz_type == FunnelVizType.TIME_TO_CONVERT:
             return {
                 "result": ClickhouseFunnelTimeToConvert(team=team, filter=filter).run(),
-                "timezone": team.timezone_for_charts,
+                "timezone": team.timezone,
             }
         else:
             funnel_order_class = get_funnel_order_class(filter)
-            return {"result": funnel_order_class(team=team, filter=filter).run(), "timezone": team.timezone_for_charts}
+            return {"result": funnel_order_class(team=team, filter=filter).run(), "timezone": team.timezone}
 
     # ******************************************
     # /projects/:id/insights/retention
@@ -613,7 +655,7 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, viewsets.Mo
         filter = RetentionFilter(data=data, request=request, team=self.team)
         base_uri = request.build_absolute_uri("/")
         result = ClickhouseRetention(base_uri=base_uri).run(filter, team)
-        return {"result": result, "timezone": team.timezone_for_charts}
+        return {"result": result, "timezone": team.timezone}
 
     # ******************************************
     # /projects/:id/insights/path
@@ -644,7 +686,7 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, viewsets.Mo
             filter = filter.with_data({PATHS_INCLUDE_EVENT_TYPES: [filter.path_type]})
         resp = ClickhousePaths(filter=filter, team=team, funnel_filter=funnel_filter).run()
 
-        return {"result": resp, "timezone": team.timezone_for_charts}
+        return {"result": resp, "timezone": team.timezone}
 
     # ******************************************
     # /projects/:id/insights/:short_id/viewed
@@ -656,25 +698,6 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, viewsets.Mo
             team=self.team, user=request.user, insight=self.get_object(), defaults={"last_viewed_at": now()}
         )
         return Response(status=status.HTTP_201_CREATED)
-
-    def destroy(self, request, *args, **kwargs):
-        instance: Insight = self.get_object()
-        instance_id = instance.id
-        instance_short_id = instance.short_id
-
-        instance.delete()
-
-        log_activity(
-            organization_id=self.organization.id,
-            team_id=self.team_id,
-            user=request.user,
-            item_id=instance_id,
-            scope="Insight",
-            activity="deleted",
-            detail=Detail(name=(choose_insight_name(instance)), short_id=instance_short_id),
-        )
-
-        return Response(status=status.HTTP_204_NO_CONTENT)
 
     @action(methods=["GET"], url_path="activity", detail=False)
     def all_activity(self, request: request.Request, **kwargs):

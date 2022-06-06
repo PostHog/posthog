@@ -34,9 +34,8 @@ jobs:
             - name: Lint with ESLint
               run: yarn eslint
 
-            - name: Run typescript with strict
-              run: |
-                  ./bin/check-typescript-strict
+            - name: Generate logic types and run typescript with strict
+              run: yarn typegen:write && yarn typescript:check
 
     jest-setup:
         # Split the tests into multiple chunks
@@ -51,8 +50,8 @@ jobs:
               name: Set Chunks
               # Looks at the output of 'yarn test --listTests --json'
               # Take the 3rd line of the output (the first two are yarn non-sense)
-              # Split the test into 2 parts. To increase the number split change the denominator in `length / 2`
-              run: echo "::set-output name=test-chunks::$(yarn test --listTests --json | sed -n 3p | jq -cM '[_nwise(length / 2 | ceil)]')"
+              # Split the test into 3 parts. To increase the number split change the denominator in `length / 3`
+              run: echo "::set-output name=test-chunks::$(yarn test --listTests --json | sed -n 3p | jq -cM '[_nwise(length / 3 | ceil)]')"
             - id: set-test-chunk-ids
               name: Set Chunk IDs
               run: echo "::set-output name=test-chunk-ids::$(echo $CHUNKS | jq -cM 'to_entries | map(.key)')"
