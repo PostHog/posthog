@@ -48,7 +48,7 @@ describe('Insights', () => {
         cy.get('[data-attr="insight-save-button"]').should('exist')
     })
 
-    describe.only('unsaved insights confirmation', () => {
+    describe('unsaved insights confirmation', () => {
         it('can move away from an unchanged new insight without confirm()', () => {
             cy.get('[data-attr="menu-item-insight"]').click()
             cy.log('Navigate away')
