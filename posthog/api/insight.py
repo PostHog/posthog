@@ -260,7 +260,7 @@ class InsightSerializer(InsightBasicSerializer):
 
     def update(self, instance: Insight, validated_data: Dict, **kwargs) -> Insight:
         try:
-            before_update = Insight.objects.prefetch_related("tagged_items__tag").get(pk=instance.id)
+            before_update = Insight.objects.prefetch_related("tagged_items__tag", "dashboards").get(pk=instance.id)
         except Insight.DoesNotExist:
             before_update = None
 
@@ -288,6 +288,9 @@ class InsightSerializer(InsightBasicSerializer):
 
                 if ids_to_remove:
                     DashboardTile.objects.filter(dashboard_id__in=ids_to_remove, insight=instance).delete()
+
+                # also update in-model dashboards set so activity log can detect the change
+                instance.dashboards.set(dashboards)
 
         updated_insight = super().update(instance, validated_data)
 

@@ -8,6 +8,7 @@ import { BreakdownSummary, FiltersSummary, QuerySummary } from 'lib/components/I
 import '../../lib/components/InsightCard/InsightCard.scss'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { pluralize } from 'lib/utils'
+import { INSIGHT_TYPES_WHERE_DETAILS_UNSUPPORTED } from 'lib/components/InsightCard/InsightCard'
 
 const nameOrLinkToInsight = (item: ActivityLogItem): string | JSX.Element => {
     const name = item.detail.name || '(empty string)'
@@ -36,16 +37,21 @@ const insightActionsMapping: Record<keyof InsightModel, (change?: ActivityChange
 
         const changes: (string | JSX.Element | null)[] = []
 
-        changes.push(
-            <>
-                changed details to:
-                <div className="summary-card">
-                    <QuerySummary filters={filtersAfter} />
-                    <FiltersSummary filters={filtersAfter} />
-                    {filtersAfter.breakdown_type && <BreakdownSummary filters={filtersAfter} />}
-                </div>
-            </>
-        )
+        if (filtersAfter.insight && INSIGHT_TYPES_WHERE_DETAILS_UNSUPPORTED.includes(filtersAfter.insight)) {
+            changes.push(<>changed details</>)
+        } else {
+            changes.push(
+                <>
+                    changed details to:
+                    <div className="summary-card">
+                        <QuerySummary filters={filtersAfter} />
+                        <FiltersSummary filters={filtersAfter} />
+                        {filtersAfter.breakdown_type && <BreakdownSummary filters={filtersAfter} />}
+                    </div>
+                </>
+            )
+        }
+
         if (changes.length > 0) {
             return { descriptions: changes, bareName: false }
         }
@@ -122,26 +128,6 @@ const insightActionsMapping: Record<keyof InsightModel, (change?: ActivityChange
         }
         return { descriptions: changes, bareName: false }
     },
-    effective_restriction_level: function onRestrictionChange(change) {
-        return {
-            descriptions: [
-                <>
-                    set restriction <pre>{JSON.stringify(change)}</pre>
-                </>,
-            ],
-            bareName: false,
-        }
-    },
-    effective_privilege_level: function onPrivilegeChange(change) {
-        return {
-            descriptions: [
-                <>
-                    set privilege <pre>{JSON.stringify(change)}</pre>
-                </>,
-            ],
-            bareName: false,
-        }
-    },
     dashboards: function onDashboardsChange(change) {
         const dashboardsBefore = (change?.before as string[]).map((dashboard) => {
             return Number.parseInt(dashboard.replace('Dashboard object (', '').replace(')', ''))
@@ -176,6 +162,8 @@ const insightActionsMapping: Record<keyof InsightModel, (change?: ActivityChange
     saved: () => null,
     is_sample: () => null,
     timezone: () => null,
+    effective_restriction_level: () => null, // read from dashboards
+    effective_privilege_level: () => null, // read from dashboards
 }
 
 export function insightActivityDescriber(logItem: ActivityLogItem): string | JSX.Element | null {

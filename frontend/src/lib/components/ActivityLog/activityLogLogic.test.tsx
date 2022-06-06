@@ -806,6 +806,39 @@ describe('the activity log logic', () => {
                 )
             })
 
+            it('can handle change of filters on a retention graph', async () => {
+                await insightTestSetup('test insight', 'updated', [
+                    {
+                        type: 'Insight',
+                        action: 'changed',
+                        field: 'filters',
+                        after: {
+                            period: 'Week',
+                            display: 'ActionsTable',
+                            insight: 'RETENTION',
+                            properties: [],
+                            target_entity: {
+                                id: '$pageview',
+                                type: 'events',
+                            },
+                            retention_type: 'retention_first_time',
+                            total_intervals: 11,
+                            returning_entity: {
+                                id: '$pageview',
+                                type: 'events',
+                            },
+                        },
+                    },
+                ])
+                const actual = logic.values.humanizedActivity
+
+                const renderedDescription = keaRender(<>{actual[0].description}</>).container
+                expect(renderedDescription).toHaveTextContent(
+                    // text is huge don't assert on entire content
+                    'changed details on test insight'
+                )
+            })
+
             it('can handle soft delete', async () => {
                 await insightTestSetup('test insight', 'updated', [
                     {
@@ -921,40 +954,6 @@ describe('the activity log logic', () => {
                         field: 'tags',
                         before: ['1', '2', '3'],
                         after: ['1', '2'],
-                    },
-                ])
-                const actual = logic.values.humanizedActivity
-
-                expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent(
-                    'removed the tag 3 on test insight'
-                )
-            })
-
-            it('can handle change of restriction level', async () => {
-                await insightTestSetup('test insight', 'updated', [
-                    {
-                        type: 'Insight',
-                        action: 'changed',
-                        field: 'effective_restriction_level',
-                        before: '27',
-                        after: '32',
-                    },
-                ])
-                const actual = logic.values.humanizedActivity
-
-                expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent(
-                    'removed the tag 3 on test insight'
-                )
-            })
-
-            it('can handle change of permission level', async () => {
-                await insightTestSetup('test insight', 'updated', [
-                    {
-                        type: 'Insight',
-                        action: 'changed',
-                        field: 'effective_permission_level',
-                        before: '32',
-                        after: '27',
                     },
                 ])
                 const actual = logic.values.humanizedActivity
