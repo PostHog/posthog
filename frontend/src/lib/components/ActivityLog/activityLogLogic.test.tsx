@@ -21,6 +21,7 @@ import { Provider } from 'kea'
 import React from 'react'
 import { personActivityDescriber } from 'scenes/persons/activityDescriptions'
 import { MOCK_TEAM_ID } from 'lib/api.mock'
+import { insightActivityDescriber } from 'scenes/saved-insights/activityDescriptions'
 
 const keaRender = (children: React.ReactFragment): RenderResult => render(<Provider>{children}</Provider>)
 
@@ -723,6 +724,277 @@ describe('the activity log logic', () => {
 
                 expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent(
                     'changed the filter conditions to apply to 76% ofInitial Browser = Chrome ,and99% ofInitial Browser Version = 100 on with two changes'
+                )
+            })
+        })
+
+        describe('humanizing insights', () => {
+            const insightTestSetup = makeTestSetup(
+                ActivityScope.INSIGHT,
+                insightActivityDescriber,
+                `/api/projects/${MOCK_TEAM_ID}/insights/activity/`
+            )
+
+            it('can handle change of name', async () => {
+                await insightTestSetup('test insight', 'updated', [
+                    {
+                        type: 'Insight',
+                        action: 'changed',
+                        field: 'name',
+                        before: 'start',
+                        after: 'finish',
+                    },
+                ])
+                const actual = logic.values.humanizedActivity
+
+                expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent(
+                    'changed the name to "finish" on test insight'
+                )
+            })
+
+            it('can handle change of filters', async () => {
+                await insightTestSetup('test insight', 'updated', [
+                    {
+                        type: 'Insight',
+                        action: 'changed',
+                        field: 'filters',
+                        after: {
+                            events: [
+                                {
+                                    id: '$pageview',
+                                    type: 'events',
+                                    order: 0,
+                                    custom_name: 'First page view',
+                                },
+                                {
+                                    id: '$pageview',
+                                    type: 'events',
+                                    order: 1,
+                                    custom_name: 'Second page view',
+                                },
+                                {
+                                    id: '$pageview',
+                                    type: 'events',
+                                    order: 2,
+                                    custom_name: 'Third page view',
+                                },
+                            ],
+                            layout: 'horizontal',
+                            display: 'FunnelViz',
+                            insight: 'FUNNELS',
+                            interval: 'day',
+                            breakdowns: [
+                                {
+                                    type: 'event',
+                                    property: '$browser',
+                                },
+                            ],
+                            exclusions: [],
+                            breakdown_type: 'event',
+                            funnel_viz_type: 'steps',
+                            funnel_window_interval: 16,
+                            funnel_window_interval_unit: 'day',
+                        },
+                    },
+                ])
+                const actual = logic.values.humanizedActivity
+
+                const renderedDescription = keaRender(<>{actual[0].description}</>).container
+                expect(renderedDescription).toHaveTextContent(
+                    // text is huge don't assert on entire content
+                    'changed details to:Query summary'
+                )
+            })
+
+            it('can handle soft delete', async () => {
+                await insightTestSetup('test insight', 'updated', [
+                    {
+                        type: 'Insight',
+                        action: 'changed',
+                        field: 'deleted',
+                        after: 'true',
+                    },
+                ])
+                const actual = logic.values.humanizedActivity
+
+                expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent('deleted')
+            })
+
+            it('can handle change of short id', async () => {
+                await insightTestSetup('test insight', 'updated', [
+                    {
+                        type: 'Insight',
+                        action: 'changed',
+                        field: 'short_id',
+                        after: 'changed',
+                    },
+                ])
+                const actual = logic.values.humanizedActivity
+
+                expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent(
+                    'changed the short id to "changed" on test insight'
+                )
+            })
+
+            it('can handle change of derived name', async () => {
+                await insightTestSetup('test insight', 'updated', [
+                    {
+                        type: 'Insight',
+                        action: 'changed',
+                        field: 'derived_name',
+                        after: 'changed',
+                    },
+                ])
+                const actual = logic.values.humanizedActivity
+
+                expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent(
+                    'changed the name to "changed" on test insight'
+                )
+            })
+
+            it('can handle change of description', async () => {
+                await insightTestSetup('test insight', 'updated', [
+                    {
+                        type: 'Insight',
+                        action: 'changed',
+                        field: 'description',
+                        after: 'changed',
+                    },
+                ])
+                const actual = logic.values.humanizedActivity
+
+                expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent(
+                    'changed the description to "changed" on test insight'
+                )
+            })
+
+            it('can handle change of favorited', async () => {
+                await insightTestSetup('test insight', 'updated', [
+                    {
+                        type: 'Insight',
+                        action: 'changed',
+                        field: 'favorited',
+                        after: true,
+                    },
+                ])
+                const actual = logic.values.humanizedActivity
+
+                expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent('favorited test insight')
+            })
+
+            it('can handle removal of favorited', async () => {
+                await insightTestSetup('test insight', 'updated', [
+                    {
+                        type: 'Insight',
+                        action: 'changed',
+                        field: 'favorited',
+                        after: false,
+                    },
+                ])
+                const actual = logic.values.humanizedActivity
+
+                expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent('un-favorited test insight')
+            })
+
+            it('can handle addition of tags', async () => {
+                await insightTestSetup('test insight', 'updated', [
+                    {
+                        type: 'Insight',
+                        action: 'changed',
+                        field: 'tags',
+                        before: ['1', '2'],
+                        after: ['1', '2', '3'],
+                    },
+                ])
+                const actual = logic.values.humanizedActivity
+
+                expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent(
+                    'added the tag 3 on test insight'
+                )
+            })
+
+            it('can handle removal of tags', async () => {
+                await insightTestSetup('test insight', 'updated', [
+                    {
+                        type: 'Insight',
+                        action: 'changed',
+                        field: 'tags',
+                        before: ['1', '2', '3'],
+                        after: ['1', '2'],
+                    },
+                ])
+                const actual = logic.values.humanizedActivity
+
+                expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent(
+                    'removed the tag 3 on test insight'
+                )
+            })
+
+            it('can handle change of restriction level', async () => {
+                await insightTestSetup('test insight', 'updated', [
+                    {
+                        type: 'Insight',
+                        action: 'changed',
+                        field: 'effective_restriction_level',
+                        before: '27',
+                        after: '32',
+                    },
+                ])
+                const actual = logic.values.humanizedActivity
+
+                expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent(
+                    'removed the tag 3 on test insight'
+                )
+            })
+
+            it('can handle change of permission level', async () => {
+                await insightTestSetup('test insight', 'updated', [
+                    {
+                        type: 'Insight',
+                        action: 'changed',
+                        field: 'effective_permission_level',
+                        before: '32',
+                        after: '27',
+                    },
+                ])
+                const actual = logic.values.humanizedActivity
+
+                expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent(
+                    'removed the tag 3 on test insight'
+                )
+            })
+
+            it('can handle addition of dashboards link', async () => {
+                await insightTestSetup('test insight', 'updated', [
+                    {
+                        type: 'Insight',
+                        action: 'changed',
+                        field: 'dashboards',
+                        before: ['1', '2'],
+                        after: ['1', '2', '3'],
+                    },
+                ])
+                const actual = logic.values.humanizedActivity
+
+                expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent(
+                    'added to dashboard test insight'
+                )
+            })
+
+            it('can handle removal of dashboards link', async () => {
+                await insightTestSetup('test insight', 'updated', [
+                    {
+                        type: 'Insight',
+                        action: 'changed',
+                        field: 'dashboards',
+                        before: ['1', '2', '3'],
+                        after: ['1', '2'],
+                    },
+                ])
+                const actual = logic.values.humanizedActivity
+
+                expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent(
+                    'removed from dashboard test insight'
                 )
             })
         })
