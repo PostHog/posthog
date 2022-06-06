@@ -92,6 +92,9 @@ services:
             - bash
             - -c
             - |
+                # TODO: create connect-configs, connect-offsets, connect-status
+                # topics with cleanup.policy=compact
+
                 echo "Installing S3 connector sink"
                 confluent-hub install --no-prompt confluentinc/kafka-connect-s3:10.0.8
                 #
