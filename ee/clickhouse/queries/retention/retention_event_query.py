@@ -1,11 +1,11 @@
 from ee.clickhouse.models.group import get_aggregation_target_field
-from ee.clickhouse.queries.event_query import EnterpriseEventQuery
+from posthog.queries.event_query import EventQuery
 from posthog.queries.retention.event_query import RetentionEventsQuery
 
 
-class ClickhouseRetentionEventsQuery(RetentionEventsQuery, EnterpriseEventQuery):
+class ClickhouseRetentionEventsQuery(RetentionEventsQuery):
     def _determine_should_join_persons(self) -> None:
-        EnterpriseEventQuery._determine_should_join_persons(self)
+        EventQuery._determine_should_join_persons(self)
         if self._using_person_on_events:
             self._should_join_distinct_ids = False
             self._should_join_persons = False
