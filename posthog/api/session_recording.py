@@ -20,7 +20,7 @@ from posthog.models.person import Person
 from posthog.models.session_recording_event import SessionRecordingViewed
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.settings import get_list
-from posthog.storage.object_storage import storage_client
+from posthog.storage.object_storage import list_matching_objects, read
 from posthog.utils import format_query_params_absolute_url
 
 DEFAULT_RECORDING_CHUNK_LIMIT = 20  # Should be tuned to find the best value
@@ -173,6 +173,7 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
         user_should_view_recordings_from_storage = posthoganalytics.feature_enabled(
             "session_recordings_from_storage", request.user.distinct_id  # type: ignore
         )
+
         if team_has_storage_enabled_for_recordings and user_should_view_recordings_from_storage:
             next_url, data = self._load_recording_from_object_store(session_recording_id)
             if not data:
@@ -207,19 +208,20 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
     def _load_recording_from_object_store(self, session_recording_id: str) -> Tuple[Optional[str], Dict]:
         # TODO: handle pagination
         # TODO: handle response caching
-        store = storage_client()
-        assert store is not None
         all_events = []
-        snapshot_objects = store.list_objects_v2(
-            Bucket="posthog",
-            Prefix=f"session-recordings/session-recordings/team_id=1/session_id={session_recording_id}/",
-        )
-        for obj in snapshot_objects.get("Contents", []):
-            resp = store.get_object(Bucket="posthog", Key=obj["Key"])
-            body = resp["Body"].read()
-            for line in body.split(b"\n"):
+
+        for object_key in list_matching_objects(
+            f"session-recordings/session-recordings/team_id={self.team_id}/session_id={session_recording_id}/"
+        ):
+            body = read(object_key=object_key)
+            if not body:
+                # TODO what should we really do?
+                continue
+
+            for line in body.split("\n"):
                 if not line:
                     continue
+
                 event_wrapper = json.loads(line)
                 all_events += [json.loads(event_wrapper["data"])["data"]["properties"]]
         events_by_window_id = {
@@ -238,6 +240,7 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
                 # env.
                 return []
             try:
+
                 return event["$snapshot_data"]["data"]
             except KeyError:
                 return []

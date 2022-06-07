@@ -1,5 +1,9 @@
+import json
 from datetime import timedelta, timezone
+from unittest.mock import patch
 
+from boto3 import resource
+from botocore.client import Config
 from dateutil.parser import parse
 from dateutil.relativedelta import relativedelta
 from django.utils.timezone import now
@@ -11,11 +15,32 @@ from posthog.helpers.session_recording import Event, compress_and_chunk_snapshot
 from posthog.models import Organization, Person
 from posthog.models.session_recording_event import SessionRecordingViewed
 from posthog.models.team import Team
+from posthog.settings import (
+    OBJECT_STORAGE_ACCESS_KEY_ID,
+    OBJECT_STORAGE_BUCKET,
+    OBJECT_STORAGE_ENDPOINT,
+    OBJECT_STORAGE_SECRET_ACCESS_KEY,
+)
+from posthog.storage.object_storage import write
 from posthog.test.base import APIBaseTest
 
 
 def factory_test_session_recordings_api(session_recording_event_factory):
     class TestSessionRecordings(APIBaseTest):
+        def teardown_method(self, method) -> None:
+            s3 = resource(
+                "s3",
+                endpoint_url=OBJECT_STORAGE_ENDPOINT,
+                aws_access_key_id=OBJECT_STORAGE_ACCESS_KEY_ID,
+                aws_secret_access_key=OBJECT_STORAGE_SECRET_ACCESS_KEY,
+                config=Config(signature_version="s3v4"),
+                region_name="us-east-1",
+            )
+            bucket = s3.Bucket(OBJECT_STORAGE_BUCKET)
+            bucket.objects.filter(
+                Prefix=f"session-recordings/session-recordings/team_id={self.team.id}/session_id=storage_session_id"
+            ).delete()
+
         def create_snapshot(
             self,
             distinct_id,
@@ -291,6 +316,94 @@ def factory_test_session_recordings_api(session_recording_event_factory):
                         self.assertIsNotNone(response_data["result"]["next"])
 
                     next_url = response_data["result"]["next"]
+
+        @patch("posthog.api.session_recording.get_instance_setting")
+        @patch("posthoganalytics.feature_enabled", return_value=True)
+        def test_get_snapshots_when_recording_is_in_storage(
+            self, patched_feature_enabled, patched_get_instance_setting
+        ) -> None:
+
+            session_id = "storage_session_id"
+            window_id = "window_id_1"
+
+            self._write_snapshot_to_object_storage(session_id, window_id)
+
+            patched_get_instance_setting.return_value = str(self.team.id)
+
+            self.create_snapshot("user", session_id, now(), window_id=window_id)
+
+            response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/{session_id}/snapshots")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+            self._assert_snapshot_location(response, window_id, expected_from_clickhouse=False)
+
+        @patch("posthog.api.session_recording.get_instance_setting")
+        @patch("posthoganalytics.feature_enabled", return_value=False)
+        def test_get_snapshots_from_clickhouse_when_recording_is_in_storage_but_flag_is_off(
+            self, patched_feature_enabled, patched_get_instance_setting
+        ) -> None:
+
+            session_id = "storage_session_id"
+            window_id = "window_id_1"
+
+            self._write_snapshot_to_object_storage(session_id, window_id)
+
+            patched_get_instance_setting.return_value = str(self.team.id)
+
+            self.create_snapshot("user", session_id, now(), window_id=window_id)
+
+            response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/{session_id}/snapshots")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+            self._assert_snapshot_location(response, window_id, expected_from_clickhouse=True)
+
+        @patch("posthog.api.session_recording.get_instance_setting")
+        @patch("posthoganalytics.feature_enabled", return_value=True)
+        def test_get_snapshots_from_clickhouse_when_recording_is_not_in_storage_but_flag_is_on(
+            self, patched_feature_enabled, patched_get_instance_setting
+        ) -> None:
+
+            session_id = "storage_session_id"
+            window_id = "window_id_1"
+
+            self._write_snapshot_to_object_storage(session_id, window_id)
+
+            patched_get_instance_setting.return_value = str(self.team.id + 1)
+
+            self.create_snapshot("user", session_id, now(), window_id=window_id)
+
+            response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/{session_id}/snapshots")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+            self._assert_snapshot_location(response, window_id, expected_from_clickhouse=True)
+
+        def _assert_snapshot_location(self, response, window_id, expected_from_clickhouse: bool) -> None:
+            snapshot_data_for_window = (
+                response.json().get("result", {}).get("snapshot_data_by_window_id", {}).get(window_id, [])
+            )
+            self.assertEqual(
+                snapshot_data_for_window[0].get("data", {}),
+                {"source": 0} if expected_from_clickhouse else "read from object storage",
+            )
+
+        def _write_snapshot_to_object_storage(self, session_id, window_id) -> None:
+            write(
+                f"session-recordings/session-recordings/team_id={self.team.id}/session_id={session_id}/first",
+                json.dumps(
+                    {
+                        "data": json.dumps(
+                            {
+                                "data": {
+                                    "properties": {
+                                        "$window_id": window_id,
+                                        "$snapshot_data": {"data": [{"data": "read from object storage"}]},
+                                    }
+                                }
+                            }
+                        )
+                    }
+                ),
+            )
 
         def test_get_metadata_for_chunked_session_recording(self):
 
