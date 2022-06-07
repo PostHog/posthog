@@ -1,5 +1,4 @@
 from typing import cast
-from unittest.mock import patch
 
 import pytest
 from django.utils import timezone
@@ -89,9 +88,7 @@ class TestPreflight(APIBaseTest):
             )
             self.assertDictContainsSubset({"Europe/Moscow": 3, "UTC": 0}, available_timezones)
 
-    @patch("posthog.storage.object_storage.s3_client")
-    def test_preflight_request_with_object_storage_available(self, patched_s3_client):
-        patched_s3_client.head_bucket.return_value = True
+    def test_preflight_request_with_object_storage_available(self):
 
         with self.settings(
             MULTI_TENANCY=False,
