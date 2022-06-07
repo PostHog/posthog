@@ -5,6 +5,7 @@ import structlog
 from ee.clickhouse.sql.events import EVENTS_DATA_TABLE
 from posthog.client import sync_execute
 from posthog.models.person import Person, PersonDistinctId
+from posthog.models.team import Team
 from posthog.settings import CLICKHOUSE_CLUSTER
 
 logger = structlog.get_logger(__name__)
@@ -45,3 +46,19 @@ def delete_teams_clickhouse_data(team_ids: List[int]):
             f"ALTER TABLE {table} ON CLUSTER '{CLICKHOUSE_CLUSTER}' DELETE WHERE team_id IN %(team_ids)s",
             {"team_ids": team_ids},
         )
+
+
+def deleted_teams_with_clickhouse_data() -> List[int]:
+    valid_team_ids = set(Team.objects.all().values_list("pk", flat=True))
+    clickhouse_teams_result = sync_execute("SELECT DISTINCT team_id FROM events")
+    clickhouse_team_ids = set(row[0] for row in clickhouse_teams_result)
+    return list(clickhouse_team_ids - valid_team_ids)
+
+
+def delete_clickhouse_data_for_deleted_teams():
+    team_ids = deleted_teams_with_clickhouse_data()
+
+    if len(team_ids) > 0:
+        delete_teams_clickhouse_data(team_ids)
+    else:
+        logger.debug("No need to delete any data from clickhouse")

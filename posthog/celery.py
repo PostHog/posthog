@@ -123,6 +123,14 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
             name="calculate event property usage",
         )
 
+    clear_clickhouse_crontab = get_crontab(
+        settings.CLEAR_CLICKHOUSE_REMOVED_DATA_SCHEDULE_CRON, "clear clickhouse removed data cron"
+    )
+    if clear_clickhouse_crontab:
+        sender.add_periodic_task(
+            clear_clickhouse_crontab, clickhouse_clear_removed_data.s(), name="clickhouse clear removed data"
+        )
+
 
 def get_crontab(schedule: Optional[str], name: str) -> Optional[crontab]:
     if schedule is None or schedule == "":
@@ -293,6 +301,13 @@ def clickhouse_mark_all_materialized():
         from ee.tasks.materialized_columns import mark_all_materialized
 
         mark_all_materialized()
+
+
+@app.task(ignore_result=True)
+def clickhouse_clear_removed_data():
+    from posthog.models.team.util import delete_clickhouse_data_for_deleted_teams
+
+    delete_clickhouse_data_for_deleted_teams()
 
 
 @app.task(ignore_result=True)
