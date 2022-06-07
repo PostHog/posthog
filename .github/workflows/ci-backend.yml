@@ -277,12 +277,12 @@ jobs:
         steps:
             - name: Fetch posthog-cloud
               run: |
-                  curl -u posthog-bot:${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }} -L https://github.com/posthog/posthog-cloud/tarball/move-event-import | tar --strip-components=1 -xz --
+                  curl -u posthog-bot:${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }} -L https://github.com/posthog/posthog-cloud/tarball/master | tar --strip-components=1 -xz --
 
             - name: Checkout master
               uses: actions/checkout@v2
               with:
-                  ref: 'move-event-import'
+                  ref: 'master'
                   path: 'master/'
 
             - name: Link posthog-cloud at master
