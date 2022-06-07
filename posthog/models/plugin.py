@@ -175,6 +175,8 @@ class Plugin(models.Model):
         return config
 
     def __str__(self) -> str:
+        if not self.name:
+            return f"ID {self.id}"
         return self.name
 
     __repr__ = sane_repr("id", "name", "organization_id", "is_global")
