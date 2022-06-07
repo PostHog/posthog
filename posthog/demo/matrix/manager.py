@@ -198,9 +198,9 @@ class MatrixManager:
     def save_sim_group(
         team: Team, type_index: Literal[0, 1, 2, 3, 4], key: str, properties: Dict[str, Any], timestamp: dt.datetime
     ):
-        from ee.clickhouse.models.group import create_group_ch
+        from ee.clickhouse.models.group import raw_create_group_ch
 
-        create_group_ch(team.pk, type_index, key, properties, timestamp)
+        raw_create_group_ch(team.pk, type_index, key, properties, timestamp)
 
     @classmethod
     def is_demo_data_pre_saved(cls) -> bool:
