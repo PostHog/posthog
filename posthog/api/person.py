@@ -35,7 +35,7 @@ from ee.clickhouse.queries.funnels.funnel_unordered_persons import ClickhouseFun
 from ee.clickhouse.queries.paths import ClickhousePathsActors
 from ee.clickhouse.queries.property_values import get_person_property_values_for_key
 from ee.clickhouse.queries.retention import ClickhouseRetention
-from ee.clickhouse.queries.stickiness.clickhouse_stickiness import ClickhouseStickiness
+from ee.clickhouse.queries.stickiness import ClickhouseStickiness
 from ee.clickhouse.queries.trends.lifecycle import ClickhouseLifecycle
 from ee.clickhouse.sql.person import GET_PERSON_PROPERTIES_COUNT
 from posthog.api.capture import capture_internal
