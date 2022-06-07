@@ -55,6 +55,7 @@ jobs:
                   tags: |
                       ${{ steps.login-ecr.outputs.registry }}/posthog-production:${{ github.sha }}
                       ${{ steps.login-ecr.outputs.registry }}/posthog-production:latest
+                  project: 1stsk4xt19 # posthog-cloud project
 
             - name: Push image to Amazon ECR
               id: build-image
