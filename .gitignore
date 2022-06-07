@@ -26,6 +26,8 @@ celerybeat.pid
 yarn-error.log
 .yalc
 yalc.lock
+.vscode/*
+!.vscode/launch.json
 cypress/screenshots/
 cypress/downloads/
 cypress/**/*.diff.png
