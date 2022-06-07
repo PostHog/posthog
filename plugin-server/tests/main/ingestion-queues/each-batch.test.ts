@@ -2,7 +2,7 @@ import { eachBatch } from '../../../src/main/ingestion-queues/batch-processing/e
 import { eachBatchAsyncHandlers } from '../../../src/main/ingestion-queues/batch-processing/each-batch-async-handlers'
 import { eachBatchBuffer } from '../../../src/main/ingestion-queues/batch-processing/each-batch-buffer'
 import { eachBatchIngestion } from '../../../src/main/ingestion-queues/batch-processing/each-batch-ingestion'
-import { ClickHouseEvent } from '../../../src/types'
+import { ClickhouseEventKafka } from '../../../src/types'
 
 jest.mock('../../../src/utils/status')
 
@@ -17,23 +17,18 @@ const event = {
     elementsList: [],
 }
 
-const clickhouseEvent: ClickHouseEvent = {
+const clickhouseEvent: ClickhouseEventKafka = {
     event: '$pageview',
-    properties: {
+    properties: JSON.stringify({
         $ip: '127.0.0.1',
-    },
+    }),
+    person_properties: null,
     uuid: 'uuid1',
     elements_chain: '',
     timestamp: '2020-02-23T02:15:00Z',
     team_id: 2,
     distinct_id: 'my_id',
     created_at: '2020-02-23T02:15:00Z',
-    person_properties: {},
-    group0_properties: {},
-    group1_properties: {},
-    group2_properties: {},
-    group3_properties: {},
-    group4_properties: {},
 }
 
 const captureEndpointEvent = {
@@ -117,7 +112,9 @@ describe('eachBatchX', () => {
 
             expect(queue.workerMethods.runAsyncHandlersEventPipeline).toHaveBeenCalledWith({
                 ...event,
-                properties: clickhouseEvent.properties,
+                properties: {
+                    $ip: '127.0.0.1',
+                },
             })
             expect(queue.pluginsServer.statsd.timing).toHaveBeenCalledWith(
                 'kafka_queue.each_batch_async_handlers',

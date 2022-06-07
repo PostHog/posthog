@@ -17,6 +17,10 @@
             "essential": true,
             "environment": [
                 {
+                    "name": "PLUGIN_SERVER_MODE",
+                    "value": "async"
+                },
+                {
                     "name": "CLICKHOUSE_DATABASE",
                     "value": "posthog"
                 },
@@ -107,6 +111,14 @@
                 {
                     "name": "KAFKA_SECURITY_PROTOCOL",
                     "value": "SSL"
+                },
+                {
+                    "name": "TASKS_PER_WORKER",
+                    "value": "2"
+                },
+                {
+                    "name": "WORKER_CONCURRENCY",
+                    "value": "2"
                 }
             ],
             "secrets": [

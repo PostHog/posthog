@@ -109,6 +109,8 @@ INSIGHT = "insight"
 SESSION = "session"
 BREAKDOWN = "breakdown"
 BREAKDOWNS = "breakdowns"
+BREAKDOWN_ATTRIBUTION_TYPE = "breakdown_attribution_type"
+BREAKDOWN_ATTRIBUTION_VALUE = "breakdown_attribution_value"
 BREAKDOWN_LIMIT = "breakdown_limit"
 FROM_DASHBOARD = "from_dashboard"
 PATH_TYPE = "path_type"
@@ -228,6 +230,18 @@ class ExperimentSignificanceCode(str, Enum):
 class PropertyOperatorType(str, Enum):
     AND = "AND"
     OR = "OR"
+
+
+class BreakdownAttributionType(str, Enum):
+    FIRST_TOUCH = "first_touch"
+    # FIRST_TOUCH attribution means the breakdown value is the first property value found within all funnel steps
+    LAST_TOUCH = "last_touch"
+    # LAST_TOUCH attribution means the breakdown value is the last property value found within all funnel steps
+    STEP = "step"
+    # STEP attribution means the breakdown value is the X'th step property value found within the funnel.
+    # where X is the `breakdown_attribution_value`
+    ALL_EVENTS = "all_events"
+    # ALL_EVENTS attribution means the breakdown value is valid only when it exists on all funnel steps
 
 
 MAX_SLUG_LENGTH = 48

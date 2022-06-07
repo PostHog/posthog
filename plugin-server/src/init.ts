@@ -13,6 +13,7 @@ export function initApp(config: PluginsServerConfig): void {
     if (config.SENTRY_DSN) {
         Sentry.init({
             dsn: config.SENTRY_DSN,
+            normalizeDepth: 8, // Default: 3
         })
     }
 }
