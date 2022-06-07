@@ -22,7 +22,8 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
     team_id Int64,
     properties VARCHAR,
     is_identified Int8,
-    is_deleted Int8 DEFAULT 0
+    is_deleted Int8 DEFAULT 0,
+    version UInt64
     {extra_fields}
 ) ENGINE = {engine}
 """
@@ -57,6 +58,7 @@ team_id,
 properties,
 is_identified,
 is_deleted,
+version,
 _timestamp,
 _offset
 FROM {database}.kafka_{table_name}
@@ -310,11 +312,11 @@ WHERE team_id = %(team_id)s
 )
 
 INSERT_PERSON_SQL = """
-INSERT INTO person (id, created_at, team_id, properties, is_identified, _timestamp, _offset, is_deleted) SELECT %(id)s, %(created_at)s, %(team_id)s, %(properties)s, %(is_identified)s, %(_timestamp)s, 0, 0
+INSERT INTO person (id, created_at, team_id, properties, is_identified, _timestamp, _offset, is_deleted, version) SELECT %(id)s, %(created_at)s, %(team_id)s, %(properties)s, %(is_identified)s, %(_timestamp)s, 0, 0, 0
 """
 
 INSERT_PERSON_BULK_SQL = """
-INSERT INTO person (id, created_at, team_id, properties, is_identified, _timestamp, _offset, is_deleted) VALUES
+INSERT INTO person (id, created_at, team_id, properties, is_identified, _timestamp, _offset, is_deleted, version) VALUES
 """
 
 INSERT_PERSON_DISTINCT_ID = """

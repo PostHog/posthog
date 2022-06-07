@@ -1,7 +1,7 @@
 import { ActivityChange, ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
 import { Link } from 'lib/components/Link'
 import { urls } from 'scenes/urls'
-import { FeatureFlagFilters, FeatureFlagGroupType, FeatureFlagType } from '~/types'
+import { ChangeDescriptions, FeatureFlagFilters, FeatureFlagGroupType, FeatureFlagType } from '~/types'
 import React from 'react'
 import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/PropertyFiltersDisplay'
 import { pluralize } from 'lib/utils'
@@ -9,14 +9,6 @@ import { pluralize } from 'lib/utils'
 const nameOrLinkToFlag = (item: ActivityLogItem): string | JSX.Element => {
     const name = item.detail.name || '(empty string)'
     return item.item_id ? <Link to={urls.featureFlag(item.item_id)}>{name}</Link> : name
-}
-
-type Description = string | JSX.Element | null
-
-interface ChangeDescriptions {
-    descriptions: Description[]
-    // e.g. should description say "did deletion _to_ Y" or "deleted Y"
-    bareName: boolean
 }
 
 const featureFlagActionsMapping: Record<keyof FeatureFlagType, (change?: ActivityChange) => ChangeDescriptions | null> =

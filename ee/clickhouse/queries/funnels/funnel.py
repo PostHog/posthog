@@ -55,15 +55,6 @@ class ClickhouseFunnel(ClickhouseFunnelBase):
             SETTINGS allow_experimental_window_functions = 1
         """
 
-    def _format_results(self, results):
-        if not results or len(results) == 0:
-            return []
-
-        if self._filter.breakdown:
-            return [self._format_single_funnel(res, with_breakdown=True) for res in results]
-        else:
-            return self._format_single_funnel(results[0])
-
     def _format_single_funnel(self, result, with_breakdown=False):
         # Format of this is [step order, person count (that reached that step), array of person uuids]
         steps = []
