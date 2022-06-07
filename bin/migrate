@@ -5,3 +5,4 @@ python manage.py migrate
 python manage.py migrate_clickhouse
 python manage.py run_async_migrations --check
 python manage.py sync_replicated_schema
+./bin/create_connector.sh
