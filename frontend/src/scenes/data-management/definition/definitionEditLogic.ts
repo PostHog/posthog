@@ -1,4 +1,4 @@
-import { connect, kea, key, path, props, selectors } from 'kea'
+import { beforeUnmount, connect, kea, key, path, props, selectors } from 'kea'
 import { AvailableFeature, Definition, EventDefinition, PropertyDefinition } from '~/types'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
@@ -101,4 +101,7 @@ export const definitionEditLogic = kea<definitionEditLogicType>([
             },
         ],
     })),
+    beforeUnmount(({ actions }) => {
+        actions.setPageMode(DefinitionPageMode.View)
+    }),
 ])
