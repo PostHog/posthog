@@ -19,6 +19,7 @@ from posthog.models.instance_setting import get_instance_setting
 from posthog.models.person import Person
 from posthog.models.session_recording_event import SessionRecordingViewed
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
+from posthog.session_recordings.object_storage import object_storage_snapshot_path
 from posthog.settings import get_list
 from posthog.storage.object_storage import list_matching_objects, read
 from posthog.utils import format_query_params_absolute_url
@@ -210,9 +211,7 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
         # TODO: handle response caching
         all_events = []
 
-        for object_key in list_matching_objects(
-            f"session-recordings/session-recordings/team_id={self.team_id}/session_id={session_recording_id}/"
-        ):
+        for object_key in list_matching_objects(object_storage_snapshot_path(self.team_id, session_recording_id)):
             body = read(object_key=object_key)
             if not body:
                 # TODO what should we really do?

@@ -1,16 +1,8 @@
 import uuid
 from unittest.mock import patch
 
-from boto3 import resource
-from botocore.client import Config
-
-from posthog.settings import (
-    OBJECT_STORAGE_ACCESS_KEY_ID,
-    OBJECT_STORAGE_BUCKET,
-    OBJECT_STORAGE_ENDPOINT,
-    OBJECT_STORAGE_SECRET_ACCESS_KEY,
-)
 from posthog.storage.object_storage import health_check, list_matching_objects, read, write
+from posthog.storage.test.tear_down import teardown_storage
 from posthog.test.base import APIBaseTest
 
 TEST_BUCKET = "test_storage_bucket"
@@ -18,16 +10,7 @@ TEST_BUCKET = "test_storage_bucket"
 
 class TestStorage(APIBaseTest):
     def teardown_method(self, method) -> None:
-        s3 = resource(
-            "s3",
-            endpoint_url=OBJECT_STORAGE_ENDPOINT,
-            aws_access_key_id=OBJECT_STORAGE_ACCESS_KEY_ID,
-            aws_secret_access_key=OBJECT_STORAGE_SECRET_ACCESS_KEY,
-            config=Config(signature_version="s3v4"),
-            region_name="us-east-1",
-        )
-        bucket = s3.Bucket(OBJECT_STORAGE_BUCKET)
-        bucket.objects.filter(Prefix=TEST_BUCKET).delete()
+        teardown_storage(TEST_BUCKET)
 
     @patch("posthog.storage.object_storage.client")
     def test_does_not_create_client_if_storage_is_disabled(self, patched_s3_client) -> None:

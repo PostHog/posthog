@@ -2,8 +2,6 @@ import json
 from datetime import timedelta, timezone
 from unittest.mock import patch
 
-from boto3 import resource
-from botocore.client import Config
 from dateutil.parser import parse
 from dateutil.relativedelta import relativedelta
 from django.utils.timezone import now
@@ -15,31 +13,16 @@ from posthog.helpers.session_recording import Event, compress_and_chunk_snapshot
 from posthog.models import Organization, Person
 from posthog.models.session_recording_event import SessionRecordingViewed
 from posthog.models.team import Team
-from posthog.settings import (
-    OBJECT_STORAGE_ACCESS_KEY_ID,
-    OBJECT_STORAGE_BUCKET,
-    OBJECT_STORAGE_ENDPOINT,
-    OBJECT_STORAGE_SECRET_ACCESS_KEY,
-)
+from posthog.session_recordings.object_storage import object_storage_snapshot_path
 from posthog.storage.object_storage import write
+from posthog.storage.test.tear_down import teardown_storage
 from posthog.test.base import APIBaseTest
 
 
 def factory_test_session_recordings_api(session_recording_event_factory):
     class TestSessionRecordings(APIBaseTest):
         def teardown_method(self, method) -> None:
-            s3 = resource(
-                "s3",
-                endpoint_url=OBJECT_STORAGE_ENDPOINT,
-                aws_access_key_id=OBJECT_STORAGE_ACCESS_KEY_ID,
-                aws_secret_access_key=OBJECT_STORAGE_SECRET_ACCESS_KEY,
-                config=Config(signature_version="s3v4"),
-                region_name="us-east-1",
-            )
-            bucket = s3.Bucket(OBJECT_STORAGE_BUCKET)
-            bucket.objects.filter(
-                Prefix=f"session-recordings/session-recordings/team_id={self.team.id}/session_id=storage_session_id"
-            ).delete()
+            teardown_storage(object_storage_snapshot_path(self.team.id, "storage_session_id"))
 
         def create_snapshot(
             self,
@@ -388,7 +371,7 @@ def factory_test_session_recordings_api(session_recording_event_factory):
 
         def _write_snapshot_to_object_storage(self, session_id, window_id) -> None:
             write(
-                f"session-recordings/session-recordings/team_id={self.team.id}/session_id={session_id}/first",
+                f"{object_storage_snapshot_path(self.team.id, session_id)}first",
                 json.dumps(
                     {
                         "data": json.dumps(
