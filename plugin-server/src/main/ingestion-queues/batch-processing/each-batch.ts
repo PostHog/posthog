@@ -31,6 +31,8 @@ export async function eachBatch(
             batch.messages,
             queue.pluginsServer.WORKER_CONCURRENCY * queue.pluginsServer.TASKS_PER_WORKER
         )
+        queue.pluginsServer.statsd?.gauge('ingest_event_batching.input_length', batch.messages.length, { key: key })
+        queue.pluginsServer.statsd?.gauge('ingest_event_batching.batch_count', messageBatches.length, { key: key })
 
         for (const messageBatch of messageBatches) {
             if (!isRunning() || isStale()) {
