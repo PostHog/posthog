@@ -260,7 +260,7 @@ class InsightSerializer(InsightBasicSerializer):
 
     def update(self, instance: Insight, validated_data: Dict, **kwargs) -> Insight:
         try:
-            before_update = Insight.objects.get(pk=instance.id)
+            before_update = Insight.objects.prefetch_related("tagged_items__tag", "dashboards").get(pk=instance.id)
         except Insight.DoesNotExist:
             before_update = None
 
@@ -288,6 +288,9 @@ class InsightSerializer(InsightBasicSerializer):
 
                 if ids_to_remove:
                     DashboardTile.objects.filter(dashboard_id__in=ids_to_remove, insight=instance).delete()
+
+                # also update in-model dashboards set so activity log can detect the change
+                instance.dashboards.set(dashboards)
 
         updated_insight = super().update(instance, validated_data)
 
@@ -703,7 +706,8 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDestr
     def all_activity(self, request: request.Request, **kwargs):
         limit = int(request.query_params.get("limit", "10"))
         page = int(request.query_params.get("page", "1"))
-        activity_page = load_activity(scope="Insight", team_id=self.team_id)
+
+        activity_page = load_activity(scope="Insight", team_id=self.team_id, limit=limit, page=page)
         return self._return_activity_page(activity_page, limit, page, request)
 
     @action(methods=["GET"], detail=True)

@@ -105,11 +105,11 @@ export function ConfirmOrganization(): JSX.Element {
                 <div className="text-center terms-and-conditions-text mt text-muted">
                     By creating an account, you agree to our{' '}
                     <a href={`https://posthog.com/terms`} target="_blank" rel="noopener">
-                        Terms of Service
+                        Terms of Service
                     </a>{' '}
                     and{' '}
                     <a href={`https://posthog.com/privacy`} target="_blank" rel="noopener">
-                        Privacy Policy
+                        Privacy Policy
                     </a>
                     .
                 </div>

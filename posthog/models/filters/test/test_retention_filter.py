@@ -43,6 +43,7 @@ class TestFilter(BaseTest):
                     "properties": {},
                     "type": "events",
                 },
+                "breakdown_attribution_type": "first_touch",
             },
         )
 
@@ -85,6 +86,7 @@ class TestFilter(BaseTest):
                     "properties": {},
                     "type": "events",
                 },
+                "breakdown_attribution_type": "first_touch",
             },
         )
 

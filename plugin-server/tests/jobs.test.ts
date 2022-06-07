@@ -1,7 +1,6 @@
 import { gzipSync } from 'zlib'
 
 import { defaultConfig } from '../src/config/config'
-import { LOCKED_RESOURCE } from '../src/main/job-queues/job-queue-consumer'
 import { ServerInstance, startPluginsServer } from '../src/main/pluginsServer'
 import { EnqueuedJob, Hub, LogLevel, PluginsServerConfig } from '../src/types'
 import { createHub } from '../src/utils/db/hub'
@@ -82,13 +81,6 @@ describe.skip('job queues', () => {
 
     beforeEach(async () => {
         testConsole.reset()
-
-        // reset lock in redis
-        const [tempHub, closeTempHub] = await createHub()
-        const redis = await tempHub.redisPool.acquire()
-        await redis.del(LOCKED_RESOURCE)
-        await tempHub.redisPool.release(redis)
-        await closeTempHub()
 
         // reset test code
         await resetTestDatabase(testCode)

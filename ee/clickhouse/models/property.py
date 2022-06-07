@@ -519,7 +519,7 @@ def property_table(property: Property) -> TableWithProperties:
 def get_single_or_multi_property_string_expr(
     breakdown,
     table: TableWithProperties,
-    query_alias: Literal["prop", "value", None],
+    query_alias: Literal["prop", "value", "prop_basic", None],
     column: str,
     allow_denormalized_props=True,
 ):
