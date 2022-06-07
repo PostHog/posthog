@@ -1,6 +1,8 @@
 import clsx from 'clsx'
+import { useValues } from 'kea'
 import md5 from 'md5'
 import React, { useState } from 'react'
+import { userLogic } from 'scenes/userLogic'
 import './ProfilePicture.scss'
 
 export interface ProfilePictureProps {
@@ -22,6 +24,7 @@ export function ProfilePicture({
     className,
     title,
 }: ProfilePictureProps): JSX.Element {
+    const { user } = useValues(userLogic)
     const [didImageError, setDidImageError] = useState(false)
     const pictureClass = clsx('profile-picture', size, className)
 
@@ -52,7 +55,7 @@ export function ProfilePicture({
     ) : (
         <div className="profile-package">
             {pictureComponent}
-            <span className="profile-name">{name || email || 'an unknown user'}</span>
+            <span className="profile-name">{user?.email === email ? 'you' : name || email || 'an unknown user'}</span>
         </div>
     )
 }

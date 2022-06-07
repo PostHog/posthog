@@ -1,13 +1,13 @@
 import { EachBatchPayload, KafkaMessage } from 'kafkajs'
 
-import { ClickHouseEvent } from '../../../types'
+import { ClickhouseEventKafka } from '../../../types'
 import { convertToIngestionEvent } from '../../../utils/event'
 import { runInstrumentedFunction } from '../../utils'
 import { KafkaQueue } from '../kafka-queue'
 import { eachBatch } from './each-batch'
 
 export async function eachMessageAsyncHandlers(message: KafkaMessage, queue: KafkaQueue): Promise<void> {
-    const clickHouseEvent = JSON.parse(message.value!.toString()) as ClickHouseEvent
+    const clickHouseEvent = JSON.parse(message.value!.toString()) as ClickhouseEventKafka
     const event = convertToIngestionEvent(clickHouseEvent)
 
     await runInstrumentedFunction({

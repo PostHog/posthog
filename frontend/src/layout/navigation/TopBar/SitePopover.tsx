@@ -35,6 +35,7 @@ import { dayjs } from 'lib/dayjs'
 import { inviteLogic } from 'scenes/organization/Settings/inviteLogic'
 import { Tooltip } from 'lib/components/Tooltip'
 import { LemonButtonPropsBase } from 'lib/components/LemonButton/LemonButton'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 function SitePopoverSection({ title, children }: { title?: string | JSX.Element; children: any }): JSX.Element {
     return (
@@ -104,6 +105,7 @@ export function InviteMembersButton({
 }): JSX.Element {
     const { closeSitePopover } = useActions(navigationLogic)
     const { showInviteModal } = useActions(inviteLogic)
+    const { reportInviteMembersButtonClicked } = useActions(eventUsageLogic)
 
     return (
         <LemonButton
@@ -111,6 +113,7 @@ export function InviteMembersButton({
             onClick={() => {
                 closeSitePopover()
                 showInviteModal()
+                reportInviteMembersButtonClicked()
             }}
             center={center}
             type={type}
