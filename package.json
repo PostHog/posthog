@@ -48,10 +48,6 @@
         "format": "yarn format:python && yarn format:js",
         "storybook": "start-storybook -p 6006",
         "build-storybook": "build-storybook",
-        "services": "yarn services:stop && yarn services:clean && yarn services:start",
-        "services:start": "docker-compose -f docker-compose.dev.yml up db redis zookeeper kafka clickhouse object-storage kafka-connect",
-        "services:stop": "docker-compose -f docker-compose.dev.yml down",
-        "services:clean": "docker-compose -f docker-compose.dev.yml rm -v db redis zookeeper kafka clickhouse object-storage kafka-connect",
         "dev:migrate:postgres": "export DEBUG=1 && source env/bin/activate && python manage.py migrate",
         "dev:migrate:clickhouse": "export DEBUG=1 && source env/bin/activate && python manage.py migrate_clickhouse",
         "prepare": "husky install"
