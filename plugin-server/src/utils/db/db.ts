@@ -1207,7 +1207,7 @@ export class DB {
             )
         ).data as ClickHouseEvent[]
         const chain = events?.[0]?.elements_chain
-        return chainToElements(chain)
+        return chain ? chainToElements(chain) : []
     }
 
     public async fetchPostgresElementsByHash(teamId: number, elementsHash: string): Promise<Record<string, any>[]> {
