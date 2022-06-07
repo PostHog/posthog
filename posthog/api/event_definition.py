@@ -1,3 +1,4 @@
+from itertools import chain
 from typing import Type
 
 from django.db.models import BooleanField, Case, Prefetch, Q, Value, When
@@ -9,12 +10,14 @@ from posthog.api.utils import check_definition_ids_inclusion_field_sql
 from posthog.constants import AvailableFeature
 from posthog.exceptions import EnterpriseFeatureException
 from posthog.filters import TermSearchFilterBackend, term_search_filter_sql
-from posthog.models import EventDefinition, TaggedItem
+from posthog.models import Action, EventDefinition, TaggedItem
 from posthog.permissions import OrganizationMemberPermissions, TeamMemberAccessPermission
 
 
 # If EE is enabled, we use ee.api.ee_event_definition.EnterpriseEventDefinitionSerializer
 class EventDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
+    is_action = serializers.SerializerMethodField(read_only=True)
+
     class Meta:
         model = EventDefinition
         fields = (
@@ -25,10 +28,14 @@ class EventDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelSeri
             "created_at",
             "last_seen_at",
             "tags",
+            "is_action",
         )
 
     def update(self, event_definition: EventDefinition, validated_data):
         raise EnterpriseFeatureException()
+
+    def get_is_action(self, obj):
+        return isinstance(obj, Action)
 
 
 class EventDefinitionViewSet(
@@ -67,6 +74,13 @@ class EventDefinitionViewSet(
             named_key="excluded_ids",
         )
 
+        # `include_actions`
+        #   If true, return both list of event definitions and actions together.
+        include_actions = self.request.GET.get("include_actions", None)
+        actions_list = Action.objects.none()
+        if include_actions:
+            actions_list = Action.objects.all()
+
         if self.request.user.organization.is_feature_available(AvailableFeature.INGESTION_TAXONOMY):  # type: ignore
             try:
                 from ee.models.event_definition import EnterpriseEventDefinition
@@ -102,13 +116,15 @@ class EventDefinitionViewSet(
                     """,
                     params=params,
                 )
-                return ee_event_definitions.prefetch_related(
+                ee_event_definitions_list = ee_event_definitions.prefetch_related(
                     Prefetch(
                         "tagged_items", queryset=TaggedItem.objects.select_related("tag"), to_attr="prefetched_tags"
                     )
                 )
 
-        return (
+                return list(chain(actions_list, ee_event_definitions_list))
+
+        event_definitions_list = (
             self.filter_queryset_by_parents_lookups(EventDefinition.objects.all())
             .annotate(
                 is_ordered_first=Case(
@@ -123,6 +139,8 @@ class EventDefinitionViewSet(
             .filter(Q(is_ordered_first=True) | Q(is_not_excluded_event=False))
             .order_by("-is_ordered_first", "name")
         )
+
+        return list(chain(actions_list, event_definitions_list))
 
     def get_object(self):
         id = self.kwargs["id"]

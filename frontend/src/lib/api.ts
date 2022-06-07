@@ -431,6 +431,7 @@ const api = {
             limit?: number
             offset?: number
             teamId?: TeamType['id']
+            include_actions?: boolean
         }): Promise<PaginatedResponse<EventDefinition>> {
             return new ApiRequest()
                 .eventDefinitions(teamId)
@@ -447,6 +448,7 @@ const api = {
             limit?: number
             offset?: number
             teamId?: TeamType['id']
+            include_actions?: boolean
         }): string {
             return new ApiRequest()
                 .eventDefinitions(teamId)

@@ -4,11 +4,13 @@ from rest_framework import serializers
 from ee.models.event_definition import EnterpriseEventDefinition
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin
+from posthog.models import Action
 
 
 class EnterpriseEventDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
     updated_by = UserBasicSerializer(read_only=True)
     verified_by = UserBasicSerializer(read_only=True)
+    is_action = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = EnterpriseEventDefinition
@@ -27,6 +29,7 @@ class EnterpriseEventDefinitionSerializer(TaggedItemSerializerMixin, serializers
             "verified",
             "verified_at",
             "verified_by",
+            "is_action",
         )
         read_only_fields = [
             "id",
@@ -38,6 +41,7 @@ class EnterpriseEventDefinitionSerializer(TaggedItemSerializerMixin, serializers
             "last_seen_at",
             "verified_at",
             "verified_by",
+            "is_action",
         ]
 
     def update(self, event_definition: EnterpriseEventDefinition, validated_data):
@@ -62,5 +66,10 @@ class EnterpriseEventDefinitionSerializer(TaggedItemSerializerMixin, serializers
 
     def to_representation(self, instance):
         representation = super().to_representation(instance)
-        representation["owner"] = UserBasicSerializer(instance=instance.owner).data if instance.owner else None
+        representation["owner"] = (
+            UserBasicSerializer(instance=instance.owner).data if hasattr(instance, "owner") and instance.owner else None
+        )
         return representation
+
+    def get_is_action(self, obj):
+        return isinstance(obj, Action)

@@ -263,6 +263,8 @@ export interface ActionType {
     steps?: ActionStepType[]
     created_by: UserBasicType | null
     tags?: string[]
+    is_action?: true
+    verified?: boolean
 }
 
 /** Sync with plugin-server/src/types.ts */
@@ -1498,6 +1500,7 @@ export interface EventDefinition {
     verified?: boolean
     verified_at?: string
     verified_by?: string
+    is_action?: boolean
 }
 
 // TODO duplicated from plugin server. Follow-up to de-duplicate
@@ -1523,6 +1526,7 @@ export interface PropertyDefinition {
     created_at?: string // TODO: Implement
     last_seen_at?: string // TODO: Implement
     example?: string
+    is_action?: boolean
 }
 
 export type Definition = EventDefinition | PropertyDefinition
@@ -1888,3 +1892,5 @@ export interface ChangeDescriptions {
     // e.g. should description say "did deletion _to_ Y" or "deleted Y"
     bareName: boolean
 }
+
+export type CombinedEvent = EventDefinition | ActionType

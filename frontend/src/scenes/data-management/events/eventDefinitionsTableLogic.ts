@@ -1,5 +1,5 @@
 import { actions, kea, key, listeners, path, props, reducers, selectors } from 'kea'
-import { AnyPropertyFilter, EventDefinition, PropertyDefinition } from '~/types'
+import { ActionType, AnyPropertyFilter, CombinedEvent, EventDefinition, PropertyDefinition } from '~/types'
 import type { eventDefinitionsTableLogicType } from './eventDefinitionsTableLogicType'
 import api, { PaginatedResponse } from 'lib/api'
 import { keyMappingKeys } from 'lib/components/PropertyKeyInfo'
@@ -7,8 +7,10 @@ import { actionToUrl, combineUrl, router, urlToAction } from 'kea-router'
 import { convertPropertyGroupToProperties, objectsEqual } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { loaders } from 'kea-loaders'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
-export interface EventDefinitionsPaginatedResponse extends PaginatedResponse<EventDefinition> {
+export interface EventDefinitionsPaginatedResponse extends PaginatedResponse<CombinedEvent> {
     current?: string
     count?: number
     page?: number
@@ -63,6 +65,10 @@ function normalizeEventDefinitionEndpointUrl(
         return null
     }
     return api.eventDefinitions.determineListEndpoint({ ...(url ? combineUrl(url).searchParams : {}), ...searchParams })
+}
+
+export function isActionEvent(event: CombinedEvent): event is ActionType {
+    return 'is_action' in (event as ActionType) && !!event.is_action
 }
 
 export interface EventDefinitionsTableLogicProps {
@@ -257,6 +263,10 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
         ],
     })),
     selectors(({ cache }) => ({
+        shouldSimplifyActions: [
+            () => [featureFlagLogic.selectors.featureFlags],
+            (flags) => !!flags[FEATURE_FLAGS.SIMPLIFY_ACTIONS],
+        ],
         // Expose for testing
         apiCache: [() => [], () => cache.apiCache],
     })),

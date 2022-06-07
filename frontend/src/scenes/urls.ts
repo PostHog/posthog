@@ -17,7 +17,7 @@ export const urls = {
     dashboard: (id: string | number, highlightInsightId?: string): string =>
         combineUrl(`/dashboard/${id}`, highlightInsightId ? { highlightInsightId } : {}).url,
     sharedDashboard: (shareToken: string): string => `/shared_dashboard/${shareToken}`,
-    createAction: (): string => `/data-management/actions/new`, // TODO: For consistency, this should be `/action/new`
+    createAction: (): string => `/data-management/actions/new`,
     action: (id: string | number): string => `/data-management/actions/${id}`,
     actions: (): string => '/data-management/actions',
     eventDefinitions: (): string => '/data-management/events',

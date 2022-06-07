@@ -23,6 +23,8 @@ import { LemonButton } from 'lib/components/LemonButton'
 import { LemonCheckbox } from 'lib/components/LemonCheckbox'
 import { lemonToast } from 'lib/components/lemonToast'
 import { LemonInput } from 'lib/components/LemonInput/LemonInput'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }: ActionEditLogicProps): JSX.Element {
     const logicProps: ActionEditLogicProps = {
@@ -36,6 +38,7 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
     const { loadActions } = useActions(actionsModel)
     const { currentTeam } = useValues(teamLogic)
     const { hasAvailableFeature } = useValues(userLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const slackEnabled = currentTeam?.slack_incoming_webhook
 
@@ -50,7 +53,9 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
                     endpoint: api.actions.determineDeleteEndpoint(),
                     object: action,
                     callback: () => {
-                        router.actions.push(urls.actions())
+                        router.actions.push(
+                            featureFlags[FEATURE_FLAGS.SIMPLIFY_ACTIONS] ? urls.eventDefinitions() : urls.actions()
+                        )
                         loadActions()
                     },
                 })
@@ -67,7 +72,9 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
             type="secondary"
             style={{ marginRight: 8 }}
             onClick={() => {
-                router.actions.push(urls.actions())
+                router.actions.push(
+                    featureFlags[FEATURE_FLAGS.SIMPLIFY_ACTIONS] ? urls.eventDefinitions() : urls.actions()
+                )
             }}
         >
             Cancel

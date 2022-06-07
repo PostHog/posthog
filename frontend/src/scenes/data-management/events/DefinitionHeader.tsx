@@ -1,6 +1,7 @@
 import React from 'react'
-import { EventDefinition, PropertyDefinition } from '~/types'
+import { ActionType, CombinedEvent, EventDefinition, PropertyDefinition } from '~/types'
 import {
+    ActionStack,
     AutocaptureIcon,
     PageleaveIcon,
     PageviewIcon,
@@ -20,10 +21,13 @@ import {
     eventTaxonomicGroupProps,
     propertyTaxonomicGroupProps,
 } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
+import { isActionEvent } from 'scenes/data-management/events/eventDefinitionsTableLogic'
+import { actionsModel } from '~/models/actionsModel'
 
 export enum DefinitionType {
     Event = 'event',
     Property = 'property',
+    Action = 'action',
 }
 
 export function getPropertyDefinitionIcon(definition: PropertyDefinition): JSX.Element {
@@ -37,7 +41,17 @@ export function getPropertyDefinitionIcon(definition: PropertyDefinition): JSX.E
     return <PropertyIcon className="taxonomy-icon taxonomy-icon-muted" />
 }
 
-export function getEventDefinitionIcon(definition: EventDefinition): JSX.Element {
+export function getEventDefinitionOrActionIcon(definition: CombinedEvent): JSX.Element {
+    if (isActionEvent(definition)) {
+        if (definition.verified) {
+            return (
+                <Tooltip title="Verified event filter">
+                    <ActionStack className="taxonomy-icon taxonomy-icon-verified" />
+                </Tooltip>
+            )
+        }
+        return <ActionStack className="taxonomy-icon taxonomy-icon-muted" />
+    }
     // Rest are events
     if (definition.name === '$pageview') {
         return (
@@ -83,7 +97,7 @@ function RawDefinitionHeader({
     hideText = false,
     asLink = false,
 }: {
-    definition: EventDefinition | PropertyDefinition
+    definition: CombinedEvent | PropertyDefinition
     group: TaxonomicFilterGroup
 } & SharedDefinitionHeaderProps): JSX.Element {
     const fullDetailUrl = group.getFullDetailUrl?.(definition)
@@ -121,6 +135,32 @@ function RawDefinitionHeader({
                 </div>
             )}
         </>
+    )
+}
+
+export function ActionHeader({
+    definition,
+    ...props
+}: { definition: ActionType } & SharedDefinitionHeaderProps): JSX.Element {
+    return (
+        <RawDefinitionHeader
+            definition={definition}
+            group={{
+                name: 'Event filters',
+                searchPlaceholder: 'actions',
+                type: TaxonomicFilterGroupType.Actions,
+                logic: actionsModel,
+                value: 'actions',
+                getName: (action: ActionType) => action.name || '',
+                getValue: (action: ActionType) => action.name || '',
+                getFullDetailUrl: (action: ActionType) => urls.action(action.id),
+                getPopupHeader: () => 'Event filter',
+                getIcon: function _getIcon(): JSX.Element {
+                    return <ActionStack className="taxonomy-icon taxonomy-icon-muted" />
+                },
+            }}
+            {...props}
+        />
     )
 }
 

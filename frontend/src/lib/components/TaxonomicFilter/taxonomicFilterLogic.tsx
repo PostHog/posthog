@@ -35,7 +35,10 @@ import { capitalizeFirstLetter, pluralize, toParams } from 'lib/utils'
 import { combineUrl } from 'kea-router'
 import { ActionStack, CohortIcon } from 'lib/components/icons'
 import { keyMapping } from 'lib/components/PropertyKeyInfo'
-import { getEventDefinitionIcon, getPropertyDefinitionIcon } from 'scenes/data-management/events/DefinitionHeader'
+import {
+    getEventDefinitionOrActionIcon,
+    getPropertyDefinitionIcon,
+} from 'scenes/data-management/events/DefinitionHeader'
 import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 import { experimentsLogic } from 'scenes/experiments/experimentsLogic'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
@@ -50,7 +53,7 @@ export const eventTaxonomicGroupProps: Pick<TaxonomicFilterGroup, 'getPopupHeade
         }
         return `${eventDefinition.verified ? 'Verified' : 'Unverified'} Event`
     },
-    getIcon: getEventDefinitionIcon,
+    getIcon: getEventDefinitionOrActionIcon,
 }
 
 export const propertyTaxonomicGroupProps = (

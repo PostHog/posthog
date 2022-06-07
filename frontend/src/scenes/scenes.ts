@@ -220,12 +220,12 @@ export const redirects: Record<string, string | ((params: Params) => string)> = 
     '/dashboards': urls.dashboards(),
     '/plugins': urls.projectApps(),
     '/project/plugins': urls.projectApps(),
-    '/actions': urls.actions(),
+    '/actions': urls.actions(), // TODO: change to urls.eventDefinitions() when "simplify-actions" FF is released
     '/organization/members': urls.organizationSettings(),
     '/i/:shortId': ({ shortId }) => urls.insightView(shortId),
     '/action/:id': ({ id }) => urls.action(id),
     '/action': urls.createAction(),
-    '/events/actions': urls.actions(),
+    '/events/actions': urls.actions(), // TODO: change to urls.eventDefinitions() when "simplify-actions" FF is released
     '/events/stats': urls.eventDefinitions(),
     '/events/stats/:id': ({ id }) => urls.eventDefinition(id),
     '/events/properties': urls.eventPropertyDefinitions(),
@@ -241,7 +241,7 @@ export const routes: Record<string, Scene> = {
     [urls.insightEdit(':shortId' as InsightShortId)]: Scene.Insight,
     [urls.insightView(':shortId' as InsightShortId)]: Scene.Insight,
     [urls.savedInsights()]: Scene.SavedInsights,
-    [urls.actions()]: Scene.Actions,
+    [urls.actions()]: Scene.Actions, // TODO: remove when "simplify-actions" FF is released
     [urls.eventDefinitions()]: Scene.EventDefinitions,
     [urls.eventDefinition(':id')]: Scene.EventDefinition,
     [urls.eventPropertyDefinitions()]: Scene.EventPropertyDefinitions,
