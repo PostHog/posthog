@@ -492,7 +492,8 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
                 ],
             }
         )
-        results = ClickhouseFunnelTrends(filter, self.team)._exec_query()
+        funnel_trends = ClickhouseFunnelTrends(filter, self.team)
+        results = funnel_trends._exec_query()
 
         saturday = results[0]  # 5/1
         self.assertEqual(1, saturday["reached_to_step_count"])
@@ -535,6 +536,10 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(0, friday["reached_from_step_count"])
         self.assertEqual(0, friday["conversion_rate"])
         self.assertEqual(True, friday["is_period_final"])
+
+        formatted_results = funnel_trends._format_results(results)
+        self.assertEqual(formatted_results[0]["reached_from_step_count"][0], 3)
+        self.assertEqual(formatted_results[0]["reached_to_step_count"][0], 1)
 
     def test_period_not_final(self):
         now = datetime.now()

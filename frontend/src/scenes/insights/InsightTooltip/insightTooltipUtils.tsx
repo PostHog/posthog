@@ -16,6 +16,8 @@ export interface SeriesDatum {
     color?: string
     count: number
     filter: FilterType
+    reached_from_step_count?: number
+    reached_to_step_count?: number
 }
 
 // Describes the row-by-row data for insight tooltips in the situation where series
@@ -34,7 +36,7 @@ export interface TooltipConfig {
     rowCutoff?: number
     colCutoff?: number
     renderSeries?: (value: React.ReactNode, seriesDatum: SeriesDatum, idx: number) => React.ReactNode
-    renderCount?: (value: number, seriesDatum: SeriesDatum | InvertedSeriesDatum, idx: number) => React.ReactNode
+    renderCount?: (value: number, seriesDatum: SeriesDatum, idx: number) => React.ReactNode
     showHeader?: boolean
     hideColorCol?: boolean
 }

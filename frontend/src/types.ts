@@ -1774,6 +1774,10 @@ export type GraphDataset = ChartDataset<ChartType> &
         personUrl?: string
         /** Action/event filter defition */
         action?: ActionFilter
+        /** Value (count) how many people entered this funnel in funnel trends **/
+        reached_from_step_count?: number
+        /** Value (count) how many people completed this funnel in funnel trends **/
+        reached_to_step_count?: number
     }
 
 export type GraphPoint = InteractionItem & { dataset: GraphDataset }

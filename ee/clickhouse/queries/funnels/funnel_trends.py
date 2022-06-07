@@ -210,17 +210,23 @@ class ClickhouseFunnelTrends(ClickhouseFunnelBase):
         data = []
         days = []
         labels = []
+        reached_from_step_count = []
+        reached_to_step_count = []
         for row in summary:
             timestamp: datetime = row["timestamp"]
             data.append(row["conversion_rate"])
             hour_min_sec = " %H:%M:%S" if self._filter.interval == "hour" else ""
             days.append(timestamp.strftime(f"%Y-%m-%d{hour_min_sec}"))
             labels.append(timestamp.strftime(HUMAN_READABLE_TIMESTAMP_FORMAT))
+            reached_from_step_count.append(row["reached_from_step_count"])
+            reached_to_step_count.append(row["reached_to_step_count"])
         return {
             "count": count,
             "data": data,
             "days": days,
             "labels": labels,
+            "reached_from_step_count": reached_from_step_count,
+            "reached_to_step_count": reached_to_step_count,
         }
 
     def _is_period_final(self, timestamp: Union[datetime, date]):

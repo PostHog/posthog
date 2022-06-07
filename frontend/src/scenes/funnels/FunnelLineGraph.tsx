@@ -5,9 +5,8 @@ import { useActions, useValues } from 'kea'
 import { personsModalLogic } from 'scenes/trends/personsModalLogic'
 import { ChartParams, GraphType, GraphDataset } from '~/types'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { capitalizeFirstLetter, shortTimeZone } from 'lib/utils'
+import { capitalizeFirstLetter } from 'lib/utils'
 import { dayjs } from 'lib/dayjs'
-import { getFormattedDate } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
 
 export function FunnelLineGraph({
     inSharedMode,
@@ -30,20 +29,26 @@ export function FunnelLineGraph({
             inSharedMode={!!inSharedMode}
             showPersonsModal={showPersonsModal}
             tooltip={{
-                showHeader: false,
+                showHeader: true,
                 hideColorCol: true,
-                renderSeries: (_, datum) => {
-                    if (!steps?.[0]?.days) {
-                        return 'Trend'
-                    }
+                renderSeries: function renderSeries() {
                     return (
-                        getFormattedDate(steps[0].days?.[datum.dataIndex], filters.interval) +
-                        ' ' +
-                        shortTimeZone(insight.timezone)
+                        <div style={{ paddingTop: 20, height: 68 }}>
+                            Percentage
+                            <br />
+                            Entered/completed
+                        </div>
                     )
                 },
-                renderCount: (count) => {
-                    return `${count}%`
+                renderCount: function renderCount(count, datum) {
+                    if (!datum.reached_from_step_count || !datum.reached_to_step_count) {
+                        return null
+                    }
+                    return (
+                        <>
+                            {count}% {datum.reached_from_step_count}/{datum.reached_to_step_count}{' '}
+                        </>
+                    )
                 },
             }}
             percentage={true}

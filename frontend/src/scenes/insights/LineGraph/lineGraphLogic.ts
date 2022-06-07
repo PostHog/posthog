@@ -35,6 +35,8 @@ export const lineGraphLogic = kea<lineGraphLogicType>({
                                     : pointDataset.backgroundColor,
                                 count: pointDataset?.data?.[dp.dataIndex] || 0,
                                 filter: pointDataset?.filter ?? {},
+                                reached_from_step_count: pointDataset?.reached_from_step_count?.[dp.dataIndex],
+                                reached_to_step_count: pointDataset?.reached_to_step_count?.[dp.dataIndex],
                             }
                         })
                         ?.sort((a, b) => {
