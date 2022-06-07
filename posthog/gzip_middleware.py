@@ -1,15 +1,19 @@
 import re
+from typing import List
 
+from django.conf import settings
 from django.middleware.gzip import GZipMiddleware
 
-allowed_paths = [re.compile(r"snapshots/?$")]
 
-
-def allowed_path(path: str) -> bool:
+def allowed_path(path: str, allowed_paths: List) -> bool:
     return any(pattern.search(path) for pattern in allowed_paths)
 
 
 class PostHogGZipMiddleware(GZipMiddleware):
+    def __init__(self, get_response=None) -> None:
+        super().__init__(get_response)
+        self.allowed_paths = [re.compile(pattern) for pattern in settings.GZIP_RESPONSE_ALLOW_LIST]
+
     """
     The Django GZip Middleware comes with security warnings
     see: https://docs.djangoproject.com/en/4.0/ref/middleware/#module-django.middleware.gzip
@@ -18,7 +22,7 @@ class PostHogGZipMiddleware(GZipMiddleware):
     """
 
     def process_response(self, request, response):
-        if request.method == "GET" and allowed_path(request.path):
+        if request.method == "GET" and allowed_path(request.path, self.allowed_paths):
             return super().process_response(request, response)
         else:
             return response
