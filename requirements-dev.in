@@ -18,7 +18,7 @@ flake8-comprehensions==3.2.2
 flake8-import-order==0.18.1
 flake8-logging-format==0.6.0
 flake8-print==3.1.4
-pip-tools==6.6.1
+pip-tools==6.6.2
 mypy==0.931
 mypy-extensions==0.4.3
 djangorestframework-stubs==1.4.0

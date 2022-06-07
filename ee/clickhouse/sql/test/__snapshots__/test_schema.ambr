@@ -137,7 +137,8 @@
       team_id Int64,
       properties VARCHAR,
       is_identified Int8,
-      is_deleted Int8 DEFAULT 0
+      is_deleted Int8 DEFAULT 0,
+      version UInt64
       
   ) ENGINE = Kafka('test.kafka.broker:9092', 'clickhouse_person_test', 'group1', 'JSONEachRow')
   
@@ -519,7 +520,8 @@
       team_id Int64,
       properties VARCHAR,
       is_identified Int8,
-      is_deleted Int8 DEFAULT 0
+      is_deleted Int8 DEFAULT 0,
+      version UInt64
       
   ) ENGINE = Kafka('kafka:9092', 'clickhouse_person_test', 'group1', 'JSONEachRow')
   
@@ -602,7 +604,8 @@
       team_id Int64,
       properties VARCHAR,
       is_identified Int8,
-      is_deleted Int8 DEFAULT 0
+      is_deleted Int8 DEFAULT 0,
+      version UInt64
       
   , _timestamp DateTime
   , _offset UInt64
@@ -701,6 +704,7 @@
   properties,
   is_identified,
   is_deleted,
+  version,
   _timestamp,
   _offset
   FROM posthog_test.kafka_person
@@ -1013,7 +1017,8 @@
       team_id Int64,
       properties VARCHAR,
       is_identified Int8,
-      is_deleted Int8 DEFAULT 0
+      is_deleted Int8 DEFAULT 0,
+      version UInt64
       
   , _timestamp DateTime
   , _offset UInt64

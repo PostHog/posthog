@@ -35,7 +35,7 @@ const frameworksSnippet: Record<string, React.ComponentType> = {
 
 export function InstructionsPanel(): JSX.Element {
     const { index, platform, framework, frameworkString } = useValues(ingestionLogic)
-    const { setFramework, setVerify, setPlatform } = useActions(ingestionLogic)
+    const { setFramework, setPlatform } = useActions(ingestionLogic)
 
     if (platform !== WEB && !framework) {
         return <></>
@@ -46,21 +46,11 @@ export function InstructionsPanel(): JSX.Element {
     return (
         <div className="InstructionsPanel mb-2">
             {platform === WEB ? (
-                <CardContainer
-                    index={index}
-                    showFooter={true}
-                    onSubmit={() => setVerify(true)}
-                    onBack={() => setPlatform(null)}
-                >
+                <CardContainer index={index} showFooter={true} onBack={() => setPlatform(null)}>
                     <WebInstructions />
                 </CardContainer>
             ) : framework === API ? (
-                <CardContainer
-                    index={index}
-                    showFooter={true}
-                    onSubmit={() => setVerify(true)}
-                    onBack={() => setFramework(null)}
-                >
+                <CardContainer index={index} showFooter={true} onBack={() => setFramework(null)}>
                     <h2>{frameworkString}</h2>
                     <p className="prompt-text">
                         {
@@ -70,12 +60,7 @@ export function InstructionsPanel(): JSX.Element {
                     <FrameworkSnippet />
                 </CardContainer>
             ) : (
-                <CardContainer
-                    index={index}
-                    showFooter={true}
-                    onSubmit={() => setVerify(true)}
-                    onBack={() => setFramework(null)}
-                >
+                <CardContainer index={index} showFooter={true} onBack={() => setFramework(null)}>
                     <h1>{`Setup ${frameworkString}`}</h1>
 
                     {platform === BACKEND ? (

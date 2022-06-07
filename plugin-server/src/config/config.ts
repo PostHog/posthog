@@ -1,21 +1,19 @@
 import os from 'os'
 
 import { LogLevel, PluginsServerConfig } from '../types'
-import { determineNodeEnv, NodeEnv, stringToBoolean } from '../utils/env-utils'
+import { isDevEnv, isTestEnv, stringToBoolean } from '../utils/env-utils'
 import { KAFKA_EVENTS_JSON, KAFKA_EVENTS_PLUGIN_INGESTION } from './kafka-topics'
 
 export const defaultConfig = overrideWithEnv(getDefaultConfig())
 export const configHelp = getConfigHelp()
 
 export function getDefaultConfig(): PluginsServerConfig {
-    const isTestEnv = determineNodeEnv() === NodeEnv.Test
-    const isDevEnv = determineNodeEnv() === NodeEnv.Development
     const coreCount = os.cpus().length
 
     return {
-        DATABASE_URL: isTestEnv
+        DATABASE_URL: isTestEnv()
             ? 'postgres://posthog:posthog@localhost:5432/test_posthog'
-            : isDevEnv
+            : isDevEnv()
             ? 'postgres://posthog:posthog@localhost:5432/posthog'
             : null,
         POSTHOG_DB_NAME: null,
@@ -24,7 +22,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         POSTHOG_POSTGRES_HOST: 'localhost',
         POSTHOG_POSTGRES_PORT: 5432,
         CLICKHOUSE_HOST: 'localhost',
-        CLICKHOUSE_DATABASE: isTestEnv ? 'posthog_test' : 'default',
+        CLICKHOUSE_DATABASE: isTestEnv() ? 'posthog_test' : 'default',
         CLICKHOUSE_USER: 'default',
         CLICKHOUSE_PASSWORD: null,
         CLICKHOUSE_CA: null,
@@ -39,9 +37,9 @@ export function getDefaultConfig(): PluginsServerConfig {
         KAFKA_SASL_USER: null,
         KAFKA_SASL_PASSWORD: null,
         KAFKA_CONSUMPTION_TOPIC: KAFKA_EVENTS_PLUGIN_INGESTION,
-        KAFKA_PRODUCER_MAX_QUEUE_SIZE: isTestEnv ? 0 : 1000,
+        KAFKA_PRODUCER_MAX_QUEUE_SIZE: isTestEnv() ? 0 : 1000,
         KAFKA_MAX_MESSAGE_BATCH_SIZE: 900_000,
-        KAFKA_FLUSH_FREQUENCY_MS: isTestEnv ? 5 : 500,
+        KAFKA_FLUSH_FREQUENCY_MS: isTestEnv() ? 5 : 500,
         REDIS_URL: 'redis://127.0.0.1',
         POSTHOG_REDIS_PASSWORD: '',
         POSTHOG_REDIS_HOST: '',
@@ -51,7 +49,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         WORKER_CONCURRENCY: coreCount,
         TASK_TIMEOUT: 30,
         TASKS_PER_WORKER: 10,
-        LOG_LEVEL: isTestEnv ? LogLevel.Warn : LogLevel.Info,
+        LOG_LEVEL: isTestEnv() ? LogLevel.Warn : LogLevel.Info,
         SENTRY_DSN: null,
         STATSD_HOST: null,
         STATSD_PORT: 8125,
@@ -59,7 +57,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         SCHEDULE_LOCK_TTL: 60,
         REDIS_POOL_MIN_SIZE: 1,
         REDIS_POOL_MAX_SIZE: 3,
-        DISABLE_MMDB: isTestEnv,
+        DISABLE_MMDB: isTestEnv(),
         DISTINCT_ID_LRU_SIZE: 10000,
         EVENT_PROPERTY_LRU_SIZE: 10000,
         INTERNAL_MMDB_SERVER_PORT: 0,

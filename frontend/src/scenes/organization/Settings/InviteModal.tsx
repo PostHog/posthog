@@ -79,6 +79,7 @@ function InviteRow({ index, isDeletable }: { index: number; isDeletable: boolean
                         onClick={() => {
                             inviteTeamMembers()
                         }}
+                        data-attr="invite-generate-invite-link"
                     >
                         Submit
                     </LemonButton>
@@ -276,6 +277,7 @@ export function InviteModal({ visible, onClose }: { visible: boolean; onClose: (
                             <b>Message</b> (optional)
                         </div>
                         <LemonTextArea
+                            data-attr="invite-optional-message"
                             placeholder="Tell your teammates why you're inviting them to PostHog"
                             onChange={(e) => updateMessage(e)}
                         />
