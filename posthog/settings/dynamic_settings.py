@@ -104,6 +104,11 @@ CONSTANCE_CONFIG = {
         bool,
     ),
     "INGESTION_SITE_URL": (None, "Used in ingestion pipeline to determine sites url", str),
+    "ENABLE_SESSION_RECORDING_INGESTION_TO_STORAGE_TEAMS": (
+        get_from_env("ENABLE_SESSION_RECORDING_INGESTION_TO_STORAGE_TEAMS", ""),
+        "Whether to store session recordings to object storage on ingestion for these teams",
+        str,
+    ),
 }
 
 SETTINGS_ALLOWING_API_OVERRIDE = (
@@ -124,6 +129,7 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "EMAIL_REPLY_TO",
     "ASYNC_MIGRATIONS_OPT_OUT_EMAILS",
     "ENABLE_ACTOR_ON_EVENTS_TEAMS",
+    "ENABLE_SESSION_RECORDING_INGESTION_TO_STORAGE_TEAMS",
 )
 
 # SECRET_SETTINGS can only be updated but will never be exposed through the API (we do store them plain text in the DB)

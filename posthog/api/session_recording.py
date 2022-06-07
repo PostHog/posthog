@@ -1,7 +1,7 @@
 import dataclasses
 import json
 from itertools import groupby
-from typing import Any, Union
+from typing import Any, Dict, Tuple, Union
 
 from rest_framework import exceptions, request, response, serializers, viewsets
 from rest_framework.decorators import action
@@ -14,10 +14,13 @@ from posthog.api.person import PersonSerializer
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.models import Filter, PersonDistinctId
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
+from posthog.models.instance_setting import get_instance_setting
 from posthog.models.person import Person
 from posthog.models.session_recording_event import SessionRecordingViewed
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
+from posthog.settings import get_list
 from posthog.storage.object_storage import storage_client
+from posthog.utils import format_query_params_absolute_url
 
 DEFAULT_RECORDING_CHUNK_LIMIT = 20  # Should be tuned to find the best value
 
@@ -157,10 +160,42 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
     @action(methods=["GET"], detail=True)
     def snapshots(self, request: request.Request, **kwargs):
         session_recording_id = kwargs["pk"]
+
+        session_recordings_from_storage_allow_list = get_list(
+            get_instance_setting("ENABLE_SESSION_RECORDING_INGESTION_TO_STORAGE_TEAMS")
+        )
+
+        # TODO what happens to sessions that are running when this is enabled, some data in CH and some not
+        if any(int(team) == self.team_id for team in session_recordings_from_storage_allow_list):
+            next_url, data = self._load_recording_from_object_store(session_recording_id)
+            if not data:
+                # at least at first not every recording will be in storage
+                next_url, data = self._load_recording_from_clickhouse(session_recording_id, request)
+        else:
+            next_url, data = self._load_recording_from_clickhouse(session_recording_id, request)
+
+        return response.Response({"result": {"next": next_url, "snapshot_data_by_window_id": data,}})
+
+    def _load_recording_from_clickhouse(self, session_recording_id: str, request: request.Request) -> Tuple[str, Dict]:
         filter = Filter(request=request)
         limit = filter.limit if filter.limit else DEFAULT_RECORDING_CHUNK_LIMIT
         offset = filter.offset if filter.offset else 0
 
+        session_recording_snapshot_data = self._get_session_recording_snapshots(
+            request, session_recording_id, limit, offset
+        )
+
+        if session_recording_snapshot_data.snapshot_data_by_window_id == {}:
+            raise exceptions.NotFound("Snapshots not found")
+        next_url = (
+            format_query_params_absolute_url(request, offset + limit, limit)
+            if session_recording_snapshot_data.has_next
+            else None
+        )
+
+        return next_url, session_recording_snapshot_data.snapshot_data_by_window_id
+
+    def _load_recording_from_object_store(self, session_recording_id) -> Tuple[str, Dict]:
         # TODO: handle pagination
         # TODO: handle response compression
         # TODO: handle response caching
@@ -179,7 +214,6 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
                     continue
                 event_wrapper = json.loads(line)
                 all_events += [json.loads(event_wrapper["data"])["data"]["properties"]]
-
         events_by_window_id = {
             window_id: list(events)
             for window_id, events in groupby(
@@ -204,5 +238,4 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
             window_id: [rrweb_event for event in events for rrweb_event in extract_rrweb_events_from_event(event)]
             for window_id, events in events_by_window_id.items()
         }
-
-        return response.Response({"result": {"next": None, "snapshot_data_by_window_id": snapshot_data_by_window_id}})
+        return None, snapshot_data_by_window_id

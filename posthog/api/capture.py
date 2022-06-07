@@ -30,7 +30,9 @@ from posthog.api.utils import (
 from posthog.exceptions import generate_exception_response
 from posthog.helpers.session_recording import preprocess_session_recording_events
 from posthog.models.feature_flag import get_overridden_feature_flags
+from posthog.models.instance_setting import get_instance_setting
 from posthog.models.utils import UUIDT
+from posthog.settings import get_list
 from posthog.utils import cors_response, get_ip_address
 
 
@@ -62,7 +64,14 @@ def log_event(data: Dict, event_name: str, partition_key: str) -> None:
 
     # TODO: Handle Kafka being unavailable with exponential backoff retries
     try:
-        if event_name == "$snapshot":
+        if (
+            # TODO what happens to sessions that are running when this is enabled
+            any(
+                int(team) == data.get("team_id", None)
+                for team in get_list(get_instance_setting("ENABLE_SESSION_RECORDING_INGESTION_TO_STORAGE_TEAMS"))
+            )
+            and event_name == "$snapshot"
+        ):
             # If we have a rrweb event, push it to a separate topic
             # TODO: remove unneeded wrapping of rrweb data
             # TODO: remove pushing of message to events topic, instead we can
