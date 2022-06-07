@@ -543,7 +543,7 @@ export interface Event {
 
 export interface ClickHouseEvent extends Omit<Event, 'id' | 'elements' | 'elements_hash'> {
     uuid: string
-    elements_chain: string
+    elements_chain: string | undefined
 }
 
 export interface DeadLetterQueueEvent {
