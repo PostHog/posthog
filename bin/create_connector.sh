@@ -1,7 +1,18 @@
 #!/bin/bash
 
-# Creates a Kafka Connect S3 Sink for session recordings
-curl -X PUT http://localhost:8083/connectors/session-recordings/config \
+# Check Kafka Connect is available at all
+while true; do
+  KAFKA_CONNECT=$(curl -sb -I 'http://localhost:8083')
+  if [[ $KAFKA_CONNECT =~ .*version.* ]]; then
+    break
+  fi
+
+  echo 'Waiting for Kafka Connect...' && sleep 1
+done
+
+while true; do
+  RESULT=$(# Creates a Kafka Connect S3 Sink for session recordings
+    curl -X PUT http://localhost:8083/connectors/session-recordings/config \
     -H "Content-Type: application/json" \
     -d '{
         "name": "session-recordings",
@@ -21,4 +32,13 @@ curl -X PUT http://localhost:8083/connectors/session-recordings/config \
         "flush.size": 10,
         "s3.part.size": 5242880
     }'
+    )
+
+    if [[ $RESULT =~ .*session-recordings.* ]]; then
+      echo "✅ session recordings connector is created"
+      break
+    fi
+
+    echo 'Creating session recordings connector...' && sleep 1
+done
 
