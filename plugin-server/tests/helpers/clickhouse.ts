@@ -3,7 +3,7 @@ import { performance } from 'perf_hooks'
 
 import { defaultConfig } from '../../src/config/config'
 import { PluginsServerConfig } from '../../src/types'
-import { determineNodeEnv, NodeEnv } from '../../src/utils/env-utils'
+import { isDevEnv } from '../../src/utils/env-utils'
 import { delay } from '../../src/utils/utils'
 
 export async function resetTestDatabaseClickhouse(extraServerConfig?: Partial<PluginsServerConfig>): Promise<void> {
@@ -42,7 +42,7 @@ export async function delayUntilEventIngested<T extends any[] | number>(
     for (let i = 0; i < maxDelayCount; i++) {
         data = await fetchData()
         dataLength = typeof data === 'number' ? data : data.length
-        if (determineNodeEnv() === NodeEnv.Development) {
+        if (isDevEnv()) {
             console.log(
                 `Waiting. ${Math.round((performance.now() - timer) / 100) / 10}s since the start. ${dataLength} event${
                     dataLength !== 1 ? 's' : ''
