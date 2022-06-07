@@ -11,7 +11,7 @@ from ee.clickhouse.models.group import create_group
 from ee.clickhouse.models.session_recording_event import create_session_recording_event
 from ee.clickhouse.queries.paths import ClickhousePaths, ClickhousePathsActors
 from ee.clickhouse.queries.paths.paths_event_query import PathEventQuery
-from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
+from ee.clickhouse.util import snapshot_clickhouse_queries
 from posthog.constants import (
     FUNNEL_PATH_AFTER_STEP,
     FUNNEL_PATH_BEFORE_STEP,
@@ -20,12 +20,13 @@ from posthog.constants import (
 )
 from posthog.models.filters import Filter, PathFilter
 from posthog.models.group_type_mapping import GroupTypeMapping
-from posthog.test.base import APIBaseTest, _create_event, _create_person, test_with_materialized_columns
+from posthog.queries.test.test_paths import TestPaths
+from posthog.test.base import _create_event, _create_person, test_with_materialized_columns
 
 ONE_MINUTE = 60_000  # 1 minute in milliseconds
 
 
-class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
+class TestClickhousePaths(TestPaths):
 
     maxDiff = None
 
