@@ -1,5 +1,5 @@
 import { ServerInstance, startPluginsServer } from '../src/main/pluginsServer'
-import { UUIDT } from '../src/utils/utils'
+import { delay, UUIDT } from '../src/utils/utils'
 import { makePiscina } from '../src/worker/piscina'
 import { createPosthog, DummyPostHog } from '../src/worker/vm/extensions/posthog'
 import { writeToFile } from '../src/worker/vm/extensions/test-utils'
@@ -23,7 +23,7 @@ export async function processEvent (event) {
 }
 
 export function onEvent (event, { global }) {
-    testConsole.log('onEvent', event.event)
+    testConsole.log('onEvent', event.event, event.properties.processed)
 }
 `
 
@@ -40,8 +40,8 @@ describe('multi-process plugin server', () => {
         testConsole.reset()
         await resetTestDatabase(indexJs)
         await resetTestDatabaseClickhouse()
-        ingestionServer = await startPluginsServer({}, makePiscina, { ingestion: true })
-        asyncServer = await startPluginsServer({}, makePiscina, { processAsyncHandlers: true })
+        ingestionServer = await startPluginsServer({ PLUGIN_SERVER_MODE: 'ingestion' }, makePiscina)
+        asyncServer = await startPluginsServer({ PLUGIN_SERVER_MODE: 'async' }, makePiscina)
         posthog = createPosthog(ingestionServer.hub, pluginConfig39)
     })
 
@@ -55,13 +55,21 @@ describe('multi-process plugin server', () => {
         await posthog.capture('custom event', { name: 'haha', uuid })
         await ingestionServer.hub.kafkaProducer.flush()
 
+        await delay(5000)
+        await delayUntilEventIngested(() => ingestionServer.hub.db.fetchEvents())
         await delayUntilEventIngested(() => Promise.resolve(testConsole.read()), 2)
 
         const events = await ingestionServer.hub.db.fetchEvents()
 
         expect(events.length).toBe(1)
+        expect(events[0].properties).toEqual(
+            expect.objectContaining({
+                name: 'haha',
+                processed: 'hell yes',
+            })
+        )
         expect(events[0].properties.processed).toEqual('hell yes')
 
-        expect(testConsole.read()).toEqual([['processEvent'], ['onEvent', 'custom event']])
+        expect(testConsole.read()).toEqual([['processEvent'], ['onEvent', 'custom event', 'hell yes']])
     })
 })
