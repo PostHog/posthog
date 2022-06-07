@@ -167,10 +167,11 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
         store = storage_client()
         assert store is not None
         all_events = []
-        for obj in store.list_objects_v2(
+        snapshot_objects = store.list_objects_v2(
             Bucket="posthog",
             Prefix=f"session-recordings/session-recordings/team_id=1/session_id={session_recording_id}/",
-        )["Contents"]:
+        )
+        for obj in snapshot_objects.get("Contents", []):
             resp = store.get_object(Bucket="posthog", Key=obj["Key"])
             body = resp["Body"].read()
             for line in body.split(b"\n"):
