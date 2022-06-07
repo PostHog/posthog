@@ -31,8 +31,9 @@ import { urls } from 'scenes/urls'
 import { LemonTag } from 'lib/components/LemonTag/LemonTag'
 import { AuthorizedUrlsTable } from 'scenes/toolbar-launch/AuthorizedUrlsTable'
 import { GroupAnalytics } from 'scenes/project/Settings/GroupAnalytics'
-import { IconRefresh } from 'lib/components/icons'
+import { IconInfo, IconRefresh } from 'lib/components/icons'
 import { PersonDisplayNameProperties } from './PersonDisplayNameProperties'
+import { Tooltip } from 'lib/components/Tooltip'
 
 export const scene: SceneExport = {
     component: ProjectSettings,
@@ -186,7 +187,10 @@ export function ProjectSettings(): JSX.Element {
                 <TimezoneConfig />
                 <Divider />
                 <h2 className="subtitle" id="internal-users-filtering">
-                    Filter out internal and test users
+                    Filter out internal and test users{' '}
+                    <Tooltip title='Events will still be ingested and saved, but they will be excluded from any queries where the "Filter out internal and test users" toggle is set.'>
+                        <IconInfo style={{ fontSize: '1em', color: 'var(--muted-alt)', marginTop: 4, marginLeft: 5 }} />
+                    </Tooltip>
                 </h2>
                 <p>
                     Increase the quality of your analytics results by filtering out events from internal sources, such
