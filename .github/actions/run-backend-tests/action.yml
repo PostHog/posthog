@@ -37,7 +37,7 @@ runs:
           run: |
               export CLICKHOUSE_SERVER_IMAGE=${{ inputs.clickhouse-server-image }}
               docker-compose -f docker-compose.dev.yml down
-              docker-compose -f docker-compose.dev.yml up -d db clickhouse zookeeper kafka redis object-storage &
+              docker-compose -f docker-compose.dev.yml up -d db clickhouse zookeeper kafka redis object-storage kafka-connect &
 
         - name: Set up Python
           uses: actions/setup-python@v2
