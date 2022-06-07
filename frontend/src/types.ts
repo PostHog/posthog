@@ -1880,3 +1880,11 @@ export enum ValueOptionType {
     Previous = 'previous',
     OnDate = 'on_date',
 }
+
+export type Description = string | JSX.Element | null
+
+export interface ChangeDescriptions {
+    descriptions: Description[]
+    // e.g. should description say "did deletion _to_ Y" or "deleted Y"
+    bareName: boolean
+}
