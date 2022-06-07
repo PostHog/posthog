@@ -17,8 +17,8 @@ class TestGzipMiddleware(APIBaseTest):
             self.assertEqual(contentEncoding, None)
 
     def test_compresses_when_on_allow_list(self) -> None:
-        with self.settings(GZIP_RESPONSE_ALLOW_LIST=["something-else", "/"]):
-            response = self.client.get("/", data=None, follow=False, secure=False, **custom_headers,)
+        with self.settings(GZIP_RESPONSE_ALLOW_LIST=["something-else", "/home"]):
+            response = self.client.get("/home", data=None, follow=False, secure=False, **custom_headers,)
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
             contentEncoding = response.headers.get("Content-Encoding", None)
