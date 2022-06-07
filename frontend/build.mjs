@@ -19,40 +19,45 @@ writeSourceCodeEditorTypes()
 writeIndexHtml()
 writeSharedDashboardHtml()
 
+const common = {
+    absWorkingDir: __dirname,
+    bundle: true,
+}
+
 await buildInParallel(
     [
         {
             name: 'PostHog App',
             absWorkingDir: __dirname,
             entryPoints: ['src/index.tsx'],
-            bundle: true,
             splitting: true,
             format: 'esm',
             outdir: path.resolve(__dirname, 'dist'),
+            ...common,
         },
         {
             name: 'Shared Dashboard',
             absWorkingDir: __dirname,
             entryPoints: ['src/scenes/dashboard/SharedDashboard.tsx'],
-            bundle: true,
             format: 'iife',
             outfile: path.resolve(__dirname, 'dist', 'shared_dashboard.js'),
+            ...common,
         },
         {
             name: 'Exporter',
             absWorkingDir: __dirname,
             entryPoints: ['src/exporter/ExportViewer.tsx'],
-            bundle: true,
             format: 'iife',
             outfile: path.resolve(__dirname, 'dist', 'exporter.js'),
+            ...common,
         },
         {
             name: 'Toolbar',
             absWorkingDir: __dirname,
             entryPoints: ['src/toolbar/index.tsx'],
-            bundle: true,
             format: 'iife',
             outfile: path.resolve(__dirname, 'dist', 'toolbar.js'),
+            ...common,
         },
     ],
     {
