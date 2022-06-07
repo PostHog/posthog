@@ -35,3 +35,7 @@ export function determineNodeEnv(): NodeEnv {
     }
     return NodeEnv.Production
 }
+
+export const isTestEnv = (): boolean => determineNodeEnv() === NodeEnv.Test
+export const isDevEnv = (): boolean => determineNodeEnv() === NodeEnv.Development
+export const isProdEnv = (): boolean => determineNodeEnv() === NodeEnv.Production

@@ -2,7 +2,7 @@ import { StructuredLogger } from 'structlog'
 import { threadId } from 'worker_threads'
 
 import { PluginsServerConfig } from '../types'
-import { determineNodeEnv, NodeEnv } from './env-utils'
+import { isProdEnv } from './env-utils'
 
 export type StatusMethod = (icon: string, ...message: any[]) => void
 
@@ -24,7 +24,7 @@ export class Status implements StatusBlueprint {
             pathStackDepth: 1,
             useLogIdExtension: true,
         }
-        if (determineNodeEnv() !== NodeEnv.Production) {
+        if (!isProdEnv()) {
             loggerOptions['logFormat'] = '{message}'
         }
         this.logger = new StructuredLogger(loggerOptions)
