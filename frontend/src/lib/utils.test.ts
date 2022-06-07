@@ -140,15 +140,21 @@ describe('midEllipsis()', () => {
 })
 
 describe('isURL()', () => {
-    it('recognizes URLs propertly', () => {
+    it('recognizes URLs properly', () => {
         expect(isURL('https://www.posthog.com')).toEqual(true)
         expect(isURL('http://www.posthog.com')).toEqual(true)
         expect(isURL('http://www.posthog.com:8000/images')).toEqual(true)
         expect(isURL('http://localhost:8000/login?next=/insights')).toEqual(true)
         expect(isURL('http://localhost:8000/events?properties=%5B%5D')).toEqual(true)
+        expect(isURL('https://apple.com/')).toEqual(true) // works as expected
+        expect(isURL('https://stripe.com')).toEqual(true) // fails
+        expect(isURL('https://spotify.com')).toEqual(true) // fails
+        expect(isURL('https://sevenapp.events/')).toEqual(true) // fails
+        expect(isURL('https://seven-stagingenv.web.app/')).toEqual(true) // fails
+        expect(isURL('https://salesforce.co.uk/')).toEqual(true) // fails
     })
 
-    it('recognizes non-URLs propertly', () => {
+    it('recognizes non-URLs properly', () => {
         expect(isURL('1234567890')).toEqual(false)
         expect(isURL('www.posthog')).toEqual(false)
         expect(isURL('-.posthog')).toEqual(false)
