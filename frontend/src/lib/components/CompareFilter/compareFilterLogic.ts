@@ -1,7 +1,7 @@
 import { kea } from 'kea'
 import { objectsEqual } from 'lib/utils'
 import { ChartDisplayType, InsightLogicProps, InsightType } from '~/types'
-import { compareFilterLogicType } from './compareFilterLogicType'
+import type { compareFilterLogicType } from './compareFilterLogicType'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { insightLogic } from 'scenes/insights/insightLogic'
 

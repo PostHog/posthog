@@ -1,5 +1,5 @@
-from ee.clickhouse.models.person import create_person_distinct_id
 from posthog.client import sync_execute
+from posthog.models.person.util import create_person_distinct_id
 from posthog.models.utils import UUIDT
 from posthog.tasks.status_report import status_report
 from posthog.tasks.test.test_status_report import factory_status_report

@@ -22,10 +22,9 @@ import {
     TimestampFormat,
 } from '../../types'
 import { DB, GroupIdentifier } from '../../utils/db/db'
+import { elementsToString, extractElements } from '../../utils/db/elements-chain'
 import { KafkaProducerWrapper } from '../../utils/db/kafka-producer-wrapper'
 import {
-    elementsToString,
-    extractElements,
     personInitialAndUTMProperties,
     safeClickhouseString,
     sanitizeEventName,
@@ -249,6 +248,7 @@ export class EventsProcessor {
     ): Promise<void> {
         const personFound = await this.db.fetchPerson(teamId, distinctId)
         if (!personFound) {
+            this.pluginsServer.statsd?.increment('person_not_found', { teamId: String(teamId), key: 'update' })
             throw new Error(
                 `Could not find person with distinct id "${distinctId}" in team "${teamId}" to update properties`
             )
@@ -283,6 +283,7 @@ export class EventsProcessor {
     private async setIsIdentified(teamId: number, distinctId: string, isIdentified = true): Promise<void> {
         const personFound = await this.db.fetchPerson(teamId, distinctId)
         if (!personFound) {
+            this.pluginsServer.statsd?.increment('person_not_found', { teamId: String(teamId), key: 'identify' })
             throw new Error(`Could not find person with distinct id "${distinctId}" in team "${teamId}" to identify`)
         }
         if (personFound && !personFound.is_identified) {

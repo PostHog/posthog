@@ -4,7 +4,7 @@ import * as fs from 'fs'
 import { createPool } from 'generic-pool'
 import { StatsD } from 'hot-shots'
 import Redis from 'ioredis'
-import { Kafka, logLevel, Partitioners, SASLOptions } from 'kafkajs'
+import { Kafka, logLevel, SASLOptions } from 'kafkajs'
 import { DateTime } from 'luxon'
 import * as path from 'path'
 import { types as pgTypes } from 'pg'
@@ -177,12 +177,11 @@ export async function createHub(
         logLevel: logLevel.WARN,
         ssl: kafkaSsl,
         sasl: kafkaSasl,
-        connectionTimeout: 3000, // default: 1000
-        authenticationTimeout: 3000, // default: 1000
+        connectionTimeout: 7000, // default: 1000
+        authenticationTimeout: 7000, // default: 1000
     })
     const producer = kafka.producer({
         retry: { retries: 10, initialRetryTime: 1000, maxRetryTime: 30 },
-        createPartitioner: Partitioners.LegacyPartitioner,
     })
     await producer.connect()
 

@@ -718,6 +718,11 @@ export interface SessionRecordingEvents {
     events: RecordingEventType[]
 }
 
+export interface CurrentBillCycleType {
+    current_period_start: number
+    current_period_end: number
+}
+
 export interface BillingType {
     should_setup_billing: boolean
     is_billing_active: boolean
@@ -727,9 +732,11 @@ export interface BillingType {
     current_usage: number | null
     subscription_url: string
     current_bill_amount: number | null
+    current_bill_usage: number | null
     should_display_current_bill: boolean
     billing_limit: number | null
     billing_limit_exceeded: boolean | null
+    current_bill_cycle: CurrentBillCycleType
     tiers: BillingTierType[] | null
 }
 
@@ -843,6 +850,7 @@ export interface OrganizationInviteType {
     created_by: UserBasicType | null
     created_at: string
     updated_at: string
+    message?: string
 }
 
 export interface PluginType {
@@ -1869,4 +1877,12 @@ export enum ValueOptionType {
     MostRecent = 'most_recent',
     Previous = 'previous',
     OnDate = 'on_date',
+}
+
+export type Description = string | JSX.Element | null
+
+export interface ChangeDescriptions {
+    descriptions: Description[]
+    // e.g. should description say "did deletion _to_ Y" or "deleted Y"
+    bareName: boolean
 }

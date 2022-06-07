@@ -7,7 +7,7 @@ import type { confirmOrganizationLogicType } from './confirmOrganizationLogicTyp
 import { forms } from 'kea-forms'
 import { lemonToast } from 'lib/components/lemonToast'
 
-interface ConfirmOrganizationFormValues {
+export interface ConfirmOrganizationFormValues {
     organization_name?: string
     first_name?: string
 }

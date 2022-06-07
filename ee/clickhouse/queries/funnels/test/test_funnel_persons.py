@@ -5,13 +5,13 @@ from django.utils import timezone
 from freezegun import freeze_time
 
 from ee.clickhouse.models.event import bulk_create_events
-from ee.clickhouse.models.person import bulk_create_persons
 from ee.clickhouse.models.session_recording_event import create_session_recording_event
 from ee.clickhouse.queries.funnels.funnel_persons import ClickhouseFunnelActors
 from ee.clickhouse.test.test_journeys import journeys_for
 from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
 from posthog.constants import INSIGHT_FUNNELS
 from posthog.models import Cohort, Filter
+from posthog.models.person.util import bulk_create_persons
 from posthog.test.base import APIBaseTest, _create_event, _create_person, test_with_materialized_columns
 
 FORMAT_TIME = "%Y-%m-%d 00:00:00"
@@ -105,20 +105,6 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
             self.team,
         )
 
-        _create_event(
-            team=self.team,
-            event="sign up",
-            distinct_id="person2",
-            properties={"key": "val", "$browser": "Safari"},
-            timestamp="2020-01-02T14:00:00Z",
-        )
-        _create_event(
-            team=self.team,
-            event="play movie",
-            distinct_id="person2",
-            properties={"key": "val", "$browser": "Safari"},
-            timestamp="2020-01-02T16:00:00Z",
-        )
         return person1, person2
 
     def test_first_step(self):
@@ -366,13 +352,13 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
         self.assertCountEqual([val["id"] for val in results], [person1.uuid, person2.uuid])
 
         _, results = ClickhouseFunnelActors(
-            filter.with_data({"funnel_step_breakdown": "Chrome"}), self.team
+            filter.with_data({"funnel_step_breakdown": ["Chrome", "95"]}), self.team
         ).get_actors()
 
         self.assertCountEqual([val["id"] for val in results], [person1.uuid])
 
         _, results = ClickhouseFunnelActors(
-            filter.with_data({"funnel_step_breakdown": "Safari"}), self.team
+            filter.with_data({"funnel_step_breakdown": ["Safari", "14"]}), self.team
         ).get_actors()
         self.assertCountEqual([val["id"] for val in results], [person2.uuid])
 

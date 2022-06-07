@@ -8,6 +8,7 @@ from django.core.paginator import Paginator
 from django.db import models
 from django.utils import timezone
 
+from posthog.models.dashboard import Dashboard
 from posthog.models.user import User
 from posthog.models.utils import UUIDT, UUIDModel
 
@@ -82,8 +83,23 @@ class ActivityLog(UUIDModel):
 
 
 field_exclusions: Dict[Literal["FeatureFlag", "Person", "Insight"], List[str]] = {
-    "FeatureFlag": ["id", "created_at", "created_by", "is_simple_flag",],
-    "Person": ["id", "uuid", "distinct_ids", "name", "created_at", "is_identified",],
+    "FeatureFlag": ["id", "created_at", "created_by", "is_simple_flag", "experiment", "team", "featureflagoverride"],
+    "Person": [
+        "id",
+        "uuid",
+        "distinct_ids",
+        "name",
+        "created_at",
+        "is_identified",
+        "persondistinctid",
+        "cohort",
+        "cohortpeople",
+        "properties_last_updated_at",
+        "properties_last_operation",
+        "team",
+        "version",
+        "is_user",
+    ],
     "Insight": [
         "id",
         "filters_hash",
@@ -103,8 +119,31 @@ field_exclusions: Dict[Literal["FeatureFlag", "Person", "Insight"], List[str]] =
         "last_refresh",
         "saved",
         "is_sample",
+        "refresh_attempt",
+        "last_modified_by",
+        "short_id",
+        "created_by",
+        "insightviewed",
+        "dashboardtile",
     ],
 }
+
+
+def _description(m: List[Any]) -> Union[str, Dict]:
+    if isinstance(m, Dashboard):
+        return {"id": m.id, "name": m.name}
+    else:
+        return str(m)
+
+
+def _read_through_relation(relation: models.Manager) -> List[Union[Dict, str]]:
+    described_models = [_description(r) for r in relation.all()]
+
+    if all(isinstance(elem, str) for elem in described_models):
+        # definitely a list of strings now but mypy doesn't know that
+        described_models = sorted(described_models)  # type: ignore
+
+    return described_models
 
 
 def changes_between(
@@ -122,13 +161,20 @@ def changes_between(
         return changes
 
     if previous is not None:
-        fields = current._meta.fields if current is not None else []
+        fields = current._meta.get_fields() if current is not None else []
 
-        # TODO how to include tags in the fields assessed
         filtered_fields = [f.name for f in fields if f.name not in field_exclusions[model_type]]
         for field in filtered_fields:
             left = getattr(previous, field, None)
+            if isinstance(left, models.Manager):
+                left = _read_through_relation(left)
+
             right = getattr(current, field, None)
+            if isinstance(right, models.Manager):
+                right = _read_through_relation(right)
+
+            if field == "tagged_items":
+                field = "tags"  # or the UI needs to be coupled to this internal backend naming
 
             if left is None and right is not None:
                 changes.append(Change(type=model_type, field=field, action="created", after=right,))
@@ -153,7 +199,7 @@ def log_activity(
     try:
         if activity == "updated" and (detail.changes is None or len(detail.changes) == 0) and not force_save:
             logger.warn(
-                "ignore_update_activity_no_changes",
+                "activity_log.ignore_update_activity_no_changes",
                 team_id=team_id,
                 organization_id=organization_id,
                 user_id=user.id,
@@ -172,7 +218,7 @@ def log_activity(
         )
     except Exception as e:
         logger.warn(
-            "failed to write activity log",
+            "activity_log.failed_to_write_to_activity_log",
             team=team_id,
             organization_id=organization_id,
             scope=scope,
