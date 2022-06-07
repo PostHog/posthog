@@ -28,7 +28,7 @@ jobs:
     cypress_prep:
         name: Cypress E2E preparation
         runs-on: ubuntu-latest
-        timeout-minutes: 30
+        timeout-minutes: 60
         outputs:
             specs: ${{ steps.set-specs.outputs.specs }}
 
