@@ -1,4 +1,4 @@
-import { chainToElements, elementsToString } from '../../../src/utils/db/utils'
+import { chainToElements, elementsToString } from '../../../src/utils/db/elements-chain'
 
 describe('elementsToString and chainToElements', () => {
     it('is reversible', () => {
