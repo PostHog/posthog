@@ -1,6 +1,6 @@
 import { afterMount, BuiltLogic, connect, kea, path, selectors } from 'kea'
 
-import { projectHomepageLogicType } from './projectHomepageLogicType'
+import type { projectHomepageLogicType } from './projectHomepageLogicType'
 import { teamLogic } from 'scenes/teamLogic'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { DashboardPlacement, InsightModel, PersonType } from '~/types'

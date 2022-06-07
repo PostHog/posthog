@@ -1,7 +1,5 @@
-@import '~/vars';
-
 .tz-label {
-    border-bottom: 1px dotted $border_dark;
+    border-bottom: 1px dotted var(--border-dark);
     cursor: default;
     white-space: nowrap;
 }
@@ -10,7 +8,7 @@
     .divider {
         margin-right: -4px;
         margin-left: -4px;
-        border-bottom: 1px solid $border_light;
+        border-bottom: 1px solid var(--border-light);
     }
     .timezones {
         .timezone {
@@ -18,12 +16,12 @@
             margin-top: 8px;
             .name {
                 font-weight: bold;
-                color: $primary_alt;
+                color: var(--primary-alt);
                 margin-right: 6px;
             }
 
             .scope {
-                color: $text_muted;
+                color: var(--text-muted);
                 margin-right: 16px;
                 flex-grow: 1;
                 font-style: italic;
@@ -38,6 +36,6 @@
 }
 
 .tz-indicator {
-    color: $text_muted;
+    color: var(--text-muted);
     cursor: pointer;
 }

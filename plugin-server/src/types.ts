@@ -81,7 +81,6 @@ export interface PluginsServerConfig extends Record<string, any> {
     CLICKHOUSE_PASSWORD: string | null
     CLICKHOUSE_CA: string | null
     CLICKHOUSE_SECURE: boolean
-    KAFKA_ENABLED: boolean
     KAFKA_HOSTS: string
     KAFKA_CLIENT_CERT_B64: string | null
     KAFKA_CLIENT_CERT_KEY_B64: string | null
@@ -544,7 +543,7 @@ export interface Event {
 
 export interface ClickHouseEvent extends Omit<Event, 'id' | 'elements' | 'elements_hash'> {
     uuid: string
-    elements_chain: string
+    elements_chain: string | undefined
 }
 
 export interface DeadLetterQueueEvent {

@@ -1,7 +1,7 @@
 import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
 import React from 'react'
 import api from 'lib/api'
-import { teamLogicType } from './teamLogicType'
+import type { teamLogicType } from './teamLogicType'
 import { TeamType } from '~/types'
 import { userLogic } from './userLogic'
 import { identifierToHuman, isUserLoggedIn, resolveWebhookService } from 'lib/utils'

@@ -24,7 +24,7 @@ import {
     FilterLogicalOperator,
     PropertyFilterValue,
 } from '~/types'
-import { dayjs } from 'lib/dayjs'
+import type { Dayjs } from 'lib/dayjs'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import type { PersonsModalParams } from 'scenes/trends/personsModalLogic'
 import { EventIndex } from '@posthog/react-rrweb-player'
@@ -267,9 +267,9 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
             delay,
         }),
         reportDashboardModeToggled: (mode: DashboardMode, source: DashboardEventSource | null) => ({ mode, source }),
-        reportDashboardRefreshed: (lastRefreshed?: string | dayjs.Dayjs | null) => ({ lastRefreshed }),
+        reportDashboardRefreshed: (lastRefreshed?: string | Dayjs | null) => ({ lastRefreshed }),
         reportDashboardItemRefreshed: (dashboardItem: InsightModel) => ({ dashboardItem }),
-        reportDashboardDateRangeChanged: (dateFrom?: string | dayjs.Dayjs, dateTo?: string | dayjs.Dayjs | null) => ({
+        reportDashboardDateRangeChanged: (dateFrom?: string | Dayjs, dateTo?: string | Dayjs | null) => ({
             dateFrom,
             dateTo,
         }),
@@ -369,10 +369,10 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         reportExperimentArchived: (experiment: Experiment) => ({ experiment }),
         reportExperimentCreated: (experiment: Experiment) => ({ experiment }),
         reportExperimentViewed: (experiment: Experiment) => ({ experiment }),
-        reportExperimentLaunched: (experiment: Experiment, launchDate: dayjs.Dayjs) => ({ experiment, launchDate }),
+        reportExperimentLaunched: (experiment: Experiment, launchDate: Dayjs) => ({ experiment, launchDate }),
         reportExperimentCompleted: (
             experiment: Experiment,
-            endDate: dayjs.Dayjs,
+            endDate: Dayjs,
             duration: number,
             significant: boolean
         ) => ({
@@ -444,6 +444,8 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         reportIngestionThirdPartyConfigureClicked: (name: string) => ({ name }),
         reportIngestionThirdPartyPluginInstalled: (name: string) => ({ name }),
         reportFailedToCreateFeatureFlagWithCohort: (code: string, detail: string) => ({ code, detail }),
+        reportInviteMembersButtonClicked: true,
+        reportIngestionSidebarButtonClicked: (name: string) => ({ name }),
     },
     listeners: ({ values }) => ({
         reportAnnotationViewed: async ({ annotations }, breakpoint) => {
@@ -1065,6 +1067,14 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         },
         reportFailedToCreateFeatureFlagWithCohort: ({ detail, code }) => {
             posthog.capture('failed to create feature flag with cohort', { detail, code })
+        },
+        reportInviteMembersButtonClicked: () => {
+            posthog.capture('invite members button clicked')
+        },
+        reportIngestionSidebarButtonClicked: ({ name }) => {
+            posthog.capture('ingestion sidebar button clicked', {
+                name: name,
+            })
         },
     }),
 })

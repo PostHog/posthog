@@ -1,24 +1,22 @@
-@import '~/vars';
-
 .pay-card {
     box-shadow: var(--shadow-elevation);
-    padding: $default_spacing;
-    border-radius: $radius;
-    border: 1px solid $warning;
-    margin-top: $default_spacing;
+    padding: 1rem;
+    border-radius: var(--radius);
+    border: 1px solid var(--warning);
+    margin-top: 1rem;
     cursor: pointer;
     position: relative;
-    background: $bg_light;
+    background: var(--bg-light);
 
     h3 {
-        font-weight: $medium;
+        font-weight: var(--font-medium);
     }
 
     .close-button {
         position: absolute;
         top: 16px;
         right: 16px;
-        color: $text_muted;
-        z-index: $z_raised;
+        color: var(--text-muted);
+        z-index: var(--z-raised);
     }
 }

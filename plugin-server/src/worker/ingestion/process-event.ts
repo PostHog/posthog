@@ -249,6 +249,7 @@ export class EventsProcessor {
     ): Promise<void> {
         const personFound = await this.db.fetchPerson(teamId, distinctId)
         if (!personFound) {
+            this.pluginsServer.statsd?.increment('person_not_found', { teamId: String(teamId), key: 'update' })
             throw new Error(
                 `Could not find person with distinct id "${distinctId}" in team "${teamId}" to update properties`
             )
@@ -283,6 +284,7 @@ export class EventsProcessor {
     private async setIsIdentified(teamId: number, distinctId: string, isIdentified = true): Promise<void> {
         const personFound = await this.db.fetchPerson(teamId, distinctId)
         if (!personFound) {
+            this.pluginsServer.statsd?.increment('person_not_found', { teamId: String(teamId), key: 'identify' })
             throw new Error(`Could not find person with distinct id "${distinctId}" in team "${teamId}" to identify`)
         }
         if (personFound && !personFound.is_identified) {
@@ -510,9 +512,7 @@ export class EventsProcessor {
             }
         })
 
-        if (this.pluginsServer.KAFKA_ENABLED) {
-            await this.kafkaProducer.queueMessages(kafkaMessages)
-        }
+        await this.kafkaProducer.queueMessages(kafkaMessages)
     }
 
     private async capture(
@@ -635,72 +635,38 @@ export class EventsProcessor {
 
         let eventId: Event['id'] | undefined
 
-        if (this.pluginsServer.KAFKA_ENABLED) {
-            const useExternalSchemas = this.clickhouseExternalSchemasEnabled(teamId)
-            // proto ingestion is deprecated and we won't support new additions to the schema
-            const message = useExternalSchemas
-                ? (EventProto.encodeDelimited(EventProto.create(eventPayload)).finish() as Buffer)
-                : Buffer.from(
-                      JSON.stringify({
-                          ...eventPayload,
-                          person_id: personInfo?.uuid,
-                          person_properties: eventPersonProperties,
-                          ...groupProperties,
-                      })
-                  )
+        const useExternalSchemas = this.clickhouseExternalSchemasEnabled(teamId)
+        // proto ingestion is deprecated and we won't support new additions to the schema
+        const message = useExternalSchemas
+            ? (EventProto.encodeDelimited(EventProto.create(eventPayload)).finish() as Buffer)
+            : Buffer.from(
+                  JSON.stringify({
+                      ...eventPayload,
+                      person_id: personInfo?.uuid,
+                      person_properties: eventPersonProperties,
+                      ...groupProperties,
+                  })
+              )
 
-            await this.kafkaProducer.queueMessage({
-                topic: useExternalSchemas ? KAFKA_EVENTS : this.pluginsServer.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC,
-                messages: [
-                    {
-                        key: uuid,
-                        value: message,
-                    },
-                ],
-            })
-        } else {
-            let elementsHash = ''
-            if (elements && elements.length > 0) {
-                elementsHash = await this.db.createElementGroup(elements, teamId)
-            }
-            const {
-                rows: [event],
-            } = await this.db.postgresQuery(
-                'INSERT INTO posthog_event (created_at, event, distinct_id, properties, team_id, timestamp, elements, elements_hash) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *',
-                [
-                    eventPayload.created_at,
-                    eventPayload.event,
-                    distinctId,
-                    eventPayload.properties,
-                    eventPayload.team_id,
-                    eventPayload.timestamp,
-                    JSON.stringify(elements || []),
-                    elementsHash,
-                ],
-                'createEventInsert'
-            )
-            eventId = event.id
-        }
+        await this.kafkaProducer.queueMessage({
+            topic: useExternalSchemas ? KAFKA_EVENTS : this.pluginsServer.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC,
+            messages: [
+                {
+                    key: uuid,
+                    value: message,
+                },
+            ],
+        })
 
         return [eventPayload, eventId, elements]
     }
 
     async produceEventToBuffer(bufferEvent: PreIngestionEvent): Promise<void> {
-        if (this.pluginsServer.KAFKA_ENABLED) {
-            const partitionKeyHash = crypto.createHash('sha256')
-            partitionKeyHash.update(`${bufferEvent.teamId}:${bufferEvent.distinctId}`)
-            const partitionKey = partitionKeyHash.digest('hex')
+        const partitionKeyHash = crypto.createHash('sha256')
+        partitionKeyHash.update(`${bufferEvent.teamId}:${bufferEvent.distinctId}`)
+        const partitionKey = partitionKeyHash.digest('hex')
 
-            await this.kafkaProducer.queueMessage({
-                topic: KAFKA_BUFFER,
-                messages: [
-                    {
-                        key: partitionKey,
-                        value: Buffer.from(JSON.stringify(bufferEvent)),
-                    },
-                ],
-            })
-        }
+        await this.kafkaProducer.queueSingleJsonMessage(KAFKA_BUFFER, partitionKey, bufferEvent)
     }
 
     private async createSessionRecordingEvent(
@@ -733,26 +699,7 @@ export class EventsProcessor {
             created_at: timestampString,
         }
 
-        if (this.pluginsServer.KAFKA_ENABLED) {
-            await this.kafkaProducer.queueMessage({
-                topic: KAFKA_SESSION_RECORDING_EVENTS,
-                messages: [{ key: uuid, value: Buffer.from(JSON.stringify(data)) }],
-            })
-        } else {
-            await this.db.postgresQuery(
-                'INSERT INTO posthog_sessionrecordingevent (created_at, team_id, distinct_id, session_id, window_id, timestamp, snapshot_data) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *',
-                [
-                    data.created_at,
-                    data.team_id,
-                    data.distinct_id,
-                    data.session_id,
-                    data.window_id,
-                    data.timestamp,
-                    data.snapshot_data,
-                ],
-                'insertSessionRecording'
-            )
-        }
+        await this.kafkaProducer.queueSingleJsonMessage(KAFKA_SESSION_RECORDING_EVENTS, uuid, data)
 
         return {
             eventUuid: uuid,

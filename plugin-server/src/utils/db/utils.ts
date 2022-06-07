@@ -116,49 +116,54 @@ export function chainToElements(chain: string): Element[] {
     const splitClassAttributes = /(.*?)($|:([a-zA-Z\-_0-9]*=.*))/g
     const parseAttributesRegex = /((.*?)="(.*?[^\\])")/gm
 
-    Array.from(chain.matchAll(splitChainRegex))
-        .map((r) => r[0])
-        .forEach((elString, index) => {
-            const elStringSplit = Array.from(elString.matchAll(splitClassAttributes))[0]
-            const attributes =
-                elStringSplit.length > 3
-                    ? Array.from(elStringSplit[3].matchAll(parseAttributesRegex)).map((a) => [a[2], a[3]])
-                    : []
+    chain = chain.replaceAll('\n', '')
 
-            const element: Element = {
-                attributes: {},
-                order: index,
-            }
+    try {
+        Array.from(chain.matchAll(splitChainRegex))
+            .map((r) => r[0])
+            .forEach((elString, index) => {
+                const elStringSplit = Array.from(elString.matchAll(splitClassAttributes))[0]
+                const attributes =
+                    elStringSplit.length > 3
+                        ? Array.from(elStringSplit[3].matchAll(parseAttributesRegex)).map((a) => [a[2], a[3]])
+                        : []
 
-            if (elStringSplit[1]) {
-                const tagAndClass = elStringSplit[1].split('.')
-                element.tag_name = tagAndClass[0]
-                if (tagAndClass.length > 1) {
-                    element.attr_class = tagAndClass.slice(1).filter(Boolean)
+                const element: Element = {
+                    attributes: {},
+                    order: index,
                 }
-            }
 
-            for (const [key, value] of attributes) {
-                if (key == 'href') {
-                    element.href = value
-                } else if (key == 'nth-child') {
-                    element.nth_child = parseInt(value)
-                } else if (key == 'nth-of-type') {
-                    element.nth_of_type = parseInt(value)
-                } else if (key == 'text') {
-                    element.text = value
-                } else if (key == 'attr_id') {
-                    element.attr_id = value
-                } else if (key) {
-                    if (!element.attributes) {
-                        element.attributes = {}
+                if (elStringSplit[1]) {
+                    const tagAndClass = elStringSplit[1].split('.')
+                    element.tag_name = tagAndClass[0]
+                    if (tagAndClass.length > 1) {
+                        element.attr_class = tagAndClass.slice(1).filter(Boolean)
                     }
-                    element.attributes[key] = value
                 }
-            }
-            elements.push(element)
-        })
 
+                for (const [key, value] of attributes) {
+                    if (key == 'href') {
+                        element.href = value
+                    } else if (key == 'nth-child') {
+                        element.nth_child = parseInt(value)
+                    } else if (key == 'nth-of-type') {
+                        element.nth_of_type = parseInt(value)
+                    } else if (key == 'text') {
+                        element.text = value
+                    } else if (key == 'attr_id') {
+                        element.attr_id = value
+                    } else if (key) {
+                        if (!element.attributes) {
+                            element.attributes = {}
+                        }
+                        element.attributes[key] = value
+                    }
+                }
+                elements.push(element)
+            })
+    } catch (error) {
+        Sentry.captureException(error, { extra: { chain } })
+    }
     return elements
 }
 
@@ -186,7 +191,15 @@ export function timeoutGuard(
     }, timeout)
 }
 
-const campaignParams = new Set(['utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term', 'gclid'])
+const campaignParams = new Set([
+    'utm_source',
+    'utm_medium',
+    'utm_campaign',
+    'utm_content',
+    'utm_term',
+    'gclid',
+    'fbclid',
+])
 const initialParams = new Set([
     '$browser',
     '$browser_version',
@@ -248,7 +261,7 @@ export function generateKafkaPersonUpdateMessage(
                         team_id: teamId,
                         is_identified: isIdentified,
                         is_deleted: isDeleted,
-                        ...(version ? { version } : {}),
+                        ...(version !== null ? { version } : {}),
                     })
                 ),
             },
@@ -259,31 +272,6 @@ export function generateKafkaPersonUpdateMessage(
 // Very useful for debugging queries
 export function getFinalPostgresQuery(queryString: string, values: any[]): string {
     return queryString.replace(/\$([0-9]+)/g, (m, v) => JSON.stringify(values[parseInt(v) - 1]))
-}
-
-export function transformPostgresElementsToEventPayloadFormat(
-    rawElements: Record<string, any>[]
-): Record<string, any>[] {
-    const elementTransformations: Record<string, string> = {
-        text: '$el_text',
-        attr_class: 'attr__class',
-        attr_id: 'attr__id',
-        href: 'attr__href',
-    }
-
-    const elements = []
-    for (const element of rawElements) {
-        for (const [key, val] of Object.entries(element)) {
-            if (key in elementTransformations) {
-                element[elementTransformations[key]] = val
-                delete element[key]
-            }
-        }
-        delete element['attributes']
-        elements.push(element)
-    }
-
-    return elements
 }
 
 export function shouldStoreLog(

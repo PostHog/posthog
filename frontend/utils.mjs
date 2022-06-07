@@ -1,5 +1,4 @@
-import { sassPlugin as _sassPlugin } from 'esbuild-sass-plugin'
-import { createImporter } from 'sass-extended-importer'
+import { sassPlugin } from 'esbuild-sass-plugin'
 import { lessLoader } from 'esbuild-plugin-less'
 import * as path from 'path'
 import * as url from 'url'
@@ -14,26 +13,6 @@ const defaultPort = 8234
 
 export const __dirname = path.dirname(url.fileURLToPath(import.meta.url))
 export const isDev = process.argv.includes('--dev')
-
-export const sassPlugin = _sassPlugin({
-    importer: [
-        (importUrl) => {
-            const [first, ...rest] = importUrl.split('/')
-            const paths = {
-                '~': 'src',
-                scenes: 'src/scenes',
-                public: 'public',
-                'react-toastify': '../node_modules/react-toastify',
-            }
-            if (paths[first]) {
-                return {
-                    file: path.resolve(__dirname, paths[first], ...rest),
-                }
-            }
-        },
-        createImporter(),
-    ],
-})
 
 export const lessPlugin = lessLoader({ javascriptEnabled: true })
 
@@ -145,7 +124,7 @@ export const commonConfig = {
     chunkNames: '[name]-[hash]',
     // no hashes in dev mode for faster reloads --> we save the old hash in index.html otherwise
     entryNames: isDev ? '[dir]/[name]' : '[dir]/[name]-[hash]',
-    plugins: [sassPlugin, lessPlugin],
+    plugins: [sassPlugin(), lessPlugin],
     define: {
         global: 'globalThis',
         'process.env.NODE_ENV': isDev ? '"development"' : '"production"',
@@ -156,6 +135,7 @@ export const commonConfig = {
         '.woff': 'file',
         '.woff2': 'file',
         '.mp3': 'file',
+        '.lottie': 'file',
     },
     metafile: true,
 }

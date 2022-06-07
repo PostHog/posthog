@@ -23,39 +23,34 @@ export interface DummyPostHog {
 export function createPosthog(server: Hub, pluginConfig: PluginConfig): DummyPostHog {
     const distinctId = pluginConfig.plugin?.name || `plugin-id-${pluginConfig.plugin_id}`
 
-    let sendEvent: (data: InternalData) => Promise<void>
+    const sendEvent = async (data: InternalData): Promise<void> => {
+        const partitionKeyHash = crypto.createHash('sha256')
+        partitionKeyHash.update(`${data.team_id}:${data.distinct_id}`)
+        const partitionKey = partitionKeyHash.digest('hex')
 
-    if (server.KAFKA_ENABLED) {
-        // Sending event to our Kafka>ClickHouse pipeline
-        sendEvent = async (data) => {
-            const partitionKeyHash = crypto.createHash('sha256')
-            partitionKeyHash.update(`${data.team_id}:${data.distinct_id}`)
-            const partitionKey = partitionKeyHash.digest('hex')
-
-            await server.kafkaProducer.queueMessage({
-                topic: server.KAFKA_CONSUMPTION_TOPIC!,
-                messages: [
-                    {
-                        key: partitionKey,
-                        value: JSON.stringify({
-                            distinct_id: data.distinct_id,
-                            ip: '',
-                            site_url: '',
-                            data: JSON.stringify(data),
-                            team_id: pluginConfig.team_id,
-                            now: data.timestamp,
-                            sent_at: data.timestamp,
-                            uuid: data.uuid,
-                        } as RawEventMessage),
-                    },
-                ],
-            })
-            server.statsd?.increment('vm_posthog_extension_capture_called')
-        }
+        await server.kafkaProducer.queueMessage({
+            topic: server.KAFKA_CONSUMPTION_TOPIC!,
+            messages: [
+                {
+                    key: partitionKey,
+                    value: JSON.stringify({
+                        distinct_id: data.distinct_id,
+                        ip: '',
+                        site_url: '',
+                        data: JSON.stringify(data),
+                        team_id: pluginConfig.team_id,
+                        now: data.timestamp,
+                        sent_at: data.timestamp,
+                        uuid: data.uuid,
+                    } as RawEventMessage),
+                },
+            ],
+        })
+        server.statsd?.increment('vm_posthog_extension_capture_called')
     }
 
     return {
-        async capture(event, properties = {}) {
+        capture: async (event, properties = {}) => {
             const { timestamp = DateTime.utc().toISO(), distinct_id = distinctId, ...otherProperties } = properties
             const data: InternalData = {
                 distinct_id,

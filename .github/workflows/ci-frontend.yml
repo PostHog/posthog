@@ -34,9 +34,8 @@ jobs:
             - name: Lint with ESLint
               run: yarn eslint
 
-            - name: Run typescript with strict
-              run: |
-                  ./bin/check-typescript-strict
+            - name: Generate logic types and run typescript with strict
+              run: yarn typegen:write && yarn typescript:check
 
     jest-setup:
         # Split the tests into multiple chunks

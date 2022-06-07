@@ -2,7 +2,7 @@ import { kea } from 'kea'
 import api from 'lib/api'
 import { toParams, deleteWithUndo } from 'lib/utils'
 import { annotationsModel } from '~/models/annotationsModel'
-import { annotationsTableLogicType } from './logicType'
+import type { annotationsTableLogicType } from './logicType'
 import { AnnotationType } from '~/types'
 import { teamLogic } from '../teamLogic'
 

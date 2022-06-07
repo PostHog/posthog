@@ -1,12 +1,10 @@
-@import '~/vars';
-
 .ActionFilterRow {
     .ActionFilterRow-content {
         display: flex;
         align-items: flex-start;
 
         > * + * {
-            margin-left: $default_spacing / 2;
+            margin-left: 0.5rem;
         }
     }
 
@@ -25,7 +23,7 @@
     .row-end {
         padding-top: 5px;
         > * + * {
-            margin-left: $default_spacing / 4;
+            margin-left: 0.25rem;
         }
     }
 
@@ -33,7 +31,7 @@
         flex: 1;
         overflow: hidden;
         flex-wrap: wrap;
-        gap: $default_spacing / 2;
+        gap: 0.5rem;
     }
 
     .series-indicator {
@@ -45,13 +43,13 @@
         &:hover,
         &:focus,
         &.visible {
-            border: 1px solid $primary;
+            border: 1px solid var(--primary);
         }
 
         &.delete {
             padding: 0;
             width: unset;
-            color: rgba($danger, 0.6);
+            color: var(--depr-rgba-danger-0-6);
         }
     }
 }

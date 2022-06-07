@@ -1,12 +1,37 @@
-@import '~/vars';
-
 .bulk-invite-modal {
+    margin-top: 1rem;
+
     .invite-row {
-        margin-top: $default_spacing;
+        margin-top: 1rem;
 
         &:first-of-type {
             margin-top: 0;
             background-color: red;
         }
     }
+}
+
+.invite-modal-header {
+    display: flex;
+    width: 100%;
+    justify-content: space-between;
+    font-size: 14px;
+    font-weight: 400;
+    padding-left: 1.5rem;
+    padding-right: 1.5rem;
+    padding-top: 1rem;
+    color: var(--text-muted);
+}
+
+.InviteModal__share_link {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+    display: flex;
+    white-space: nowrap;
+    width: 175px;
+    overflow: scroll;
+}
+
+.InviteModal__share_link::-webkit-scrollbar {
+    display: none;
 }

@@ -1,15 +1,13 @@
-@import '~/vars';
-
 .property-group-filters {
     .property-group {
-        background-color: $bg_side;
-        padding: $default_spacing / 2;
+        background-color: var(--bg-side);
+        padding: 0.5rem;
         border-radius: 4px;
     }
 
     .property-group-and-or-separator {
-        color: $primary_alt;
-        padding: $default_spacing / 2 0px;
+        color: var(--primary-alt);
+        padding: 0.5rem 0px;
         font-size: 12px;
         font-weight: 600;
         position: relative;
@@ -20,7 +18,7 @@
             top: 0;
             width: 2px;
             height: 100%;
-            background-color: $border_light;
+            background-color: var(--border-light);
             content: ' ';
         }
 
@@ -29,7 +27,7 @@
             display: inline-block;
             z-index: 1;
             background-color: var(--bg-light);
-            padding: $default_spacing / 4;
+            padding: 0.25rem;
             width: 35px;
             text-align: center;
         }
@@ -48,8 +46,8 @@
 }
 
 .and-or-filter-select {
-    padding-top: $default_spacing / 2;
-    padding-bottom: $default_spacing / 2;
+    padding-top: 0.5rem;
+    padding-bottom: 0.5rem;
 
     .condition-text {
         font-weight: 700;
@@ -60,21 +58,21 @@
         justify-content: center;
         align-items: center;
         border-radius: 4px;
-        background-color: $light-grey;
-        color: $primary_alt;
+        background-color: var(--light-grey);
+        color: var(--primary-alt);
         font-size: 12px;
 
         &.selected {
-            background-color: $primary;
+            background-color: var(--primary);
             color: white;
         }
     }
 
     .condition-option {
         background-color: white;
-        padding: $default_spacing / 2;
-        margin-left: $default_spacing / 2;
-        margin-right: $default_spacing / 2;
+        padding: 0.5rem;
+        margin-left: 0.5rem;
+        margin-right: 0.5rem;
         border-radius: 4px;
     }
 

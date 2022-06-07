@@ -1,8 +1,6 @@
-@import '~/vars';
-
 .compact-list {
-    border-radius: $radius;
-    border: 1px solid $border;
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
     height: calc(19.5rem + 1px);
     box-sizing: content-box;
     display: flex;
@@ -23,7 +21,7 @@
     }
 
     .spacer-container {
-        padding: 0 $default_spacing;
+        padding: 0 1rem;
     }
 
     .scrollable-list {
@@ -34,7 +32,7 @@
 
         .skeleton-container {
             width: 100%;
-            padding: 0 $default_spacing/2;
+            padding: 0 0.5rem;
         }
     }
 }
