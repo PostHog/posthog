@@ -1,28 +1,3 @@
-const path = require('path')
-const fs = require('fs')
-const pixelmatch = require('pixelmatch')
-const PNG = require('pngjs').PNG
-
-const downloadDirectory = path.join(__dirname, '..', 'downloads')
-
-const checkFileDownloaded = async (filename, timeout, delayMs = 10) => {
-    const start = Date.now()
-    const fullFileName = `${downloadDirectory}/${filename}`
-
-    while (Date.now() - start < timeout) {
-        await new Promise((res) => setTimeout(res, delayMs))
-
-        if (fs.existsSync(fullFileName)) {
-            return fullFileName
-        }
-    }
-    return
-}
-
-const webpackPreprocessor = require('@cypress/webpack-preprocessor')
-
-const { createEntry } = require('../../webpack.config')
-
 module.exports = (on, config) => {
     const options = {
         webpackOptions: createEntry('cypress'),

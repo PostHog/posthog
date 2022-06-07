@@ -50,7 +50,7 @@ jobs:
               if: steps.cypress-node-modules-cache-3.outputs.cache-hit != 'true'
               run: |
                   yarn install --frozen-lockfile
-                  yarn add cypress@9.6.0 cypress-terminal-report@3.5.2 @cypress/webpack-preprocessor@5.11.1
+                  yarn add cypress@10.0.3 cypress-terminal-report@3.5.2
                   cd plugin-server
                   yarn install --frozen-lockfile
     cypress:
@@ -115,7 +115,7 @@ jobs:
               # should still get some cache benefits.
               run: |
                   yarn install --frozen-lockfile
-                  yarn add cypress@9.6.0 cypress-terminal-report@3.5.2 @cypress/webpack-preprocessor@5.11.1 
+                  yarn add cypress@10.0.3 cypress-terminal-report@3.5.2 
                   cd plugin-server
                   yarn install --frozen-lockfile
             - name: Yarn build
@@ -137,7 +137,7 @@ jobs:
             - name: Cypress run
               uses: cypress-io/github-action@v2
               with:
-                  config-file: cypress.e2e.json
+                  config-file: cypress.e2e.config.ts
                   config: retries=2
                   # We're already installing cypress above
                   # We have to install it separately otherwise the tests fail.
