@@ -1882,10 +1882,15 @@ export enum ValueOptionType {
 
 export interface SubscriptionType {
     id: number
-    insight: number
-    schedule: string
+    insight?: number
+    dashboard?: number
+    target_type: string
+    target_value: string
+    frequency: string
+    interval: number
+    start_date: string
+    until_date: string
     title: string
-    emails: string[]
     created_by?: UserBasicType | null
     created_at: string
     updated_at: string

@@ -5,7 +5,7 @@ import { InsightModel, SubscriptionType } from '~/types'
 import { LemonModal } from 'lib/components/LemonModal'
 import { pluralize } from 'lib/utils'
 import { insightSubscriptionsLogic } from './insightSubscriptionsLogic'
-import { InsightSubscriptionModal } from './MyInsightSubscriptionModal'
+import { InsightSubscriptionModal } from './InsightSubscriptionModal'
 import { IconEllipsis, IconPlus } from '../icons'
 import { ProfileBubbles } from '../ProfilePicture'
 
@@ -70,7 +70,7 @@ export function InsightSubscriptionsModal({
 
     const [selectedSubscription, setSelectedSubscription] = useState<number | 'new'>()
 
-    let { subscriptions, subscriptionsLoading } = useValues(logic)
+    const { subscriptions, subscriptionsLoading } = useValues(logic)
 
     // subscriptions = [
     //     {
@@ -101,7 +101,6 @@ export function InsightSubscriptionsModal({
                     afterClose={closeModal}
                     confirmLoading={subscriptionsLoading}
                     visible={visible}
-                    wrapClassName="add-to-dashboard-modal"
                 >
                     <section>
                         <h5>Manage Subscriptions</h5>

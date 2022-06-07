@@ -8,9 +8,11 @@ import { forms } from 'kea-forms'
 import type { insightSubscriptionLogicType } from './insightSubscriptionLogicType'
 
 const NEW_SUBSCRIPTION: Partial<SubscriptionType> = {
-    schedule: '0 0 0 0 0',
+    frequency: 'WEEEKLY',
+    interval: 1,
+    start_date: '2021-01-01T00:00:00', // Make this today
     title: 'New Subscription',
-    emails: [],
+    target_type: 'email',
 }
 
 export interface InsightSubscriptionLogicProps {
@@ -40,14 +42,17 @@ export const insightSubscriptionLogic = kea<insightSubscriptionLogicType>([
     forms(({ actions, props }) => ({
         subscription: {
             defaults: { ...NEW_SUBSCRIPTION } as SubscriptionType,
-            errors: ({ schedule, title, emails }) => ({
-                schedule: !schedule ? 'You need to set a schedule' : undefined,
+            errors: ({ frequency, interval, title, target_value, target_type }) => ({
+                frequency: !frequency ? 'You need to set a schedule frequency' : undefined,
+                interval: !interval ? 'You need to set a schedule time' : undefined,
                 title: !title ? 'You need to set a title' : undefined,
-                emails:
-                    !emails || emails?.length === 0
-                        ? ['At least one email is required']
-                        : emails.every((email) => email === '1')
-                        ? ['All emails must be valid']
+                target_value:
+                    target_type == 'email'
+                        ? !target_value
+                            ? 'At least one email is required'
+                            : target_value.split(',').every((email) => email === '1') // TODO: Email validation
+                            ? 'All emails must be valid'
+                            : undefined
                         : undefined,
             }),
             submit: (subscription) => {
