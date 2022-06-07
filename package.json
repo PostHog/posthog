@@ -41,12 +41,6 @@
         "format": "yarn format:python && yarn format:js",
         "storybook": "start-storybook -p 6006",
         "build-storybook": "build-storybook",
-        "arm64:ch-dev:start": "concurrently -n DOCKER,ESBUILD,TYPEGEN -c red,blue,green \"docker-compose -f docker-compose.arm64.yml pull && CH_WEB_SCRIPT=./ee/bin/docker-ch-dev-backend docker-compose -f docker-compose.arm64.yml up\" \"yarn run start-http --host 0.0.0.0\" \"yarn run typegen:watch\"",
-        "arm64:ch-dev:clear": "docker compose -f docker-compose.arm64.yml stop && docker compose -f docker-compose.arm64.yml rm -v && docker compose -f docker-compose.arm64.yml down",
-        "arm64:services": "yarn arm64:services:stop && yarn arm64:services:clean && yarn arm64:services:start",
-        "arm64:services:start": "docker-compose -f docker-compose.arm64.yml up zookeeper kafka clickhouse object_storage",
-        "arm64:services:stop": "docker-compose -f docker-compose.arm64.yml down",
-        "arm64:services:clean": "docker-compose -f docker-compose.arm64.yml rm -v zookeeper kafka clickhouse object_storage",
         "dev:migrate:postgres": "export DEBUG=1 && source env/bin/activate && python manage.py migrate",
         "dev:migrate:clickhouse": "export DEBUG=1 && source env/bin/activate && python manage.py migrate_clickhouse",
         "prepare": "husky install"
