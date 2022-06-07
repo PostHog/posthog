@@ -282,7 +282,7 @@ jobs:
             - name: Checkout master
               uses: actions/checkout@v2
               with:
-                  ref: 'master'
+                  ref: 'move-event-import'
                   path: 'master/'
 
             - name: Link posthog-cloud at master
