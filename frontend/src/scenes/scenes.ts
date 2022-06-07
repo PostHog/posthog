@@ -232,6 +232,8 @@ export const routes: Record<string, Scene> = {
     [urls.insightNew()]: Scene.Insight,
     [urls.insightEdit(':shortId' as InsightShortId)]: Scene.Insight,
     [urls.insightView(':shortId' as InsightShortId)]: Scene.Insight,
+    [urls.insightSubcriptions(':shortId' as InsightShortId)]: Scene.Insight,
+    [urls.insightSubcription(':shortId' as InsightShortId, ':subscriptionId')]: Scene.Insight,
     [urls.savedInsights()]: Scene.SavedInsights,
     [urls.actions()]: Scene.Actions,
     [urls.eventDefinitions()]: Scene.EventDefinitions,

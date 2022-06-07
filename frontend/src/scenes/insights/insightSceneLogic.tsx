@@ -129,13 +129,18 @@ export const insightSceneLogic = kea<insightSceneLogicType>({
         },
     }),
     urlToAction: ({ actions, values }) => ({
-        '/insights/:shortId(/:mode)': (
+        '/insights/:shortId(/:mode)(/:subscriptionId)': (
             { shortId, mode }, // url params
             { dashboard, ...searchParams }, // search params
             { filters: _filters }, // hash params
             { method, initial } // "location changed" event payload
         ) => {
-            const insightMode = mode === 'edit' || shortId === 'new' ? ItemMode.Edit : ItemMode.View
+            const insightMode =
+                mode === 'subscriptions'
+                    ? ItemMode.Subscriptions
+                    : mode === 'edit' || shortId === 'new'
+                    ? ItemMode.Edit
+                    : ItemMode.View
             const insightId = String(shortId) as InsightShortId
 
             const currentScene = sceneLogic.findMounted()?.values
@@ -143,7 +148,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>({
             if (
                 currentScene?.activeScene === Scene.Insight &&
                 currentScene.activeSceneLogic?.values.insightId === insightId &&
-                currentScene.activeSceneLogic?.values.mode === mode
+                currentScene.activeSceneLogic?.values.mode === insightMode
             ) {
                 // If nothing about the scene has changed, don't do anything
                 return

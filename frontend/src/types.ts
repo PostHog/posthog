@@ -1428,7 +1428,7 @@ export interface PreflightStatus {
 export enum ItemMode { // todo: consolidate this and dashboardmode
     Edit = 'edit',
     View = 'view',
-    Subscribe = 'subscribe',
+    Subscriptions = 'subscriptions',
 }
 
 export enum DashboardPlacement {
@@ -1886,7 +1886,7 @@ export interface SubscriptionType {
     dashboard?: number
     target_type: string
     target_value: string
-    frequency: string
+    frequency: 'daily' | 'weekly' | 'monthly' | 'yearly'
     interval: number
     start_date: string
     until_date: string

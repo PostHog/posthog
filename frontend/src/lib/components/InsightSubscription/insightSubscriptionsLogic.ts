@@ -1,10 +1,11 @@
-import { actions, afterMount, kea, key, path, props } from 'kea'
+import { actions, afterMount, kea, key, listeners, path, props, reducers } from 'kea'
 import { InsightModel, SubscriptionType } from '~/types'
 
 import api from 'lib/api'
 import { loaders } from 'kea-loaders'
 
 import type { insightSubscriptionsLogicType } from './insightSubscriptionsLogicType'
+import { deleteWithUndo } from 'lib/utils'
 
 export interface InsightSubscriptionLogicProps {
     insight: Partial<InsightModel>
@@ -19,7 +20,7 @@ export const insightSubscriptionsLogic = kea<insightSubscriptionsLogicType>([
         return insight.short_id
     }),
     actions({
-        addSubscription: true,
+        deleteSubscription: (id: number) => ({ id }),
     }),
 
     loaders(({ props }) => ({
@@ -33,6 +34,24 @@ export const insightSubscriptionsLogic = kea<insightSubscriptionsLogicType>([
                 const response = await api.subscriptions.list(props.insight.id)
                 return response.results
             },
+        },
+    })),
+
+    reducers({
+        subscriptions: {
+            deleteSubscription: (state, { id }) => {
+                return state.filter((a) => a.id !== id)
+            },
+        },
+    }),
+
+    listeners(({ actions }) => ({
+        deleteSubscription: async ({ id }) => {
+            deleteWithUndo({
+                endpoint: api.subscriptions.determineDeleteEndpoint(),
+                object: { name: 'Subscription', id },
+                callback: () => actions.loadSubscriptions(),
+            })
         },
     })),
 

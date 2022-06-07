@@ -6,11 +6,14 @@ import { loaders } from 'kea-loaders'
 import { forms } from 'kea-forms'
 
 import type { insightSubscriptionLogicType } from './insightSubscriptionLogicType'
+import { isEmail } from 'lib/utils'
+import { dayjs } from 'lib/dayjs'
+import { lemonToast } from '../lemonToast'
 
 const NEW_SUBSCRIPTION: Partial<SubscriptionType> = {
-    frequency: 'WEEEKLY',
+    frequency: 'weekly',
     interval: 1,
-    start_date: '2021-01-01T00:00:00', // Make this today
+    start_date: dayjs().hour(9).minute(0).second(0).toISOString(),
     title: 'New Subscription',
     target_type: 'email',
 }
@@ -39,26 +42,30 @@ export const insightSubscriptionLogic = kea<insightSubscriptionLogicType>([
         },
     })),
 
-    forms(({ actions, props }) => ({
+    forms(({ props }) => ({
         subscription: {
             defaults: { ...NEW_SUBSCRIPTION } as SubscriptionType,
-            errors: ({ frequency, interval, title, target_value, target_type }) => ({
+            errors: ({ frequency, interval, target_value, target_type }) => ({
                 frequency: !frequency ? 'You need to set a schedule frequency' : undefined,
                 interval: !interval ? 'You need to set a schedule time' : undefined,
-                title: !title ? 'You need to set a title' : undefined,
                 target_value:
                     target_type == 'email'
                         ? !target_value
                             ? 'At least one email is required'
-                            : target_value.split(',').every((email) => email === '1') // TODO: Email validation
+                            : !target_value.split(',').every((email) => isEmail(email))
                             ? 'All emails must be valid'
                             : undefined
                         : undefined,
             }),
-            submit: (subscription) => {
+            submit: async (subscription) => {
                 subscription.insight = props.insightId
-                actions.createSubscription(subscription)
-                console.log('SUBMITTED', subscription)
+
+                if (props.id === 'new') {
+                    await api.subscriptions.create(subscription)
+                } else {
+                    await api.subscriptions.update(props.id, subscription)
+                }
+                lemonToast.success(`Subscription saved.`)
             },
         },
     })),

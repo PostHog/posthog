@@ -52,6 +52,7 @@ import { mathsLogic } from 'scenes/trends/mathsLogic'
 import { WorldMap } from 'scenes/insights/WorldMap'
 import { AlertMessage } from '../AlertMessage'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { UserActivityIndicator } from '../UserActivityIndicator/UserActivityIndicator'
 
 // TODO: Add support for Retention to InsightDetails
 const INSIGHT_TYPES_WHERE_DETAILS_UNSUPPORTED: InsightType[] = [InsightType.RETENTION]
@@ -430,7 +431,7 @@ function InsightMeta({
                             </Link>
                             <div className="InsightMeta__description">{description || <i>No description</i>}</div>
                             {tags && tags.length > 0 && <ObjectTags tags={tags} staticOnly />}
-                            <LastModified at={insight.last_modified_at} by={insight.last_modified_by} />
+                            <UserActivityIndicator at={insight.last_modified_at} by={insight.last_modified_by} />
                         </div>
                     </div>
                     <LemonDivider />

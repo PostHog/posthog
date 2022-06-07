@@ -42,6 +42,7 @@ import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
 import { InsightSubscriptionsModal } from 'lib/components/InsightSubscription/InsightSubscriptionsModal'
+import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 
 export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): JSX.Element {
     const { insightMode } = useValues(insightSceneLogic)
@@ -113,14 +114,11 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
 
     const insightTab = usingEditorPanels ? <EditorFilters insightProps={insightProps} /> : insightTabFilters
 
-    // TODO: This is just for testing. Ideally we have the subscriptions as a full path endpoint for convenient hyperlinking
-    const [subscribeModalOpen, setSubscribeModalOpen] = useState<boolean>(searchParams.subscribe === true)
-
     const insightScene = (
         <div className="insights-page">
             <InsightSubscriptionsModal
-                visible={subscribeModalOpen}
-                closeModal={() => setSubscribeModalOpen(false)}
+                visible={insightMode === ItemMode.Subscriptions}
+                closeModal={() => push(urls.insightView(insight.short_id as InsightShortId))}
                 insight={insight}
             />
             <PageHeader
@@ -147,7 +145,7 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                 }
                 buttons={
                     <div className="space-between-items items-center gap-05">
-                        {insightMode === ItemMode.View && (
+                        {insightMode !== ItemMode.Edit && (
                             <>
                                 <More
                                     overlay={
@@ -156,7 +154,13 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                                                 <>
                                                     <ExportButton insightShortId={insight.short_id} fullWidth />
                                                     <LemonButton
-                                                        onClick={() => setSubscribeModalOpen(true)}
+                                                        onClick={() =>
+                                                            push(
+                                                                urls.insightSubcriptions(
+                                                                    insight.short_id as InsightShortId
+                                                                )
+                                                            )
+                                                        }
                                                         type="stealth"
                                                         fullWidth
                                                     >
@@ -202,10 +206,10 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                                 Cancel
                             </LemonButton>
                         )}
-                        {insightMode === ItemMode.View && insight.short_id && (
+                        {insightMode !== ItemMode.Edit && insight.short_id && (
                             <SaveToDashboard insight={insight} canEditInsight={canEditInsight} />
                         )}
-                        {insightMode === ItemMode.View ? (
+                        {insightMode !== ItemMode.Edit ? (
                             canEditInsight && (
                                 <LemonButton
                                     type="primary"
@@ -261,7 +265,11 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                                 staticOnly
                             />
                         ) : null}
-                        <LastModified at={insight.last_modified_at} by={insight.last_modified_by} />
+                        <UserActivityIndicator
+                            at={insight.last_modified_at}
+                            by={insight.last_modified_by}
+                            className="mt-05"
+                        />
                     </>
                 }
             />
@@ -284,7 +292,7 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
             ) : (
                 // Old View mode
                 <>
-                    {insightMode === ItemMode.View ? (
+                    {insightMode !== ItemMode.Edit ? (
                         <InsightContainer />
                     ) : (
                         <>

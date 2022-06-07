@@ -606,9 +606,12 @@ const api = {
         },
         async list(insightId?: number): Promise<PaginatedResponse<ActionType>> {
             return await new ApiRequest()
-                .actions()
+                .subscriptions()
                 .withQueryString(insightId ? `insight_id=${insightId}` : '')
                 .get()
+        },
+        determineDeleteEndpoint(): string {
+            return new ApiRequest().subscriptions().assembleEndpointUrl()
         },
     },
 
