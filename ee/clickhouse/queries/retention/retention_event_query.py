@@ -1,15 +1,8 @@
 from ee.clickhouse.models.group import get_aggregation_target_field
-from posthog.queries.event_query import EventQuery
 from posthog.queries.retention.event_query import RetentionEventsQuery
 
 
 class ClickhouseRetentionEventsQuery(RetentionEventsQuery):
-    def _determine_should_join_persons(self) -> None:
-        EventQuery._determine_should_join_persons(self)
-        if self._using_person_on_events:
-            self._should_join_distinct_ids = False
-            self._should_join_persons = False
-
     def target_field(self) -> str:
         if self._aggregate_users_by_distinct_id and not self._filter.aggregation_group_type_index:
             return f"{self.EVENT_TABLE_ALIAS}.distinct_id as target"
