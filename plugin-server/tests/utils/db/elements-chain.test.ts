@@ -31,7 +31,7 @@ describe('elementsToString and chainToElements', () => {
             ].join(';')
         )
 
-        const elements = chainToElements(elementsString)
+        const elements = chainToElements(elementsString, { throwOnError: true })
         expect(elements.length).toBe(4)
         expect(elements[0].tag_name).toEqual('a')
         expect(elements[0].href).toEqual('/a-url')
@@ -48,5 +48,46 @@ describe('elementsToString and chainToElements', () => {
         expect(elements[0].nth_of_type).toEqual(0)
         expect(elements[1].attr_class).toEqual(['btn', 'btn-primary'])
         expect(elements[3].attr_id).toEqual('nested')
+    })
+
+    it('handles empty strings', () => {
+        const elements = chainToElements('', { throwOnError: true })
+        expect(elements).toEqual([])
+    })
+
+    it.skip('handles broken class names', () => {
+        const elements = chainToElements('"a........small', { throwOnError: true })
+        expect(elements).not.toEqual([])
+    })
+
+    it('handles element containing quotes and colons', () => {
+        const element = {
+            tag_name: 'a',
+            href: '/a-url',
+            attr_class: ['small"', 'xy:z'],
+            attributes: {
+                attr_class: 'xyz small"',
+            },
+        }
+
+        const elementsString = elementsToString([element])
+
+        expect(elementsString).toEqual(
+            'a.small.xy:z:attr_class="xyz small\\""href="/a-url"nth-child="0"nth-of-type="0"'
+        )
+
+        const elements = chainToElements(elementsString, { throwOnError: true })
+        expect(elements.length).toEqual(1)
+        expect(elements[0]).toEqual(
+            expect.objectContaining({
+                tag_name: 'a',
+                href: '/a-url',
+                // :KLUDGE: The tranformation is not fully reversible
+                attr_class: ['small', 'xy:z'],
+                attributes: {
+                    attr_class: 'xyz small\\"',
+                },
+            })
+        )
     })
 })
