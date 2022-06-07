@@ -206,7 +206,6 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
 
     def _load_recording_from_object_store(self, session_recording_id: str) -> Tuple[Optional[str], Dict]:
         # TODO: handle pagination
-        # TODO: handle response compression
         # TODO: handle response caching
         store = storage_client()
         assert store is not None
