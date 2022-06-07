@@ -1,7 +1,7 @@
 import dataclasses
 import json
 from itertools import groupby
-from typing import Any, Dict, Tuple, Union
+from typing import Any, Dict, Optional, Tuple, Union
 
 import posthoganalytics
 from rest_framework import exceptions, request, response, serializers, viewsets
@@ -171,7 +171,7 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
             int(team) == self.team_id for team in session_recordings_from_storage_allow_list
         )
         user_should_view_recordings_from_storage = posthoganalytics.feature_enabled(
-            "session_recordings_from_storage", request.user.distinct_id
+            "session_recordings_from_storage", request.user.distinct_id  # type: ignore
         )
         if team_has_storage_enabled_for_recordings and user_should_view_recordings_from_storage:
             next_url, data = self._load_recording_from_object_store(session_recording_id)
@@ -183,7 +183,9 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
 
         return response.Response({"result": {"next": next_url, "snapshot_data_by_window_id": data,}})
 
-    def _load_recording_from_clickhouse(self, session_recording_id: str, request: request.Request) -> Tuple[str, Dict]:
+    def _load_recording_from_clickhouse(
+        self, session_recording_id: str, request: request.Request
+    ) -> Tuple[Optional[str], Dict]:
         filter = Filter(request=request)
         limit = filter.limit if filter.limit else DEFAULT_RECORDING_CHUNK_LIMIT
         offset = filter.offset if filter.offset else 0
@@ -202,7 +204,7 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
 
         return next_url, session_recording_snapshot_data.snapshot_data_by_window_id
 
-    def _load_recording_from_object_store(self, session_recording_id) -> Tuple[str, Dict]:
+    def _load_recording_from_object_store(self, session_recording_id: str) -> Tuple[Optional[str], Dict]:
         # TODO: handle pagination
         # TODO: handle response compression
         # TODO: handle response caching
