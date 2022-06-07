@@ -171,7 +171,7 @@ jobs:
 
     django:
         needs: changes
-        timeout-minutes: 60
+        timeout-minutes: 30
         if: ${{ needs.changes.outputs.backend == 'true' && github.repository == 'PostHog/posthog' || github.event_name == 'workflow_dispatch' }}
 
         name: Django tests – Py ${{ matrix.python-version }} ${{ matrix.name }}, CH ${{ matrix.clickhouse-server-image }} (${{matrix.group}}/${{ matrix.concurrency }})
@@ -275,7 +275,7 @@ jobs:
 
     cloud:
         needs: changes
-        timeout-minutes: 60
+        timeout-minutes: 30
         if: ${{ needs.changes.outputs.backend == 'true' && github.repository == 'PostHog/posthog' }}
 
         name: Django tests – Cloud
