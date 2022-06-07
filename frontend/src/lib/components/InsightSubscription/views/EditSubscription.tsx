@@ -11,17 +11,16 @@ import { dayjs } from 'lib/dayjs'
 import { LemonSelect, LemonSelectOptions } from 'lib/components/LemonSelect'
 import { insightSubscriptionLogic } from '../insightSubscriptionLogic'
 import { DatePicker } from 'lib/components/DatePicker'
-import { SubscriptionType } from '~/types'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 import { IconOpenInNew } from 'lib/components/icons'
 import { LemonTextArea } from 'packages/apps-common'
 import { AlertMessage } from 'lib/components/AlertMessage'
+import { InsightShortId } from '~/types'
 
 interface EditSubscriptionProps {
     id: number | 'new'
-    insightId: number
+    insightShortId: InsightShortId
     onCancel: () => void
-    onSubmitted: (subscription: SubscriptionType) => void
 }
 
 const intervalOptions: LemonSelectOptions = range(1, 13).reduce(
@@ -38,16 +37,12 @@ const frequencyOptions: LemonSelectOptions = {
     monthly: { label: 'months' },
 }
 
-export function EditSubscription({ id, onCancel, insightId }: EditSubscriptionProps): JSX.Element {
+export function EditSubscription({ id, onCancel, insightShortId }: EditSubscriptionProps): JSX.Element {
     const logicProps = {
         id,
-        insightId,
+        insightShortId,
     }
-    const logic = insightSubscriptionLogic({
-        id,
-        insightId,
-    })
-
+    const logic = insightSubscriptionLogic(logicProps)
     const { members } = useValues(membersLogic)
     const { subscription, isSubscriptionSubmitting } = useValues(logic)
     const { preflight } = useValues(preflightLogic)

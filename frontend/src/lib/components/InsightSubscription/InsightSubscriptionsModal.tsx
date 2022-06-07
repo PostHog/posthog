@@ -1,5 +1,5 @@
 import React from 'react'
-import { InsightModel, InsightShortId } from '~/types'
+import { InsightShortId } from '~/types'
 import { LemonModal } from 'lib/components/LemonModal'
 import { ManageSubscriptions } from './views/ManageSubscriptions'
 import { EditSubscription } from './views/EditSubscription'
@@ -10,14 +10,14 @@ import { urls } from 'scenes/urls'
 interface InsightSubscriptionModalProps {
     visible: boolean
     closeModal: () => void
-    insight: Partial<InsightModel>
+    insightShortId: InsightShortId
     subscriptionId: number | 'new' | null
 }
 
 export function InsightSubscriptionsModal({
     visible,
     closeModal,
-    insight,
+    insightShortId,
     subscriptionId,
 }: InsightSubscriptionModalProps): JSX.Element {
     const { push } = useActions(router)
@@ -25,22 +25,17 @@ export function InsightSubscriptionsModal({
     return (
         <>
             <LemonModal onCancel={closeModal} afterClose={closeModal} visible={visible} width={600}>
-                {!subscriptionId || !insight.id ? (
+                {!subscriptionId ? (
                     <ManageSubscriptions
-                        insight={insight}
+                        insightShortId={insightShortId}
                         onCancel={closeModal}
-                        onSelect={(id) =>
-                            push(urls.insightSubcription(insight.short_id as InsightShortId, id.toString()))
-                        }
+                        onSelect={(id) => push(urls.insightSubcription(insightShortId, id.toString()))}
                     />
                 ) : (
                     <EditSubscription
                         id={subscriptionId}
-                        insightId={insight.id}
-                        onCancel={() => push(urls.insightSubcriptions(insight.short_id as InsightShortId))}
-                        onSubmitted={() => {
-                            console.log('sibmited')
-                        }}
+                        insightShortId={insightShortId}
+                        onCancel={() => push(urls.insightSubcriptions(insightShortId))}
                     />
                 )}
             </LemonModal>

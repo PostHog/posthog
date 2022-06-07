@@ -112,12 +112,14 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
 
     const insightScene = (
         <div className="insights-page">
-            <InsightSubscriptionsModal
-                visible={insightMode === ItemMode.Subscriptions}
-                closeModal={() => push(urls.insightView(insight.short_id as InsightShortId))}
-                insight={insight}
-                subscriptionId={subscriptionId}
-            />
+            {insightId !== 'new' && (
+                <InsightSubscriptionsModal
+                    visible={insightMode === ItemMode.Subscriptions}
+                    closeModal={() => push(urls.insightView(insight.short_id as InsightShortId))}
+                    insightShortId={insightId}
+                    subscriptionId={subscriptionId}
+                />
+            )}
             <PageHeader
                 title={
                     <EditableField

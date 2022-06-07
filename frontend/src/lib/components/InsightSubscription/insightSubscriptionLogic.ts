@@ -1,5 +1,5 @@
-import { actions, afterMount, kea, key, path, props } from 'kea'
-import { SubscriptionType } from '~/types'
+import { afterMount, connect, kea, key, path, props } from 'kea'
+import { InsightShortId, SubscriptionType } from '~/types'
 
 import api from 'lib/api'
 import { loaders } from 'kea-loaders'
@@ -9,6 +9,9 @@ import type { insightSubscriptionLogicType } from './insightSubscriptionLogicTyp
 import { isEmail } from 'lib/utils'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from '../lemonToast'
+import { insightLogic } from 'scenes/insights/insightLogic'
+import { router } from 'kea-router'
+import { urls } from 'scenes/urls'
 
 const NEW_SUBSCRIPTION: Partial<SubscriptionType> = {
     frequency: 'weekly',
@@ -20,15 +23,15 @@ const NEW_SUBSCRIPTION: Partial<SubscriptionType> = {
 
 export interface InsightSubscriptionLogicProps {
     id: number | 'new'
-    insightId: number
+    insightShortId: InsightShortId
 }
 export const insightSubscriptionLogic = kea<insightSubscriptionLogicType>([
     path(['lib', 'components', 'InsightSubscription', 'insightSubscriptionLogic']),
     props({} as InsightSubscriptionLogicProps),
-    key(({ id, insightId }) => `${insightId}-${id ?? 'new'}`),
-    actions({
-        createSubscription: (subscription) => ({ subscription }),
-    }),
+    key(({ id, insightShortId }) => `${insightShortId}-${id ?? 'new'}`),
+    connect(({ insightShortId }: InsightSubscriptionLogicProps) => ({
+        values: [insightLogic({ dashboardItemId: insightShortId }), ['insight']],
+    })),
 
     loaders(({ props }) => ({
         subscription: {
@@ -42,7 +45,7 @@ export const insightSubscriptionLogic = kea<insightSubscriptionLogicType>([
         },
     })),
 
-    forms(({ props }) => ({
+    forms(({ props, values }) => ({
         subscription: {
             defaults: { ...NEW_SUBSCRIPTION } as SubscriptionType,
             errors: ({ frequency, interval, target_value, target_type }) => ({
@@ -58,10 +61,12 @@ export const insightSubscriptionLogic = kea<insightSubscriptionLogicType>([
                         : undefined,
             }),
             submit: async (subscription) => {
-                subscription.insight = props.insightId
+                subscription.insight = values.insight.id
 
                 if (props.id === 'new') {
                     await api.subscriptions.create(subscription)
+                    const newSub = await api.subscriptions.create(subscription)
+                    router.actions.replace(urls.insightSubcription(props.insightShortId, newSub.id.toString()))
                 } else {
                     await api.subscriptions.update(props.id, subscription)
                 }

@@ -1,37 +1,38 @@
-import { actions, afterMount, kea, key, listeners, path, props, reducers } from 'kea'
-import { InsightModel, SubscriptionType } from '~/types'
+import { actions, afterMount, connect, kea, key, listeners, path, props, reducers } from 'kea'
+import { InsightShortId, SubscriptionType } from '~/types'
 
 import api from 'lib/api'
 import { loaders } from 'kea-loaders'
 
 import type { insightSubscriptionsLogicType } from './insightSubscriptionsLogicType'
 import { deleteWithUndo } from 'lib/utils'
+import { insightLogic } from 'scenes/insights/insightLogic'
 
 export interface InsightSubscriptionLogicProps {
-    insight: Partial<InsightModel>
+    insightShortId: InsightShortId
 }
 export const insightSubscriptionsLogic = kea<insightSubscriptionsLogicType>([
     path(['lib', 'components', 'InsightSubscription', 'insightSubscriptionsLogic']),
     props({} as InsightSubscriptionLogicProps),
-    key(({ insight }) => {
-        if (!insight.short_id) {
-            throw Error('must provide an insight with a short id')
-        }
-        return insight.short_id
+    key(({ insightShortId }) => {
+        return insightShortId
     }),
+    connect(({ insightShortId }: InsightSubscriptionLogicProps) => ({
+        values: [insightLogic({ dashboardItemId: insightShortId }), ['insight']],
+    })),
     actions({
         deleteSubscription: (id: number) => ({ id }),
     }),
 
-    loaders(({ props }) => ({
+    loaders(({ values }) => ({
         subscriptions: {
             __default: [] as SubscriptionType[],
             loadSubscriptions: async () => {
-                if (!props.insight.id) {
+                if (!values.insight.id) {
                     return []
                 }
 
-                const response = await api.subscriptions.list(props.insight.id)
+                const response = await api.subscriptions.list(values.insight.id)
                 return response.results
             },
         },
