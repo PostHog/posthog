@@ -18,6 +18,7 @@ import {
 import { createHub } from '../utils/db/hub'
 import { determineNodeEnv, NodeEnv } from '../utils/env-utils'
 import { killProcess } from '../utils/kill'
+import { captureEventLoopMetrics } from '../utils/metrics'
 import { cancelAllScheduledJobs } from '../utils/node-schedule'
 import { PubSub } from '../utils/pubsub'
 import { status } from '../utils/status'
@@ -69,6 +70,7 @@ export async function startPluginsServer(
     let mmdbServer: net.Server | undefined
     let lastActivityCheck: NodeJS.Timeout | undefined
     let httpServer: Server | undefined
+    let stopEventLoopMetrics: (() => void) | undefined
 
     let shutdownStatus = 0
 
@@ -86,6 +88,7 @@ export async function startPluginsServer(
         status.info('💤', ' Shutting down gracefully...')
         lastActivityCheck && clearInterval(lastActivityCheck)
         cancelAllScheduledJobs()
+        stopEventLoopMetrics?.()
         await queue?.stop()
         await pubSub?.stop()
         await jobQueueConsumer?.stop()
@@ -227,6 +230,10 @@ export async function startPluginsServer(
             schedule.scheduleJob('0 * * * * *', async () => {
                 await hub!.internalMetrics?.flush(piscina!)
             })
+        }
+
+        if (hub.statsd) {
+            stopEventLoopMetrics = captureEventLoopMetrics(hub.statsd, hub.instanceId)
         }
 
         if (serverConfig.STALENESS_RESTART_SECONDS > 0) {
