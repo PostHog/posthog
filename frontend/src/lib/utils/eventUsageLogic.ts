@@ -422,7 +422,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
             loadTime,
             error,
         }),
-        reportDataManagementEventDefinitionsPageClickNestedPropertyDetail: true,
         reportDataManagementEventPropertyDefinitionsPageLoadSucceeded: (loadTime: number, resultsLength: number) => ({
             loadTime,
             resultsLength,
@@ -1001,9 +1000,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
                 load_time: loadTime,
                 error,
             })
-        },
-        reportDataManagementEventDefinitionsPageClickNestedPropertyDetail: () => {
-            posthog.capture('event definitions page event nested property show detail clicked')
         },
         reportDataManagementEventPropertyDefinitionsPageLoadSucceeded: ({ loadTime, resultsLength }) => {
             posthog.capture('event property definitions page load succeeded', {

@@ -9,7 +9,7 @@ import { definitionPopupLogic, DefinitionPopupState } from 'lib/components/Defin
 import React, { CSSProperties, useEffect, useState } from 'react'
 import { isPostHogProp, keyMapping, PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { DefinitionPopup } from 'lib/components/DefinitionPopup/DefinitionPopup'
-import { LockOutlined } from '@ant-design/icons'
+import { InfoCircleOutlined, LockOutlined } from '@ant-design/icons'
 import { Link } from 'lib/components/Link'
 import { IconInfo, IconOpenInNew } from 'lib/components/icons'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
@@ -96,6 +96,44 @@ function TaxonomyIntroductionSection(): JSX.Element {
                 </Link>
             </DefinitionPopup.Section>
         </>
+    )
+}
+
+export function VerifiedEventCheckbox({
+    verified,
+    onChange,
+    compact = false,
+}: {
+    verified: boolean
+    onChange: (nextVerified: boolean) => void
+    compact?: boolean
+}): JSX.Element {
+    const copy =
+        'Verified events are prioritized in filters and other selection components. Verifying an event is a signal to collaborators that this event should be used in favor of similar events.'
+
+    return (
+        <div style={{ border: '1px solid var(--border)', padding: '0.5rem', borderRadius: 'var(--radius)' }}>
+            <Checkbox
+                checked={verified}
+                onChange={() => {
+                    onChange(!verified)
+                }}
+            >
+                <span style={{ fontWeight: 600 }}>
+                    Verified event
+                    {compact && (
+                        <Tooltip title={copy}>
+                            <InfoCircleOutlined style={{ marginLeft: '0.5rem', color: 'var(--text-muted)' }} />
+                        </Tooltip>
+                    )}
+                </span>
+                {!compact && (
+                    <div className="text-muted" style={{ marginTop: '0.25rem' }}>
+                        {copy}
+                    </div>
+                )}
+            </Checkbox>
+        </div>
     )
 }
 
@@ -358,21 +396,13 @@ function DefinitionEdit(): JSX.Element {
                     </>
                 )}
                 {definition && definition.name && !isPostHogProp(definition.name) && 'verified' in localDefinition && (
-                    <Checkbox
-                        checked={localDefinition.verified}
-                        onChange={() => {
-                            setLocalDefinition({ verified: !localDefinition.verified })
+                    <VerifiedEventCheckbox
+                        verified={!!localDefinition.verified}
+                        onChange={(nextVerified) => {
+                            setLocalDefinition({ verified: nextVerified })
                         }}
-                    >
-                        <div className="definition-popup-edit-form-label">
-                            <span className="label-text">Verified event</span>
-                        </div>
-                        <div className="text-muted definition-popup-edit-form-value">
-                            Verified events are prioritized in filters and other selection components. Verifying an
-                            event is a signal to collaborators that this event should be used in favor of similar
-                            events.
-                        </div>
-                    </Checkbox>
+                        compact
+                    />
                 )}
                 <DefinitionPopup.HorizontalLine style={{ marginTop: 0 }} />
                 <div className="definition-popup-edit-form-buttons click-outside-block">
