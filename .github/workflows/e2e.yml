@@ -34,8 +34,8 @@ jobs:
         steps:
             - uses: actions/checkout@v2
             - id: set-specs
-              # List cypress/integration and produce a JSON array of the files, in chunks
-              run: echo "::set-output name=specs::$(ls cypress/integration/* | jq --slurp --raw-input -c 'split("\n")[:-1] | _nwise(3) | join("\n")' | jq --slurp -c .)"
+              # List cypress/e2e and produce a JSON array of the files, in chunks
+              run: echo "::set-output name=specs::$(ls cypress/e2e/* | jq --slurp --raw-input -c 'split("\n")[:-1] | _nwise(3) | join("\n")' | jq --slurp -c .)"
 
             - uses: actions/cache@v2
               id: cypress-node-modules-cache-3
@@ -138,7 +138,6 @@ jobs:
               uses: cypress-io/github-action@v2
               with:
                   config-file: cypress.e2e.config.ts
-                  config: retries=2
                   # We're already installing cypress above
                   # We have to install it separately otherwise the tests fail.
                   install: false
