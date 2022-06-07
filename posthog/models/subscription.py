@@ -1,5 +1,7 @@
+from datetime import datetime
+
+from dateutil.rrule import FREQNAMES, rrule
 from django.contrib.postgres.fields import ArrayField
-from dateutil.rrule import rrule
 from django.db import models
 
 
@@ -50,6 +52,9 @@ class Subscription(models.Model):
     start_date: models.DateTimeField = models.DateTimeField()
     until_date: models.DateTimeField = models.DateTimeField(null=True, blank=True)
 
+    # Controlled field - next schedule as helper for
+    next_delivery_date: models.DateTimeField = models.DateTimeField(null=True, blank=True)
+
     # Meta
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True, blank=True)
     created_by: models.ForeignKey = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)
@@ -57,8 +62,9 @@ class Subscription(models.Model):
 
     @property
     def rrule(self):
+        freq = FREQNAMES.index(self.frequency.upper())
         return rrule(
-            freq=self.frequency.upper(),
+            freq=freq,
             count=self.count,
             interval=self.interval,
             dtstart=self.start_date,
@@ -70,3 +76,12 @@ class Subscription(models.Model):
     @property
     def title(self):
         return f"Sent every {self.interval} {self.frequency}"
+
+    def set_next_delivery_date(self, from_dt=None):
+        # print(from_dt, datetime.now())
+        self.next_delivery_date = self.rrule.after(dt=from_dt or datetime.now(), inc=False)
+        # print(f"Setting! {self.next_delivery_date}")
+
+    def save(self, *args, **kwargs) -> None:
+        self.set_next_delivery_date()
+        super(Subscription, self).save(*args, **kwargs)
