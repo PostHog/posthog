@@ -70,9 +70,9 @@ import {
     UUIDT,
 } from '../utils'
 import { OrganizationPluginsAccessLevel } from './../../types'
+import { chainToElements } from './elements-chain'
 import { KafkaProducerWrapper } from './kafka-producer-wrapper'
 import {
-    chainToElements,
     generateKafkaPersonUpdateMessage,
     getFinalPostgresQuery,
     safeClickhouseString,
