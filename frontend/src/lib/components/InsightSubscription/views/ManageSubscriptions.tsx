@@ -77,7 +77,7 @@ export function ManageSubscriptions({ insight, onCancel, onSelect }: ManageSubsc
                 </div>
             </section>
             <section>
-                {subscriptionsLoading ? (
+                {subscriptionsLoading && !subscriptions.length ? (
                     <>
                         <Skeleton.Button active block size="large" />
                         <Skeleton.Button active block size="large" />

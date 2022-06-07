@@ -30,7 +30,6 @@ class Subscription(models.Model):
         SATURDAY = "saturday"
         SUNDAY = "sunday"
 
-
     # Relations - i.e. WHAT are we exporting?
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
     dashboard = models.ForeignKey("posthog.Dashboard", on_delete=models.CASCADE, null=True)
@@ -44,7 +43,9 @@ class Subscription(models.Model):
     frequency: models.CharField = models.CharField(max_length=10, choices=SubscriptionFrequency.choices)
     interval: models.IntegerField = models.IntegerField(default=1)
     count: models.IntegerField = models.IntegerField(null=True)
-    byweekday: ArrayField = ArrayField(models.CharField(max_length=10, choices=SubscriptionByWeekDay.choices), null=True, blank=True, default=None),
+    byweekday: ArrayField = ArrayField(
+        models.CharField(max_length=10, choices=SubscriptionByWeekDay.choices), null=True, blank=True, default=None
+    )
     bysetpos: models.IntegerField = models.IntegerField(null=True)
     start_date: models.DateTimeField = models.DateTimeField()
     until_date: models.DateTimeField = models.DateTimeField(null=True, blank=True)
@@ -63,10 +64,9 @@ class Subscription(models.Model):
             dtstart=self.start_date,
             until=self.until_date,
             bysetpos=self.bysetpos,
-            byweekday=[x[:2].upper() for x in self.byweekday] if self.byweekday else None
+            byweekday=[x[:2].upper() for x in self.byweekday] if self.byweekday else None,
         )
 
     @property
     def title(self):
         return f"Sent every {self.interval} {self.frequency}"
-

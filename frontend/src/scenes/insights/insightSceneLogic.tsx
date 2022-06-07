@@ -39,9 +39,10 @@ export const insightSceneLogic = kea<insightSceneLogicType>({
     actions: {
         setInsightId: (insightId: InsightShortId) => ({ insightId }),
         setInsightMode: (insightMode: ItemMode, source: InsightEventSource | null) => ({ insightMode, source }),
-        setSceneState: (insightId: InsightShortId, insightMode: ItemMode) => ({
+        setSceneState: (insightId: InsightShortId, insightMode: ItemMode, subscriptionId: string | undefined) => ({
             insightId,
             insightMode,
+            subscriptionId,
         }),
         setInsightLogic: (logic: BuiltLogic<insightLogicType> | null, unmount: null | (() => void)) => ({
             logic,
@@ -62,6 +63,17 @@ export const insightSceneLogic = kea<insightSceneLogicType>({
             {
                 setInsightMode: (_, { insightMode }) => insightMode,
                 setSceneState: (_, { insightMode }) => insightMode,
+            },
+        ],
+        subscriptionId: [
+            null as null | number | 'new',
+            {
+                setSceneState: (_, { subscriptionId }) =>
+                    subscriptionId !== undefined
+                        ? subscriptionId === 'new'
+                            ? 'new'
+                            : parseInt(subscriptionId, 10)
+                        : null,
             },
         ],
         syncedInsightChanged: [
@@ -130,7 +142,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>({
     }),
     urlToAction: ({ actions, values }) => ({
         '/insights/:shortId(/:mode)(/:subscriptionId)': (
-            { shortId, mode }, // url params
+            { shortId, mode, subscriptionId }, // url params
             { dashboard, ...searchParams }, // search params
             { filters: _filters }, // hash params
             { method, initial } // "location changed" event payload
@@ -160,8 +172,12 @@ export const insightSceneLogic = kea<insightSceneLogicType>({
             }
 
             // this makes sure we have "values.insightCache?.logic" below
-            if (insightId !== values.insightId || insightMode !== values.insightMode) {
-                actions.setSceneState(insightId, insightMode)
+            if (
+                insightId !== values.insightId ||
+                insightMode !== values.insightMode ||
+                subscriptionId !== values.subscriptionId
+            ) {
+                actions.setSceneState(insightId, insightMode, subscriptionId)
             }
 
             // capture any filters from the URL, either #filters={} or ?insight=X&bla=foo&bar=baz

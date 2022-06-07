@@ -1,5 +1,5 @@
 import './Insight.scss'
-import React, { useEffect, useState } from 'react'
+import React, { useEffect } from 'react'
 import { useActions, useMountedLogic, useValues, BindLogic } from 'kea'
 import { Card } from 'antd'
 import { FunnelTab, PathTab, RetentionTab, TrendTab } from './InsightTabs'
@@ -19,7 +19,6 @@ import { InsightSaveButton } from './InsightSaveButton'
 import { userLogic } from 'scenes/userLogic'
 import { FeedbackCallCTA } from 'lib/experimental/FeedbackCallCTA'
 import { PageHeader } from 'lib/components/PageHeader'
-import { LastModified } from 'lib/components/InsightCard/LastModified'
 import { IconLock } from 'lib/components/icons'
 import { summarizeInsightFilters } from './utils'
 import { groupsModel } from '~/models/groupsModel'
@@ -45,14 +44,11 @@ import { InsightSubscriptionsModal } from 'lib/components/InsightSubscription/In
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 
 export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): JSX.Element {
-    const { insightMode } = useValues(insightSceneLogic)
+    const { insightMode, subscriptionId } = useValues(insightSceneLogic)
     const { setInsightMode, syncInsightChanged } = useActions(insightSceneLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { currentTeamId } = useValues(teamLogic)
     const { push } = useActions(router)
-    const {
-        searchParams, // object
-    } = useValues(router)
 
     const logic = insightLogic({ dashboardItemId: insightId || 'new' })
     const {
@@ -120,6 +116,7 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                 visible={insightMode === ItemMode.Subscriptions}
                 closeModal={() => push(urls.insightView(insight.short_id as InsightShortId))}
                 insight={insight}
+                subscriptionId={subscriptionId}
             />
             <PageHeader
                 title={
