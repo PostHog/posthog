@@ -97,6 +97,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         OBJECT_STORAGE_SESSION_RECORDING_FOLDER: 'session_recordings',
         OBJECT_STORAGE_BUCKET: 'posthog',
         PLUGIN_SERVER_MODE: null,
+        KAFKAJS_LOG_LEVEL: 'WARN',
     }
 }
 
@@ -127,6 +128,7 @@ export function getConfigHelp(): Record<keyof PluginsServerConfig, string> {
         KAFKA_SASL_MECHANISM: 'Kafka SASL mechanism, one of "plain", "scram-sha-256", or "scram-sha-512"',
         KAFKA_SASL_USER: 'Kafka SASL username',
         KAFKA_SASL_PASSWORD: 'Kafka SASL password',
+        KAFKAJS_LOG_LEVEL: 'Kafka log level',
         SENTRY_DSN: 'Sentry ingestion URL',
         STATSD_HOST: 'StatsD host - integration disabled if this is not provided',
         STATSD_PORT: 'StatsD port',
