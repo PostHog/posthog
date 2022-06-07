@@ -153,7 +153,7 @@ class ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('event_definitions')
     }
 
-    public eventDefinitionsDetail(eventDefinitionId: EventDefinition['id'], teamId?: TeamType['id']): ApiRequest {
+    public eventDefinitionDetail(eventDefinitionId: EventDefinition['id'], teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('event_definitions').addPathComponent(eventDefinitionId)
     }
 
@@ -161,7 +161,7 @@ class ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('property_definitions')
     }
 
-    public propertyDefinitionsDetail(
+    public propertyDefinitionDetail(
         propertyDefinitionId: PropertyDefinition['id'],
         teamId?: TeamType['id']
     ): ApiRequest {
@@ -410,7 +410,7 @@ const api = {
 
     eventDefinitions: {
         async get({ eventDefinitionId }: { eventDefinitionId: EventDefinition['id'] }): Promise<EventDefinition> {
-            return new ApiRequest().eventDefinitionsDetail(eventDefinitionId).get()
+            return new ApiRequest().eventDefinitionDetail(eventDefinitionId).get()
         },
         async update({
             eventDefinitionId,
@@ -419,7 +419,7 @@ const api = {
             eventDefinitionId: EventDefinition['id']
             eventDefinitionData: Partial<Omit<EventDefinition, 'owner'> & { owner: number | null }>
         }): Promise<EventDefinition> {
-            return new ApiRequest().eventDefinitionsDetail(eventDefinitionId).update({ data: eventDefinitionData })
+            return new ApiRequest().eventDefinitionDetail(eventDefinitionId).update({ data: eventDefinitionData })
         },
         async list({
             limit = EVENT_DEFINITIONS_PER_PAGE,
@@ -461,7 +461,7 @@ const api = {
         }: {
             propertyDefinitionId: PropertyDefinition['id']
         }): Promise<PropertyDefinition> {
-            return new ApiRequest().propertyDefinitionsDetail(propertyDefinitionId).get()
+            return new ApiRequest().propertyDefinitionDetail(propertyDefinitionId).get()
         },
         async update({
             propertyDefinitionId,
@@ -471,7 +471,7 @@ const api = {
             propertyDefinitionData: Partial<PropertyDefinition>
         }): Promise<PropertyDefinition> {
             return new ApiRequest()
-                .propertyDefinitionsDetail(propertyDefinitionId)
+                .propertyDefinitionDetail(propertyDefinitionId)
                 .update({ data: propertyDefinitionData })
         },
         async list({
