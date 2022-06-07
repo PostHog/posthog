@@ -516,12 +516,6 @@ export interface Element {
     group_id?: number
 }
 
-export interface ElementGroup {
-    id: number
-    hash: string
-    team_id: number
-}
-
 /** Usable Event model. */
 export interface Event {
     id: number
