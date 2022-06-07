@@ -1,6 +1,6 @@
 import { kea } from 'kea'
 import { CombinedFeatureFlagAndOverrideType } from '~/types'
-import { featureFlagsLogicType } from './featureFlagsLogicType'
+import type { featureFlagsLogicType } from './featureFlagsLogicType'
 import { toolbarFetch } from '~/toolbar/utils'
 import { toolbarLogic } from '~/toolbar/toolbarLogic'
 import Fuse from 'fuse.js'

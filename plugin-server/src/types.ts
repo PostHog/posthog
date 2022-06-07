@@ -516,12 +516,6 @@ export interface Element {
     group_id?: number
 }
 
-export interface ElementGroup {
-    id: number
-    hash: string
-    team_id: number
-}
-
 /** Usable Event model. */
 export interface Event {
     id: number
@@ -543,7 +537,20 @@ export interface Event {
 
 export interface ClickHouseEvent extends Omit<Event, 'id' | 'elements' | 'elements_hash'> {
     uuid: string
+    elements_chain: string | undefined
+}
+
+// Clickhouse event as read from kafka
+export interface ClickhouseEventKafka {
+    event: string
+    timestamp: string
+    team_id: number
+    distinct_id: string
+    created_at: string
+    uuid: string
     elements_chain: string
+    properties: string
+    person_properties: string | null
 }
 
 export interface DeadLetterQueueEvent {

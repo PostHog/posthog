@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-var-requires */
 /* global require, module, process, __dirname */
 const path = require('path')
 const HtmlWebpackPlugin = require('html-webpack-plugin')
@@ -106,7 +105,7 @@ function createEntry(entry) {
 
                 {
                     // Now we apply rule for images
-                    test: /\.(png|jpe?g|gif|svg)$/,
+                    test: /\.(png|jpe?g|gif|svg|lottie)$/,
                     use: [
                         {
                             // Using file-loader for these files

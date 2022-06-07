@@ -1,4 +1,4 @@
-from ee.clickhouse.sql.clickhouse import KAFKA_COLUMNS, STORAGE_POLICY, kafka_engine
+from ee.clickhouse.sql.clickhouse import COPY_ROWS_BETWEEN_TEAMS_BASE_SQL, KAFKA_COLUMNS, STORAGE_POLICY, kafka_engine
 from ee.clickhouse.sql.table_engines import CollapsingMergeTree, ReplacingMergeTree
 from ee.kafka_client.topics import KAFKA_PERSON, KAFKA_PERSON_DISTINCT_ID, KAFKA_PERSON_UNIQUE_ID
 from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
@@ -22,7 +22,8 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
     team_id Int64,
     properties VARCHAR,
     is_identified Int8,
-    is_deleted Int8 DEFAULT 0
+    is_deleted Int8 DEFAULT 0,
+    version UInt64
     {extra_fields}
 ) ENGINE = {engine}
 """
@@ -57,6 +58,7 @@ team_id,
 properties,
 is_identified,
 is_deleted,
+version,
 _timestamp,
 _offset
 FROM {database}.kafka_{table_name}
@@ -247,6 +249,28 @@ INSERT_PERSON_STATIC_COHORT = (
 )
 
 #
+# Copying demo data
+#
+
+COPY_PERSONS_BETWEEN_TEAMS = COPY_ROWS_BETWEEN_TEAMS_BASE_SQL.format(
+    table_name=PERSONS_TABLE,
+    columns_except_team_id="""id, created_at, properties, is_identified, _timestamp, _offset, is_deleted""",
+)
+
+COPY_PERSON_DISTINCT_ID2S_BETWEEN_TEAMS = COPY_ROWS_BETWEEN_TEAMS_BASE_SQL.format(
+    table_name=PERSON_DISTINCT_ID2_TABLE,
+    columns_except_team_id="""distinct_id, person_id, is_deleted, version, _timestamp, _offset, _partition""",
+)
+
+SELECT_PERSONS_OF_TEAM = """SELECT * FROM {table_name} WHERE team_id = %(source_team_id)s""".format(
+    table_name=PERSONS_TABLE,
+)
+
+SELECT_PERSON_DISTINCT_ID2S_OF_TEAM = """SELECT * FROM {table_name} WHERE team_id = %(source_team_id)s""".format(
+    table_name=PERSON_DISTINCT_ID2_TABLE,
+)
+
+#
 # Other queries
 #
 
@@ -288,11 +312,11 @@ WHERE team_id = %(team_id)s
 )
 
 INSERT_PERSON_SQL = """
-INSERT INTO person (id, created_at, team_id, properties, is_identified, _timestamp, _offset, is_deleted) SELECT %(id)s, %(created_at)s, %(team_id)s, %(properties)s, %(is_identified)s, %(_timestamp)s, 0, 0
+INSERT INTO person (id, created_at, team_id, properties, is_identified, _timestamp, _offset, is_deleted, version) SELECT %(id)s, %(created_at)s, %(team_id)s, %(properties)s, %(is_identified)s, %(_timestamp)s, 0, 0, 0
 """
 
 INSERT_PERSON_BULK_SQL = """
-INSERT INTO person (id, created_at, team_id, properties, is_identified, _timestamp, _offset, is_deleted) VALUES
+INSERT INTO person (id, created_at, team_id, properties, is_identified, _timestamp, _offset, is_deleted, version) VALUES
 """
 
 INSERT_PERSON_DISTINCT_ID = """

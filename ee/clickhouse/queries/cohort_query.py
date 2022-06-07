@@ -10,6 +10,7 @@ from posthog.models.action import Action
 from posthog.models.cohort import Cohort
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.property import BehavioralPropertyType, OperatorInterval, Property, PropertyGroup, PropertyName
+from posthog.models.utils import PersonPropertiesMode
 
 Relative_Date = Tuple[int, OperatorInterval]
 Event = Tuple[str, Union[str, int]]
@@ -177,6 +178,7 @@ class CohortQuery(EnterpriseEventQuery):
             extra_event_properties=extra_event_properties,
             extra_person_fields=extra_person_fields,
             override_aggregate_users_by_distinct_id=override_aggregate_users_by_distinct_id,
+            using_person_on_events=team.actor_on_events_querying_enabled,
             **kwargs,
         )
 
@@ -310,11 +312,12 @@ class CohortQuery(EnterpriseEventQuery):
                 q += f"({subq_query}) {subq_alias}"
                 fields = f"{subq_alias}.person_id"
             elif prev_alias:  # can't join without a previous alias
-                if (
-                    subq_alias == self.PERSON_TABLE_ALIAS
-                    and "person" not in [prop.type for prop in getattr(self._outer_property_groups, "flat", [])]
-                    and "static-cohort" not in [prop.type for prop in getattr(self._outer_property_groups, "flat", [])]
-                ):
+                if subq_alias == self.PERSON_TABLE_ALIAS and self.should_pushdown_persons:
+                    if self._using_person_on_events:
+                        # when using person-on-events, instead of inner join, we filter inside
+                        # the event query itself
+                        continue
+
                     q = f"{q} {inner_join_query(subq_query, subq_alias, f'{subq_alias}.person_id', f'{prev_alias}.person_id')}"
                     fields = f"{subq_alias}.person_id"
                 else:
@@ -335,11 +338,23 @@ class CohortQuery(EnterpriseEventQuery):
         #
         event_param_name = f"{self._cohort_pk}_event_ids"
 
+        person_prop_query = ""
+        person_prop_params: dict = {}
+
         query, params = "", {}
         if self._should_join_behavioral_query:
 
-            _fields = [f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id AS person_id"]
+            _fields = [
+                f"{self.DISTINCT_ID_TABLE_ALIAS if not self._using_person_on_events else self.EVENT_TABLE_ALIAS}.person_id AS person_id"
+            ]
             _fields.extend(self._fields)
+
+            if self.should_pushdown_persons and self._using_person_on_events:
+                person_prop_query, person_prop_params = self._get_prop_groups(
+                    self._inner_property_groups,
+                    person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS,
+                    person_id_joined_alias=f"{self.EVENT_TABLE_ALIAS}.person_id",
+                )
 
             date_condition, date_params = self._get_date_condition()
             query = f"""
@@ -348,10 +363,14 @@ class CohortQuery(EnterpriseEventQuery):
             WHERE team_id = %(team_id)s
             AND event IN %({event_param_name})s
             {date_condition}
+            {person_prop_query}
             GROUP BY person_id
             """
 
-            query, params = (query, {"team_id": self._team_id, event_param_name: self._events, **date_params,})
+            query, params = (
+                query,
+                {"team_id": self._team_id, event_param_name: self._events, **date_params, **person_prop_params},
+            )
 
         return query, params, self.BEHAVIOR_QUERY_ALIAS
 
@@ -364,6 +383,12 @@ class CohortQuery(EnterpriseEventQuery):
             query, params = person_query, person_params
 
         return query, params, self.PERSON_TABLE_ALIAS
+
+    @cached_property
+    def should_pushdown_persons(self) -> bool:
+        return "person" not in [
+            prop.type for prop in getattr(self._outer_property_groups, "flat", [])
+        ] and "static-cohort" not in [prop.type for prop in getattr(self._outer_property_groups, "flat", [])]
 
     def _get_date_condition(self) -> Tuple[str, Dict[str, Any]]:
         date_query = ""
@@ -590,7 +615,12 @@ class CohortQuery(EnterpriseEventQuery):
 
         names = ["event", "properties", "distinct_id", "timestamp"]
 
-        _inner_fields = [f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id AS person_id"]
+        person_prop_query = ""
+        person_prop_params: dict = {}
+
+        _inner_fields = [
+            f"{self.DISTINCT_ID_TABLE_ALIAS if not self._using_person_on_events else self.EVENT_TABLE_ALIAS}.person_id AS person_id"
+        ]
         _intermediate_fields = ["person_id"]
         _outer_fields = ["person_id"]
 
@@ -609,12 +639,20 @@ class CohortQuery(EnterpriseEventQuery):
 
         event_param_name = f"{self._cohort_pk}_event_ids"
 
+        if self.should_pushdown_persons and self._using_person_on_events:
+            person_prop_query, person_prop_params = self._get_prop_groups(
+                self._inner_property_groups,
+                person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS,
+                person_id_joined_alias=f"{self.EVENT_TABLE_ALIAS}.person_id",
+            )
+
         new_query = f"""
         SELECT {", ".join(_inner_fields)} FROM events AS {self.EVENT_TABLE_ALIAS}
         {self._get_distinct_id_query()}
         WHERE team_id = %(team_id)s
         AND event IN %({event_param_name})s
         {date_condition}
+        {person_prop_query}
         """
 
         intermediate_query = f"""
@@ -629,7 +667,7 @@ class CohortQuery(EnterpriseEventQuery):
         """
         return (
             outer_query,
-            {"team_id": self._team_id, event_param_name: self._events, **params},
+            {"team_id": self._team_id, event_param_name: self._events, **params, **person_prop_params},
             self.FUNNEL_QUERY_ALIAS,
         )
 
@@ -728,9 +766,12 @@ class CohortQuery(EnterpriseEventQuery):
         return column_name, {**entity_params, **params}
 
     def _determine_should_join_distinct_ids(self) -> None:
-        self._should_join_distinct_ids = True
+        self._should_join_distinct_ids = not self._using_person_on_events
 
     def _determine_should_join_persons(self) -> None:
+        # :TRICKY: This doesn't apply to joining inside events query, but to the
+        # overall query, while `should_join_distinct_ids` applies only to
+        # event subqueries
         self._should_join_persons = (
             self._column_optimizer.is_using_person_properties
             or len(self._column_optimizer._used_properties_with_type("static-cohort")) > 0

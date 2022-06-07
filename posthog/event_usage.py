@@ -206,6 +206,22 @@ def report_organization_deleted(user: User, organization: Organization):
     )
 
 
+def report_first_ingestion_reminder_email_sent(user: User):
+    posthoganalytics.capture(
+        user.distinct_id,
+        "first ingestion reminder email sent",
+        groups=groups(user.current_organization, user.current_team),
+    )
+
+
+def report_second_ingestion_reminder_email_sent(user: User):
+    posthoganalytics.capture(
+        user.distinct_id,
+        "second ingestion reminder email sent",
+        groups=groups(user.current_organization, user.current_team),
+    )
+
+
 def groups(organization: Optional[Organization] = None, team: Optional[Team] = None):
     result = {"instance": SITE_URL}
     if organization is not None:

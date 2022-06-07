@@ -10,16 +10,11 @@ import './Panels.scss'
 
 export function BookmarkletPanel(): JSX.Element {
     const { index } = useValues(ingestionLogic)
-    const { setPlatform, setVerify } = useActions(ingestionLogic)
+    const { setPlatform } = useActions(ingestionLogic)
     const { currentTeam } = useValues(teamLogic)
 
     return (
-        <CardContainer
-            index={index}
-            showFooter={true}
-            onSubmit={() => setVerify(true)}
-            onBack={() => setPlatform(null)}
-        >
+        <CardContainer index={index} showFooter={true} onBack={() => setPlatform(null)}>
             {currentTeam && (
                 <div style={{ padding: '0px 16px' }}>
                     <h1 className="ingestion-title mb-05">Just exploring?</h1>

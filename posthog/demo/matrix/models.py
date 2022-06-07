@@ -30,7 +30,7 @@ EVENT_GROUP_IDENTIFY = "$groupidentify"
 
 Properties = Dict[str, Any]
 SP = TypeVar("SP", bound="SimPerson")
-Effect = Callable[[SP], None]
+Effect = Callable[[SP], Any]
 
 
 @dataclass
