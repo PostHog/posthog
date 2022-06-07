@@ -2,6 +2,7 @@ import os from 'os'
 
 import { LogLevel, PluginsServerConfig } from '../types'
 import { isDevEnv, isTestEnv, stringToBoolean } from '../utils/env-utils'
+import { KAFKAJS_LOG_LEVEL_MAPPING } from './constants'
 import { KAFKA_EVENTS_JSON, KAFKA_EVENTS_PLUGIN_INGESTION } from './kafka-topics'
 
 export const defaultConfig = overrideWithEnv(getDefaultConfig())
@@ -210,6 +211,14 @@ export function overrideWithEnv(
 
     if (!['ingestion', 'async', null].includes(newConfig.PLUGIN_SERVER_MODE)) {
         throw Error(`Invalid PLUGIN_SERVER_MODE ${newConfig.PLUGIN_SERVER_MODE}`)
+    }
+
+    if (!Object.keys(KAFKAJS_LOG_LEVEL_MAPPING).includes(newConfig.KAFKAJS_LOG_LEVEL)) {
+        throw Error(
+            `Invalid KAFKAJS_LOG_LEVEL ${newConfig.KAFKAJS_LOG_LEVEL}. Valid: ${Object.keys(
+                KAFKAJS_LOG_LEVEL_MAPPING
+            ).join(', ')}`
+        )
     }
     return newConfig
 }
