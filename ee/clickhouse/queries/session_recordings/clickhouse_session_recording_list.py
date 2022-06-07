@@ -2,13 +2,13 @@ from datetime import timedelta
 from typing import Any, Dict, List, NamedTuple, Tuple, Union
 
 from ee.clickhouse.models.property import get_property_string_expr, parse_prop_grouped_clauses
-from ee.clickhouse.queries.event_query import EnterpriseEventQuery
 from posthog.client import sync_execute
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 from posthog.models import Entity
 from posthog.models.action.util import format_entity_filter
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
 from posthog.models.utils import PersonPropertiesMode
+from posthog.queries.event_query import EventQuery
 from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
 
 
@@ -24,7 +24,7 @@ class SessionRecordingQueryResult(NamedTuple):
     has_more_recording: bool
 
 
-class ClickhouseSessionRecordingList(EnterpriseEventQuery):
+class ClickhouseSessionRecordingList(EventQuery):
     _filter: SessionRecordingsFilter
     SESSION_RECORDINGS_DEFAULT_LIMIT = 50
 

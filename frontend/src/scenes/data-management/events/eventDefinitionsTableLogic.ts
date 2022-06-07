@@ -1,11 +1,12 @@
-import { kea } from 'kea'
+import { actions, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { AnyPropertyFilter, EventDefinition, PropertyDefinition } from '~/types'
 import type { eventDefinitionsTableLogicType } from './eventDefinitionsTableLogicType'
 import api, { PaginatedResponse } from 'lib/api'
 import { keyMappingKeys } from 'lib/components/PropertyKeyInfo'
-import { combineUrl, router } from 'kea-router'
+import { actionToUrl, combineUrl, router, urlToAction } from 'kea-router'
 import { convertPropertyGroupToProperties, objectsEqual } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { loaders } from 'kea-loaders'
 
 export interface EventDefinitionsPaginatedResponse extends PaginatedResponse<EventDefinition> {
     current?: string
@@ -68,22 +69,21 @@ export interface EventDefinitionsTableLogicProps {
     key: string
 }
 
-export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>({
-    path: (key) => ['scenes', 'data-management', 'events', 'eventDefinitionsTableLogic', key],
-    props: {} as EventDefinitionsTableLogicProps,
-    key: (props) => props.key || 'scene',
-    actions: {
+export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
+    path((key) => ['scenes', 'data-management', 'events', 'eventDefinitionsTableLogic', key]),
+    props({} as EventDefinitionsTableLogicProps),
+    key((props) => props.key || 'scene'),
+    actions({
         loadEventDefinitions: (url: string | null = '', orderIdsFirst: string[] = []) => ({ url, orderIdsFirst }),
         loadEventExample: (definition: EventDefinition) => ({ definition }),
         loadPropertiesForEvent: (definition: EventDefinition, url: string | null = '') => ({ definition, url }),
         setFilters: (filters: Partial<Filters>) => ({ filters }),
-        setHoveredDefinition: (definitionKey: string | null) => ({ definitionKey }),
         setOpenedDefinition: (id: string | null) => ({ id }),
         setLocalEventDefinition: (definition: EventDefinition) => ({ definition }),
         setLocalPropertyDefinition: (event: EventDefinition, definition: PropertyDefinition) => ({ event, definition }),
         setEventDefinitionPropertiesLoading: (ids: string[]) => ({ ids }),
-    },
-    reducers: {
+    }),
+    reducers({
         filters: [
             cleanFilters({}) as Filters,
             {
@@ -92,12 +92,6 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>({
                     ...filters,
                     properties: convertPropertyGroupToProperties(filters.properties) ?? [],
                 }),
-            },
-        ],
-        hoveredDefinition: [
-            null as string | null,
-            {
-                setHoveredDefinition: (_, { definitionKey }) => definitionKey,
             },
         ],
         openedDefinitionId: [
@@ -112,8 +106,8 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>({
                 setEventDefinitionPropertiesLoading: (_, { ids }) => ids ?? [],
             },
         ],
-    },
-    loaders: ({ values, cache, actions }) => ({
+    }),
+    loaders(({ values, cache, actions }) => ({
         eventDefinitions: [
             {
                 count: 0,
@@ -261,12 +255,12 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>({
                 },
             },
         ],
-    }),
-    selectors: ({ cache }) => ({
+    })),
+    selectors(({ cache }) => ({
         // Expose for testing
         apiCache: [() => [], () => cache.apiCache],
-    }),
-    listeners: ({ actions, values, cache }) => ({
+    })),
+    listeners(({ actions, values, cache }) => ({
         setFilters: () => {
             actions.loadEventDefinitions(
                 normalizeEventDefinitionEndpointUrl(
@@ -319,8 +313,8 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>({
                 cache.propertiesStartTime = undefined
             }
         },
-    }),
-    urlToAction: ({ actions, values }) => ({
+    })),
+    urlToAction(({ actions, values }) => ({
         '/data-management/events': (_, searchParams) => {
             if (!objectsEqual(cleanFilters(values.filters), cleanFilters(router.values.searchParams))) {
                 actions.setFilters(searchParams as Filters)
@@ -328,16 +322,8 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>({
                 actions.loadEventDefinitions()
             }
         },
-        '/data-management/events/:id': ({ id }) => {
-            if (!values.eventDefinitions.results.length && !values.eventDefinitionsLoading) {
-                actions.loadEventDefinitions(null, id ? [id] : [])
-            }
-            if (id) {
-                actions.setOpenedDefinition(id)
-            }
-        },
-    }),
-    actionToUrl: ({ values }) => ({
+    })),
+    actionToUrl(({ values }) => ({
         setFilters: () => {
             const nextValues = cleanFilters(values.filters)
             const urlValues = cleanFilters(router.values.searchParams)
@@ -345,5 +331,5 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>({
                 return [router.values.location.pathname, nextValues]
             }
         },
-    }),
-})
+    })),
+])

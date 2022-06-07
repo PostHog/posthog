@@ -180,42 +180,6 @@ describe('eventDefinitionsTableLogic', () => {
             expect(api.get).toBeCalledTimes(1)
         })
 
-        it('load event definitions on navigate and open specific definition', async () => {
-            const startingDefinitionUrl = `api/projects/${MOCK_TEAM_ID}/event_definitions${
-                combineUrl('', {
-                    limit: EVENT_DEFINITIONS_PER_PAGE,
-                    order_ids_first: ['uuid-5-foobar'],
-                }).search
-            }`
-
-            const url = urls.eventDefinition('uuid-5-foobar')
-            router.actions.push(url)
-            await expectLogic(logic)
-                .toDispatchActionsInAnyOrder([
-                    router.actionCreators.push(url),
-                    'loadEventDefinitions',
-                    'loadEventDefinitionsSuccess',
-                    'setOpenedDefinition',
-                ])
-                .toMatchValues({
-                    eventDefinitions: partial({
-                        count: 50,
-                        results: [
-                            mockEventDefinitions.find(({ id }) => id === 'uuid-5-foobar'),
-                            ...mockEventDefinitions.filter(({ id }) => id !== 'uuid-5-foobar'),
-                        ],
-                    }),
-                    apiCache: partial({
-                        [startingDefinitionUrl]: partial({
-                            count: 50,
-                        }),
-                    }),
-                })
-
-            expect(api.get).toBeCalledTimes(1)
-            expect(api.get).toBeCalledWith(startingDefinitionUrl)
-        })
-
         it('pagination forwards and backwards', async () => {
             const url = urls.eventDefinitions()
             router.actions.push(url)

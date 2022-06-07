@@ -54,7 +54,7 @@ import { AlertMessage } from '../AlertMessage'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 // TODO: Add support for Retention to InsightDetails
-const INSIGHT_TYPES_WHERE_DETAILS_UNSUPPORTED: InsightType[] = [InsightType.RETENTION]
+export const INSIGHT_TYPES_WHERE_DETAILS_UNSUPPORTED: InsightType[] = [InsightType.RETENTION]
 
 type DisplayedType = ChartDisplayType | 'RetentionContainer'
 

@@ -62,7 +62,15 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
         projectBased: true,
         name: 'Data Management',
     },
+    [Scene.EventDefinition]: {
+        projectBased: true,
+        name: 'Data Management',
+    },
     [Scene.EventPropertyDefinitions]: {
+        projectBased: true,
+        name: 'Data Management',
+    },
+    [Scene.EventPropertyDefinition]: {
         projectBased: true,
         name: 'Data Management',
     },
@@ -235,9 +243,9 @@ export const routes: Record<string, Scene> = {
     [urls.savedInsights()]: Scene.SavedInsights,
     [urls.actions()]: Scene.Actions,
     [urls.eventDefinitions()]: Scene.EventDefinitions,
-    [urls.eventDefinition(':id')]: Scene.EventDefinitions,
+    [urls.eventDefinition(':id')]: Scene.EventDefinition,
     [urls.eventPropertyDefinitions()]: Scene.EventPropertyDefinitions,
-    [urls.eventPropertyDefinition(':id')]: Scene.EventPropertyDefinitions,
+    [urls.eventPropertyDefinition(':id')]: Scene.EventPropertyDefinition,
     [urls.events()]: Scene.Events,
     [urls.webPerformance()]: Scene.WebPerformance,
     [urls.webPerformance() + '/*']: Scene.WebPerformance,

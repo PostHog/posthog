@@ -21,7 +21,7 @@ import {
     PropertyOperator,
 } from '../../types'
 import { CachedPersonData, DB } from '../../utils/db/db'
-import { extractElements } from '../../utils/db/utils'
+import { extractElements } from '../../utils/db/elements-chain'
 import { stringToBoolean } from '../../utils/env-utils'
 import { stringify } from '../../utils/utils'
 import { ActionManager } from './action-manager'
