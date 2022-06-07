@@ -17,7 +17,6 @@ import {
     Team,
 } from '../../src/types'
 import { createHub } from '../../src/utils/db/hub'
-import { hashElements } from '../../src/utils/db/utils'
 import { posthog } from '../../src/utils/posthog'
 import { UUIDT } from '../../src/utils/utils'
 import { EventPipelineRunner } from '../../src/worker/ingestion/event-pipeline/runner'
@@ -426,8 +425,6 @@ test('capture new person', async () => {
     expect(elements[0].attr_class).toEqual(['btn', 'btn-sm'])
     expect(elements[1].order).toEqual(1)
     expect(elements[1].text).toEqual('💻')
-
-    expect(hashElements(elements)).toEqual('0679137c0cd2408a2906839143e7a71f')
 
     // Don't update any props, set and set_once should be what was sent
     await processEvent(
@@ -1092,8 +1089,6 @@ test('long htext', async () => {
     const [element] = await hub.db.fetchElements(event)
     expect(element.href?.length).toEqual(2048)
     expect(element.text?.length).toEqual(400)
-
-    expect(hashElements([element])).toEqual('c2659b28e72835706835764cf7f63c2a')
 })
 
 test('capture first team event', async () => {
@@ -1136,7 +1131,7 @@ test('capture first team event', async () => {
     const [event] = (await hub.db.fetchEvents()) as Event[]
 
     const elements = await hub.db.fetchElements(event)
-    expect(hashElements(elements)).toEqual('a89021a60b3497d24e93ae181fba01aa')
+    expect(elements.length).toEqual(1)
 })
 
 it('snapshot event not stored if session recording disabled', async () => {
