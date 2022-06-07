@@ -1,14 +1,14 @@
 import { useValues } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { allOperatorsMapping, alphabet, convertPropertyGroupToProperties } from 'lib/utils'
+import { allOperatorsMapping, alphabet, isPropertyGroup } from 'lib/utils'
 import React from 'react'
 import { LocalFilter, toLocalFilters } from 'scenes/insights/ActionFilter/entityFilterLogic'
 import { BreakdownFilter } from 'scenes/insights/BreakdownFilter'
 import { humanizePathsEventTypes } from 'scenes/insights/utils'
 import { apiValueToMathType, MathDefinition, mathsLogic } from 'scenes/trends/mathsLogic'
 import { urls } from 'scenes/urls'
-import { FilterType, InsightModel, InsightType, PropertyFilter } from '~/types'
+import { FilterType, InsightModel, InsightType, PropertyFilter, PropertyGroupFilter } from '~/types'
 import { IconCalculate, IconSubdirectoryArrowRight } from '../icons'
 import { LemonRow } from '../LemonRow'
 import { LemonDivider } from '../LemonDivider'
@@ -23,35 +23,70 @@ function CompactPropertyFiltersDisplay({
     properties,
     embedded,
 }: {
-    properties: PropertyFilter[]
+    properties: PropertyFilter[] | PropertyGroupFilter
     embedded?: boolean
 }): JSX.Element {
     return (
         <>
-            {properties.map((subFilter, subIndex) => (
-                <div key={subIndex} className="SeriesDisplay__condition">
-                    {embedded && <IconSubdirectoryArrowRight className="SeriesDisplay__arrow" />}
-                    <span>
-                        {subIndex === 0 ? (embedded ? 'where ' : 'Where ') : 'and '}
-                        {subFilter.type === 'cohort' ? (
-                            <>
-                                person belongs to cohort
-                                <span className="SeriesDisplay__raw-name">
-                                    <PropertyFilterText item={subFilter} />
+            {isPropertyGroup(properties) ? (
+                <>
+                    {properties.values.map((pg, idx) =>
+                        pg.values.map((subFilter, subIndex) => (
+                            <div key={subIndex} className="SeriesDisplay__condition">
+                                {embedded && <IconSubdirectoryArrowRight className="SeriesDisplay__arrow" />}
+                                <span>
+                                    {idx !== 0 && subIndex === 0 && <div>{properties.type} </div>}
+                                    {subIndex === 0 ? (embedded ? 'where ' : 'Where ') : `${pg.type} `}
+                                    {subFilter.type === 'cohort' ? (
+                                        <>
+                                            person belongs to cohort
+                                            <span className="SeriesDisplay__raw-name">
+                                                <PropertyFilterText item={subFilter} />
+                                            </span>
+                                        </>
+                                    ) : (
+                                        <>
+                                            {subFilter.type || 'event'}'s
+                                            <span className="SeriesDisplay__raw-name">
+                                                {subFilter.key && <PropertyKeyInfo value={subFilter.key} />}
+                                            </span>
+                                            {allOperatorsMapping[subFilter.operator || 'exact']}{' '}
+                                            <b>{subFilter.value}</b>
+                                        </>
+                                    )}
                                 </span>
-                            </>
-                        ) : (
-                            <>
-                                {subFilter.type || 'event'}'s
-                                <span className="SeriesDisplay__raw-name">
-                                    {subFilter.key && <PropertyKeyInfo value={subFilter.key} />}
-                                </span>
-                                {allOperatorsMapping[subFilter.operator || 'exact']} <b>{subFilter.value}</b>
-                            </>
-                        )}
-                    </span>
-                </div>
-            ))}
+                            </div>
+                        ))
+                    )}
+                </>
+            ) : (
+                <>
+                    {properties.map((subFilter, subIndex) => (
+                        <div key={subIndex} className="SeriesDisplay__condition">
+                            {embedded && <IconSubdirectoryArrowRight className="SeriesDisplay__arrow" />}
+                            <span>
+                                {subIndex === 0 ? (embedded ? 'where ' : 'Where ') : 'and '}
+                                {subFilter.type === 'cohort' ? (
+                                    <>
+                                        person belongs to cohort
+                                        <span className="SeriesDisplay__raw-name">
+                                            <PropertyFilterText item={subFilter} />
+                                        </span>
+                                    </>
+                                ) : (
+                                    <>
+                                        {subFilter.type || 'event'}'s
+                                        <span className="SeriesDisplay__raw-name">
+                                            {subFilter.key && <PropertyKeyInfo value={subFilter.key} />}
+                                        </span>
+                                        {allOperatorsMapping[subFilter.operator || 'exact']} <b>{subFilter.value}</b>
+                                    </>
+                                )}
+                            </span>
+                        </div>
+                    ))}
+                </>
+            )}
         </>
     )
 }
@@ -192,13 +227,15 @@ export function QuerySummary({ filters }: { filters: Partial<FilterType> }): JSX
 }
 
 export function FiltersSummary({ filters }: { filters: Partial<FilterType> }): JSX.Element {
-    const properties = convertPropertyGroupToProperties(filters.properties)
-
     return (
         <>
             <h5>Filters</h5>
             <section>
-                {properties?.length ? <CompactPropertyFiltersDisplay properties={properties} /> : <i>None</i>}
+                {isPropertyGroup(filters.properties) && filters.properties.values.length ? (
+                    <CompactPropertyFiltersDisplay properties={filters.properties} />
+                ) : (
+                    <i>None</i>
+                )}
             </section>
         </>
     )
