@@ -66,6 +66,7 @@ services:
     # TODO: use MSK Connect in production
     kafka-connect:
         image: confluentinc/cp-kafka-connect-base:7.1.1
+        platform: linux/amd64
         depends_on:
             - zookeeper
             - kafka
