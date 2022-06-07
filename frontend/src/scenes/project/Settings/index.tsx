@@ -190,22 +190,23 @@ export function ProjectSettings(): JSX.Element {
                 </h2>
                 <p>
                     Increase the quality of your analytics results by filtering out events from internal sources, such
-                    as team members, test accounts, or development environments.
+                    as team members, test accounts, or development environments.{' '}
+                    <strong>
+                        The filters you apply here are added as extra filters when the toggle is switched on.
+                    </strong>{' '}
+                    So, if you apply a cohort, it means you will only match users in that cohort.
                 </p>
-                <p>
-                    <b>Events will still be ingested and saved</b> (and will count towards any totals), they will
-                    however be excluded from consideration on any queries where the "Filter out internal and test users"
-                    toggle is set.
-                </p>
-                <p>
-                    Example filters to use below: <i>email ∌ yourcompany.com</i> to exclude all events from your
-                    company's team members, or <i>Host ∌ localhost</i> to exclude all events from local development
-                    environments.
-                </p>
-                <p>
-                    <b>The filters you apply here are added as extra filters when the toggle is switched on.</b> So, if
-                    you apply a Cohort filter, it means toggling filtering on will match only this specific cohort.
-                </p>
+                <strong>Example filters</strong>
+                <ul>
+                    <li>
+                        "<strong>Email</strong> does not contain <strong>yourcompany.com</strong>" to exclude all events
+                        from your company's team members.
+                    </li>
+                    <li>
+                        "<strong>Host</strong> does not contain <strong>localhost</strong>" to exclude all events from
+                        local development environments.
+                    </li>
+                </ul>
                 <TestAccountFiltersConfig />
                 <Divider />
                 <CorrelationConfig />
