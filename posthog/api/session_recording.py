@@ -3,6 +3,7 @@ import json
 from itertools import groupby
 from typing import Any, Dict, Tuple, Union
 
+import posthoganalytics
 from rest_framework import exceptions, request, response, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
@@ -166,7 +167,13 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
         )
 
         # TODO what happens to sessions that are running when this is enabled, some data in CH and some not
-        if any(int(team) == self.team_id for team in session_recordings_from_storage_allow_list):
+        team_has_storage_enabled_for_recordings = any(
+            int(team) == self.team_id for team in session_recordings_from_storage_allow_list
+        )
+        user_should_view_recordings_from_storage = posthoganalytics.feature_enabled(
+            "session_recordings_from_storage", request.user.distinct_id
+        )
+        if team_has_storage_enabled_for_recordings and user_should_view_recordings_from_storage:
             next_url, data = self._load_recording_from_object_store(session_recording_id)
             if not data:
                 # at least at first not every recording will be in storage

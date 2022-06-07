@@ -14,8 +14,9 @@ class PostHogConfig(AppConfig):
     verbose_name = "PostHog"
 
     def ready(self):
-        posthoganalytics.api_key = "sTMFPsFhdP1Ssg"
+        posthoganalytics.api_key = os.environ.get("POSTHOG_ANALYTICS_API_KEY", "sTMFPsFhdP1Ssg")
         posthoganalytics.personal_api_key = os.environ.get("POSTHOG_PERSONAL_API_KEY")
+        posthoganalytics.host = os.environ.get("POSTHOG_ANALYTICS_HOST", None)
 
         if settings.TEST or os.environ.get("OPT_OUT_CAPTURE", False):
             posthoganalytics.disabled = True
