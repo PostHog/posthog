@@ -34,7 +34,8 @@ export const scene: SceneExport = {
 
 export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
     const logic = definitionLogic(props)
-    const { definition, definitionLoading, singular, mode, isEvent, backDetailUrl } = useValues(logic)
+    const { definition, definitionLoading, singular, mode, isEvent, backDetailUrl, hasTaxonomyFeatures } =
+        useValues(logic)
     const { setPageMode } = useActions(logic)
     const { hasAvailableFeature } = useValues(userLogic)
 
@@ -96,18 +97,20 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
                             </>
                         }
                         buttons={
-                            <>
-                                <LemonButton
-                                    data-attr="edit-definition"
-                                    type="secondary"
-                                    style={{ marginRight: 8 }}
-                                    onClick={() => {
-                                        setPageMode(DefinitionPageMode.Edit)
-                                    }}
-                                >
-                                    Edit
-                                </LemonButton>
-                            </>
+                            hasTaxonomyFeatures && (
+                                <>
+                                    <LemonButton
+                                        data-attr="edit-definition"
+                                        type="secondary"
+                                        style={{ marginRight: 8 }}
+                                        onClick={() => {
+                                            setPageMode(DefinitionPageMode.Edit)
+                                        }}
+                                    >
+                                        Edit
+                                    </LemonButton>
+                                </>
+                            )
                         }
                     />
                     <Divider />
