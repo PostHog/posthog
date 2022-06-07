@@ -56,7 +56,7 @@ export function chainToElements(chain: string, options: { throwOnError?: boolean
             .forEach((elString, index) => {
                 const elStringSplit = Array.from(elString.matchAll(splitClassAttributes))[0]
                 const attributes =
-                    elStringSplit.length > 3
+                    elStringSplit.length > 3 && elStringSplit[3]
                         ? Array.from(elStringSplit[3].matchAll(parseAttributesRegex)).map((a) => [a[2], a[3]])
                         : []
 

@@ -55,9 +55,15 @@ describe('elementsToString and chainToElements', () => {
         expect(elements).toEqual([])
     })
 
-    it.skip('handles broken class names', () => {
+    it('handles broken class names', () => {
         const elements = chainToElements('"a........small', { throwOnError: true })
         expect(elements).not.toEqual([])
+        expect(elements[0]).toEqual(
+            expect.objectContaining({
+                tag_name: 'a',
+                attr_class: ['small'],
+            })
+        )
     })
 
     it('handles element containing quotes and colons', () => {
