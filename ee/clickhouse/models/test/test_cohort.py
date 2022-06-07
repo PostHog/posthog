@@ -871,3 +871,27 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         # Should only have p1 again in this cohort
         results = self._get_cohortpeople(cohort1)
         self.assertEqual(len(results), 1)
+
+    def test_cohort_versioning(self):
+        p1 = Person.objects.create(team_id=self.team.pk, distinct_ids=["1"], properties={"$some_prop": "something"},)
+
+        p2 = Person.objects.create(team_id=self.team.pk, distinct_ids=["2"], properties={"$another_prop": "something"},)
+
+        p3 = Person.objects.create(team_id=self.team.pk, distinct_ids=["3"], properties={"$another_prop": "something"},)
+
+        # start the cohort at some later version
+        cohort1 = Cohort.objects.create(
+            team=self.team,
+            groups=[{"properties": [{"key": "$some_prop", "value": "something", "type": "person"},]}],
+            name="cohort1",
+        )
+
+        cohort1.calculate_people_ch(pending_version=0)
+
+        cohort1.pending_version = 5
+        cohort1.version = 5
+        cohort1.save()
+
+        # Should have p1 in this cohort even if version is different
+        results = self._get_cohortpeople(cohort1)
+        self.assertEqual(len(results), 1)
