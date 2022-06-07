@@ -2,7 +2,7 @@ import re
 
 from django.middleware.gzip import GZipMiddleware
 
-allowed_paths = [re.compile(r"snapshots/$")]
+allowed_paths = [re.compile(r"snapshots/?$")]
 
 
 def allowed_path(path: str) -> bool:
