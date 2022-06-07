@@ -13,7 +13,6 @@ debug.log
 node_modules/
 *.code-workspace
 node_modules
-.vscode/
 frontend/.cache/
 .mypy_cache
 frontend/dist/
