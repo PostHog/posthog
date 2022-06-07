@@ -1,6 +1,6 @@
 import { ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 
-import { ClickHouseEvent, IngestionEvent } from '../types'
+import { ClickhouseEventKafka, IngestionEvent } from '../types'
 import { chainToElements } from './db/utils'
 
 export function convertToProcessedPluginEvent(event: IngestionEvent): ProcessedPluginEvent {
@@ -19,8 +19,8 @@ export function convertToProcessedPluginEvent(event: IngestionEvent): ProcessedP
     }
 }
 
-export function convertToIngestionEvent(event: ClickHouseEvent): IngestionEvent {
-    const properties = typeof event.properties === 'string' ? JSON.parse(event.properties) : event.properties
+export function convertToIngestionEvent(event: ClickhouseEventKafka): IngestionEvent {
+    const properties = JSON.parse(event.properties)
     return {
         eventUuid: event.uuid,
         event: event.event!,
