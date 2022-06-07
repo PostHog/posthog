@@ -106,6 +106,7 @@ export function writeSourceCodeEditorTypes() {
         '@types/react/global.d.ts': readFile('../node_modules/@types/react/global.d.ts'),
         '@types/kea/index.d.ts': readFile('../node_modules/kea/lib/index.d.ts'),
         '@posthog/apps-common/index.d.ts': readFile('./@posthog/apps-common/dist/index.d.ts'),
+        '@posthog/lemonade/index.d.ts': readFile('./@posthog/lemonade/dist/index.d.ts'),
     }
     const packagesJsonFile = path.resolve(__dirname, './src/scenes/plugins/source/types/packages.json')
     fse.mkdirpSync(path.dirname(packagesJsonFile))

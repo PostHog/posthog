@@ -1,5 +1,5 @@
 {
-    "name": "@posthog/apps-common",
+    "name": "@posthog/lemonade",
     "version": "0.0.0",
     "license": "MIT",
     "source": "src/index.ts",

@@ -6,6 +6,8 @@
             "scenes/*": ["src/scenes/*"],
             "@posthog/apps-common": ["@posthog/apps-common/src/index"],
             "@posthog/apps-common/*": ["@posthog/apps-common/src/*"],
+            "@posthog/lemonade": ["@posthog/lemonade/src/index"],
+            "@posthog/lemonade/*": ["@posthog/lemonade/src/*"],
             "storybook/*": ["../.storybook/*"],
             "~/*": ["src/*"],
             "public/*": ["public/*"]
