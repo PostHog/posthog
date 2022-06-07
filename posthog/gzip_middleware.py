@@ -5,6 +5,10 @@ from django.conf import settings
 from django.middleware.gzip import GZipMiddleware
 
 
+class InvalidGzipAllowList(Exception):
+    pass
+
+
 def allowed_path(path: str, allowed_paths: List) -> bool:
     return any(pattern.search(path) for pattern in allowed_paths)
 
@@ -12,7 +16,10 @@ def allowed_path(path: str, allowed_paths: List) -> bool:
 class PostHogGZipMiddleware(GZipMiddleware):
     def __init__(self, get_response=None) -> None:
         super().__init__(get_response)
-        self.allowed_paths = [re.compile(pattern) for pattern in settings.GZIP_RESPONSE_ALLOW_LIST]
+        try:
+            self.allowed_paths = [re.compile(pattern) for pattern in settings.GZIP_RESPONSE_ALLOW_LIST]
+        except re.error as ex:
+            raise InvalidGzipAllowList(str(ex)) from ex
 
     """
     The Django GZip Middleware comes with security warnings
