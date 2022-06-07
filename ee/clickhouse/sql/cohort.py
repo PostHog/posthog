@@ -30,7 +30,7 @@ FROM (
     SELECT 1
     FROM cohortpeople
     WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s
-    GROUP BY person_id, cohort_id, team_id
+    GROUP BY person_id, cohort_id, team_id, version
     HAVING sum(sign) > 0
 )
 """
