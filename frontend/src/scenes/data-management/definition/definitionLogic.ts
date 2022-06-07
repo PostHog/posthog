@@ -1,5 +1,5 @@
-import { actions, afterMount, kea, key, props, path, selectors, reducers } from 'kea'
-import { Breadcrumb, Definition, EventDefinition, PropertyDefinition } from '~/types'
+import { actions, afterMount, kea, key, props, path, selectors, reducers, connect } from 'kea'
+import { AvailableFeature, Breadcrumb, Definition, EventDefinition, PropertyDefinition } from '~/types'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
@@ -8,6 +8,7 @@ import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
 import type { definitionLogicType } from './definitionLogicType'
 import { getPropertyLabel } from 'lib/components/PropertyKeyInfo'
+import { userLogic } from 'scenes/userLogic'
 
 export enum DefinitionPageMode {
     View = 'view',
@@ -38,6 +39,9 @@ export const definitionLogic = kea<definitionLogicType>([
         loadDefinition: (id: Definition['id']) => ({ id }),
         setPageMode: (mode: DefinitionPageMode) => ({ mode }),
     }),
+    connect(() => ({
+        values: [userLogic, ['hasAvailableFeature']],
+    })),
     reducers(() => ({
         mode: [
             DefinitionPageMode.View as DefinitionPageMode,
@@ -83,8 +87,14 @@ export const definitionLogic = kea<definitionLogicType>([
         ],
     })),
     selectors({
+        hasTaxonomyFeatures: [
+            (s) => [s.hasAvailableFeature],
+            (hasAvailableFeature) =>
+                hasAvailableFeature(AvailableFeature.INGESTION_TAXONOMY) ||
+                hasAvailableFeature(AvailableFeature.TAGGING),
+        ],
         isEvent: [() => [router.selectors.location], ({ pathname }) => pathname.startsWith(urls.eventDefinitions())],
-        singular: [(s) => [s.isEvent], (isEvent) => (isEvent ? 'event' : 'event property')],
+        singular: [(s) => [s.isEvent], (isEvent): string => (isEvent ? 'event' : 'event property')],
         backDetailUrl: [
             (s) => [s.isEvent, s.definition],
             (isEvent, definition) =>

@@ -16,6 +16,7 @@ import {
     DefinitionPageMode,
 } from 'scenes/data-management/definition/definitionLogic'
 import { LemonButton } from 'lib/components/LemonButton'
+import { DefinitionEdit } from 'scenes/data-management/definition/DefinitionEdit'
 import { formatTimeFromNow } from 'lib/components/DefinitionPopup/utils'
 import { humanFriendlyNumber, Loading } from 'lib/utils'
 import { ThirtyDayQueryCountTitle, ThirtyDayVolumeTitle } from 'lib/components/DefinitionPopup/DefinitionPopupContents'
@@ -33,7 +34,8 @@ export const scene: SceneExport = {
 
 export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
     const logic = definitionLogic(props)
-    const { definition, definitionLoading, singular, mode, isEvent, backDetailUrl } = useValues(logic)
+    const { definition, definitionLoading, singular, mode, isEvent, backDetailUrl, hasTaxonomyFeatures } =
+        useValues(logic)
     const { setPageMode } = useActions(logic)
     const { hasAvailableFeature } = useValues(userLogic)
 
@@ -42,7 +44,7 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
             {definitionLoading ? (
                 <Loading />
             ) : mode === DefinitionPageMode.Edit ? (
-                <div>TODO Definition Edit</div>
+                <DefinitionEdit {...props} definition={definition} />
             ) : (
                 <>
                     <PageHeader
@@ -95,18 +97,20 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
                             </>
                         }
                         buttons={
-                            <>
-                                <LemonButton
-                                    data-attr="edit-definition"
-                                    type="secondary"
-                                    style={{ marginRight: 8 }}
-                                    onClick={() => {
-                                        setPageMode(DefinitionPageMode.Edit)
-                                    }}
-                                >
-                                    Edit
-                                </LemonButton>
-                            </>
+                            hasTaxonomyFeatures && (
+                                <>
+                                    <LemonButton
+                                        data-attr="edit-definition"
+                                        type="secondary"
+                                        style={{ marginRight: 8 }}
+                                        onClick={() => {
+                                            setPageMode(DefinitionPageMode.Edit)
+                                        }}
+                                    >
+                                        Edit
+                                    </LemonButton>
+                                </>
+                            )
                         }
                     />
                     <Divider />
@@ -129,23 +133,27 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
                         />
                     </DefinitionPopup.Grid>
                     <Divider />
-                    {isEvent && definition.id !== 'new' && <EventDefinitionProperties definition={definition} />}
-                    <Divider />
-                    <div className="definition-matching-events">
-                        <span className="definition-matching-events-header">Matching raw events</span>
-                        <p className="definition-matching-events-subtext">
-                            This is the list of recent raw events that match this event.
-                        </p>
-                        <EventsTable
-                            sceneUrl={backDetailUrl}
-                            pageKey={`definition-page-${definition.id}`}
-                            showEventFilter={false}
-                            fetchMonths={3}
-                            fixedFilters={{
-                                event_filter: definition.name,
-                            }}
-                        />
-                    </div>
+                    {isEvent && definition.id !== 'new' && (
+                        <>
+                            <EventDefinitionProperties definition={definition} />
+                            <Divider />
+                            <div className="definition-matching-events">
+                                <span className="definition-matching-events-header">Matching raw events</span>
+                                <p className="definition-matching-events-subtext">
+                                    This is the list of recent raw events that match this event.
+                                </p>
+                                <EventsTable
+                                    sceneUrl={backDetailUrl}
+                                    pageKey={`definition-page-${definition.id}`}
+                                    showEventFilter={false}
+                                    fetchMonths={3}
+                                    fixedFilters={{
+                                        event_filter: definition.name,
+                                    }}
+                                />
+                            </div>
+                        </>
+                    )}
                 </>
             )}
         </div>
