@@ -1,6 +1,6 @@
 import React from 'react'
 import { useActions, useValues } from 'kea'
-import { Select, Tag } from 'antd'
+import { Select } from 'antd'
 import { chartFilterLogic } from './chartFilterLogic'
 import {
     AreaChartOutlined,
@@ -16,6 +16,7 @@ import { ANTD_TOOLTIP_PLACEMENTS } from 'lib/utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { toLocalFilters } from 'scenes/insights/ActionFilter/entityFilterLogic'
 import { Tooltip } from '../Tooltip'
+import { WarningTag } from '../WarningTag/WarningTag'
 
 interface ChartFilterProps {
     filters: FilterType
@@ -62,14 +63,6 @@ export function ChartFilter({ filters, onChange, disabled }: ChartFilterProps): 
                     {icon} {children}
                 </div>
             </Tooltip>
-        )
-    }
-
-    function WarningTag({ children = null }: { children: React.ReactNode }): JSX.Element {
-        return (
-            <Tag color="orange" style={{ marginLeft: 8, fontSize: 10 }}>
-                {children}
-            </Tag>
         )
     }
 
