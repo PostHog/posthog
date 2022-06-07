@@ -1,24 +1,13 @@
 from ee.clickhouse.models.group import create_group
-from ee.clickhouse.queries.retention.clickhouse_retention import ClickhouseRetention
-from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
-from posthog.models.action import Action
-from posthog.models.action_step import ActionStep
+from ee.clickhouse.queries.retention import ClickhouseRetention
+from ee.clickhouse.util import snapshot_clickhouse_queries
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.person import Person
-from posthog.queries.test.test_retention import retention_test_factory
-from posthog.test.base import _create_event, _create_person
+from posthog.queries.test.test_retention import TestRetention, _create_events, _date, pluck
 
 
-def _create_action(**kwargs):
-    team = kwargs.pop("team")
-    name = kwargs.pop("name")
-    action = Action.objects.create(team=team, name=name)
-    ActionStep.objects.create(action=action, event=name)
-    return action
-
-
-class TestClickhouseRetention(ClickhouseTestMixin, retention_test_factory(ClickhouseRetention, _create_event, _create_person, _create_action)):  # type: ignore
+class TestClickhouseRetention(TestRetention):
     def _create_groups_and_events(self):
         GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
         GroupTypeMapping.objects.create(team=self.team, group_type="company", group_type_index=1)
@@ -33,22 +22,23 @@ class TestClickhouseRetention(ClickhouseTestMixin, retention_test_factory(Clickh
         Person.objects.create(team=self.team, distinct_ids=["person2"])
         Person.objects.create(team=self.team, distinct_ids=["person3"])
 
-        self._create_events(
+        _create_events(
+            self.team,
             [
-                ("person1", self._date(0), {"$group_0": "org:5", "$group_1": "company:1"}),
-                ("person2", self._date(0), {"$group_0": "org:6"}),
-                ("person3", self._date(0)),
-                ("person1", self._date(1), {"$group_0": "org:5"}),
-                ("person2", self._date(1), {"$group_0": "org:6"}),
-                ("person1", self._date(7), {"$group_0": "org:5"}),
-                ("person2", self._date(7), {"$group_0": "org:6"}),
-                ("person1", self._date(14), {"$group_0": "org:5"}),
-                ("person1", self._date(month=1, day=-6), {"$group_0": "org:5", "$group_1": "company:1"}),
-                ("person2", self._date(month=1, day=-6), {"$group_0": "org:6"}),
-                ("person2", self._date(month=1, day=1), {"$group_0": "org:6"}),
-                ("person1", self._date(month=1, day=1), {"$group_0": "org:5"}),
-                ("person2", self._date(month=1, day=15), {"$group_0": "org:6", "$group_1": "company:1"}),
-            ]
+                ("person1", _date(0), {"$group_0": "org:5", "$group_1": "company:1"}),
+                ("person2", _date(0), {"$group_0": "org:6"}),
+                ("person3", _date(0)),
+                ("person1", _date(1), {"$group_0": "org:5"}),
+                ("person2", _date(1), {"$group_0": "org:6"}),
+                ("person1", _date(7), {"$group_0": "org:5"}),
+                ("person2", _date(7), {"$group_0": "org:6"}),
+                ("person1", _date(14), {"$group_0": "org:5"}),
+                ("person1", _date(month=1, day=-6), {"$group_0": "org:5", "$group_1": "company:1"}),
+                ("person2", _date(month=1, day=-6), {"$group_0": "org:6"}),
+                ("person2", _date(month=1, day=1), {"$group_0": "org:6"}),
+                ("person1", _date(month=1, day=1), {"$group_0": "org:5"}),
+                ("person2", _date(month=1, day=15), {"$group_0": "org:6", "$group_1": "company:1"}),
+            ],
         )
 
     @snapshot_clickhouse_queries
@@ -58,7 +48,7 @@ class TestClickhouseRetention(ClickhouseTestMixin, retention_test_factory(Clickh
         result = ClickhouseRetention().run(
             RetentionFilter(
                 data={
-                    "date_to": self._date(10, month=1, hour=0),
+                    "date_to": _date(10, month=1, hour=0),
                     "period": "Week",
                     "total_intervals": 7,
                     "properties": [{"key": "industry", "value": "technology", "type": "group", "group_type_index": 0}],
@@ -69,14 +59,14 @@ class TestClickhouseRetention(ClickhouseTestMixin, retention_test_factory(Clickh
         )
 
         self.assertEqual(
-            self.pluck(result, "values", "count"),
+            pluck(result, "values", "count"),
             [[1, 1, 0, 1, 1, 0, 1], [1, 0, 1, 1, 0, 1], [0, 0, 0, 0, 0], [1, 1, 0, 1], [1, 0, 1], [0, 0], [1],],
         )
 
         result = ClickhouseRetention().run(
             RetentionFilter(
                 data={
-                    "date_to": self._date(10, month=1, hour=0),
+                    "date_to": _date(10, month=1, hour=0),
                     "period": "Week",
                     "total_intervals": 7,
                     "properties": [
@@ -89,7 +79,7 @@ class TestClickhouseRetention(ClickhouseTestMixin, retention_test_factory(Clickh
         )
 
         self.assertEqual(
-            self.pluck(result, "values", "count"),
+            pluck(result, "values", "count"),
             [[2, 2, 1, 2, 2, 0, 1], [2, 1, 2, 2, 0, 1], [1, 1, 1, 0, 0], [2, 2, 0, 1], [2, 0, 1], [0, 0], [1],],
         )
 
@@ -99,7 +89,7 @@ class TestClickhouseRetention(ClickhouseTestMixin, retention_test_factory(Clickh
 
         filter = RetentionFilter(
             data={
-                "date_to": self._date(10, month=1, hour=0),
+                "date_to": _date(10, month=1, hour=0),
                 "period": "Week",
                 "total_intervals": 7,
                 "aggregation_group_type_index": 0,
@@ -109,7 +99,7 @@ class TestClickhouseRetention(ClickhouseTestMixin, retention_test_factory(Clickh
 
         result = ClickhouseRetention().run(filter, self.team)
         self.assertEqual(
-            self.pluck(result, "values", "count"),
+            pluck(result, "values", "count"),
             [[2, 2, 1, 2, 2, 0, 1], [2, 1, 2, 2, 0, 1], [1, 1, 1, 0, 0], [2, 2, 0, 1], [2, 0, 1], [0, 0], [1],],
         )
 
@@ -119,7 +109,7 @@ class TestClickhouseRetention(ClickhouseTestMixin, retention_test_factory(Clickh
 
         filter = RetentionFilter(
             data={
-                "date_to": self._date(10, month=1, hour=0),
+                "date_to": _date(10, month=1, hour=0),
                 "period": "Week",
                 "total_intervals": 7,
                 "aggregation_group_type_index": 1,
@@ -129,7 +119,7 @@ class TestClickhouseRetention(ClickhouseTestMixin, retention_test_factory(Clickh
 
         result = ClickhouseRetention().run(filter, self.team)
         self.assertEqual(
-            self.pluck(result, "values", "count"),
+            pluck(result, "values", "count"),
             [[1, 0, 0, 1, 0, 0, 1], [0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0], [1, 0, 0, 1], [0, 0, 0], [0, 0], [1],],
         )
 
@@ -139,7 +129,7 @@ class TestClickhouseRetention(ClickhouseTestMixin, retention_test_factory(Clickh
 
         filter = RetentionFilter(
             data={
-                "date_to": self._date(10, month=1, hour=0),
+                "date_to": _date(10, month=1, hour=0),
                 "period": "Week",
                 "total_intervals": 7,
                 "aggregation_group_type_index": 0,
