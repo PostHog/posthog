@@ -3,15 +3,15 @@ from itertools import accumulate
 from typing import Any, Dict, List
 
 from ee.clickhouse.queries.breakdown_props import get_breakdown_cohort_name
-from ee.clickhouse.queries.trends.util import parse_response
 from ee.clickhouse.sql.clickhouse import trim_quotes_expr
 from posthog.client import sync_execute
 from posthog.constants import NON_TIME_SERIES_DISPLAY_TYPES, TRENDS_CUMULATIVE
 from posthog.models.filters.filter import Filter
 from posthog.models.team import Team
+from posthog.queries.trends.util import parse_response
 
 
-class ClickhouseTrendsFormula:
+class TrendsFormula:
     def _run_formula_query(self, filter: Filter, team: Team):
         letters = [chr(65 + i) for i in range(0, len(filter.entities))]
         queries = []

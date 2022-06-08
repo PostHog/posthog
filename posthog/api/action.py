@@ -13,7 +13,7 @@ from rest_framework.settings import api_settings
 from rest_framework_csv import renderers as csvrenderers
 from rest_hooks.signals import raw_hook_event
 
-from ee.clickhouse.queries.trends.person import ClickhouseTrendsActors
+from ee.clickhouse.queries.trends.person import TrendsActors
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import get_target_entity
@@ -187,7 +187,7 @@ class ActionViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDestro
         filter = Filter(request=request, team=self.team)
         entity = get_target_entity(filter)
 
-        actors, serialized_actors = ClickhouseTrendsActors(team, entity, filter).get_actors()
+        actors, serialized_actors = TrendsActors(team, entity, filter).get_actors()
 
         current_url = request.get_full_path()
         next_url: Optional[str] = request.get_full_path()

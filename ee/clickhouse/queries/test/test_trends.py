@@ -6,8 +6,6 @@ from freezegun import freeze_time
 from rest_framework.exceptions import ValidationError
 
 from ee.clickhouse.models.group import create_group
-from ee.clickhouse.queries.trends.clickhouse_trends import ClickhouseTrends
-from ee.clickhouse.queries.trends.person import ClickhouseTrendsActors
 from ee.clickhouse.test.test_journeys import journeys_for
 from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
 from posthog.constants import TRENDS_BAR_VALUE
@@ -20,6 +18,8 @@ from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.person import Person
 from posthog.models.person.util import create_person_distinct_id
 from posthog.queries.test.test_trends import trend_test_factory
+from posthog.queries.trends.person import TrendsActors
+from posthog.queries.trends.trends import Trends
 from posthog.test.base import _create_event, _create_person, flush_persons_and_events, test_with_materialized_columns
 
 
@@ -41,12 +41,12 @@ def _create_cohort(**kwargs):
 
 
 # override tests from test facotry if intervals are different
-class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTrends, _create_event, _create_person, _create_action, _create_cohort)):  # type: ignore
+class TestTrends(ClickhouseTestMixin, trend_test_factory(Trends, _create_event, _create_person, _create_action, _create_cohort)):  # type: ignore
 
     maxDiff = None
 
     def _get_trend_people(self, filter, entity):
-        _, serialized_actors = ClickhouseTrendsActors(filter=filter, entity=entity, team=self.team).get_actors()
+        _, serialized_actors = TrendsActors(filter=filter, entity=entity, team=self.team).get_actors()
         return serialized_actors
 
     def _create_groups(self):
@@ -85,7 +85,7 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
             timestamp="2020-01-02T12:00:02Z",
         )
 
-        response = ClickhouseTrends().run(
+        response = Trends().run(
             Filter(
                 data={
                     "date_from": "2020-01-01T00:00:00Z",
@@ -144,7 +144,7 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
                 "events": [{"id": "sign up", "name": "sign up", "type": "events", "order": 0,}],
             }
         )
-        response = ClickhouseTrends().run(filter, self.team,)
+        response = Trends().run(filter, self.team,)
 
         self.assertEqual(len(response), 2)
         self.assertEqual(response[0]["breakdown_value"], "finance")
@@ -197,7 +197,7 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
             }
         )
 
-        response = ClickhouseTrends().run(filter, self.team,)
+        response = Trends().run(filter, self.team,)
 
         self.assertEqual(len(response), 1)
         self.assertEqual(response[0]["breakdown_value"], "finance")
@@ -207,7 +207,7 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
     def test_breakdown_filtering_limit(self):
         self._create_breakdown_events()
         with freeze_time("2020-01-04T13:01:01Z"):
-            response = ClickhouseTrends().run(
+            response = Trends().run(
                 Filter(
                     data={
                         "date_from": "-14d",
@@ -225,7 +225,7 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
         action = _create_action(name="watched movie", team=self.team)
 
         with freeze_time("2020-01-04T13:01:01Z"):
-            action_response = ClickhouseTrends().run(
+            action_response = Trends().run(
                 Filter(
                     data={
                         "date_from": "-14d",
@@ -236,7 +236,7 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
                 ),
                 self.team,
             )
-            event_response = ClickhouseTrends().run(
+            event_response = Trends().run(
                 Filter(
                     data={
                         "date_from": "-14d",
@@ -264,7 +264,7 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
         self._create_events()
         # test breakdown filtering
         with freeze_time("2020-01-04T13:01:01Z"):
-            response = ClickhouseTrends().run(
+            response = Trends().run(
                 Filter(
                     data={
                         "date_from": "-14d",
@@ -297,7 +297,7 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
         _create_event(event="sign up", distinct_id="person1", team=self.team, properties={"key": "val"})
         _create_event(event="sign up", distinct_id="person2", team=self.team, properties={"key": "val"})
         _create_event(event="sign up", distinct_id="person3", team=self.team, properties={"key": "val"})
-        response = ClickhouseTrends().run(
+        response = Trends().run(
             Filter(
                 data={
                     "date_from": "-14d",
@@ -331,7 +331,7 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
             team=self.team,
             properties=[{"key": "key", "type": "event", "value": ["val"], "operator": "exact"}],
         )
-        response = ClickhouseTrends().run(
+        response = Trends().run(
             Filter(
                 data={
                     "date_from": "-14d",
@@ -380,7 +380,7 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
             )
 
         with freeze_time("2020-01-05T13:01:01Z"):
-            response = ClickhouseTrends().run(
+            response = Trends().run(
                 Filter(
                     data={
                         "date_from": "-7d",
@@ -440,7 +440,7 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
             )
 
         with freeze_time("2020-01-05T13:01:01Z"):
-            response = ClickhouseTrends().run(
+            response = Trends().run(
                 Filter(
                     data={
                         "date_from": "-14d",
@@ -471,7 +471,7 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
 
         # AND filter properties with disjoint set means results should be empty
         with freeze_time("2020-01-05T13:01:01Z"):
-            response = ClickhouseTrends().run(
+            response = Trends().run(
                 Filter(
                     data={
                         "date_from": "-14d",
@@ -505,11 +505,11 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
                 team=self.team, event="sign up", distinct_id="blabla", properties={"$some_property": "other_value"},
             )
         with freeze_time("2020-01-04T13:01:01Z"):
-            action_response = ClickhouseTrends().run(
+            action_response = Trends().run(
                 Filter(data={"breakdown": "$some_property", "actions": [{"id": sign_up_action.id, "math": "dau"}]}),
                 self.team,
             )
-            event_response = ClickhouseTrends().run(
+            event_response = Trends().run(
                 Filter(data={"breakdown": "$some_property", "events": [{"id": "sign up", "math": "dau"}]}), self.team,
             )
 
@@ -535,7 +535,7 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
                 properties={"$some_property": "other_value", "$os": "Windows"},
             )
         with freeze_time("2020-01-04T13:01:01Z"):
-            action_response = ClickhouseTrends().run(
+            action_response = Trends().run(
                 Filter(
                     data={
                         "breakdown": "$some_property",
@@ -545,7 +545,7 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
                 ),
                 self.team,
             )
-            event_response = ClickhouseTrends().run(
+            event_response = Trends().run(
                 Filter(
                     data={
                         "breakdown": "$some_property",
@@ -578,7 +578,7 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
         )
 
         with freeze_time("2020-01-04T13:01:01Z"):
-            response = ClickhouseTrends().run(
+            response = Trends().run(
                 Filter(
                     data={
                         "events": [
@@ -617,7 +617,7 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
             )
 
         with freeze_time("2020-01-04T13:01:01Z"):
-            action_response = ClickhouseTrends().run(
+            action_response = Trends().run(
                 Filter(
                     data={
                         "actions": [{"id": sign_up_action.id, "math": "dau"}],
@@ -637,7 +637,7 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
         cohort = Cohort.objects.create(
             team=self.team, name="a", groups=[{"properties": [{"key": "key", "value": "value", "type": "person"}]}]
         )
-        action_response = ClickhouseTrends().run(
+        action_response = Trends().run(
             Filter(
                 data={
                     "actions": [{"id": sign_up_action.id, "math": "dau"}],
@@ -663,7 +663,7 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
         step.properties = [{"key": "id", "value": cohort.pk, "type": "cohort"}]
         step.save()
         with freeze_time("2020-01-04T13:01:01Z"):
-            action_response = ClickhouseTrends().run(
+            action_response = Trends().run(
                 Filter(data={"actions": [{"id": sign_up_action.id}], "breakdown": "$some_property",}), self.team,
             )
         self.assertEqual(action_response[0]["count"], 2)
@@ -679,7 +679,7 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
 
         _create_event(event="sign up", distinct_id="person1", team=self.team, properties={"key": "val"})
         _create_event(event="sign up", distinct_id="person2", team=self.team, properties={"key": "val"})
-        response = ClickhouseTrends().run(
+        response = Trends().run(
             Filter(
                 data={
                     "date_from": "-14d",
@@ -752,7 +752,7 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
             },
         )
 
-        response = ClickhouseTrends().run(
+        response = Trends().run(
             Filter(
                 data={
                     "date_from": "2020-01-01 00:00:00",
@@ -798,7 +798,7 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
         self.assertEqual(response[4]["breakdown_value"], "test@gmail.com")
 
         # now have more strict filters with entity props
-        response = ClickhouseTrends().run(
+        response = Trends().run(
             Filter(
                 data={
                     "date_from": "2020-01-01 00:00:00",
@@ -903,7 +903,7 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
         }
 
         filter = Filter(data=data)
-        result = ClickhouseTrends().run(filter, self.team,)
+        result = Trends().run(filter, self.team,)
         self.assertEqual(result[0]["data"], [3.0, 2.0, 2.0, 0.0, 0.0, 0.0, 0.0, 0.0])
 
     def test_active_user_math_action(self):
@@ -917,7 +917,7 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
         }
 
         filter = Filter(data=data)
-        result = ClickhouseTrends().run(filter, self.team,)
+        result = Trends().run(filter, self.team,)
         self.assertEqual(result[0]["data"], [3.0, 2.0, 2.0, 0.0, 0.0, 0.0, 0.0, 0.0])
 
     @test_with_materialized_columns(["key"])
@@ -970,7 +970,7 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
         }
 
         filter = Filter(data=data)
-        result = ClickhouseTrends().run(filter, self.team,)
+        result = Trends().run(filter, self.team,)
         self.assertEqual(result[0]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2.0, 2.0, 2.0, 0.0])
 
     @snapshot_clickhouse_queries
@@ -1053,7 +1053,7 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
         }
 
         filter = Filter(data=data)
-        result = ClickhouseTrends().run(filter, self.team,)
+        result = Trends().run(filter, self.team,)
         self.assertEqual(result[0]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2.0, 2.0, 2.0, 0.0])
 
     @test_with_materialized_columns(event_properties=["key"], person_properties=["name"])
@@ -1086,7 +1086,7 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
             },
             team=self.team,
         )
-        result = ClickhouseTrends().run(filter, self.team,)
+        result = Trends().run(filter, self.team,)
         self.assertEqual(result[0]["count"], 1)
         filter2 = Filter(
             {
@@ -1096,9 +1096,9 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
             },
             team=self.team,
         )
-        result = ClickhouseTrends().run(filter2, self.team,)
+        result = Trends().run(filter2, self.team,)
         self.assertEqual(result[0]["count"], 2)
-        result = ClickhouseTrends().run(filter.with_data({"breakdown": "key"}), self.team,)
+        result = Trends().run(filter.with_data({"breakdown": "key"}), self.team,)
         self.assertEqual(result[0]["count"], 1)
 
     @test_with_materialized_columns(["$some_property"])
@@ -1107,7 +1107,7 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
 
         # test breakdown filtering
         with freeze_time("2020-01-04T13:01:01Z"):
-            response = ClickhouseTrends().run(
+            response = Trends().run(
                 Filter(
                     data={
                         "date_from": "-7d",
@@ -1181,7 +1181,7 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
 
         with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):  # Normally this is False in tests
             with freeze_time("2020-01-04T13:01:01Z"):
-                res = ClickhouseTrends().run(
+                res = Trends().run(
                     Filter(
                         data={
                             "date_from": "-7d",
@@ -1236,7 +1236,7 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
 
         with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):  # Normally this is False in tests
             with freeze_time("2020-01-04T13:01:01Z"):
-                res = ClickhouseTrends().run(
+                res = Trends().run(
                     Filter(
                         data={
                             "date_from": "-7d",
@@ -1280,7 +1280,7 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
             properties=[{"key": "key", "type": "event", "value": ["val"], "operator": "exact"}],
         )
 
-        response = ClickhouseTrends().run(
+        response = Trends().run(
             Filter(data={"date_from": "-14d", "actions": [{"id": action.pk, "type": "actions", "order": 0}],}),
             self.team,
         )
@@ -1289,7 +1289,7 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
 
     def test_trends_math_without_math_property(self):
         with self.assertRaises(ValidationError):
-            ClickhouseTrends().run(
+            Trends().run(
                 Filter(data={"events": [{"id": "sign up", "math": "sum"}]}), self.team,
             )
 
@@ -1336,17 +1336,17 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
             team=self.team,
         )
 
-        response = ClickhouseTrends().run(filter, self.team)
+        response = Trends().run(filter, self.team)
         self.assertEqual(response[0]["count"], 1)
 
-    @patch("ee.clickhouse.queries.trends.clickhouse_trends.sync_execute")
+    @patch("posthog.queries.trends.trends.sync_execute")
     def test_should_throw_exception(self, patch_sync_execute):
         self._create_events()
         patch_sync_execute.side_effect = Exception()
         # test breakdown filtering
         with self.assertRaises(Exception):
             with self.settings(TEST=False, DEBUG=False):
-                response = ClickhouseTrends().run(
+                response = Trends().run(
                     Filter(data={"events": [{"id": "sign up", "name": "sign up", "type": "events", "order": 0,},],}),
                     self.team,
                 )
@@ -1380,7 +1380,7 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
             )
 
         with freeze_time("2020-01-05T18:01:01Z"):  # 10:01 in pacific time
-            response = ClickhouseTrends().run(
+            response = Trends().run(
                 Filter(
                     data={
                         "date_from": "dStart",
@@ -1411,7 +1411,7 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
             persons = self.client.get("/" + response[0]["persons_urls"][7]["url"]).json()
             self.assertEqual(persons["results"][0]["count"], 1)
 
-            response = ClickhouseTrends().run(
+            response = Trends().run(
                 Filter(
                     data={
                         "date_from": "dStart",
@@ -1474,7 +1474,7 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
 
         #  volume
         with freeze_time("2020-01-05T13:01:01Z"):
-            response = ClickhouseTrends().run(
+            response = Trends().run(
                 Filter(data={"date_from": "-7d", "events": [{"id": "sign up", "name": "sign up",},],}, team=self.team),
                 self.team,
             )
@@ -1496,7 +1496,7 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
 
         # DAU
         with freeze_time("2020-01-05T13:01:01Z"):
-            response = ClickhouseTrends().run(
+            response = Trends().run(
                 Filter(
                     data={"date_from": "-14d", "events": [{"id": "sign up", "name": "sign up", "math": "dau"},],},
                     team=self.team,
@@ -1528,7 +1528,7 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
         )
 
         with freeze_time("2020-01-05T13:01:01Z"):
-            response = ClickhouseTrends().run(
+            response = Trends().run(
                 Filter(
                     data={
                         "date_from": "-7d",
@@ -1555,7 +1555,7 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
         )
 
         with freeze_time("2020-01-05T13:01:01Z"):
-            response = ClickhouseTrends().run(
+            response = Trends().run(
                 Filter(
                     data={"date_from": "-7d", "events": [{"id": "sign up", "name": "sign up", "breakdown": "$os"},],},
                     team=self.team,
@@ -1580,7 +1580,7 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
 
         #  breakdown + DAU
         with freeze_time("2020-01-05T13:01:01Z"):
-            response = ClickhouseTrends().run(
+            response = Trends().run(
                 Filter(
                     data={
                         "date_from": "-7d",
@@ -1594,7 +1594,7 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
             self.assertEqual(response[0]["data"], [0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0])
 
         # Custom date range, single day, hourly interval
-        response = ClickhouseTrends().run(
+        response = Trends().run(
             Filter(
                 data={
                     "date_from": "2020-01-03",
@@ -1610,7 +1610,7 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
         self.assertEqual(len(response[0]["data"]), 24)
 
         # Custom date range, single day, dayly interval
-        response = ClickhouseTrends().run(
+        response = Trends().run(
             Filter(
                 data={
                     "date_from": "2020-01-03",
@@ -1632,7 +1632,7 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
                 distinct_id="blabla",
                 properties={"$current_url": "first url", "$browser": "Firefox", "$os": "Mac"},
             )
-        response = ClickhouseTrends().run(
+        response = Trends().run(
             Filter(
                 data={
                     "date_from": "2020-01-03",
@@ -1656,7 +1656,7 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
         # 2. Having multiple properties that filter on the same value
 
         with freeze_time("2020-01-04T13:01:01Z"):
-            event_response = ClickhouseTrends().run(
+            event_response = Trends().run(
                 Filter(
                     data={
                         "date_from": "-14d",

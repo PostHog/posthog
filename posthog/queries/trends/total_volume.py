@@ -4,25 +4,25 @@ from typing import Any, Callable, Dict, List, Tuple
 
 import pytz
 
-from ee.clickhouse.queries.trends.trend_event_query import TrendsEventQuery
-from ee.clickhouse.queries.trends.util import enumerate_time_range, parse_response, process_math
 from ee.clickhouse.sql.events import NULL_SQL
-from ee.clickhouse.sql.trends.volume import (
+from posthog.constants import MONTHLY_ACTIVE, NON_TIME_SERIES_DISPLAY_TYPES, TRENDS_CUMULATIVE, WEEKLY_ACTIVE
+from posthog.models.entity import Entity
+from posthog.models.filters import Filter
+from posthog.models.team import Team
+from posthog.queries.trends.sql import (
     ACTIVE_USER_SQL,
     AGGREGATE_SQL,
     CUMULATIVE_SQL,
     VOLUME_SQL,
     VOLUME_TOTAL_AGGREGATE_SQL,
 )
-from posthog.constants import MONTHLY_ACTIVE, NON_TIME_SERIES_DISPLAY_TYPES, TRENDS_CUMULATIVE, WEEKLY_ACTIVE
-from posthog.models.entity import Entity
-from posthog.models.filters import Filter
-from posthog.models.team import Team
+from posthog.queries.trends.trend_event_query import TrendsEventQuery
+from posthog.queries.trends.util import enumerate_time_range, parse_response, process_math
 from posthog.queries.util import get_interval_func_ch, get_time_diff, get_trunc_func_ch, start_of_week_fix
 from posthog.utils import encode_get_request_params
 
 
-class ClickhouseTrendsTotalVolume:
+class TrendsTotalVolume:
     def _total_volume_query(self, entity: Entity, filter: Filter, team: Team) -> Tuple[str, Dict, Callable]:
 
         trunc_func = get_trunc_func_ch(filter.interval)

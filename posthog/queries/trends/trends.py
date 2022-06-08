@@ -5,10 +5,6 @@ from typing import Any, Callable, Dict, List, Tuple, Union, cast
 
 from django.db.models.query import Prefetch
 
-from ee.clickhouse.queries.trends.breakdown import ClickhouseTrendsBreakdown
-from ee.clickhouse.queries.trends.formula import ClickhouseTrendsFormula
-from ee.clickhouse.queries.trends.lifecycle import ClickhouseLifecycle
-from ee.clickhouse.queries.trends.total_volume import ClickhouseTrendsTotalVolume
 from posthog.client import sync_execute
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TRENDS_CUMULATIVE, TRENDS_LIFECYCLE
 from posthog.models.action import Action
@@ -17,12 +13,16 @@ from posthog.models.entity import Entity
 from posthog.models.filters import Filter
 from posthog.models.team import Team
 from posthog.queries.base import handle_compare
+from posthog.queries.trends.breakdown import TrendsBreakdown
+from posthog.queries.trends.formula import TrendsFormula
+from posthog.queries.trends.lifecycle import Lifecycle
+from posthog.queries.trends.total_volume import TrendsTotalVolume
 
 
-class ClickhouseTrends(ClickhouseTrendsTotalVolume, ClickhouseLifecycle, ClickhouseTrendsFormula):
+class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
     def _get_sql_for_entity(self, filter: Filter, entity: Entity, team: Team) -> Tuple[str, Dict, Callable]:
         if filter.breakdown:
-            sql, params, parse_function = ClickhouseTrendsBreakdown(
+            sql, params, parse_function = TrendsBreakdown(
                 entity, filter, team, using_person_on_events=team.actor_on_events_querying_enabled
             ).get_query()
         elif filter.shown_as == TRENDS_LIFECYCLE:
