@@ -17,8 +17,8 @@ from statshog.defaults.django import statsd
 from ee.clickhouse.queries.funnels import ClickhouseFunnelTimeToConvert, ClickhouseFunnelTrends
 from ee.clickhouse.queries.funnels.utils import get_funnel_order_class
 from ee.clickhouse.queries.paths import ClickhousePaths
-from ee.clickhouse.queries.retention.clickhouse_retention import ClickhouseRetention
-from ee.clickhouse.queries.stickiness.clickhouse_stickiness import ClickhouseStickiness
+from ee.clickhouse.queries.retention import ClickhouseRetention
+from ee.clickhouse.queries.stickiness import ClickhouseStickiness
 from ee.clickhouse.queries.trends.clickhouse_trends import ClickhouseTrends
 from posthog.celery import update_cache_item_task
 from posthog.constants import (

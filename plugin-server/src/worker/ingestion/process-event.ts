@@ -22,10 +22,9 @@ import {
     TimestampFormat,
 } from '../../types'
 import { DB, GroupIdentifier } from '../../utils/db/db'
+import { elementsToString, extractElements } from '../../utils/db/elements-chain'
 import { KafkaProducerWrapper } from '../../utils/db/kafka-producer-wrapper'
 import {
-    elementsToString,
-    extractElements,
     personInitialAndUTMProperties,
     safeClickhouseString,
     sanitizeEventName,

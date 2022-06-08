@@ -21,8 +21,6 @@ from sentry_sdk import capture_exception
 from ee.clickhouse.queries.funnels import ClickhouseFunnelTimeToConvert, ClickhouseFunnelTrends
 from ee.clickhouse.queries.funnels.utils import get_funnel_order_class
 from ee.clickhouse.queries.paths.paths import ClickhousePaths
-from ee.clickhouse.queries.retention.clickhouse_retention import ClickhouseRetention
-from ee.clickhouse.queries.stickiness.clickhouse_stickiness import ClickhouseStickiness
 from ee.clickhouse.queries.trends.clickhouse_trends import ClickhouseTrends
 from posthog.api.documentation import extend_schema
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
@@ -65,6 +63,8 @@ from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.insight import InsightViewed, generate_insight_cache_key
 from posthog.models.utils import UUIDT
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
+from posthog.queries.retention import Retention
+from posthog.queries.stickiness import Stickiness
 from posthog.queries.util import get_earliest_timestamp
 from posthog.settings import SITE_URL
 from posthog.tasks.update_cache import update_insight_cache
@@ -260,7 +260,7 @@ class InsightSerializer(InsightBasicSerializer):
 
     def update(self, instance: Insight, validated_data: Dict, **kwargs) -> Insight:
         try:
-            before_update = Insight.objects.get(pk=instance.id)
+            before_update = Insight.objects.prefetch_related("tagged_items__tag", "dashboards").get(pk=instance.id)
         except Insight.DoesNotExist:
             before_update = None
 
@@ -288,6 +288,9 @@ class InsightSerializer(InsightBasicSerializer):
 
                 if ids_to_remove:
                     DashboardTile.objects.filter(dashboard_id__in=ids_to_remove, insight=instance).delete()
+
+                # also update in-model dashboards set so activity log can detect the change
+                instance.dashboards.set(dashboards)
 
         updated_insight = super().update(instance, validated_data)
 
@@ -390,6 +393,9 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDestr
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ["short_id", "created_by"]
     include_in_docs = True
+
+    retention_query_class = Retention
+    stickiness_query_class = Stickiness
 
     def get_serializer_class(self) -> Type[serializers.BaseSerializer]:
 
@@ -575,7 +581,7 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDestr
             stickiness_filter = StickinessFilter(
                 request=request, team=team, get_earliest_timestamp=get_earliest_timestamp
             )
-            result = ClickhouseStickiness().run(stickiness_filter, team)
+            result = self.stickiness_query_class().run(stickiness_filter, team)
         else:
             trends_query = ClickhouseTrends()
             result = trends_query.run(filter, team)
@@ -654,7 +660,7 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDestr
             data.update({"date_from": "-11d"})
         filter = RetentionFilter(data=data, request=request, team=self.team)
         base_uri = request.build_absolute_uri("/")
-        result = ClickhouseRetention(base_uri=base_uri).run(filter, team)
+        result = self.retention_query_class(base_uri=base_uri).run(filter, team)
         return {"result": result, "timezone": team.timezone}
 
     # ******************************************
@@ -703,7 +709,8 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDestr
     def all_activity(self, request: request.Request, **kwargs):
         limit = int(request.query_params.get("limit", "10"))
         page = int(request.query_params.get("page", "1"))
-        activity_page = load_activity(scope="Insight", team_id=self.team_id)
+
+        activity_page = load_activity(scope="Insight", team_id=self.team_id, limit=limit, page=page)
         return self._return_activity_page(activity_page, limit, page, request)
 
     @action(methods=["GET"], detail=True)

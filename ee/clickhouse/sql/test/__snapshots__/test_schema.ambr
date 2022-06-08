@@ -24,40 +24,6 @@
   
   '
 ---
-# name: test_create_kafka_table_with_different_kafka_host[kafka_events]
-  '
-  
-  CREATE TABLE IF NOT EXISTS kafka_events ON CLUSTER 'posthog'
-  (
-      uuid UUID,
-      event VARCHAR,
-      properties VARCHAR,
-      timestamp DateTime64(6, 'UTC'),
-      team_id Int64,
-      distinct_id VARCHAR,
-      elements_chain VARCHAR,
-      created_at DateTime64(6, 'UTC'),
-      person_id UUID,
-      person_properties VARCHAR,
-      group0_properties VARCHAR,
-      group1_properties VARCHAR,
-      group2_properties VARCHAR,
-      group3_properties VARCHAR,
-      group4_properties VARCHAR
-      
-      
-  ) ENGINE = 
-      Kafka () SETTINGS
-      kafka_broker_list = 'test.kafka.broker:9092',
-      kafka_topic_list = 'clickhouse_events_proto_test',
-      kafka_group_name = 'group1',
-      kafka_format = 'Protobuf',
-      kafka_schema = 'events:Event',
-      kafka_skip_broken_messages = 100
-      
-  
-  '
----
 # name: test_create_kafka_table_with_different_kafka_host[kafka_events_dead_letter_queue]
   '
   
@@ -219,9 +185,10 @@
       person_id UUID,
       cohort_id Int64,
       team_id Int64,
-      sign Int8
+      sign Int8,
+      version UInt64
   ) ENGINE = CollapsingMergeTree(sign)
-  Order By (team_id, cohort_id, person_id)
+  Order By (team_id, cohort_id, person_id, version)
   
   
   '
@@ -350,26 +317,6 @@
   
   '
 ---
-# name: test_create_table_query[events_mv]
-  '
-  
-  CREATE MATERIALIZED VIEW events_mv ON CLUSTER 'posthog'
-  TO posthog_test.events
-  AS SELECT
-  uuid,
-  event,
-  properties,
-  timestamp,
-  team_id,
-  distinct_id,
-  elements_chain,
-  created_at,
-  _timestamp,
-  _offset
-  FROM posthog_test.kafka_events
-  
-  '
----
 # name: test_create_table_query[groups]
   '
   
@@ -404,40 +351,6 @@
   _timestamp,
   _offset
   FROM posthog_test.kafka_groups
-  
-  '
----
-# name: test_create_table_query[kafka_events]
-  '
-  
-  CREATE TABLE IF NOT EXISTS kafka_events ON CLUSTER 'posthog'
-  (
-      uuid UUID,
-      event VARCHAR,
-      properties VARCHAR,
-      timestamp DateTime64(6, 'UTC'),
-      team_id Int64,
-      distinct_id VARCHAR,
-      elements_chain VARCHAR,
-      created_at DateTime64(6, 'UTC'),
-      person_id UUID,
-      person_properties VARCHAR,
-      group0_properties VARCHAR,
-      group1_properties VARCHAR,
-      group2_properties VARCHAR,
-      group3_properties VARCHAR,
-      group4_properties VARCHAR
-      
-      
-  ) ENGINE = 
-      Kafka () SETTINGS
-      kafka_broker_list = 'kafka:9092',
-      kafka_topic_list = 'clickhouse_events_proto_test',
-      kafka_group_name = 'group1',
-      kafka_format = 'Protobuf',
-      kafka_schema = 'events:Event',
-      kafka_skip_broken_messages = 100
-      
   
   '
 ---
@@ -948,9 +861,10 @@
       person_id UUID,
       cohort_id Int64,
       team_id Int64,
-      sign Int8
+      sign Int8,
+      version UInt64
   ) ENGINE = ReplicatedCollapsingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.cohortpeople', '{replica}-{shard}', sign)
-  Order By (team_id, cohort_id, person_id)
+  Order By (team_id, cohort_id, person_id, version)
   
   
   '

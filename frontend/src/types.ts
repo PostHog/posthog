@@ -1486,7 +1486,7 @@ export interface LicenseType {
 export interface EventDefinition {
     id: string
     name: string
-    description: string
+    description?: string
     tags?: string[]
     volume_30_day: number | null
     query_usage_30_day: number | null
@@ -1511,7 +1511,7 @@ export enum PropertyType {
 export interface PropertyDefinition {
     id: string
     name: string
-    description: string
+    description?: string
     tags?: string[]
     volume_30_day: number | null
     query_usage_30_day: number | null
@@ -1524,6 +1524,8 @@ export interface PropertyDefinition {
     last_seen_at?: string // TODO: Implement
     example?: string
 }
+
+export type Definition = EventDefinition | PropertyDefinition
 
 export interface PersonProperty {
     id: number
@@ -1877,4 +1879,12 @@ export enum ValueOptionType {
     MostRecent = 'most_recent',
     Previous = 'previous',
     OnDate = 'on_date',
+}
+
+export type Description = string | JSX.Element | null
+
+export interface ChangeDescriptions {
+    descriptions: Description[]
+    // e.g. should description say "did deletion _to_ Y" or "deleted Y"
+    bareName: boolean
 }

@@ -113,7 +113,7 @@ export const eventsTableLogic = kea<eventsTableLogicType>({
         startDownload: true,
     },
 
-    reducers: {
+    reducers: ({ props }) => ({
         pollingIsActive: [
             true,
             {
@@ -130,7 +130,7 @@ export const eventsTableLogic = kea<eventsTableLogicType>({
             },
         ],
         eventFilter: [
-            '',
+            props.fixedFilters?.event_filter ?? '',
             {
                 setEventFilter: (_, { event }) => event,
             },
@@ -206,7 +206,7 @@ export const eventsTableLogic = kea<eventsTableLogicType>({
                 toggleAutomaticLoad: (_, { automaticLoadEnabled }) => automaticLoadEnabled,
             },
         ],
-    },
+    }),
 
     selectors: ({ selectors, props }) => ({
         eventsFormatted: [
