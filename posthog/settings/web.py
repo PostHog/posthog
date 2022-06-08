@@ -231,6 +231,18 @@ CSRF_COOKIE_NAME = "posthog_csrftoken"
 GZIP_RESPONSE_ALLOW_LIST = get_list(
     os.getenv(
         "GZIP_RESPONSE_ALLOW_LIST",
-        "^/?api/projects/\\d+/session_recordings/.*/snapshots/?$,/?api/plugin_config/\\d+/frontend/?",
+        ",".join(
+            [
+                "^/?api/projects/\\d+/session_recordings/.*/snapshots/?$",
+                "/?api/plugin_config/\\d+/frontend/?",
+                "^/?api/projects/@current/property_definitions/?$",
+                "^/?api/projects/\\d+/event_definitions/?$",
+                "^/?api/projects/\\d+/insights/(trend|funnel)/?$",
+                "^/?api/projects/\\d+/insights/\\d+/?$",
+                "^/?api/projects/\\d+/dashboards/\\d+/?$",
+                "^/?api/projects/\\d+/actions/?$",
+                "^/?api/projects/\\d+/session_recordings/?$",
+            ]
+        ),
     )
 )
