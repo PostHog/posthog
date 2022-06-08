@@ -14,6 +14,7 @@ from posthog.models.person import Person
 logger = structlog.get_logger(__name__)
 
 # We check up to LIMIT persons between PERIOD_START..PERIOD_END, in batches of BATCH_SIZE
+# This helps keep the metric "moving" as we ship fixes or bugs.
 LIMIT = 100000
 BATCH_SIZE = 500
 PERIOD_START = timedelta(hours=1)
