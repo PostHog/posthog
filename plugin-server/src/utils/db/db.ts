@@ -438,7 +438,7 @@ export class DB {
         const taskId = new UUIDT().toString()
         const deliveryTag = new UUIDT().toString()
         const body = [args, kwargs, { callbacks: null, errbacks: null, chain: null, chord: null }]
-        /** A base64-encoded JSON representation of the body tuple. The base64 trailing "=" is omitted. */
+        /** A base64-encoded JSON representation of the body tuple. */
         const bodySerialized = Buffer.from(JSON.stringify(body)).toString('base64')
         await this.redisLPush(CELERY_DEFAULT_QUEUE, {
             body: bodySerialized,
