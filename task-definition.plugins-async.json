@@ -119,6 +119,10 @@
                 {
                     "name": "WORKER_CONCURRENCY",
                     "value": "2"
+                },
+                {
+                    "name": "CLEAR_CLICKHOUSE_REMOVED_DATA_SCHEDULE_CRON",
+                    "value": "0 5 * * SUN"
                 }
             ],
             "secrets": [
