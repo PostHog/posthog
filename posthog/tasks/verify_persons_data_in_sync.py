@@ -41,9 +41,9 @@ HAVING argMax(is_deleted, version) = 0 AND person_id IN (%(person_ids)s)
 
 
 @app.task(max_retries=1, ignore_result=True)
-def verify_persons_data_sync() -> None:
+def verify_persons_data_in_sync() -> None:
     # :KLUDGE: Rather than filter on created_at directly which is unindexed, we look up the latest value in 'id' column
-    #   and leverage that to narrow down filtering in a clever way
+    #   and leverage that to narrow down filtering in an index-efficient way
     max_pk = Person.objects.filter(created_at__lte=now() - PERIOD_START).latest("id").id
     person_data = list(
         Person.objects.filter(
@@ -51,6 +51,7 @@ def verify_persons_data_sync() -> None:
         ).values_list("id", "uuid", "team_id")[:LIMIT]
     )
     person_data.sort(key=lambda row: row[2])  # keep persons from same team together
+
     results = Counter(
         {
             "total": 0,
@@ -72,20 +73,24 @@ def _team_integrity_statistics(person_data=List[Any]) -> Counter:
     team_ids = list(set(team_id for _, _, team_id in person_data))
 
     # :TRICKY: To speed up processing, we fetch all models in batch at once and store results in dictionary indexed by person uuid
-    pg_persons = list(
-        Person.objects.filter(id__in=person_ids).prefetch_related(
-            Prefetch("persondistinctid_set", to_attr="distinct_ids_cache")
-        )
+    pg_persons = _index_by(
+        list(
+            Person.objects.filter(id__in=person_ids).prefetch_related(
+                Prefetch("persondistinctid_set", to_attr="distinct_ids_cache")
+            )
+        ),
+        lambda p: p.uuid,
     )
-    pg_persons = _index_by(pg_persons, lambda p: p.uuid)
 
-    ch_persons = sync_execute(GET_PERSON_CH_QUERY, {"person_ids": person_uuids, "team_ids": team_ids})
-    ch_persons = _index_by(ch_persons, lambda row: row[0])
-
-    ch_distinct_ids_mapping = sync_execute(
-        GET_DISTINCT_IDS_CH_QUERY, {"person_ids": person_uuids, "team_ids": team_ids}
+    ch_persons = _index_by(
+        sync_execute(GET_PERSON_CH_QUERY, {"person_ids": person_uuids, "team_ids": team_ids}), lambda row: row[0]
     )
-    ch_distinct_ids_mapping = _index_by(ch_distinct_ids_mapping, lambda row: row[1], as_list=True)
+
+    ch_distinct_ids_mapping = _index_by(
+        sync_execute(GET_DISTINCT_IDS_CH_QUERY, {"person_ids": person_uuids, "team_ids": team_ids}),
+        lambda row: row[1],
+        flat=False,
+    )
 
     result: Counter = Counter()
     for pk, uuid, team_id in person_data:
@@ -131,11 +136,11 @@ def _emit_metrics(integrity_results: Counter) -> None:
         statsd.gauge(f"posthog_person_integrity_{key}", value)
 
 
-def _index_by(collection: List[Any], key_fn: Any, as_list=False) -> Dict:
-    result: Dict = defaultdict(list) if as_list else {}
+def _index_by(collection: List[Any], key_fn: Any, flat: bool = True) -> Dict:
+    result: Dict = {} if flat else defaultdict(list)
     for item in collection:
-        if as_list:
-            result[key_fn(item)].append(item)
-        else:
+        if flat:
             result[key_fn(item)] = item
+        else:
+            result[key_fn(item)].append(item)
     return result
