@@ -153,8 +153,21 @@ class ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('event_definitions')
     }
 
+    public eventDefinitionDetail(eventDefinitionId: EventDefinition['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('event_definitions').addPathComponent(eventDefinitionId)
+    }
+
     public propertyDefinitions(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('property_definitions')
+    }
+
+    public propertyDefinitionDetail(
+        propertyDefinitionId: PropertyDefinition['id'],
+        teamId?: TeamType['id']
+    ): ApiRequest {
+        return this.projectsDetail(teamId)
+            .addPathComponent('property_definitions')
+            .addPathComponent(propertyDefinitionId)
     }
 
     // # Cohorts
@@ -396,6 +409,18 @@ const api = {
     },
 
     eventDefinitions: {
+        async get({ eventDefinitionId }: { eventDefinitionId: EventDefinition['id'] }): Promise<EventDefinition> {
+            return new ApiRequest().eventDefinitionDetail(eventDefinitionId).get()
+        },
+        async update({
+            eventDefinitionId,
+            eventDefinitionData,
+        }: {
+            eventDefinitionId: EventDefinition['id']
+            eventDefinitionData: Partial<Omit<EventDefinition, 'owner'> & { owner: number | null }>
+        }): Promise<EventDefinition> {
+            return new ApiRequest().eventDefinitionDetail(eventDefinitionId).update({ data: eventDefinitionData })
+        },
         async list({
             limit = EVENT_DEFINITIONS_PER_PAGE,
             teamId = getCurrentTeamId(),
@@ -431,6 +456,24 @@ const api = {
     },
 
     propertyDefinitions: {
+        async get({
+            propertyDefinitionId,
+        }: {
+            propertyDefinitionId: PropertyDefinition['id']
+        }): Promise<PropertyDefinition> {
+            return new ApiRequest().propertyDefinitionDetail(propertyDefinitionId).get()
+        },
+        async update({
+            propertyDefinitionId,
+            propertyDefinitionData,
+        }: {
+            propertyDefinitionId: PropertyDefinition['id']
+            propertyDefinitionData: Partial<PropertyDefinition>
+        }): Promise<PropertyDefinition> {
+            return new ApiRequest()
+                .propertyDefinitionDetail(propertyDefinitionId)
+                .update({ data: propertyDefinitionData })
+        },
         async list({
             limit = EVENT_PROPERTY_DEFINITIONS_PER_PAGE,
             teamId = getCurrentTeamId(),

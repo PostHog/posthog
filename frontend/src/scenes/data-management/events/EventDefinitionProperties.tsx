@@ -10,17 +10,11 @@ import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { humanFriendlyNumber } from 'lib/utils'
 import { PropertyDefinitionHeader } from 'scenes/data-management/events/DefinitionHeader'
-import { More } from 'lib/components/LemonButton/More'
-import { LemonButton } from 'lib/components/LemonButton'
-import { urls } from 'scenes/urls'
-import { router } from 'kea-router'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 export function EventDefinitionProperties({ definition }: { definition: EventDefinition }): JSX.Element {
-    const { loadPropertiesForEvent, setLocalPropertyDefinition } = useActions(eventDefinitionsTableLogic)
+    const { loadPropertiesForEvent } = useActions(eventDefinitionsTableLogic)
     const { eventPropertiesCacheMap, eventDefinitionPropertiesLoading } = useValues(eventDefinitionsTableLogic)
     const { hasDashboardCollaboration, hasIngestionTaxonomy } = useValues(organizationLogic)
-    const { reportDataManagementEventDefinitionsPageClickNestedPropertyDetail } = useActions(eventUsageLogic)
 
     useEffect(() => {
         loadPropertiesForEvent(definition)
@@ -32,17 +26,7 @@ export function EventDefinitionProperties({ definition }: { definition: EventDef
             key: 'property',
             className: 'definition-column-name',
             render: function Render(_, _definition: PropertyDefinition) {
-                return (
-                    <PropertyDefinitionHeader
-                        definition={_definition}
-                        event={definition}
-                        hideIcon
-                        openDetailInNewTab={false}
-                        updateRemoteItem={(nextPropertyDefinition) => {
-                            setLocalPropertyDefinition(definition, nextPropertyDefinition as PropertyDefinition)
-                        }}
-                    />
-                )
+                return <PropertyDefinitionHeader definition={_definition} event={definition} hideIcon asLink />
             },
         },
         {
@@ -98,31 +82,6 @@ export function EventDefinitionProperties({ definition }: { definition: EventDef
                     </div>
                 ) : (
                     <span className="text-muted">—</span>
-                )
-            },
-        },
-        {
-            key: 'actions',
-            width: 0,
-            render: function Render(_, _definition: PropertyDefinition) {
-                return (
-                    <More
-                        overlay={
-                            <>
-                                <LemonButton
-                                    type="stealth"
-                                    onClick={() => {
-                                        reportDataManagementEventDefinitionsPageClickNestedPropertyDetail()
-                                        router.actions.push(urls.eventPropertyDefinition(_definition.id))
-                                    }}
-                                    fullWidth
-                                    data-attr="event-properties-definition-property-detail"
-                                >
-                                    Show property in list
-                                </LemonButton>
-                            </>
-                        }
-                    />
                 )
             },
         },

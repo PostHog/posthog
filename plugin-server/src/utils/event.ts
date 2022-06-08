@@ -1,7 +1,7 @@
 import { ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 
 import { ClickhouseEventKafka, IngestionEvent } from '../types'
-import { chainToElements } from './db/utils'
+import { chainToElements } from './db/elements-chain'
 
 export function convertToProcessedPluginEvent(event: IngestionEvent): ProcessedPluginEvent {
     const timestamp = typeof event.timestamp === 'string' ? event.timestamp : event.timestamp.toUTC().toISO()

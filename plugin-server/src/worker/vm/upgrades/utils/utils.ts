@@ -5,7 +5,7 @@ import { Client } from 'pg'
 
 import { ClickHouseEvent, Element, TimestampFormat } from '../../../../types'
 import { DB } from '../../../../utils/db/db'
-import { chainToElements } from '../../../../utils/db/utils'
+import { chainToElements } from '../../../../utils/db/elements-chain'
 import { castTimestampToClickhouseFormat } from '../../../../utils/utils'
 
 export interface RawElement extends Element {

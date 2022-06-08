@@ -1,7 +1,6 @@
 from typing import Any, Dict, List, Tuple
 
 from ee.clickhouse.models.property import get_property_string_expr
-from ee.clickhouse.queries.event_query import EnterpriseEventQuery
 from posthog.constants import (
     FUNNEL_PATH_AFTER_STEP,
     FUNNEL_PATH_BEFORE_STEP,
@@ -12,9 +11,10 @@ from posthog.constants import (
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.team import Team
 from posthog.models.utils import PersonPropertiesMode
+from posthog.queries.event_query import EventQuery
 
 
-class PathEventQuery(EnterpriseEventQuery):
+class PathEventQuery(EventQuery):
     FUNNEL_PERSONS_ALIAS = "funnel_actors"
     _filter: PathFilter
 
@@ -123,7 +123,7 @@ class PathEventQuery(EnterpriseEventQuery):
         self._should_join_distinct_ids = True
 
     def _determine_should_join_persons(self) -> None:
-        EnterpriseEventQuery._determine_should_join_persons(self)
+        EventQuery._determine_should_join_persons(self)
         if self._using_person_on_events:
             self._should_join_distinct_ids = False
             self._should_join_persons = False

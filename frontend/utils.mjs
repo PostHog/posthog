@@ -1,25 +1,20 @@
 import { sassPlugin } from 'esbuild-sass-plugin'
 import { lessLoader } from 'esbuild-plugin-less'
 import * as path from 'path'
-import * as url from 'url'
 import express from 'express'
 import cors from 'cors'
 import fse from 'fs-extra'
-import { build } from 'esbuild'
+import { build, analyzeMetafile } from 'esbuild'
 import chokidar from 'chokidar'
 
 const defaultHost = process.argv.includes('--host') && process.argv.includes('0.0.0.0') ? '0.0.0.0' : 'localhost'
 const defaultPort = 8234
 
-export const __dirname = path.dirname(url.fileURLToPath(import.meta.url))
 export const isDev = process.argv.includes('--dev')
 
 export const lessPlugin = lessLoader({ javascriptEnabled: true })
 
-export function copyPublicFolder() {
-    const srcDir = path.resolve(__dirname, 'public')
-    const destDir = path.resolve(__dirname, 'dist')
-
+export function copyPublicFolder(srcDir, destDir) {
     fse.copySync(srcDir, destDir, { overwrite: true }, function (err) {
         if (err) {
             console.error(err)
@@ -28,6 +23,7 @@ export function copyPublicFolder() {
 }
 
 export function copyIndexHtml(
+    absWorkingDir = '.',
     from = 'src/index.html',
     to = 'dist/index.html',
     entry = 'index',
@@ -44,11 +40,10 @@ export function copyIndexHtml(
     // Docker image, but serve the js and it's dependencies from e.g. CloudFront
     const buildId = new Date().valueOf()
 
-    const relativeFiles = entrypoints.map((e) => path.relative(path.resolve(__dirname, 'dist'), e))
-    const jsFile =
-        relativeFiles.length > 0 ? `"${relativeFiles.find((e) => e.endsWith('.js'))}"` : `"${entry}.js?t=${buildId}"`
+    const relativeFiles = entrypoints.map((e) => path.relative(path.resolve(absWorkingDir, 'dist'), e))
+    const jsFile = relativeFiles.length > 0 ? relativeFiles.find((e) => e.endsWith('.js')) : `${entry}.js?t=${buildId}`
     const cssFile =
-        relativeFiles.length > 0 ? `${relativeFiles.find((e) => e.endsWith('.css'))}` : `${entry}.css?t=${buildId}`
+        relativeFiles.length > 0 ? relativeFiles.find((e) => e.endsWith('.css')) : `${entry}.css?t=${buildId}`
 
     const scriptCode = `
         window.ESBUILD_LOAD_SCRIPT = async function (file) {
@@ -59,7 +54,7 @@ export function copyIndexHtml(
                 console.error(error)
             }
         }
-        window.ESBUILD_LOAD_SCRIPT(${jsFile})
+        window.ESBUILD_LOAD_SCRIPT(${JSON.stringify(jsFile)})
     `
 
     const chunkCode = `
@@ -80,13 +75,13 @@ export function copyIndexHtml(
     const cssLoader = `
         const link = document.createElement("link");
         link.rel = "stylesheet";
-        link.href = (window.JS_URL || '') + "/static/${cssFile}"
+        link.href = (window.JS_URL || '') + "/static/" + ${JSON.stringify(cssFile)};
         document.head.appendChild(link)
     `
 
     fse.writeFileSync(
-        path.resolve(__dirname, to),
-        fse.readFileSync(path.resolve(__dirname, from), { encoding: 'utf-8' }).replace(
+        path.resolve(absWorkingDir, to),
+        fse.readFileSync(path.resolve(absWorkingDir, from), { encoding: 'utf-8' }).replace(
             '</head>',
             `   <script type="application/javascript">
                     // NOTE: the link for the stylesheet will be added just
@@ -97,7 +92,7 @@ export function copyIndexHtml(
                     // Fingers crossed the browser waits for the stylesheet to
                     // load such that it's in place when react starts
                     // adding elements to the DOM
-                    ${cssLoader}
+                    ${cssFile ? cssLoader : ''}
                     ${scriptCode}
                     ${Object.keys(chunks).length > 0 ? chunkCode : ''}
                 </script>
@@ -107,10 +102,13 @@ export function copyIndexHtml(
 }
 
 /** Makes copies: "index-TMOJQ3VI.js" -> "index.js" */
-export function createHashlessEntrypoints(entrypoints) {
+export function createHashlessEntrypoints(absWorkingDir, entrypoints) {
     for (const entrypoint of entrypoints) {
         const withoutHash = entrypoint.replace(/-([A-Z0-9]+).(js|css)$/, '.$2')
-        fse.writeFileSync(path.resolve(withoutHash), fse.readFileSync(path.resolve(entrypoint)))
+        fse.writeFileSync(
+            path.resolve(absWorkingDir, withoutHash),
+            fse.readFileSync(path.resolve(absWorkingDir, entrypoint))
+        )
     }
 }
 
@@ -169,7 +167,7 @@ function getChunks(result) {
     return chunks
 }
 
-export async function buildInParallel(configs, { onBuildStart, onBuildComplete }) {
+export async function buildInParallel(configs, { onBuildStart, onBuildComplete } = {}) {
     await Promise.all(
         configs.map((config) =>
             buildOrWatch({
@@ -188,22 +186,26 @@ function getBuiltEntryPoints(config, result) {
         // convert "src/index.tsx" --> /a/posthog/frontend/dist/index.js
         outfiles = config.entryPoints.map((file) =>
             path
-                .resolve(__dirname, file)
+                .resolve(config.absWorkingDir, file)
                 .replace('/src/', '/dist/')
                 .replace(/\.[^\.]+$/, '.js')
         )
     } else if (config.outfile) {
-        outfiles = [config.outfile]
+        outfiles = [path.resolve(config.absWorkingDir, config.outfile)]
     }
 
     const builtFiles = []
     for (const outfile of outfiles) {
         // convert "/a/something.tsx" --> "/a/something-"
-        const searchString = `${outfile.replace(/\.[^/]+$/, '')}-`
+        const fileNoExt = outfile.replace(/\.[^/]+$/, '')
         // find if we built a .js or .css file that matches
         for (const file of Object.keys(result.metafile.outputs)) {
             const absoluteFile = path.resolve(process.cwd(), file)
-            if (absoluteFile.startsWith(searchString) && (file.endsWith('.js') || file.endsWith('.css'))) {
+            if (
+                (absoluteFile.startsWith(`${fileNoExt}-`) && (file.endsWith('.js') || file.endsWith('.css'))) ||
+                absoluteFile === `${fileNoExt}.js` ||
+                absoluteFile === `${fileNoExt}.css`
+            ) {
                 builtFiles.push(absoluteFile)
             }
         }
@@ -212,8 +214,10 @@ function getBuiltEntryPoints(config, result) {
     return builtFiles
 }
 
+let buildsInProgress = 0
+
 export async function buildOrWatch(config) {
-    const { name, onBuildStart, onBuildComplete, ..._config } = config
+    const { absWorkingDir, name, onBuildStart, onBuildComplete, ..._config } = config
 
     let buildPromise = null
     let buildAgain = false
@@ -230,12 +234,20 @@ export async function buildOrWatch(config) {
             return
         }
         buildAgain = false
+        if (buildsInProgress === 0) {
+            server?.pauseServer()
+        }
+        buildsInProgress++
         onBuildStart?.(config)
         reloadLiveServer()
         buildPromise = runBuild()
         const buildResponse = await buildPromise
         buildPromise = null
-        onBuildComplete?.(config, buildResponse)
+        await onBuildComplete?.(config, buildResponse)
+        buildsInProgress--
+        if (buildsInProgress === 0) {
+            server?.resumeServer()
+        }
         if (isDev && buildAgain) {
             void debouncedBuild()
         }
@@ -267,14 +279,15 @@ export async function buildOrWatch(config) {
         inputFiles = getInputFiles(result)
 
         return {
-            chunks: getChunks(result),
             entrypoints: getBuiltEntryPoints(config, result),
+            chunks: getChunks(result),
+            ...result.metafile,
         }
     }
 
     if (isDev) {
         chokidar
-            .watch(path.resolve(__dirname, 'src'), {
+            .watch(path.resolve(absWorkingDir, 'src'), {
                 ignored: /.*(Type|\.test\.stories)\.[tj]sx$/,
                 ignoreInitial: true,
             })
@@ -291,15 +304,43 @@ export async function buildOrWatch(config) {
     await debouncedBuild()
 }
 
+export async function printResponse(response, { compact = true, color = true, verbose = false, ...opts } = {}) {
+    let text = await analyzeMetafile('metafile' in response ? response.metafile : response, {
+        color,
+        verbose,
+        ...opts,
+    })
+    if (compact) {
+        text = text
+            .split('\n')
+            .filter((l) => !l.match(/^   [^\n]+$/g) && l.trim())
+            .join('\n')
+    }
+    console.log(text)
+}
+
 let clients = new Set()
 
 function reloadLiveServer() {
     clients.forEach((client) => client.write(`data: reload\n\n`))
 }
 
+let server
+export function startDevServer(absWorkingDir) {
+    if (isDev) {
+        console.log(`👀 Starting dev server`)
+        server = startServer({ absWorkingDir })
+        return server
+    } else {
+        console.log(`🛳 Starting production build`)
+        return null
+    }
+}
+
 export function startServer(opts = {}) {
     const host = opts.host || defaultHost
     const port = opts.port || defaultPort
+    const absWorkingDir = opts.absWorkingDir || '.'
 
     console.log(`🍱 Starting server at http://${host}:${port}`)
 
@@ -345,14 +386,14 @@ export function startServer(opts = {}) {
                 await ifPaused
             }
             const pathFromUrl = req.url.replace(/^\/static\//, '')
-            const filePath = path.resolve(__dirname, 'dist', pathFromUrl)
+            const filePath = path.resolve(absWorkingDir, 'dist', pathFromUrl)
             // protect against "/../" urls
-            if (filePath.startsWith(path.resolve(__dirname, 'dist'))) {
+            if (filePath.startsWith(path.resolve(absWorkingDir, 'dist'))) {
                 res.sendFile(filePath.split('?')[0])
                 return
             }
         }
-        res.sendFile(path.resolve(__dirname, 'dist', 'index.html'))
+        res.sendFile(path.resolve(absWorkingDir, 'dist', 'index.html'))
     })
     app.listen(port)
 

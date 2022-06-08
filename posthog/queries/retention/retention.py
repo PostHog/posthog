@@ -1,18 +1,21 @@
-from typing import Any, Dict, List, NamedTuple, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional
 from urllib.parse import urlencode
 
-from ee.clickhouse.queries.retention.retention_event_query import RetentionEventsQuery
-from ee.clickhouse.sql.retention.retention import RETENTION_BREAKDOWN_SQL
 from posthog.client import substitute_params, sync_execute
 from posthog.constants import RETENTION_FIRST_TIME, RetentionQueryType
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.team import Team
+from posthog.queries.retention.actors_query import RetentionActors, RetentionActorsByPeriod, build_actor_activity_query
+from posthog.queries.retention.event_query import RetentionEventsQuery
+from posthog.queries.retention.sql import RETENTION_BREAKDOWN_SQL
+from posthog.queries.retention.types import BreakdownValues, CohortKey
 
-BreakdownValues = Tuple[Union[str, int], ...]
-CohortKey = NamedTuple("CohortKey", (("breakdown_values", BreakdownValues), ("period", int)))
 
+class Retention:
+    event_query = RetentionEventsQuery
+    actors_query = RetentionActors
+    actors_by_period_query = RetentionActorsByPeriod
 
-class ClickhouseRetention:
     def __init__(self, base_uri="/"):
         self._base_uri = base_uri
 
@@ -26,9 +29,8 @@ class ClickhouseRetention:
     def _get_retention_by_breakdown_values(
         self, filter: RetentionFilter, team: Team,
     ) -> Dict[CohortKey, Dict[str, Any]]:
-        from ee.clickhouse.queries.retention.retention_actors import build_actor_activity_query
 
-        actor_query = build_actor_activity_query(filter=filter, team=team)
+        actor_query = build_actor_activity_query(filter=filter, team=team, retention_events_query=self.event_query)
 
         result = sync_execute(
             RETENTION_BREAKDOWN_SQL.format(actor_query=actor_query,),
@@ -111,9 +113,8 @@ class ClickhouseRetention:
         return result
 
     def actors(self, filter: RetentionFilter, team: Team):
-        from ee.clickhouse.queries.retention.retention_actors import ClickhouseRetentionActors
 
-        _, serialized_actors = ClickhouseRetentionActors(team=team, filter=filter).get_actors()
+        _, serialized_actors = self.actors_query(team=team, filter=filter).get_actors()
 
         return serialized_actors
 
@@ -136,9 +137,7 @@ class ClickhouseRetention:
         interval, where the index of the list is the interval it refers to.
         """
 
-        from ee.clickhouse.queries.retention.retention_actors import ClickhouseRetentionActorsByPeriod
-
-        return ClickhouseRetentionActorsByPeriod(team=team, filter=filter).actors()
+        return self.actors_by_period_query(team=team, filter=filter).actors()
 
 
 def build_returning_event_query(
@@ -146,8 +145,9 @@ def build_returning_event_query(
     team: Team,
     aggregate_users_by_distinct_id: Optional[bool] = None,
     using_person_on_events: bool = False,
+    retention_events_query=RetentionEventsQuery,
 ):
-    returning_event_query_templated, returning_event_params = RetentionEventsQuery(
+    returning_event_query_templated, returning_event_params = retention_events_query(
         filter=filter.with_data({"breakdowns": []}),  # Avoid pulling in breakdown values from returning event query
         team=team,
         event_query_type=RetentionQueryType.RETURNING,
@@ -165,8 +165,9 @@ def build_target_event_query(
     team: Team,
     aggregate_users_by_distinct_id: Optional[bool] = None,
     using_person_on_events: bool = False,
+    retention_events_query=RetentionEventsQuery,
 ):
-    target_event_query_templated, target_event_params = RetentionEventsQuery(
+    target_event_query_templated, target_event_params = retention_events_query(
         filter=filter,
         team=team,
         event_query_type=(

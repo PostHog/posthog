@@ -632,6 +632,14 @@ export function getKeyMapping(
     return null
 }
 
+export function getPropertyLabel(
+    value: PropertyKeyInfoInterface['value'],
+    type: PropertyKeyInfoInterface['type'] = 'event'
+): string {
+    const data = getKeyMapping(value, type)
+    return (data ? data.label : value)?.trim() ?? '(empty string)'
+}
+
 export function PropertyKeyInfo({
     value,
     type = 'event',
