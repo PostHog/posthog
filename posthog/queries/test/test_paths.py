@@ -5,6 +5,7 @@ from dateutil.relativedelta import relativedelta
 from django.utils.timezone import now
 from freezegun import freeze_time
 
+from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.constants import FILTER_TEST_ACCOUNTS
 from posthog.models import Team
 from posthog.models.filters.path_filter import PathFilter
@@ -24,7 +25,7 @@ class MockEvent:
 
 
 def paths_test_factory(paths):
-    class TestPaths(APIBaseTest):
+    class TestPaths(ClickhouseTestMixin, APIBaseTest):
         @test_with_materialized_columns(["$current_url", "$screen_name"], person_properties=["email"])
         def test_current_url_paths_and_logic(self):
             events = []
