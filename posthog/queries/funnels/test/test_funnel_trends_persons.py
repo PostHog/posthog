@@ -4,11 +4,11 @@ from uuid import uuid4
 from django.utils import timezone
 
 from ee.clickhouse.models.session_recording_event import create_session_recording_event
-from ee.clickhouse.queries.funnels.funnel_trends_persons import ClickhouseFunnelTrendsActors
 from ee.clickhouse.test.test_journeys import journeys_for
 from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
 from posthog.constants import INSIGHT_FUNNELS, FunnelVizType
 from posthog.models.filters import Filter
+from posthog.queries.funnels.funnel_trends_persons import ClickhouseFunnelTrendsActors
 from posthog.test.base import APIBaseTest
 
 

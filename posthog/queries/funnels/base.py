@@ -13,8 +13,6 @@ from ee.clickhouse.models.property import (
     parse_prop_grouped_clauses,
 )
 from ee.clickhouse.queries.breakdown_props import format_breakdown_cohort_join_query, get_breakdown_prop_values
-from ee.clickhouse.queries.funnels.funnel_event_query import FunnelEventQuery
-from ee.clickhouse.sql.funnels.funnel import FUNNEL_INNER_EVENT_STEPS_QUERY
 from posthog.client import sync_execute
 from posthog.constants import (
     FUNNEL_WINDOW_INTERVAL,
@@ -29,6 +27,8 @@ from posthog.models import Entity, Filter, Team
 from posthog.models.action.util import format_action_filter
 from posthog.models.property import PropertyName
 from posthog.models.utils import PersonPropertiesMode
+from posthog.queries.funnels.funnel_event_query import FunnelEventQuery
+from posthog.queries.funnels.sql import FUNNEL_INNER_EVENT_STEPS_QUERY
 from posthog.utils import relative_date_parse
 
 

@@ -1,6 +1,6 @@
 from typing import List
 
-from ee.clickhouse.queries.funnels.base import ClickhouseFunnelBase
+from posthog.queries.funnels.base import ClickhouseFunnelBase
 
 
 class ClickhouseFunnelStrict(ClickhouseFunnelBase):
