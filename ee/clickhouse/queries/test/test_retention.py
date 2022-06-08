@@ -4,10 +4,10 @@ from ee.clickhouse.util import snapshot_clickhouse_queries
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.person import Person
-from posthog.queries.test.test_retention import TestRetention, _create_events, _date, pluck
+from posthog.queries.test.test_retention import _create_events, _date, pluck, retention_test_factory
 
 
-class TestClickhouseRetention(TestRetention):
+class TestClickhouseRetention(retention_test_factory(ClickhouseRetention)):  # type: ignore
     def _create_groups_and_events(self):
         GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
         GroupTypeMapping.objects.create(team=self.team, group_type="company", group_type_index=1)
