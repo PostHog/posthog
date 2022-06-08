@@ -13,7 +13,6 @@ from rest_framework.settings import api_settings
 from rest_framework_csv import renderers as csvrenderers
 from rest_hooks.signals import raw_hook_event
 
-from ee.clickhouse.queries.trends.person import TrendsActors
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import get_target_entity
@@ -24,6 +23,7 @@ from posthog.event_usage import report_user_action
 from posthog.models import Action, ActionStep, Filter, Person
 from posthog.models.action.util import format_action_filter
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
+from posthog.queries.trends.person import TrendsActors
 
 from .forbid_destroy_model import ForbidDestroyModel
 from .person import get_person_name
