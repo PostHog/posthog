@@ -234,7 +234,7 @@ GZIP_RESPONSE_ALLOW_LIST = get_list(
         ",".join(
             [
                 "^/?api/projects/\\d+/session_recordings/.*/snapshots/?$",
-                "/?api/plugin_config/\\d+/frontend/?",
+                "^/?api/plugin_config/\\d+/frontend/?",
                 "^/?api/projects/@current/property_definitions/?$",
                 "^/?api/projects/\\d+/event_definitions/?$",
                 "^/?api/projects/\\d+/insights/(trend|funnel)/?$",
