@@ -7,10 +7,10 @@
         A system error has prevented {{ plugin }}
     {% else %}
         An unhandled error in the <code>setupPlugin</code> function of {{ plugin }} has prevented it
-    {% endif %} from loading in project {{ team }}.
+    {% endif %} from loading in project {{ team }}:
 </p>
 <pre><code>{{ error }}</code></pre>
-<p>The app has been automatically disabled, but you can re-enable it from the Apps page of PostHog:</p>
+<p>The app has been automatically disabled, but you can re-enable it from the Apps page of PostHog.</p>
 <div class="mb mt text-center">
     <a class="button" href="{% absolute_uri '/project/apps' %}">Go to Apps</a>
 </div>
