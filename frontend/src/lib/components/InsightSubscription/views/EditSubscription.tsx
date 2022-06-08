@@ -10,7 +10,6 @@ import { range } from 'lib/utils'
 import { dayjs } from 'lib/dayjs'
 import { LemonSelect, LemonSelectOptions } from 'lib/components/LemonSelect'
 import { insightSubscriptionLogic } from '../insightSubscriptionLogic'
-import { DatePicker } from 'lib/components/DatePicker'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 import { IconChevronLeft, IconOpenInNew } from 'lib/components/icons'
 import { LemonDivider, LemonTextArea } from 'packages/apps-common'
@@ -38,6 +37,14 @@ const frequencyOptions: LemonSelectOptions = {
     weekly: { label: 'weeks' },
     monthly: { label: 'months' },
 }
+
+const timeOptions: LemonSelectOptions = range(0, 23).reduce(
+    (acc, x) => ({
+        ...acc,
+        [String(x)]: { label: `${String(x).padStart(2, '0')}:00` },
+    }),
+    {}
+)
 
 export function EditSubscription({ id, insightShortId, onCancel, onDelete }: EditSubscriptionProps): JSX.Element {
     const logicProps = {
@@ -164,12 +171,21 @@ export function EditSubscription({ id, insightShortId, onCancel, onDelete }: Edi
                             <span>by</span>
                             <Field name={'start_date'}>
                                 {({ value, onChange }) => (
-                                    <DatePicker
-                                        picker="time"
-                                        value={dayjs(value)}
-                                        onChange={(val) => onChange(val?.toISOString())}
-                                        format={'HH:mm'}
+                                    <LemonSelect
+                                        type="stealth"
+                                        outlined
+                                        options={timeOptions}
                                         disabled={emailDisabled}
+                                        value={dayjs(value).hour().toString()}
+                                        onChange={(val) => {
+                                            onChange(
+                                                dayjs()
+                                                    .hour(typeof val === 'string' ? parseInt(val, 10) : 0)
+                                                    .minute(0)
+                                                    .second(0)
+                                                    .toISOString()
+                                            )
+                                        }}
                                     />
                                 )}
                             </Field>

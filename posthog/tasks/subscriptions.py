@@ -22,7 +22,7 @@ def send_email_subscription(email: str, subscription: Subscription, exported_ass
 
     message = EmailMessage(
         campaign_key=f"insight_subscription_report_{subscription.next_delivery_date.isoformat()}",
-        subject=f"{inviter.first_name} subscribed you to a PostHog Insight",
+        subject=f"PostHog Insight report - {subscription.insight.name or subscription.insight.derived_name}",
         template_name="insight_subscription_report",
         template_context={
             "exported_asset": exported_asset,
@@ -38,6 +38,8 @@ def send_email_subscription(email: str, subscription: Subscription, exported_ass
 def schedule_all_subscriptions() -> None:
     """
     Schedule all past notifications (with a buffer) to be delivered
+    NOTE: This task is scheduled hourly 10 minutes before the hour allowing for the 15 minute timedelta to cover
+    all upcoming hourly scheduled subscriptions
     """
 
     now_with_buffer = datetime.utcnow() + timedelta(minutes=15)

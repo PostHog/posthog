@@ -12,6 +12,7 @@ import { lemonToast } from '../lemonToast'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
+import { insightSubscriptionsLogic } from './insightSubscriptionsLogic'
 
 const NEW_SUBSCRIPTION: Partial<SubscriptionType> = {
     frequency: 'weekly',
@@ -31,6 +32,7 @@ export const insightSubscriptionLogic = kea<insightSubscriptionLogicType>([
     key(({ id, insightShortId }) => `${insightShortId}-${id ?? 'new'}`),
     connect(({ insightShortId }: InsightSubscriptionLogicProps) => ({
         values: [insightLogic({ dashboardItemId: insightShortId }), ['insight']],
+        actions: [insightSubscriptionsLogic({ insightShortId }), ['loadSubscriptions']],
     })),
 
     loaders(({ props }) => ({
@@ -45,7 +47,7 @@ export const insightSubscriptionLogic = kea<insightSubscriptionLogicType>([
         },
     })),
 
-    forms(({ props, values }) => ({
+    forms(({ props, values, actions }) => ({
         subscription: {
             defaults: { ...NEW_SUBSCRIPTION } as SubscriptionType,
             errors: ({ frequency, interval, target_value, target_type }) => ({
@@ -64,12 +66,12 @@ export const insightSubscriptionLogic = kea<insightSubscriptionLogicType>([
                 subscription.insight = values.insight.id
 
                 if (props.id === 'new') {
-                    await api.subscriptions.create(subscription)
                     const newSub = await api.subscriptions.create(subscription)
                     router.actions.replace(urls.insightSubcription(props.insightShortId, newSub.id.toString()))
                 } else {
                     await api.subscriptions.update(props.id, subscription)
                 }
+                actions.loadSubscriptions()
                 lemonToast.success(`Subscription saved.`)
             },
         },
