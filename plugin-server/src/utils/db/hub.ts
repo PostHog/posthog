@@ -12,6 +12,7 @@ import { ConnectionOptions } from 'tls'
 
 import { getPluginServerCapabilities } from '../../capabilities'
 import { defaultConfig } from '../../config/config'
+import { KAFKAJS_LOG_LEVEL_MAPPING } from '../../config/constants'
 import { JobQueueManager } from '../../main/job-queues/job-queue-manager'
 import { connectObjectStorage } from '../../main/services/object_storage'
 import { Hub, KafkaSecurityProtocol, PluginServerCapabilities, PluginsServerConfig } from '../../types'
@@ -171,7 +172,7 @@ export async function createHub(
     const kafka = new Kafka({
         clientId: `plugin-server-v${version}-${instanceId}`,
         brokers: serverConfig.KAFKA_HOSTS.split(','),
-        logLevel: logLevel.WARN,
+        logLevel: KAFKAJS_LOG_LEVEL_MAPPING[serverConfig.KAFKAJS_LOG_LEVEL],
         ssl: kafkaSsl,
         sasl: kafkaSasl,
         connectionTimeout: 7000, // default: 1000

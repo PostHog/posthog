@@ -17,7 +17,7 @@ export function CardContainer({
     children: React.ReactNode
     showFooter?: boolean
 }): JSX.Element {
-    const { onboardingSidebarEnabled } = useValues(ingestionLogic)
+    const { onboardingSidebarEnabled, isSmallScreen } = useValues(ingestionLogic)
 
     return (
         <div className="ingestion-card-container">
@@ -32,6 +32,15 @@ export function CardContainer({
                     )}
                     <PanelHeader index={index} />
                 </Row>
+            )}
+            {onboardingSidebarEnabled && isSmallScreen && (
+                <>
+                    <ArrowLeftOutlined
+                        className="button-border clickable"
+                        style={{ marginRight: 'auto', color: 'var(--primary)' }}
+                        onClick={onBack}
+                    />
+                </>
             )}
             {children}
             <div>{showFooter && <PanelFooter />}</div>
