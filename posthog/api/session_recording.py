@@ -17,7 +17,7 @@ from posthog.models.session_recording_event import SessionRecordingViewed
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.utils import format_query_params_absolute_url
 
-DEFAULT_RECORDING_CHUNK_LIMIT = 20  # Should be tuned to find the best value
+DEFAULT_RECORDING_CHUNK_LIMIT = 1000  # Should be tuned to find the best value
 
 
 class SessionRecordingMetadataSerializer(serializers.Serializer):
