@@ -1,8 +1,7 @@
-from datetime import datetime
-
 from dateutil.rrule import FREQNAMES, rrule
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
+from django.utils import timezone
 
 
 class Subscription(models.Model):
@@ -78,9 +77,7 @@ class Subscription(models.Model):
         return f"Sent every {self.interval} {self.frequency}"
 
     def set_next_delivery_date(self, from_dt=None):
-        # print(from_dt, datetime.now())
-        self.next_delivery_date = self.rrule.after(dt=from_dt or datetime.now(), inc=False)
-        # print(f"Setting! {self.next_delivery_date}")
+        self.next_delivery_date = self.rrule.after(dt=from_dt or timezone.now(), inc=False)
 
     def save(self, *args, **kwargs) -> None:
         self.set_next_delivery_date()

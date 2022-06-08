@@ -2,6 +2,7 @@ from datetime import datetime
 from typing import List
 from unittest.mock import call, patch
 
+import pytz
 from freezegun import freeze_time
 
 from posthog.models.insight import Insight
@@ -18,7 +19,7 @@ def _create_insight_subscription(team, insight, **kwargs):
         target_value="test1@posthog.com,test2@posthog.com",
         frequency="daily",
         interval=1,
-        start_date=datetime(2022, 1, 1, 9, 0),
+        start_date=datetime(2022, 1, 1, 9, 0).replace(tzinfo=pytz.UTC),
         **kwargs,
     )
 
@@ -39,9 +40,9 @@ class TestSubscriptionsTasks(APIBaseTest):
     @patch("posthog.tasks.subscriptions.deliver_subscription")
     def test_subscription_delivery_scheduling(self, mock_deliver_task, mock_export_task) -> None:
         # Modify a subscription to have its target time at least an hour ahead
-        self.subscriptions[2].start_date = datetime(2022, 1, 1, 10, 0)
+        self.subscriptions[2].start_date = datetime(2022, 1, 1, 10, 0).replace(tzinfo=pytz.UTC)
         self.subscriptions[2].save()
-        assert self.subscriptions[2].next_delivery_date == datetime(2022, 2, 2, 10, 0)
+        assert self.subscriptions[2].next_delivery_date == datetime(2022, 2, 2, 10, 0).replace(tzinfo=pytz.UTC)
 
         schedule_all_subscriptions()
 

@@ -34,9 +34,9 @@ def deliver_subscription(subscription_id: int):
         export_task(instance.id)
 
         for email in subscription.target_value.split(","):
+            # send_email(email)
             # TODO: Send email with embedded image asset
             logger.debug(f"Will send email to {email}")
-            continue
 
         subscription.set_next_delivery_date(subscription.next_delivery_date)
         subscription.save()
