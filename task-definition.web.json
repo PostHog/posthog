@@ -141,6 +141,10 @@
                 {
                     "name": "KAFKA_SECURITY_PROTOCOL",
                     "value": "SSL"
+                },
+                {
+                    "name": "GZIP_RESPONSE_ALLOW_LIST",
+                    "value": "^/?api/projects/\\\\d+/session_recordings/.*/snapshots/?$,/?api/plugin_config/\\d+/frontend/?"
                 }
             ],
             "secrets": [
