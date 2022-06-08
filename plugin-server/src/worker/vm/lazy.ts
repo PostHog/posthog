@@ -154,7 +154,7 @@ export class LazyPluginVM {
                         await this._setupPlugin(vm.vm)
                         this.ready = true
                     }
-                    status.info('🔌', `Loaded ${logInfo}!`)
+                    status.info('🔌', `Loaded ${logInfo}.`)
                     await this.createLogEntry(`Plugin loaded (instance ID ${this.hub.instanceId}).`)
                     resolve(vm)
                 } catch (error) {
@@ -249,8 +249,8 @@ export class LazyPluginVM {
         await disablePlugin(this.hub, this.pluginConfig.id)
         await this.hub.db.celeryApplyAsync('posthog.tasks.email.send_fatal_plugin_error', [
             this.pluginConfig.id,
-            // Using the `updated_at` field for email campaign idempotency
-            // It's safer to provide it to the task, because the value in the DB may change while the task is queued
+            // Using the `updated_at` field for email campaign idempotency. It's safer to provide it to the task
+            // from here, because the value DB may change in the DB while the task is queued.
             this.pluginConfig.updated_at || null,
             error.toString(),
             isSystemError,
