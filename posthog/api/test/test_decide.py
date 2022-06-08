@@ -20,10 +20,6 @@ class TestDecide(BaseTest):
         self.client = Client()
         self.client.force_login(self.user)
 
-        from django.conf import settings
-
-        settings.DEBUG = True
-
     def _dict_to_b64(self, data: dict) -> str:
         return base64.b64encode(json.dumps(data).encode("utf-8")).decode("utf-8")
 
@@ -285,10 +281,6 @@ class TestDecide(BaseTest):
             created_by=self.user,
             ensure_experience_continuity=True,
         )
-
-        from django.db import reset_queries
-
-        reset_queries()
 
         with self.assertNumQueries(5):
             response = self._post_decide(api_version=2)

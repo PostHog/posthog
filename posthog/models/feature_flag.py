@@ -157,6 +157,8 @@ class FeatureFlagHashKeyOverride(models.Model):
             ),
         ]
 
+    # TODO: just the key here should be fine?
+    # The inner join is annoying & unnecessary
     feature_flag: models.ForeignKey = models.ForeignKey("FeatureFlag", on_delete=models.CASCADE)
     person: models.ForeignKey = models.ForeignKey("Person", on_delete=models.CASCADE)
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
@@ -373,7 +375,7 @@ def get_overridden_feature_flags(
 
     if flags_have_experience_continuity_enabled:
         try:
-            person_id = person[0][0]
+            person_id = str(person[0][0])
         except IndexError:
             person_id = None
 
@@ -404,8 +406,6 @@ def get_overridden_feature_flags(
         else:
             feature_flags[key] = value
 
-    # from django.db import connection
-    # print(connection.queries)
     return feature_flags
 
 
