@@ -2,7 +2,7 @@ from datetime import datetime
 
 from ee.clickhouse.models.group import create_group
 from ee.clickhouse.test.test_journeys import journeys_for
-from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
+from ee.clickhouse.util import snapshot_clickhouse_queries
 from posthog.models.entity import Entity
 from posthog.models.filters import Filter
 from posthog.models.group_type_mapping import GroupTypeMapping
@@ -14,7 +14,7 @@ from posthog.test.base import _create_event
 
 
 # override tests from test factory if intervals are different
-class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(Trends)):  # type: ignore
+class TestClickhouseTrends(trend_test_factory(Trends)):  # type: ignore
     maxDiff = None
 
     def _get_trend_people(self, filter, entity):
