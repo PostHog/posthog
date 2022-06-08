@@ -228,4 +228,6 @@ WHITENOISE_ADD_HEADERS_FUNCTION = add_recorder_js_headers
 
 CSRF_COOKIE_NAME = "posthog_csrftoken"
 
-GZIP_RESPONSE_ALLOW_LIST = get_list(os.getenv("GZIP_RESPONSE_ALLOW_LIST", "snapshots/?$"))
+GZIP_RESPONSE_ALLOW_LIST = get_list(
+    os.getenv("GZIP_RESPONSE_ALLOW_LIST", "^/?api/projects/\\d+/session_recordings/.*/snapshots/?$")
+)
