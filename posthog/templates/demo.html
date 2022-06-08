@@ -85,15 +85,24 @@
 
         {% if request.path == '/demo/1' %}
         <section>
-            <form action='/demo/2'>
+            <form action='/demo/2' id="identify_submit">
                 <h1>Sign Up</h1>
 
                 <label>Username</label>
-                <input class='form-control' type='text' name='username' />
+                <input class='form-control' type='text' name='username' id='username-1'/>
                 <label>Password</label>
                 <input class='form-control' type='password' name='password' />
                 <button type='submit'>Sign up!</button>
             </form>
+            <script>
+                function handleIdentify(event) {
+                    const new_id = document.getElementById('username-1').value
+                    posthog.identify(new_id)
+                }
+
+                const form = document.getElementById('identify_submit');
+                form.addEventListener('submit', handleIdentify);
+            </script>
         </section>
         {% endif %}
         {% if request.path == '/demo/2' %}

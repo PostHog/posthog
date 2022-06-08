@@ -476,11 +476,18 @@ export class EventsProcessor {
                     client
                 )
 
+                // When personIDs change, update places depending on person_id foreign key
                 // Merge the distinct IDs
                 await this.db.postgresQuery(
                     'UPDATE posthog_cohortpeople SET person_id = $1 WHERE person_id = $2',
                     [mergeInto.id, otherPerson.id],
                     'updateCohortPeople',
+                    client
+                )
+                await this.db.postgresQuery(
+                    'UPDATE posthog_featureflaghashkeyoverride SET person_id = $1 WHERE person_id = $2',
+                    [mergeInto.id, otherPerson.id],
+                    'updateFeatureFlagHashKeyOverride',
                     client
                 )
 

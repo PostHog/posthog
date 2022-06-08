@@ -179,6 +179,22 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                     placeholder="Adding a helpful description can ensure others know what this feature is for."
                                 />
                             </Field>
+
+                            <Field name="ensure_experience_continuity" label="Ensure Experience Continuity">
+                                {({ value, onChange }) => (
+                                    <LemonSwitch
+                                        checked={value}
+                                        onChange={onChange}
+                                        label={
+                                            value ? (
+                                                <span className="text-success">Enabled</span>
+                                            ) : (
+                                                <span className="text-danger">Disabled</span>
+                                            )
+                                        }
+                                    />
+                                )}
+                            </Field>
                         </Col>
                         <Col span={12} style={{ paddingTop: 31 }}>
                             <Collapse>
