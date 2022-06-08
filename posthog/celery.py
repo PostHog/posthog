@@ -1,7 +1,6 @@
 import os
 import time
 from random import randrange
-from typing import Optional
 
 from celery import Celery
 from celery.schedules import crontab
@@ -9,9 +8,9 @@ from celery.signals import task_postrun, task_prerun
 from django.conf import settings
 from django.db import connection
 from django.utils import timezone
-from sentry_sdk.api import capture_exception
 
 from posthog.redis import get_client
+from posthog.utils import get_crontab
 
 # set the default Django settings module for the 'celery' program.
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "posthog.settings")
@@ -100,9 +99,7 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
         crontab(hour=0, minute=randrange(0, 40)), clickhouse_send_license_usage.s()
     )  # every day at a random minute past midnight. Randomize to avoid overloading license.posthog.com
 
-    materialize_columns_crontab = get_crontab(
-        settings.MATERIALIZE_COLUMNS_SCHEDULE_CRON, "clickhouse materialize columns"
-    )
+    materialize_columns_crontab = get_crontab(settings.MATERIALIZE_COLUMNS_SCHEDULE_CRON)
     if materialize_columns_crontab:
         sender.add_periodic_task(
             materialize_columns_crontab, clickhouse_materialize_columns.s(), name="clickhouse materialize columns",
@@ -123,28 +120,11 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
             name="calculate event property usage",
         )
 
-    clear_clickhouse_crontab = get_crontab(
-        settings.CLEAR_CLICKHOUSE_REMOVED_DATA_SCHEDULE_CRON, "clear clickhouse removed data cron"
-    )
+    clear_clickhouse_crontab = get_crontab(settings.CLEAR_CLICKHOUSE_REMOVED_DATA_SCHEDULE_CRON)
     if clear_clickhouse_crontab:
         sender.add_periodic_task(
             clear_clickhouse_crontab, clickhouse_clear_removed_data.s(), name="clickhouse clear removed data"
         )
-
-
-def get_crontab(schedule: Optional[str], name: str) -> Optional[crontab]:
-    if schedule is None or schedule == "":
-        return None
-
-    try:
-        minute, hour, day_of_month, month_of_year, day_of_week = schedule.strip().split(" ")
-        return crontab(
-            minute=minute, hour=hour, day_of_month=day_of_month, month_of_year=month_of_year, day_of_week=day_of_week,
-        )
-    except Exception as err:
-        capture_exception(err)
-        print(f"Scheduling {name} task failed: {err}")
-        return None
 
 
 # Set up clickhouse query instrumentation

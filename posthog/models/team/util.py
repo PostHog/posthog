@@ -6,7 +6,8 @@ from ee.clickhouse.sql.events import EVENTS_DATA_TABLE
 from posthog.client import sync_execute
 from posthog.models.person import Person, PersonDistinctId
 from posthog.models.team import Team
-from posthog.settings import CLICKHOUSE_CLUSTER
+from posthog.settings import CLEAR_CLICKHOUSE_REMOVED_DATA_SCHEDULE_CRON, CLICKHOUSE_CLUSTER
+from posthog.utils import get_crontab
 
 logger = structlog.get_logger(__name__)
 
@@ -62,3 +63,7 @@ def delete_clickhouse_data_for_deleted_teams():
         delete_teams_clickhouse_data(team_ids)
     else:
         logger.debug("No need to delete any data from clickhouse")
+
+
+def is_clickhouse_data_cron_enabled() -> bool:
+    return get_crontab(CLEAR_CLICKHOUSE_REMOVED_DATA_SCHEDULE_CRON) is not None
