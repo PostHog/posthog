@@ -68,15 +68,20 @@ export function ManageSubscriptions({ insightShortId, onCancel, onSelect }: Mana
 
     return (
         <>
+            <header className="border-bottom pb-05">
+                <h4 className="mt-05">Manage Subscriptions</h4>
+            </header>
+
             <section>
-                <h5>Manage Subscriptions</h5>
-                <div className={'existing-links-info'}>
-                    <strong>{subscriptions?.length}</strong>
-                    {' active '}
-                    {pluralize(subscriptions.length || 0, 'subscription', 'subscriptions', false)}
-                </div>
-            </section>
-            <section>
+                {subscriptionsLoading ? (
+                    <Skeleton paragraph={false} />
+                ) : (
+                    <div>
+                        <strong>{subscriptions?.length}</strong>
+                        {' active '}
+                        {pluralize(subscriptions.length || 0, 'subscription', 'subscriptions', false)}
+                    </div>
+                )}
                 {subscriptionsLoading && !subscriptions.length ? (
                     <>
                         <Skeleton.Button active block size="large" />
@@ -102,12 +107,15 @@ export function ManageSubscriptions({ insightShortId, onCancel, onSelect }: Mana
             </section>
 
             <footer className="space-between-items pt">
-                <LemonButton type="secondary" onClick={onCancel}>
-                    Close
-                </LemonButton>
-                <LemonButton type="primary" onClick={() => onSelect('new')} icon={<IconPlus />}>
-                    Add subscription
-                </LemonButton>
+                <div />
+                <div className="flex gap-05">
+                    <LemonButton type="secondary" onClick={onCancel}>
+                        Close
+                    </LemonButton>
+                    <LemonButton type="primary" onClick={() => onSelect('new')} icon={<IconPlus />}>
+                        Add subscription
+                    </LemonButton>
+                </div>
             </footer>
         </>
     )

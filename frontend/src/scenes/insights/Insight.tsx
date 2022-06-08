@@ -25,7 +25,7 @@ import { groupsModel } from '~/models/groupsModel'
 import { cohortsModel } from '~/models/cohortsModel'
 import { mathsLogic } from 'scenes/trends/mathsLogic'
 import { InsightSkeleton } from 'scenes/insights/InsightSkeleton'
-import { LemonButton } from 'lib/components/LemonButton'
+import { LemonButton, LemonButtonWithPopup } from 'lib/components/LemonButton'
 import { useUnloadConfirmation } from 'lib/hooks/useUnloadConfirmation'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -152,19 +152,47 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                                             {usingExportFeature && insight.short_id && (
                                                 <>
                                                     <ExportButton insightShortId={insight.short_id} fullWidth />
-                                                    <LemonButton
-                                                        onClick={() =>
-                                                            push(
-                                                                urls.insightSubcriptions(
-                                                                    insight.short_id as InsightShortId
-                                                                )
-                                                            )
-                                                        }
+                                                    <LemonButtonWithPopup
                                                         type="stealth"
                                                         fullWidth
+                                                        popup={{
+                                                            actionable: true,
+                                                            placement: 'right-start',
+                                                            overlay: (
+                                                                <>
+                                                                    <LemonButton
+                                                                        onClick={() =>
+                                                                            push(
+                                                                                urls.insightSubcription(
+                                                                                    insight.short_id as InsightShortId,
+                                                                                    'new'
+                                                                                )
+                                                                            )
+                                                                        }
+                                                                        type="stealth"
+                                                                        fullWidth
+                                                                    >
+                                                                        New subscription
+                                                                    </LemonButton>
+                                                                    <LemonButton
+                                                                        onClick={() =>
+                                                                            push(
+                                                                                urls.insightSubcriptions(
+                                                                                    insight.short_id as InsightShortId
+                                                                                )
+                                                                            )
+                                                                        }
+                                                                        type="stealth"
+                                                                        fullWidth
+                                                                    >
+                                                                        Manage subscriptions
+                                                                    </LemonButton>
+                                                                </>
+                                                            ),
+                                                        }}
                                                     >
                                                         Subscribe
-                                                    </LemonButton>
+                                                    </LemonButtonWithPopup>
                                                     <LemonDivider />
                                                 </>
                                             )}

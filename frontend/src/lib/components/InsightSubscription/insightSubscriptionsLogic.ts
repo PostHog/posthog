@@ -40,14 +40,12 @@ export const insightSubscriptionsLogic = kea<insightSubscriptionsLogicType>([
 
     reducers({
         subscriptions: {
-            deleteSubscription: (state, { id }) => {
-                return state.filter((a) => a.id !== id)
-            },
+            deleteSubscription: (state, { id }) => state.filter((a) => a.id !== id),
         },
     }),
 
     listeners(({ actions }) => ({
-        deleteSubscription: async ({ id }) => {
+        deleteSubscription: ({ id }) => {
             deleteWithUndo({
                 endpoint: api.subscriptions.determineDeleteEndpoint(),
                 object: { name: 'Subscription', id },

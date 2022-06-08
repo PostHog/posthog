@@ -36,6 +36,7 @@ export function InsightSubscriptionsModal({
                         id={subscriptionId}
                         insightShortId={insightShortId}
                         onCancel={() => push(urls.insightSubcriptions(insightShortId))}
+                        onDelete={() => push(urls.insightSubcriptions(insightShortId))}
                     />
                 )}
             </LemonModal>

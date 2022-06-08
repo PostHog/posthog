@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { LemonButton } from 'lib/components/LemonButton'
 import { VerticalForm } from 'lib/forms/VerticalForm'
 import { Select } from 'antd'
@@ -12,15 +12,17 @@ import { LemonSelect, LemonSelectOptions } from 'lib/components/LemonSelect'
 import { insightSubscriptionLogic } from '../insightSubscriptionLogic'
 import { DatePicker } from 'lib/components/DatePicker'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
-import { IconOpenInNew } from 'lib/components/icons'
-import { LemonTextArea } from 'packages/apps-common'
+import { IconChevronLeft, IconOpenInNew } from 'lib/components/icons'
+import { LemonDivider, LemonTextArea } from 'packages/apps-common'
 import { AlertMessage } from 'lib/components/AlertMessage'
 import { InsightShortId } from '~/types'
+import { insightSubscriptionsLogic } from '../insightSubscriptionsLogic'
 
 interface EditSubscriptionProps {
     id: number | 'new'
     insightShortId: InsightShortId
     onCancel: () => void
+    onDelete: () => void
 }
 
 const intervalOptions: LemonSelectOptions = range(1, 13).reduce(
@@ -37,15 +39,20 @@ const frequencyOptions: LemonSelectOptions = {
     monthly: { label: 'months' },
 }
 
-export function EditSubscription({ id, onCancel, insightShortId }: EditSubscriptionProps): JSX.Element {
+export function EditSubscription({ id, insightShortId, onCancel, onDelete }: EditSubscriptionProps): JSX.Element {
     const logicProps = {
         id,
         insightShortId,
     }
     const logic = insightSubscriptionLogic(logicProps)
+    const subscriptionslogic = insightSubscriptionsLogic({
+        insightShortId,
+    })
+
     const { members } = useValues(membersLogic)
     const { subscription, isSubscriptionSubmitting } = useValues(logic)
     const { preflight } = useValues(preflightLogic)
+    const { deleteSubscription } = useActions(subscriptionslogic)
 
     const emailOptions = useMemo(
         () =>
@@ -59,12 +66,26 @@ export function EditSubscription({ id, onCancel, insightShortId }: EditSubscript
 
     const emailDisabled = !preflight?.email_service_available
 
+    const _onDelete = (): void => {
+        if (id !== 'new') {
+            deleteSubscription(id)
+            onDelete()
+        }
+    }
+
     return (
         <>
             <VerticalForm logic={insightSubscriptionLogic} props={logicProps} formKey="subscription" enableFormOnSubmit>
-                <section>
-                    <h5>{id === 'new' ? 'New' : 'Edit '} Subscription</h5>
+                <header className="flex items-center border-bottom pb-05">
+                    <LemonButton type="stealth" onClick={onCancel} size="small">
+                        <IconChevronLeft fontSize={'1rem'} />
+                        Back
+                    </LemonButton>
+                    <LemonDivider vertical />
 
+                    <h4 className="mt-05">{id === 'new' ? 'New' : 'Edit '} Subscription</h4>
+                </header>
+                <section>
                     {subscription?.created_by ? (
                         <UserActivityIndicator
                             at={subscription.created_at}
@@ -156,12 +177,21 @@ export function EditSubscription({ id, onCancel, insightShortId }: EditSubscript
                     </div>
                 </section>
                 <footer className="space-between-items pt">
-                    <LemonButton type="secondary" onClick={onCancel}>
-                        Back
-                    </LemonButton>
-                    <LemonButton type="primary" htmlType="submit" loading={isSubscriptionSubmitting}>
-                        {id === 'new' ? 'Create subscription' : 'Save'}
-                    </LemonButton>
+                    <div>
+                        {id !== 'new' && (
+                            <LemonButton type="secondary" status="danger" onClick={_onDelete}>
+                                Delete subscription
+                            </LemonButton>
+                        )}
+                    </div>
+                    <div className="flex gap-05">
+                        <LemonButton type="secondary" onClick={onCancel}>
+                            Cancel
+                        </LemonButton>
+                        <LemonButton type="primary" htmlType="submit" loading={isSubscriptionSubmitting}>
+                            {id === 'new' ? 'Create subscription' : 'Save'}
+                        </LemonButton>
+                    </div>
                 </footer>
             </VerticalForm>
         </>
