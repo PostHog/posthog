@@ -22,15 +22,7 @@ export async function instrumentQuery<T>(
 }
 
 export function captureEventLoopMetrics(statsd: StatsD, instanceId: UUID): StopCallback {
-    const eventLoopLagInterval = setInterval(() => {
-        const time = new Date()
-        setImmediate(() => {
-            statsd?.timing('event_loop_lag', time, {
-                instanceId: instanceId.toString(),
-            })
-        })
-    }, 2000)
-    const eventLoopLagSetTimeoutInterval = setInterval(() => {
+    const timer = setInterval(() => {
         const time = new Date()
         setTimeout(() => {
             statsd?.timing('event_loop_lag_set_timeout', time, {
@@ -40,7 +32,6 @@ export function captureEventLoopMetrics(statsd: StatsD, instanceId: UUID): StopC
     }, 2000)
 
     return () => {
-        clearInterval(eventLoopLagInterval)
-        clearInterval(eventLoopLagSetTimeoutInterval)
+        clearInterval(timer)
     }
 }
