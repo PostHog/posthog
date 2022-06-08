@@ -3,7 +3,7 @@ from unittest import skip
 from pytest import raises
 from rest_framework import status
 
-from posthog.gzip_middleware import InvalidGzipAllowList
+from posthog.gzip_middleware import InvalidGZipAllowList
 from posthog.test.base import APIBaseTest
 
 custom_headers = {"HTTP_ACCEPT_ENCODING": "gzip"}
@@ -42,7 +42,7 @@ class TestGzipMiddleware(APIBaseTest):
             self.assertEqual(contentEncoding, None)
 
     def test_sensible_error_if_bad_pattern(self) -> None:
-        with raises(InvalidGzipAllowList):
+        with raises(InvalidGZipAllowList):
             with self.settings(GZIP_RESPONSE_ALLOW_LIST=["(((("]):
                 self.client.get(
                     "/", data=None, follow=False, secure=False, **custom_headers,

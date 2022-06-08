@@ -5,7 +5,7 @@ from django.conf import settings
 from django.middleware.gzip import GZipMiddleware
 
 
-class InvalidGzipAllowList(Exception):
+class InvalidGZipAllowList(Exception):
     pass
 
 
@@ -19,7 +19,7 @@ class PostHogGZipMiddleware(GZipMiddleware):
         try:
             self.allowed_paths = [re.compile(pattern) for pattern in settings.GZIP_RESPONSE_ALLOW_LIST]
         except re.error as ex:
-            raise InvalidGzipAllowList(str(ex)) from ex
+            raise InvalidGZipAllowList(str(ex)) from ex
 
     """
     The Django GZip Middleware comes with security warnings
