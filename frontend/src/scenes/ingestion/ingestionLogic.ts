@@ -19,6 +19,8 @@ import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { urls } from 'scenes/urls'
 import { actionToUrl, router, urlToAction } from 'kea-router'
+import { getBreakpoint } from 'lib/utils/responsiveUtils'
+import { windowValues } from 'kea-window-values'
 
 export const ingestionLogic = kea<ingestionLogicType>([
     path(['scenes', 'ingestion', 'ingestionLogic']),
@@ -42,7 +44,9 @@ export const ingestionLogic = kea<ingestionLogicType>([
         setIndex: (index: number) => ({ index }),
         completeOnboarding: true,
     }),
-
+    windowValues({
+        isSmallScreen: (window: Window) => window.innerWidth < getBreakpoint('md'),
+    }),
     reducers({
         platform: [
             null as null | PlatformType,

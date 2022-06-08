@@ -148,6 +148,7 @@ export interface PluginsServerConfig extends Record<string, any> {
     OBJECT_STORAGE_SESSION_RECORDING_FOLDER: string
     OBJECT_STORAGE_BUCKET: string
     PLUGIN_SERVER_MODE: 'ingestion' | 'async' | null
+    KAFKAJS_LOG_LEVEL: 'NOTHING' | 'DEBUG' | 'INFO' | 'WARN' | 'ERROR'
 }
 
 export interface Hub extends PluginsServerConfig {
@@ -516,12 +517,6 @@ export interface Element {
     group_id?: number
 }
 
-export interface ElementGroup {
-    id: number
-    hash: string
-    team_id: number
-}
-
 /** Usable Event model. */
 export interface Event {
     id: number
@@ -544,6 +539,19 @@ export interface Event {
 export interface ClickHouseEvent extends Omit<Event, 'id' | 'elements' | 'elements_hash'> {
     uuid: string
     elements_chain: string | undefined
+}
+
+// Clickhouse event as read from kafka
+export interface ClickhouseEventKafka {
+    event: string
+    timestamp: string
+    team_id: number
+    distinct_id: string
+    created_at: string
+    uuid: string
+    elements_chain: string
+    properties: string
+    person_properties: string | null
 }
 
 export interface DeadLetterQueueEvent {

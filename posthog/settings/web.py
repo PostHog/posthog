@@ -6,7 +6,7 @@ from typing import List
 
 from posthog.settings.base_variables import BASE_DIR, DEBUG, TEST
 from posthog.settings.statsd import STATSD_HOST
-from posthog.settings.utils import get_from_env, str_to_bool
+from posthog.settings.utils import get_from_env, get_list, str_to_bool
 
 # django-axes settings to lockout after too many attempts
 
@@ -44,6 +44,7 @@ INSTALLED_APPS = [
 
 
 MIDDLEWARE = [
+    "posthog.gzip_middleware.ScopedGZipMiddleware",
     "django_structlog.middlewares.RequestMiddleware",
     "django_structlog.middlewares.CeleryMiddleware",
     "django.middleware.security.SecurityMiddleware",
@@ -226,3 +227,10 @@ def add_recorder_js_headers(headers, path, url):
 WHITENOISE_ADD_HEADERS_FUNCTION = add_recorder_js_headers
 
 CSRF_COOKIE_NAME = "posthog_csrftoken"
+
+GZIP_RESPONSE_ALLOW_LIST = get_list(
+    os.getenv(
+        "GZIP_RESPONSE_ALLOW_LIST",
+        "^/?api/projects/\\d+/session_recordings/.*/snapshots/?$,/?api/plugin_config/\\d+/frontend/?",
+    )
+)

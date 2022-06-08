@@ -54,7 +54,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { UserActivityIndicator } from '../UserActivityIndicator/UserActivityIndicator'
 
 // TODO: Add support for Retention to InsightDetails
-const INSIGHT_TYPES_WHERE_DETAILS_UNSUPPORTED: InsightType[] = [InsightType.RETENTION]
+export const INSIGHT_TYPES_WHERE_DETAILS_UNSUPPORTED: InsightType[] = [InsightType.RETENTION]
 
 type DisplayedType = ChartDisplayType | 'RetentionContainer'
 

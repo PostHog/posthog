@@ -28,7 +28,6 @@ import {
     Database,
     DeadLetterQueueEvent,
     Element,
-    ElementGroup,
     Event,
     EventDefinitionType,
     EventPropertyType,
@@ -71,13 +70,11 @@ import {
     UUIDT,
 } from '../utils'
 import { OrganizationPluginsAccessLevel } from './../../types'
+import { chainToElements } from './elements-chain'
 import { KafkaProducerWrapper } from './kafka-producer-wrapper'
 import {
-    chainToElements,
     generateKafkaPersonUpdateMessage,
-    generatePostgresValuesString,
     getFinalPostgresQuery,
-    hashElements,
     safeClickhouseString,
     shouldStoreLog,
     timeoutGuard,
@@ -1208,107 +1205,6 @@ export class DB {
         ).data as ClickHouseEvent[]
         const chain = events?.[0]?.elements_chain
         return chain ? chainToElements(chain) : []
-    }
-
-    public async fetchPostgresElementsByHash(teamId: number, elementsHash: string): Promise<Record<string, any>[]> {
-        const cachedResult = await this.redisGet(elementsHash, null)
-
-        let result: Record<string, any>[]
-
-        if (cachedResult) {
-            result = JSON.parse(String(cachedResult))
-        } else {
-            result = (
-                await this.postgresQuery(
-                    `
-                SELECT text, tag_name, href, attr_id, nth_child, nth_of_type, attributes, attr_class
-                FROM posthog_element
-                LEFT JOIN posthog_elementgroup on posthog_element.group_id = posthog_elementgroup.id
-                WHERE
-                    posthog_elementgroup.team_id=$1 AND
-                    posthog_elementgroup.hash=$2
-                ORDER BY posthog_element.order
-                `,
-                    [teamId, elementsHash],
-                    'fetchPostgresElementsByHash'
-                )
-            ).rows
-
-            await this.redisSet(elementsHash, JSON.stringify(result), 60 * 2) // 2 hour TTL
-        }
-
-        return result
-    }
-
-    public async createElementGroup(elements: Element[], teamId: number): Promise<string> {
-        const cleanedElements = elements.map((element, index) => ({ ...element, order: index }))
-        const hash = hashElements(cleanedElements)
-
-        try {
-            await this.postgresTransaction(async (client) => {
-                const insertResult = await this.postgresQuery(
-                    'INSERT INTO posthog_elementgroup (hash, team_id) VALUES ($1, $2) ON CONFLICT DO NOTHING RETURNING *',
-                    [hash, teamId],
-                    'createElementGroup',
-                    client
-                )
-
-                if (insertResult.rows.length > 0) {
-                    const ELEMENTS_TABLE_COLUMN_COUNT = 11
-                    const elementGroup = insertResult.rows[0] as ElementGroup
-                    const values = []
-                    const rowStrings = []
-
-                    for (let rowIndex = 0; rowIndex < cleanedElements.length; ++rowIndex) {
-                        const {
-                            text,
-                            tag_name,
-                            href,
-                            attr_id,
-                            nth_child,
-                            nth_of_type,
-                            attributes,
-                            order,
-                            event_id,
-                            attr_class,
-                        } = cleanedElements[rowIndex]
-
-                        rowStrings.push(generatePostgresValuesString(ELEMENTS_TABLE_COLUMN_COUNT, rowIndex))
-
-                        values.push(
-                            text,
-                            tag_name,
-                            href,
-                            attr_id,
-                            nth_child,
-                            nth_of_type,
-                            attributes || {},
-                            order,
-                            event_id,
-                            attr_class,
-                            elementGroup.id
-                        )
-                    }
-
-                    await this.postgresQuery(
-                        `INSERT INTO posthog_element (text, tag_name, href, attr_id, nth_child, nth_of_type, attributes, "order", event_id, attr_class, group_id) VALUES ${rowStrings.join(
-                            ', '
-                        )}`,
-                        values,
-                        'insertElement',
-                        client
-                    )
-                }
-            })
-        } catch (error) {
-            // Throw further if not postgres error nr "23505" == "unique_violation"
-            // https://www.postgresql.org/docs/12/errcodes-appendix.html
-            if ((error as any).code !== '23505') {
-                throw error
-            }
-        }
-
-        return hash
     }
 
     // PluginLogEntry (NOTE: not a Django model anymore, stored in ClickHouse table `plugin_log_entries`)

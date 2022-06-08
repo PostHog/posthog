@@ -224,18 +224,13 @@ class Cohort(models.Model):
         start_time = time.monotonic()
 
         try:
-            count = recalculate_cohortpeople(self)
+            count = recalculate_cohortpeople(self, pending_version)
 
             # only precalculate if used in feature flag
             ids = get_cohort_ids_in_feature_flags()
 
             if self.pk in ids:
                 self.calculate_people(new_version=pending_version)
-                # Update filter to match pending version if still valid
-                Cohort.objects.filter(pk=self.pk).filter(
-                    Q(version__lt=pending_version) | Q(version__isnull=True)
-                ).update(version=pending_version, count=count)
-                self.refresh_from_db()
             else:
                 self.count = count
 
@@ -254,6 +249,12 @@ class Cohort(models.Model):
         finally:
             self.is_calculating = False
             self.save()
+
+        # Update filter to match pending version if still valid
+        Cohort.objects.filter(pk=self.pk).filter(Q(version__lt=pending_version) | Q(version__isnull=True)).update(
+            version=pending_version, count=count
+        )
+        self.refresh_from_db()
 
         logger.info(
             "cohort_calculation_completed",
