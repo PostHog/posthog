@@ -9,6 +9,7 @@ from posthog.models.instance_setting import set_instance_setting
 from posthog.models.messaging import MessagingRecord, get_email_hash
 from posthog.models.organization import OrganizationMembership
 from posthog.tasks.email import send_first_ingestion_reminder_emails, send_second_ingestion_reminder_emails
+from posthog.tasks.test.utils_email_tests import mock_email_messages
 from posthog.test.base import APIBaseTest
 
 
@@ -22,9 +23,11 @@ def create_org_team_and_user(creation_date: str, email: str, ingested_event: boo
         return org
 
 
+@patch("posthog.tasks.email.EmailMessage")
 class TestEmail(APIBaseTest, ClickhouseTestMixin):
     @patch("posthoganalytics.feature_enabled", return_value=True)
-    def test_first_email_sent_to_correct_users_only_once(self, __: Any) -> None:
+    def test_first_email_sent_to_correct_users_only_once(self, __: Any, MockEmailMessage) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
         set_instance_setting("EMAIL_HOST", "fake_host")
         set_instance_setting("EMAIL_ENABLED", True)
         create_org_team_and_user("2022-01-01 00:00:00", "too_late_user@posthog.com")
@@ -52,7 +55,9 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             self.assertEqual(MessagingRecord.objects.all().count(), 2)
 
     @patch("posthoganalytics.feature_enabled", return_value=True)
-    def test_second_first_email_sent_to_correct_users_only_once(self, _: Any) -> None:
+    def test_second_first_email_sent_to_correct_users_only_once(self, _: Any, MockEmailMessage) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+
         set_instance_setting("EMAIL_HOST", "fake_host")
         set_instance_setting("EMAIL_ENABLED", True)
         create_org_team_and_user("2022-01-01 00:00:00", "too_late_user@posthog.com")

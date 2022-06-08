@@ -12,6 +12,7 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.models.subscription import Subscription
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
+from posthog.tasks.subscriptions import deliver_subscription
 from posthog.utils import str_to_bool
 
 
@@ -59,6 +60,12 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         validated_data["team_id"] = self.context["team_id"]
         validated_data["created_by"] = request.user
         instance: Subscription = super().create(validated_data)
+
+        return instance
+
+    def update(self, instance: Subscription, validated_data: dict, *args: Any, **kwargs: Any) -> Subscription:
+        deliver_subscription.delay(instance.id)
+        instance = super().update(instance, validated_data)
 
         return instance
 

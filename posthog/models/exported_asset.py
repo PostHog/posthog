@@ -1,5 +1,6 @@
 import secrets
 
+from django.conf import settings
 from django.db import models
 from django.utils.text import slugify
 
@@ -54,3 +55,12 @@ class ExportedAsset(models.Model):
 
     def get_analytics_metadata(self):
         return {"export_format": self.export_format, "dashboard_id": self.dashboard_id, "insight_id": self.insight_id}
+
+    @property
+    def url(self):
+        return f"{settings.SITE_URL}/exports/{self.access_token}"
+
+    @property
+    def public_content_url(self):
+        # TODO: JWT tokenize this
+        return f"{settings.SITE_URL}/exports/{self.id}"

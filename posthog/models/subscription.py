@@ -1,4 +1,5 @@
 from dateutil.rrule import FREQNAMES, rrule
+from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
 from django.utils import timezone
@@ -82,3 +83,7 @@ class Subscription(models.Model):
     def save(self, *args, **kwargs) -> None:
         self.set_next_delivery_date()
         super(Subscription, self).save(*args, **kwargs)
+
+    @property
+    def url(self):
+        return f"{settings.SITE_URL}/insights/{self.insight.short_id}/subscriptions/{self.id}"
