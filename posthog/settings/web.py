@@ -44,7 +44,7 @@ INSTALLED_APPS = [
 
 
 MIDDLEWARE = [
-    "posthog.gzip_middleware.PostHogGZipMiddleware",
+    "posthog.gzip_middleware.ScopedGZipMiddleware",
     "django_structlog.middlewares.RequestMiddleware",
     "django_structlog.middlewares.CeleryMiddleware",
     "django.middleware.security.SecurityMiddleware",

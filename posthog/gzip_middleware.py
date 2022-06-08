@@ -13,7 +13,7 @@ def allowed_path(path: str, allowed_paths: List) -> bool:
     return any(pattern.search(path) for pattern in allowed_paths)
 
 
-class PostHogGZipMiddleware(GZipMiddleware):
+class ScopedGZipMiddleware(GZipMiddleware):
     """
     The Django GZip Middleware comes with security warnings
     see: https://docs.djangoproject.com/en/4.0/ref/middleware/#module-django.middleware.gzip
