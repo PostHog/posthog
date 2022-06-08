@@ -124,6 +124,7 @@ function sanitizeFilterParams(filters: Partial<FilterType>): Record<string, any>
         funnel_viz_type,
         funnel_from_step,
         funnel_to_step,
+        insight,
     } = filters
 
     let properties_local: string[] = []
@@ -191,6 +192,7 @@ function sanitizeFilterParams(filters: Partial<FilterType>): Record<string, any>
         breakdown_by_groups,
         using_groups: using_groups || aggregating_by_groups || breakdown_by_groups,
         used_cohort_filter_ids,
+        insight,
     }
 }
 
@@ -422,7 +424,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
             loadTime,
             error,
         }),
-        reportDataManagementEventDefinitionsPageClickNestedPropertyDetail: true,
         reportDataManagementEventPropertyDefinitionsPageLoadSucceeded: (loadTime: number, resultsLength: number) => ({
             loadTime,
             resultsLength,
@@ -1001,9 +1002,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
                 load_time: loadTime,
                 error,
             })
-        },
-        reportDataManagementEventDefinitionsPageClickNestedPropertyDetail: () => {
-            posthog.capture('event definitions page event nested property show detail clicked')
         },
         reportDataManagementEventPropertyDefinitionsPageLoadSucceeded: ({ loadTime, resultsLength }) => {
             posthog.capture('event property definitions page load succeeded', {

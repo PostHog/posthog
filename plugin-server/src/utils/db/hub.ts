@@ -4,7 +4,7 @@ import * as fs from 'fs'
 import { createPool } from 'generic-pool'
 import { StatsD } from 'hot-shots'
 import Redis from 'ioredis'
-import { Kafka, logLevel, SASLOptions } from 'kafkajs'
+import { Kafka, SASLOptions } from 'kafkajs'
 import { DateTime } from 'luxon'
 import * as path from 'path'
 import { types as pgTypes } from 'pg'
@@ -12,6 +12,7 @@ import { ConnectionOptions } from 'tls'
 
 import { getPluginServerCapabilities } from '../../capabilities'
 import { defaultConfig } from '../../config/config'
+import { KAFKAJS_LOG_LEVEL_MAPPING } from '../../config/constants'
 import { JobQueueManager } from '../../main/job-queues/job-queue-manager'
 import { connectObjectStorage } from '../../main/services/object_storage'
 import { Hub, KafkaSecurityProtocol, PluginServerCapabilities, PluginsServerConfig } from '../../types'
@@ -65,8 +66,6 @@ export async function createHub(
     const instanceId = new UUIDT()
 
     let statsd: StatsD | undefined
-    let eventLoopLagInterval: NodeJS.Timeout | undefined
-    let eventLoopLagSetTimeoutInterval: NodeJS.Timeout | undefined
 
     const conversionBufferEnabledTeams = new Set(
         serverConfig.CONVERSION_BUFFER_ENABLED_TEAMS.split(',').filter(String).map(Number)
@@ -89,24 +88,6 @@ export async function createHub(
                 })
             },
         })
-        eventLoopLagInterval = setInterval(() => {
-            const time = new Date()
-            setImmediate(() => {
-                statsd?.timing('event_loop_lag', time, {
-                    instanceId: instanceId.toString(),
-                    threadId: String(threadId),
-                })
-            })
-        }, 2000)
-        eventLoopLagSetTimeoutInterval = setInterval(() => {
-            const time = new Date()
-            setTimeout(() => {
-                statsd?.timing('event_loop_lag_set_timeout', time, {
-                    instanceId: instanceId.toString(),
-                    threadId: String(threadId),
-                })
-            }, 0)
-        }, 2000)
         // don't repeat the same info in each thread
         if (threadId === null) {
             status.info(
@@ -174,7 +155,7 @@ export async function createHub(
     const kafka = new Kafka({
         clientId: `plugin-server-v${version}-${instanceId}`,
         brokers: serverConfig.KAFKA_HOSTS.split(','),
-        logLevel: logLevel.WARN,
+        logLevel: KAFKAJS_LOG_LEVEL_MAPPING[serverConfig.KAFKAJS_LOG_LEVEL],
         ssl: kafkaSsl,
         sasl: kafkaSasl,
         connectionTimeout: 7000, // default: 1000
@@ -287,14 +268,6 @@ export async function createHub(
     }
 
     const closeHub = async () => {
-        if (eventLoopLagInterval) {
-            clearInterval(eventLoopLagInterval)
-        }
-
-        if (eventLoopLagSetTimeoutInterval) {
-            clearInterval(eventLoopLagSetTimeoutInterval)
-        }
-
         hub.mmdbUpdateJob?.cancel()
         await hub.jobQueueManager?.disconnectProducer()
         await kafkaProducer.disconnect()

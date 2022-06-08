@@ -2,13 +2,13 @@ from typing import Any, Dict, Tuple
 
 from ee.clickhouse.models.group import get_aggregation_target_field
 from ee.clickhouse.models.property import get_property_string_expr
-from ee.clickhouse.queries.event_query import EnterpriseEventQuery
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 from posthog.models.filters.filter import Filter
 from posthog.models.utils import PersonPropertiesMode
+from posthog.queries.event_query import EventQuery
 
 
-class FunnelEventQuery(EnterpriseEventQuery):
+class FunnelEventQuery(EventQuery):
     _filter: Filter
 
     def get_query(self, entities=None, entity_name="events", skip_entity_filter=False) -> Tuple[str, Dict[str, Any]]:
@@ -127,7 +127,7 @@ class FunnelEventQuery(EnterpriseEventQuery):
             self._should_join_distinct_ids = True
 
     def _determine_should_join_persons(self) -> None:
-        EnterpriseEventQuery._determine_should_join_persons(self)
+        EventQuery._determine_should_join_persons(self)
         if self._using_person_on_events:
             self._should_join_distinct_ids = False
             self._should_join_persons = False

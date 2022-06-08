@@ -149,6 +149,7 @@ export interface PluginsServerConfig extends Record<string, any> {
     OBJECT_STORAGE_BUCKET: string
     PLUGIN_SERVER_MODE: 'ingestion' | 'async' | null
     INGESTION_BATCH_BREAKUP_BY_DISTINCT_ID_TEAMS: string
+    KAFKAJS_LOG_LEVEL: 'NOTHING' | 'DEBUG' | 'INFO' | 'WARN' | 'ERROR'
 }
 
 export interface Hub extends PluginsServerConfig {
