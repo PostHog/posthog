@@ -67,7 +67,7 @@ def verify_persons_data_in_sync() -> None:
     _emit_metrics(results)
 
 
-def _team_integrity_statistics(person_data=List[Any]) -> Counter:
+def _team_integrity_statistics(person_data: List[Any]) -> Counter:
     person_ids = [id for id, _, _ in person_data]
     person_uuids = [uuid for _, uuid, _ in person_data]
     team_ids = list(set(team_id for _, _, team_id in person_data))
