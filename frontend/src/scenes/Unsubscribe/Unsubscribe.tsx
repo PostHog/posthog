@@ -26,7 +26,7 @@ export function Unsubscribe(): JSX.Element {
             ) : unsubscription ? (
                 <div>
                     <h2>You have been unsubscribed!</h2>
-                    <p>If you didn't mean to do that click here and we will re-subscribe you!</p>
+                    <p>You will no longer receive these kinds of emails.</p>
                 </div>
             ) : (
                 <div>
