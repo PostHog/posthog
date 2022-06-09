@@ -2014,7 +2014,7 @@ def trend_test_factory(trends):
                 value_1_ids = sorted(person["id"] for person in people)
                 self.assertTrue(
                     value_1_ids == sorted([person1.uuid, person2.uuid, person3.uuid])
-                    or value_1_ids == sorted([person1.pk, person2.pk, person3.pk])
+                    or value_1_ids == sorted([person1.uuid, person2.uuid, person3.uuid])
                 )
 
                 data.update({"breakdown_value": "value_2"})
