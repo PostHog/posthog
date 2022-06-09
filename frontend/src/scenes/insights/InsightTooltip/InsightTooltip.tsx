@@ -67,7 +67,8 @@ export function InsightTooltip({
     // Throw these rules out the window if `forceEntitiesAsColumns` is true
     const itemizeEntitiesAsColumns =
         forceEntitiesAsColumns ||
-        (seriesData?.length > 1 && (seriesData?.[0]?.breakdown_value || seriesData?.[0]?.compare_label))
+        ((seriesData?.length ?? 0) > 1 &&
+            (seriesData?.[0]?.breakdown_value !== undefined || seriesData?.[0]?.compare_label !== undefined))
 
     const title: ReactNode | null =
         getTooltipTitle(seriesData, altTitle, date) ||

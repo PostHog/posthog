@@ -487,7 +487,8 @@
        AND cohort_id = 2
      GROUP BY person_id,
               cohort_id,
-              team_id
+              team_id,
+              version
      HAVING sum(sign) > 0)
   '
 ---
@@ -502,7 +503,8 @@
        AND cohort_id = 2
      GROUP BY person_id,
               cohort_id,
-              team_id
+              team_id,
+              version
      HAVING sum(sign) > 0)
   '
 ---

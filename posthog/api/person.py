@@ -27,11 +27,7 @@ from rest_framework_csv import renderers as csvrenderers
 from statshog.defaults.django import statsd
 
 from ee.clickhouse.models.cohort import get_all_cohort_ids_by_person_uuid
-from ee.clickhouse.queries.funnels import ClickhouseFunnelActors, ClickhouseFunnelTrendsActors
-from ee.clickhouse.queries.funnels.base import ClickhouseFunnelBase
 from ee.clickhouse.queries.funnels.funnel_correlation_persons import FunnelCorrelationActors
-from ee.clickhouse.queries.funnels.funnel_strict_persons import ClickhouseFunnelStrictActors
-from ee.clickhouse.queries.funnels.funnel_unordered_persons import ClickhouseFunnelUnorderedActors
 from ee.clickhouse.queries.paths import ClickhousePathsActors
 from ee.clickhouse.queries.property_values import get_person_property_values_for_key
 from ee.clickhouse.queries.retention import ClickhouseRetention
@@ -68,6 +64,10 @@ from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.person.util import delete_person
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
+from posthog.queries.funnels import ClickhouseFunnelActors, ClickhouseFunnelTrendsActors
+from posthog.queries.funnels.base import ClickhouseFunnelBase
+from posthog.queries.funnels.funnel_strict_persons import ClickhouseFunnelStrictActors
+from posthog.queries.funnels.funnel_unordered_persons import ClickhouseFunnelUnorderedActors
 from posthog.queries.util import get_earliest_timestamp
 from posthog.tasks.split_person import split_person
 from posthog.utils import convert_property_value, format_query_params_absolute_url, is_anonymous_id, relative_date_parse
