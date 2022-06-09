@@ -71,7 +71,7 @@
         "hot-shots": "^8.3.2",
         "ioredis": "^4.27.6",
         "jsonwebtoken": "^8.5.1",
-        "kafkajs": "^2.0.0",
+        "kafkajs": "2.0.1",
         "lru-cache": "^6.0.0",
         "luxon": "^1.27.0",
         "node-fetch": "^2.6.1",
