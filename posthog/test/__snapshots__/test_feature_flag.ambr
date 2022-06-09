@@ -118,7 +118,8 @@
          "posthog_featureflag"."key",
          "posthog_featureflag"."filters",
          "posthog_featureflag"."rollout_percentage",
-         "posthog_featureflag"."team_id"
+         "posthog_featureflag"."team_id",
+         "posthog_featureflag"."ensure_experience_continuity"
   FROM "posthog_featureflag"
   WHERE ("posthog_featureflag"."active"
          AND NOT "posthog_featureflag"."deleted"
@@ -197,7 +198,8 @@
          "posthog_featureflag"."key",
          "posthog_featureflag"."filters",
          "posthog_featureflag"."rollout_percentage",
-         "posthog_featureflag"."team_id"
+         "posthog_featureflag"."team_id",
+         "posthog_featureflag"."ensure_experience_continuity"
   FROM "posthog_featureflag"
   WHERE ("posthog_featureflag"."active"
          AND NOT "posthog_featureflag"."deleted"
