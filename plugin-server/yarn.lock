@@ -2475,10 +2475,10 @@
   resolved "https://registry.yarnpkg.com/@posthog/plugin-contrib/-/plugin-contrib-0.0.5.tgz#6c55f39c39dd9dd8af558888558a69bc3fe19aff"
   integrity sha512-ic2JsfFUdLGF+fGYJPatWEB6gEFNoD89qz92FN1RE2QfLpr6YdyPNuMowzahya3hfC/jaLZ8QdPG/j5pSOgT7A==
 
-"@posthog/plugin-scaffold@1.0.2":
-  version "1.0.2"
-  resolved "https://registry.yarnpkg.com/@posthog/plugin-scaffold/-/plugin-scaffold-1.0.2.tgz#2ef63bb87267b2c6d18ed60f0b42f88bdc48d520"
-  integrity sha512-BSe0IkfV+a9BqduUBzvV8Zzbpt/hQtS15MMEPHC/V24oH1feZQSvlAW/Bm1A6+kTv6PehumTOJaVuuXybiXmVw==
+"@posthog/plugin-scaffold@1.0.3":
+  version "1.0.3"
+  resolved "https://registry.yarnpkg.com/@posthog/plugin-scaffold/-/plugin-scaffold-1.0.3.tgz#baf3bd0ef7a825ce546763466ac0776b0da172c9"
+  integrity sha512-dOUrzKchXvgG1iAqm6IXBoucBm3Xd4R5Xzkapjl6sdYbyfGMAopW3f03+GvM0PlCEoXrWZcJv8xbxkMRgUTSjQ==
   dependencies:
     "@maxmind/geoip2-node" "^3.0.0"
 
