@@ -1950,7 +1950,7 @@ def trend_test_factory(trends):
             )
 
         def test_breakdown_by_property_pie(self):
-            person1 = _create_person(team_id=self.team.pk, distinct_ids=["person1"])
+            person1 = _create_person(team_id=self.team.pk, distinct_ids=["person1"], immediate=True)
             _create_event(
                 team=self.team,
                 event="watched movie",
@@ -1959,7 +1959,7 @@ def trend_test_factory(trends):
                 properties={"fake_prop": "value_1"},
             )
 
-            person2 = _create_person(team_id=self.team.pk, distinct_ids=["person2"])
+            person2 = _create_person(team_id=self.team.pk, distinct_ids=["person2"], immediate=True)
             _create_event(
                 team=self.team,
                 event="watched movie",
@@ -1975,7 +1975,7 @@ def trend_test_factory(trends):
                 properties={"fake_prop": "value_2"},
             )
 
-            person3 = _create_person(team_id=self.team.pk, distinct_ids=["person3"])
+            person3 = _create_person(team_id=self.team.pk, distinct_ids=["person3"], immediate=True)
             _create_event(
                 team=self.team,
                 event="watched movie",
@@ -1984,7 +1984,7 @@ def trend_test_factory(trends):
                 properties={"fake_prop": "value_1"},
             )
 
-            person4 = _create_person(team_id=self.team.pk, distinct_ids=["person4"])
+            person4 = _create_person(team_id=self.team.pk, distinct_ids=["person4"], immediate=True)
             _create_event(
                 team=self.team,
                 event="watched movie",
