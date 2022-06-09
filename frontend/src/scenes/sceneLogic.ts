@@ -13,8 +13,8 @@ import { SceneExport, Params, Scene, SceneConfig, SceneParams, LoadedScene } fro
 import { emptySceneParams, preloadedScenes, redirects, routes, sceneConfigurations } from 'scenes/scenes'
 import { organizationLogic } from './organizationLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { preventDiscardingInsightChanges } from './insights/insightSceneLogic'
 import { UPGRADE_LINK } from 'lib/constants'
+import { preventUnload } from 'lib/hooks/useUnloadConfirmation'
 
 /** Mapping of some scenes that aren't directly accessible from the sidebar to ones that are - for the sidebar. */
 const sceneNavAlias: Partial<Record<Scene, Scene>> = {
@@ -185,7 +185,7 @@ export const sceneLogic = kea<sceneLogicType>({
 
         return mapping
     },
-    listeners: ({ values, actions, props, selectors }) => ({
+    listeners: ({ values, actions, props, selectors, cache }) => ({
         showUpgradeModal: ({ featureName }) => {
             eventUsageLogic.actions.reportUpgradeModalShown(featureName)
         },
@@ -226,11 +226,16 @@ export const sceneLogic = kea<sceneLogicType>({
             }
         },
         openScene: ({ scene, params, method }) => {
-            // If navigating from an Insight scene to a non-Insight scene and changes are unsaved, prompt the user
-            if (values.scene === Scene.Insight && scene !== Scene.Insight && preventDiscardingInsightChanges()) {
+            // We check for unloads registered in `useUnloadConfirmation` and if we are prevented,
+            // we navigate back to the previous scene.
+            // NOTE: This has a current bug that if the navigation changes due to going "back", another back step is triggered
+            if (!cache.skipPrevent && preventUnload()) {
+                // Mark that we should skip the next check otherwise we end up in a loop
+                cache.skipPrevent = true
                 history.back()
                 return
             }
+            cache.skipPrevent = false
 
             const sceneConfig = sceneConfigurations[scene] || {}
             const { user } = userLogic.values

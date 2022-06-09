@@ -45,7 +45,7 @@ import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/User
 
 export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): JSX.Element {
     const { insightMode, subscriptionId } = useValues(insightSceneLogic)
-    const { setInsightMode, syncInsightChanged } = useActions(insightSceneLogic)
+    const { setInsightMode } = useActions(insightSceneLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { currentTeamId } = useValues(teamLogic)
     const { push } = useActions(router)
@@ -83,11 +83,12 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
     const usingEditorPanels = featureFlags[FEATURE_FLAGS.INSIGHT_EDITOR_PANELS]
     const usingExportFeature = featureFlags[FEATURE_FLAGS.EXPORT_DASHBOARD_INSIGHTS]
 
-    useUnloadConfirmation(insightMode === ItemMode.Edit && insightChanged)
-
-    useEffect(() => {
-        syncInsightChanged(insightChanged)
-    }, [insightChanged])
+    useUnloadConfirmation(
+        insightMode === ItemMode.Edit && insightChanged ? 'Leave insight? Changes you made will be discarded.' : null,
+        () => {
+            cancelChanges()
+        }
+    )
 
     // Show the skeleton if loading an insight for which we only know the id
     // This helps with the UX flickering and showing placeholder "name" text.
