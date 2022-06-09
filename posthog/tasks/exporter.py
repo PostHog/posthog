@@ -27,7 +27,6 @@ def get_driver() -> webdriver.Chrome:
     options = Options()
     options.headless = True
     options.add_argument("--force-device-scale-factor=2")  # Scale factor for higher res image
-    options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--use-gl=swiftshader")
     options.add_argument("--disable-software-rasterizer")
 

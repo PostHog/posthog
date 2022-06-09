@@ -1,4 +1,6 @@
 from datetime import datetime, timedelta
+from typing import List
+import uuid
 
 import structlog
 
@@ -17,9 +19,7 @@ def get_unsubscribe_url(subscription: Subscription, email: str):
     return f"{settings.SITE_URL}/unsubscribe?email={email}&subscription={subscription.id}"
 
 
-def send_email_subscription(email: str, subscription: Subscription, exported_asset: ExportedAsset) -> None:
-    inviter = subscription.created_by
-
+def send_email_subscription_report(email: str, subscription: Subscription, exported_asset: ExportedAsset) -> None:
     message = EmailMessage(
         campaign_key=f"insight_subscription_report_{subscription.next_delivery_date.isoformat()}",
         subject=f"PostHog Insight report - {subscription.insight.name or subscription.insight.derived_name}",
@@ -28,6 +28,23 @@ def send_email_subscription(email: str, subscription: Subscription, exported_ass
             "exported_asset": exported_asset,
             "subscription": subscription,
             "unsubscribe_url": get_unsubscribe_url(subscription=subscription, email=email),
+        },
+    )
+    message.add_recipient(email=email)
+    message.send()
+
+
+def send_email_new_subscription(email: str, subscription: Subscription, exported_asset: ExportedAsset) -> None:
+    inviter = subscription.created_by
+    message = EmailMessage(
+        campaign_key=f"insight_subscription_new_{uuid.uuid4()}",
+        subject=f"{inviter.first_name} subscribed you to a PostHog Insight",
+        template_name="insight_subscription_report",
+        template_context={
+            "exported_asset": exported_asset,
+            "subscription": subscription,
+            "unsubscribe_url": get_unsubscribe_url(subscription=subscription, email=email),
+            "inviter": inviter,
         },
     )
     message.add_recipient(email=email)
@@ -46,11 +63,11 @@ def schedule_all_subscriptions() -> None:
     subscriptions = Subscription.objects.filter(next_delivery_date__lte=now_with_buffer).all()
 
     for subscription in subscriptions:
-        deliver_subscription.delay(subscription.id)
+        deliver_subscription_report.delay(subscription.id)
 
 
 @app.task()
-def deliver_subscription(subscription_id: int):
+def deliver_subscription_report(subscription_id: int):
     subscription = Subscription.objects.select_related("created_by", "insight").get(pk=subscription_id)
 
     if subscription.target_type == "email":
@@ -61,7 +78,7 @@ def deliver_subscription(subscription_id: int):
 
         for email in subscription.target_value.split(","):
             try:
-                send_email_subscription(email, subscription, asset)
+                send_email_subscription_report(email, subscription, asset)
             except Exception as e:
                 logger.error(e)
                 raise e
@@ -69,4 +86,28 @@ def deliver_subscription(subscription_id: int):
         raise NotImplementedError(f"{subscription.target_type} is not supported")
 
     subscription.set_next_delivery_date(subscription.next_delivery_date)
+    subscription.save()
+
+
+@app.task()
+def deliver_new_subscription(subscription_id: int, new_emails: List[str]):
+    if not new_emails:
+        return
+    subscription = Subscription.objects.select_related("created_by", "insight").get(pk=subscription_id)
+
+    if subscription.target_type == "email":
+        asset = ExportedAsset.objects.create(
+            team=subscription.team, insight=subscription.insight, export_format="image/png"
+        )
+        export_task(asset.id)
+
+        for email in new_emails:
+            try:
+                send_email_new_subscription(email, subscription, asset)
+            except Exception as e:
+                logger.error(e)
+                raise e
+    else:
+        raise NotImplementedError(f"{subscription.target_type} is not supported")
+
     subscription.save()

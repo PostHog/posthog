@@ -1,10 +1,17 @@
 {% extends "email/base_transactional.html" %} {% load posthog_assets %} {% block section %}
 <p><strong>Hello there,</strong></p>
 
+{% if inviter %}
+<p>
+    <strong>{{ inviter.first_name }}</strong> ({{ inviter.email }}) has subscribed you to the PostHog Insight
+    <strong>{% firstof subscription.insight.name subscription.insight.derived_name %}</strong>.
+</p>
+{% else %}
 <p>
     Your subscription to the insight
     <strong>{% firstof subscription.insight.name subscription.insight.derived_name %}</strong> is ready!
 </p>
+{% endif %}
 
 <img class="insight-image" src="{{ exported_asset.public_content_url }}" />
 

@@ -8,7 +8,11 @@ from freezegun import freeze_time
 from posthog.models.insight import Insight
 from posthog.models.instance_setting import set_instance_setting
 from posthog.models.subscription import Subscription
-from posthog.tasks.subscriptions import deliver_subscription, schedule_all_subscriptions
+from posthog.tasks.subscriptions import (
+    deliver_new_subscription,
+    deliver_subscription_report,
+    schedule_all_subscriptions,
+)
 from posthog.tasks.test.utils_email_tests import mock_email_messages
 from posthog.test.base import APIBaseTest
 
@@ -41,7 +45,7 @@ class TestSubscriptionsTasks(APIBaseTest):
             _create_insight_subscription(team=self.team, insight=insight, created_by=self.user),
         ]
 
-    @patch("posthog.tasks.subscriptions.deliver_subscription")
+    @patch("posthog.tasks.subscriptions.deliver_subscription_report")
     def test_subscription_delivery_scheduling(self, mock_deliver_task, MockEmailMessage, mock_export_task) -> None:
         # Modify a subscription to have its target time at least an hour ahead
         self.subscriptions[2].start_date = datetime(2022, 1, 1, 10, 0).replace(tzinfo=pytz.UTC)
@@ -55,8 +59,17 @@ class TestSubscriptionsTasks(APIBaseTest):
     def test_subscription_delivery(self, MockEmailMessage, mock_export_task) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
 
-        deliver_subscription(self.subscriptions[0].id)
+        deliver_subscription_report(self.subscriptions[0].id)
 
         assert len(mocked_email_messages) == 2
+        assert mocked_email_messages[0].send.call_count == 1
+        assert mock_export_task.call_count == 1
+
+    def test_new_subscription_delivery(self, MockEmailMessage, mock_export_task) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+
+        deliver_new_subscription(self.subscriptions[0].id, new_emails=["test@posthog.com"])
+
+        assert len(mocked_email_messages) == 1
         assert mocked_email_messages[0].send.call_count == 1
         assert mock_export_task.call_count == 1

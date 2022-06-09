@@ -12,7 +12,7 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.models.subscription import Subscription
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
-from posthog.tasks.subscriptions import deliver_subscription
+from posthog.tasks.subscriptions import deliver_new_subscription
 from posthog.utils import str_to_bool
 
 
@@ -61,12 +61,18 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         validated_data["created_by"] = request.user
         instance: Subscription = super().create(validated_data)
 
+        if instance.target_type == "email":
+            deliver_new_subscription.delay(instance.id, instance.target_value.split(","))
+
         return instance
 
     def update(self, instance: Subscription, validated_data: dict, *args: Any, **kwargs: Any) -> Subscription:
-        # TODO: Remove this in favour of "notify_new_subscription" or something
-        deliver_subscription.delay(instance.id)
+        old_emails = instance.target_value.split(",")
         instance = super().update(instance, validated_data)
+
+        if instance.target_type == "email" and "target_value" in validated_data:
+            new_emails = list(set(validated_data["target_value"].split(",")) - set(old_emails))
+            deliver_new_subscription.delay(instance.id, new_emails)
 
         return instance
 
