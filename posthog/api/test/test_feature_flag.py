@@ -813,34 +813,19 @@ class TestFeatureFlag(APIBaseTest):
         self.assertEqual(instance.key, "alpha-feature")
 
     def test_my_flags_is_not_nplus1(self) -> None:
-        query_counts: List[int] = []
-
-        query_counts.append(self._get_flags_counting_queries())
-
-        # add new flags
-        for i in range(5):
-            self.client.post(
-                f"/api/projects/{self.team.id}/feature_flags/",
-                data={"name": f"flag-{i}", "key": f"flag-{i}", "filters": {"groups": [{"rollout_percentage": i,}]},},
-                format="json",
-            ).json()
-
-            query_counts.append(self._get_flags_counting_queries())
-
-        # query counts don't climb as flags are added
-        self.assertTrue(
-            all(j - i == 0 for i, j in zip(query_counts[0:], query_counts[1:])),
-            f"received: {query_counts} query counts when loading my_flags",
-        )
-
-    def _get_flags_counting_queries(self) -> int:
-        db_connection = connections[DEFAULT_DB_ALIAS]
-
-        with CaptureQueriesContext(db_connection) as capture_query_context:
+        with self.assertNumQueries(7):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/my_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-            return len(capture_query_context.captured_queries)
+        self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            data={"name": f"flag", "key": f"flag", "filters": {"groups": [{"rollout_percentage": 5,}]},},
+            format="json",
+        ).json()
+
+        with self.assertNumQueries(7):
+            response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/my_flags")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
 
     @patch("posthog.api.feature_flag.report_user_action")
     def test_my_flags(self, mock_capture):
