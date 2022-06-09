@@ -14,8 +14,6 @@ from django.utils import timezone
 from sentry_sdk import capture_exception
 from statshog.defaults.django import statsd
 
-from ee.clickhouse.queries.funnels import ClickhouseFunnelTimeToConvert, ClickhouseFunnelTrends
-from ee.clickhouse.queries.funnels.utils import get_funnel_order_class
 from ee.clickhouse.queries.paths import ClickhousePaths
 from ee.clickhouse.queries.retention import ClickhouseRetention
 from ee.clickhouse.queries.stickiness import ClickhouseStickiness
@@ -34,6 +32,8 @@ from posthog.decorators import CacheType
 from posthog.models import Dashboard, DashboardTile, Filter, Insight, Team
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.filters.utils import get_filter
+from posthog.queries.funnels import ClickhouseFunnelTimeToConvert, ClickhouseFunnelTrends
+from posthog.queries.funnels.utils import get_funnel_order_class
 from posthog.types import FilterType
 from posthog.utils import generate_cache_key
 

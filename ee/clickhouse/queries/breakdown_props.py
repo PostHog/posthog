@@ -91,7 +91,7 @@ def get_breakdown_prop_values(
     )
 
     if use_all_funnel_entities:
-        from ee.clickhouse.queries.funnels.funnel_event_query import FunnelEventQuery
+        from posthog.queries.funnels.funnel_event_query import FunnelEventQuery
 
         entity_filter, entity_params = FunnelEventQuery(
             filter, team, using_person_on_events=team.actor_on_events_querying_enabled,

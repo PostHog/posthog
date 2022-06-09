@@ -1,10 +1,10 @@
 from typing import List, Optional
 
 from ee.clickhouse.queries.actor_base_query import ActorBaseQuery
-from ee.clickhouse.queries.funnels.funnel_strict import ClickhouseFunnelStrict
-from ee.clickhouse.sql.funnels.funnel import FUNNEL_PERSONS_BY_STEP_SQL
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.mixins.utils import cached_property
+from posthog.queries.funnels.funnel_strict import ClickhouseFunnelStrict
+from posthog.queries.funnels.sql import FUNNEL_PERSONS_BY_STEP_SQL
 
 
 class ClickhouseFunnelStrictActors(ClickhouseFunnelStrict, ActorBaseQuery):

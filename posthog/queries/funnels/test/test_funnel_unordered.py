@@ -2,21 +2,21 @@ from datetime import datetime
 
 from rest_framework.exceptions import ValidationError
 
-from ee.clickhouse.queries.funnels.funnel_unordered import ClickhouseFunnelUnordered
-from ee.clickhouse.queries.funnels.funnel_unordered_persons import ClickhouseFunnelUnorderedActors
-from ee.clickhouse.queries.funnels.test.breakdown_cases import (
-    FunnelStepResult,
-    assert_funnel_breakdown_result_is_correct,
-    assert_funnel_results_equal,
-    funnel_breakdown_test_factory,
-)
-from ee.clickhouse.queries.funnels.test.conversion_time_cases import funnel_conversion_time_test_factory
 from ee.clickhouse.test.test_journeys import journeys_for
 from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
 from posthog.constants import INSIGHT_FUNNELS
 from posthog.models.action import Action
 from posthog.models.action_step import ActionStep
 from posthog.models.filters import Filter
+from posthog.queries.funnels.funnel_unordered import ClickhouseFunnelUnordered
+from posthog.queries.funnels.funnel_unordered_persons import ClickhouseFunnelUnorderedActors
+from posthog.queries.funnels.test.breakdown_cases import (
+    FunnelStepResult,
+    assert_funnel_breakdown_result_is_correct,
+    assert_funnel_results_equal,
+    funnel_breakdown_test_factory,
+)
+from posthog.queries.funnels.test.conversion_time_cases import funnel_conversion_time_test_factory
 from posthog.test.base import APIBaseTest, _create_event, _create_person
 
 FORMAT_TIME = "%Y-%m-%d 00:00:00"

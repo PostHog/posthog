@@ -3,11 +3,11 @@ from typing import Optional
 from rest_framework.exceptions import ValidationError
 
 from ee.clickhouse.queries.actor_base_query import ActorBaseQuery
-from ee.clickhouse.queries.funnels.funnel_trends import ClickhouseFunnelTrends
-from ee.clickhouse.sql.funnels.funnel import FUNNEL_PERSONS_BY_STEP_SQL
 from posthog.constants import DROP_OFF, ENTRANCE_PERIOD_START
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.mixins.utils import cached_property
+from posthog.queries.funnels.funnel_trends import ClickhouseFunnelTrends
+from posthog.queries.funnels.sql import FUNNEL_PERSONS_BY_STEP_SQL
 
 
 class ClickhouseFunnelTrendsActors(ClickhouseFunnelTrends, ActorBaseQuery):

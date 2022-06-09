@@ -2,7 +2,7 @@ from typing import List, cast
 
 from rest_framework.exceptions import ValidationError
 
-from ee.clickhouse.queries.funnels.base import ClickhouseFunnelBase
+from posthog.queries.funnels.base import ClickhouseFunnelBase
 
 
 class ClickhouseFunnelUnordered(ClickhouseFunnelBase):

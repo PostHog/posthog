@@ -4,11 +4,11 @@ from typing import List, Optional, Tuple, Union, cast
 
 from dateutil.relativedelta import relativedelta
 
-from ee.clickhouse.queries.funnels.base import ClickhouseFunnelBase
-from ee.clickhouse.queries.funnels.utils import get_funnel_order_class
 from posthog.models.cohort import Cohort
 from posthog.models.filters.filter import Filter
 from posthog.models.team import Team
+from posthog.queries.funnels.base import ClickhouseFunnelBase
+from posthog.queries.funnels.utils import get_funnel_order_class
 from posthog.queries.util import (
     format_ch_timestamp,
     get_earliest_timestamp,
