@@ -896,7 +896,7 @@ export class DB {
                     person.team_id,
                     person.is_identified,
                     person.uuid,
-                    Number(result.rows[0].version || 0) + 1,
+                    Number(result.rows[0].version || 0) + 100,
                     1
                 ),
             ]

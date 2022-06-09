@@ -204,7 +204,7 @@ describe('DB', () => {
             })
 
             async function fetchPersonsRows(options: { final?: boolean } = {}) {
-                const query = `SELECT * FROM person WHERE id = ${uuid} ${options.final ? 'FINAL' : ''}`
+                const query = `SELECT * FROM person WHERE id = '${uuid}' ${options.final ? 'FINAL' : ''}`
                 return (await db.clickhouseQuery(query)).data
             }
 
@@ -242,7 +242,7 @@ describe('DB', () => {
                         expect.objectContaining({
                             id: uuid,
                             is_deleted: 1,
-                            version: 2,
+                            version: 101,
                         }),
                     ])
                 )
@@ -253,8 +253,7 @@ describe('DB', () => {
                         expect.objectContaining({
                             id: uuid,
                             is_deleted: 1,
-                            // :TODO: This is wrong
-                            version: 2,
+                            version: 101,
                         }),
                     ])
                 )
