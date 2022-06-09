@@ -6,6 +6,7 @@ import * as allKeaForms from 'kea-forms'
 import * as allKeaWindowValues from 'kea-window-values'
 import * as allKeaSubscriptions from 'kea-subscriptions'
 import * as appsCommon from '@posthog/apps-common'
+import * as lemonade from '@posthog/lemonade'
 
 const packages = {
     react: React,
@@ -16,6 +17,7 @@ const packages = {
     'kea-subscriptions': allKeaSubscriptions,
     'kea-window-values': allKeaWindowValues,
     '@posthog/apps-common': appsCommon,
+    '@posthog/lemonade': lemonade,
 }
 
 /** Every `import` in a frontend app will be piped through here */
