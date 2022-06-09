@@ -28,25 +28,23 @@ export function PluginJobOptions({
 
             {capabilities.jobs
                 .filter((jobName) => jobName in publicJobs)
-                .map((jobName) => {
-                    return (
-                        <div key={jobName}>
-                            {jobName === 'Export historical events' ? (
-                                <Tooltip title="Run this app on all historical events ingested until now">
-                                    <i>Export historical events</i>
-                                </Tooltip>
-                            ) : (
-                                <i>{jobName}</i>
-                            )}
-                            <PluginJobConfiguration
-                                jobName={jobName}
-                                jobSpec={publicJobs[jobName]}
-                                pluginConfigId={pluginConfigId}
-                                pluginId={pluginId}
-                            />
-                        </div>
-                    )
-                })}
+                .map((jobName) => (
+                    <div key={jobName}>
+                        {jobName === 'Export historical events' ? (
+                            <Tooltip title="Run this app on all historical events ingested until now">
+                                <i>Export historical events</i>
+                            </Tooltip>
+                        ) : (
+                            <i>{jobName}</i>
+                        )}
+                        <PluginJobConfiguration
+                            jobName={jobName}
+                            jobSpec={publicJobs[jobName]}
+                            pluginConfigId={pluginConfigId}
+                            pluginId={pluginId}
+                        />
+                    </div>
+                ))}
         </>
     )
 }
