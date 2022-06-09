@@ -4,7 +4,7 @@ import * as fs from 'fs'
 import { createPool } from 'generic-pool'
 import { StatsD } from 'hot-shots'
 import Redis from 'ioredis'
-import { Kafka, SASLOptions } from 'kafkajs'
+import { Kafka, Partitioners, SASLOptions } from 'kafkajs'
 import { DateTime } from 'luxon'
 import * as path from 'path'
 import { types as pgTypes } from 'pg'
@@ -69,6 +69,9 @@ export async function createHub(
 
     const conversionBufferEnabledTeams = new Set(
         serverConfig.CONVERSION_BUFFER_ENABLED_TEAMS.split(',').filter(String).map(Number)
+    )
+    const ingestionBatchBreakupByDistinctIdTeams = new Set(
+        serverConfig.INGESTION_BATCH_BREAKUP_BY_DISTINCT_ID_TEAMS.split(',').filter(String).map(Number)
     )
 
     if (serverConfig.STATSD_HOST) {
@@ -160,6 +163,7 @@ export async function createHub(
     })
     const producer = kafka.producer({
         retry: { retries: 10, initialRetryTime: 1000, maxRetryTime: 30 },
+        createPartitioner: Partitioners.LegacyPartitioner,
     })
     await producer.connect()
 
@@ -242,6 +246,7 @@ export async function createHub(
         actionManager,
         actionMatcher: new ActionMatcher(db, actionManager, statsd),
         conversionBufferEnabledTeams,
+        ingestionBatchBreakupByDistinctIdTeams,
     }
 
     // :TODO: This is only used on worker threads, not main

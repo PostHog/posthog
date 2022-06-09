@@ -55,7 +55,7 @@ describe('Dashboard', () => {
         cy.get('.SideBar__pinned-dashboards div').should('contain', 'App Analytics')
     })
 
-    it('Share dashboard', () => {
+    it('Share dashboard', (done) => {
         createDashboardFromTemplate('to be shared')
 
         cy.get('.InsightCard').should('exist')
@@ -66,9 +66,9 @@ describe('Dashboard', () => {
         cy.get('[data-attr=share-dashboard-link-button]').click()
         cy.window().then((win) => {
             win.navigator.clipboard.readText().then((linkFromClipboard) => {
-                cy.wait(200)
                 cy.visit(linkFromClipboard)
                 cy.get('[data-attr=dashboard-item-title]').should('contain', 'to be shared')
+                done()
             })
         })
     })

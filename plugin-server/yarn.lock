@@ -2475,10 +2475,10 @@
   resolved "https://registry.yarnpkg.com/@posthog/plugin-contrib/-/plugin-contrib-0.0.5.tgz#6c55f39c39dd9dd8af558888558a69bc3fe19aff"
   integrity sha512-ic2JsfFUdLGF+fGYJPatWEB6gEFNoD89qz92FN1RE2QfLpr6YdyPNuMowzahya3hfC/jaLZ8QdPG/j5pSOgT7A==
 
-"@posthog/plugin-scaffold@1.0.2":
-  version "1.0.2"
-  resolved "https://registry.yarnpkg.com/@posthog/plugin-scaffold/-/plugin-scaffold-1.0.2.tgz#2ef63bb87267b2c6d18ed60f0b42f88bdc48d520"
-  integrity sha512-BSe0IkfV+a9BqduUBzvV8Zzbpt/hQtS15MMEPHC/V24oH1feZQSvlAW/Bm1A6+kTv6PehumTOJaVuuXybiXmVw==
+"@posthog/plugin-scaffold@1.0.4":
+  version "1.0.4"
+  resolved "https://registry.yarnpkg.com/@posthog/plugin-scaffold/-/plugin-scaffold-1.0.4.tgz#a627d46e760af970757b94e40a3ca4e17da7faf4"
+  integrity sha512-/FX6dLq8Kug1vYW9Kk3D5Ik+7CpMSAMlplvdnnDcyeJPPU4UyFdWOCydRgBva4/HblfshW+j51tgjzWHEQQ0Hg==
   dependencies:
     "@maxmind/geoip2-node" "^3.0.0"
 
@@ -6782,10 +6782,10 @@ jws@^4.0.0:
     jwa "^2.0.0"
     safe-buffer "^5.0.1"
 
-kafkajs@^1.15.0:
-  version "1.15.0"
-  resolved "https://registry.yarnpkg.com/kafkajs/-/kafkajs-1.15.0.tgz#a5ada0d933edca2149177393562be6fb0875ec3a"
-  integrity sha512-yjPyEnQCkPxAuQLIJnY5dI+xnmmgXmhuOQ1GVxClG5KTOV/rJcW1qA3UfvyEJKTp/RTSqQnUR3HJsKFvHyTpNg==
+kafkajs@^2.0.1:
+  version "2.0.1"
+  resolved "https://registry.yarnpkg.com/kafkajs/-/kafkajs-2.0.1.tgz#c6ecccbe77ea6a976e80e2c119353182394f0f3f"
+  integrity sha512-UCR/MxWvLNqV6HAidD9fb4qwzgJA2GmxzhZWbeBMgRe7noeadRMdGYTpvjW8hm6WtOlMqPdr5cdfpMEKmQXVHw==
 
 kind-of@^3.0.2, kind-of@^3.0.3, kind-of@^3.2.0:
   version "3.2.2"
