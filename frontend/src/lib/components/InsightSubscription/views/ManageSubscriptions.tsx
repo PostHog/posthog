@@ -88,35 +88,34 @@ export function ManageSubscriptions({ insightShortId, onCancel, onSelect }: Mana
             </header>
 
             <section>
-                {subscriptionsLoading ? (
-                    <Skeleton paragraph={false} />
-                ) : (
-                    <div>
-                        <strong>{subscriptions?.length}</strong>
-                        {' active '}
-                        {pluralize(subscriptions.length || 0, 'subscription', 'subscriptions', false)}
-                    </div>
-                )}
                 {subscriptionsLoading && !subscriptions.length ? (
                     <>
+                        <Skeleton paragraph={false} />
                         <Skeleton.Button active block size="large" />
                         <Skeleton.Button active block size="large" />
                         <Skeleton.Button active block size="large" />
                     </>
                 ) : subscriptions.length ? (
-                    subscriptions.map((sub) => (
-                        <SubscriptionListItem
-                            key={sub.id}
-                            subscription={sub}
-                            onClick={() => onSelect(sub.id)}
-                            onDelete={() => deleteSubscription(sub.id)}
-                        />
-                    ))
+                    <>
+                        <div>
+                            <strong>{subscriptions?.length}</strong>
+                            {' active '}
+                            {pluralize(subscriptions.length || 0, 'subscription', 'subscriptions', false)}
+                        </div>
+                        {subscriptions.map((sub) => (
+                            <SubscriptionListItem
+                                key={sub.id}
+                                subscription={sub}
+                                onClick={() => onSelect(sub.id)}
+                                onDelete={() => deleteSubscription(sub.id)}
+                            />
+                        ))}
+                    </>
                 ) : (
-                    <div className="flex-column pa items-center gap text-center">
-                        <h2>Subscribe to Insights</h2>
+                    <div className="flex-column pa items-center text-center">
+                        <h3>There are no subscriptions for this insight</h3>
 
-                        <p>Receive scheduled reports directly to your inbox for your most important Insights</p>
+                        <p>Once subscriptions are created they will display here. </p>
                     </div>
                 )}
             </section>
@@ -127,7 +126,7 @@ export function ManageSubscriptions({ insightShortId, onCancel, onSelect }: Mana
                     <LemonButton type="secondary" onClick={onCancel}>
                         Close
                     </LemonButton>
-                    <LemonButton type="primary" onClick={() => onSelect('new')} icon={<IconPlus />}>
+                    <LemonButton type="primary" onClick={() => onSelect('new')}>
                         Add subscription
                     </LemonButton>
                 </div>
