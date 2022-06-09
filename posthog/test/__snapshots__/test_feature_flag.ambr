@@ -48,8 +48,8 @@
                                                     "person_id",
                                                     "team_id",
                                                     "hash_key")
-  VALUES (1, 1, 1, 'example_id'),
-         (3, 1, 1, 'example_id') RETURNING "posthog_featureflaghashkeyoverride"."id"
+  VALUES (112, 1374, 386, 'example_id'),
+         (114, 1374, 386, 'example_id') RETURNING "posthog_featureflaghashkeyoverride"."id"
   '
 ---
 # name: TestFeatureFlagHashKeyOverrides.test_entire_flow_with_hash_key_override.5
