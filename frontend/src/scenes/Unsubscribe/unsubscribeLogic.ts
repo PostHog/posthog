@@ -15,7 +15,7 @@ export const unsubscribeLogic = kea<unsubscribeLogicType>([
         unsubscription: {
             __default: false as boolean,
             attemptUnsubscribe: async ({ token }) => {
-                const res = await api.get(`api/unsubscribe?token=${token}sss`)
+                const res = await api.get(`api/unsubscribe?token=${token}`)
                 return res.success
             },
         },
