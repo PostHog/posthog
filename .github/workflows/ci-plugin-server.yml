@@ -11,14 +11,6 @@ on:
             - 'docker*.yml'
             - '*Dockerfile'
 
-env:
-    OBJECT_STORAGE_ENABLED: true
-    OBJECT_STORAGE_ENDPOINT: 'http://localhost:19000'
-    OBJECT_STORAGE_ACCESS_KEY_ID: 'object_storage_root_user'
-    OBJECT_STORAGE_SECRET_ACCESS_KEY: 'object_storage_root_password'
-    OBJECT_STORAGE_SESSION_RECORDING_FOLDER: 'session_recordings'
-    OBJECT_STORAGE_BUCKET: 'posthog'
-
 jobs:
     code-quality:
         name: Code quality
@@ -86,8 +78,8 @@ jobs:
                   sudo bash -c 'echo "127.0.0.1 kafka zookeeper" >> /etc/hosts'
                   ping -c 1 kafka
                   ping -c 1 zookeeper
-            - name: Start Kafka, ClickHouse, Zookeeper, Object Storage
-              run: docker-compose -f docker-compose.dev.yml up -d zookeeper kafka clickhouse object_storage
+            - name: Start Kafka, ClickHouse, Zookeeper
+              run: docker-compose -f docker-compose.dev.yml up -d zookeeper kafka clickhouse
 
             - name: Set up Python 3.8.12
               uses: actions/setup-python@v2

@@ -17,7 +17,6 @@ import { Job } from 'node-schedule'
 import { Pool } from 'pg'
 import { VM } from 'vm2'
 
-import { ObjectStorage } from './main/services/object_storage'
 import { DB } from './utils/db/db'
 import { KafkaProducerWrapper } from './utils/db/kafka-producer-wrapper'
 import { InternalMetrics } from './utils/internal-metrics'
@@ -141,12 +140,6 @@ export interface PluginsServerConfig extends Record<string, any> {
     PERSON_INFO_CACHE_TTL: number
     KAFKA_HEALTHCHECK_SECONDS: number
     HISTORICAL_EXPORTS_ENABLED: boolean
-    OBJECT_STORAGE_ENABLED: boolean
-    OBJECT_STORAGE_ENDPOINT: string
-    OBJECT_STORAGE_ACCESS_KEY_ID: string
-    OBJECT_STORAGE_SECRET_ACCESS_KEY: string
-    OBJECT_STORAGE_SESSION_RECORDING_FOLDER: string
-    OBJECT_STORAGE_BUCKET: string
     PLUGIN_SERVER_MODE: 'ingestion' | 'async' | null
     INGESTION_BATCH_BREAKUP_BY_DISTINCT_ID_TEAMS: string
     KAFKAJS_LOG_LEVEL: 'NOTHING' | 'DEBUG' | 'INFO' | 'WARN' | 'ERROR'
@@ -163,7 +156,6 @@ export interface Hub extends PluginsServerConfig {
     clickhouse: ClickHouse
     kafka: Kafka
     kafkaProducer: KafkaProducerWrapper
-    objectStorage: ObjectStorage
     // metrics
     statsd?: StatsD
     internalMetrics?: InternalMetrics
