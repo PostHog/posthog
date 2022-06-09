@@ -7,7 +7,6 @@ from freezegun import freeze_time
 from ee.clickhouse.models.cohort import format_filter_query, get_person_ids_by_cohort_id
 from ee.clickhouse.models.property import parse_prop_grouped_clauses
 from ee.clickhouse.sql.cohort import GET_COHORTPEOPLE_BY_COHORT_ID
-from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.client import sync_execute
 from posthog.models.action import Action
 from posthog.models.action_step import ActionStep
@@ -17,7 +16,7 @@ from posthog.models.organization import Organization
 from posthog.models.person import Person
 from posthog.models.team import Team
 from posthog.models.utils import PersonPropertiesMode
-from posthog.test.base import BaseTest, _create_event, _create_person
+from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, _create_person
 
 
 def _create_action(**kwargs):

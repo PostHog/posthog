@@ -3,12 +3,11 @@ from uuid import UUID, uuid4
 from ee.clickhouse.models.cohort import insert_static_cohort
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.models.group import create_group  # move this to /ee
-from ee.clickhouse.util import ClickhouseDestroyTablesMixin, ClickhouseTestMixin
 from posthog.client import sync_execute
 from posthog.models import Team
 from posthog.models.person.util import create_person, create_person_distinct_id
 from posthog.models.team.util import delete_teams_clickhouse_data
-from posthog.test.base import BaseTest
+from posthog.test.base import BaseTest, ClickhouseDestroyTablesMixin, ClickhouseTestMixin
 
 
 class TestDeleteEvents(ClickhouseTestMixin, ClickhouseDestroyTablesMixin, BaseTest):

@@ -12,12 +12,17 @@ from freezegun import freeze_time
 from ee.api.test.base import LicensedTestMixin
 from ee.clickhouse.models.group import create_group
 from ee.clickhouse.test.test_journeys import journeys_for, update_or_create_person
-from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
 from posthog.api.test.test_cohort import create_cohort_ok
 from posthog.api.test.test_event_definition import create_organization, create_team, create_user
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.team import Team
-from posthog.test.base import APIBaseTest, _create_person, test_with_materialized_columns
+from posthog.test.base import (
+    APIBaseTest,
+    ClickhouseTestMixin,
+    _create_person,
+    snapshot_clickhouse_queries,
+    test_with_materialized_columns,
+)
 
 
 @pytest.mark.django_db

@@ -1,9 +1,8 @@
 from ee.clickhouse.materialized_columns import materialize
 from ee.clickhouse.queries.column_optimizer import EnterpriseColumnOptimizer
-from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.models import Action, ActionStep
 from posthog.models.filters import Filter
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
 PROPERTIES_OF_ALL_TYPES = [
     {"key": "event_prop", "value": ["foo", "bar"], "type": "event"},
