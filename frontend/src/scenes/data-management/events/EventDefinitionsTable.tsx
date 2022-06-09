@@ -14,12 +14,16 @@ import { organizationLogic } from 'scenes/organizationLogic'
 import { ActionHeader, EventDefinitionHeader } from 'scenes/data-management/events/DefinitionHeader'
 import { humanFriendlyNumber } from 'lib/utils'
 import { EventDefinitionProperties } from 'scenes/data-management/events/EventDefinitionProperties'
-import { Input } from 'antd'
+import { Input, Row } from 'antd'
 import { DataManagementPageHeader } from 'scenes/data-management/DataManagementPageHeader'
 import { DataManagementTab } from 'scenes/data-management/DataManagementPageTabs'
 import { UsageDisabledWarning } from 'scenes/events/UsageDisabledWarning'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { ThirtyDayQueryCountTitle, ThirtyDayVolumeTitle } from 'lib/components/DefinitionPopup/DefinitionPopupContents'
+import { ProfilePicture } from 'lib/components/ProfilePicture'
+import { createdAtColumn } from 'lib/components/LemonTable/columnUtils'
+import { teamLogic } from 'scenes/teamLogic'
+import { IconWebhook } from 'lib/components/icons'
 
 export const scene: SceneExport = {
     component: EventDefinitionsTable,
@@ -31,6 +35,7 @@ export function EventDefinitionsTable(): JSX.Element {
     const { preflight } = useValues(preflightLogic)
     const { eventDefinitions, eventDefinitionsLoading, openedDefinitionId, filters, shouldSimplifyActions } =
         useValues(eventDefinitionsTableLogic)
+    const { currentTeam } = useValues(teamLogic)
     const { loadEventDefinitions, setOpenedDefinition, setFilters } = useActions(eventDefinitionsTableLogic)
     const { hasDashboardCollaboration, hasIngestionTaxonomy } = useValues(organizationLogic)
 
@@ -64,6 +69,52 @@ export function EventDefinitionsTable(): JSX.Element {
                       key: 'tags',
                       render: function Render(_, definition: CombinedEvent) {
                           return <ObjectTags tags={definition.tags ?? []} staticOnly />
+                      },
+                  } as LemonTableColumn<CombinedEvent, keyof CombinedEvent | undefined>,
+              ]
+            : []),
+        ...(shouldSimplifyActions
+            ? [
+                  {
+                      title: 'Created by',
+                      key: 'created_by',
+                      align: 'left',
+                      render: function Render(_, definition: CombinedEvent) {
+                          const created_by = isActionEvent(definition) ? definition.created_by : definition.owner
+                          return (
+                              <Row align="middle" wrap={false}>
+                                  {created_by && (
+                                      <ProfilePicture name={created_by.first_name} email={created_by.email} size="md" />
+                                  )}
+                                  <div
+                                      style={{
+                                          maxWidth: 250,
+                                          width: 'auto',
+                                          verticalAlign: 'middle',
+                                          marginLeft: created_by ? 8 : 0,
+                                          color: created_by ? undefined : 'var(--muted)',
+                                      }}
+                                  >
+                                      {created_by ? created_by.first_name || created_by.email : '—'}
+                                  </div>
+                              </Row>
+                          )
+                      },
+                  } as LemonTableColumn<CombinedEvent, keyof CombinedEvent | undefined>,
+                  createdAtColumn() as LemonTableColumn<CombinedEvent, keyof CombinedEvent | undefined>,
+                  {
+                      title: 'Webhook',
+                      key: 'webhook',
+                      align: 'center',
+                      render: function Render(_, definition: CombinedEvent) {
+                          if (
+                              isActionEvent(definition) &&
+                              !!currentTeam?.slack_incoming_webhook &&
+                              !!definition.post_to_slack
+                          ) {
+                              return <IconWebhook />
+                          }
+                          return <></>
                       },
                   } as LemonTableColumn<CombinedEvent, keyof CombinedEvent | undefined>,
               ]

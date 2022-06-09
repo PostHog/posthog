@@ -1,5 +1,5 @@
 import React from 'react'
-import { compactNumber, deleteWithUndo, uuid } from 'lib/utils'
+import { compactNumber, uuid } from 'lib/utils'
 import { Link } from 'lib/components/Link'
 import { useActions, useValues } from 'kea'
 import { actionEditLogic, ActionEditLogicProps } from './actionEditLogic'
@@ -9,10 +9,8 @@ import { Button, Col, Row } from 'antd'
 import { InfoCircleOutlined, LoadingOutlined, PlusOutlined } from '@ant-design/icons'
 import { router } from 'kea-router'
 import { PageHeader } from 'lib/components/PageHeader'
-import { actionsModel } from '~/models/actionsModel'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
-import api from '../../lib/api'
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { ActionStepType, AvailableFeature } from '~/types'
 import { userLogic } from 'scenes/userLogic'
@@ -35,7 +33,7 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
     }
     const logic = actionEditLogic(logicProps)
     const { action, actionLoading, actionCount, actionCountLoading } = useValues(logic)
-    const { loadActions } = useActions(actionsModel)
+    const { deleteAction } = useActions(logic)
     const { currentTeam } = useValues(teamLogic)
     const { hasAvailableFeature } = useValues(userLogic)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -49,16 +47,7 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
             type="secondary"
             style={{ marginRight: 8 }}
             onClick={() => {
-                deleteWithUndo({
-                    endpoint: api.actions.determineDeleteEndpoint(),
-                    object: action,
-                    callback: () => {
-                        router.actions.push(
-                            featureFlags[FEATURE_FLAGS.SIMPLIFY_ACTIONS] ? urls.eventDefinitions() : urls.actions()
-                        )
-                        loadActions()
-                    },
-                })
+                deleteAction()
             }}
         >
             Delete
@@ -167,7 +156,7 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
                                 {actionCountLoading && <LoadingOutlined />}
                                 {actionCount !== null && actionCount > -1 && (
                                     <>
-                                        This action matches <b>{compactNumber(actionCount)}</b> events in the last 3
+                                        This event matches <b>{compactNumber(actionCount)}</b> raw events in the last 3
                                         months
                                     </>
                                 )}
@@ -179,7 +168,7 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
                 <div style={{ overflow: 'visible' }}>
                     <h2 className="subtitle">Match groups</h2>
                     <div>
-                        Your action will be triggered whenever <b>any of your match groups</b> are received.{' '}
+                        Your event will be triggered whenever <b>any of your match groups</b> are received.{' '}
                         <a href="https://posthog.com/docs/features/actions" target="_blank">
                             <InfoCircleOutlined />
                         </a>

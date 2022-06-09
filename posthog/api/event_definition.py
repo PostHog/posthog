@@ -79,7 +79,7 @@ class EventDefinitionViewSet(
         include_actions = self.request.GET.get("include_actions", None)
         actions_list = Action.objects.none()
         if include_actions:
-            actions_list = Action.objects.all()
+            actions_list = Action.objects.filter(deleted=False)
 
         if self.request.user.organization.is_feature_available(AvailableFeature.INGESTION_TAXONOMY):  # type: ignore
             try:

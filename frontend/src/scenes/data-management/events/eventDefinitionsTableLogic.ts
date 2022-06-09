@@ -130,6 +130,8 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
 
                     if (!url) {
                         url = api.eventDefinitions.determineListEndpoint({
+                            include_actions:
+                                !!featureFlagLogic.findMounted()?.values.featureFlags[FEATURE_FLAGS.SIMPLIFY_ACTIONS],
                             order_ids_first: orderIdsFirst,
                         })
                     }
