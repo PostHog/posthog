@@ -1,0 +1,26 @@
+{% extends "email/base_transactional.html" %} {% load posthog_assets %} {% load posthog_filters %}
+{% block heading %}Fatal app error{% endblock %}
+{% block section %}
+<!-- prettier-ignore -->
+<p>
+    {% if is_system_error %}
+        A system error has prevented {{ plugin }}
+    {% else %}
+        An unhandled error in the <code>setupPlugin</code> function of {{ plugin }} has prevented it
+    {% endif %} from loading in project {{ team }}:
+</p>
+<pre><code>{{ error }}</code></pre>
+<p>The app has been disabled automatically. Check its logs and re-enable it from the Apps page of PostHog.</p>
+<div class="mb mt text-center">
+    <a class="button" href="{% absolute_uri '/project/apps' %}">Go to Apps</a>
+</div>
+<p>
+    If you find that you're unable to resolve the issue, contact the author of the app or the PostHog team.
+</p>
+<div class="mt">
+    <p>
+        If the button above does not work, paste the following link into your browser:<br />
+        <a href="{% absolute_uri '/project/apps' %}">{% absolute_uri '/project/apps' %}</a>
+    </p>
+</div>
+{% endblock %}
