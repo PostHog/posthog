@@ -17,7 +17,6 @@ from rest_framework_csv import renderers as csvrenderers
 
 from ee.clickhouse.models.event import ClickhouseEventSerializer, determine_event_conditions
 from ee.clickhouse.models.property import parse_prop_grouped_clauses
-from ee.clickhouse.queries.property_values import get_property_values_for_key
 from ee.clickhouse.sql.events import (
     GET_CUSTOM_EVENTS,
     SELECT_EVENT_BY_TEAM_AND_CONDITIONS_FILTERS_SQL,
@@ -34,6 +33,7 @@ from posthog.models.person.util import get_persons_by_distinct_ids
 from posthog.models.team import Team
 from posthog.models.utils import UUIDT
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
+from posthog.queries.property_values import get_property_values_for_key
 from posthog.utils import convert_property_value, flatten
 
 
