@@ -16,6 +16,7 @@ import { LemonDivider, LemonInput, LemonTextArea } from 'packages/apps-common'
 import { AlertMessage } from 'lib/components/AlertMessage'
 import { InsightShortId } from '~/types'
 import { insightSubscriptionsLogic } from '../insightSubscriptionsLogic'
+import { useUnloadConfirmation } from 'kea-router'
 
 interface EditSubscriptionProps {
     id: number | 'new'
@@ -57,9 +58,14 @@ export function EditSubscription({ id, insightShortId, onCancel, onDelete }: Edi
     })
 
     const { members } = useValues(membersLogic)
-    const { subscription, isSubscriptionSubmitting } = useValues(logic)
+    const { subscription, isSubscriptionSubmitting, subscriptionChanged } = useValues(logic)
+    const { resetSubscription } = useActions(logic)
     const { preflight } = useValues(preflightLogic)
     const { deleteSubscription } = useActions(subscriptionslogic)
+
+    useUnloadConfirmation(subscriptionChanged ? 'Changes you made will be discarded.' : null, () => {
+        resetSubscription()
+    })
 
     const emailOptions = useMemo(
         () =>

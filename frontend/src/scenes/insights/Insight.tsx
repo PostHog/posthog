@@ -26,7 +26,6 @@ import { cohortsModel } from '~/models/cohortsModel'
 import { mathsLogic } from 'scenes/trends/mathsLogic'
 import { InsightSkeleton } from 'scenes/insights/InsightSkeleton'
 import { LemonButton, LemonButtonWithPopup } from 'lib/components/LemonButton'
-import { useUnloadConfirmation } from 'lib/hooks/useUnloadConfirmation'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import useBreakpoint from 'antd/lib/grid/hooks/useBreakpoint'
@@ -42,6 +41,7 @@ import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
 import { InsightSubscriptionsModal } from 'lib/components/InsightSubscription/InsightSubscriptionsModal'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
+import { useUnloadConfirmation } from 'kea-router'
 
 export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): JSX.Element {
     const { insightMode, subscriptionId } = useValues(insightSceneLogic)

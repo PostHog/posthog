@@ -226,17 +226,6 @@ export const sceneLogic = kea<sceneLogicType>({
             }
         },
         openScene: ({ scene, params, method }) => {
-            // We check for unloads registered in `useUnloadConfirmation` and if we are prevented,
-            // we navigate back to the previous scene.
-            // NOTE: This has a current bug that if the navigation changes due to going "back", another back step is triggered
-            if (!cache.skipPrevent && preventUnload()) {
-                // Mark that we should skip the next check otherwise we end up in a loop
-                cache.skipPrevent = true
-                history.back()
-                return
-            }
-            cache.skipPrevent = false
-
             const sceneConfig = sceneConfigurations[scene] || {}
             const { user } = userLogic.values
             const { preflight } = preflightLogic.values
