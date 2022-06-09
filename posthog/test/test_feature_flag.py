@@ -390,9 +390,8 @@ class TestFeatureFlagHashKeyOverrides(BaseTest, QueryMatchingTest):
         )
 
         with connection.cursor() as cursor:
-            # TODO: change to ff key!
             cursor.execute(
-                f"SELECT hash_key, feature_flag_id FROM posthog_featureflaghashkeyoverride WHERE team_id = {self.team.pk} AND person_id={self.person.id}"
+                f"SELECT hash_key FROM posthog_featureflaghashkeyoverride WHERE team_id = {self.team.pk} AND person_id={self.person.id}"
             )
             res = cursor.fetchall()
             self.assertEqual(len(res), 2)
@@ -419,7 +418,7 @@ class TestFeatureFlagHashKeyOverrides(BaseTest, QueryMatchingTest):
         FeatureFlagHashKeyOverride.objects.bulk_create(
             [
                 FeatureFlagHashKeyOverride(
-                    team_id=self.team.pk, person_id=self.person.id, feature_flag=feature_flag, hash_key=hash_key
+                    team_id=self.team.pk, person_id=self.person.id, feature_flag_key=feature_flag.key, hash_key=hash_key
                 )
                 for feature_flag in all_feature_flags
             ]
@@ -431,9 +430,8 @@ class TestFeatureFlagHashKeyOverrides(BaseTest, QueryMatchingTest):
         )
 
         with connection.cursor() as cursor:
-            # TODO: change to ff key!
             cursor.execute(
-                f"SELECT hash_key, feature_flag_id FROM posthog_featureflaghashkeyoverride WHERE team_id = {self.team.pk} AND person_id={self.person.id}"
+                f"SELECT hash_key FROM posthog_featureflaghashkeyoverride WHERE team_id = {self.team.pk} AND person_id={self.person.id}"
             )
             res = cursor.fetchall()
             self.assertEqual(len(res), 3)

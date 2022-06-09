@@ -152,13 +152,16 @@ class FeatureFlagHashKeyOverride(models.Model):
     class Meta:
         constraints = [
             models.UniqueConstraint(
-                fields=["team", "person", "feature_flag"], name="Unique hash_key for a user/team/feature_flag combo",
+                fields=["team", "person", "feature_flag_key"],
+                name="Unique hash_key for a user/team/feature_flag combo",
             ),
         ]
 
-    # TODO: just the key here should be fine?
-    # The inner join is annoying & unnecessary
-    feature_flag: models.ForeignKey = models.ForeignKey("FeatureFlag", on_delete=models.CASCADE)
+    # Can't use a foreign key to feature_flag_key directly, since
+    # the unique constraint is on (team_id+key), and not just key.
+    # A standard id foreign key leads to INNER JOINs everytime we want to get the key
+    # and we only ever want to get the key.
+    feature_flag_key: models.CharField = models.CharField(max_length=400)
     person: models.ForeignKey = models.ForeignKey("Person", on_delete=models.CASCADE)
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
     hash_key: models.CharField = models.CharField(max_length=400)
@@ -322,7 +325,7 @@ def hash_key_overrides(team_id: int, person_id: int) -> Dict[str, str]:
     feature_flag_to_key_overrides = {}
     for feature_flag, override in FeatureFlagHashKeyOverride.objects.filter(
         person_id=person_id, team=team_id
-    ).values_list("feature_flag__key", "hash_key"):
+    ).values_list("feature_flag_key", "hash_key"):
         feature_flag_to_key_overrides[feature_flag] = override
 
     return feature_flag_to_key_overrides
@@ -428,17 +431,17 @@ def set_feature_flag_hash_key_overrides(
 ) -> None:
 
     existing_flag_overrides = set(
-        val.feature_flag.key
-        for val in FeatureFlagHashKeyOverride.objects.filter(team_id=team_id, person_id=person_id)
-        .select_related("feature_flag")
-        .only("feature_flag__key")
+        val.feature_flag_key
+        for val in FeatureFlagHashKeyOverride.objects.filter(team_id=team_id, person_id=person_id).only(
+            "feature_flag_key"
+        )
     )
     new_overrides = []
     for feature_flag in feature_flags:
         if feature_flag.ensure_experience_continuity and feature_flag.key not in existing_flag_overrides:
             new_overrides.append(
                 FeatureFlagHashKeyOverride(
-                    team_id=team_id, person_id=person_id, feature_flag=feature_flag, hash_key=hash_key_override
+                    team_id=team_id, person_id=person_id, feature_flag_key=feature_flag.key, hash_key=hash_key_override
                 )
             )
 
