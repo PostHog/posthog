@@ -1,5 +1,14 @@
 import { urls } from 'scenes/urls'
 
+function expandPropertiesList() {
+    cy.get('body').then(($body) => {
+        // sometimes the event list isn't expanded
+        if ($body.find('[data-attr="expand-list-event_properties"]')) {
+            cy.get('[data-attr="expand-list-event_properties"]').click()
+        }
+    })
+}
+
 describe('Trends', () => {
     beforeEach(() => {
         cy.visit(urls.insightNew())
@@ -51,8 +60,10 @@ describe('Trends', () => {
         // Apply a property filter
         cy.get('[data-attr=show-prop-filter-0]').click()
         cy.get('[data-attr=property-select-toggle-0]').click()
-        cy.get('[data-attr="expand-list-event_properties"]').click()
+
+        expandPropertiesList()
         cy.get('[data-attr=prop-filter-event_properties-1]').click({ force: true })
+
         cy.get('[data-attr=prop-val]').click({ force: true })
         // cypress is odd and even though when a human clicks this the right dropdown opens
         // in the test that doesn't happen
@@ -72,7 +83,7 @@ describe('Trends', () => {
         cy.get('[data-attr=trends-filters-add-filter-group]').click()
         cy.get('[data-attr=property-select-toggle-0]').click()
         cy.get('[data-attr=taxonomic-filter-searchfield]').click()
-        cy.get('[data-attr="expand-list-event_properties"]').click()
+        expandPropertiesList()
         cy.get('[data-attr=prop-filter-event_properties-1]').click({ force: true })
         cy.get('[data-attr=prop-val]').click({ force: true })
         // cypress is odd and even though when a human clicks this the right dropdown opens
@@ -125,7 +136,7 @@ describe('Trends', () => {
 
     it('Apply property breakdown', () => {
         cy.get('[data-attr=add-breakdown-button]').click()
-        cy.get('[data-attr="expand-list-event_properties"]').click()
+        expandPropertiesList()
         cy.get('[data-attr=prop-filter-event_properties-1]').click({ force: true })
         cy.get('[data-attr=trend-line-graph]').should('exist')
     })
@@ -142,7 +153,7 @@ describe('Trends', () => {
         cy.get('[data-attr=trends-filters-add-filter-group]').click()
         cy.get('[data-attr=property-select-toggle-0]').click()
         cy.get('[data-attr=taxonomic-filter-searchfield]').click()
-        cy.get('[data-attr="expand-list-event_properties"]').click()
+        expandPropertiesList()
         cy.get('[data-attr=prop-filter-event_properties-1]').click({ force: true })
         cy.get('[data-attr=prop-val]').click({ force: true })
         // cypress is odd and even though when a human clicks this the right dropdown opens
