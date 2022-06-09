@@ -4,6 +4,7 @@ import { PNG } from 'pngjs'
 import pixelmatch from 'pixelmatch'
 import fs from 'fs'
 import path from 'path'
+import { createEntry } from './webpack.config'
 
 const downloadDirectory = path.join(__dirname, '..', 'downloads')
 
@@ -19,8 +20,6 @@ const checkFileDownloaded = async (filename: string, timeout: number, delayMs = 
         }
     }
 }
-
-import { createEntry } from './webpack.config'
 
 export default defineConfig({
     video: false,
