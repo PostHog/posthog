@@ -1,5 +1,6 @@
 import inspect
 import re
+import threading
 import uuid
 from contextlib import contextmanager
 from functools import wraps
@@ -24,8 +25,7 @@ from ee.clickhouse.sql.session_recording_events import (
     DROP_SESSION_RECORDING_EVENTS_TABLE_SQL,
     SESSION_RECORDING_EVENTS_TABLE_SQL,
 )
-from posthog.client import ch_pool
-from posthog.conftest import run_clickhouse_statement_in_parallel
+from posthog.client import ch_pool, sync_execute
 from posthog.models import Organization, Team, User
 from posthog.models.organization import OrganizationMembership
 from posthog.models.person import Person
@@ -213,7 +213,6 @@ def test_with_materialized_columns(event_properties=[], person_properties=[], ve
 
     try:
         from ee.clickhouse.materialized_columns import get_materialized_columns, materialize
-        from posthog.client import sync_execute
     except:
         # EE not available? Just run the main test
         return lambda fn: fn
@@ -448,6 +447,21 @@ class ClickhouseTestMixin(QueryMatchingTest):
 
         with patch("posthog.client.ch_pool.get_client", wraps=get_client) as _:
             yield queries
+
+
+def run_clickhouse_statement_in_parallel(statements: List[str]):
+    jobs = []
+    for item in statements:
+        thread = threading.Thread(target=sync_execute, args=(item,))
+        jobs.append(thread)
+
+    # Start the threads (i.e. calculate the random number lists)
+    for j in jobs:
+        j.start()
+
+    # Ensure all of the threads have finished
+    for j in jobs:
+        j.join()
 
 
 class ClickhouseDestroyTablesMixin(BaseTest):
