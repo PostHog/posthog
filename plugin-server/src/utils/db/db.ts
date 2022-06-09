@@ -879,23 +879,28 @@ export class DB {
     }
 
     public async deletePerson(person: Person, client?: PoolClient): Promise<ProducerRecord[]> {
-        await this.postgresQuery(
-            'DELETE FROM posthog_person WHERE team_id = $1 AND id = $2',
+        const result = await this.postgresQuery<{ version: string }>(
+            'DELETE FROM posthog_person WHERE team_id = $1 AND id = $2 RETURNING version',
             [person.team_id, person.id],
             'deletePerson',
             client
         )
-        const kafkaMessages = [
-            generateKafkaPersonUpdateMessage(
-                person.created_at,
-                person.properties,
-                person.team_id,
-                person.is_identified,
-                person.uuid,
-                null,
-                1
-            ),
-        ]
+
+        let kafkaMessages: ProducerRecord[] = []
+
+        if (result.rows.length > 0) {
+            kafkaMessages = [
+                generateKafkaPersonUpdateMessage(
+                    person.created_at,
+                    person.properties,
+                    person.team_id,
+                    person.is_identified,
+                    person.uuid,
+                    Number(result.rows[0].version || 0) + 1,
+                    1
+                ),
+            ]
+        }
         // TODO: remove from cache
         return kafkaMessages
     }

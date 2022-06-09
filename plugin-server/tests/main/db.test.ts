@@ -195,6 +195,7 @@ describe('DB', () => {
         describe('clickhouse behavior', () => {
             beforeEach(async () => {
                 await resetTestDatabaseClickhouse()
+                // :TRICKY: Avoid collapsing rows before we are able to read them in the below tests.
                 await db.clickhouseQuery('SYSTEM STOP MERGES')
             })
 
@@ -241,8 +242,7 @@ describe('DB', () => {
                         expect.objectContaining({
                             id: uuid,
                             is_deleted: 1,
-                            // :TODO: This is wrong
-                            version: 0,
+                            version: 2,
                         }),
                     ])
                 )
@@ -254,7 +254,7 @@ describe('DB', () => {
                             id: uuid,
                             is_deleted: 1,
                             // :TODO: This is wrong
-                            version: 0,
+                            version: 2,
                         }),
                     ])
                 )
