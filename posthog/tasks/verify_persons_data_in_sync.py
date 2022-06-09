@@ -107,7 +107,7 @@ def _team_integrity_statistics(person_data: List[Any]) -> Counter:
         ch_properties = json.loads(ch_properties)
         if ch_version != pg_person.version:
             result["version_mismatch"] += 1
-            logger.info(
+            logger.debug(
                 "Found version mismatch",
                 team_id=team_id,
                 uuid=uuid,
@@ -116,7 +116,7 @@ def _team_integrity_statistics(person_data: List[Any]) -> Counter:
             )
         if pg_person.properties != ch_properties:
             result["properties_mismatch"] += 1
-            logger.info(
+            logger.debug(
                 "Found properties mismatch",
                 team_id=team_id,
                 uuid=uuid,
