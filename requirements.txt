@@ -220,7 +220,7 @@ ptyprocess==0.6.0
     # via pexpect
 pycparser==2.20
     # via cffi
-pyjwt==2.1.0
+pyjwt==2.4.0
     # via social-auth-core
 pyopenssl==22.0.0
     # via urllib3
