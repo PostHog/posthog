@@ -18,7 +18,6 @@ const NEW_SUBSCRIPTION: Partial<SubscriptionType> = {
     frequency: 'weekly',
     interval: 1,
     start_date: dayjs().hour(9).minute(0).second(0).toISOString(),
-    title: 'New Subscription',
     target_type: 'email',
 }
 
@@ -50,8 +49,9 @@ export const insightSubscriptionLogic = kea<insightSubscriptionLogicType>([
     forms(({ props, values, actions }) => ({
         subscription: {
             defaults: { ...NEW_SUBSCRIPTION } as SubscriptionType,
-            errors: ({ frequency, interval, target_value, target_type }) => ({
+            errors: ({ frequency, interval, target_value, target_type, title }) => ({
                 frequency: !frequency ? 'You need to set a schedule frequency' : undefined,
+                title: !title ? 'You need to give your subscripiton a name' : undefined,
                 interval: !interval ? 'You need to set a schedule time' : undefined,
                 target_value:
                     target_type == 'email'

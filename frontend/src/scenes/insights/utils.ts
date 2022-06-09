@@ -8,6 +8,7 @@ import {
     InsightType,
     PathType,
     StepOrderValue,
+    SubscriptionType,
 } from '~/types'
 import { alphabet, capitalizeFirstLetter, ensureStringIsNotBlank, objectsEqual } from 'lib/utils'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'

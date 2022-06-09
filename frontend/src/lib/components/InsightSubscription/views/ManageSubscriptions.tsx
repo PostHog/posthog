@@ -14,6 +14,18 @@ interface SubscriptionListItemProps {
     onDelete?: () => void
 }
 
+const humanFrequencyMap: { [key in SubscriptionType['frequency']]: string } = {
+    daily: 'day',
+    weekly: 'week',
+    monthly: 'month',
+    yearly: 'year',
+}
+
+function summarizeSubscription(subscription: SubscriptionType): string {
+    const frequency = pluralize(subscription.interval, humanFrequencyMap[subscription.frequency], undefined, false)
+    return `Sent every ${subscription.interval > 1 ? subscription.interval + ' ' : ''}${frequency}`
+}
+
 export function SubscriptionListItem({ subscription, onClick, onDelete }: SubscriptionListItemProps): JSX.Element {
     return (
         <LemonButtonWithSideAction
@@ -44,10 +56,13 @@ export function SubscriptionListItem({ subscription, onClick, onDelete }: Subscr
                 },
             }}
         >
-            <span className="space-between-items flex-auto items-center pa-05">
-                <span>{subscription.title}</span>
+            <div className="space-between-items flex-auto items-center pa-05">
+                <div>
+                    <div>{subscription.title}</div>
+                    <div className="text-default">{summarizeSubscription(subscription)}</div>
+                </div>
                 <ProfileBubbles limit={4} people={subscription.target_value.split(',').map((email) => ({ email }))} />
-            </span>
+            </div>
         </LemonButtonWithSideAction>
     )
 }

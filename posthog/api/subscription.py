@@ -39,7 +39,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             "deleted",
             "title",
         ]
-        read_only_fields = ["id", "created_at", "created_by", "title"]
+        read_only_fields = ["id", "created_at", "created_by"]
 
     def validate(self, attrs):
         if not self.initial_data:
@@ -64,6 +64,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         return instance
 
     def update(self, instance: Subscription, validated_data: dict, *args: Any, **kwargs: Any) -> Subscription:
+        # TODO: Remove this in favour of "notify_new_subscription" or something
         deliver_subscription.delay(instance.id)
         instance = super().update(instance, validated_data)
 

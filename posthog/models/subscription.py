@@ -38,6 +38,7 @@ class Subscription(models.Model):
     insight = models.ForeignKey("posthog.Insight", on_delete=models.CASCADE, null=True)
 
     # Subscription type (email, slack etc.)
+    title: models.CharField = models.CharField(max_length=100, null=True, blank=True)
     target_type: models.CharField = models.CharField(max_length=10, choices=SubscriptionTarget.choices)
     target_value: models.CharField = models.CharField(max_length=65535)
 
@@ -73,15 +74,13 @@ class Subscription(models.Model):
             byweekday=[x[:2].upper() for x in self.byweekday] if self.byweekday else None,
         )
 
-    @property
-    def title(self):
-        return f"Sent every {self.interval} {self.frequency}"
-
     def set_next_delivery_date(self, from_dt=None):
         self.next_delivery_date = self.rrule.after(dt=from_dt or timezone.now(), inc=False)
 
     def save(self, *args, **kwargs) -> None:
         self.set_next_delivery_date()
+        # TODO: Think about this more carefully. If we just sent a message and the subscription
+        # gets saved, the date will be overwritten...
         super(Subscription, self).save(*args, **kwargs)
 
     @property

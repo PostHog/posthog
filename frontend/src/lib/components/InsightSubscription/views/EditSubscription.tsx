@@ -12,7 +12,7 @@ import { LemonSelect, LemonSelectOptions } from 'lib/components/LemonSelect'
 import { insightSubscriptionLogic } from '../insightSubscriptionLogic'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 import { IconChevronLeft, IconOpenInNew } from 'lib/components/icons'
-import { LemonDivider, LemonTextArea } from 'packages/apps-common'
+import { LemonDivider, LemonInput, LemonTextArea } from 'packages/apps-common'
 import { AlertMessage } from 'lib/components/AlertMessage'
 import { InsightShortId } from '~/types'
 import { insightSubscriptionsLogic } from '../insightSubscriptionsLogic'
@@ -118,6 +118,10 @@ export function EditSubscription({ id, insightShortId, onCancel, onDelete }: Edi
                             </>
                         </AlertMessage>
                     )}
+
+                    <Field name={'title'} label={'Name'}>
+                        <LemonInput placeholder="e.g. Weekly team report" disabled={emailDisabled} />
+                    </Field>
 
                     <Field name={'target_value'} label={'Who do you want to subscribe'}>
                         {({ value, onChange }) => (
