@@ -61,7 +61,7 @@ export default defineConfig({
                 compareToReferenceImage({ source, reference, diffThreshold = 0.01, ms = 10000 }) {
                     return checkFileDownloaded(source, ms).then((fileExists) => {
                         if (!fileExists) {
-                            return undefined
+                            return null
                         }
 
                         const imgSrc = PNG.sync.read(fs.readFileSync(`${downloadDirectory}/${source}`))
