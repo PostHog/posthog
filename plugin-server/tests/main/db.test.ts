@@ -204,7 +204,7 @@ describe('DB', () => {
             })
 
             async function fetchPersonsRows(options: { final?: boolean } = {}) {
-                const query = `SELECT * FROM person ${options.final ? 'FINAL' : ''}`
+                const query = `SELECT * FROM person WHERE id = ${uuid} ${options.final ? 'FINAL' : ''}`
                 return (await db.clickhouseQuery(query)).data
             }
 
