@@ -3,9 +3,9 @@ from datetime import datetime
 from typing import Dict, List, Optional, Tuple, Union
 from unittest.mock import patch
 
-from django.core.exceptions import ValidationError
 from django.utils import timezone
 from freezegun import freeze_time
+from rest_framework.exceptions import ValidationError
 
 from ee.clickhouse.test.test_journeys import journeys_for
 from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
