@@ -2011,13 +2011,13 @@ def trend_test_factory(trends):
                 people = self._get_trend_people(Filter(data=data), entity)
 
                 # TODO: improve ee/postgres handling
-                value_1_ids = sorted(person["id"] for person in people)
+                value_1_ids = sorted(str(person["id"]) for person in people)
                 self.assertTrue(value_1_ids == sorted([str(person1.uuid), str(person2.uuid), str(person3.uuid)]))
 
                 data.update({"breakdown_value": "value_2"})
                 people = self._get_trend_people(Filter(data=data), entity)
 
-                value_2_ids = [person["id"] for person in people]
+                value_2_ids = [str(person["id"]) for person in people]
                 self.assertTrue(value_2_ids == [str(person2.uuid)])
 
         @test_with_materialized_columns(person_properties=["name"])
