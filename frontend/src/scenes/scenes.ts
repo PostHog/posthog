@@ -212,6 +212,9 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
         plain: true,
         allowUnauthenticated: true,
     },
+    [Scene.Unsubscribe]: {
+        allowUnauthenticated: true,
+    },
 }
 
 export const redirects: Record<string, string | ((params: Params) => string)> = {
@@ -292,4 +295,5 @@ export const routes: Record<string, Scene> = {
     [urls.passwordResetComplete(':uuid', ':token')]: Scene.PasswordResetComplete,
     [urls.ingestion()]: Scene.Ingestion,
     [urls.ingestion() + '/*']: Scene.Ingestion,
+    [urls.unsubscribe()]: Scene.Unsubscribe,
 }

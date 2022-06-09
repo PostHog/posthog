@@ -14,7 +14,6 @@ import { emptySceneParams, preloadedScenes, redirects, routes, sceneConfiguratio
 import { organizationLogic } from './organizationLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { UPGRADE_LINK } from 'lib/constants'
-import { preventUnload } from 'lib/hooks/useUnloadConfirmation'
 
 /** Mapping of some scenes that aren't directly accessible from the sidebar to ones that are - for the sidebar. */
 const sceneNavAlias: Partial<Record<Scene, Scene>> = {
@@ -185,7 +184,7 @@ export const sceneLogic = kea<sceneLogicType>({
 
         return mapping
     },
-    listeners: ({ values, actions, props, selectors, cache }) => ({
+    listeners: ({ values, actions, props, selectors }) => ({
         showUpgradeModal: ({ featureName }) => {
             eventUsageLogic.actions.reportUpgradeModalShown(featureName)
         },

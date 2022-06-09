@@ -20,6 +20,7 @@ from posthog.api import (
     projects_router,
     router,
     signup,
+    subscription,
     user,
 )
 from posthog.api.decide import hostname_in_app_urls
@@ -105,6 +106,7 @@ urlpatterns = [
     # ee
     *ee_urlpatterns,
     # api
+    path("api/unsubscribe", subscription.unsubscribe),
     path("api/", include(router.urls)),
     opt_slash_path("api/user/redirect_to_site", user.redirect_to_site),
     opt_slash_path("api/user/test_slack_webhook", user.test_slack_webhook),
@@ -161,6 +163,7 @@ frontend_unauthenticated_routes = [
     "organization/billing/subscribed",
     "organization/confirm-creation",
     "login",
+    "unsubscribe",
 ]
 for route in frontend_unauthenticated_routes:
     urlpatterns.append(re_path(route, home))

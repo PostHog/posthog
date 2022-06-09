@@ -1,8 +1,12 @@
+from datetime import datetime, timedelta
 from dateutil.rrule import FREQNAMES, rrule
 from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
 from django.utils import timezone
+import jwt
+
+UNSUBSCRIBE_TOKEN_EXP_DAYS = 30
 
 
 class Subscription(models.Model):
@@ -86,3 +90,31 @@ class Subscription(models.Model):
     @property
     def url(self):
         return f"{settings.SITE_URL}/insights/{self.insight.short_id}/subscriptions/{self.id}"
+
+
+def get_unsubscribe_token(subscription: Subscription, email: str) -> str:
+    encoded_jwt = jwt.encode(
+        {
+            "id": subscription.id,
+            "email": email,
+            "exp": datetime.now(tz=timezone.utc) + timedelta(days=UNSUBSCRIBE_TOKEN_EXP_DAYS),
+        },
+        settings.SECRET_KEY,
+        algorithm="HS256",
+    )
+
+    return encoded_jwt
+
+
+def unsubscribe_using_token(token: str) -> Subscription:
+    info = jwt.decode(token, settings.SECRET_KEY, algorithms=["HS256"])
+    subscription = Subscription.objects.get(pk=info["id"])
+
+    emails = subscription.target_value.split(",")
+
+    if info["email"] in emails:
+        emails = [email for email in emails if email != info["email"]]
+        subscription.target_value = ",".join(emails)
+        subscription.save()
+
+    return subscription

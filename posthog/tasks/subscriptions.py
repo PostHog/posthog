@@ -8,15 +8,14 @@ from posthog import settings
 from posthog.celery import app
 from posthog.email import EmailMessage
 from posthog.models.exported_asset import ExportedAsset
-from posthog.models.subscription import Subscription
+from posthog.models.subscription import Subscription, get_unsubscribe_token
 from posthog.tasks.exporter import export_task
 
 logger = structlog.get_logger(__name__)
 
 
 def get_unsubscribe_url(subscription: Subscription, email: str):
-    # TODO: Do some funky JWT encoding here
-    return f"{settings.SITE_URL}/unsubscribe?email={email}&subscription={subscription.id}"
+    return f"{settings.SITE_URL}/unsubscribe?token={get_unsubscribe_token(subscription, email)}"
 
 
 def send_email_subscription_report(email: str, subscription: Subscription, exported_asset: ExportedAsset) -> None:

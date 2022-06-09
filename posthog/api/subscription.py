@@ -1,6 +1,8 @@
 from typing import Any, Dict
 
 from django.db.models import QuerySet
+from django.http import HttpRequest, JsonResponse
+import jwt
 from rest_framework import serializers, viewsets
 from rest_framework.authentication import BasicAuthentication, SessionAuthentication
 from rest_framework.exceptions import ValidationError
@@ -10,7 +12,7 @@ from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.auth import PersonalAPIKeyAuthentication
-from posthog.models.subscription import Subscription
+from posthog.models.subscription import Subscription, unsubscribe_using_token
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.tasks.subscriptions import deliver_new_subscription
 from posthog.utils import str_to_bool
@@ -102,3 +104,16 @@ class SubscriptionViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.M
                 queryset = queryset.filter(deleted=str_to_bool(filters["deleted"]))
 
         return queryset
+
+
+def unsubscribe(request: HttpRequest):
+    token = request.GET.get("token")
+    if not token:
+        return JsonResponse({"success": False})
+
+    try:
+        unsubscribe_using_token(token)
+    except jwt.DecodeError:
+        return JsonResponse({"success": False})
+
+    return JsonResponse({"success": True})

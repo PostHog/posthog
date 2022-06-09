@@ -221,7 +221,9 @@ ptyprocess==0.6.0
 pycparser==2.20
     # via cffi
 pyjwt==2.1.0
-    # via social-auth-core
+    # via
+    #   -r requirements.in
+    #   social-auth-core
 pyopenssl==22.0.0
     # via urllib3
 pyparsing==3.0.7
