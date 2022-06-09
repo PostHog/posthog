@@ -4,8 +4,6 @@ from typing import Callable, Dict, List, Tuple
 from django.db.models.query import Prefetch
 from rest_framework.request import Request
 
-from ee.clickhouse.queries.trends.util import parse_response
-from ee.clickhouse.sql.trends.lifecycle import LIFECYCLE_PEOPLE_SQL, LIFECYCLE_SQL
 from posthog.client import sync_execute
 from posthog.models.entity import Entity
 from posthog.models.entity.util import get_entity_filtering_params
@@ -15,6 +13,8 @@ from posthog.models.person.util import get_persons_by_uuids
 from posthog.models.team import Team
 from posthog.queries.event_query import EventQuery
 from posthog.queries.person_query import PersonQuery
+from posthog.queries.trends.sql import LIFECYCLE_PEOPLE_SQL, LIFECYCLE_SQL
+from posthog.queries.trends.util import parse_response
 from posthog.queries.util import parse_timestamps
 
 # Lifecycle takes an event/action, time range, interval and for every period, splits the users who did the action into 4:
@@ -28,7 +28,7 @@ from posthog.queries.util import parse_timestamps
 # during that period and their creation dates.
 
 
-class ClickhouseLifecycle:
+class Lifecycle:
     def _format_lifecycle_query(self, entity: Entity, filter: Filter, team: Team) -> Tuple[str, Dict, Callable]:
         event_query, event_params = LifecycleEventQuery(team=team, filter=filter).get_query()
 

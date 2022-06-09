@@ -32,7 +32,6 @@ from ee.clickhouse.queries.paths import ClickhousePathsActors
 from ee.clickhouse.queries.property_values import get_person_property_values_for_key
 from ee.clickhouse.queries.retention import ClickhouseRetention
 from ee.clickhouse.queries.stickiness import ClickhouseStickiness
-from ee.clickhouse.queries.trends.lifecycle import ClickhouseLifecycle
 from ee.clickhouse.sql.person import GET_PERSON_PROPERTIES_COUNT
 from posthog.api.capture import capture_internal
 from posthog.api.routing import StructuredViewSetMixin
@@ -68,6 +67,7 @@ from posthog.queries.funnels import ClickhouseFunnelActors, ClickhouseFunnelTren
 from posthog.queries.funnels.base import ClickhouseFunnelBase
 from posthog.queries.funnels.funnel_strict_persons import ClickhouseFunnelStrictActors
 from posthog.queries.funnels.funnel_unordered_persons import ClickhouseFunnelUnorderedActors
+from posthog.queries.trends.lifecycle import Lifecycle
 from posthog.queries.util import get_earliest_timestamp
 from posthog.tasks.split_person import split_person
 from posthog.utils import convert_property_value, format_query_params_absolute_url, is_anonymous_id, relative_date_parse
@@ -193,7 +193,7 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     pagination_class = PersonCursorPagination
     filterset_class = PersonFilter
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
-    lifecycle_class = ClickhouseLifecycle
+    lifecycle_class = Lifecycle
     retention_class = ClickhouseRetention
     stickiness_class = ClickhouseStickiness
 
