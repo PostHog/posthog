@@ -6,12 +6,12 @@ from freezegun import freeze_time
 
 from ee.clickhouse.models.event import bulk_create_events
 from ee.clickhouse.models.session_recording_event import create_session_recording_event
-from ee.clickhouse.queries.funnels.funnel_persons import ClickhouseFunnelActors
 from ee.clickhouse.test.test_journeys import journeys_for
 from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
 from posthog.constants import INSIGHT_FUNNELS
 from posthog.models import Cohort, Filter
 from posthog.models.person.util import bulk_create_persons
+from posthog.queries.funnels.funnel_persons import ClickhouseFunnelActors
 from posthog.test.base import APIBaseTest, _create_event, _create_person, test_with_materialized_columns
 
 FORMAT_TIME = "%Y-%m-%d 00:00:00"

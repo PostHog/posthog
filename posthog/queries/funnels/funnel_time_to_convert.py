@@ -1,10 +1,10 @@
 from rest_framework.exceptions import ValidationError
 
-from ee.clickhouse.queries.funnels.base import ClickhouseFunnelBase
-from ee.clickhouse.queries.funnels.utils import get_funnel_order_class
 from posthog.constants import FUNNEL_TO_STEP
 from posthog.models.filters.filter import Filter
 from posthog.models.team import Team
+from posthog.queries.funnels.base import ClickhouseFunnelBase
+from posthog.queries.funnels.utils import get_funnel_order_class
 
 
 class ClickhouseFunnelTimeToConvert(ClickhouseFunnelBase):

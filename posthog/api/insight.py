@@ -18,8 +18,6 @@ from rest_framework.settings import api_settings
 from rest_framework_csv import renderers as csvrenderers
 from sentry_sdk import capture_exception
 
-from ee.clickhouse.queries.funnels import ClickhouseFunnelTimeToConvert, ClickhouseFunnelTrends
-from ee.clickhouse.queries.funnels.utils import get_funnel_order_class
 from ee.clickhouse.queries.trends.clickhouse_trends import ClickhouseTrends
 from posthog.api.documentation import extend_schema
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
@@ -62,6 +60,8 @@ from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.insight import InsightViewed, generate_insight_cache_key
 from posthog.models.utils import UUIDT
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
+from posthog.queries.funnels import ClickhouseFunnelTimeToConvert, ClickhouseFunnelTrends
+from posthog.queries.funnels.utils import get_funnel_order_class
 from posthog.queries.paths.paths import Paths
 from posthog.queries.retention import Retention
 from posthog.queries.stickiness import Stickiness

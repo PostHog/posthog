@@ -4,13 +4,13 @@ from unittest.mock import patch
 import pytz
 from freezegun.api import freeze_time
 
-from ee.clickhouse.queries.funnels.funnel_trends import ClickhouseFunnelTrends
-from ee.clickhouse.queries.funnels.funnel_trends_persons import ClickhouseFunnelTrendsActors
 from ee.clickhouse.test.test_journeys import journeys_for
 from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
 from posthog.constants import INSIGHT_FUNNELS, TRENDS_LINEAR, FunnelOrderType
 from posthog.models.cohort import Cohort
 from posthog.models.filters import Filter
+from posthog.queries.funnels.funnel_trends import ClickhouseFunnelTrends
+from posthog.queries.funnels.funnel_trends_persons import ClickhouseFunnelTrendsActors
 from posthog.test.base import APIBaseTest, _create_person
 
 FORMAT_TIME = "%Y-%m-%d %H:%M:%S"

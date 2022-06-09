@@ -6,12 +6,12 @@ from typing import Dict, List, Literal, Optional, Tuple, Union, cast
 from rest_framework.exceptions import ValidationError
 
 from ee.clickhouse.materialized_columns.columns import ColumnName
-from ee.clickhouse.queries.funnels.funnel_persons import ClickhouseFunnelActors
 from posthog.client import sync_execute
 from posthog.constants import FUNNEL_PATH_BETWEEN_STEPS, LIMIT, PATH_EDGE_LIMIT
 from posthog.models import Filter, Team
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.property import PropertyName
+from posthog.queries.funnels.funnel_persons import ClickhouseFunnelActors
 from posthog.queries.paths.paths_event_query import PathEventQuery
 from posthog.queries.paths.sql import PATH_ARRAY_QUERY
 

@@ -2,7 +2,7 @@ import urllib.parse
 from typing import List, cast
 
 from ee.clickhouse.queries.breakdown_props import get_breakdown_cohort_name
-from ee.clickhouse.queries.funnels.base import ClickhouseFunnelBase
+from posthog.queries.funnels.base import ClickhouseFunnelBase
 
 
 class ClickhouseFunnel(ClickhouseFunnelBase):
