@@ -484,6 +484,7 @@ export class EventsProcessor {
                     'updateCohortPeople',
                     client
                 )
+                // TODO: What if new person violates unique constraint?
                 await this.db.postgresQuery(
                     'UPDATE posthog_featureflaghashkeyoverride SET person_id = $1 WHERE person_id = $2',
                     [mergeInto.id, otherPerson.id],

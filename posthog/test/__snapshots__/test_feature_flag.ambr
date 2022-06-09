@@ -1,3 +1,117 @@
+# name: TestFeatureFlagHashKeyOverrides.test_entire_flow_with_hash_key_override
+  '
+  SELECT "posthog_featureflag"."id",
+         "posthog_featureflag"."key",
+         "posthog_featureflag"."filters",
+         "posthog_featureflag"."rollout_percentage",
+         "posthog_featureflag"."team_id",
+         "posthog_featureflag"."ensure_experience_continuity"
+  FROM "posthog_featureflag"
+  WHERE ("posthog_featureflag"."active"
+         AND NOT "posthog_featureflag"."deleted"
+         AND "posthog_featureflag"."team_id" = 2)
+  '
+---
+# name: TestFeatureFlagHashKeyOverrides.test_entire_flow_with_hash_key_override.1
+  '
+  SELECT "posthog_persondistinctid"."person_id"
+  FROM "posthog_persondistinctid"
+  WHERE ("posthog_persondistinctid"."distinct_id" = 'other_id'
+         AND "posthog_persondistinctid"."team_id" = 2)
+  LIMIT 1
+  '
+---
+# name: TestFeatureFlagHashKeyOverrides.test_entire_flow_with_hash_key_override.2
+  '
+  SELECT "posthog_persondistinctid"."person_id"
+  FROM "posthog_persondistinctid"
+  WHERE ("posthog_persondistinctid"."distinct_id" = 'example_id'
+         AND "posthog_persondistinctid"."team_id" = 2)
+  LIMIT 1
+  '
+---
+# name: TestFeatureFlagHashKeyOverrides.test_entire_flow_with_hash_key_override.3
+  '
+  SELECT "posthog_featureflaghashkeyoverride"."id",
+         "posthog_featureflaghashkeyoverride"."feature_flag_id",
+         "posthog_featureflag"."id",
+         "posthog_featureflag"."key"
+  FROM "posthog_featureflaghashkeyoverride"
+  INNER JOIN "posthog_featureflag" ON ("posthog_featureflaghashkeyoverride"."feature_flag_id" = "posthog_featureflag"."id")
+  WHERE ("posthog_featureflaghashkeyoverride"."person_id" = 2
+         AND "posthog_featureflaghashkeyoverride"."team_id" = 2)
+  '
+---
+# name: TestFeatureFlagHashKeyOverrides.test_entire_flow_with_hash_key_override.4
+  '
+  INSERT INTO "posthog_featureflaghashkeyoverride" ("feature_flag_id",
+                                                    "person_id",
+                                                    "team_id",
+                                                    "hash_key")
+  VALUES (1, 1, 1, 'example_id'),
+         (3, 1, 1, 'example_id') RETURNING "posthog_featureflaghashkeyoverride"."id"
+  '
+---
+# name: TestFeatureFlagHashKeyOverrides.test_entire_flow_with_hash_key_override.5
+  '
+  SELECT "posthog_featureflag"."key",
+         "posthog_featureflaghashkeyoverride"."hash_key"
+  FROM "posthog_featureflaghashkeyoverride"
+  INNER JOIN "posthog_featureflag" ON ("posthog_featureflaghashkeyoverride"."feature_flag_id" = "posthog_featureflag"."id")
+  WHERE ("posthog_featureflaghashkeyoverride"."person_id" = 2
+         AND "posthog_featureflaghashkeyoverride"."team_id" = 2)
+  '
+---
+# name: TestFeatureFlagHashKeyOverrides.test_entire_flow_with_hash_key_override.6
+  '
+  SELECT "posthog_featureflagoverride"."id",
+         "posthog_featureflagoverride"."feature_flag_id",
+         "posthog_featureflagoverride"."override_value",
+         "posthog_featureflag"."id",
+         "posthog_featureflag"."key"
+  FROM "posthog_featureflagoverride"
+  INNER JOIN "posthog_featureflag" ON ("posthog_featureflagoverride"."feature_flag_id" = "posthog_featureflag"."id")
+  WHERE ("posthog_featureflagoverride"."team_id" = 2
+         AND "posthog_featureflagoverride"."user_id" IN
+           (SELECT W0."id"
+            FROM "posthog_user" W0
+            WHERE W0."distinct_id" IN
+                (SELECT V0."distinct_id"
+                 FROM "posthog_persondistinctid" V0
+                 WHERE V0."person_id" IN
+                     (SELECT U0."person_id"
+                      FROM "posthog_persondistinctid" U0
+                      WHERE (U0."distinct_id" = 'other_id'
+                             AND U0."team_id" = 2)
+                      LIMIT 1))
+            LIMIT 1))
+  '
+---
+# name: TestFeatureFlagHashKeyOverrides.test_entire_flow_with_hash_key_override.7
+  '
+  SELECT "posthog_featureflagoverride"."id",
+         "posthog_featureflagoverride"."feature_flag_id",
+         "posthog_featureflagoverride"."override_value",
+         "posthog_featureflag"."id",
+         "posthog_featureflag"."key"
+  FROM "posthog_featureflagoverride"
+  INNER JOIN "posthog_featureflag" ON ("posthog_featureflagoverride"."feature_flag_id" = "posthog_featureflag"."id")
+  WHERE ("posthog_featureflagoverride"."team_id" = 2
+         AND "posthog_featureflagoverride"."user_id" IN
+           (SELECT W0."id"
+            FROM "posthog_user" W0
+            WHERE W0."distinct_id" IN
+                (SELECT V0."distinct_id"
+                 FROM "posthog_persondistinctid" V0
+                 WHERE V0."person_id" IN
+                     (SELECT U0."person_id"
+                      FROM "posthog_persondistinctid" U0
+                      WHERE (U0."distinct_id" = 'other_id'
+                             AND U0."team_id" = 2)
+                      LIMIT 1))
+            LIMIT 1))
+  '
+---
 # name: TestFeatureFlagsWithOverrides.test_group_flags_with_overrides
   '
   SELECT "posthog_featureflag"."id",

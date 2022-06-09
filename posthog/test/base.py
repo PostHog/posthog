@@ -280,28 +280,31 @@ class QueryMatchingTest:
             assert params == self.snapshot, "\n".join(self.snapshot.get_assert_diff())
 
 
-def snapshot_postgres_queries(fn):
-    """
-    Captures and snapshots select queries from test using `syrupy` library.
+def snapshot_postgres_queries(search_clauses=["SELECT"]):
+    def snapshot_postgres_queries(fn):
+        """
+        Captures and snapshots select queries from test using `syrupy` library.
 
-    Requires queries to be stable to avoid flakiness.
+        Requires queries to be stable to avoid flakiness.
 
-    Snapshots are automatically saved in a __snapshot__/*.ambr file.
-    Update snapshots via --snapshot-update.
-    """
-    from django.db import connections
+        Snapshots are automatically saved in a __snapshot__/*.ambr file.
+        Update snapshots via --snapshot-update.
+        """
+        from django.db import connections
 
-    @wraps(fn)
-    def wrapped(self, *args, **kwargs):
-        with CaptureQueriesContext(connections["default"]) as context:
-            fn(self, *args, **kwargs)
+        @wraps(fn)
+        def wrapped(self, *args, **kwargs):
+            with CaptureQueriesContext(connections["default"]) as context:
+                fn(self, *args, **kwargs)
 
-        for query_with_time in context.captured_queries:
-            query = query_with_time["sql"]
-            if "SELECT" in query and "django_session" not in query:
-                self.assertQueryMatchesSnapshot(query, replace_all_numbers=True)
+            for query_with_time in context.captured_queries:
+                query = query_with_time["sql"]
+                if any(clause in query for clause in search_clauses) and "django_session" not in query:
+                    self.assertQueryMatchesSnapshot(query, replace_all_numbers=True)
 
-    return wrapped
+        return wrapped
+
+    return snapshot_postgres_queries
 
 
 class BaseTestMigrations(QueryMatchingTest):

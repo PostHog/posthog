@@ -152,8 +152,7 @@ class FeatureFlagHashKeyOverride(models.Model):
     class Meta:
         constraints = [
             models.UniqueConstraint(
-                fields=["team", "person", "feature_flag", "hash_key"],
-                name="Unique hash_key for a user/team/feature flag combo",
+                fields=["team", "person", "feature_flag"], name="Unique hash_key for a user/team/feature_flag combo",
             ),
         ]
 
@@ -319,7 +318,7 @@ class FeatureFlagMatcher:
         return self.get_hash(salt="variant")
 
 
-def hash_key_overrides(team_id: int, person_id: str) -> Dict[str, str]:
+def hash_key_overrides(team_id: int, person_id: int) -> Dict[str, str]:
     feature_flag_to_key_overrides = {}
     for feature_flag, override in FeatureFlagHashKeyOverride.objects.filter(
         person_id=person_id, team=team_id
@@ -334,16 +333,13 @@ def get_active_feature_flags(
     feature_flags: QuerySet,
     team_id: int,
     distinct_id: str,
-    person_id: Optional[str] = None,
+    person_id: Optional[int] = None,
     groups: Dict[GroupTypeName, str] = {},
 ) -> Dict[str, Union[bool, str, None]]:
     cache = FlagsMatcherCache(team_id)
     flags_enabled: Dict[str, Union[bool, str, None]] = {}
 
-    flags_have_experience_continuity_enabled = any(
-        feature_flag.ensure_experience_continuity for feature_flag in feature_flags
-    )
-    if flags_have_experience_continuity_enabled and person_id is not None:
+    if person_id is not None:
         overrides = hash_key_overrides(team_id, person_id)
     else:
         overrides = {}
@@ -375,9 +371,27 @@ def get_overridden_feature_flags(
 
     if flags_have_experience_continuity_enabled:
         try:
-            person_id = str(person[0][0])
+            person_id = person[0][0]
         except IndexError:
             person_id = None
+
+        if person_id is None and hash_key_override is not None:
+            # :TRICKY: Some ingestion delays may mean that `$identify` hasn't yet created
+            # the new person on which decide was called.
+            # In this case, we can try finding the person_id for the old distinct id.
+            # This is safe, since once `$identify` is processed, it would only add the distinct_id to this
+            # existing person. If, because of race conditions, a person merge is called for later,
+            # then https://github.com/PostHog/posthog/blob/master/plugin-server/src/worker/ingestion/process-event.ts#L480
+            # will take care of it^.
+            try:
+                person_id = PersonDistinctId.objects.filter(distinct_id=hash_key_override, team_id=team_id).values_list(
+                    "person_id"
+                )[:1][0][0]
+            except IndexError:
+                # If even this old person doesn't exist yet, we're facing severe ingestion delays
+                # and there's not much we can do, since all person properties based feature flags
+                # would fail server side anyway.
+                person_id = None
 
         if hash_key_override is not None and person_id is not None:
             set_feature_flag_hash_key_overrides(all_feature_flags, team_id, person_id, hash_key_override)
@@ -410,11 +424,12 @@ def get_overridden_feature_flags(
 
 
 def set_feature_flag_hash_key_overrides(
-    feature_flags: QuerySet, team_id: int, person_id: str, hash_key_override: str
+    feature_flags: QuerySet, team_id: int, person_id: int, hash_key_override: str
 ) -> None:
 
     existing_flag_overrides = set(
-        FeatureFlagHashKeyOverride.objects.filter(team_id=team_id, person_id=person_id)
+        val.feature_flag.key
+        for val in FeatureFlagHashKeyOverride.objects.filter(team_id=team_id, person_id=person_id)
         .select_related("feature_flag")
         .only("feature_flag__key")
     )
@@ -427,4 +442,5 @@ def set_feature_flag_hash_key_overrides(
                 )
             )
 
-    FeatureFlagHashKeyOverride.objects.bulk_create(new_overrides)
+    if new_overrides:
+        FeatureFlagHashKeyOverride.objects.bulk_create(new_overrides)
