@@ -1,13 +1,13 @@
 # This file contains all CREATE TABLE queries, used to sync and test schema
 import re
 
-from ee.clickhouse.sql.cohort import *
-from ee.clickhouse.sql.dead_letter_queue import *
-from ee.clickhouse.sql.events import *
 from ee.clickhouse.sql.groups import *
-from ee.clickhouse.sql.person import *
-from ee.clickhouse.sql.plugin_log_entries import *
-from ee.clickhouse.sql.session_recording_events import *
+from posthog.clickhouse.dead_letter_queue import *
+from posthog.clickhouse.plugin_log_entries import *
+from posthog.models.cohort.sql import *
+from posthog.models.event.sql import *
+from posthog.models.person.sql import *
+from posthog.models.session_recording_event.sql import *
 
 CREATE_TABLE_QUERIES = [
     CREATE_COHORTPEOPLE_TABLE_SQL,

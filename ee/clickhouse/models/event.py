@@ -7,12 +7,12 @@ from dateutil.parser import isoparse
 from django.utils import timezone
 from rest_framework import serializers
 
-from ee.clickhouse.sql.events import BULK_INSERT_EVENT_SQL, GET_EVENTS_BY_TEAM_SQL, INSERT_EVENT_SQL
 from ee.kafka_client.client import ClickhouseProducer
 from ee.kafka_client.topics import KAFKA_EVENTS_JSON
 from posthog.client import query_with_columns, sync_execute
 from posthog.models import Group
-from posthog.models.element import Element, chain_to_elements, elements_to_string
+from posthog.models.element.element import Element, chain_to_elements, elements_to_string
+from posthog.models.event.sql import BULK_INSERT_EVENT_SQL, GET_EVENTS_BY_TEAM_SQL, INSERT_EVENT_SQL
 from posthog.models.person import Person
 from posthog.models.team import Team
 from posthog.settings import TEST

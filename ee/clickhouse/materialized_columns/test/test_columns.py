@@ -9,11 +9,11 @@ from ee.clickhouse.materialized_columns.columns import (
     get_materialized_columns,
     materialize,
 )
-from ee.clickhouse.sql.events import EVENTS_DATA_TABLE
 from ee.tasks.materialized_columns import mark_all_materialized
 from posthog.client import sync_execute
 from posthog.conftest import create_clickhouse_tables
 from posthog.constants import GROUP_TYPES_LIMIT
+from posthog.models.event.sql import EVENTS_DATA_TABLE
 from posthog.settings import CLICKHOUSE_DATABASE
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event
 

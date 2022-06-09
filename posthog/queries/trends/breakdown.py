@@ -13,7 +13,6 @@ from ee.clickhouse.queries.breakdown_props import (
 )
 from ee.clickhouse.queries.column_optimizer import EnterpriseColumnOptimizer
 from ee.clickhouse.queries.groups_join_query import GroupsJoinQuery
-from ee.clickhouse.sql.events import EVENT_JOIN_PERSON_SQL
 from posthog.constants import (
     MONTHLY_ACTIVE,
     NON_TIME_SERIES_DISPLAY_TYPES,
@@ -24,6 +23,7 @@ from posthog.constants import (
 )
 from posthog.models.action.util import format_action_filter
 from posthog.models.entity import Entity
+from posthog.models.event.sql import EVENT_JOIN_PERSON_SQL
 from posthog.models.filters import Filter
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.property import PropertyGroup

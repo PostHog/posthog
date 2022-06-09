@@ -10,7 +10,11 @@ from django.dispatch import receiver
 from django.utils.timezone import now
 from rest_framework import serializers
 
-from ee.clickhouse.sql.person import (
+from ee.kafka_client.client import ClickhouseProducer
+from ee.kafka_client.topics import KAFKA_PERSON, KAFKA_PERSON_DISTINCT_ID, KAFKA_PERSON_UNIQUE_ID
+from posthog.client import sync_execute
+from posthog.models.person import Person, PersonDistinctId
+from posthog.models.person.sql import (
     BULK_INSERT_PERSON_DISTINCT_ID2,
     DELETE_PERSON_BY_ID,
     DELETE_PERSON_EVENTS_BY_ID,
@@ -19,10 +23,6 @@ from ee.clickhouse.sql.person import (
     INSERT_PERSON_DISTINCT_ID2,
     INSERT_PERSON_SQL,
 )
-from ee.kafka_client.client import ClickhouseProducer
-from ee.kafka_client.topics import KAFKA_PERSON, KAFKA_PERSON_DISTINCT_ID, KAFKA_PERSON_UNIQUE_ID
-from posthog.client import sync_execute
-from posthog.models.person import Person, PersonDistinctId
 from posthog.models.team import Team
 from posthog.models.utils import UUIDT
 from posthog.queries.person_distinct_id_query import fetch_person_distinct_id2_ready
