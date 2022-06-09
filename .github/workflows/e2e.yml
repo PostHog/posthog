@@ -122,6 +122,7 @@ jobs:
               env:
                   GENERATE_SOURCEMAP: 'false'
               run: |
+                  yarn typegen:write
                   yarn build
                   cd plugin-server
                   yarn build
