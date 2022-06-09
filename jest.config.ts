@@ -84,8 +84,8 @@ export default {
     moduleNameMapper: {
         '^.+\\.(css|less|scss|svg|png|lottie)$': '<rootDir>/test/mocks/styleMock.js',
         '^~/(.*)$': '<rootDir>/$1',
-        '^@posthog/lemonade(|/.*)$': '<rootDir>/../@posthog/lemonade/$1',
-        '^@posthog/apps-common(|/.*)$': '<rootDir>/../@posthog/apps-common/$1',
+        '^@posthog/lemonade(|/.*)$': '<rootDir>/../@posthog/lemonade/src/$1',
+        '^@posthog/apps-common(|/.*)$': '<rootDir>/../@posthog/apps-common/src/$1',
         '^lib/(.*)$': '<rootDir>/lib/$1',
         '^scenes/(.*)$': '<rootDir>/scenes/$1',
         '^antd/es/(.*)$': 'antd/lib/$1',
