@@ -878,8 +878,13 @@ export class DB {
         return client ? kafkaMessages : updatedPerson
     }
 
-    public async deletePerson(person: Person, client: PoolClient): Promise<ProducerRecord[]> {
-        await client.query('DELETE FROM posthog_person WHERE team_id = $1 AND id = $2', [person.team_id, person.id])
+    public async deletePerson(person: Person, client?: PoolClient): Promise<ProducerRecord[]> {
+        await this.postgresQuery(
+            'DELETE FROM posthog_person WHERE team_id = $1 AND id = $2',
+            [person.team_id, person.id],
+            'deletePerson',
+            client
+        )
         const kafkaMessages = [
             generateKafkaPersonUpdateMessage(
                 person.created_at,
