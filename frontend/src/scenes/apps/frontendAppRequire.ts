@@ -6,7 +6,7 @@ import * as allKeaForms from 'kea-forms'
 import * as allKeaWindowValues from 'kea-window-values'
 import * as allKeaSubscriptions from 'kea-subscriptions'
 import * as appsCommon from '@posthog/apps-common'
-import * as lemonade from '@posthog/lemonade'
+import * as lemonade from '@posthog/lemon-ui'
 
 const packages = {
     react: React,
