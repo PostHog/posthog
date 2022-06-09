@@ -54,7 +54,7 @@ function createEntry(entry) {
                 lib: path.resolve(__dirname, 'frontend', 'src', 'lib'),
                 scenes: path.resolve(__dirname, 'frontend', 'src', 'scenes'),
                 '@posthog/apps-common': path.resolve(__dirname, 'frontend', '@posthog', 'apps-common', 'src'),
-                '@posthog/lemonade': path.resolve(__dirname, 'frontend', '@posthog', 'lemonade', 'src'),
+                '@posthog/lemon-ui': path.resolve(__dirname, 'frontend', '@posthog', 'lemon-ui', 'src'),
                 storybook: path.resolve(__dirname, '.storybook'),
                 types: path.resolve(__dirname, 'frontend', 'types'),
                 public: path.resolve(__dirname, 'frontend', 'public'),
