@@ -115,7 +115,7 @@
         "prettier": "^2.3.1",
         "rimraf": "^3.0.2",
         "ts-node": "^10.0.0",
-        "ts-node-dev": "^1.1.6",
+        "ts-node-dev": "^2.0.0",
         "typescript": "^4.4.0"
     }
 }

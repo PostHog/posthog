@@ -254,6 +254,25 @@ def factory_test_session_recordings_api(session_recording_event_factory):
                 len(response_data["result"]["snapshot_data_by_window_id"][""]), DEFAULT_RECORDING_CHUNK_LIMIT
             )
 
+        def test_get_snapshots_is_compressed(self):
+            base_time = now()
+            num_snapshots = 2  # small contents aren't compressed, needs to be enough data to trigger compression
+
+            for _ in range(num_snapshots):
+                self.create_snapshot("user", "1", base_time)
+
+            custom_headers = {"HTTP_ACCEPT_ENCODING": "gzip"}
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/session_recordings/1/snapshots",
+                data=None,
+                follow=False,
+                secure=False,
+                **custom_headers,
+            )
+
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertEqual(response.headers.get("Content-Encoding", None), "gzip")
+
         def test_get_snapshots_for_chunked_session_recording(self):
             chunked_session_id = "chunk_id"
             expected_num_requests = 3

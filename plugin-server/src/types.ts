@@ -148,6 +148,7 @@ export interface PluginsServerConfig extends Record<string, any> {
     OBJECT_STORAGE_SESSION_RECORDING_FOLDER: string
     OBJECT_STORAGE_BUCKET: string
     PLUGIN_SERVER_MODE: 'ingestion' | 'async' | null
+    INGESTION_BATCH_BREAKUP_BY_DISTINCT_ID_TEAMS: string
     KAFKAJS_LOG_LEVEL: 'NOTHING' | 'DEBUG' | 'INFO' | 'WARN' | 'ERROR'
 }
 
@@ -193,6 +194,7 @@ export interface Hub extends PluginsServerConfig {
     lastActivityType: string
     statelessVms: StatelessVmMap
     conversionBufferEnabledTeams: Set<number>
+    ingestionBatchBreakupByDistinctIdTeams: Set<number>
 }
 
 export interface PluginServerCapabilities {

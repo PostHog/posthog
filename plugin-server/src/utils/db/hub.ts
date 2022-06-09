@@ -66,11 +66,12 @@ export async function createHub(
     const instanceId = new UUIDT()
 
     let statsd: StatsD | undefined
-    let eventLoopLagInterval: NodeJS.Timeout | undefined
-    let eventLoopLagSetTimeoutInterval: NodeJS.Timeout | undefined
 
     const conversionBufferEnabledTeams = new Set(
         serverConfig.CONVERSION_BUFFER_ENABLED_TEAMS.split(',').filter(String).map(Number)
+    )
+    const ingestionBatchBreakupByDistinctIdTeams = new Set(
+        serverConfig.INGESTION_BATCH_BREAKUP_BY_DISTINCT_ID_TEAMS.split(',').filter(String).map(Number)
     )
 
     if (serverConfig.STATSD_HOST) {
@@ -87,24 +88,6 @@ export async function createHub(
                 })
             },
         })
-        eventLoopLagInterval = setInterval(() => {
-            const time = new Date()
-            setImmediate(() => {
-                statsd?.timing('event_loop_lag', time, {
-                    instanceId: instanceId.toString(),
-                    threadId: String(threadId),
-                })
-            })
-        }, 2000)
-        eventLoopLagSetTimeoutInterval = setInterval(() => {
-            const time = new Date()
-            setTimeout(() => {
-                statsd?.timing('event_loop_lag_set_timeout', time, {
-                    instanceId: instanceId.toString(),
-                    threadId: String(threadId),
-                })
-            }, 0)
-        }, 2000)
         // don't repeat the same info in each thread
         if (threadId === null) {
             status.info(
@@ -263,6 +246,7 @@ export async function createHub(
         actionManager,
         actionMatcher: new ActionMatcher(db, actionManager, statsd),
         conversionBufferEnabledTeams,
+        ingestionBatchBreakupByDistinctIdTeams,
     }
 
     // :TODO: This is only used on worker threads, not main
@@ -285,14 +269,6 @@ export async function createHub(
     }
 
     const closeHub = async () => {
-        if (eventLoopLagInterval) {
-            clearInterval(eventLoopLagInterval)
-        }
-
-        if (eventLoopLagSetTimeoutInterval) {
-            clearInterval(eventLoopLagSetTimeoutInterval)
-        }
-
         hub.mmdbUpdateJob?.cancel()
         await hub.jobQueueManager?.disconnectProducer()
         await kafkaProducer.disconnect()
