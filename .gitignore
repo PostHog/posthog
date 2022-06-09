@@ -16,8 +16,6 @@ node_modules
 frontend/.cache/
 .mypy_cache
 frontend/dist/
-frontend/types/
-*Type.ts
 frontend/yarn-error.log
 frontend/tmp
 .idea
