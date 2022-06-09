@@ -77,14 +77,13 @@ def send_fatal_plugin_error(
         template_context={"plugin": plugin, "team": team, "error": error, "is_system_error": is_system_error},
     )
     # Don't send this email to the new member themselves
-    memberships_to_email = list(
-        filter(
-            team.get_effective_membership_level_for_parent_membership,
-            OrganizationMembership.objects.select_related("user", "organization").filter(
-                organization_id=team.organization_id
-            ),
+    memberships_to_email = [
+        membership
+        for membership in OrganizationMembership.objects.select_related("user", "organization").filter(
+            organization_id=team.organization_id
         )
-    )
+        if team.get_effective_membership_level_for_parent_membership(membership) is not None
+    ]
     if memberships_to_email:
         for membership in memberships_to_email:
             message.add_recipient(email=membership.user.email, name=membership.user.first_name)

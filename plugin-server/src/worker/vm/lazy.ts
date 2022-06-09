@@ -201,18 +201,18 @@ export class LazyPluginVM {
             void clearError(this.hub, this.pluginConfig)
         } catch (error) {
             this.clearRetryTimeoutIfExists()
+            if (error instanceof RetryError) {
+                error._attempt = this.totalInitAttemptsCounter
+                error._maxAttempts = VM_INIT_MAX_RETRIES
+            }
             if (error instanceof RetryError && this.totalInitAttemptsCounter < VM_INIT_MAX_RETRIES) {
                 const nextRetryMs =
                     INITIALIZATION_RETRY_MULTIPLIER ** (this.totalInitAttemptsCounter - 1) *
                     INITIALIZATION_RETRY_BASE_MS
                 const nextRetrySeconds = `${nextRetryMs / 1000} s`
-                const errorName = `RetryError (attempt ${this.totalInitAttemptsCounter}/${VM_INIT_MAX_RETRIES})`
-                status.warn(
-                    '⚠️',
-                    `setupPlugin failed with ${errorName} for ${logInfo}. Retrying in ${nextRetrySeconds}...`
-                )
+                status.warn('⚠️', `setupPlugin failed with ${error} for ${logInfo}. Retrying in ${nextRetrySeconds}...`)
                 await this.createLogEntry(
-                    `setupPlugin failed with ${errorName} (instance ID ${this.hub.instanceId}). Retrying in ${nextRetrySeconds}...`,
+                    `setupPlugin failed with ${error} (instance ID ${this.hub.instanceId}). Retrying in ${nextRetrySeconds}...`,
                     PluginLogEntryType.Error
                 )
                 this.initRetryTimeout = setTimeout(async () => {
@@ -220,16 +220,12 @@ export class LazyPluginVM {
                 }, nextRetryMs)
             } else {
                 this.inErroredState = true
-                const errorInfo =
-                    error instanceof RetryError
-                        ? `RetryError (attempt ${VM_INIT_MAX_RETRIES}/${VM_INIT_MAX_RETRIES})`
-                        : error.toString()
-                await this.processFatalVmSetupError(error instanceof RetryError ? errorInfo : error, false)
+                await this.processFatalVmSetupError(error, false)
                 await this.createLogEntry(
-                    `setupPlugin failed with ${errorInfo} (instance ID ${this.hub.instanceId}). Disabled the app!`,
+                    `setupPlugin failed with ${error} (instance ID ${this.hub.instanceId}). Disabled the app!`,
                     PluginLogEntryType.Error
                 )
-                throw new SetupPluginError(`setupPlugin failed with ${errorInfo} for ${logInfo}. Disabled the app!`)
+                throw new SetupPluginError(`setupPlugin failed with ${error} for ${logInfo}. Disabled the app!`)
             }
         }
     }
@@ -244,7 +240,7 @@ export class LazyPluginVM {
         })
     }
 
-    private async processFatalVmSetupError(error: Error | string, isSystemError: boolean): Promise<void> {
+    private async processFatalVmSetupError(error: Error, isSystemError: boolean): Promise<void> {
         await processError(this.hub, this.pluginConfig, error)
         await disablePlugin(this.hub, this.pluginConfig.id)
         await this.hub.db.celeryApplyAsync('posthog.tasks.email.send_fatal_plugin_error', [
