@@ -6,11 +6,11 @@ from freezegun.api import freeze_time
 
 from ee.clickhouse.models.group import create_group
 from ee.clickhouse.models.session_recording_event import create_session_recording_event
-from ee.clickhouse.queries.trends.person import ClickhouseTrendsActors
 from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
 from posthog.models.entity import Entity
 from posthog.models.filters import Filter
 from posthog.models.group_type_mapping import GroupTypeMapping
+from posthog.queries.trends.person import TrendsActors
 from posthog.test.base import APIBaseTest, _create_event, _create_person
 
 
@@ -78,7 +78,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         )
         entity = Entity(event)
 
-        _, serialized_actors = ClickhouseTrendsActors(self.team, entity, filter).get_actors()
+        _, serialized_actors = TrendsActors(self.team, entity, filter).get_actors()
         self.assertEqual(len(serialized_actors), 1)
         self.assertEqual(len(serialized_actors[0]["matched_recordings"]), 1)
         self.assertEqual(serialized_actors[0]["matched_recordings"][0]["session_id"], "s1")
@@ -114,7 +114,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
             data={"date_from": "2021-01-21T00:00:00Z", "date_to": "2021-01-22T00:00:00Z", "events": [event],}
         )
         entity = Entity(event)
-        _, serialized_actors = ClickhouseTrendsActors(self.team, entity, filter).get_actors()
+        _, serialized_actors = TrendsActors(self.team, entity, filter).get_actors()
 
         self.assertEqual(serialized_actors[0].get("matched_recordings"), None)
 
@@ -161,7 +161,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         )
         entity = Entity(event)
 
-        _, serialized_actors = ClickhouseTrendsActors(self.team, entity, filter).get_actors()
+        _, serialized_actors = TrendsActors(self.team, entity, filter).get_actors()
 
         self.assertCountEqual(
             serialized_actors[0].get("matched_recordings", []),

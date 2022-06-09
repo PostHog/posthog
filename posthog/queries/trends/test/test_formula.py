@@ -2,10 +2,10 @@ from typing import Dict, Optional
 
 from freezegun.api import freeze_time
 
-from ee.clickhouse.queries.trends.clickhouse_trends import ClickhouseTrends
 from posthog.constants import TRENDS_CUMULATIVE, TRENDS_PIE
 from posthog.models import Cohort, Person
 from posthog.models.filters.filter import Filter
+from posthog.queries.trends.trends import Trends
 from posthog.test.base import APIBaseTest, _create_event
 
 
@@ -60,7 +60,7 @@ class TestFormula(APIBaseTest):
 
     def _run(self, extra: Dict = {}, run_at: Optional[str] = None):
         with freeze_time(run_at or "2020-01-04T13:01:01Z"):
-            action_response = ClickhouseTrends().run(
+            action_response = Trends().run(
                 Filter(
                     data={
                         "events": [
@@ -152,7 +152,7 @@ class TestFormula(APIBaseTest):
 
     def test_breakdown_counts_of_different_events_one_without_events(self):
         with freeze_time("2020-01-04T13:01:01Z"):
-            response = ClickhouseTrends().run(
+            response = Trends().run(
                 Filter(
                     data={
                         "insight": "TRENDS",

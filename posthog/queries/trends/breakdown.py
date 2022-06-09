@@ -13,18 +13,7 @@ from ee.clickhouse.queries.breakdown_props import (
 )
 from ee.clickhouse.queries.column_optimizer import EnterpriseColumnOptimizer
 from ee.clickhouse.queries.groups_join_query import GroupsJoinQuery
-from ee.clickhouse.queries.trends.util import enumerate_time_range, get_active_user_params, parse_response, process_math
 from ee.clickhouse.sql.events import EVENT_JOIN_PERSON_SQL
-from ee.clickhouse.sql.trends.breakdown import (
-    BREAKDOWN_ACTIVE_USER_CONDITIONS_SQL,
-    BREAKDOWN_ACTIVE_USER_INNER_SQL,
-    BREAKDOWN_AGGREGATE_QUERY_SQL,
-    BREAKDOWN_COHORT_JOIN_SQL,
-    BREAKDOWN_CUMULATIVE_INNER_SQL,
-    BREAKDOWN_INNER_SQL,
-    BREAKDOWN_PROP_JOIN_SQL,
-    BREAKDOWN_QUERY_SQL,
-)
 from posthog.constants import (
     MONTHLY_ACTIVE,
     NON_TIME_SERIES_DISPLAY_TYPES,
@@ -42,11 +31,22 @@ from posthog.models.team import Team
 from posthog.models.utils import PersonPropertiesMode
 from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
 from posthog.queries.person_query import PersonQuery
+from posthog.queries.trends.sql import (
+    BREAKDOWN_ACTIVE_USER_CONDITIONS_SQL,
+    BREAKDOWN_ACTIVE_USER_INNER_SQL,
+    BREAKDOWN_AGGREGATE_QUERY_SQL,
+    BREAKDOWN_COHORT_JOIN_SQL,
+    BREAKDOWN_CUMULATIVE_INNER_SQL,
+    BREAKDOWN_INNER_SQL,
+    BREAKDOWN_PROP_JOIN_SQL,
+    BREAKDOWN_QUERY_SQL,
+)
+from posthog.queries.trends.util import enumerate_time_range, get_active_user_params, parse_response, process_math
 from posthog.queries.util import date_from_clause, get_time_diff, get_trunc_func_ch, parse_timestamps, start_of_week_fix
 from posthog.utils import encode_get_request_params
 
 
-class ClickhouseTrendsBreakdown:
+class TrendsBreakdown:
     DISTINCT_ID_TABLE_ALIAS = "pdi"
 
     def __init__(

@@ -1,7 +1,6 @@
 from typing import Any, Dict, Tuple
 
 from ee.clickhouse.models.property import get_property_string_expr
-from ee.clickhouse.queries.trends.util import get_active_user_params
 from posthog.constants import MONTHLY_ACTIVE, WEEKLY_ACTIVE, PropertyOperatorType
 from posthog.models import Entity
 from posthog.models.entity.util import get_entity_filtering_params
@@ -10,6 +9,7 @@ from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.utils import PersonPropertiesMode
 from posthog.queries.event_query import EventQuery
 from posthog.queries.person_query import PersonQuery
+from posthog.queries.trends.util import get_active_user_params
 from posthog.queries.util import date_from_clause, get_time_diff, get_trunc_func_ch, parse_timestamps
 
 
