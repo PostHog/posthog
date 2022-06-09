@@ -11,26 +11,6 @@ import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 
-/** Return null if there are no changes to be discarded, false if user confirmed discarding, and true if rejected. */
-export function preventDiscardingInsightChanges(): boolean | null {
-    let shouldPreventNavigatingAway: boolean | null = null
-    let shouldCancelChanges: boolean = false
-    const mountedInsightSceneLogic = insightSceneLogic.findMounted()
-    if (mountedInsightSceneLogic?.values.syncedInsightChanged) {
-        // Cancel changes automatically if not in edit mode
-        shouldCancelChanges = mountedInsightSceneLogic?.values.insightMode !== ItemMode.Edit
-        if (!shouldCancelChanges) {
-            // If in edit mode, make sure cancelling changes is OK, and prevent navigation if it isn't
-            shouldCancelChanges = confirm('Leave insight? Changes you made will be discarded.')
-            shouldPreventNavigatingAway = !shouldCancelChanges
-        }
-        if (shouldCancelChanges) {
-            mountedInsightSceneLogic?.values.insightCache?.logic.actions.cancelChanges()
-        }
-    }
-    return shouldPreventNavigatingAway
-}
-
 export const insightSceneLogic = kea<insightSceneLogicType>({
     path: ['scenes', 'insights', 'insightSceneLogic'],
     connect: {
@@ -47,7 +27,6 @@ export const insightSceneLogic = kea<insightSceneLogicType>({
             logic,
             unmount,
         }),
-        syncInsightChanged: (syncedInsightChanged: boolean) => ({ syncedInsightChanged }),
     },
     reducers: {
         insightId: [
@@ -62,14 +41,6 @@ export const insightSceneLogic = kea<insightSceneLogicType>({
             {
                 setInsightMode: (_, { insightMode }) => insightMode,
                 setSceneState: (_, { insightMode }) => insightMode,
-            },
-        ],
-        syncedInsightChanged: [
-            // Connecting `insightChanged` via `insightCache.logic.selectors` sometimes gives stale values,
-            // so instead saving the up-to-date value right in this logic with a `useEffect` in the `Insight` component
-            false,
-            {
-                syncInsightChanged: (_, { syncedInsightChanged }) => syncedInsightChanged,
             },
         ],
         lastInsightModeSource: [
@@ -146,11 +117,6 @@ export const insightSceneLogic = kea<insightSceneLogicType>({
                 currentScene.activeSceneLogic?.values.mode === mode
             ) {
                 // If nothing about the scene has changed, don't do anything
-                return
-            }
-
-            // If navigating from an unsaved insight to a different insight within the scene, prompt the user
-            if (preventDiscardingInsightChanges()) {
                 return
             }
 
