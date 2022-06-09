@@ -1,6 +1,6 @@
 import datetime
 import json
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 from unittest.mock import patch
 
 from django.db import DEFAULT_DB_ALIAS, connections
@@ -812,14 +812,10 @@ class TestFeatureFlag(APIBaseTest):
         instance.refresh_from_db()
         self.assertEqual(instance.key, "alpha-feature")
 
-    def test_my_flags_is_not_nplus1(self):
-
+    def test_my_flags_is_not_nplus1(self) -> None:
         query_counts: List[int] = []
-        queries: List[List[Dict[str, str]]] = []
 
-        count, qs = self._get_flags_counting_queries()
-        query_counts.append(count)
-        queries.append(qs)
+        query_counts.append(self._get_flags_counting_queries())
 
         # add new flags
         for i in range(5):
@@ -829,25 +825,22 @@ class TestFeatureFlag(APIBaseTest):
                 format="json",
             ).json()
 
-            count, qs = self._get_flags_counting_queries()
-            query_counts.append(count)
-            queries.append(qs)
+            query_counts.append(self._get_flags_counting_queries())
 
         # query counts don't climb as flags are added
         self.assertTrue(
-            all(j - i < 2 for i, j in zip(query_counts[0:], query_counts[1:])),
+            all(j - i == 0 for i, j in zip(query_counts[0:], query_counts[1:])),
             f"received: {query_counts} query counts when loading my_flags",
         )
 
-    def _get_flags_counting_queries(self) -> Tuple[int, List[Dict[str, str]]]:
+    def _get_flags_counting_queries(self) -> int:
         db_connection = connections[DEFAULT_DB_ALIAS]
 
         with CaptureQueriesContext(db_connection) as capture_query_context:
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/my_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-            query_count = len(capture_query_context.captured_queries)
-            return query_count, capture_query_context.captured_queries
+            return len(capture_query_context.captured_queries)
 
     @patch("posthog.api.feature_flag.report_user_action")
     def test_my_flags(self, mock_capture):
