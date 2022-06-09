@@ -1,14 +1,16 @@
 describe('Feature Flags', () => {
+    let name
+
     beforeEach(() => {
+        name = 'feature-flag-' + Math.floor(Math.random() * 10000000)
         cy.visit('/feature_flags')
     })
 
     it('Create feature flag', () => {
         // ensure unique names to avoid clashes
-        const name = 'beta-feature' + Math.floor(Math.random() * 10000000)
         cy.get('h1').should('contain', 'Feature Flags')
         cy.get('[data-attr=new-feature-flag]').click()
-        cy.get('[data-attr=feature-flag-key]').type(name).should('have.value', name)
+        cy.get('[data-attr=feature-flag-key]').click().type(`{moveToEnd}${name}`).should('have.value', name)
         cy.get('[data-attr=feature-flag-description]')
             .type('This is a new feature.')
             .should('have.value', 'This is a new feature.')
@@ -29,22 +31,26 @@ describe('Feature Flags', () => {
         // save the feature flag
         cy.get('[data-attr=feature-flag-submit]').click()
 
+        // after save there should be a delete button
+        cy.get('button[data-attr="delete-flag"]').should('have.text', 'Delete')
+
         // make sure the data is there as expected after a page reload!
         cy.reload()
 
         // click the sidebar item to go back to the list
-        cy.get('[data-attr="menu-item-featureflags"]').click()
+        cy.clickNavMenu('featureflags')
         cy.get('[data-attr=feature-flag-table]').should('contain', name)
         cy.get('[data-attr=feature-flag-table]').should('not.contain', '%') // By default it's released to everyone, if a % is not specified
         cy.get('[data-attr=feature-flag-table]').should('contain', 'is_demo')
 
         cy.get(`[data-row-key=${name}]`).contains(name).click()
         cy.get('[data-attr=feature-flag-key]')
-            .type('-updated')
+            .click()
+            .type(`{moveToEnd}-updated`)
             .should('have.value', name + '-updated')
         cy.get('[data-attr=feature-flag-submit]').click()
         cy.wait(100)
-        cy.get('[data-attr="menu-item-featureflags"]').click()
+        cy.clickNavMenu('featureflags')
         cy.get('[data-attr=feature-flag-table]').should('contain', name + '-updated')
 
         cy.get(`[data-row-key=${name}-updated] [data-attr=more-button]`).click()
@@ -55,16 +61,18 @@ describe('Feature Flags', () => {
     })
 
     it('Delete feature flag', () => {
-        const name = 'to-be-deleted' + Math.floor(Math.random() * 10000000)
         cy.get('h1').should('contain', 'Feature Flags')
         cy.get('[data-attr=new-feature-flag]').click()
-        cy.get('[data-attr=feature-flag-key]').type(name).should('have.value', name)
+        cy.get('[data-attr=feature-flag-key]').focus().type(name).should('have.value', name)
         cy.get('[data-attr=feature-flag-submit]').click()
-        cy.get('[data-attr="menu-item-featureflags"]').click()
+
+        // after save there should be a delete button
+        cy.get('button[data-attr="delete-flag"]').should('have.text', 'Delete')
+
+        cy.clickNavMenu('featureflags')
         cy.get('[data-attr=feature-flag-table]').should('contain', name)
         cy.get(`[data-row-key=${name}]`).contains(name).click()
         cy.get('[data-attr=delete-flag]').click()
-        cy.wait(200)
-        cy.get('.Toastify__toast .LemonButton').contains('Undo').should('exist')
+        cy.get('.Toastify').contains('Undo').should('be.visible')
     })
 })
