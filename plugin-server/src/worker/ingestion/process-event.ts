@@ -799,7 +799,8 @@ export class EventsProcessor {
         client?: PoolClient
     ): Promise<undefined> {
         // When personIDs change, update places depending on a person_id foreign key
-        // Merge the distinct IDs
+
+        // For Cohorts
         await this.db.postgresQuery(
             'UPDATE posthog_cohortpeople SET person_id = $1 WHERE person_id = $2',
             [targetPerson.id, sourcePerson.id],
@@ -807,6 +808,7 @@ export class EventsProcessor {
             client
         )
 
+        // For FeatureFlagHashKeyOverrides
         const allOverrides = await this.db.postgresQuery(
             'SELECT id, person_id, feature_flag_key FROM posthog_featureflaghashkeyoverride WHERE team_id = $1 AND person_id = ANY($2)',
             [sourcePerson.team_id, [sourcePerson.id, targetPerson.id]],
