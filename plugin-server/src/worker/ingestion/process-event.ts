@@ -815,10 +815,6 @@ export class EventsProcessor {
             'selectFeatureFlagHashKeyOverride'
         )
 
-        if (allOverrides.rowCount === 0) {
-            return
-        }
-
         // Update where feature_flag_key exists for sourcePerson but not for targetPerson
         const sourceOverrides = allOverrides.rows.filter((override) => override.person_id == sourcePerson.id)
         const targetOverrideKeys = allOverrides.rows
@@ -828,6 +824,10 @@ export class EventsProcessor {
         const itemsToUpdate = sourceOverrides
             .filter((override) => !targetOverrideKeys.includes(override.feature_flag_key))
             .map((override) => override.id)
+
+        if (allOverrides.rowCount === 0 || sourceOverrides.length === 0) {
+            return
+        }
 
         if (itemsToUpdate.length !== 0) {
             await this.db.postgresQuery(
