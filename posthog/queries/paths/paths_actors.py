@@ -1,7 +1,7 @@
 from typing import Dict, Optional, Tuple, cast
 
+from ee.clickhouse.queries.actor_base_query import ActorBaseQuery
 from posthog.models.filters.filter import Filter
-from posthog.queries.actor_base_query import ActorBaseQuery
 from posthog.queries.paths.paths import Paths
 
 

@@ -6,16 +6,11 @@ from freezegun import freeze_time
 
 from ee.clickhouse.models.session_recording_event import create_session_recording_event
 from ee.clickhouse.test.test_journeys import journeys_for
+from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
 from posthog.constants import INSIGHT_FUNNELS
 from posthog.models.filters import Filter
 from posthog.queries.funnels.funnel_strict_persons import ClickhouseFunnelStrictActors
-from posthog.test.base import (
-    APIBaseTest,
-    ClickhouseTestMixin,
-    _create_event,
-    _create_person,
-    snapshot_clickhouse_queries,
-)
+from posthog.test.base import APIBaseTest, _create_event, _create_person
 
 FORMAT_TIME = "%Y-%m-%d 00:00:00"
 

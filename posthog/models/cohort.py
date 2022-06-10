@@ -12,10 +12,11 @@ from sentry_sdk import capture_exception
 
 from posthog.constants import PropertyOperatorType
 from posthog.models.filters.filter import Filter
-from posthog.models.person import Person
 from posthog.models.property import BehavioralPropertyType, Property, PropertyGroup
 from posthog.models.utils import sane_repr
 from posthog.settings.base_variables import TEST
+
+from .person import Person
 
 logger = structlog.get_logger(__name__)
 
@@ -216,7 +217,7 @@ class Cohort(models.Model):
             raise err
 
     def calculate_people_ch(self, pending_version):
-        from posthog.models.cohort.util import recalculate_cohortpeople
+        from ee.clickhouse.models.cohort import recalculate_cohortpeople
         from posthog.tasks.cohorts_in_feature_flag import get_cohort_ids_in_feature_flags
 
         logger.info("cohort_calculation_started", id=self.pk, current_version=self.version, new_version=pending_version)
@@ -268,7 +269,7 @@ class Cohort(models.Model):
         Important! Does not insert into clickhouse
         """
         batchsize = 1000
-        from posthog.models.cohort.util import insert_static_cohort
+        from ee.clickhouse.models.cohort import insert_static_cohort
 
         if TEST:
             from posthog.test.base import flush_persons_and_events
@@ -340,7 +341,7 @@ class Cohort(models.Model):
         return self.name
 
     def _clickhouse_persons_query(self, batch_size=10000, offset=0):
-        from posthog.models.cohort.util import get_person_ids_by_cohort_id
+        from ee.clickhouse.models.cohort import get_person_ids_by_cohort_id
 
         uuids = get_person_ids_by_cohort_id(team=self.team, cohort_id=self.pk, limit=batch_size, offset=offset)
         return Person.objects.filter(uuid__in=uuids, team=self.team)

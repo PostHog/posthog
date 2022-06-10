@@ -11,13 +11,13 @@ from ee.clickhouse.sql.groups import KAFKA_GROUPS_TABLE_SQL
 from ee.clickhouse.sql.person import KAFKA_PERSON_DISTINCT_ID2_TABLE_SQL, KAFKA_PERSONS_TABLE_SQL
 from ee.clickhouse.sql.plugin_log_entries import KAFKA_PLUGIN_LOG_ENTRIES_TABLE_SQL
 from ee.clickhouse.sql.session_recording_events import KAFKA_SESSION_RECORDING_EVENTS_TABLE_SQL
+from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.async_migrations.runner import start_async_migration
 from posthog.async_migrations.setup import get_async_migration_definition, setup_async_migrations
 from posthog.async_migrations.test.util import AsyncMigrationBaseTest
 from posthog.client import sync_execute
 from posthog.conftest import create_clickhouse_tables
 from posthog.models.async_migration import AsyncMigration, MigrationStatus
-from posthog.test.base import ClickhouseTestMixin
 
 MIGRATION_NAME = "0004_replicated_schema"
 

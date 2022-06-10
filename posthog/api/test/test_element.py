@@ -6,8 +6,9 @@ from django.utils.timezone import now
 from freezegun import freeze_time
 from rest_framework import status
 
+from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.models import Element, ElementGroup, Organization
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person
+from posthog.test.base import APIBaseTest, _create_event, _create_person
 
 
 class TestElement(ClickhouseTestMixin, APIBaseTest):

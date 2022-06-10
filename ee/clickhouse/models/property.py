@@ -16,19 +16,19 @@ from clickhouse_driver.util.escape import escape_param
 from rest_framework import exceptions
 
 from ee.clickhouse.materialized_columns.columns import TableWithProperties, get_materialized_columns
-from ee.clickhouse.models.util import is_json
-from ee.clickhouse.sql.clickhouse import trim_quotes_expr
-from ee.clickhouse.sql.groups import GET_GROUP_IDS_BY_PROPERTY_SQL
-from ee.clickhouse.sql.person import GET_DISTINCT_IDS_BY_PERSON_ID_FILTER, GET_DISTINCT_IDS_BY_PROPERTY_SQL
-from posthog.constants import PropertyOperatorType
-from posthog.models.cohort import Cohort
-from posthog.models.cohort.util import (
+from ee.clickhouse.models.cohort import (
     format_cohort_subquery,
     format_filter_query,
     format_precalculated_cohort_query,
     format_static_cohort_query,
     get_count_operator,
 )
+from ee.clickhouse.models.util import is_json
+from ee.clickhouse.sql.clickhouse import trim_quotes_expr
+from ee.clickhouse.sql.groups import GET_GROUP_IDS_BY_PROPERTY_SQL
+from ee.clickhouse.sql.person import GET_DISTINCT_IDS_BY_PERSON_ID_FILTER, GET_DISTINCT_IDS_BY_PROPERTY_SQL
+from posthog.constants import PropertyOperatorType
+from posthog.models.cohort import Cohort
 from posthog.models.event import Selector
 from posthog.models.property import (
     NEGATED_OPERATORS,

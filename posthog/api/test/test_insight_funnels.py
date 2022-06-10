@@ -5,7 +5,8 @@ from django.test.client import Client
 from rest_framework import status
 
 from ee.clickhouse.test.test_journeys import journeys_for
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin, snapshot_clickhouse_queries
+from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
+from posthog.test.base import APIBaseTest
 
 
 class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):

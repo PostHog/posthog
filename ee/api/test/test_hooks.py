@@ -2,8 +2,8 @@ from typing import Type, cast
 
 from ee.api.hooks import valid_domain
 from ee.api.test.base import APILicensedTest
+from ee.clickhouse.util import ClickhouseTestMixin
 from ee.models.hook import Hook
-from posthog.test.base import ClickhouseTestMixin
 
 
 class TestHooksAPI(ClickhouseTestMixin, APILicensedTest):
