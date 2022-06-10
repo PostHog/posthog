@@ -78,7 +78,7 @@ class EventDefinitionViewSet(
         #   If true, return both list of event definitions and actions together.
         include_actions = self.request.GET.get("include_actions", None)
         actions_list = Action.objects.none()
-        if include_actions:
+        if include_actions == "true":
             actions_list = Action.objects.filter(deleted=False)
 
         if self.request.user.organization.is_feature_available(AvailableFeature.INGESTION_TAXONOMY):  # type: ignore

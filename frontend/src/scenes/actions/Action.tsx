@@ -44,7 +44,7 @@ export function Action({ id }: { id?: ActionType['id'] } = {}): JSX.Element {
                         <h2 className="subtitle">Matching events</h2>
                         <p>
                             This is the list of <strong>recent</strong> raw events that match this{' '}
-                            {shouldSimplifyActions ? 'event' : 'action'}.
+                            {shouldSimplifyActions ? 'calculated event' : 'action'}.
                             {action?.last_calculated_at ? (
                                 <>
                                     {' '}
@@ -60,7 +60,6 @@ export function Action({ id }: { id?: ActionType['id'] } = {}): JSX.Element {
                             fetchMonths={3}
                             pageKey={`action-${id}-${JSON.stringify(fixedFilters)}`}
                             showEventFilter={false}
-                            showPropertyFilter={false}
                         />
                     </div>
                 ) : (

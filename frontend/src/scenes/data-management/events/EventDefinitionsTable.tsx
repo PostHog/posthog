@@ -191,8 +191,12 @@ export function EventDefinitionsTable(): JSX.Element {
                         setFilters({ event: e.target.value || '' })
                     }}
                 />
-                <div style={{ flex: 1 }} />
-                <NewActionButton />
+                {shouldSimplifyActions && (
+                    <>
+                        <div style={{ flex: 1 }} />
+                        <NewActionButton />
+                    </>
+                )}
             </div>
             <LemonTable
                 columns={columns}

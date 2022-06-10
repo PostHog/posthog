@@ -151,8 +151,8 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
                                 {actionCountLoading && <LoadingOutlined />}
                                 {actionCount !== null && actionCount > -1 && (
                                     <>
-                                        This event matches <b>{compactNumber(actionCount)}</b> raw events in the last 3
-                                        months
+                                        This {shouldSimplifyActions ? 'calculated event' : 'action'} matches{' '}
+                                        <b>{compactNumber(actionCount)}</b> raw events in the last 3 months
                                     </>
                                 )}
                             </span>
@@ -163,7 +163,8 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
                 <div style={{ overflow: 'visible' }}>
                     <h2 className="subtitle">Match groups</h2>
                     <div>
-                        Your event will be triggered whenever <b>any of your match groups</b> are received.{' '}
+                        Your {shouldSimplifyActions ? 'calculated event' : 'action'} will be triggered whenever{' '}
+                        <b>any of your match groups</b> are received.{' '}
                         <a href="https://posthog.com/docs/features/actions" target="_blank">
                             <InfoCircleOutlined />
                         </a>
@@ -245,8 +246,8 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
                                     disabled={!slackEnabled}
                                     label={
                                         <>
-                                            Post to webhook when this {shouldSimplifyActions ? 'event' : 'action'} is
-                                            triggered.
+                                            Post to webhook when this{' '}
+                                            {shouldSimplifyActions ? 'calculated event' : 'action'} is triggered.
                                             <Link to="/project/settings#webhook" style={{ marginLeft: 4 }}>
                                                 {slackEnabled ? 'Configure' : 'Enable'} this integration in Setup.
                                             </Link>
@@ -303,7 +304,7 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
 export function duplicateActionErrorToast(errorActionId: string, shouldSimplifyActions: boolean): void {
     lemonToast.error(
         <>
-            {shouldSimplifyActions ? 'Event' : 'Action'} with this name already exists.{' '}
+            {shouldSimplifyActions ? 'Calculated event' : 'Action'} with this name already exists.{' '}
             <a href={urls.action(errorActionId)}>Click here to edit.</a>
         </>
     )

@@ -76,6 +76,7 @@ interface SharedDefinitionHeaderProps {
     hideIcon?: boolean
     hideText?: boolean
     asLink?: boolean
+    shouldSimplifyActions?: boolean
 }
 
 function RawDefinitionHeader({
@@ -84,6 +85,7 @@ function RawDefinitionHeader({
     hideIcon = false,
     hideText = false,
     asLink = false,
+    shouldSimplifyActions = false,
 }: {
     definition: CombinedEvent | PropertyDefinition
     group: TaxonomicFilterGroup
@@ -118,7 +120,9 @@ function RawDefinitionHeader({
                 <div className="definition-column-name-content">
                     <div>{linkedInnerContent}</div>
                     <div className="definition-column-name-content-description">
-                        {definition.description || <i>Add a description for this {getSingularType(group.type)}</i>}
+                        {definition.description || (
+                            <i>Add a description for this {getSingularType(group.type, shouldSimplifyActions)}</i>
+                        )}
                     </div>
                 </div>
             )}
@@ -134,17 +138,18 @@ export function ActionHeader({
         <RawDefinitionHeader
             definition={definition}
             group={{
-                name: 'Event filters',
-                searchPlaceholder: 'actions',
+                name: 'Calculated events',
+                searchPlaceholder: 'calculated events',
                 type: TaxonomicFilterGroupType.Actions,
                 logic: actionsModel,
                 value: 'actions',
                 getName: (action: ActionType) => action.name || '',
                 getValue: (action: ActionType) => action.name || '',
                 getFullDetailUrl: (action: ActionType) => urls.action(action.id),
-                getPopupHeader: () => 'Event filter',
+                getPopupHeader: () => 'Calculated event',
                 getIcon: getEventDefinitionOrActionIcon,
             }}
+            shouldSimplifyActions
             {...props}
         />
     )
