@@ -123,6 +123,16 @@ class Migration(AsyncMigrationDefinition):
             AsyncMigrationOperationSQL(
                 database=AnalyticsDBMS.CLICKHOUSE,
                 sql=f"""
+                    INSERT INTO {TEMPORARY_TABLE_NAME}
+                    SELECT *
+                    FROM {PERSON_TABLE}
+                """,
+                rollback=f"TRUNCATE TABLE IF EXISTS {TEMPORARY_TABLE_NAME} ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'",
+                timeout_seconds=2 * 24 * 60 * 60,  # two days
+            ),
+            AsyncMigrationOperationSQL(
+                database=AnalyticsDBMS.CLICKHOUSE,
+                sql=f"""
                     RENAME TABLE
                         {PERSON_TABLE_NAME} to {BACKUP_TABLE_NAME},
                         {TEMPORARY_TABLE_NAME} to {PERSON_TABLE_NAME}
