@@ -186,7 +186,12 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                     <div style={{ border: '1px solid var(--border)', borderRadius: 4 }}>
                                         <LemonCheckbox
                                             id="continuity-checkbox"
-                                            label={'Persist flags across authentication steps'}
+                                            label={
+                                                <>
+                                                    Persist flags across authentication steps{' '}
+                                                    <LemonTag type="warning">Beta</LemonTag>
+                                                </>
+                                            }
                                             onChange={onChange}
                                             rowProps={{ fullWidth: true }}
                                             checked={!!value}
