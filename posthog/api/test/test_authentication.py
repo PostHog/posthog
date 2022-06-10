@@ -202,19 +202,6 @@ class TestPasswordResetAPI(APIBaseTest):
             )
         )
 
-    def test_login_with_sso_resets_session(self):
-        with self.settings(
-            CELERY_TASK_ALWAYS_EAGER=True,
-            SITE_URL="https://my.posthog.net",
-            SOCIAL_AUTH_GOOGLE_OAUTH2_KEY="test_key",
-            SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET="test_secret",
-            MULTI_TENANCY=True,
-        ):
-            first_key = self.client.session.session_key
-            self.client.post("/api/login/google-oauth2/", {"email_opt_in": False})
-            second_key = self.client.session.session_key
-            self.assertNotEqual(first_key, second_key)
-
     def test_reset_with_sso_available(self):
         """
         If the user has logged in / signed up with SSO, we let them know so they don't have to reset their password.
