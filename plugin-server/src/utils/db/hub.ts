@@ -81,6 +81,9 @@ export async function createHub(
             host: serverConfig.STATSD_HOST,
             prefix: serverConfig.STATSD_PREFIX,
             telegraf: true,
+            globalTags: serverConfig.PLUGIN_SERVER_MODE
+                ? { pluginServerMode: serverConfig.PLUGIN_SERVER_MODE }
+                : undefined,
             errorHandler: (error) => {
                 status.warn('⚠️', 'StatsD error', error)
                 Sentry.captureException(error, {
