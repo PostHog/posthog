@@ -8,7 +8,7 @@ from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 
 from posthog.client import sync_execute
-from posthog.models.event.event import DEFAULT_EARLIEST_TIME_DELTA
+from posthog.models.event import DEFAULT_EARLIEST_TIME_DELTA
 from posthog.models.filters.filter import Filter
 from posthog.models.team import Team
 from posthog.queries.base import TIME_IN_SECONDS

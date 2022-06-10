@@ -1,5 +1,5 @@
 from posthog.models import Action, ActionStep, Element, Organization
-from posthog.models.event.event import Selector
+from posthog.models.event import Selector
 from posthog.test.base import BaseTest
 
 

@@ -5,7 +5,7 @@ from .annotation import Annotation
 from .cohort import Cohort, CohortPeople
 from .dashboard import Dashboard
 from .dashboard_tile import DashboardTile
-from .element.element import Element
+from .element import Element
 from .element_group import ElementGroup
 from .entity import Entity
 from .event.event import Event
