@@ -60,6 +60,7 @@ def verify_persons_data_in_sync() -> None:
             "version_mismatch": 0,
             "properties_mismatch": 0,
             "distinct_ids_mismatch": 0,
+            "properties_mismatch_same_version": 0,
         }
     )
     for i in range(0, len(person_data), BATCH_SIZE):
@@ -123,6 +124,11 @@ def _team_integrity_statistics(person_data: List[Any]) -> Counter:
                 properties=pg_person.properties,
                 ch_properties=ch_properties,
             )
+
+        # :KLUDGE: Verify business logic. If versions are in sync so should properties be.
+        if ch_version != 0 and ch_version == pg_person.version and pg_person.properties != ch_properties:
+            result["properties_mismatch_same_version"] += 1
+
         pg_distinct_ids = list(sorted(map(str, pg_person.distinct_ids)))
         ch_distinct_id = list(sorted(str(distinct_id) for distinct_id, _ in ch_distinct_ids_mapping.get(uuid, [])))
         if pg_distinct_ids != ch_distinct_id:
