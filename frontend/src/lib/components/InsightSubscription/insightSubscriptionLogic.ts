@@ -62,7 +62,7 @@ export const insightSubscriptionLogic = kea<insightSubscriptionLogicType>([
                             : undefined
                         : undefined,
             }),
-            submit: async (subscription, breakpoint) => {
+            submit: async (subscription) => {
                 subscription.insight = values.insight.id
 
                 let subscriptionId = props.id
@@ -79,7 +79,7 @@ export const insightSubscriptionLogic = kea<insightSubscriptionLogicType>([
                 lemonToast.success(`Subscription saved.`)
 
                 if (subscriptionId !== props.id) {
-                    await breakpoint(150) // Allow enough time for the unload hook to be removed
+                    router.actions.clearUnloadHandlers()
                     router.actions.replace(urls.insightSubcription(props.insightShortId, subscriptionId.toString()))
                 }
             },

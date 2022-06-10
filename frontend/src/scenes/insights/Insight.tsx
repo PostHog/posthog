@@ -230,7 +230,7 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                             </>
                         )}
                         {insightMode === ItemMode.Edit && insight.saved && (
-                            <LemonButton type="secondary" onClick={() => cancelChanges(true)}>
+                            <LemonButton type="secondary" onClick={() => setInsightMode(ItemMode.View, null)}>
                                 Cancel
                             </LemonButton>
                         )}

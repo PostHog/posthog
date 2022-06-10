@@ -764,6 +764,7 @@ export const insightLogic = kea<insightLogicType>({
             dashboardsModel.actions.updateDashboardItem(savedInsight)
 
             if (redirectToViewMode) {
+                router.actions.clearUnloadInterceptors()
                 const mountedInsightSceneLogic = insightSceneLogic.findMounted()
                 if (!insightNumericId && dashboards?.length === 1) {
                     // redirect new insights added to dashboard to the dashboard

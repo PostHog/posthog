@@ -33,14 +33,12 @@ export const insightSceneLogic = kea<insightSceneLogicType>({
         insightId: [
             null as null | 'new' | InsightShortId,
             {
-                setInsightId: (_, { insightId }) => insightId,
                 setSceneState: (_, { insightId }) => insightId,
             },
         ],
         insightMode: [
             ItemMode.View as ItemMode,
             {
-                setInsightMode: (_, { insightMode }) => insightMode,
                 setSceneState: (_, { insightMode }) => insightMode,
             },
         ],
@@ -53,12 +51,6 @@ export const insightSceneLogic = kea<insightSceneLogicType>({
                             ? 'new'
                             : parseInt(subscriptionId, 10)
                         : null,
-            },
-        ],
-        lastInsightModeSource: [
-            null as InsightEventSource | null,
-            {
-                setInsightMode: (_, { source }) => source,
             },
         ],
         insightCache: [
@@ -88,7 +80,6 @@ export const insightSceneLogic = kea<insightSceneLogicType>({
         ],
     }),
     listeners: ({ sharedListeners }) => ({
-        setInsightMode: sharedListeners.reloadInsightLogic,
         setSceneState: sharedListeners.reloadInsightLogic,
     }),
     sharedListeners: ({ actions, values }) => ({
@@ -190,11 +181,18 @@ export const insightSceneLogic = kea<insightSceneLogicType>({
         },
     }),
     actionToUrl: ({ values }) => {
-        const actionToUrl = (): string | undefined =>
-            values.insightId && values.insightId !== 'new'
-                ? values.insightMode === ItemMode.View
-                    ? urls.insightView(values.insightId)
-                    : urls.insightEdit(values.insightId)
+        // Use the browser redirect to determine state to hook into beforeunload prevention
+        const actionToUrl = ({
+            insightMode = values.insightMode,
+            insightId = values.insightId,
+        }: {
+            insightMode?: ItemMode
+            insightId?: InsightShortId | 'new' | null
+        }): string | undefined =>
+            insightId && insightId !== 'new'
+                ? insightMode === ItemMode.View
+                    ? urls.insightView(insightId)
+                    : urls.insightEdit(insightId)
                 : undefined
 
         return {
