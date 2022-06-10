@@ -2,11 +2,12 @@ from datetime import datetime
 
 from ee.clickhouse.models.group import create_group
 from ee.clickhouse.test.test_journeys import journeys_for
+from ee.clickhouse.util import snapshot_clickhouse_queries
 from posthog.constants import INSIGHT_FUNNELS
 from posthog.models.filters import Filter
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.queries.funnels.test.breakdown_cases import FunnelStepResult, assert_funnel_breakdown_result_is_correct
-from posthog.test.base import APIBaseTest, snapshot_clickhouse_queries
+from posthog.test.base import APIBaseTest
 
 
 def funnel_breakdown_group_test_factory(Funnel, FunnelPerson, _create_event, _create_action, _create_person):

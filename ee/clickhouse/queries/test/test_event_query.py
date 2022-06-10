@@ -2,6 +2,7 @@ from freezegun import freeze_time
 
 from ee.clickhouse.materialized_columns import materialize
 from ee.clickhouse.models.group import create_group
+from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
 from posthog.client import sync_execute
 from posthog.models import Action, ActionStep
 from posthog.models.cohort import Cohort
@@ -11,13 +12,7 @@ from posthog.models.filters import Filter
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.person import Person
 from posthog.queries.trends.trend_event_query import TrendsEventQuery
-from posthog.test.base import (
-    APIBaseTest,
-    ClickhouseTestMixin,
-    _create_event,
-    _create_person,
-    snapshot_clickhouse_queries,
-)
+from posthog.test.base import APIBaseTest, _create_event, _create_person
 
 
 def _create_cohort(**kwargs):

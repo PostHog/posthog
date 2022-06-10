@@ -12,6 +12,7 @@ from freezegun import freeze_time
 from rest_framework import status
 
 from ee.api.test.base import LicensedTestMixin
+from ee.clickhouse.util import ClickhouseTestMixin
 from ee.models import DashboardPrivilege
 from ee.models.explicit_team_membership import ExplicitTeamMembership
 from posthog.models import (
@@ -27,7 +28,7 @@ from posthog.models import (
 )
 from posthog.models.organization import OrganizationMembership
 from posthog.tasks.update_cache import update_insight_cache
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest, _create_event, _create_person
+from posthog.test.base import APIBaseTest, QueryMatchingTest, _create_event, _create_person
 
 
 class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatchingTest):

@@ -6,17 +6,12 @@ from freezegun.api import freeze_time
 
 from ee.clickhouse.models.group import create_group
 from ee.clickhouse.models.session_recording_event import create_session_recording_event
+from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
 from posthog.models.entity import Entity
 from posthog.models.filters import Filter
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.queries.trends.person import TrendsActors
-from posthog.test.base import (
-    APIBaseTest,
-    ClickhouseTestMixin,
-    _create_event,
-    _create_person,
-    snapshot_clickhouse_queries,
-)
+from posthog.test.base import APIBaseTest, _create_event, _create_person
 
 
 def _create_session_recording_event(team_id, distinct_id, session_id, timestamp, window_id="", has_full_snapshot=True):

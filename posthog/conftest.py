@@ -1,3 +1,6 @@
+import threading
+from typing import List
+
 import pytest
 from django.conf import settings
 from infi.clickhouse_orm import Database
@@ -8,7 +11,22 @@ from ee.clickhouse.sql.dead_letter_queue import (
     TRUNCATE_DEAD_LETTER_QUEUE_TABLE_MV_SQL,
 )
 from posthog.client import sync_execute
-from posthog.test.base import TestMixin, run_clickhouse_statement_in_parallel
+from posthog.test.base import TestMixin
+
+
+def run_clickhouse_statement_in_parallel(statements: List[str]):
+    jobs = []
+    for item in statements:
+        thread = threading.Thread(target=sync_execute, args=(item,))
+        jobs.append(thread)
+
+    # Start the threads (i.e. calculate the random number lists)
+    for j in jobs:
+        j.start()
+
+    # Ensure all of the threads have finished
+    for j in jobs:
+        j.join()
 
 
 def create_clickhouse_tables(num_tables: int):

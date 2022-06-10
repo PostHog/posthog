@@ -3,6 +3,7 @@ from typing import List, Optional, Tuple, Union
 from django.db.models.query import QuerySet
 from rest_framework.exceptions import ValidationError
 
+from ee.clickhouse.queries.actor_base_query import ActorBaseQuery, SerializedGroup, SerializedPerson
 from ee.clickhouse.queries.funnels.funnel_correlation import FunnelCorrelation
 from posthog.constants import FUNNEL_CORRELATION_PERSON_LIMIT, FunnelCorrelationType, PropertyOperatorType
 from posthog.models import Person
@@ -12,7 +13,6 @@ from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.group import Group
 from posthog.models.team import Team
 from posthog.models.utils import PersonPropertiesMode
-from posthog.queries.actor_base_query import ActorBaseQuery, SerializedGroup, SerializedPerson
 from posthog.queries.funnels.funnel_event_query import FunnelEventQuery
 
 

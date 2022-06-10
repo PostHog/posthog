@@ -4,12 +4,13 @@ from unittest.mock import patch
 
 from freezegun import freeze_time
 
+from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.client import sync_execute
 from posthog.models.cohort import Cohort
 from posthog.models.person import Person
 from posthog.tasks.calculate_cohort import insert_cohort_from_insight_filter
 from posthog.tasks.test.test_calculate_cohort import calculate_cohort_test_factory
-from posthog.test.base import ClickhouseTestMixin, _create_event, _create_person
+from posthog.test.base import _create_event, _create_person
 
 
 class TestClickhouseCalculateCohort(ClickhouseTestMixin, calculate_cohort_test_factory(_create_event, _create_person)):  # type: ignore

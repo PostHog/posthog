@@ -1,10 +1,11 @@
 import importlib
 
 from ee.clickhouse.materialized_columns.columns import materialize
+from ee.clickhouse.util import ClickhouseDestroyTablesMixin, ClickhouseTestMixin
 from posthog.client import sync_execute
 from posthog.conftest import create_clickhouse_tables
 from posthog.settings import CLICKHOUSE_DATABASE
-from posthog.test.base import BaseTest, ClickhouseDestroyTablesMixin, ClickhouseTestMixin
+from posthog.test.base import BaseTest
 
 # Import the migration in this way because it starts with a number
 _0026_fix_materialized_window_and_session_ids = importlib.import_module(

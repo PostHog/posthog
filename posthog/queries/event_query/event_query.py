@@ -2,9 +2,9 @@ from abc import ABCMeta, abstractmethod
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 from ee.clickhouse.materialized_columns.columns import ColumnName
+from ee.clickhouse.models.cohort import is_precalculated_query
 from ee.clickhouse.models.property import parse_prop_grouped_clauses
 from posthog.models import Cohort, Filter, Property
-from posthog.models.cohort.util import is_precalculated_query
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.retention_filter import RetentionFilter

@@ -26,8 +26,10 @@ from rest_framework.utils.serializer_helpers import ReturnDict
 from rest_framework_csv import renderers as csvrenderers
 from statshog.defaults.django import statsd
 
+from ee.clickhouse.models.cohort import get_all_cohort_ids_by_person_uuid
 from ee.clickhouse.queries.funnels.funnel_correlation_persons import FunnelCorrelationActors
 from ee.clickhouse.queries.paths import ClickhousePathsActors
+from ee.clickhouse.queries.property_values import get_person_property_values_for_key
 from ee.clickhouse.queries.retention import ClickhouseRetention
 from ee.clickhouse.queries.stickiness import ClickhouseStickiness
 from ee.clickhouse.sql.person import GET_PERSON_PROPERTIES_COUNT
@@ -56,7 +58,6 @@ from posthog.models.activity_logging.activity_log import (
     log_activity,
 )
 from posthog.models.activity_logging.serializers import ActivityLogSerializer
-from posthog.models.cohort.util import get_all_cohort_ids_by_person_uuid
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
@@ -66,7 +67,6 @@ from posthog.queries.funnels import ClickhouseFunnelActors, ClickhouseFunnelTren
 from posthog.queries.funnels.base import ClickhouseFunnelBase
 from posthog.queries.funnels.funnel_strict_persons import ClickhouseFunnelStrictActors
 from posthog.queries.funnels.funnel_unordered_persons import ClickhouseFunnelUnorderedActors
-from posthog.queries.property_values import get_person_property_values_for_key
 from posthog.queries.trends.lifecycle import Lifecycle
 from posthog.queries.util import get_earliest_timestamp
 from posthog.tasks.split_person import split_person

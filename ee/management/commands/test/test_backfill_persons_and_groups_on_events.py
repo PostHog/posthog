@@ -5,10 +5,11 @@ import pytest
 from django.conf import settings
 
 from ee.clickhouse.sql.events import EVENTS_DATA_TABLE
+from ee.clickhouse.util import ClickhouseTestMixin
 from ee.management.commands.backfill_persons_and_groups_on_events import run_backfill
 from posthog.client import sync_execute
 from posthog.conftest import create_clickhouse_tables
-from posthog.test.base import BaseTest, ClickhouseTestMixin
+from posthog.test.base import BaseTest
 
 
 def create_test_events(properties=""):

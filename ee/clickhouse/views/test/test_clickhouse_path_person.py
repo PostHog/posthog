@@ -5,11 +5,12 @@ from unittest.mock import patch
 from django.core.cache import cache
 from rest_framework import status
 
+from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.constants import FUNNEL_PATH_AFTER_STEP, INSIGHT_FUNNELS, INSIGHT_PATHS
 from posthog.models.cohort import Cohort
 from posthog.models.person import Person
 from posthog.tasks.calculate_cohort import insert_cohort_from_insight_filter
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person
+from posthog.test.base import APIBaseTest, _create_event, _create_person
 
 
 class TestPathPerson(ClickhouseTestMixin, APIBaseTest):

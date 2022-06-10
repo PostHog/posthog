@@ -5,6 +5,7 @@ from unittest.mock import patch
 import pytz
 from rest_framework import status
 
+from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
 from posthog.constants import (
     FILTER_TEST_ACCOUNTS,
     RETENTION_FIRST_TIME,
@@ -16,13 +17,7 @@ from posthog.models import Action, ActionStep
 from posthog.models.filters import RetentionFilter
 from posthog.models.instance_setting import override_instance_config
 from posthog.queries.retention.retention import Retention
-from posthog.test.base import (
-    APIBaseTest,
-    ClickhouseTestMixin,
-    _create_event,
-    _create_person,
-    snapshot_clickhouse_queries,
-)
+from posthog.test.base import APIBaseTest, _create_event, _create_person
 
 
 def _create_action(**kwargs):
