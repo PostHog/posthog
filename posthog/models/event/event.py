@@ -8,7 +8,7 @@ from dateutil.relativedelta import relativedelta
 from django.db import models
 from django.utils import timezone
 
-from .team import Team
+from posthog.models.team.team import Team
 
 SELECTOR_ATTRIBUTE_REGEX = r"([a-zA-Z]*)\[(.*)=[\'|\"](.*)[\'|\"]\]"
 
