@@ -66,6 +66,8 @@ def send_member_join(invitee_uuid: str, organization_id: str) -> None:
 def send_fatal_plugin_error(
     plugin_config_id: int, plugin_config_updated_at: Optional[str], error: str, is_system_error: bool
 ) -> None:
+    if not is_email_available(with_absolute_urls=True):
+        return
     plugin_config: PluginConfig = PluginConfig.objects.select_related("plugin", "team").get(id=plugin_config_id)
     plugin: Plugin = plugin_config.plugin
     team: Team = plugin_config.team
