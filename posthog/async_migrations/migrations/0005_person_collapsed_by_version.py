@@ -207,4 +207,4 @@ class Migration(AsyncMigrationDefinition):
     def _person_ch_insert_values(self, person: Person) -> str:
         # :TRICKY: We use a custom timestamp to identify these rows
         created_at = person.created_at.strftime("%Y-%m-%d %H:%M:%S.%f")
-        return f"('{person.uuid}', '{created_at}', {person.team_id}, '{json.dumps(person.properties)}', {'1' if person.is_identified else '0'}, '{PG_COPY_INSERT_TIMESTAMP}', 0, 0, {person.version})"
+        return f"('{person.uuid}', '{created_at}', {person.team_id}, '{json.dumps(person.properties)}', {'1' if person.is_identified else '0'}, '{PG_COPY_INSERT_TIMESTAMP}', 0, 0, {person.version or 0})"
