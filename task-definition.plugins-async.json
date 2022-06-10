@@ -113,10 +113,6 @@
                     "value": "SSL"
                 },
                 {
-                    "name": "TASKS_PER_WORKER",
-                    "value": "2"
-                },
-                {
                     "name": "WORKER_CONCURRENCY",
                     "value": "2"
                 }
@@ -193,5 +189,5 @@
     ],
     "requiresCompatibilities": ["FARGATE"],
     "cpu": "4096",
-    "memory": "16384"
+    "memory": "8192"
 }
