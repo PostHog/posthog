@@ -1,8 +1,8 @@
 import * as Sentry from '@sentry/node'
 import { Consumer, ConsumerSubscribeTopics, EachBatchPayload, Kafka } from 'kafkajs'
-import { timeoutGuard } from 'utils/db/utils'
 
 import { Hub, WorkerMethods } from '../../types'
+import { timeoutGuard } from '../../utils/db/utils'
 import { status } from '../../utils/status'
 import { killGracefully } from '../../utils/utils'
 import { KAFKA_BUFFER, KAFKA_EVENTS_JSON, prefix as KAFKA_PREFIX } from './../../config/kafka-topics'
