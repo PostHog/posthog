@@ -32,7 +32,8 @@ export async function createPerson(
     server: Hub,
     team: Team,
     distinctIds: string[],
-    properties: Record<string, any> = {}
+    properties: Record<string, any> = {},
+    identified = false
 ): Promise<Person> {
     return server.db.createPerson(
         DateTime.utc(),
@@ -41,7 +42,7 @@ export async function createPerson(
         {},
         team.id,
         null,
-        false,
+        identified,
         new UUIDT().toString(),
         distinctIds
     )
@@ -1473,6 +1474,184 @@ test('distinct with anonymous_id which was already created', async () => {
     expect(await hub.db.fetchDistinctIdValues(person)).toEqual(['anonymous_id', 'new_distinct_id'])
     expect(person.properties['email']).toEqual('someone@gmail.com')
     expect(person.is_identified).toEqual(true)
+})
+
+test('distinct with anonymous_id which was already created triggers foreign key updates', async () => {
+    const anonPerson = await createPerson(hub, team, ['anonymous_id'])
+    const identifiedPerson = await createPerson(hub, team, ['new_distinct_id'], { email: 'someone@gmail.com' })
+
+    // existing overrides
+    await hub.db.postgresQuery(
+        `INSERT INTO "posthog_featureflaghashkeyoverride" ("feature_flag_key", "person_id", "team_id", "hash_key")
+            VALUES
+                ('beta-feature', $1, $2, 'example_id'),
+                ('multivariate-flag', $3, $4, 'example_id')`,
+        [anonPerson.id, team.id, anonPerson.id, team.id],
+        'testHashKeyOverride'
+    )
+
+    // this event means the `anonPerson` will be deleted
+    // so hashkeyoverride should be updated to `identifiedPerson`'s id
+    await processEvent(
+        'new_distinct_id',
+        '',
+        '',
+        {
+            event: '$identify',
+            properties: {
+                $anon_distinct_id: 'anonymous_id',
+                token: team.api_token,
+                distinct_id: 'new_distinct_id',
+            },
+        } as any as PluginEvent,
+        team.id,
+        now,
+        now,
+        new UUIDT().toString()
+    )
+
+    const [person] = await hub.db.fetchPersons()
+    expect(person.id).toEqual(identifiedPerson.id)
+    expect(await hub.db.fetchDistinctIdValues(person)).toEqual(['anonymous_id', 'new_distinct_id'])
+    expect(person.is_identified).toEqual(true)
+
+    const result = await hub.db.postgresQuery(
+        `SELECT "feature_flag_key", "person_id", "hash_key" FROM "posthog_featureflaghashkeyoverride" WHERE "team_id" = $1`,
+        [team.id],
+        'testQueryHashKeyOverride'
+    )
+    expect(result.rows.sort()).toEqual([
+        {
+            feature_flag_key: 'beta-feature',
+            person_id: identifiedPerson.id,
+            hash_key: 'example_id',
+        },
+        {
+            feature_flag_key: 'multivariate-flag',
+            person_id: identifiedPerson.id,
+            hash_key: 'example_id',
+        },
+    ])
+})
+
+test('distinct with conflicting keys triggers foreign key updates and deletes gracefully', async () => {
+    const anonPerson = await createPerson(hub, team, ['anon_id'])
+    const identifiedPerson = await createPerson(hub, team, ['new_distinct_id'], { email: 'someone@gmail.com' }, true)
+
+    // existing overrides for both anonPerson and identifiedPerson
+    // which implies a clash when anonPerson is deleted
+    await hub.db.postgresQuery(
+        `INSERT INTO "posthog_featureflaghashkeyoverride" ("feature_flag_key", "person_id", "team_id", "hash_key")
+            VALUES
+                ('beta-feature', $1, $2, 'example_id'),
+                ('beta-feature', $3, $4, 'different_id'),
+                ('multivariate-flag', $5, $6, 'other_different_id')
+        `,
+        [anonPerson.id, team.id, identifiedPerson.id, team.id, anonPerson.id, team.id],
+        'testHashKeyOverride'
+    )
+
+    // this event means the `anonPerson` will be deleted
+    // so hashkeyoverride should be updated to `identifiedPerson`'s id
+    await processEvent(
+        'new_distinct_id',
+        '',
+        '',
+        {
+            event: '$identify',
+            properties: {
+                $anon_distinct_id: 'anon_id',
+                token: team.api_token,
+                distinct_id: 'new_distinct_id',
+            },
+        } as any as PluginEvent,
+        team.id,
+        now,
+        now,
+        new UUIDT().toString()
+    )
+
+    const [person] = await hub.db.fetchPersons()
+    expect(person.id).toEqual(identifiedPerson.id)
+    expect(await hub.db.fetchDistinctIdValues(person)).toEqual(['anon_id', 'new_distinct_id'])
+    expect(person.is_identified).toEqual(true)
+
+    const result = await hub.db.postgresQuery(
+        `SELECT "feature_flag_key", "person_id", "hash_key" FROM "posthog_featureflaghashkeyoverride" WHERE "team_id" = $1`,
+        [team.id],
+        'testQueryHashKeyOverride'
+    )
+    expect(result.rows.sort()).toEqual([
+        {
+            feature_flag_key: 'beta-feature',
+            person_id: identifiedPerson.id,
+            hash_key: 'different_id', // wasn't overriden from anon flag, because override already exists
+        },
+        {
+            feature_flag_key: 'multivariate-flag',
+            person_id: identifiedPerson.id,
+            hash_key: 'other_different_id',
+        },
+    ])
+})
+
+test('distinct with no conflicting keys doesnt trigger foreign key updates', async () => {
+    await createPerson(hub, team, ['anon_id'])
+    const identifiedPerson = await createPerson(hub, team, ['new_distinct_id'], { email: 'someone@gmail.com' }, true)
+
+    // existing overrides for both anonPerson and identifiedPerson
+    // which implies a clash when anonPerson is deleted
+    await hub.db.postgresQuery(
+        `INSERT INTO "posthog_featureflaghashkeyoverride" ("feature_flag_key", "person_id", "team_id", "hash_key")
+            VALUES
+                ('beta-feature', $1, $2, 'example_id'),
+                ('multivariate-flag', $3, $4, 'different_id')`,
+        [identifiedPerson.id, team.id, identifiedPerson.id, team.id],
+        'testHashKeyOverride'
+    )
+
+    // this event means the `anonPerson` will be deleted
+    // so hashkeyoverride should be updated to `identifiedPerson`'s id
+    await processEvent(
+        'new_distinct_id',
+        '',
+        '',
+        {
+            event: '$identify',
+            properties: {
+                $anon_distinct_id: 'anon_id',
+                token: team.api_token,
+                distinct_id: 'new_distinct_id',
+            },
+        } as any as PluginEvent,
+        team.id,
+        now,
+        now,
+        new UUIDT().toString()
+    )
+
+    const [person] = await hub.db.fetchPersons()
+    expect(person.id).toEqual(identifiedPerson.id)
+    expect(await hub.db.fetchDistinctIdValues(person)).toEqual(['anon_id', 'new_distinct_id'])
+    expect(person.is_identified).toEqual(true)
+
+    const result = await hub.db.postgresQuery(
+        `SELECT "feature_flag_key", "person_id", "hash_key" FROM "posthog_featureflaghashkeyoverride" WHERE "team_id" = $1`,
+        [team.id],
+        'testQueryHashKeyOverride'
+    )
+    expect(result.rows.sort()).toEqual([
+        {
+            feature_flag_key: 'beta-feature',
+            person_id: identifiedPerson.id,
+            hash_key: 'example_id',
+        },
+        {
+            feature_flag_key: 'multivariate-flag',
+            person_id: identifiedPerson.id,
+            hash_key: 'different_id',
+        },
+    ])
 })
 
 test('identify with the same distinct_id as anon_distinct_id', async () => {

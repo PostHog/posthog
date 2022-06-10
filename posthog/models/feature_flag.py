@@ -290,10 +290,7 @@ class FeatureFlagMatcher:
         """
         if self.feature_flag.aggregation_group_type_index is None:
             if self.feature_flag.ensure_experience_continuity:
-                # TODO: worth caching? With a max_size to not OOM, I don't see why not!
-                # Since the value never changes, the cache is never invalidated.
-                # except on deletes, in which case we never reach this code path.
-                # And often times, we'll be creating these overrides right before querying
+                # TODO: Try a global cache
                 if self.feature_flag.key in self.hash_key_overrides:
                     return self.hash_key_overrides[self.feature_flag.key]
             return self.distinct_id

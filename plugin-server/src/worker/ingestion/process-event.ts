@@ -5,7 +5,7 @@ import crypto from 'crypto'
 import equal from 'fast-deep-equal'
 import { ProducerRecord } from 'kafkajs'
 import { DateTime, Duration } from 'luxon'
-import { DatabaseError } from 'pg'
+import { DatabaseError, PoolClient } from 'pg'
 
 import { Event as EventProto, IEvent } from '../../config/idl/protos'
 import { KAFKA_EVENTS, KAFKA_SESSION_RECORDING_EVENTS } from '../../config/kafka-topics'
@@ -476,21 +476,7 @@ export class EventsProcessor {
                     client
                 )
 
-                // When personIDs change, update places depending on a person_id foreign key
-                // Merge the distinct IDs
-                await this.db.postgresQuery(
-                    'UPDATE posthog_cohortpeople SET person_id = $1 WHERE person_id = $2',
-                    [mergeInto.id, otherPerson.id],
-                    'updateCohortPeople',
-                    client
-                )
-                // TODO: What if new person violates unique constraint?
-                await this.db.postgresQuery(
-                    'UPDATE posthog_featureflaghashkeyoverride SET person_id = $1 WHERE person_id = $2',
-                    [mergeInto.id, otherPerson.id],
-                    'updateFeatureFlagHashKeyOverride',
-                    client
-                )
+                await this.handleTablesDependingOnPersonID(otherPerson, mergeInto, client)
 
                 const distinctIdMessages = await this.db.moveDistinctIds(otherPerson, mergeInto, client)
 
@@ -803,6 +789,62 @@ export class EventsProcessor {
                 groupKey.toString(),
                 groupPropertiesToSet || {},
                 timestamp
+            )
+        }
+    }
+
+    private async handleTablesDependingOnPersonID(
+        sourcePerson: Person,
+        targetPerson: Person,
+        client?: PoolClient
+    ): Promise<undefined> {
+        // When personIDs change, update places depending on a person_id foreign key
+        // Merge the distinct IDs
+        await this.db.postgresQuery(
+            'UPDATE posthog_cohortpeople SET person_id = $1 WHERE person_id = $2',
+            [targetPerson.id, sourcePerson.id],
+            'updateCohortPeople',
+            client
+        )
+
+        const allOverrides = await this.db.postgresQuery(
+            'SELECT id, person_id, feature_flag_key FROM posthog_featureflaghashkeyoverride WHERE team_id = $1 AND person_id = ANY($2)',
+            [sourcePerson.team_id, [sourcePerson.id, targetPerson.id]],
+            'selectFeatureFlagHashKeyOverride'
+        )
+
+        if (allOverrides.rowCount === 0) {
+            return
+        }
+
+        // Update where feature_flag_key exists for sourcePerson but not for targetPerson
+        const sourceOverrides = allOverrides.rows.filter((override) => override.person_id == sourcePerson.id)
+        const targetOverrideKeys = allOverrides.rows
+            .filter((override) => override.person_id == targetPerson.id)
+            .map((override) => override.feature_flag_key)
+
+        const itemsToUpdate = sourceOverrides
+            .filter((override) => !targetOverrideKeys.includes(override.feature_flag_key))
+            .map((override) => override.id)
+
+        if (itemsToUpdate.length !== 0) {
+            await this.db.postgresQuery(
+                `UPDATE posthog_featureflaghashkeyoverride SET person_id = $1 WHERE person_id = $2 AND id = ANY($3)
+                `,
+                [targetPerson.id, sourcePerson.id, itemsToUpdate],
+                'updateFeatureFlagHashKeyOverride',
+                client
+            )
+        }
+
+        // delete all other instances
+        // necessary to make sure person can then be deleted
+        if (sourceOverrides.length !== 0) {
+            await this.db.postgresQuery(
+                'DELETE FROM posthog_featureflaghashkeyoverride WHERE person_id = $1',
+                [sourcePerson.id],
+                'deleteFeatureFlagHashKeyOverride',
+                client
             )
         }
     }
