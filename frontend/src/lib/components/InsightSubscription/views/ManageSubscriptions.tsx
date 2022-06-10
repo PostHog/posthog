@@ -87,7 +87,12 @@ export function ManageSubscriptions({ insightShortId, onCancel, onSelect }: Mana
                 <h4 className="mt-05">Manage Subscriptions</h4>
             </header>
 
-            <section>
+            <section
+                style={{
+                    overflowY: 'auto',
+                    maxHeight: '50vh',
+                }}
+            >
                 {subscriptionsLoading && !subscriptions.length ? (
                     <>
                         <Skeleton paragraph={false} />
@@ -116,18 +121,25 @@ export function ManageSubscriptions({ insightShortId, onCancel, onSelect }: Mana
                         <h3>There are no subscriptions for this insight</h3>
 
                         <p>Once subscriptions are created they will display here. </p>
+
+                        <LemonButton type="primary" onClick={() => onSelect('new')}>
+                            Add subscription
+                        </LemonButton>
                     </div>
                 )}
             </section>
 
             <footer className="space-between-items pt">
-                <div />
+                <div>
+                    {!!subscriptions.length ? (
+                        <LemonButton type="secondary" onClick={() => onSelect('new')}>
+                            Add subscription
+                        </LemonButton>
+                    ) : null}
+                </div>
                 <div className="flex gap-05">
                     <LemonButton type="secondary" onClick={onCancel}>
                         Close
-                    </LemonButton>
-                    <LemonButton type="primary" onClick={() => onSelect('new')}>
-                        Add subscription
                     </LemonButton>
                 </div>
             </footer>
