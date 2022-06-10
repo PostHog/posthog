@@ -1,5 +1,5 @@
 import * as Sentry from '@sentry/node'
-import { Consumer, EachBatchPayload, Kafka } from 'kafkajs'
+import { Consumer, ConsumerSubscribeTopics, EachBatchPayload, Kafka } from 'kafkajs'
 
 import { Hub, WorkerMethods } from '../../types'
 import { status } from '../../utils/status'
@@ -46,7 +46,7 @@ export class KafkaQueue {
         }
     }
 
-    topics(): string[] {
+    topics(): ConsumerSubscribeTopics {
         const topics = []
 
         if (this.pluginsServer.capabilities.ingestion) {
@@ -57,7 +57,7 @@ export class KafkaQueue {
             throw Error('No topics to consume, KafkaQueue should not be started')
         }
 
-        return topics
+        return { topics }
     }
 
     consumerGroupId(): string {
@@ -83,10 +83,7 @@ export class KafkaQueue {
             this.wasConsumerRan = true
 
             await this.consumer.connect()
-
-            for (const topic of this.topics()) {
-                await this.consumer.subscribe({ topic })
-            }
+            await this.consumer.subscribe(this.topics())
 
             // KafkaJS batching: https://kafka.js.org/docs/consuming#a-name-each-batch-a-eachbatch
             await this.consumer.run({
@@ -196,10 +193,6 @@ export class KafkaQueue {
             // NOTE: This should never clash with the group ID specified for the kafka engine posthog/ee/clickhouse/sql/clickhouse.py
             groupId,
             readUncommitted: false,
-            retry: {
-                maxRetryTime: 200_000, // default: 30_000
-                retries: 20, // default: 5
-            },
         })
         const { GROUP_JOIN, CRASH, CONNECT, DISCONNECT } = consumer.events
         consumer.on(GROUP_JOIN, ({ payload: { groupId } }) => {
