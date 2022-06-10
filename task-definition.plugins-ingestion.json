@@ -111,6 +111,10 @@
                 {
                     "name": "KAFKA_SECURITY_PROTOCOL",
                     "value": "SSL"
+                },
+                {
+                    "name": "INGESTION_BATCH_BREAKUP_BY_DISTINCT_ID_TEAMS",
+                    "value": "7964"
                 }
             ],
             "secrets": [
