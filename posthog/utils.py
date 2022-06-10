@@ -371,6 +371,11 @@ def get_ip_address(request: HttpRequest) -> str:
         ip = x_forwarded_for.split(",")[0]
     else:
         ip = request.META.get("REMOTE_ADDR")  # Real IP address of client Machine
+
+    # Strip port from ip address as Azure gateway handles x-forwarded-for incorrectly
+    if ip and len(ip.split(":")) == 2:
+        ip = ip.split(":")[0]
+
     return ip
 
 

@@ -220,6 +220,7 @@ export function PluginDrawer(): JSX.Element {
                 }
             >
                 <Form form={form} layout="vertical" name="basic" onFinish={savePluginConfig}>
+                    {/* TODO: Rework as Kea form with Lemon UI components */}
                     {editingPlugin ? (
                         <div>
                             <div style={{ display: 'flex', marginBottom: 16 }}>
@@ -296,10 +297,16 @@ export function PluginDrawer(): JSX.Element {
                                 </>
                             ) : null}
 
-                            {editingPlugin.pluginConfig.id && (
+                            {!!(
+                                editingPlugin.pluginConfig.id &&
+                                editingPlugin.capabilities?.jobs?.length &&
+                                editingPlugin.public_jobs?.length
+                            ) && (
                                 <PluginJobOptions
-                                    plugin={editingPlugin}
+                                    pluginId={editingPlugin.id}
                                     pluginConfigId={editingPlugin.pluginConfig.id}
+                                    capabilities={editingPlugin.capabilities}
+                                    publicJobs={editingPlugin.public_jobs}
                                 />
                             )}
 

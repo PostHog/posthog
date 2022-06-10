@@ -1,3 +1,4 @@
+import '../../../src/styles/global.scss'
 export * from 'lib/components/LemonBubble/LemonBubble'
 export * from 'lib/components/LemonButton/LemonButton'
 export * from 'lib/components/LemonCheckbox/LemonCheckbox'
@@ -11,9 +12,4 @@ export * from 'lib/components/LemonTable/LemonTable'
 export * from 'lib/components/LemonTag/LemonTag'
 export * from 'lib/components/LemonTextArea/LemonTextArea'
 export * from 'lib/components/lemonToast'
-
-export * from 'lib/components/AdHocInsight/AdHocInsight'
 export * from 'lib/components/Link'
-
-import api_ from 'lib/api'
-export const api = api_

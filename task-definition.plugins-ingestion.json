@@ -185,5 +185,5 @@
     ],
     "requiresCompatibilities": ["FARGATE"],
     "cpu": "4096",
-    "memory": "16384"
+    "memory": "8192"
 }
