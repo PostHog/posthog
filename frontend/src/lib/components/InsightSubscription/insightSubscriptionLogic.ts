@@ -79,7 +79,7 @@ export const insightSubscriptionLogic = kea<insightSubscriptionLogicType>([
                 lemonToast.success(`Subscription saved.`)
 
                 if (subscriptionId !== props.id) {
-                    router.actions.clearUnloadHandlers()
+                    router.actions.clearUnloadInterceptors()
                     router.actions.replace(urls.insightSubcription(props.insightShortId, subscriptionId.toString()))
                 }
             },
