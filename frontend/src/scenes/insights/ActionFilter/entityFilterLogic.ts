@@ -218,19 +218,11 @@ export const entityFilterLogic = kea<entityFilterLogicType>({
 
                 {
                     id: 'empty',
-                    type: 'new_entity',
+                    type: EntityTypes.NEW_ENTITY,
                     order: precedingEntity ? precedingEntity.order + 1 : 0,
                     name: 'empty',
                     ...props.addFilterDefaultOptions,
                 },
-                // new_entity: [
-                //     {
-                //         id: event,
-                //         type: EntityTypes.EVENTS,
-                //         order: 0,
-                //         name: event,
-                //     },
-                // ],
             ])
             eventUsageLogic.actions.reportInsightFilterAdded(newLength, GraphSeriesAddedSource.Default)
         },
