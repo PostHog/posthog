@@ -7,10 +7,12 @@ import structlog
 from clickhouse_driver.errors import ServerException
 from django.conf import settings
 from django.utils.timezone import now
+from ee.clickhouse.sql.clickhouse import STORAGE_POLICY
+from ee.clickhouse.sql.person import PERSONS_TABLE_ENGINE
 
 from posthog.async_migrations.utils import execute_op_clickhouse
 from ee.clickhouse.sql.events import EVENTS_TABLE_JSON_MV_SQL, KAFKA_EVENTS_TABLE_JSON_SQL
-from ee.clickhouse.sql.table_engines import MergeTreeEngine
+from ee.clickhouse.sql.table_engines import MergeTreeEngine, ReplacingMergeTree
 from posthog.async_migrations.definition import (
     AsyncMigrationDefinition,
     AsyncMigrationOperation,
@@ -85,23 +87,39 @@ class Migration(AsyncMigrationDefinition):
 
         return not ("ReplicatedReplacingMergeTree" in person_table_engine and ", version)" in person_table_engine)
 
-    operations: List[AsyncMigrationOperation] = [
-        AsyncMigrationOperationSQL(
-            database=AnalyticsDBMS.CLICKHOUSE,
-            sql=f"""
-                RENAME TABLE
-                    {PERSON_TABLE_NAME} to {BACKUP_TABLE_NAME},
-                    {TEMPORARY_TABLE_NAME} to {PERSON_TABLE_NAME}
-                ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'
-            """,
-            rollback=f"""
-                RENAME TABLE
-                    {PERSON_TABLE_NAME} to {FAILED_PERSON_TABLE_NAME},
-                    {BACKUP_TABLE_NAME} to {PERSON_TABLE_NAME}
-                ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'
-            """,
-        ),
-        AsyncMigrationOperation(fn=optimize_table_fn),
-    ]
+    @cached_property
+    def operations(self):
+        return [
+            AsyncMigrationOperationSQL(
+                database=AnalyticsDBMS.CLICKHOUSE,
+                sql=f"""
+                CREATE TABLE IF NOT EXISTS {TEMPORARY_TABLE_NAME} ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}' AS {PERSON_TABLE_NAME}
+                ENGINE = {self.new_table_engine()}
+                ORDER BY (team_id, id)
+                {STORAGE_POLICY()}
+                """,
+                rollback=f"DROP TABLE IF EXISTS {TEMPORARY_TABLE_NAME} ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'",
+            ),
+            AsyncMigrationOperationSQL(
+                database=AnalyticsDBMS.CLICKHOUSE,
+                sql=f"""
+                    RENAME TABLE
+                        {PERSON_TABLE_NAME} to {BACKUP_TABLE_NAME},
+                        {TEMPORARY_TABLE_NAME} to {PERSON_TABLE_NAME}
+                    ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'
+                """,
+                rollback=f"""
+                    RENAME TABLE
+                        {PERSON_TABLE_NAME} to {FAILED_PERSON_TABLE_NAME},
+                        {BACKUP_TABLE_NAME} to {PERSON_TABLE_NAME}
+                    ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'
+                """,
+            ),
+            AsyncMigrationOperation(fn=optimize_table_fn),
+        ]
 
-
+    def new_table_engine(self):
+        engine = ReplacingMergeTree("person", ver="version")
+        # :TRICKY: Zookeeper paths need to be unique each time we run this migration, so generate a unique prefix.
+        engine.set_zookeeper_path_key(now().strftime("am0005_%Y%m%d%H%M%S"))
+        return engine
