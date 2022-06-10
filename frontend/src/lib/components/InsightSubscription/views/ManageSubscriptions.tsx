@@ -7,6 +7,7 @@ import { IconEllipsis } from 'lib/components/icons'
 import { ProfileBubbles } from 'lib/components/ProfilePicture'
 import { insightSubscriptionsLogic } from '../insightSubscriptionsLogic'
 import { Skeleton } from 'antd'
+import { bysetposOptions } from '../utils'
 
 interface SubscriptionListItemProps {
     subscription: SubscriptionType
@@ -21,9 +22,17 @@ const humanFrequencyMap: { [key in SubscriptionType['frequency']]: string } = {
     yearly: 'year',
 }
 
-function summarizeSubscription(subscription: SubscriptionType): string {
+export function summarizeSubscription(subscription: SubscriptionType): string {
     const frequency = pluralize(subscription.interval, humanFrequencyMap[subscription.frequency], undefined, false)
-    return `Sent every ${subscription.interval > 1 ? subscription.interval + ' ' : ''}${frequency}`
+    let summary = `Sent every ${subscription.interval > 1 ? subscription.interval + ' ' : ''}${frequency}`
+
+    if (subscription.byweekday?.length) {
+        summary += ` on the ${bysetposOptions[subscription.bysetpos]?.label} ${
+            subscription.byweekday.length === 1 ? subscription.byweekday[0] : 'day'
+        }`
+    }
+
+    return summary
 }
 
 export function SubscriptionListItem({ subscription, onClick, onDelete }: SubscriptionListItemProps): JSX.Element {

@@ -6,9 +6,8 @@ import { Select } from 'antd'
 import { membersLogic } from 'scenes/organization/Settings/membersLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { Field } from 'lib/forms/Field'
-import { range } from 'lib/utils'
 import { dayjs } from 'lib/dayjs'
-import { LemonSelect, LemonSelectOptions } from 'lib/components/LemonSelect'
+import { LemonSelect } from 'lib/components/LemonSelect'
 import { insightSubscriptionLogic } from '../insightSubscriptionLogic'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 import { IconChevronLeft, IconOpenInNew } from 'lib/components/icons'
@@ -16,6 +15,14 @@ import { LemonDivider, LemonInput, LemonTextArea } from 'packages/apps-common'
 import { AlertMessage } from 'lib/components/AlertMessage'
 import { InsightShortId } from '~/types'
 import { insightSubscriptionsLogic } from '../insightSubscriptionsLogic'
+import {
+    bysetposOptions,
+    frequencyOptions,
+    intervalOptions,
+    monthlyWeekdayOptions,
+    timeOptions,
+    weekdayOptions,
+} from '../utils'
 
 interface EditSubscriptionProps {
     id: number | 'new'
@@ -23,51 +30,6 @@ interface EditSubscriptionProps {
     onCancel: () => void
     onDelete: () => void
 }
-
-const intervalOptions: LemonSelectOptions = range(1, 13).reduce(
-    (acc, x) => ({
-        ...acc,
-        [x]: { label: x },
-    }),
-    {}
-)
-
-const frequencyOptions: LemonSelectOptions = {
-    daily: { label: 'days' },
-    weekly: { label: 'weeks' },
-    monthly: { label: 'months' },
-}
-
-const weekdayOptions: LemonSelectOptions = {
-    monday: { label: 'monday' },
-    tuesday: { label: 'tuesday' },
-    wednesday: { label: 'wednesday' },
-    thursday: { label: 'thursday' },
-    friday: { label: 'friday' },
-    saturday: { label: 'saturday' },
-    sunday: { label: 'sunday' },
-}
-
-const monthlyWeekdayOptions: LemonSelectOptions = {
-    day: { label: 'day' },
-    ...weekdayOptions,
-}
-
-const bysetposOptions: LemonSelectOptions = {
-    '1': { label: 'first' },
-    '2': { label: 'second' },
-    '3': { label: 'third' },
-    '4': { label: 'fourth' },
-    '-1': { label: 'last' },
-}
-
-const timeOptions: LemonSelectOptions = range(0, 23).reduce(
-    (acc, x) => ({
-        ...acc,
-        [String(x)]: { label: `${String(x).padStart(2, '0')}:00` },
-    }),
-    {}
-)
 
 export function EditSubscription({ id, insightShortId, onCancel, onDelete }: EditSubscriptionProps): JSX.Element {
     const logicProps = {
@@ -287,7 +249,12 @@ export function EditSubscription({ id, insightShortId, onCancel, onDelete }: Edi
                         <LemonButton type="secondary" onClick={onCancel}>
                             Cancel
                         </LemonButton>
-                        <LemonButton type="primary" htmlType="submit" loading={isSubscriptionSubmitting}>
+                        <LemonButton
+                            type="primary"
+                            htmlType="submit"
+                            loading={isSubscriptionSubmitting}
+                            disabled={emailDisabled}
+                        >
                             {id === 'new' ? 'Create subscription' : 'Save'}
                         </LemonButton>
                     </div>

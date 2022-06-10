@@ -7,7 +7,7 @@ import { useActions } from 'kea'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
 
-interface InsightSubscriptionModalProps {
+export interface InsightSubscriptionsModalProps {
     visible: boolean
     closeModal: () => void
     insightShortId: InsightShortId
@@ -19,7 +19,7 @@ export function InsightSubscriptionsModal({
     closeModal,
     insightShortId,
     subscriptionId,
-}: InsightSubscriptionModalProps): JSX.Element {
+}: InsightSubscriptionsModalProps): JSX.Element {
     const { push } = useActions(router)
 
     return (
