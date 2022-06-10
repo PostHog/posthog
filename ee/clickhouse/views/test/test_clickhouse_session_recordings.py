@@ -1,8 +1,8 @@
 from uuid import uuid4
 
 from ee.clickhouse.models.session_recording_event import create_session_recording_event
-from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.api.test.test_session_recordings import factory_test_session_recordings_api
+from posthog.test.base import ClickhouseTestMixin
 
 
 def _create_session_recording_event(**kwargs):

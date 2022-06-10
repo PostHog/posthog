@@ -8,7 +8,6 @@ from freezegun import freeze_time
 from rest_framework.exceptions import ValidationError
 
 from ee.clickhouse.test.test_journeys import journeys_for
-from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
 from posthog.constants import ENTITY_ID, ENTITY_TYPE, TREND_FILTER_TYPE_EVENTS, TRENDS_BAR_VALUE, TRENDS_TABLE
 from posthog.models import Action, ActionStep, Cohort, Entity, Filter, Organization, Person
 from posthog.models.instance_setting import override_instance_config
@@ -16,9 +15,11 @@ from posthog.models.person.util import create_person_distinct_id
 from posthog.queries.trends.trends import Trends
 from posthog.test.base import (
     APIBaseTest,
+    ClickhouseTestMixin,
     _create_event,
     _create_person,
     flush_persons_and_events,
+    snapshot_clickhouse_queries,
     test_with_materialized_columns,
 )
 
