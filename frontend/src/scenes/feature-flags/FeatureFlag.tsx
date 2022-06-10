@@ -191,7 +191,15 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                             rowProps={{ fullWidth: true }}
                                             checked={!!value}
                                         />
-                                        <div className="text-muted ml pb" style={{ fontSize: 13 }}>
+                                        <div
+                                            className="text-muted"
+                                            style={{
+                                                fontSize: 13,
+                                                marginLeft: '2.5rem',
+                                                paddingBottom: '.75rem',
+                                                paddingRight: '.75rem',
+                                            }}
+                                        >
                                             If your feature flag is applied prior to an identify or authentication
                                             event, use this to ensure that feature flags are not reset after a person is
                                             identified. This ensures the experience for the anonymous person is carried
