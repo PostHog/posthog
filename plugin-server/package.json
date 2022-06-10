@@ -59,7 +59,7 @@
         "fast-deep-equal": "^3.1.3",
         "generic-pool": "^3.7.1",
         "graphile-worker": "^0.11.1",
-        "hot-shots": "^9.0.0",
+        "hot-shots": "^8.3.2",
         "ioredis": "^4.27.6",
         "jsonwebtoken": "^8.5.1",
         "kafkajs": "^2.0.1",
