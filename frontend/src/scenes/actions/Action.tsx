@@ -21,7 +21,7 @@ export function Action({ id }: { id?: ActionType['id'] } = {}): JSX.Element {
 
     const { push } = useActions(router)
 
-    const { action, isComplete } = useValues(actionLogic)
+    const { action, isComplete, shouldSimplifyActions } = useValues(actionLogic)
     const { loadAction } = useActions(actionLogic)
 
     return (
@@ -43,7 +43,8 @@ export function Action({ id }: { id?: ActionType['id'] } = {}): JSX.Element {
                     <div>
                         <h2 className="subtitle">Matching events</h2>
                         <p>
-                            This is the list of <strong>recent</strong> raw events that match this action.
+                            This is the list of <strong>recent</strong> raw events that match this{' '}
+                            {shouldSimplifyActions ? 'event' : 'action'}.
                             {action?.last_calculated_at ? (
                                 <>
                                     {' '}
@@ -58,6 +59,8 @@ export function Action({ id }: { id?: ActionType['id'] } = {}): JSX.Element {
                             sceneUrl={urls.action(id)}
                             fetchMonths={3}
                             pageKey={`action-${id}-${JSON.stringify(fixedFilters)}`}
+                            showEventFilter={false}
+                            showPropertyFilter={false}
                         />
                     </div>
                 ) : (

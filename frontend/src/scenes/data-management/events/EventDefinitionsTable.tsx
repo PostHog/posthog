@@ -24,6 +24,7 @@ import { ProfilePicture } from 'lib/components/ProfilePicture'
 import { createdAtColumn } from 'lib/components/LemonTable/columnUtils'
 import { teamLogic } from 'scenes/teamLogic'
 import { IconWebhook } from 'lib/components/icons'
+import { NewActionButton } from 'scenes/actions/NewActionButton'
 
 export const scene: SceneExport = {
     component: EventDefinitionsTable,
@@ -190,6 +191,8 @@ export function EventDefinitionsTable(): JSX.Element {
                         setFilters({ event: e.target.value || '' })
                     }}
                 />
+                <div style={{ flex: 1 }} />
+                <NewActionButton />
             </div>
             <LemonTable
                 columns={columns}
@@ -222,6 +225,9 @@ export function EventDefinitionsTable(): JSX.Element {
                             return null
                         }
                         return <EventDefinitionProperties definition={definition} />
+                    },
+                    rowExpandable: (definition) => {
+                        return !isActionEvent(definition)
                     },
                     noIndent: true,
                     isRowExpanded: (record) => (record.id === openedDefinitionId ? true : -1),

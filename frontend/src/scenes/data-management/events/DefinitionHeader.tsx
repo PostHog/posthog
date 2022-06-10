@@ -1,7 +1,6 @@
 import React from 'react'
 import { ActionType, CombinedEvent, EventDefinition, PropertyDefinition } from '~/types'
 import {
-    ActionStack,
     AutocaptureIcon,
     PageleaveIcon,
     PageviewIcon,
@@ -21,7 +20,6 @@ import {
     eventTaxonomicGroupProps,
     propertyTaxonomicGroupProps,
 } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
-import { isActionEvent } from 'scenes/data-management/events/eventDefinitionsTableLogic'
 import { actionsModel } from '~/models/actionsModel'
 
 export enum DefinitionType {
@@ -42,16 +40,6 @@ export function getPropertyDefinitionIcon(definition: PropertyDefinition): JSX.E
 }
 
 export function getEventDefinitionOrActionIcon(definition: CombinedEvent): JSX.Element {
-    if (isActionEvent(definition)) {
-        if (definition.verified) {
-            return (
-                <Tooltip title="Verified event filter">
-                    <ActionStack className="taxonomy-icon taxonomy-icon-verified" />
-                </Tooltip>
-            )
-        }
-        return <ActionStack className="taxonomy-icon taxonomy-icon-muted" />
-    }
     // Rest are events
     if (definition.name === '$pageview') {
         return (
@@ -74,7 +62,7 @@ export function getEventDefinitionOrActionIcon(definition: CombinedEvent): JSX.E
             </Tooltip>
         )
     }
-    if (definition.verified || !!keyMapping.event[definition.name]) {
+    if (definition.name && (definition.verified || !!keyMapping.event[definition.name])) {
         return (
             <Tooltip title={`Verified${!!keyMapping.event[definition.name] ? ' PostHog' : ' event'}`}>
                 <VerifiedEventStack className="taxonomy-icon taxonomy-icon-verified" />
@@ -155,9 +143,7 @@ export function ActionHeader({
                 getValue: (action: ActionType) => action.name || '',
                 getFullDetailUrl: (action: ActionType) => urls.action(action.id),
                 getPopupHeader: () => 'Event filter',
-                getIcon: function _getIcon(): JSX.Element {
-                    return <ActionStack className="taxonomy-icon taxonomy-icon-muted" />
-                },
+                getIcon: getEventDefinitionOrActionIcon,
             }}
             {...props}
         />

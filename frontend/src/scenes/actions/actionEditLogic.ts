@@ -101,7 +101,7 @@ export const actionEditLogic = kea<actionEditLogicType>([
                             // Below works because `detail` in the format:
                             // `This project already has an action with this name, ID ${errorActionId}`
                             const dupeId = response.detail.split(' ').pop()
-                            duplicateActionErrorToast(dupeId)
+                            duplicateActionErrorToast(dupeId, values.shouldSimplifyActions)
                             return action
                         }
                         throw response

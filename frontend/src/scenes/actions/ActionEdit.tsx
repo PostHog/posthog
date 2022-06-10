@@ -21,8 +21,6 @@ import { LemonButton } from 'lib/components/LemonButton'
 import { LemonCheckbox } from 'lib/components/LemonCheckbox'
 import { lemonToast } from 'lib/components/lemonToast'
 import { LemonInput } from 'lib/components/LemonInput/LemonInput'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }: ActionEditLogicProps): JSX.Element {
     const logicProps: ActionEditLogicProps = {
@@ -32,11 +30,10 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
         temporaryToken,
     }
     const logic = actionEditLogic(logicProps)
-    const { action, actionLoading, actionCount, actionCountLoading } = useValues(logic)
+    const { action, actionLoading, actionCount, actionCountLoading, shouldSimplifyActions } = useValues(logic)
     const { deleteAction } = useActions(logic)
     const { currentTeam } = useValues(teamLogic)
     const { hasAvailableFeature } = useValues(userLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     const slackEnabled = currentTeam?.slack_incoming_webhook
 
@@ -61,9 +58,7 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
             type="secondary"
             style={{ marginRight: 8 }}
             onClick={() => {
-                router.actions.push(
-                    featureFlags[FEATURE_FLAGS.SIMPLIFY_ACTIONS] ? urls.eventDefinitions() : urls.actions()
-                )
+                router.actions.push(shouldSimplifyActions ? urls.eventDefinitions() : urls.actions())
             }}
         >
             Cancel
@@ -250,7 +245,8 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
                                     disabled={!slackEnabled}
                                     label={
                                         <>
-                                            Post to webhook when this action is triggered.
+                                            Post to webhook when this {shouldSimplifyActions ? 'event' : 'action'} is
+                                            triggered.
                                             <Link to="/project/settings#webhook" style={{ marginLeft: 4 }}>
                                                 {slackEnabled ? 'Configure' : 'Enable'} this integration in Setup.
                                             </Link>
@@ -304,10 +300,11 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
     )
 }
 
-export function duplicateActionErrorToast(errorActionId: string): void {
+export function duplicateActionErrorToast(errorActionId: string, shouldSimplifyActions: boolean): void {
     lemonToast.error(
         <>
-            Action with this name already exists. <a href={urls.action(errorActionId)}>Click here to edit.</a>
+            {shouldSimplifyActions ? 'Event' : 'Action'} with this name already exists.{' '}
+            <a href={urls.action(errorActionId)}>Click here to edit.</a>
         </>
     )
 }
