@@ -25,7 +25,7 @@ done
 echo "Let's get the exact domain PostHog will be installed on"
 echo "Make sure that you have a Host A DNS record pointing to this instance!"
 echo "This will be used for TLS 🔐"
-echo "ie: test.posthog.net"
+echo "ie: test.posthog.net (NOT an IP address)"
 read -r DOMAIN
 export DOMAIN=$DOMAIN
 echo "Ok we'll set up certs for https://$DOMAIN"
