@@ -342,7 +342,7 @@ class BaseTestMigrations(QueryMatchingTest):
 
         self.apps = executor.loader.project_state(self.migrate_to).apps
 
-    @snapshot_postgres_queries
+    @snapshot_postgres_queries(["SELECT"])
     def _execute_migration_with_snapshots(self, executor):
         executor.migrate(self.migrate_to)
 
