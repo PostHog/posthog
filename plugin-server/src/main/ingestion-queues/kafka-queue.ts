@@ -1,5 +1,6 @@
 import * as Sentry from '@sentry/node'
 import { Consumer, ConsumerSubscribeTopics, EachBatchPayload, Kafka } from 'kafkajs'
+import { timeoutGuard } from 'utils/db/utils'
 
 import { Hub, WorkerMethods } from '../../types'
 import { status } from '../../utils/status'
@@ -71,11 +72,20 @@ export class KafkaQueue {
     }
 
     async start(): Promise<void> {
+        const timeout = timeoutGuard(
+            `Kafka queue is slow to start. Waiting over 1 minute to join the consumer group`,
+            {
+                topics: this.topics(),
+            },
+            60000
+        )
+
         const startPromise = new Promise<void>(async (resolve, reject) => {
             // addMetricsEventListeners(this.consumer, this.pluginsServer.statsd)
             this.consumer.on(this.consumer.events.GROUP_JOIN, ({ payload }) => {
                 status.info('ℹ️', 'Kafka joined consumer group', JSON.stringify(payload))
                 this.consumerGroupMemberId = payload.memberId
+                clearTimeout(timeout)
                 resolve()
             })
             this.consumer.on(this.consumer.events.CRASH, ({ payload: { error } }) => reject(error))
