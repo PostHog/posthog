@@ -8,7 +8,7 @@ from rest_framework import status
 
 from ee.models.event_definition import EnterpriseEventDefinition
 from ee.models.license import License, LicenseManager
-from posthog.models import Tag
+from posthog.models import Action, Tag
 from posthog.models.event_definition import EventDefinition
 from posthog.test.base import APIBaseTest
 
@@ -339,3 +339,17 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         self.assertEqual(response.json()["count"], 2)  # installed_app, rated_app
         self.assertEqual(response.json()["results"][0]["name"], "installed_app")
         self.assertEqual(response.json()["results"][1]["name"], "rated_app")
+
+    def test_include_actions(self):
+        super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            plan="enterprise", valid_until=timezone.datetime(2500, 1, 19, 3, 14, 7)
+        )
+        EnterpriseEventDefinition.objects.create(team=self.team, name="rated_app")
+        EnterpriseEventDefinition.objects.create(team=self.team, name="installed_app")
+        action = Action.objects.create(team=self.team, name="action1")
+
+        response = self.client.get("/api/projects/@current/event_definitions/?search=app&include_actions=true")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 3)
+        self.assertEqual(response.json()["results"][0]["id"], str(action.id))
+        self.assertEqual(response.json()["results"][0]["name"], action.name)

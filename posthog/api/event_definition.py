@@ -1,4 +1,3 @@
-from itertools import chain
 from typing import Type
 
 from django.db.models import BooleanField, Case, Prefetch, Q, Value, When
@@ -122,7 +121,7 @@ class EventDefinitionViewSet(
                     )
                 )
 
-                return list(chain(actions_list, ee_event_definitions_list))
+                return actions_list | ee_event_definitions_list
 
         event_definitions_list = (
             self.filter_queryset_by_parents_lookups(EventDefinition.objects.all())
@@ -140,7 +139,7 @@ class EventDefinitionViewSet(
             .order_by("-is_ordered_first", "name")
         )
 
-        return list(chain(actions_list, event_definitions_list))
+        return actions_list | event_definitions_list
 
     def get_object(self):
         id = self.kwargs["id"]

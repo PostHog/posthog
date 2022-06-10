@@ -12,7 +12,7 @@ from rest_framework import status
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
 from posthog.api.test.test_user import create_user
-from posthog.models import EventDefinition, Organization, Team
+from posthog.models import Action, EventDefinition, Organization, Team
 from posthog.tasks.calculate_event_property_usage import calculate_event_property_usage_for_team
 from posthog.test.base import APIBaseTest
 
@@ -247,6 +247,15 @@ class TestEventDefinitionAPI(APIBaseTest):
         self.assertEqual(response.json()["count"], 2)  # installed_app, rated_app
         self.assertEqual(response.json()["results"][0]["name"], "installed_app")
         self.assertEqual(response.json()["results"][1]["name"], "rated_app")
+
+    def test_include_actions(self):
+        action = Action.objects.create(team=self.demo_team, name="action1")
+
+        response = self.client.get("/api/projects/@current/event_definitions/?search=app&include_actions=true")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 7)
+        self.assertEqual(response.json()["results"][0]["id"], str(action.id))
+        self.assertEqual(response.json()["results"][0]["name"], action.name)
 
 
 @dataclasses.dataclass
