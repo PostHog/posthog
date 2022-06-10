@@ -205,6 +205,13 @@ class TestEEAuthenticationAPI(APILicensedTest):
             organization=str(self.organization.id),
         )
 
+    def test_login_with_sso_resets_session(self):
+        with self.settings(**GOOGLE_MOCK_SETTINGS):
+            first_key = self.client.session.session_key
+            self.client.post("/login/google-oauth2/", {"email_opt_in": False})
+            second_key = self.client.session.session_key
+            self.assertNotEqual(first_key, second_key)
+
 
 @pytest.mark.skip_on_multitenancy
 @override_settings(**SAML_MOCK_SETTINGS)
