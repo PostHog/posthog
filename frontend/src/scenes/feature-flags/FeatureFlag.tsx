@@ -25,6 +25,7 @@ import { Field } from 'lib/forms/Field'
 import { VerticalForm } from 'lib/forms/VerticalForm'
 import { LemonTextArea } from 'lib/components/LemonTextArea/LemonTextArea'
 import { LemonInput } from 'lib/components/LemonInput/LemonInput'
+import { LemonCheckbox } from 'packages/apps-common'
 
 export const scene: SceneExport = {
     component: FeatureFlag,
@@ -178,6 +179,39 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                     data-attr="feature-flag-description"
                                     placeholder="Adding a helpful description can ensure others know what this feature is for."
                                 />
+                            </Field>
+
+                            <Field name="ensure_experience_continuity">
+                                {({ value, onChange }) => (
+                                    <div style={{ border: '1px solid var(--border)', borderRadius: 4 }}>
+                                        <LemonCheckbox
+                                            id="continuity-checkbox"
+                                            label={
+                                                <>
+                                                    Persist flags across authentication steps{' '}
+                                                    <LemonTag type="warning">Beta</LemonTag>
+                                                </>
+                                            }
+                                            onChange={() => onChange(!value)}
+                                            rowProps={{ fullWidth: true }}
+                                            checked={value}
+                                        />
+                                        <div
+                                            className="text-muted"
+                                            style={{
+                                                fontSize: 13,
+                                                marginLeft: '2.5rem',
+                                                paddingBottom: '.75rem',
+                                                paddingRight: '.75rem',
+                                            }}
+                                        >
+                                            If your feature flag is applied prior to an identify or authentication
+                                            event, use this to ensure that feature flags are not reset after a person is
+                                            identified. This ensures the experience for the anonymous person is carried
+                                            forward to the authenticated person.
+                                        </div>
+                                    </div>
+                                )}
                             </Field>
                         </Col>
                         <Col span={12} style={{ paddingTop: 31 }}>

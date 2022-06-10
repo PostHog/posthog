@@ -206,49 +206,51 @@ export function Histogram({
                 _svg.node().appendChild(_bars.node())
 
                 // text labels
-                const _labels = getOrCreateEl(_svg, 'g#labels', () => _svg.append('svg:g').attr('id', 'labels'))
-                _labels
-                    .selectAll('text')
-                    .data(d3Data)
-                    .join('text')
-                    .text((d) => d.label)
-                    .classed('bar-label', true)
-                    .each(function (this: any, d) {
-                        const { width: labelWidth, height: labelHeight } = this.getBBox()
-                        d.labelWidth = labelWidth
-                        d.labelHeight = labelHeight
-                        d.shouldShowInBar = false
-                    })
-                    .attr('x', (d) => {
-                        if (!isVertical) {
-                            const labelWidth = (d.labelWidth || 0) + 2 * config.spacing.barLabelPadding
-                            const shouldShowInBar = labelWidth <= y(d.count) - y(0)
-                            const labelDx = shouldShowInBar
-                                ? -(labelWidth - config.spacing.barLabelPadding)
-                                : config.spacing.barLabelPadding
+                if (!isDashboardItem) {
+                    const _labels = getOrCreateEl(_svg, 'g#labels', () => _svg.append('svg:g').attr('id', 'labels'))
+                    _labels
+                        .selectAll('text')
+                        .data(d3Data)
+                        .join('text')
+                        .text((d) => d.label)
+                        .classed('bar-label', true)
+                        .each(function (this: any, d) {
+                            const { width: labelWidth, height: labelHeight } = this.getBBox()
+                            d.labelWidth = labelWidth
+                            d.labelHeight = labelHeight
+                            d.shouldShowInBar = false
+                        })
+                        .attr('x', (d) => {
+                            if (!isVertical) {
+                                const labelWidth = (d.labelWidth || 0) + 2 * config.spacing.barLabelPadding
+                                const shouldShowInBar = labelWidth <= y(d.count) - y(0)
+                                const labelDx = shouldShowInBar
+                                    ? -(labelWidth - config.spacing.barLabelPadding)
+                                    : config.spacing.barLabelPadding
+                                d.shouldShowInBar = shouldShowInBar
+                                return y(d.count) + labelDx
+                            }
+                            // x + bin width + dx + dy
+                            return x(d.bin0) + binWidth / 2 - (d.labelWidth || 0) / 2
+                        })
+                        .attr('y', (d) => {
+                            if (!isVertical) {
+                                return x(d.bin0) + binWidth / 2
+                            }
+                            // determine if label should be in the bar or above it.
+                            const labelHeight = (d.labelHeight || 0) + 2 * config.spacing.barLabelPadding
+                            const shouldShowInBar = labelHeight <= y(0) - y(d.count)
+                            const labelDy = shouldShowInBar
+                                ? labelHeight - config.spacing.barLabelPadding
+                                : -config.spacing.barLabelPadding
                             d.shouldShowInBar = shouldShowInBar
-                            return y(d.count) + labelDx
-                        }
-                        // x + bin width + dx + dy
-                        return x(d.bin0) + binWidth / 2 - (d.labelWidth || 0) / 2
-                    })
-                    .attr('y', (d) => {
-                        if (!isVertical) {
-                            return x(d.bin0) + binWidth / 2
-                        }
-                        // determine if label should be in the bar or above it.
-                        const labelHeight = (d.labelHeight || 0) + 2 * config.spacing.barLabelPadding
-                        const shouldShowInBar = labelHeight <= y(0) - y(d.count)
-                        const labelDy = shouldShowInBar
-                            ? labelHeight - config.spacing.barLabelPadding
-                            : -config.spacing.barLabelPadding
-                        d.shouldShowInBar = shouldShowInBar
-                        return y(d.count) + labelDy
-                    })
-                    .classed('outside', (d) => !d.shouldShowInBar)
+                            return y(d.count) + labelDy
+                        })
+                        .classed('outside', (d) => !d.shouldShowInBar)
 
-                // Always move labels to top
-                _svg.node().appendChild(_labels.node())
+                    // Always move labels to top
+                    _svg.node().appendChild(_labels.node())
+                }
 
                 return _svg
             }
