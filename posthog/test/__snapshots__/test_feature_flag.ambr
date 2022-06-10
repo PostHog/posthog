@@ -32,8 +32,7 @@
 ---
 # name: TestFeatureFlagHashKeyOverrides.test_entire_flow_with_hash_key_override.3
   '
-  SELECT "posthog_featureflaghashkeyoverride"."id",
-         "posthog_featureflaghashkeyoverride"."feature_flag_key"
+  SELECT "posthog_featureflaghashkeyoverride"."feature_flag_key"
   FROM "posthog_featureflaghashkeyoverride"
   WHERE ("posthog_featureflaghashkeyoverride"."person_id" = 2
          AND "posthog_featureflaghashkeyoverride"."team_id" = 2)

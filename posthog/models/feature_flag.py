@@ -329,7 +329,7 @@ def hash_key_overrides(team_id: int, person_id: int) -> Dict[str, str]:
 
 
 # Return a Dict with all active flags and their values
-def get_active_feature_flags(
+def _get_active_feature_flags(
     feature_flags: QuerySet,
     team_id: int,
     distinct_id: str,
@@ -385,8 +385,8 @@ def get_overridden_feature_flags(
             # will take care of it^.
             try:
                 person_id = PersonDistinctId.objects.filter(distinct_id=hash_key_override, team_id=team_id).values_list(
-                    "person_id"
-                )[:1][0][0]
+                    "person_id", flat=True
+                )[0]
             except IndexError:
                 # If even this old person doesn't exist yet, we're facing severe ingestion delays
                 # and there's not much we can do, since all person properties based feature flags
@@ -399,10 +399,10 @@ def get_overridden_feature_flags(
         # :TRICKY: Consistency matters only when personIDs exist
         # In other cases, we can disregard these extra queries
         # to keep this endpoint performant
-        feature_flags = get_active_feature_flags(all_feature_flags, team_id, distinct_id, person_id, groups)
+        feature_flags = _get_active_feature_flags(all_feature_flags, team_id, distinct_id, person_id, groups)
 
     else:
-        feature_flags = get_active_feature_flags(all_feature_flags, team_id, distinct_id, groups=groups)
+        feature_flags = _get_active_feature_flags(all_feature_flags, team_id, distinct_id, groups=groups)
 
     # Get a user's feature flag overrides from any distinct_id (not just the canonical one)
     distinct_ids = PersonDistinctId.objects.filter(person_id__in=Subquery(person)).values_list("distinct_id")
@@ -428,9 +428,8 @@ def set_feature_flag_hash_key_overrides(
 ) -> None:
 
     existing_flag_overrides = set(
-        val.feature_flag_key
-        for val in FeatureFlagHashKeyOverride.objects.filter(team_id=team_id, person_id=person_id).only(
-            "feature_flag_key"
+        FeatureFlagHashKeyOverride.objects.filter(team_id=team_id, person_id=person_id).values_list(
+            "feature_flag_key", flat=True
         )
     )
     new_overrides = []

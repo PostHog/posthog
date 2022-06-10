@@ -32,8 +32,7 @@ export async function createPerson(
     server: Hub,
     team: Team,
     distinctIds: string[],
-    properties: Record<string, any> = {},
-    identified = false
+    properties: Record<string, any> = {}
 ): Promise<Person> {
     return server.db.createPerson(
         DateTime.utc(),
@@ -42,7 +41,7 @@ export async function createPerson(
         {},
         team.id,
         null,
-        identified,
+        false,
         new UUIDT().toString(),
         distinctIds
     )
@@ -1597,7 +1596,7 @@ test('distinct with conflicting keys triggers foreign key updates and deletes gr
 
 test('distinct with no conflicting keys doesnt trigger foreign key updates', async () => {
     await createPerson(hub, team, ['anon_id'])
-    const identifiedPerson = await createPerson(hub, team, ['new_distinct_id'], { email: 'someone@gmail.com' }, true)
+    const identifiedPerson = await createPerson(hub, team, ['new_distinct_id'], { email: 'someone@gmail.com' })
 
     // existing overrides for both anonPerson and identifiedPerson
     // which implies a clash when anonPerson is deleted
