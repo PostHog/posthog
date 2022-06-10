@@ -1,4 +1,4 @@
-import { kea } from 'kea'
+import { BuiltLogic, kea } from 'kea'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
 import type { sceneLogicType } from './sceneLogicType'
@@ -22,6 +22,8 @@ const sceneNavAlias: Partial<Record<Scene, Scene>> = {
     [Scene.Actions]: Scene.DataManagement,
     [Scene.EventDefinitions]: Scene.DataManagement,
     [Scene.EventPropertyDefinitions]: Scene.DataManagement,
+    [Scene.EventDefinition]: Scene.DataManagement,
+    [Scene.EventPropertyDefinition]: Scene.DataManagement,
     [Scene.Person]: Scene.Persons,
     [Scene.Cohort]: Scene.Cohorts,
     [Scene.Groups]: Scene.Persons,
@@ -38,6 +40,7 @@ export const sceneLogic = kea<sceneLogicType>({
     connect: () => ({
         logic: [router, userLogic, preflightLogic],
         values: [featureFlagLogic, ['featureFlags']],
+        actions: [router, ['locationChanged']],
     }),
     path: ['scenes', 'sceneLogic'],
     actions: {
@@ -145,7 +148,7 @@ export const sceneLogic = kea<sceneLogicType>({
         ],
         activeSceneLogic: [
             (s) => [s.activeLoadedScene, s.sceneParams],
-            (activeLoadedScene, sceneParams) =>
+            (activeLoadedScene, sceneParams): BuiltLogic | null =>
                 activeLoadedScene?.logic
                     ? activeLoadedScene.logic.build(activeLoadedScene.paramsToProps?.(sceneParams) || {})
                     : null,
@@ -376,7 +379,7 @@ export const sceneLogic = kea<sceneLogicType>({
         reloadBrowserDueToImportError: () => {
             window.location.reload()
         },
-        [router.actionTypes.locationChanged]: () => {
+        locationChanged: () => {
             // Remove trailing slash
             const {
                 location: { pathname, search, hash },

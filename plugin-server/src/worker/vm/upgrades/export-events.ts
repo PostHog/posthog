@@ -1,7 +1,7 @@
 import { Plugin, PluginEvent, PluginMeta, ProcessedPluginEvent, RetryError } from '@posthog/plugin-scaffold'
 
 import { Hub, PluginConfig, PluginConfigVMInternalResponse, PluginTaskType } from '../../../types'
-import { determineNodeEnv, NodeEnv } from '../../../utils/env-utils'
+import { isTestEnv } from '../../../utils/env-utils'
 import { status } from '../../../utils/status'
 import { stringClamp } from '../../../utils/utils'
 import { ExportEventsBuffer } from './utils/export-events-buffer'
@@ -12,7 +12,7 @@ const EXPORT_BUFFER_BYTES_DEFAULT = 1024 * 1024
 const EXPORT_BUFFER_BYTES_MAXIMUM = 100 * 1024 * 1024
 const EXPORT_BUFFER_SECONDS_MINIMUM = 1
 const EXPORT_BUFFER_SECONDS_MAXIMUM = 600
-const EXPORT_BUFFER_SECONDS_DEFAULT = determineNodeEnv() === NodeEnv.Test ? EXPORT_BUFFER_SECONDS_MAXIMUM : 10
+const EXPORT_BUFFER_SECONDS_DEFAULT = isTestEnv() ? EXPORT_BUFFER_SECONDS_MAXIMUM : 10
 
 type ExportEventsUpgrade = Plugin<{
     global: {

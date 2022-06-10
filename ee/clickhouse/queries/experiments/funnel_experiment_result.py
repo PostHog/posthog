@@ -10,11 +10,11 @@ from ee.clickhouse.queries.experiments import (
     FF_DISTRIBUTION_THRESHOLD,
     MIN_PROBABILITY_FOR_SIGNIFICANCE,
 )
-from ee.clickhouse.queries.funnels import ClickhouseFunnel
 from posthog.constants import ExperimentSignificanceCode
 from posthog.models.feature_flag import FeatureFlag
 from posthog.models.filters.filter import Filter
 from posthog.models.team import Team
+from posthog.queries.funnels import ClickhouseFunnel
 
 Probability = float
 

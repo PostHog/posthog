@@ -37,7 +37,7 @@ class DataGenerator:
             for person, distinct_id in zip(self.people, self.distinct_ids)
         ]
         PersonDistinctId.objects.bulk_create(pids)
-        from ee.clickhouse.models.person import create_person, create_person_distinct_id
+        from posthog.models.person.util import create_person, create_person_distinct_id
 
         for person in self.people:
             create_person(

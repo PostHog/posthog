@@ -1,7 +1,7 @@
-import { kea } from 'kea'
+import { actions, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { PropertyDefinition } from '~/types'
 import api from 'lib/api'
-import { combineUrl, router } from 'kea-router'
+import { actionToUrl, combineUrl, router, urlToAction } from 'kea-router'
 import {
     normalizePropertyDefinitionEndpointUrl,
     PropertyDefinitionsPaginatedResponse,
@@ -9,6 +9,7 @@ import {
 import type { eventPropertyDefinitionsTableLogicType } from './eventPropertyDefinitionsTableLogicType'
 import { objectsEqual } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { loaders } from 'kea-loaders'
 
 export interface Filters {
     property: string
@@ -27,11 +28,11 @@ export interface EventPropertyDefinitionsTableLogicProps {
     key: string
 }
 
-export const eventPropertyDefinitionsTableLogic = kea<eventPropertyDefinitionsTableLogicType>({
-    path: ['scenes', 'data-management', 'event-properties', 'eventPropertyDefinitionsTableLogic'],
-    props: {} as EventPropertyDefinitionsTableLogicProps,
-    key: (props) => props.key || 'scene',
-    actions: {
+export const eventPropertyDefinitionsTableLogic = kea<eventPropertyDefinitionsTableLogicType>([
+    path(['scenes', 'data-management', 'event-properties', 'eventPropertyDefinitionsTableLogic']),
+    props({} as EventPropertyDefinitionsTableLogicProps),
+    key((props) => props.key || 'scene'),
+    actions({
         loadEventPropertyDefinitions: (url: string | null = '', orderIdsFirst: string[] = []) => ({
             url,
             orderIdsFirst,
@@ -40,8 +41,8 @@ export const eventPropertyDefinitionsTableLogic = kea<eventPropertyDefinitionsTa
         setHoveredDefinition: (definitionKey: string | null) => ({ definitionKey }),
         setOpenedDefinition: (id: string | null) => ({ id }),
         setLocalEventPropertyDefinition: (definition: PropertyDefinition) => ({ definition }),
-    },
-    reducers: {
+    }),
+    reducers({
         filters: [
             {
                 property: '',
@@ -65,8 +66,8 @@ export const eventPropertyDefinitionsTableLogic = kea<eventPropertyDefinitionsTa
                 setOpenedDefinition: (_, { id }) => id,
             },
         ],
-    },
-    loaders: ({ values, cache }) => ({
+    }),
+    loaders(({ values, cache }) => ({
         eventPropertyDefinitions: [
             {
                 count: 0,
@@ -125,12 +126,12 @@ export const eventPropertyDefinitionsTableLogic = kea<eventPropertyDefinitionsTa
                 },
             },
         ],
-    }),
-    selectors: ({ cache }) => ({
+    })),
+    selectors(({ cache }) => ({
         // Expose for testing
         apiCache: [() => [], () => cache.apiCache],
-    }),
-    listeners: ({ actions, values, cache }) => ({
+    })),
+    listeners(({ actions, values, cache }) => ({
         setFilters: () => {
             actions.loadEventPropertyDefinitions(
                 normalizePropertyDefinitionEndpointUrl(
@@ -164,8 +165,8 @@ export const eventPropertyDefinitionsTableLogic = kea<eventPropertyDefinitionsTa
                 cache.propertiesStartTime = undefined
             }
         },
-    }),
-    urlToAction: ({ actions, values }) => ({
+    })),
+    urlToAction(({ actions, values }) => ({
         '/data-management/event-properties': (_, searchParams) => {
             if (!objectsEqual(cleanFilters(values.filters), cleanFilters(router.values.searchParams))) {
                 actions.setFilters(searchParams as Filters)
@@ -173,16 +174,8 @@ export const eventPropertyDefinitionsTableLogic = kea<eventPropertyDefinitionsTa
                 actions.loadEventPropertyDefinitions()
             }
         },
-        '/data-management/event-properties/:id': ({ id }) => {
-            if (!values.eventPropertyDefinitions.results.length && !values.eventPropertyDefinitionsLoading) {
-                actions.loadEventPropertyDefinitions(null, id ? [id] : [])
-            }
-            if (id) {
-                actions.setOpenedDefinition(id)
-            }
-        },
-    }),
-    actionToUrl: ({ values }) => ({
+    })),
+    actionToUrl(({ values }) => ({
         setFilters: () => {
             const nextValues = cleanFilters(values.filters)
             const urlValues = cleanFilters(router.values.searchParams)
@@ -190,5 +183,5 @@ export const eventPropertyDefinitionsTableLogic = kea<eventPropertyDefinitionsTa
                 return [router.values.location.pathname, nextValues]
             }
         },
-    }),
-})
+    })),
+])

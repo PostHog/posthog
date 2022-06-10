@@ -1,12 +1,17 @@
 import uuid
+from datetime import datetime
+from typing import List, Optional
 
+import posthoganalytics
 import structlog
 from django.conf import settings
 from django.utils import timezone
 
 from posthog.celery import app
-from posthog.email import EmailMessage
-from posthog.models import Organization, OrganizationInvite, User
+from posthog.email import EmailMessage, is_email_available
+from posthog.event_usage import report_first_ingestion_reminder_email_sent, report_second_ingestion_reminder_email_sent
+from posthog.models import Organization, OrganizationInvite, OrganizationMembership, Plugin, PluginConfig, Team, User
+from posthog.utils import absolute_uri
 
 logger = structlog.get_logger(__name__)
 
@@ -58,6 +63,35 @@ def send_member_join(invitee_uuid: str, organization_id: str) -> None:
 
 
 @app.task(max_retries=1)
+def send_fatal_plugin_error(
+    plugin_config_id: int, plugin_config_updated_at: Optional[str], error: str, is_system_error: bool
+) -> None:
+    plugin_config: PluginConfig = PluginConfig.objects.select_related("plugin", "team").get(id=plugin_config_id)
+    plugin: Plugin = plugin_config.plugin
+    team: Team = plugin_config.team
+    campaign_key: str = f"plugin_disabled_email_plugin_config_{plugin_config_id}_updated_at_{plugin_config_updated_at}"
+    message = EmailMessage(
+        campaign_key=campaign_key,
+        subject=f"[Alert] {plugin} has been disabled in project {team} due to a fatal error",
+        template_name="fatal_plugin_error",
+        template_context={"plugin": plugin, "team": team, "error": error, "is_system_error": is_system_error},
+    )
+    memberships_to_email = [
+        membership
+        for membership in OrganizationMembership.objects.select_related("user", "organization").filter(
+            organization_id=team.organization_id
+        )
+        # Only send the email to users who have access to the affected project
+        # Those without access have `effective_membership_level` of `None`
+        if team.get_effective_membership_level_for_parent_membership(membership) is not None
+    ]
+    if memberships_to_email:
+        for membership in memberships_to_email:
+            message.add_recipient(email=membership.user.email, name=membership.user.first_name)
+        message.send(send_async=False)
+
+
+@app.task(max_retries=1)
 def send_canary_email(user_email: str) -> None:
     message = EmailMessage(
         campaign_key=f"canary_email_{uuid.uuid4()}",
@@ -95,3 +129,83 @@ def send_async_migration_errored_email(migration_key: str, time: str, error: str
     )
 
     send_message_to_all_staff_users(message)
+
+
+def get_users_for_orgs_with_no_ingested_events(org_created_from: datetime, org_created_to: datetime) -> List[User]:
+    # Get all users for organization that haven't ingested any events
+    users = []
+    recently_created_organizations = Organization.objects.filter(
+        created_at__gte=org_created_from, created_at__lte=org_created_to,
+    )
+
+    for organization in recently_created_organizations:
+        orgs_teams = Team.objects.filter(organization=organization)
+        have_ingested = orgs_teams.filter(ingested_event=True).exists()
+        if not have_ingested:
+            users.extend(organization.members.all())
+    return users
+
+
+@app.task(max_retries=1)
+def send_first_ingestion_reminder_emails() -> None:
+    if is_email_available():
+        one_day_ago = timezone.now() - timezone.timedelta(days=1)
+        two_days_ago = timezone.now() - timezone.timedelta(days=2)
+        users_to_email = get_users_for_orgs_with_no_ingested_events(
+            org_created_from=two_days_ago, org_created_to=one_day_ago
+        )
+
+        campaign_key = "first_ingestion_reminder"
+
+        for user in users_to_email:
+            if posthoganalytics.feature_enabled("re-engagement-emails", user.distinct_id):
+                message = EmailMessage(
+                    campaign_key=campaign_key,
+                    subject="Get started: How to send events to PostHog",
+                    reply_to="hey@posthog.com",
+                    template_name="first_ingestion_reminder",
+                    template_context={
+                        "first_name": user.first_name,
+                        "invite_users_url": absolute_uri(
+                            "/organization/settings?utm_source=posthog&utm_medium=email&utm_campaign=first_ingestion_reminder"
+                        ),
+                        "ingest_events_url": absolute_uri(
+                            "ingestion/?utm_source=posthog&utm_medium=email&utm_campaign=first_ingestion_reminder"
+                        ),
+                    },
+                )
+
+                message.add_recipient(user.email)
+                message.send()
+                report_first_ingestion_reminder_email_sent(user)
+
+
+@app.task(max_retries=1)
+def send_second_ingestion_reminder_emails() -> None:
+    if is_email_available():
+        four_days_ago = timezone.now() - timezone.timedelta(days=4)
+        five_days_ago = timezone.now() - timezone.timedelta(days=5)
+        users_to_email = get_users_for_orgs_with_no_ingested_events(
+            org_created_from=five_days_ago, org_created_to=four_days_ago
+        )
+
+        campaign_key = "second_ingestion_reminder"
+
+        for user in users_to_email:
+            if posthoganalytics.feature_enabled("re-engagement-emails", user.distinct_id):
+                message = EmailMessage(
+                    campaign_key=campaign_key,
+                    subject="Your PostHog project is waiting for events",
+                    reply_to="hey@posthog.com",
+                    template_name="second_ingestion_reminder",
+                    template_context={
+                        "first_name": user.first_name,
+                        "ingest_events_url": absolute_uri(
+                            "ingestion/?utm_source=posthog&utm_medium=email&utm_campaign=second_ingestion_reminder"
+                        ),
+                    },
+                )
+
+                message.add_recipient(user.email)
+                message.send()
+                report_second_ingestion_reminder_email_sent(user)
