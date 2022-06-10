@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta
-from dateutil.rrule import FREQNAMES, rrule
+from dateutil.rrule import FREQNAMES, rrule, MO, TU, WE, TH, FR, SA, SU
 from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
@@ -7,6 +7,16 @@ from django.utils import timezone
 import jwt
 
 UNSUBSCRIBE_TOKEN_EXP_DAYS = 30
+
+RRULE_WEEKDAY_MAP = {
+    "monday": MO,
+    "tuesday": TU,
+    "wednesday": WE,
+    "thursday": TH,
+    "friday": FR,
+    "saturday": SA,
+    "sunday": SU,
+}
 
 
 class Subscription(models.Model):
@@ -68,14 +78,15 @@ class Subscription(models.Model):
     @property
     def rrule(self):
         freq = FREQNAMES.index(self.frequency.upper())
+
         return rrule(
             freq=freq,
             count=self.count,
             interval=self.interval,
             dtstart=self.start_date,
             until=self.until_date,
-            bysetpos=self.bysetpos,
-            byweekday=[x[:2].upper() for x in self.byweekday] if self.byweekday else None,
+            bysetpos=self.bysetpos if self.byweekday else None,
+            byweekday=to_rrule_weekdays(self.byweekday) if self.byweekday else None,
         )
 
     def set_next_delivery_date(self, from_dt=None):
@@ -90,6 +101,10 @@ class Subscription(models.Model):
     @property
     def url(self):
         return f"{settings.SITE_URL}/insights/{self.insight.short_id}/subscriptions/{self.id}"
+
+
+def to_rrule_weekdays(weekday: Subscription.SubscriptionByWeekDay):
+    return set([RRULE_WEEKDAY_MAP.get(x) for x in weekday])
 
 
 def get_unsubscribe_token(subscription: Subscription, email: str) -> str:

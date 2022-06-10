@@ -41,7 +41,6 @@ import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
 import { InsightSubscriptionsModal } from 'lib/components/InsightSubscription/InsightSubscriptionsModal'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
-import { useUnloadConfirmation } from 'kea-router'
 
 export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): JSX.Element {
     const { insightMode, subscriptionId } = useValues(insightSceneLogic)
@@ -64,8 +63,7 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
         insightSaving,
     } = useValues(logic)
     useMountedLogic(insightCommandLogic(insightProps))
-    const { saveInsight, setInsightMetadata, saveAs, cancelChanges, reportInsightViewedForRecentInsights } =
-        useActions(logic)
+    const { saveInsight, setInsightMetadata, saveAs, reportInsightViewedForRecentInsights } = useActions(logic)
     const { duplicateInsight, loadInsights } = useActions(savedInsightsLogic)
 
     const { hasAvailableFeature } = useValues(userLogic)
@@ -82,13 +80,6 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
     const screens = useBreakpoint()
     const usingEditorPanels = featureFlags[FEATURE_FLAGS.INSIGHT_EDITOR_PANELS]
     const usingExportFeature = featureFlags[FEATURE_FLAGS.EXPORT_DASHBOARD_INSIGHTS]
-
-    useUnloadConfirmation(
-        insightMode === ItemMode.Edit && insightChanged ? 'Leave insight? Changes you made will be discarded.' : null,
-        () => {
-            cancelChanges()
-        }
-    )
 
     // Show the skeleton if loading an insight for which we only know the id
     // This helps with the UX flickering and showing placeholder "name" text.

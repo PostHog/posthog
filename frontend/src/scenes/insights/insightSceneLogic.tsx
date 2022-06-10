@@ -1,7 +1,7 @@
-import { BuiltLogic, kea } from 'kea'
+import { actions, BuiltLogic, connect, kea, listeners, path, reducers, selectors, sharedListeners } from 'kea'
 import { Breadcrumb, FilterType, InsightShortId, InsightType, ItemMode } from '~/types'
 import { eventUsageLogic, InsightEventSource } from 'lib/utils/eventUsageLogic'
-import { router } from 'kea-router'
+import { actionToUrl, beforeUnload, router, urlToAction } from 'kea-router'
 import type { insightSceneLogicType } from './insightSceneLogicType'
 import { urls } from 'scenes/urls'
 import { insightLogicType } from 'scenes/insights/insightLogicType'
@@ -11,12 +11,12 @@ import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 
-export const insightSceneLogic = kea<insightSceneLogicType>({
-    path: ['scenes', 'insights', 'insightSceneLogic'],
-    connect: {
+export const insightSceneLogic = kea<insightSceneLogicType>([
+    path(['scenes', 'insights', 'insightSceneLogic']),
+    connect({
         logic: [eventUsageLogic],
-    },
-    actions: {
+    }),
+    actions({
         setInsightId: (insightId: InsightShortId) => ({ insightId }),
         setInsightMode: (insightMode: ItemMode, source: InsightEventSource | null) => ({ insightMode, source }),
         setSceneState: (insightId: InsightShortId, insightMode: ItemMode, subscriptionId: string | undefined) => ({
@@ -28,8 +28,8 @@ export const insightSceneLogic = kea<insightSceneLogicType>({
             logic,
             unmount,
         }),
-    },
-    reducers: {
+    }),
+    reducers({
         insightId: [
             null as null | 'new' | InsightShortId,
             {
@@ -62,8 +62,8 @@ export const insightSceneLogic = kea<insightSceneLogicType>({
                 setInsightLogic: (_, { logic, unmount }) => (logic && unmount ? { logic, unmount } : null),
             },
         ],
-    },
-    selectors: () => ({
+    }),
+    selectors(() => ({
         insightSelector: [(s) => [s.insightCache], (insightCache) => insightCache?.logic.selectors.insight],
         insight: [(s) => [(state, props) => s.insightSelector?.(state, props)?.(state, props)], (insight) => insight],
         breadcrumbs: [
@@ -78,11 +78,8 @@ export const insightSceneLogic = kea<insightSceneLogicType>({
                 },
             ],
         ],
-    }),
-    listeners: ({ sharedListeners }) => ({
-        setSceneState: sharedListeners.reloadInsightLogic,
-    }),
-    sharedListeners: ({ actions, values }) => ({
+    })),
+    sharedListeners(({ actions, values }) => ({
         reloadInsightLogic: () => {
             const logicInsightId = values.insight?.short_id ?? null
             const insightId = values.insightId ?? null
@@ -101,8 +98,11 @@ export const insightSceneLogic = kea<insightSceneLogicType>({
                 }
             }
         },
-    }),
-    urlToAction: ({ actions, values }) => ({
+    })),
+    listeners(({ sharedListeners }) => ({
+        setSceneState: sharedListeners.reloadInsightLogic,
+    })),
+    urlToAction(({ actions, values }) => ({
         '/insights/:shortId(/:mode)(/:subscriptionId)': (
             { shortId, mode, subscriptionId }, // url params
             { dashboard, ...searchParams }, // search params
@@ -179,8 +179,8 @@ export const insightSceneLogic = kea<insightSceneLogicType>({
                 lemonToast.info(`This insight has unsaved changes! Click "Save" to not lose them.`)
             }
         },
-    }),
-    actionToUrl: ({ values }) => {
+    })),
+    actionToUrl(({ values }) => {
         // Use the browser redirect to determine state to hook into beforeunload prevention
         const actionToUrl = ({
             insightMode = values.insightMode,
@@ -199,5 +199,13 @@ export const insightSceneLogic = kea<insightSceneLogicType>({
             setInsightId: actionToUrl,
             setInsightMode: actionToUrl,
         }
-    },
-})
+    }),
+
+    beforeUnload(({ values }) => ({
+        enabled: () => values.insightMode === ItemMode.Edit && !!values.insightCache?.logic.values.insightChanged,
+        message: 'Leave insight? Changes you made will be discarded.',
+        onConfirm: () => {
+            values.insightCache?.logic.actions.cancelChanges()
+        },
+    })),
+])

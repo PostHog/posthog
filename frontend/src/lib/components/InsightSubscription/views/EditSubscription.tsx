@@ -16,7 +16,6 @@ import { LemonDivider, LemonInput, LemonTextArea } from 'packages/apps-common'
 import { AlertMessage } from 'lib/components/AlertMessage'
 import { InsightShortId } from '~/types'
 import { insightSubscriptionsLogic } from '../insightSubscriptionsLogic'
-import { useUnloadConfirmation } from 'kea-router'
 
 interface EditSubscriptionProps {
     id: number | 'new'
@@ -39,6 +38,29 @@ const frequencyOptions: LemonSelectOptions = {
     monthly: { label: 'months' },
 }
 
+const weekdayOptions: LemonSelectOptions = {
+    monday: { label: 'monday' },
+    tuesday: { label: 'tuesday' },
+    wednesday: { label: 'wednesday' },
+    thursday: { label: 'thursday' },
+    friday: { label: 'friday' },
+    saturday: { label: 'saturday' },
+    sunday: { label: 'sunday' },
+}
+
+const monthlyWeekdayOptions: LemonSelectOptions = {
+    day: { label: 'day' },
+    ...weekdayOptions,
+}
+
+const bysetposOptions: LemonSelectOptions = {
+    '1': { label: 'first' },
+    '2': { label: 'second' },
+    '3': { label: 'third' },
+    '4': { label: 'fourth' },
+    '-1': { label: 'last' },
+}
+
 const timeOptions: LemonSelectOptions = range(0, 23).reduce(
     (acc, x) => ({
         ...acc,
@@ -58,14 +80,9 @@ export function EditSubscription({ id, insightShortId, onCancel, onDelete }: Edi
     })
 
     const { members } = useValues(membersLogic)
-    const { subscription, isSubscriptionSubmitting, subscriptionChanged } = useValues(logic)
-    const { resetSubscription } = useActions(logic)
+    const { subscription, isSubscriptionSubmitting } = useValues(logic)
     const { preflight } = useValues(preflightLogic)
     const { deleteSubscription } = useActions(subscriptionslogic)
-
-    useUnloadConfirmation(subscriptionChanged ? 'Changes you made will be discarded.' : null, () => {
-        resetSubscription()
-    })
 
     const emailOptions = useMemo(
         () =>
@@ -160,7 +177,7 @@ export function EditSubscription({ id, insightShortId, onCancel, onDelete }: Edi
                         <div className="ant-form-item-label">
                             <label title="Recurrance">Recurrance</label>
                         </div>
-                        <div className="flex gap-05 items-center border-all pa-05">
+                        <div className="flex gap-05 items-center border-all pa-05 flex-wrap">
                             <span>Send every</span>
                             <Field name={'interval'} style={{ marginBottom: 0 }}>
                                 <LemonSelect
@@ -178,6 +195,62 @@ export function EditSubscription({ id, insightShortId, onCancel, onDelete }: Edi
                                     disabled={emailDisabled}
                                 />
                             </Field>
+
+                            {subscription.frequency === 'weekly' && (
+                                <>
+                                    <span>on</span>
+                                    <Field name={'byweekday'} style={{ marginBottom: 0 }}>
+                                        {({ value, onChange }) => (
+                                            <LemonSelect
+                                                type="stealth"
+                                                outlined
+                                                options={weekdayOptions}
+                                                disabled={emailDisabled}
+                                                dropdownMatchSelectWidth={false}
+                                                value={value ? value[0] : 'monday'}
+                                                onChange={(val) => onChange([val])}
+                                            />
+                                        )}
+                                    </Field>
+                                </>
+                            )}
+
+                            {subscription.frequency === 'monthly' && (
+                                <>
+                                    <span>on the</span>
+                                    <Field name={'bysetpos'} style={{ marginBottom: 0 }}>
+                                        {({ value, onChange }) => (
+                                            <LemonSelect
+                                                type="stealth"
+                                                outlined
+                                                options={bysetposOptions}
+                                                disabled={emailDisabled}
+                                                value={String(value || '1')}
+                                                dropdownMatchSelectWidth={false}
+                                                onChange={(val) => {
+                                                    onChange(typeof val === 'string' ? parseInt(val, 10) : null)
+                                                }}
+                                            />
+                                        )}
+                                    </Field>
+                                    <Field name={'byweekday'} style={{ marginBottom: 0 }}>
+                                        {({ value, onChange }) => (
+                                            <LemonSelect
+                                                type="stealth"
+                                                outlined
+                                                options={monthlyWeekdayOptions}
+                                                disabled={emailDisabled}
+                                                dropdownMatchSelectWidth={false}
+                                                // "day" is a special case where it is a list of all available days
+                                                value={value ? (value.length === 1 ? value[0] : 'day') : null}
+                                                onChange={(val) =>
+                                                    onChange(val === 'day' ? Object.keys(weekdayOptions) : [val])
+                                                }
+                                            />
+                                        )}
+                                    </Field>
+                                </>
+                            )}
                             <span>by</span>
                             <Field name={'start_date'}>
                                 {({ value, onChange }) => (

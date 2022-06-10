@@ -10,7 +10,7 @@ import { isEmail } from 'lib/utils'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from '../lemonToast'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { router } from 'kea-router'
+import { beforeUnload, router } from 'kea-router'
 import { urls } from 'scenes/urls'
 import { insightSubscriptionsLogic } from './insightSubscriptionsLogic'
 
@@ -19,6 +19,8 @@ const NEW_SUBSCRIPTION: Partial<SubscriptionType> = {
     interval: 1,
     start_date: dayjs().hour(9).minute(0).second(0).toISOString(),
     target_type: 'email',
+    byweekday: ['monday'],
+    bysetpos: 1,
 }
 
 export interface InsightSubscriptionLogicProps {
@@ -79,10 +81,17 @@ export const insightSubscriptionLogic = kea<insightSubscriptionLogicType>([
                 lemonToast.success(`Subscription saved.`)
 
                 if (subscriptionId !== props.id) {
-                    router.actions.clearUnloadInterceptors()
                     router.actions.replace(urls.insightSubcription(props.insightShortId, subscriptionId.toString()))
                 }
             },
+        },
+    })),
+
+    beforeUnload(({ actions, values }) => ({
+        enabled: () => values.subscriptionChanged,
+        message: 'Changes you made will be discarded.',
+        onConfirm: () => {
+            actions.resetSubscription()
         },
     })),
 

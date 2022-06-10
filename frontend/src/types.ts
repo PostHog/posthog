@@ -1882,6 +1882,8 @@ export enum ValueOptionType {
     OnDate = 'on_date',
 }
 
+export type WeekdayType = 'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday' | 'saturday' | 'sunday'
+
 export interface SubscriptionType {
     id: number
     insight?: number
@@ -1890,6 +1892,8 @@ export interface SubscriptionType {
     target_value: string
     frequency: 'daily' | 'weekly' | 'monthly' | 'yearly'
     interval: number
+    byweekday: WeekdayType[]
+    bysetpos: number
     start_date: string
     until_date: string
     title: string

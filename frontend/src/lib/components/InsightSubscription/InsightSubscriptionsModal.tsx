@@ -24,7 +24,7 @@ export function InsightSubscriptionsModal({
 
     return (
         <>
-            <LemonModal onCancel={closeModal} afterClose={closeModal} visible={visible} width={600}>
+            <LemonModal onCancel={closeModal} afterClose={closeModal} visible={visible} width={650}>
                 {!subscriptionId ? (
                     <ManageSubscriptions
                         insightShortId={insightShortId}
