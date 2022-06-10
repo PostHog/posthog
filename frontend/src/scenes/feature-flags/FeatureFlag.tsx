@@ -192,9 +192,9 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                                     <LemonTag type="warning">Beta</LemonTag>
                                                 </>
                                             }
-                                            onChange={onChange}
+                                            onChange={() => onChange(!value)}
                                             rowProps={{ fullWidth: true }}
-                                            checked={!!value}
+                                            checked={value}
                                         />
                                         <div
                                             className="text-muted"
