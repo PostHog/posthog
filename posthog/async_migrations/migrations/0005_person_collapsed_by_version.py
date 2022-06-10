@@ -53,6 +53,7 @@ Constraints:
 
 
 TEMPORARY_TABLE_NAME = f"{settings.CLICKHOUSE_DATABASE}.temp_events_0005_person_collapsed_by_version"
+TEMPORARY_PERSON_MV = f"{settings.CLICKHOUSE_DATABASE}.tmp_person_mv_0005_person_collapsed_by_version"
 PERSON_TABLE = "person"
 PERSON_TABLE_NAME = f"{settings.CLICKHOUSE_DATABASE}.{PERSON_TABLE}"
 BACKUP_TABLE_NAME = f"{PERSON_TABLE_NAME}_backup_0005_person_collapsed_by_version"
@@ -93,12 +94,31 @@ class Migration(AsyncMigrationDefinition):
             AsyncMigrationOperationSQL(
                 database=AnalyticsDBMS.CLICKHOUSE,
                 sql=f"""
-                CREATE TABLE IF NOT EXISTS {TEMPORARY_TABLE_NAME} ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}' AS {PERSON_TABLE_NAME}
-                ENGINE = {self.new_table_engine()}
-                ORDER BY (team_id, id)
-                {STORAGE_POLICY()}
+                    CREATE TABLE IF NOT EXISTS {TEMPORARY_TABLE_NAME} ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}' AS {PERSON_TABLE_NAME}
+                    ENGINE = {self.new_table_engine()}
+                    ORDER BY (team_id, id)
+                    {STORAGE_POLICY()}
                 """,
                 rollback=f"DROP TABLE IF EXISTS {TEMPORARY_TABLE_NAME} ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'",
+            ),
+            AsyncMigrationOperationSQL(
+                database=AnalyticsDBMS.CLICKHOUSE,
+                sql=f"""
+                    CREATE MATERIALIZED VIEW {TEMPORARY_PERSON_MV} ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'
+                    TO {TEMPORARY_TABLE_NAME}
+                    AS SELECT
+                        id,
+                        created_at,
+                        team_id,
+                        properties,
+                        is_identified,
+                        is_deleted,
+                        version,
+                        _timestamp,
+                        _offset
+                    FROM {settings.CLICKHOUSE_DATABASE}.kafka_persons
+                """,
+                rollback=f"DROP TABLE IF EXISTS {TEMPORARY_PERSON_MV} ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'",
             ),
             AsyncMigrationOperationSQL(
                 database=AnalyticsDBMS.CLICKHOUSE,
