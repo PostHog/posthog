@@ -130,6 +130,8 @@ class Migration(AsyncMigrationDefinition):
                 rollback=f"TRUNCATE TABLE IF EXISTS {TEMPORARY_TABLE_NAME} ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'",
                 timeout_seconds=2 * 24 * 60 * 60,  # two days
             ),
+            # :TODO: Copy data from postgres
+            # :TODO: "fix" mv tables
             AsyncMigrationOperationSQL(
                 database=AnalyticsDBMS.CLICKHOUSE,
                 sql=f"""
