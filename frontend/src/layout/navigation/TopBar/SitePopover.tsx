@@ -34,7 +34,7 @@ import {
 import { dayjs } from 'lib/dayjs'
 import { inviteLogic } from 'scenes/organization/Settings/inviteLogic'
 import { Tooltip } from 'lib/components/Tooltip'
-import { LemonButtonPropsBase } from '~/packages/apps-common'
+import { LemonButtonPropsBase } from '@posthog/lemon-ui'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 function SitePopoverSection({ title, children }: { title?: string | JSX.Element; children: any }): JSX.Element {
