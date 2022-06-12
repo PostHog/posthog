@@ -17,6 +17,7 @@ from posthog.queries.trends.breakdown import TrendsBreakdown
 from posthog.queries.trends.formula import TrendsFormula
 from posthog.queries.trends.lifecycle import Lifecycle
 from posthog.queries.trends.total_volume import TrendsTotalVolume
+from posthog.utils import generate_cache_key, get_safe_cache, relative_date_parse
 
 
 class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
@@ -33,11 +34,27 @@ class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
         return sql, params, parse_function
 
     def _run_query(self, filter: Filter, entity: Entity, team: Team) -> List[Dict[str, Any]]:
-        sql, params, parse_function = self._get_sql_for_entity(filter, entity, team)
+        _is_present = is_present_timerange(filter)
+        cache_key = generate_cache_key(f"{filter.toJSON()}_{team.pk}")
+        cached_result_package = get_safe_cache(cache_key)
+        _is_cached = cached_result_package and cached_result_package.get("result")
+
+        truncated_filter = (
+            filter.with_data({"date_from": interval_unit(filter.interval)}) if _is_present and _is_cached else filter
+        )
+        sql, params, parse_function = self._get_sql_for_entity(truncated_filter, entity, team)
 
         result = sync_execute(sql, params)
-
         result = parse_function(result)
+
+        if _is_cached:
+            new_val = result[0]["data"].pop()
+            data = cached_result_package["result"][0]["data"]
+            data.pop()
+            data.append(new_val)
+            cached_result_package["result"][0]["data"] = data
+            return cached_result_package["result"]
+
         serialized_data = self._format_serialized(entity, result)
 
         if filter.display == TRENDS_CUMULATIVE:
@@ -53,7 +70,11 @@ class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
         jobs = []
 
         for entity in filter.entities:
-            sql, params, parse_function = self._get_sql_for_entity(filter, entity, team)
+            _is_present = is_present_timerange(filter)
+            truncated_filter = (
+                filter.with_data({"date_from": interval_unit(filter.interval)}) if _is_present else filter
+            )
+            sql, params, parse_function = self._get_sql_for_entity(truncated_filter, entity, team)
             parse_functions[entity.index] = parse_function
             thread = threading.Thread(target=self._run_query_for_threading, args=(result, entity.index, sql, params),)
             jobs.append(thread)
@@ -131,3 +152,28 @@ class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
         for metrics in entity_metrics:
             metrics.update(data=list(accumulate(metrics["data"])))
         return entity_metrics
+
+
+def is_present_timerange(filter: Filter) -> bool:
+    interval_diff = interval_unit(filter.interval)
+    possible_interval_start = relative_date_parse(interval_diff)
+
+    if possible_interval_start < filter.date_to:
+        return True
+    else:
+        return False
+
+
+def interval_unit(interval: str) -> str:
+    if interval == "hour":
+        return "-1hr"
+    if interval == "day":
+        return "-1d"
+    elif interval == "week":
+        return "-1w"
+    elif interval == "month":
+        return "-1m"
+    elif interval == "year":
+        return "-1y"
+    else:
+        raise ValueError("Invalid interval")
