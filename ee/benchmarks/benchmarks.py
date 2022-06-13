@@ -43,7 +43,7 @@ class QuerySuite:
     @benchmark_clickhouse
     def track_trends_no_filter(self):
         filter = Filter(data={"events": [{"id": "$pageview"}], **DATE_RANGE})
-        Trends().run(filter, self.team)
+        Trends(filter, self.team).run()
 
     @benchmark_clickhouse
     def track_trends_event_property_filter(self):
@@ -68,7 +68,7 @@ class QuerySuite:
         )
 
         with no_materialized_columns():
-            Trends().run(filter, self.team)
+            Trends(filter, self.team).run()
 
     @benchmark_clickhouse
     def track_trends_event_property_filter_materialized(self):
@@ -91,7 +91,7 @@ class QuerySuite:
                 **DATE_RANGE,
             }
         )
-        Trends().run(filter, self.team)
+        Trends(filter, self.team).run()
 
     @benchmark_clickhouse
     def track_trends_person_property_filter(self):
@@ -104,7 +104,7 @@ class QuerySuite:
         )
 
         with no_materialized_columns():
-            Trends().run(filter, self.team)
+            Trends(filter, self.team).run()
 
     @benchmark_clickhouse
     def track_trends_person_property_filter_materialized(self):
@@ -116,20 +116,20 @@ class QuerySuite:
             }
         )
 
-        Trends().run(filter, self.team)
+        Trends(filter, self.team).run()
 
     @benchmark_clickhouse
     def track_trends_event_property_breakdown(self):
         filter = Filter(data={"events": [{"id": "$pageview"}], "breakdown": "$host", **DATE_RANGE,})
 
         with no_materialized_columns():
-            Trends().run(filter, self.team)
+            Trends(filter, self.team).run()
 
     @benchmark_clickhouse
     def track_trends_event_property_breakdown_materialized(self):
         filter = Filter(data={"events": [{"id": "$pageview"}], "breakdown": "$host", **DATE_RANGE,})
 
-        Trends().run(filter, self.team)
+        Trends(filter, self.team).run()
 
     @benchmark_clickhouse
     def track_trends_person_property_breakdown(self):
@@ -138,7 +138,7 @@ class QuerySuite:
         )
 
         with no_materialized_columns():
-            Trends().run(filter, self.team)
+            Trends(filter, self.team).run()
 
     @benchmark_clickhouse
     def track_trends_person_property_breakdown_materialized(self):
@@ -146,12 +146,12 @@ class QuerySuite:
             data={"events": [{"id": "$pageview"}], "breakdown": "$browser", "breakdown_type": "person", **DATE_RANGE,}
         )
 
-        Trends().run(filter, self.team)
+        Trends(filter, self.team).run()
 
     @benchmark_clickhouse
     def track_trends_dau(self):
         filter = Filter(data={"events": [{"id": "$pageview", "math": "dau"}], **DATE_RANGE,})
-        Trends().run(filter, self.team)
+        Trends(filter, self.team).run()
 
     @benchmark_clickhouse
     def track_trends_dau_person_property_filter(self):
@@ -164,7 +164,7 @@ class QuerySuite:
         )
 
         with no_materialized_columns():
-            Trends().run(filter, self.team)
+            Trends(filter, self.team).run()
 
     @benchmark_clickhouse
     def track_trends_dau_person_property_filter_materialized(self):
@@ -176,7 +176,7 @@ class QuerySuite:
             }
         )
 
-        Trends().run(filter, self.team)
+        Trends(filter, self.team).run()
 
     @benchmark_clickhouse
     def track_trends_filter_by_cohort_precalculated(self):
@@ -191,7 +191,7 @@ class QuerySuite:
             },
             team=self.team,
         )
-        Trends().run(filter, self.team)
+        Trends(filter, self.team).run()
 
     @benchmark_clickhouse
     def track_trends_filter_by_cohort(self):
@@ -208,7 +208,7 @@ class QuerySuite:
         )
 
         with no_materialized_columns():
-            Trends().run(filter, self.team)
+            Trends(filter, self.team).run()
 
     @benchmark_clickhouse
     def track_trends_filter_by_cohort_materialized(self):
@@ -224,7 +224,7 @@ class QuerySuite:
             team=self.team,
         )
 
-        Trends().run(filter, self.team)
+        Trends(filter, self.team).run()
 
     @benchmark_clickhouse
     def track_trends_filter_by_action_current_url_materialized(self):
@@ -234,7 +234,7 @@ class QuerySuite:
         )
 
         filter = Filter(data={"actions": [{"id": action.id}], **DATE_RANGE}, team=self.team)
-        Trends().run(filter, self.team)
+        Trends(filter, self.team).run()
 
     @benchmark_clickhouse
     def track_trends_filter_by_action_current_url(self):
@@ -245,7 +245,7 @@ class QuerySuite:
 
         filter = Filter(data={"actions": [{"id": action.id}], **DATE_RANGE}, team=self.team)
         with no_materialized_columns():
-            Trends().run(filter, self.team)
+            Trends(filter, self.team).run()
 
     @benchmark_clickhouse
     def track_trends_filter_by_action_with_person_filters_materialized(self):
@@ -257,7 +257,7 @@ class QuerySuite:
         )
 
         filter = Filter(data={"actions": [{"id": action.id}], **DATE_RANGE}, team=self.team)
-        Trends().run(filter, self.team)
+        Trends(filter, self.team).run()
 
     @benchmark_clickhouse
     def track_trends_filter_by_action_with_person_filters(self):
@@ -270,7 +270,7 @@ class QuerySuite:
 
         filter = Filter(data={"actions": [{"id": action.id}], **DATE_RANGE}, team=self.team)
         with no_materialized_columns():
-            Trends().run(filter, self.team)
+            Trends(filter, self.team).run()
 
     @benchmark_clickhouse
     def track_funnel_normal(self):
@@ -515,7 +515,7 @@ class QuerySuite:
             team=self.team,
         )
 
-        Trends().run(filter, self.team)
+        Trends(filter, self.team).run()
 
     @benchmark_clickhouse
     def track_lifecycle_event_property_filter(self):
@@ -545,7 +545,7 @@ class QuerySuite:
         )
 
         with no_materialized_columns():
-            Trends().run(filter, self.team)
+            Trends(filter, self.team).run()
 
     @benchmark_clickhouse
     def track_lifecycle_event_property_filter_materialized(self):
@@ -574,7 +574,7 @@ class QuerySuite:
             team=self.team,
         )
 
-        Trends().run(filter, self.team)
+        Trends(filter, self.team).run()
 
     @benchmark_clickhouse
     def track_lifecycle_person_property_filter(self):
@@ -592,7 +592,7 @@ class QuerySuite:
         )
 
         with no_materialized_columns():
-            Trends().run(filter, self.team)
+            Trends(filter, self.team).run()
 
     @benchmark_clickhouse
     def track_lifecycle_person_property_filter_materialized(self):
@@ -609,7 +609,7 @@ class QuerySuite:
             team=self.team,
         )
 
-        Trends().run(filter, self.team)
+        Trends(filter, self.team).run()
 
     @benchmark_clickhouse
     def track_earliest_timestamp(self):

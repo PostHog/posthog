@@ -60,7 +60,7 @@ class TestFormula(APIBaseTest):
 
     def _run(self, extra: Dict = {}, run_at: Optional[str] = None):
         with freeze_time(run_at or "2020-01-04T13:01:01Z"):
-            action_response = Trends().run(
+            action_response = Trends(
                 Filter(
                     data={
                         "events": [
@@ -72,7 +72,7 @@ class TestFormula(APIBaseTest):
                     }
                 ),
                 self.team,
-            )
+            ).run()
         return action_response
 
     def test_hour_interval(self):
@@ -152,7 +152,7 @@ class TestFormula(APIBaseTest):
 
     def test_breakdown_counts_of_different_events_one_without_events(self):
         with freeze_time("2020-01-04T13:01:01Z"):
-            response = Trends().run(
+            response = Trends(
                 Filter(
                     data={
                         "insight": "TRENDS",
@@ -167,7 +167,7 @@ class TestFormula(APIBaseTest):
                     }
                 ),
                 self.team,
-            )
+            ).run()
         self.assertEqual(
             response,
             [

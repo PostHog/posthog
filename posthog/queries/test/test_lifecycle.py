@@ -50,7 +50,7 @@ def lifecycle_test_factory(trends, event_factory, person_factory, action_factory
                 ]
             )
 
-            result = trends().run(
+            result = trends(
                 Filter(
                     data={
                         "date_from": "2020-01-12T00:00:00Z",
@@ -60,7 +60,7 @@ def lifecycle_test_factory(trends, event_factory, person_factory, action_factory
                     }
                 ),
                 self.team,
-            )
+            ).run()
 
             self.assertLifecycleResults(
                 result,
@@ -139,7 +139,7 @@ def lifecycle_test_factory(trends, event_factory, person_factory, action_factory
                 team=self.team, event="$pageview", distinct_id="p4", timestamp="2020-01-15T12:00:00Z",
             )
 
-            result = trends().run(
+            result = trends(
                 Filter(
                     data={
                         "date_from": "2020-01-12T00:00:00Z",
@@ -150,7 +150,7 @@ def lifecycle_test_factory(trends, event_factory, person_factory, action_factory
                     }
                 ),
                 self.team,
-            )
+            ).run()
 
             self.assertLifecycleResults(
                 result,
@@ -184,7 +184,7 @@ def lifecycle_test_factory(trends, event_factory, person_factory, action_factory
                 team=self.team, event="$pageview", distinct_id="p1", timestamp="2020-01-19T12:00:00Z",
             )
 
-            result = trends().run(
+            result = trends(
                 Filter(
                     data={
                         "date_from": "2020-01-12T00:00:00Z",
@@ -194,7 +194,7 @@ def lifecycle_test_factory(trends, event_factory, person_factory, action_factory
                     }
                 ),
                 self.team,
-            )
+            ).run()
 
             self.assertLifecycleResults(
                 result,
@@ -331,7 +331,7 @@ def lifecycle_test_factory(trends, event_factory, person_factory, action_factory
 
             pageview_action = action_factory(team=self.team, name="$pageview")
 
-            result = trends().run(
+            result = trends(
                 Filter(
                     data={
                         "date_from": "2020-01-12T00:00:00Z",
@@ -341,7 +341,7 @@ def lifecycle_test_factory(trends, event_factory, person_factory, action_factory
                     }
                 ),
                 self.team,
-            )
+            ).run()
 
             self.assertLifecycleResults(
                 result,
@@ -374,7 +374,7 @@ def lifecycle_test_factory(trends, event_factory, person_factory, action_factory
             )
 
             with freeze_time("2020-01-17T13:01:01Z"):
-                result = trends().run(
+                result = trends(
                     Filter(
                         data={
                             "date_from": "all",
@@ -383,7 +383,7 @@ def lifecycle_test_factory(trends, event_factory, person_factory, action_factory
                         }
                     ),
                     self.team,
-                )
+                ).run()
 
             self.assertLifecycleResults(
                 result,
@@ -416,7 +416,7 @@ def lifecycle_test_factory(trends, event_factory, person_factory, action_factory
                 ]
             )
 
-            result = trends().run(
+            result = trends(
                 Filter(
                     data={
                         "date_from": "2020-02-05T00:00:00Z",
@@ -427,7 +427,7 @@ def lifecycle_test_factory(trends, event_factory, person_factory, action_factory
                     }
                 ),
                 self.team,
-            )
+            ).run()
 
             self.assertEqual(
                 result[0]["days"], ["2020-02-03", "2020-02-10", "2020-02-17", "2020-02-24", "2020-03-02", "2020-03-09"]
@@ -463,7 +463,7 @@ def lifecycle_test_factory(trends, event_factory, person_factory, action_factory
                 ]
             )
 
-            result = trends().run(
+            result = trends(
                 Filter(
                     data={
                         "date_from": "2020-02-01T00:00:00Z",
@@ -474,7 +474,7 @@ def lifecycle_test_factory(trends, event_factory, person_factory, action_factory
                     }
                 ),
                 self.team,
-            )
+            ).run()
 
             self.assertLifecycleResults(
                 result,
@@ -506,7 +506,7 @@ def lifecycle_test_factory(trends, event_factory, person_factory, action_factory
                 ]
             )
 
-            result = trends().run(
+            result = trends(
                 Filter(
                     data={
                         "date_from": "2020-01-12T00:00:00Z",
@@ -518,7 +518,7 @@ def lifecycle_test_factory(trends, event_factory, person_factory, action_factory
                     team=self.team,
                 ),
                 self.team,
-            )
+            ).run()
 
             self.assertLifecycleResults(
                 result,
@@ -580,7 +580,7 @@ def lifecycle_test_factory(trends, event_factory, person_factory, action_factory
                 ]
             )
 
-            result = trends().run(
+            result = trends(
                 Filter(
                     data={
                         "date_from": "2020-01-12T00:00:00Z",
@@ -590,7 +590,7 @@ def lifecycle_test_factory(trends, event_factory, person_factory, action_factory
                     }
                 ),
                 self.team,
-            )
+            ).run()
 
             self.assertLifecycleResults(
                 result,
@@ -605,7 +605,7 @@ def lifecycle_test_factory(trends, event_factory, person_factory, action_factory
             self.team.timezone = "US/Pacific"
             self.team.save()
 
-            result_pacific = trends().run(
+            result_pacific = trends(
                 Filter(
                     data={
                         "date_from": "2020-01-12T00:00:00Z",
@@ -616,7 +616,7 @@ def lifecycle_test_factory(trends, event_factory, person_factory, action_factory
                     team=self.team,
                 ),
                 self.team,
-            )
+            ).run()
             self.assertLifecycleResults(
                 result_pacific,
                 [

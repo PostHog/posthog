@@ -56,7 +56,7 @@ class TestClickhouseLifecycle(ClickhouseTestMixin, lifecycle_test_factory(Trends
             self.team,
         )
 
-        result = Trends().run(
+        result = Trends(
             Filter(
                 data={
                     "date_from": "2020-01-12T00:00:00Z",
@@ -68,7 +68,7 @@ class TestClickhouseLifecycle(ClickhouseTestMixin, lifecycle_test_factory(Trends
                 team=self.team,
             ),
             self.team,
-        )
+        ).run()
 
         self.assertLifecycleResults(
             result,
@@ -98,7 +98,7 @@ class TestClickhouseLifecycle(ClickhouseTestMixin, lifecycle_test_factory(Trends
             self.team,
         )
 
-        result = Trends().run(
+        result = Trends(
             Filter(
                 data={
                     "date_from": "2020-01-11T00:00:00Z",
@@ -109,7 +109,7 @@ class TestClickhouseLifecycle(ClickhouseTestMixin, lifecycle_test_factory(Trends
                 team=self.team,
             ),
             self.team,
-        )
+        ).run()
 
         self.assertLifecycleResults(
             result,
@@ -211,4 +211,4 @@ class TestClickhouseLifecycle(ClickhouseTestMixin, lifecycle_test_factory(Trends
             data={"events": [{"id": "$pageview", "type": "events", "order": 0}], "shown_as": TRENDS_LIFECYCLE, **data,},
             team=self.team,
         )
-        return Trends().run(filter, self.team,)
+        return Trends(filter, self.team,).run()

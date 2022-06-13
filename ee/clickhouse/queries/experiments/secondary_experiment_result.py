@@ -51,7 +51,7 @@ class ClickhouseSecondaryExperimentResult:
     def get_results(self):
 
         if self.query_filter.insight == INSIGHT_TRENDS:
-            trend_results = Trends().run(self.query_filter, self.team)
+            trend_results = Trends(self.query_filter, self.team).run()
             variants = self.get_trend_count_data_for_variants(trend_results)
 
         elif self.query_filter.insight == INSIGHT_FUNNELS:
