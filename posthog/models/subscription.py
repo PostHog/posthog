@@ -1,6 +1,5 @@
-from datetime import datetime, timedelta
+from datetime import timedelta
 
-import jwt
 
 from dateutil.rrule import (
     FR,
@@ -17,11 +16,12 @@ from django.contrib.postgres.fields import ArrayField
 from django.db import models
 from django.utils import timezone
 
+from posthog.jwt import PosthogJwtAudience, decode_jwt, encode_jwt
+
 # Copied from rrule as it is not exported
 FREQNAMES = ["YEARLY", "MONTHLY", "WEEKLY", "DAILY", "HOURLY", "MINUTELY", "SECONDLY"]
 
 UNSUBSCRIBE_TOKEN_EXP_DAYS = 30
-UNSUBSCRIBE_TOKEN_AUD = "posthog:unsubscribe"
 
 RRULE_WEEKDAY_MAP = {
     "monday": MO,
@@ -125,22 +125,15 @@ def to_rrule_weekdays(weekday: Subscription.SubscriptionByWeekDay):
 
 
 def get_unsubscribe_token(subscription: Subscription, email: str) -> str:
-    encoded_jwt = jwt.encode(
-        {
-            "id": subscription.id,
-            "email": email,
-            "exp": datetime.now(tz=timezone.utc) + timedelta(days=UNSUBSCRIBE_TOKEN_EXP_DAYS),
-            "aud": UNSUBSCRIBE_TOKEN_AUD,
-        },
-        settings.SECRET_KEY,
-        algorithm="HS256",
+    return encode_jwt(
+        {"id": subscription.id, "email": email,},
+        expiry_delta=timedelta(days=UNSUBSCRIBE_TOKEN_EXP_DAYS),
+        audience=PosthogJwtAudience.UNSUBSCRIBE,
     )
-
-    return encoded_jwt
 
 
 def unsubscribe_using_token(token: str) -> Subscription:
-    info = jwt.decode(token, settings.SECRET_KEY, audience=UNSUBSCRIBE_TOKEN_AUD, algorithms=["HS256"])
+    info = decode_jwt(token, audience=PosthogJwtAudience.UNSUBSCRIBE)
     subscription = Subscription.objects.get(pk=info["id"])
 
     emails = subscription.target_value.split(",")
