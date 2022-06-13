@@ -129,6 +129,12 @@ export class EventsProcessor {
             const timeout1 = timeoutGuard('Still running "handleIdentifyOrAlias". Timeout warning after 30 sec!', {
                 eventUuid,
             })
+
+            const team = await this.teamManager.fetchTeam(teamId)
+            if (!team) {
+                throw new Error(`No team found with ID ${teamId}. Can't ingest event.`)
+            }
+
             const personStateManager = new PersonStateManager(ts, this.db)
             try {
                 await this.handleIdentifyOrAlias(personStateManager, data['event'], properties, distinctId, teamId, ts)
@@ -136,11 +142,6 @@ export class EventsProcessor {
                 console.error('handleIdentifyOrAlias failed', e, data)
             } finally {
                 clearTimeout(timeout1)
-            }
-
-            const team = await this.teamManager.fetchTeam(teamId)
-            if (!team) {
-                throw new Error(`No team found with ID ${teamId}. Can't ingest event.`)
             }
 
             if (data['event'] === '$snapshot') {
