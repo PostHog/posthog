@@ -1,5 +1,6 @@
 import copy
 import threading
+from datetime import datetime, timedelta
 from itertools import accumulate
 from typing import (
     Any,
@@ -12,6 +13,8 @@ from typing import (
     cast,
 )
 
+import pytz
+from dateutil import parser
 from django.db.models.query import Prefetch
 
 from posthog.client import sync_execute
@@ -20,14 +23,13 @@ from posthog.models.action import Action
 from posthog.models.action_step import ActionStep
 from posthog.models.entity import Entity
 from posthog.models.filters import Filter
-from posthog.models.instance_setting import get_instance_setting
 from posthog.models.team import Team
 from posthog.queries.base import handle_compare
 from posthog.queries.trends.breakdown import TrendsBreakdown
 from posthog.queries.trends.formula import TrendsFormula
 from posthog.queries.trends.lifecycle import Lifecycle
 from posthog.queries.trends.total_volume import TrendsTotalVolume
-from posthog.utils import generate_cache_key, get_safe_cache, relative_date_parse
+from posthog.utils import generate_cache_key, get_safe_cache
 
 
 class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
@@ -45,26 +47,37 @@ class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
 
     def get_cached_result(self, filter: Filter, team: Team) -> Optional[List[Dict[str, Any]]]:
 
-        if not get_instance_setting("CACHE_HISTORY_TRENDS"):
+        if not team.strict_caching_enabled:
             return None
 
         cache_key = generate_cache_key(f"{filter.toJSON()}_{team.pk}")
         cached_result_package = get_safe_cache(cache_key)
         return cached_result_package.get("result") if cached_result_package else None
 
-    def adjusted_filter(self, filter: Filter, team: Team) -> Filter:
-        _is_present = is_present_timerange(filter)
+    def is_present_timerange(self, filter: Filter, team: Team) -> bool:
         _is_cached = self.get_cached_result(filter, team)
+        if _is_cached:
+            latest_date = _is_cached[0]["days"].pop()
+            parsed_latest_date = parser.parse(latest_date)
+            parsed_latest_date = parsed_latest_date.replace(tzinfo=pytz.timezone(team.timezone))
+            _is_present = is_present_timerange(filter, parsed_latest_date)
+        else:
+            _is_present = False
 
-        new_filter = (
-            filter.with_data({"date_from": interval_unit(filter.interval)}) if _is_present and _is_cached else filter
-        )
+        return _is_present
+
+    def adjusted_filter(self, filter: Filter, team: Team) -> Filter:
+        _is_present = self.is_present_timerange(filter, team)
+
+        new_filter = filter.with_data({"date_from": interval_unit(filter.interval)}) if _is_present else filter
 
         return new_filter
 
     def merge_results(self, result, filter: Filter, team: Team):
         cached_result = self.get_cached_result(filter, team)
-        if cached_result and filter.display != TRENDS_CUMULATIVE:
+        is_present = self.is_present_timerange(filter, team)
+
+        if is_present and filter.display != TRENDS_CUMULATIVE:
             label_to_val = {}
             new_res = []
             for payload in result:
@@ -184,12 +197,19 @@ class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
         return entity_metrics
 
 
-def is_present_timerange(filter: Filter) -> bool:
-    interval_diff = interval_unit(filter.interval)
-    possible_interval_start = relative_date_parse(interval_diff)
+def is_present_timerange(filter: Filter, latest_cached_datetime: datetime) -> bool:
+    diff = filter.date_to - latest_cached_datetime
 
-    if possible_interval_start < filter.date_to:
-        return True
+    if filter.interval == "hour":
+        return diff < timedelta(hours=1)
+    if filter.interval == "day":
+        return diff < timedelta(days=1)
+    elif filter.interval == "week":
+        return diff < timedelta(weeks=1)
+    elif filter.interval == "month":
+        return diff < timedelta(days=30)
+    elif filter.interval == "year":
+        return diff < timedelta(days=365)
     else:
         return False
 
