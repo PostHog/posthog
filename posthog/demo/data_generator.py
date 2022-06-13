@@ -45,6 +45,7 @@ class DataGenerator:
                 team_id=person.team.pk,
                 properties=person.properties,
                 is_identified=person.is_identified,
+                version=0,
             )
         for pid in pids:
             create_person_distinct_id(pid.team.pk, pid.distinct_id, str(pid.person.uuid))  # use dummy number for id

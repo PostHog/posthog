@@ -29,9 +29,9 @@ class TestDeleteEvents(ClickhouseTestMixin, ClickhouseDestroyTablesMixin, BaseTe
         self.assertEqual(self.select_remaining("events", "event"), ["event3"])
 
     def test_delete_persons(self):
-        uuid0 = create_person(self.teams[0].pk, properties={"x": 0})
-        uuid1 = create_person(self.teams[1].pk, properties={"x": 1})
-        uuid2 = create_person(self.teams[2].pk, properties={"x": 2})
+        uuid0 = create_person(team_id=self.teams[0].pk, properties={"x": 0}, version=0)
+        uuid1 = create_person(team_id=self.teams[1].pk, properties={"x": 1}, version=0)
+        uuid2 = create_person(team_id=self.teams[2].pk, properties={"x": 2}, version=0)
         create_person_distinct_id(self.teams[0].pk, "0", uuid0)
         create_person_distinct_id(self.teams[1].pk, "1", uuid1)
         create_person_distinct_id(self.teams[2].pk, "2", uuid2)
