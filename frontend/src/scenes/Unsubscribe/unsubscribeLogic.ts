@@ -1,7 +1,7 @@
+import { api } from '@posthog/apps-common'
 import { actions, afterMount, kea, path } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
-import { api } from 'packages/apps-common'
 
 import type { unsubscribeLogicType } from './unsubscribeLogicType'
 

@@ -11,7 +11,6 @@ import { LemonSelect } from 'lib/components/LemonSelect'
 import { insightSubscriptionLogic } from '../insightSubscriptionLogic'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 import { IconChevronLeft, IconOpenInNew } from 'lib/components/icons'
-import { LemonDivider, LemonInput, LemonTextArea } from 'packages/apps-common'
 import { AlertMessage } from 'lib/components/AlertMessage'
 import { InsightShortId } from '~/types'
 import { insightSubscriptionsLogic } from '../insightSubscriptionsLogic'
@@ -23,6 +22,7 @@ import {
     timeOptions,
     weekdayOptions,
 } from '../utils'
+import { LemonDivider, LemonInput, LemonTextArea } from '@posthog/lemon-ui'
 
 interface EditSubscriptionProps {
     id: number | 'new'
@@ -86,7 +86,6 @@ export function EditSubscription({ id, insightShortId, onCancel, onDelete }: Edi
                             className={'mb'}
                         />
                     ) : null}
-
                     {emailDisabled && (
                         <AlertMessage type="error">
                             <>
@@ -103,11 +102,9 @@ export function EditSubscription({ id, insightShortId, onCancel, onDelete }: Edi
                             </>
                         </AlertMessage>
                     )}
-
                     <Field name={'title'} label={'Name'}>
                         <LemonInput placeholder="e.g. Weekly team report" disabled={emailDisabled} />
                     </Field>
-
                     <Field name={'target_value'} label={'Who do you want to subscribe'}>
                         {({ value, onChange }) => (
                             <>
@@ -134,7 +131,6 @@ export function EditSubscription({ id, insightShortId, onCancel, onDelete }: Edi
                             disabled={emailDisabled}
                         />
                     </Field>
-
                     <div>
                         <div className="ant-form-item-label">
                             <label title="Recurrance">Recurrance</label>

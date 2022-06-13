@@ -1,5 +1,5 @@
+import { LemonSelectOptions } from '@posthog/lemon-ui'
 import { range } from 'lib/utils'
-import { LemonSelectOptions } from 'packages/apps-common'
 
 export const intervalOptions: LemonSelectOptions = range(1, 13).reduce(
     (acc, x) => ({
