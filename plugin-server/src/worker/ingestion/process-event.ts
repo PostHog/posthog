@@ -534,8 +534,8 @@ export class EventsProcessor {
             properties['$ip'] = ip
         }
 
-        await this.teamManager.updateEventNamesAndProperties(team.id, event, properties)
         properties = personInitialAndUTMProperties(properties)
+        await this.teamManager.updateEventNamesAndProperties(team.id, event, properties)
         properties = await addGroupProperties(team.id, properties, this.groupTypeManager)
 
         const createdNewPersonWithProperties = await this.createPersonIfDistinctIdIsNew(
