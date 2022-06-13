@@ -85,13 +85,14 @@ export class EventsProcessor {
         let result: PreIngestionEvent | null = null
         try {
             // Sanitize values, even though `sanitizeEvent` should have gotten to them
-            const properties: Properties = data.properties ?? {}
+            let properties: Properties = data.properties ?? {}
             if (data['$set']) {
                 properties['$set'] = { ...properties['$set'], ...data['$set'] }
             }
             if (data['$set_once']) {
                 properties['$set_once'] = { ...properties['$set_once'], ...data['$set_once'] }
             }
+            properties = data['event'] === '$snapshot' ? properties : personInitialAndUTMProperties(properties)
 
             // TODO: we should just handle all person's related changes together not here and in capture separately
             const parsedTs = this.handleTimestamp(data, now, sentAt)
@@ -230,7 +231,6 @@ export class EventsProcessor {
             properties['$ip'] = ip
         }
 
-        properties = personInitialAndUTMProperties(properties)
         await this.teamManager.updateEventNamesAndProperties(team.id, event, properties)
         properties = await addGroupProperties(team.id, properties, this.groupTypeManager)
 
