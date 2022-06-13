@@ -5,12 +5,11 @@ from typing import Any, Dict, List, Literal, Optional, Union
 
 from ee.clickhouse.queries.breakdown_props import ALL_USERS_COHORT_ID
 from ee.clickhouse.test.test_journeys import journeys_for
-from ee.clickhouse.util import snapshot_clickhouse_queries
 from posthog.constants import INSIGHT_FUNNELS
 from posthog.models.cohort import Cohort
 from posthog.models.filters import Filter
 from posthog.queries.funnels.funnel import ClickhouseFunnel
-from posthog.test.base import APIBaseTest, test_with_materialized_columns
+from posthog.test.base import APIBaseTest, snapshot_clickhouse_queries, test_with_materialized_columns
 
 
 @dataclass(frozen=True)

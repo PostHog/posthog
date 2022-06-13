@@ -21,8 +21,9 @@ from ee.clickhouse.sql.cohort import (
 from ee.clickhouse.sql.person import GET_PERSON_IDS_BY_FILTER, INSERT_PERSON_STATIC_COHORT, PERSON_STATIC_COHORT_TABLE
 from posthog.client import sync_execute
 from posthog.constants import PropertyOperatorType
-from posthog.models import Action, Cohort, Filter, Team
+from posthog.models import Action, Filter, Team
 from posthog.models.action.util import format_action_filter
+from posthog.models.cohort.cohort import Cohort
 from posthog.models.property import Property, PropertyGroup
 from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
 
@@ -336,8 +337,6 @@ def simplified_cohort_filter_properties(cohort: Cohort, team: Team, is_negated=F
     """
     'Simplifies' cohort property filters, removing team-specific context from properties.
     """
-    from ee.clickhouse.models.cohort import is_precalculated_query
-
     if cohort.is_static:
         return PropertyGroup(
             type=PropertyOperatorType.AND,
