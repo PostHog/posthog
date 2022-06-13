@@ -27,7 +27,6 @@ import { cohortsModel } from '~/models/cohortsModel'
 import { mathsLogic } from 'scenes/trends/mathsLogic'
 import { InsightSkeleton } from 'scenes/insights/InsightSkeleton'
 import { LemonButton } from 'lib/components/LemonButton'
-import { useUnloadConfirmation } from 'lib/hooks/useUnloadConfirmation'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import useBreakpoint from 'antd/lib/grid/hooks/useBreakpoint'
@@ -44,7 +43,7 @@ import { urls } from 'scenes/urls'
 
 export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): JSX.Element {
     const { insightMode } = useValues(insightSceneLogic)
-    const { setInsightMode, syncInsightChanged } = useActions(insightSceneLogic)
+    const { setInsightMode } = useActions(insightSceneLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { currentTeamId } = useValues(teamLogic)
     const { push } = useActions(router)
@@ -81,12 +80,6 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
     const screens = useBreakpoint()
     const usingEditorPanels = featureFlags[FEATURE_FLAGS.INSIGHT_EDITOR_PANELS]
     const usingExportFeature = featureFlags[FEATURE_FLAGS.EXPORT_DASHBOARD_INSIGHTS]
-
-    useUnloadConfirmation(insightMode === ItemMode.Edit && insightChanged)
-
-    useEffect(() => {
-        syncInsightChanged(insightChanged)
-    }, [insightChanged])
 
     // Show the skeleton if loading an insight for which we only know the id
     // This helps with the UX flickering and showing placeholder "name" text.
@@ -178,7 +171,7 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                             </>
                         )}
                         {insightMode === ItemMode.Edit && insight.saved && (
-                            <LemonButton type="secondary" onClick={() => cancelChanges(true)}>
+                            <LemonButton type="secondary" onClick={() => setInsightMode(ItemMode.View, null)}>
                                 Cancel
                             </LemonButton>
                         )}
