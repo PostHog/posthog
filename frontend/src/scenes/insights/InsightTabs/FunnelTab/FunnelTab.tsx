@@ -182,22 +182,25 @@ export function FunnelTab(): JSX.Element {
                                                   label: 'Specific step',
                                                   element: (
                                                       <LemonSelect
-                                                          placeholder={`${filters.breakdown_attribution_value || 1}`}
+                                                          outlined
+                                                          className="ml-05"
+                                                          placeholder={`Step ${
+                                                              filters.breakdown_attribution_value || 1
+                                                          }`}
                                                           options={{ 1: { label: '1' } }}
                                                       />
                                                   ),
                                               },
                                           }),
                                 }}
-                                dropdownMatchSelectWidth={true}
                                 onChange={(value) => {
                                     if (value) {
                                         setFilters({ breakdown_attribution_type: value })
                                     }
                                 }}
-                                style={{ width: '100%' }}
+                                dropdownMaxContentWidth={true}
                                 outlined
-                                data-attr="copy-from-template"
+                                data-attr="breakdown-attributions"
                             />
                         </Row>
                     </>

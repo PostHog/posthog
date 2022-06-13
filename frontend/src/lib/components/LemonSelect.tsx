@@ -18,6 +18,7 @@ export interface LemonSelectProps<O extends LemonSelectOptions>
     value?: keyof O | null
     onChange?: (newValue: keyof O | null) => void
     dropdownMatchSelectWidth?: boolean
+    dropdownMaxContentWidth?: boolean
     allowClear?: boolean
 }
 
@@ -27,6 +28,7 @@ export function LemonSelect<O extends LemonSelectOptions>({
     options,
     placeholder = 'Select a value',
     dropdownMatchSelectWidth = true,
+    dropdownMaxContentWidth = false,
     allowClear = false,
     ...buttonProps
 }: LemonSelectProps<O>): JSX.Element {
@@ -74,6 +76,7 @@ export function LemonSelect<O extends LemonSelectOptions>({
                     )),
                     sameWidth: dropdownMatchSelectWidth,
                     actionable: true,
+                    maxContentWidth: dropdownMaxContentWidth,
                 }}
                 icon={localValue && options[localValue]?.icon}
                 sideIcon={isClearButtonShown ? <div /> : undefined}
