@@ -1,7 +1,6 @@
 import React from 'react'
 import { ComponentMeta, ComponentStory } from '@storybook/react'
 import { LemonSelect, LemonSelectProps } from './LemonSelect'
-import { range } from 'lib/utils'
 
 export default {
     title: 'Lemon UI/Lemon Select',
@@ -35,11 +34,13 @@ export const LongOptions = Template.bind({})
 LongOptions.args = {
     allowClear: true,
     value: '1',
-    options: range(0, 100).reduce(
-        (acc, x) => ({
-            ...acc,
-            [`${x}`]: { label: `${x}` },
-        }),
-        {}
-    ),
+    options: [...Array(100)]
+        .map((_, i) => i)
+        .reduce(
+            (acc, x) => ({
+                ...acc,
+                [`${x}`]: { label: `${x}` },
+            }),
+            {}
+        ),
 }
