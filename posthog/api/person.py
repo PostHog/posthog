@@ -401,8 +401,7 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             try:
                 result = get_person_property_values_for_key(key, self.team, value)
                 statsd.incr(
-                    "get_person_property_values_for_key_success",
-                    tags={"key": key, "value": value, "team_id": self.team.id},
+                    "get_person_property_values_for_key_success", tags={"team_id": self.team.id},
                 )
             except Exception as e:
                 statsd.incr(
