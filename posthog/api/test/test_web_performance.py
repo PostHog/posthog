@@ -9,6 +9,9 @@ from posthog.test.base import APIBaseTest, _create_event, flush_persons_and_even
 class TestWebPerformance(APIBaseTest):
     maxDiff = None
 
+    # test multiple page views
+    # test not all types present
+    # test _no_ performance entries present
     def test_something(self) -> None:
         _create_event(
             event="$pageview",
