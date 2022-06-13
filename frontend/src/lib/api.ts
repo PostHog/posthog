@@ -647,7 +647,7 @@ const api = {
         ): Promise<SubscriptionType> {
             return await new ApiRequest().subscription(subscriptionId).update({ data })
         },
-        async list(insightId?: number): Promise<PaginatedResponse<ActionType>> {
+        async list(insightId?: number): Promise<PaginatedResponse<SubscriptionType>> {
             return await new ApiRequest()
                 .subscriptions()
                 .withQueryString(insightId ? `insight_id=${insightId}` : '')
