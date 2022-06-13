@@ -109,10 +109,10 @@ class Cohort(models.Model):
                     props = group.get("properties")
                     if isinstance(props, list):
                         for prop in props:
-                            if prop.get("type") == "event":
+                            if prop.get("type", "event") == "event":
                                 prop["type"] = "person"
                     elif isinstance(props, dict):
-                        if props.get("type") == "event":
+                        if props.get("type", "event") == "event":
                             props["type"] = "person"
 
                     # Do not try simplifying properties at this stage. We'll let this happen at query time.
