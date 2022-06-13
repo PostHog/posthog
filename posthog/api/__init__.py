@@ -111,6 +111,7 @@ from posthog.api.element import ElementViewSet, LegacyElementViewSet
 from posthog.api.event import EventViewSet, LegacyEventViewSet
 from posthog.api.person import LegacyPersonViewSet, PersonViewSet
 from posthog.api.session_recording import SessionRecordingViewSet
+from posthog.api.web_performance import WebPerformanceViewSet
 
 # Legacy endpoints CH (to be removed eventually)
 router.register(r"cohort", LegacyCohortViewSet, basename="cohort")
@@ -132,3 +133,4 @@ projects_router.register(r"experiments", ClickhouseExperimentsViewSet, "project_
 projects_router.register(
     r"session_recordings", SessionRecordingViewSet, "project_session_recordings", ["team_id"],
 )
+projects_router.register(r"web_performance", WebPerformanceViewSet, "project_web_performance", ["team_id"])
