@@ -23,7 +23,12 @@ export const VM_INIT_MAX_RETRIES = 5
 export const INITIALIZATION_RETRY_MULTIPLIER = 2
 export const INITIALIZATION_RETRY_BASE_MS = 5000
 
-export class SetupPluginError extends Error {}
+export class SetupPluginError extends Error {
+    constructor(message: string) {
+        super(message)
+        this.name = 'SetupPluginError'
+    }
+}
 
 export class LazyPluginVM {
     initialize?: (indexJs: string, logInfo: string) => Promise<void>
