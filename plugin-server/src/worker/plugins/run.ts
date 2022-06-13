@@ -10,19 +10,38 @@ export const ON_CAUSE_RETRY_MULTIPLIER = 2
 export const ON_CAUSE_RETRY_BASE_MS = 5000
 
 export async function runOnEvent(hub: Hub, event: ProcessedPluginEvent): Promise<void> {
-    const isSnapshot = event.event === '$snapshot'
     const pluginsToRun = getPluginsForTeam(hub, event.team_id)
 
     await Promise.all(
         pluginsToRun.map(async (pluginConfig) => {
-            const onCause = await (isSnapshot ? pluginConfig.vm?.getOnSnapshot() : pluginConfig.vm?.getOnEvent())
-            if (onCause) {
+            const onEvent = await pluginConfig.vm?.getOnEvent()
+            if (onEvent) {
                 await runRetriableFunction(
                     hub,
                     pluginConfig,
                     event.team_id,
-                    isSnapshot ? 'on_snapshot' : 'on_event',
-                    async () => await onCause(event),
+                    'on_event',
+                    async () => await onEvent(event),
+                    async (error) => await processError(hub, pluginConfig, error, event)
+                )
+            }
+        })
+    )
+}
+
+export async function runOnSnapshot(hub: Hub, event: ProcessedPluginEvent): Promise<void> {
+    const pluginsToRun = getPluginsForTeam(hub, event.team_id)
+
+    await Promise.all(
+        pluginsToRun.map(async (pluginConfig) => {
+            const onSnapshot = await pluginConfig.vm?.getOnSnapshot()
+            if (onSnapshot) {
+                await runRetriableFunction(
+                    hub,
+                    pluginConfig,
+                    event.team_id,
+                    'on_snapshot',
+                    async () => await onSnapshot(event),
                     async (error) => await processError(hub, pluginConfig, error, event)
                 )
             }

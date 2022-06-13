@@ -1,7 +1,7 @@
 import { runInstrumentedFunction } from '../../../main/utils'
 import { Action, Element, IngestionEvent, Person } from '../../../types'
 import { convertToProcessedPluginEvent } from '../../../utils/event'
-import { runOnAction, runOnEvent } from '../../plugins/run'
+import { runOnAction, runOnEvent, runOnSnapshot } from '../../plugins/run'
 import { EventPipelineRunner, StepResult } from './runner'
 
 export async function runAsyncHandlersStep(
@@ -26,7 +26,7 @@ async function processOnEvent(runner: EventPipelineRunner, event: IngestionEvent
     await runInstrumentedFunction({
         server: runner.hub,
         event: processedPluginEvent,
-        func: (event) => runOnEvent(runner.hub, event),
+        func: async (event) => await (isSnapshot ? runOnSnapshot(runner.hub, event) : runOnEvent(runner.hub, event)),
         statsKey: `kafka_queue.single_on_${isSnapshot ? 'snapshot' : 'event'}`,
         timeoutMessage: `After 30 seconds still running on${isSnapshot ? 'Snapshot' : 'Event'}`,
     })
