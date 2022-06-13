@@ -7,7 +7,7 @@ from ee.clickhouse.materialized_columns import backfill_materialized_columns, ge
 from ee.clickhouse.queries.stickiness import ClickhouseStickiness
 from ee.clickhouse.queries.funnels.funnel_correlation import FunnelCorrelation
 from posthog.queries.funnels import ClickhouseFunnel
-from ee.clickhouse.queries.property_values import get_property_values_for_key, get_person_property_values_for_key
+from posthog.queries.property_values import get_property_values_for_key, get_person_property_values_for_key
 from posthog.queries.trends.trends import Trends
 from ee.clickhouse.queries.session_recordings.clickhouse_session_recording_list import ClickhouseSessionRecordingList
 from ee.clickhouse.queries.retention import ClickhouseRetention

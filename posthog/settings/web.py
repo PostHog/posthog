@@ -73,7 +73,7 @@ if STATSD_HOST is not None:
 # Append Enterprise Edition as an app if available
 INSTALLED_APPS.append("rest_hooks")
 INSTALLED_APPS.append("ee.apps.EnterpriseConfig")
-MIDDLEWARE.append("ee.clickhouse.middleware.CHQueries")
+MIDDLEWARE.append("posthog.middleware.CHQueries")
 
 # Use django-extensions if it exists
 try:

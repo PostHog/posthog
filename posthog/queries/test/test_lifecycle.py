@@ -4,10 +4,9 @@ from unittest.mock import patch
 from freezegun import freeze_time
 from rest_framework.test import APIRequestFactory
 
-from ee.clickhouse.util import snapshot_clickhouse_queries
 from posthog.constants import FILTER_TEST_ACCOUNTS, TRENDS_LIFECYCLE
 from posthog.models import Filter
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, snapshot_clickhouse_queries
 from posthog.utils import relative_date_parse
 
 

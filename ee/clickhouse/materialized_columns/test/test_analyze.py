@@ -1,8 +1,7 @@
 from ee.clickhouse.materialized_columns.analyze import Query, TeamManager
 from ee.clickhouse.sql.clickhouse import trim_quotes_expr
-from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.models import Person, PropertyDefinition
-from posthog.test.base import BaseTest
+from posthog.test.base import BaseTest, ClickhouseTestMixin
 
 
 class TestMaterializedColumnsAnalyze(ClickhouseTestMixin, BaseTest):
