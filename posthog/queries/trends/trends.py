@@ -205,14 +205,12 @@ def is_present_timerange(filter: Filter, latest_cached_datetime: datetime) -> bo
 
     if filter.interval == "hour":
         return diff < timedelta(hours=1)
-    if filter.interval == "day":
+    elif filter.interval == "day":
         return diff < timedelta(days=1)
     elif filter.interval == "week":
         return diff < timedelta(weeks=1)
     elif filter.interval == "month":
         return diff < timedelta(days=30)
-    else:
-        return False
 
 
 def interval_unit(interval: str) -> str:
