@@ -5,24 +5,25 @@ import { processError } from '../../utils/db/error'
 import { IllegalOperationError } from '../../utils/utils'
 import { Action } from './../../types'
 
-export async function runOnEvent(server: Hub, event: ProcessedPluginEvent): Promise<void> {
+export async function runOnEventOrSnapshot(server: Hub, event: ProcessedPluginEvent): Promise<void> {
+    const isSnapshot = event.event === '$snapshot'
     const pluginsToRun = getPluginsForTeam(server, event.team_id)
 
     await Promise.all(
         pluginsToRun.map(async (pluginConfig) => {
-            const onEvent = await pluginConfig.vm?.getOnEvent()
-            if (onEvent) {
+            const onCause = await (isSnapshot ? pluginConfig.vm?.getOnSnapshot() : pluginConfig.vm?.getOnEvent())
+            if (onCause) {
                 const timer = new Date()
                 try {
-                    await onEvent(event)
+                    await onCause(event)
                 } catch (error) {
                     await processError(server, pluginConfig, error, event)
-                    server.statsd?.increment(`plugin.on_event.ERROR`, {
+                    server.statsd?.increment(`plugin.on_${isSnapshot ? 'snapshot' : 'event'}.ERROR`, {
                         plugin: pluginConfig.plugin?.name ?? '?',
                         teamId: event.team_id.toString(),
                     })
                 }
-                server.statsd?.timing(`plugin.on_event`, timer, {
+                server.statsd?.timing(`plugin.on_${isSnapshot ? 'snapshot' : 'event'}`, timer, {
                     plugin: pluginConfig.plugin?.name ?? '?',
                     teamId: event.team_id.toString(),
                 })
@@ -49,32 +50,6 @@ export async function runOnAction(server: Hub, action: Action, event: ProcessedP
                     })
                 }
                 server.statsd?.timing(`plugin.on_action`, timer, {
-                    plugin: pluginConfig.plugin?.name ?? '?',
-                    teamId: event.team_id.toString(),
-                })
-            }
-        })
-    )
-}
-
-export async function runOnSnapshot(server: Hub, event: ProcessedPluginEvent): Promise<void> {
-    const pluginsToRun = getPluginsForTeam(server, event.team_id)
-
-    await Promise.all(
-        pluginsToRun.map(async (pluginConfig) => {
-            const onSnapshot = await pluginConfig.vm?.getOnSnapshot()
-            if (onSnapshot) {
-                const timer = new Date()
-                try {
-                    await onSnapshot(event)
-                } catch (error) {
-                    await processError(server, pluginConfig, error, event)
-                    server.statsd?.increment(`plugin.on_snapshot.ERROR`, {
-                        plugin: pluginConfig.plugin?.name ?? '?',
-                        teamId: event.team_id.toString(),
-                    })
-                }
-                server.statsd?.timing(`plugin.on_snapshot`, timer, {
                     plugin: pluginConfig.plugin?.name ?? '?',
                     teamId: event.team_id.toString(),
                 })
