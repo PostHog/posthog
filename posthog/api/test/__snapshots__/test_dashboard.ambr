@@ -76,7 +76,9 @@
          "posthog_dashboard"."last_accessed_at",
          "posthog_dashboard"."filters",
          "posthog_dashboard"."creation_mode",
-         "posthog_dashboard"."restriction_level"
+         "posthog_dashboard"."restriction_level",
+         "posthog_dashboard"."deprecated_tags",
+         "posthog_dashboard"."tags"
   FROM "posthog_dashboard"
   INNER JOIN "posthog_dashboardtile" ON ("posthog_dashboard"."id" = "posthog_dashboardtile"."dashboard_id")
   WHERE "posthog_dashboardtile"."insight_id" = 2
@@ -162,7 +164,9 @@
          "posthog_dashboard"."last_accessed_at",
          "posthog_dashboard"."filters",
          "posthog_dashboard"."creation_mode",
-         "posthog_dashboard"."restriction_level"
+         "posthog_dashboard"."restriction_level",
+         "posthog_dashboard"."deprecated_tags",
+         "posthog_dashboard"."tags"
   FROM "posthog_dashboard"
   INNER JOIN "posthog_dashboardtile" ON ("posthog_dashboard"."id" = "posthog_dashboardtile"."dashboard_id")
   WHERE "posthog_dashboardtile"."insight_id" = 2
@@ -377,6 +381,8 @@
          "posthog_dashboard"."filters",
          "posthog_dashboard"."creation_mode",
          "posthog_dashboard"."restriction_level",
+         "posthog_dashboard"."deprecated_tags",
+         "posthog_dashboard"."tags",
          "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
@@ -475,7 +481,9 @@
          "posthog_dashboarditem"."layouts",
          "posthog_dashboarditem"."color",
          "posthog_dashboarditem"."dive_dashboard_id",
-         "posthog_dashboarditem"."updated_at"
+         "posthog_dashboarditem"."updated_at",
+         "posthog_dashboarditem"."deprecated_tags",
+         "posthog_dashboarditem"."tags"
   FROM "posthog_dashboarditem"
   INNER JOIN "posthog_dashboardtile" ON ("posthog_dashboarditem"."id" = "posthog_dashboardtile"."insight_id")
   WHERE (NOT "posthog_dashboarditem"."deleted"
@@ -512,6 +520,8 @@
          "posthog_dashboard"."filters",
          "posthog_dashboard"."creation_mode",
          "posthog_dashboard"."restriction_level",
+         "posthog_dashboard"."deprecated_tags",
+         "posthog_dashboard"."tags",
          "posthog_dashboarditem"."id",
          "posthog_dashboarditem"."name",
          "posthog_dashboarditem"."derived_name",
@@ -536,7 +546,9 @@
          "posthog_dashboarditem"."layouts",
          "posthog_dashboarditem"."color",
          "posthog_dashboarditem"."dive_dashboard_id",
-         "posthog_dashboarditem"."updated_at"
+         "posthog_dashboarditem"."updated_at",
+         "posthog_dashboarditem"."deprecated_tags",
+         "posthog_dashboarditem"."tags"
   FROM "posthog_dashboardtile"
   INNER JOIN "posthog_dashboard" ON ("posthog_dashboardtile"."dashboard_id" = "posthog_dashboard"."id")
   INNER JOIN "posthog_dashboarditem" ON ("posthog_dashboardtile"."insight_id" = "posthog_dashboarditem"."id")
@@ -769,6 +781,8 @@
          "posthog_dashboarditem"."color",
          "posthog_dashboarditem"."dive_dashboard_id",
          "posthog_dashboarditem"."updated_at",
+         "posthog_dashboarditem"."deprecated_tags",
+         "posthog_dashboarditem"."tags",
          "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
@@ -873,7 +887,9 @@
          "posthog_dashboard"."last_accessed_at",
          "posthog_dashboard"."filters",
          "posthog_dashboard"."creation_mode",
-         "posthog_dashboard"."restriction_level"
+         "posthog_dashboard"."restriction_level",
+         "posthog_dashboard"."deprecated_tags",
+         "posthog_dashboard"."tags"
   FROM "posthog_dashboard"
   WHERE (NOT "posthog_dashboard"."deleted"
          AND "posthog_dashboard"."id" = 2)
@@ -896,7 +912,9 @@
          "posthog_dashboard"."last_accessed_at",
          "posthog_dashboard"."filters",
          "posthog_dashboard"."creation_mode",
-         "posthog_dashboard"."restriction_level"
+         "posthog_dashboard"."restriction_level",
+         "posthog_dashboard"."deprecated_tags",
+         "posthog_dashboard"."tags"
   FROM "posthog_dashboard"
   INNER JOIN "posthog_dashboardtile" ON ("posthog_dashboard"."id" = "posthog_dashboardtile"."dashboard_id")
   WHERE "posthog_dashboardtile"."insight_id" IN (1,
@@ -1118,6 +1136,8 @@
          "posthog_dashboard"."filters",
          "posthog_dashboard"."creation_mode",
          "posthog_dashboard"."restriction_level",
+         "posthog_dashboard"."deprecated_tags",
+         "posthog_dashboard"."tags",
          "posthog_dashboarditem"."id",
          "posthog_dashboarditem"."name",
          "posthog_dashboarditem"."derived_name",
@@ -1142,7 +1162,9 @@
          "posthog_dashboarditem"."layouts",
          "posthog_dashboarditem"."color",
          "posthog_dashboarditem"."dive_dashboard_id",
-         "posthog_dashboarditem"."updated_at"
+         "posthog_dashboarditem"."updated_at",
+         "posthog_dashboarditem"."deprecated_tags",
+         "posthog_dashboarditem"."tags"
   FROM "posthog_dashboardtile"
   INNER JOIN "posthog_dashboarditem" ON ("posthog_dashboardtile"."insight_id" = "posthog_dashboarditem"."id")
   INNER JOIN "posthog_dashboard" ON ("posthog_dashboardtile"."dashboard_id" = "posthog_dashboard"."id")
@@ -1164,7 +1186,9 @@
          "posthog_dashboard"."last_accessed_at",
          "posthog_dashboard"."filters",
          "posthog_dashboard"."creation_mode",
-         "posthog_dashboard"."restriction_level"
+         "posthog_dashboard"."restriction_level",
+         "posthog_dashboard"."deprecated_tags",
+         "posthog_dashboard"."tags"
   FROM "posthog_dashboard"
   WHERE "posthog_dashboard"."id" IN (1,
                                      2,
@@ -1245,7 +1269,9 @@
          "posthog_dashboard"."last_accessed_at",
          "posthog_dashboard"."filters",
          "posthog_dashboard"."creation_mode",
-         "posthog_dashboard"."restriction_level"
+         "posthog_dashboard"."restriction_level",
+         "posthog_dashboard"."deprecated_tags",
+         "posthog_dashboard"."tags"
   FROM "posthog_dashboard"
   INNER JOIN "posthog_dashboardtile" ON ("posthog_dashboard"."id" = "posthog_dashboardtile"."dashboard_id")
   WHERE "posthog_dashboardtile"."insight_id" = 2
@@ -1276,6 +1302,8 @@
          "posthog_dashboard"."filters",
          "posthog_dashboard"."creation_mode",
          "posthog_dashboard"."restriction_level",
+         "posthog_dashboard"."deprecated_tags",
+         "posthog_dashboard"."tags",
          "posthog_dashboarditem"."id",
          "posthog_dashboarditem"."name",
          "posthog_dashboarditem"."derived_name",
@@ -1300,7 +1328,9 @@
          "posthog_dashboarditem"."layouts",
          "posthog_dashboarditem"."color",
          "posthog_dashboarditem"."dive_dashboard_id",
-         "posthog_dashboarditem"."updated_at"
+         "posthog_dashboarditem"."updated_at",
+         "posthog_dashboarditem"."deprecated_tags",
+         "posthog_dashboarditem"."tags"
   FROM "posthog_dashboardtile"
   INNER JOIN "posthog_dashboard" ON ("posthog_dashboardtile"."dashboard_id" = "posthog_dashboard"."id")
   INNER JOIN "posthog_dashboarditem" ON ("posthog_dashboardtile"."insight_id" = "posthog_dashboarditem"."id")
@@ -1432,6 +1462,8 @@
          "posthog_dashboard"."filters",
          "posthog_dashboard"."creation_mode",
          "posthog_dashboard"."restriction_level",
+         "posthog_dashboard"."deprecated_tags",
+         "posthog_dashboard"."tags",
          "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
@@ -1530,7 +1562,9 @@
          "posthog_dashboarditem"."layouts",
          "posthog_dashboarditem"."color",
          "posthog_dashboarditem"."dive_dashboard_id",
-         "posthog_dashboarditem"."updated_at"
+         "posthog_dashboarditem"."updated_at",
+         "posthog_dashboarditem"."deprecated_tags",
+         "posthog_dashboarditem"."tags"
   FROM "posthog_dashboarditem"
   INNER JOIN "posthog_dashboardtile" ON ("posthog_dashboarditem"."id" = "posthog_dashboardtile"."insight_id")
   WHERE (NOT "posthog_dashboarditem"."deleted"
@@ -1567,6 +1601,8 @@
          "posthog_dashboard"."filters",
          "posthog_dashboard"."creation_mode",
          "posthog_dashboard"."restriction_level",
+         "posthog_dashboard"."deprecated_tags",
+         "posthog_dashboard"."tags",
          "posthog_dashboarditem"."id",
          "posthog_dashboarditem"."name",
          "posthog_dashboarditem"."derived_name",
@@ -1591,7 +1627,9 @@
          "posthog_dashboarditem"."layouts",
          "posthog_dashboarditem"."color",
          "posthog_dashboarditem"."dive_dashboard_id",
-         "posthog_dashboarditem"."updated_at"
+         "posthog_dashboarditem"."updated_at",
+         "posthog_dashboarditem"."deprecated_tags",
+         "posthog_dashboarditem"."tags"
   FROM "posthog_dashboardtile"
   INNER JOIN "posthog_dashboard" ON ("posthog_dashboardtile"."dashboard_id" = "posthog_dashboard"."id")
   INNER JOIN "posthog_dashboarditem" ON ("posthog_dashboardtile"."insight_id" = "posthog_dashboarditem"."id")
@@ -1634,6 +1672,8 @@
          "posthog_dashboarditem"."color",
          "posthog_dashboarditem"."dive_dashboard_id",
          "posthog_dashboarditem"."updated_at",
+         "posthog_dashboarditem"."deprecated_tags",
+         "posthog_dashboarditem"."tags",
          "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
@@ -1958,6 +1998,8 @@
          "posthog_dashboard"."filters",
          "posthog_dashboard"."creation_mode",
          "posthog_dashboard"."restriction_level",
+         "posthog_dashboard"."deprecated_tags",
+         "posthog_dashboard"."tags",
          "posthog_dashboarditem"."id",
          "posthog_dashboarditem"."name",
          "posthog_dashboarditem"."derived_name",
@@ -1982,7 +2024,9 @@
          "posthog_dashboarditem"."layouts",
          "posthog_dashboarditem"."color",
          "posthog_dashboarditem"."dive_dashboard_id",
-         "posthog_dashboarditem"."updated_at"
+         "posthog_dashboarditem"."updated_at",
+         "posthog_dashboarditem"."deprecated_tags",
+         "posthog_dashboarditem"."tags"
   FROM "posthog_dashboardtile"
   INNER JOIN "posthog_dashboard" ON ("posthog_dashboardtile"."dashboard_id" = "posthog_dashboard"."id")
   INNER JOIN "posthog_dashboarditem" ON ("posthog_dashboardtile"."insight_id" = "posthog_dashboarditem"."id")
@@ -2124,6 +2168,8 @@
          "posthog_dashboarditem"."color",
          "posthog_dashboarditem"."dive_dashboard_id",
          "posthog_dashboarditem"."updated_at",
+         "posthog_dashboarditem"."deprecated_tags",
+         "posthog_dashboarditem"."tags",
          "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
@@ -2365,6 +2411,8 @@
          "posthog_dashboard"."filters",
          "posthog_dashboard"."creation_mode",
          "posthog_dashboard"."restriction_level",
+         "posthog_dashboard"."deprecated_tags",
+         "posthog_dashboard"."tags",
          "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
@@ -2463,7 +2511,9 @@
          "posthog_dashboarditem"."layouts",
          "posthog_dashboarditem"."color",
          "posthog_dashboarditem"."dive_dashboard_id",
-         "posthog_dashboarditem"."updated_at"
+         "posthog_dashboarditem"."updated_at",
+         "posthog_dashboarditem"."deprecated_tags",
+         "posthog_dashboarditem"."tags"
   FROM "posthog_dashboarditem"
   INNER JOIN "posthog_dashboardtile" ON ("posthog_dashboarditem"."id" = "posthog_dashboardtile"."insight_id")
   WHERE (NOT "posthog_dashboarditem"."deleted"
@@ -2538,6 +2588,8 @@
          "posthog_dashboard"."filters",
          "posthog_dashboard"."creation_mode",
          "posthog_dashboard"."restriction_level",
+         "posthog_dashboard"."deprecated_tags",
+         "posthog_dashboard"."tags",
          "posthog_dashboarditem"."id",
          "posthog_dashboarditem"."name",
          "posthog_dashboarditem"."derived_name",
@@ -2562,7 +2614,9 @@
          "posthog_dashboarditem"."layouts",
          "posthog_dashboarditem"."color",
          "posthog_dashboarditem"."dive_dashboard_id",
-         "posthog_dashboarditem"."updated_at"
+         "posthog_dashboarditem"."updated_at",
+         "posthog_dashboarditem"."deprecated_tags",
+         "posthog_dashboarditem"."tags"
   FROM "posthog_dashboardtile"
   INNER JOIN "posthog_dashboard" ON ("posthog_dashboardtile"."dashboard_id" = "posthog_dashboard"."id")
   INNER JOIN "posthog_dashboarditem" ON ("posthog_dashboardtile"."insight_id" = "posthog_dashboarditem"."id")
@@ -2677,6 +2731,8 @@
          "posthog_dashboarditem"."color",
          "posthog_dashboarditem"."dive_dashboard_id",
          "posthog_dashboarditem"."updated_at",
+         "posthog_dashboarditem"."deprecated_tags",
+         "posthog_dashboarditem"."tags",
          "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
@@ -2981,6 +3037,8 @@
          "posthog_dashboard"."filters",
          "posthog_dashboard"."creation_mode",
          "posthog_dashboard"."restriction_level",
+         "posthog_dashboard"."deprecated_tags",
+         "posthog_dashboard"."tags",
          "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
@@ -3079,7 +3137,9 @@
          "posthog_dashboarditem"."layouts",
          "posthog_dashboarditem"."color",
          "posthog_dashboarditem"."dive_dashboard_id",
-         "posthog_dashboarditem"."updated_at"
+         "posthog_dashboarditem"."updated_at",
+         "posthog_dashboarditem"."deprecated_tags",
+         "posthog_dashboarditem"."tags"
   FROM "posthog_dashboarditem"
   INNER JOIN "posthog_dashboardtile" ON ("posthog_dashboarditem"."id" = "posthog_dashboardtile"."insight_id")
   WHERE (NOT "posthog_dashboarditem"."deleted"
@@ -3271,6 +3331,8 @@
          "posthog_dashboard"."filters",
          "posthog_dashboard"."creation_mode",
          "posthog_dashboard"."restriction_level",
+         "posthog_dashboard"."deprecated_tags",
+         "posthog_dashboard"."tags",
          "posthog_dashboarditem"."id",
          "posthog_dashboarditem"."name",
          "posthog_dashboarditem"."derived_name",
@@ -3295,7 +3357,9 @@
          "posthog_dashboarditem"."layouts",
          "posthog_dashboarditem"."color",
          "posthog_dashboarditem"."dive_dashboard_id",
-         "posthog_dashboarditem"."updated_at"
+         "posthog_dashboarditem"."updated_at",
+         "posthog_dashboarditem"."deprecated_tags",
+         "posthog_dashboarditem"."tags"
   FROM "posthog_dashboardtile"
   INNER JOIN "posthog_dashboard" ON ("posthog_dashboardtile"."dashboard_id" = "posthog_dashboard"."id")
   INNER JOIN "posthog_dashboarditem" ON ("posthog_dashboardtile"."insight_id" = "posthog_dashboarditem"."id")
@@ -3410,6 +3474,8 @@
          "posthog_dashboarditem"."color",
          "posthog_dashboarditem"."dive_dashboard_id",
          "posthog_dashboarditem"."updated_at",
+         "posthog_dashboarditem"."deprecated_tags",
+         "posthog_dashboarditem"."tags",
          "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
@@ -3709,6 +3775,8 @@
          "posthog_dashboard"."filters",
          "posthog_dashboard"."creation_mode",
          "posthog_dashboard"."restriction_level",
+         "posthog_dashboard"."deprecated_tags",
+         "posthog_dashboard"."tags",
          "posthog_dashboarditem"."id",
          "posthog_dashboarditem"."name",
          "posthog_dashboarditem"."derived_name",
@@ -3733,7 +3801,9 @@
          "posthog_dashboarditem"."layouts",
          "posthog_dashboarditem"."color",
          "posthog_dashboarditem"."dive_dashboard_id",
-         "posthog_dashboarditem"."updated_at"
+         "posthog_dashboarditem"."updated_at",
+         "posthog_dashboarditem"."deprecated_tags",
+         "posthog_dashboarditem"."tags"
   FROM "posthog_dashboardtile"
   INNER JOIN "posthog_dashboard" ON ("posthog_dashboardtile"."dashboard_id" = "posthog_dashboard"."id")
   INNER JOIN "posthog_dashboarditem" ON ("posthog_dashboardtile"."insight_id" = "posthog_dashboarditem"."id")
@@ -3848,6 +3918,8 @@
          "posthog_dashboarditem"."color",
          "posthog_dashboarditem"."dive_dashboard_id",
          "posthog_dashboarditem"."updated_at",
+         "posthog_dashboarditem"."deprecated_tags",
+         "posthog_dashboarditem"."tags",
          "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
@@ -3981,6 +4053,8 @@
          "posthog_dashboard"."filters",
          "posthog_dashboard"."creation_mode",
          "posthog_dashboard"."restriction_level",
+         "posthog_dashboard"."deprecated_tags",
+         "posthog_dashboard"."tags",
          "posthog_dashboarditem"."id",
          "posthog_dashboarditem"."name",
          "posthog_dashboarditem"."derived_name",
@@ -4005,7 +4079,9 @@
          "posthog_dashboarditem"."layouts",
          "posthog_dashboarditem"."color",
          "posthog_dashboarditem"."dive_dashboard_id",
-         "posthog_dashboarditem"."updated_at"
+         "posthog_dashboarditem"."updated_at",
+         "posthog_dashboarditem"."deprecated_tags",
+         "posthog_dashboarditem"."tags"
   FROM "posthog_dashboardtile"
   INNER JOIN "posthog_dashboard" ON ("posthog_dashboardtile"."dashboard_id" = "posthog_dashboard"."id")
   INNER JOIN "posthog_dashboarditem" ON ("posthog_dashboardtile"."insight_id" = "posthog_dashboarditem"."id")
@@ -4145,6 +4221,8 @@
          "posthog_dashboard"."filters",
          "posthog_dashboard"."creation_mode",
          "posthog_dashboard"."restriction_level",
+         "posthog_dashboard"."deprecated_tags",
+         "posthog_dashboard"."tags",
          "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
@@ -4243,7 +4321,9 @@
          "posthog_dashboarditem"."layouts",
          "posthog_dashboarditem"."color",
          "posthog_dashboarditem"."dive_dashboard_id",
-         "posthog_dashboarditem"."updated_at"
+         "posthog_dashboarditem"."updated_at",
+         "posthog_dashboarditem"."deprecated_tags",
+         "posthog_dashboarditem"."tags"
   FROM "posthog_dashboarditem"
   INNER JOIN "posthog_dashboardtile" ON ("posthog_dashboarditem"."id" = "posthog_dashboardtile"."insight_id")
   WHERE (NOT "posthog_dashboarditem"."deleted"
@@ -4363,6 +4443,8 @@
          "posthog_dashboarditem"."color",
          "posthog_dashboarditem"."dive_dashboard_id",
          "posthog_dashboarditem"."updated_at",
+         "posthog_dashboarditem"."deprecated_tags",
+         "posthog_dashboarditem"."tags",
          "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
