@@ -354,8 +354,7 @@ export const insightLogic = kea<insightLogicType>({
                           result: null,
                           filters: {},
                       },
-            setInsight: (state, { insight, options: { shouldMergeWithExisting } }) => ({
-                ...(shouldMergeWithExisting ? state : {}),
+            setInsight: (_state, { insight }) => ({
                 ...insight,
             }),
             setInsightMetadata: (state, { metadata }) => ({ ...state, ...metadata }),
@@ -752,7 +751,7 @@ export const insightLogic = kea<insightLogicType>({
 
             actions.setInsight(
                 { ...savedInsight, result: savedInsight.result || values.insight.result },
-                { fromPersistentApi: true }
+                { fromPersistentApi: true, overrideFilter: true }
             )
             lemonToast.success(`Insight saved${dashboards?.length === 1 ? ' & added to dashboard' : ''}`, {
                 button: {
@@ -764,7 +763,6 @@ export const insightLogic = kea<insightLogicType>({
             dashboardsModel.actions.updateDashboardItem(savedInsight)
 
             if (redirectToViewMode) {
-                actions.cancelChanges()
                 const mountedInsightSceneLogic = insightSceneLogic.findMounted()
                 if (!insightNumericId && dashboards?.length === 1) {
                     // redirect new insights added to dashboard to the dashboard
@@ -792,7 +790,7 @@ export const insightLogic = kea<insightLogicType>({
                 saved: true,
             })
             lemonToast.info(`You're now working on a copy of ${values.insight.name ?? values.insight.derived_name}`)
-            actions.setInsight(insight, { fromPersistentApi: true })
+            actions.setInsight(insight, { fromPersistentApi: true, overrideFilter: true })
             savedInsightsLogic.findMounted()?.actions.loadInsights()
             router.actions.push(urls.insightEdit(insight.short_id))
         },
