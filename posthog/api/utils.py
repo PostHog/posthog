@@ -128,9 +128,9 @@ def get_project_id(data, request) -> Optional[int]:
 
 
 @limits(calls=10, period=1)
-def capture_as_common_error_to_sentry(error):
+def capture_as_common_error_to_sentry_ratelimited(common_message, error):
     try:
-        raise Exception("Invalid payload") from error
+        raise Exception(common_message) from error
     except Exception as error_for_sentry:
         capture_exception(error_for_sentry)
 
@@ -140,7 +140,9 @@ def get_data(request):
     try:
         data = load_data_from_request(request)
     except RequestParsingError as error:
-        capture_as_common_error_to_sentry(error)  # We still capture this on Sentry to identify actual potential bugs
+        capture_as_common_error_to_sentry_ratelimited(
+            "Invalid payload", error
+        )  # We still capture this on Sentry to identify actual potential bugs
         return (
             None,
             cors_response(
