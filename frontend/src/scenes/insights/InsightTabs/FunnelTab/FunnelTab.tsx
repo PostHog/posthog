@@ -25,6 +25,7 @@ import { FunnelStepReferencePicker } from './FunnelStepReferencePicker'
 import { convertPropertiesToPropertyGroup } from 'lib/utils'
 import { PropertyGroupFilters } from 'lib/components/PropertyGroupFilters/PropertyGroupFilters'
 import { MathAvailability } from 'scenes/insights/ActionFilter/ActionFilterRow/ActionFilterRow'
+import { LemonSelect } from '@posthog/lemon-ui'
 
 const FUNNEL_STEP_COUNT_LIMIT = 20
 
@@ -153,6 +154,27 @@ export function FunnelTab(): JSX.Element {
                                 setFilters={setFilters}
                                 buttonType="default"
                                 useMultiBreakdown={!!featureFlags[FEATURE_FLAGS.BREAKDOWN_BY_MULTIPLE_PROPERTIES]}
+                            />
+                        </Row>
+                        <h4 className="secondary mt">
+                            Attribution
+                            <Tooltip placement="right" title="filler">
+                                <InfoCircleOutlined className="info-indicator" />
+                            </Tooltip>
+                        </h4>
+                        <Row>
+                            <LemonSelect
+                                placeholder="Attribution"
+                                allowClear
+                                options={{
+                                    FIRST_TOUCHPOINT: { label: 'First touchpoint' },
+                                    LAST_TOUCHPOINT: { label: 'Last touchpoint' },
+                                    ...(true
+                                        ? { SPECIFIC_STEP: { label: 'Specific step' } }
+                                        : { ANY_STEP: { label: 'Any step' } }),
+                                }}
+                                outlined
+                                data-attr="copy-from-template"
                             />
                         </Row>
                     </>
