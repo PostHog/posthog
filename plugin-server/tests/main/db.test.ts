@@ -157,7 +157,6 @@ describe('DB', () => {
             const personDbAfter = await fetchPersonByPersonId(personDbBefore.team_id, personDbBefore.id)
             expect(personDbAfter.created_at).toEqual(updateTs.toISO())
             // we didn't change properties so they should be what was in the db
-            console.log(personDbAfter.properties)
             expect(personDbAfter.properties).toEqual({ c: 'aaa' })
 
             //verify we got the expected updated person back
