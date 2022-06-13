@@ -50,11 +50,8 @@ export async function runOnAction(hub: Hub, action: Action, event: ProcessedPlug
     )
 }
 
-export async function runProcessEvent(
-    server: Hub,
-    event: PluginEvent,
-    pluginsToRun: PluginConfig[]
-): Promise<PluginEvent | null> {
+export async function runProcessEvent(hub: Hub, event: PluginEvent): Promise<PluginEvent | null> {
+    const pluginsToRun = getPluginsForTeam(hub, event.team_id)
     const teamId = event.team_id
     let returnedEvent: PluginEvent | null = event
 
@@ -75,14 +72,14 @@ export async function runProcessEvent(
                 }
                 pluginsSucceeded.push(`${pluginConfig.plugin?.name} (${pluginConfig.id})`)
             } catch (error) {
-                await processError(server, pluginConfig, error, returnedEvent)
-                server.statsd?.increment(`plugin.process_event.ERROR`, {
+                await processError(hub, pluginConfig, error, returnedEvent)
+                hub.statsd?.increment(`plugin.process_event.ERROR`, {
                     plugin: pluginConfig.plugin?.name ?? '?',
                     teamId: String(event.team_id),
                 })
                 pluginsFailed.push(`${pluginConfig.plugin?.name} (${pluginConfig.id})`)
             }
-            server.statsd?.timing(`plugin.process_event`, timer, {
+            hub.statsd?.timing(`plugin.process_event`, timer, {
                 plugin: pluginConfig.plugin?.name ?? '?',
                 teamId: teamId.toString(),
             })
