@@ -41,20 +41,10 @@ export function EditSubscription({ id, insightShortId, onCancel, onDelete }: Edi
         insightShortId,
     })
 
-    const { members } = useValues(membersLogic)
+    const { members, antSelectOptions } = useValues(membersLogic)
     const { subscription, isSubscriptionSubmitting } = useValues(logic)
     const { preflight, siteUrlMisconfigured } = useValues(preflightLogic)
     const { deleteSubscription } = useActions(subscriptionslogic)
-
-    const emailOptions = useMemo(
-        () =>
-            members.map((member) => ({
-                key: member.user.email,
-                value: member.user.email,
-                label: member.user.email,
-            })),
-        [members]
-    )
 
     const emailDisabled = !preflight?.email_service_available
 
@@ -140,7 +130,7 @@ export function EditSubscription({ id, insightShortId, onCancel, onDelete }: Edi
                                     mode="tags"
                                     dropdownMatchSelectWidth={false}
                                     data-attr="subscribed-emails"
-                                    options={emailOptions}
+                                    options={antSelectOptions}
                                     style={{ width: '100%' }}
                                     value={value?.split(',').filter(Boolean)}
                                     onChange={(val) => onChange(val.join(','))}

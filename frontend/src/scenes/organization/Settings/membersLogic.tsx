@@ -53,6 +53,16 @@ export const membersLogic = kea<membersLogicType>({
                 return result
             },
         ],
+
+        antSelectOptions: [
+            (s) => [s.members],
+            (members) =>
+                members.map((member) => ({
+                    key: member.user.email,
+                    value: member.user.email,
+                    label: member.user.email,
+                })),
+        ],
     },
     listeners: ({ actions }) => ({
         changeMemberAccessLevel: async ({ member, level }) => {
