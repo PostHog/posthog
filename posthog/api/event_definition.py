@@ -85,7 +85,7 @@ class EventDefinitionViewSet(
 
                 # Prevent fetching deprecated `tags` field. Tags are separately fetched in TaggedItemSerializerMixin
                 event_definition_fields = ", ".join(
-                    [f'"{f.column}"' for f in EnterpriseEventDefinition._meta.get_fields() if hasattr(f, "column") and f.column != "tags"]  # type: ignore
+                    [f'"{f.column}"' for f in EnterpriseEventDefinition._meta.get_fields() if hasattr(f, "column") and f.column not in ["deprecated_tags", "tags"]]  # type: ignore
                 )
 
                 ee_event_definitions = EnterpriseEventDefinition.objects.raw(
