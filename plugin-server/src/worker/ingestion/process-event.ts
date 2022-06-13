@@ -109,6 +109,9 @@ export class EventsProcessor {
             }
 
             const personStateManager = new PersonStateManager(
+                teamId,
+                distinctId,
+                properties,
                 ts,
                 this.db,
                 this.pluginsServer.statsd,
@@ -232,10 +235,6 @@ export class EventsProcessor {
         properties = await addGroupProperties(team.id, properties, this.groupTypeManager)
 
         const createdNewPersonWithProperties = await personStateManager.createPersonIfDistinctIdIsNew(
-            team.id,
-            distinctId,
-            timestamp,
-            personStateManager.newUuid,
             properties['$set'],
             properties['$set_once']
         )
@@ -247,8 +246,6 @@ export class EventsProcessor {
             (properties['$set'] || properties['$set_once'] || properties['$unset'])
         ) {
             await personStateManager.updatePersonProperties(
-                team.id,
-                distinctId,
                 properties['$set'] || {},
                 properties['$set_once'] || {},
                 properties['$unset'] || []
@@ -372,12 +369,7 @@ export class EventsProcessor {
             this.kafkaProducer ? TimestampFormat.ClickHouse : TimestampFormat.ISO
         )
 
-        await personStateManager.createPersonIfDistinctIdIsNew(
-            team_id,
-            distinct_id,
-            timestamp,
-            personStateManager.newUuid
-        )
+        await personStateManager.createPersonIfDistinctIdIsNew()
 
         const data: SessionRecordingEvent = {
             uuid,

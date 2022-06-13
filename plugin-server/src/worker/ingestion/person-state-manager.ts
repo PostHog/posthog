@@ -37,6 +37,9 @@ const isDistinctIdIllegal = (id: string): boolean => {
 
 // This class is responsible for creating/updating a single person through the process-event pipeline
 export class PersonStateManager {
+    teamId: number
+    distinctId: string
+    eventProperties: Properties
     timestamp: DateTime
     newUuid: string
 
@@ -44,7 +47,18 @@ export class PersonStateManager {
     private statsd: StatsD | undefined
     private personManager: PersonManager
 
-    constructor(timestamp: DateTime, db: DB, statsd: StatsD | undefined, personManager: PersonManager) {
+    constructor(
+        teamId: number,
+        distinctId: string,
+        eventProperties: Properties,
+        timestamp: DateTime,
+        db: DB,
+        statsd: StatsD | undefined,
+        personManager: PersonManager
+    ) {
+        this.teamId = teamId
+        this.distinctId = distinctId
+        this.eventProperties = eventProperties
         this.timestamp = timestamp
         this.newUuid = new UUIDT().toString()
 
@@ -53,32 +67,32 @@ export class PersonStateManager {
         this.personManager = personManager
     }
 
-    async createPersonIfDistinctIdIsNew(
-        teamId: number,
-        distinctId: string,
-        timestamp: DateTime,
-        personUuid: string,
-        properties?: Properties,
-        propertiesOnce?: Properties
-    ): Promise<boolean> {
-        const isNewPerson = await this.personManager.isNewPerson(this.db, teamId, distinctId)
+    async createPersonIfDistinctIdIsNew(properties?: Properties, propertiesOnce?: Properties): Promise<boolean> {
+        const isNewPerson = await this.personManager.isNewPerson(this.db, this.teamId, this.distinctId)
         if (isNewPerson) {
             // Catch race condition where in between getting and creating, another request already created this user
             try {
                 await this.createPerson(
-                    timestamp,
+                    this.timestamp,
                     properties || {},
                     propertiesOnce || {},
-                    teamId,
+                    this.teamId,
                     null,
                     false,
-                    personUuid.toString(),
-                    [distinctId]
+                    this.newUuid.toString(),
+                    [this.distinctId]
                 )
                 return true
             } catch (error) {
                 if (!error.message || !error.message.includes('duplicate key value violates unique constraint')) {
-                    Sentry.captureException(error, { extra: { teamId, distinctId, timestamp, personUuid } })
+                    Sentry.captureException(error, {
+                        extra: {
+                            teamId: this.teamId,
+                            distinctId: this.distinctId,
+                            timestamp: this.timestamp,
+                            personUuid: this.newUuid,
+                        },
+                    })
                 }
             }
         }
@@ -121,17 +135,15 @@ export class PersonStateManager {
     }
 
     async updatePersonProperties(
-        teamId: number,
-        distinctId: string,
         properties: Properties,
         propertiesOnce: Properties,
         unsetProperties: Array<string>
     ): Promise<void> {
-        const personFound = await this.db.fetchPerson(teamId, distinctId)
+        const personFound = await this.db.fetchPerson(this.teamId, this.distinctId)
         if (!personFound) {
-            this.statsd?.increment('person_not_found', { teamId: String(teamId), key: 'update' })
+            this.statsd?.increment('person_not_found', { teamId: String(this.teamId), key: 'update' })
             throw new Error(
-                `Could not find person with distinct id "${distinctId}" in team "${teamId}" to update properties`
+                `Could not find person with distinct id "${this.distinctId}" in team "${this.teamId}" to update properties`
             )
         }
 
