@@ -145,16 +145,7 @@ export class EventsProcessor {
             } else {
                 const timeout3 = timeoutGuard('Still running "capture". Timeout warning after 30 sec!', { eventUuid })
                 try {
-                    result = await this.capture(
-                        personStateManager,
-                        eventUuid,
-                        ip,
-                        team,
-                        data['event'],
-                        distinctId,
-                        properties,
-                        ts
-                    )
+                    result = await this.capture(eventUuid, ip, team, data['event'], distinctId, properties, ts)
                     this.pluginsServer.statsd?.timing('kafka_queue.single_save.standard', singleSaveTimer, {
                         team_id: teamId.toString(),
                     })
@@ -198,7 +189,6 @@ export class EventsProcessor {
     }
 
     private async capture(
-        personStateManager: PersonStateManager,
         eventUuid: string,
         ip: string | null,
         team: Team,
