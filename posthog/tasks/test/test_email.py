@@ -1,5 +1,5 @@
 from typing import Any
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from freezegun import freeze_time
 
@@ -26,7 +26,7 @@ def create_org_team_and_user(creation_date: str, email: str, ingested_event: boo
 @patch("posthog.tasks.email.EmailMessage")
 class TestEmail(APIBaseTest, ClickhouseTestMixin):
     @patch("posthoganalytics.feature_enabled", return_value=True)
-    def test_first_email_sent_to_correct_users_only_once(self, __: Any, MockEmailMessage) -> None:
+    def test_first_email_sent_to_correct_users_only_once(self, __: Any, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
         set_instance_setting("EMAIL_HOST", "fake_host")
         set_instance_setting("EMAIL_ENABLED", True)
@@ -55,7 +55,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             self.assertEqual(MessagingRecord.objects.all().count(), 2)
 
     @patch("posthoganalytics.feature_enabled", return_value=True)
-    def test_second_first_email_sent_to_correct_users_only_once(self, _: Any, MockEmailMessage) -> None:
+    def test_second_first_email_sent_to_correct_users_only_once(self, _: Any, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
 
         set_instance_setting("EMAIL_HOST", "fake_host")

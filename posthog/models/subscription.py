@@ -1,9 +1,9 @@
 from datetime import datetime, timedelta
 
 import jwt
+
 from dateutil.rrule import (
     FR,
-    FREQNAMES,
     MO,
     SA,
     SU,
@@ -16,6 +16,10 @@ from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
 from django.utils import timezone
+
+
+# Copied from rrule as it is not exported
+FREQNAMES = ["YEARLY", "MONTHLY", "WEEKLY", "DAILY", "HOURLY", "MINUTELY", "SECONDLY"]
 
 UNSUBSCRIBE_TOKEN_EXP_DAYS = 30
 
@@ -56,6 +60,8 @@ class Subscription(models.Model):
         FRIDAY = "friday"
         SATURDAY = "saturday"
         SUNDAY = "sunday"
+
+    id: models.BigAutoField = models.BigAutoField(primary_key=True)
 
     # Relations - i.e. WHAT are we exporting?
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)

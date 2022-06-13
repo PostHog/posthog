@@ -1,11 +1,12 @@
 import os
+from typing import Any, Dict, List
 from unittest.mock import MagicMock
 
 from posthog.email import EmailMessage
 from posthog.utils import get_absolute_path
 
 
-def mock_email_messages(MockEmailMessage: MagicMock):
+def mock_email_messages(MockEmailMessage: MagicMock) -> List[Any]:
     """
     Takes a mocked EmailMessage class and returns a list of all subsequently created EmailMessage instances
     The "send" method is spyed on to write the generated email to a file
@@ -24,11 +25,11 @@ def mock_email_messages(MockEmailMessage: MagicMock):
 
     mocked_email_messages = []
 
-    def _email_message_side_effect(**kwargs):
+    def _email_message_side_effect(**kwargs: Any) -> EmailMessage:
         email_message = EmailMessage(**kwargs)
         _original_send = email_message.send
 
-        def _send_side_effect(send_async=True):
+        def _send_side_effect(send_async: bool = True) -> Any:
             output_file = get_absolute_path(
                 f"test/__emails__/{kwargs['template_name']}/{email_message.campaign_key}.html"
             )
@@ -41,7 +42,7 @@ def mock_email_messages(MockEmailMessage: MagicMock):
 
             return _original_send()
 
-        email_message.send = MagicMock()
+        email_message.send = MagicMock()  # type: ignore
         email_message.send.side_effect = _send_side_effect
         mocked_email_messages.append(email_message)
         return email_message

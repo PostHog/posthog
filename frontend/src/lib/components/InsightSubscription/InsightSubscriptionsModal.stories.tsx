@@ -27,7 +27,7 @@ const createSubscription = (args: Partial<SubscriptionType> = {}): SubscriptionT
         ...args,
     } as SubscriptionType)
 
-const Template: ComponentStory<typeof InsightSubscriptionsModal> = (args) => {
+const Template: ComponentStory<any> = (args) => {
     const [isOpen, setIsOpen] = useState(false)
 
     const { preflightIssues = false, ...props } = args

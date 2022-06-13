@@ -14,7 +14,7 @@ from posthog.tasks.exporter import export_task
 logger = structlog.get_logger(__name__)
 
 
-def get_unsubscribe_url(subscription: Subscription, email: str):
+def get_unsubscribe_url(subscription: Subscription, email: str) -> str:
     return f"{settings.SITE_URL}/unsubscribe?token={get_unsubscribe_token(subscription, email)}"
 
 
@@ -66,7 +66,7 @@ def schedule_all_subscriptions() -> None:
 
 
 @app.task()
-def deliver_subscription_report(subscription_id: int):
+def deliver_subscription_report(subscription_id: int) -> None:
     subscription = Subscription.objects.select_related("created_by", "insight").get(pk=subscription_id)
 
     if subscription.target_type == "email":
@@ -89,7 +89,7 @@ def deliver_subscription_report(subscription_id: int):
 
 
 @app.task()
-def deliver_new_subscription(subscription_id: int, new_emails: List[str]):
+def deliver_new_subscription(subscription_id: int, new_emails: List[str]) -> None:
     if not new_emails:
         return
     subscription = Subscription.objects.select_related("created_by", "insight").get(pk=subscription_id)

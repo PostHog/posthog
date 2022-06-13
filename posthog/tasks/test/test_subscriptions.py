@@ -1,6 +1,6 @@
 from datetime import datetime
-from typing import List
-from unittest.mock import call, patch
+from typing import Any, List
+from unittest.mock import MagicMock, call, patch
 
 import pytz
 from freezegun import freeze_time
@@ -17,7 +17,7 @@ from posthog.tasks.test.utils_email_tests import mock_email_messages
 from posthog.test.base import APIBaseTest
 
 
-def _create_insight_subscription(**kwargs):
+def _create_insight_subscription(**kwargs: Any) -> Subscription:
     return Subscription.objects.create(
         target_type="email",
         target_value="test1@posthog.com,test2@posthog.com",
@@ -46,7 +46,9 @@ class TestSubscriptionsTasks(APIBaseTest):
         ]
 
     @patch("posthog.tasks.subscriptions.deliver_subscription_report")
-    def test_subscription_delivery_scheduling(self, mock_deliver_task, MockEmailMessage, mock_export_task) -> None:
+    def test_subscription_delivery_scheduling(
+        self, mock_deliver_task: MagicMock, MockEmailMessage: MagicMock, mock_export_task: MagicMock
+    ) -> None:
         # Modify a subscription to have its target time at least an hour ahead
         self.subscriptions[2].start_date = datetime(2022, 1, 1, 10, 0).replace(tzinfo=pytz.UTC)
         self.subscriptions[2].save()
@@ -56,7 +58,7 @@ class TestSubscriptionsTasks(APIBaseTest):
 
         assert mock_deliver_task.delay.mock_calls == [call(self.subscriptions[0].id), call(self.subscriptions[1].id)]
 
-    def test_subscription_delivery(self, MockEmailMessage, mock_export_task) -> None:
+    def test_subscription_delivery(self, MockEmailMessage: MagicMock, mock_export_task: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
 
         deliver_subscription_report(self.subscriptions[0].id)
@@ -65,7 +67,7 @@ class TestSubscriptionsTasks(APIBaseTest):
         assert mocked_email_messages[0].send.call_count == 1
         assert mock_export_task.call_count == 1
 
-    def test_new_subscription_delivery(self, MockEmailMessage, mock_export_task) -> None:
+    def test_new_subscription_delivery(self, MockEmailMessage: MagicMock, mock_export_task: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
 
         deliver_new_subscription(self.subscriptions[0].id, new_emails=["test@posthog.com"])
