@@ -85,7 +85,7 @@ export class PersonStateManager {
         return false
     }
 
-    async createPerson(
+    private async createPerson(
         createdAt: DateTime,
         properties: Properties,
         propertiesOnce: Properties,
