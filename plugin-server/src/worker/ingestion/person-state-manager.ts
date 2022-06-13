@@ -67,7 +67,27 @@ export class PersonStateManager {
         this.personManager = personManager
     }
 
-    async createPersonIfDistinctIdIsNew(properties?: Properties, propertiesOnce?: Properties): Promise<boolean> {
+    async updateProperties(): Promise<void> {
+        const wasCreated = await this.createPersonIfDistinctIdIsNew(
+            this.eventProperties['$set'],
+            this.eventProperties['$set_once']
+        )
+        if (
+            !wasCreated &&
+            (this.eventProperties['$set'] || this.eventProperties['$set_once'] || this.eventProperties['$unset'])
+        ) {
+            await this.updatePersonProperties(
+                this.eventProperties['$set'] || {},
+                this.eventProperties['$set_once'] || {},
+                this.eventProperties['$unset'] || []
+            )
+        }
+    }
+
+    private async createPersonIfDistinctIdIsNew(
+        properties?: Properties,
+        propertiesOnce?: Properties
+    ): Promise<boolean> {
         const isNewPerson = await this.personManager.isNewPerson(this.db, this.teamId, this.distinctId)
         if (isNewPerson) {
             // Catch race condition where in between getting and creating, another request already created this user
@@ -134,7 +154,7 @@ export class PersonStateManager {
         )
     }
 
-    async updatePersonProperties(
+    private async updatePersonProperties(
         properties: Properties,
         propertiesOnce: Properties,
         unsetProperties: Array<string>

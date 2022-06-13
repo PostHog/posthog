@@ -114,6 +114,8 @@ export class EventsProcessor {
                 clearTimeout(timeout1)
             }
 
+            await personStateManager.updateProperties()
+
             if (data['event'] === '$snapshot') {
                 if (team.session_recording_opt_in) {
                     const timeout2 = timeoutGuard(
@@ -122,7 +124,6 @@ export class EventsProcessor {
                     )
                     try {
                         result = await this.createSessionRecordingEvent(
-                            personStateManager,
                             eventUuid,
                             teamId,
                             distinctId,
@@ -222,22 +223,8 @@ export class EventsProcessor {
         await this.teamManager.updateEventNamesAndProperties(team.id, event, properties)
         properties = await addGroupProperties(team.id, properties, this.groupTypeManager)
 
-        const createdNewPersonWithProperties = await personStateManager.createPersonIfDistinctIdIsNew(
-            properties['$set'],
-            properties['$set_once']
-        )
-
         if (event === '$groupidentify') {
             await this.upsertGroup(team.id, properties, timestamp)
-        } else if (
-            !createdNewPersonWithProperties &&
-            (properties['$set'] || properties['$set_once'] || properties['$unset'])
-        ) {
-            await personStateManager.updatePersonProperties(
-                properties['$set'] || {},
-                properties['$set_once'] || {},
-                properties['$unset'] || []
-            )
         }
 
         return {
@@ -341,7 +328,6 @@ export class EventsProcessor {
     }
 
     private async createSessionRecordingEvent(
-        personStateManager: PersonStateManager,
         uuid: string,
         team_id: number,
         distinct_id: string,
@@ -356,8 +342,6 @@ export class EventsProcessor {
             timestamp,
             this.kafkaProducer ? TimestampFormat.ClickHouse : TimestampFormat.ISO
         )
-
-        await personStateManager.createPersonIfDistinctIdIsNew()
 
         const data: SessionRecordingEvent = {
             uuid,
