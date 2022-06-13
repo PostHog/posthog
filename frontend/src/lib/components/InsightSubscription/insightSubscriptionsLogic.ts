@@ -26,12 +26,14 @@ export const insightSubscriptionsLogic = kea<insightSubscriptionsLogicType>([
     loaders(({ values }) => ({
         subscriptions: {
             __default: [] as SubscriptionType[],
-            loadSubscriptions: async () => {
+            loadSubscriptions: async (_, breakpoint) => {
                 if (!values.insight.id) {
                     return []
                 }
 
+                breakpoint()
                 const response = await api.subscriptions.list(values.insight.id)
+                breakpoint()
                 return response.results
             },
         },

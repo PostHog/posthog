@@ -64,7 +64,7 @@ export const insightSubscriptionLogic = kea<insightSubscriptionLogicType>([
                             : undefined
                         : undefined,
             }),
-            submit: async (subscription) => {
+            submit: async (subscription, breakpoint) => {
                 const payload = {
                     ...subscription,
                     insight: values.insight.id,
@@ -72,20 +72,26 @@ export const insightSubscriptionLogic = kea<insightSubscriptionLogicType>([
 
                 let subscriptionId = props.id
 
+                breakpoint()
+
                 if (subscriptionId === 'new') {
                     const newSub = await api.subscriptions.create(payload)
                     subscriptionId = newSub.id
                 } else {
                     await api.subscriptions.update(subscriptionId, payload)
                 }
-                actions.loadSubscriptions()
-                actions.loadSubscription()
+
                 actions.resetSubscription()
-                lemonToast.success(`Subscription saved.`)
 
                 if (subscriptionId !== props.id) {
                     router.actions.replace(urls.insightSubcription(props.insightShortId, subscriptionId.toString()))
                 }
+
+                breakpoint()
+
+                actions.loadSubscriptions()
+                actions.loadSubscription()
+                lemonToast.success(`Subscription saved.`)
             },
         },
     })),
