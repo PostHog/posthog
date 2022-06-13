@@ -16,14 +16,7 @@ export async function runOnEvent(hub: Hub, event: ProcessedPluginEvent): Promise
         pluginsToRun.map(async (pluginConfig) => {
             const onEvent = await pluginConfig.vm?.getOnEvent()
             if (onEvent) {
-                await runRetriableFunction(
-                    hub,
-                    pluginConfig,
-                    event.team_id,
-                    'on_event',
-                    async () => await onEvent(event),
-                    async (error) => await processError(hub, pluginConfig, error, event)
-                )
+                await runRetriableFunction(hub, pluginConfig, event, 'on_event', async () => await onEvent(event))
             }
         })
     )
@@ -36,14 +29,7 @@ export async function runOnSnapshot(hub: Hub, event: ProcessedPluginEvent): Prom
         pluginsToRun.map(async (pluginConfig) => {
             const onSnapshot = await pluginConfig.vm?.getOnSnapshot()
             if (onSnapshot) {
-                await runRetriableFunction(
-                    hub,
-                    pluginConfig,
-                    event.team_id,
-                    'on_snapshot',
-                    async () => await onSnapshot(event),
-                    async (error) => await processError(hub, pluginConfig, error, event)
-                )
+                await runRetriableFunction(hub, pluginConfig, event, 'on_snapshot', async () => await onSnapshot(event))
             }
         })
     )
@@ -59,10 +45,9 @@ export async function runOnAction(hub: Hub, action: Action, event: ProcessedPlug
                 await runRetriableFunction(
                     hub,
                     pluginConfig,
-                    event.team_id,
+                    event,
                     'on_action',
-                    async () => await onAction(action, event),
-                    async (error) => await processError(hub, pluginConfig, error, event)
+                    async () => await onAction(action, event)
                 )
             }
         })
@@ -167,43 +152,50 @@ export async function runPluginTask(
 async function runRetriableFunction(
     hub: Hub,
     pluginConfig: PluginConfig,
-    teamId: number,
+    event: ProcessedPluginEvent,
     tag: string,
     tryFunc: () => Promise<void>,
-    catchFunc: (error: Error) => Promise<void>,
+    catchFunc?: (error: Error) => Promise<void>,
     finallyFunc?: () => Promise<void>
 ): Promise<void> {
     const timer = new Date()
     let attempt = 0
-    while (attempt < ON_CAUSE_MAX_ATTEMPTS) {
+    const teamIdString = event.team_id.toString()
+    while (true) {
         attempt++
+        let nextRetryMs: number
         try {
             await tryFunc()
+            break
         } catch (error) {
             if (error instanceof RetryError) {
                 error._attempt = attempt
                 error._maxAttempts = ON_CAUSE_MAX_ATTEMPTS
+            }
+            if (error instanceof RetryError && attempt < ON_CAUSE_MAX_ATTEMPTS) {
+                nextRetryMs = ON_CAUSE_RETRY_BASE_MS * ON_CAUSE_RETRY_MULTIPLIER ** attempt
                 hub.statsd?.increment(`plugin.${tag}.RETRY`, {
                     plugin: pluginConfig.plugin?.name ?? '?',
-                    teamId: teamId.toString(),
+                    teamId: teamIdString,
                     attempt: attempt.toString(),
                 })
             } else {
-                await catchFunc(error)
+                await catchFunc?.(error)
+                await processError(hub, pluginConfig, error, event)
                 hub.statsd?.increment(`plugin.${tag}.ERROR`, {
                     plugin: pluginConfig.plugin?.name ?? '?',
-                    teamId: teamId.toString(),
+                    teamId: teamIdString,
                     attempt: attempt.toString(),
                 })
                 break
             }
         }
-        await delay(ON_CAUSE_RETRY_BASE_MS * ON_CAUSE_RETRY_MULTIPLIER ** attempt)
+        await delay(nextRetryMs)
     }
     await finallyFunc?.()
     hub.statsd?.timing(`plugin.${tag}`, timer, {
         plugin: pluginConfig.plugin?.name ?? '?',
-        teamId: teamId.toString(),
+        teamId: teamIdString,
     })
 }
 
