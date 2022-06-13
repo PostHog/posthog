@@ -77,7 +77,7 @@ class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
         cached_result = self.get_cached_result(filter, team)
         is_present = self.is_present_timerange(filter, team)
 
-        if is_present and filter.display != TRENDS_CUMULATIVE:
+        if is_present and cached_result and filter.display != TRENDS_CUMULATIVE:
             label_to_val = {}
             new_res = []
             for payload in result:
@@ -208,8 +208,6 @@ def is_present_timerange(filter: Filter, latest_cached_datetime: datetime) -> bo
         return diff < timedelta(weeks=1)
     elif filter.interval == "month":
         return diff < timedelta(days=30)
-    elif filter.interval == "year":
-        return diff < timedelta(days=365)
     else:
         return False
 
@@ -223,7 +221,5 @@ def interval_unit(interval: str) -> str:
         return "-1w"
     elif interval == "month":
         return "-1m"
-    elif interval == "year":
-        return "-1y"
     else:
         raise ValueError("Invalid interval")
