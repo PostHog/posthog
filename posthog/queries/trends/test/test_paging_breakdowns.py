@@ -39,12 +39,12 @@ class TestPagingBreakdowns(APIBaseTest):
 
     def _run(self, extra: Dict = {}, run_at: Optional[str] = None):
         with freeze_time(run_at or "2020-01-04T13:01:01Z"):
-            action_response = Trends(
+            action_response = Trends().run(
                 Filter(
                     data={"events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0},], **extra,}
                 ),
                 self.team,
-            ).run()
+            )
         return action_response
 
     def test_with_breakdown_loads_two_unqiue_pages_of_values(self):
