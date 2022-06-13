@@ -135,7 +135,7 @@ export class EventsProcessor {
                 throw new Error(`No team found with ID ${teamId}. Can't ingest event.`)
             }
 
-            const personStateManager = new PersonStateManager(ts, this.db)
+            const personStateManager = new PersonStateManager(ts, this.db, this.personManager)
             try {
                 await this.handleIdentifyOrAlias(personStateManager, data['event'], properties, distinctId, teamId, ts)
             } catch (e) {
@@ -561,8 +561,7 @@ export class EventsProcessor {
         await this.teamManager.updateEventNamesAndProperties(team.id, event, properties)
         properties = await addGroupProperties(team.id, properties, this.groupTypeManager)
 
-        const createdNewPersonWithProperties = await this.createPersonIfDistinctIdIsNew(
-            personStateManager,
+        const createdNewPersonWithProperties = await personStateManager.createPersonIfDistinctIdIsNew(
             team.id,
             distinctId,
             timestamp,
@@ -703,8 +702,7 @@ export class EventsProcessor {
             this.kafkaProducer ? TimestampFormat.ClickHouse : TimestampFormat.ISO
         )
 
-        await this.createPersonIfDistinctIdIsNew(
-            personStateManager,
+        await personStateManager.createPersonIfDistinctIdIsNew(
             team_id,
             distinct_id,
             timestamp,
@@ -734,39 +732,6 @@ export class EventsProcessor {
             elementsList: [],
             teamId: team_id,
         }
-    }
-
-    private async createPersonIfDistinctIdIsNew(
-        personStateManager: PersonStateManager,
-        teamId: number,
-        distinctId: string,
-        timestamp: DateTime,
-        personUuid: string,
-        properties?: Properties,
-        propertiesOnce?: Properties
-    ): Promise<boolean> {
-        const isNewPerson = await this.personManager.isNewPerson(this.db, teamId, distinctId)
-        if (isNewPerson) {
-            // Catch race condition where in between getting and creating, another request already created this user
-            try {
-                await personStateManager.createPerson(
-                    timestamp,
-                    properties || {},
-                    propertiesOnce || {},
-                    teamId,
-                    null,
-                    false,
-                    personUuid.toString(),
-                    [distinctId]
-                )
-                return true
-            } catch (error) {
-                if (!error.message || !error.message.includes('duplicate key value violates unique constraint')) {
-                    Sentry.captureException(error, { extra: { teamId, distinctId, timestamp, personUuid } })
-                }
-            }
-        }
-        return false
     }
 
     private async upsertGroup(teamId: number, properties: Properties, timestamp: DateTime): Promise<void> {
