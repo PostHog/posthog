@@ -1,8 +1,6 @@
 from typing import Any, Dict, cast
 
-from django.contrib.postgres.fields import ArrayField
 from django.db import models
-from django_deprecate_fields import deprecate_field
 
 from posthog.constants import AvailableFeature
 
@@ -41,14 +39,6 @@ class Dashboard(models.Model):
         default=RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT, choices=RestrictionLevel.choices,
     )
     insights = models.ManyToManyField("posthog.Insight", related_name="dashboards", through="DashboardTile", blank=True)
-
-    # Deprecated in favour of app-wide tagging model. See EnterpriseTaggedItem
-    deprecated_tags: ArrayField = deprecate_field(
-        ArrayField(models.CharField(max_length=32), blank=True, default=list), return_instead=[],
-    )
-    tags: ArrayField = deprecate_field(
-        ArrayField(models.CharField(max_length=32), blank=True, default=None), return_instead=[],
-    )
 
     @property
     def effective_restriction_level(self) -> RestrictionLevel:

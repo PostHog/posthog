@@ -2,7 +2,6 @@ import secrets
 import string
 from typing import Optional
 
-from django.contrib.postgres.fields.array import ArrayField
 from django.db import models
 from django.db.models.signals import pre_save
 from django.dispatch import receiver
@@ -68,14 +67,6 @@ class Insight(models.Model):
     type: models.CharField = deprecate_field(models.CharField(max_length=400, null=True, blank=True))
     # DEPRECATED: we don't store funnels as a separate model any more
     funnel: models.IntegerField = deprecate_field(models.IntegerField(null=True, blank=True))
-    # DEPRECATED: now using app-wide tagging model. See EnterpriseTaggedItem
-    deprecated_tags: ArrayField = deprecate_field(
-        ArrayField(models.CharField(max_length=32), blank=True, default=list), return_instead=[],
-    )
-    # DEPRECATED: now using app-wide tagging model. See EnterpriseTaggedItem
-    tags: ArrayField = deprecate_field(
-        ArrayField(models.CharField(max_length=32), blank=True, default=None), return_instead=[],
-    )
 
     # Changing these fields materially alters the Insight, so these count for the "last_modified_*" fields
     MATERIAL_INSIGHT_FIELDS = {"name", "description", "filters"}
