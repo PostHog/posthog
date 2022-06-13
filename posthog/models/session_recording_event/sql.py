@@ -1,8 +1,8 @@
 from django.conf import settings
 
-from ee.clickhouse.sql.clickhouse import KAFKA_COLUMNS, kafka_engine, ttl_period
-from ee.clickhouse.sql.table_engines import Distributed, ReplacingMergeTree, ReplicationScheme
 from ee.kafka_client.topics import KAFKA_SESSION_RECORDING_EVENTS
+from posthog.clickhouse.kafka_engine import KAFKA_COLUMNS, kafka_engine, ttl_period
+from posthog.clickhouse.table_engines import Distributed, ReplacingMergeTree, ReplicationScheme
 
 SESSION_RECORDING_EVENTS_DATA_TABLE = (
     lambda: "sharded_session_recording_events" if settings.CLICKHOUSE_REPLICATION else "session_recording_events"

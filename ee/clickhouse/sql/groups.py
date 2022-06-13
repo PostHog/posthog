@@ -1,6 +1,11 @@
-from ee.clickhouse.sql.clickhouse import COPY_ROWS_BETWEEN_TEAMS_BASE_SQL, KAFKA_COLUMNS, STORAGE_POLICY, kafka_engine
-from ee.clickhouse.sql.table_engines import ReplacingMergeTree
 from ee.kafka_client.topics import KAFKA_GROUPS
+from posthog.clickhouse.kafka_engine import (
+    COPY_ROWS_BETWEEN_TEAMS_BASE_SQL,
+    KAFKA_COLUMNS,
+    STORAGE_POLICY,
+    kafka_engine,
+)
+from posthog.clickhouse.table_engines import ReplacingMergeTree
 from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
 
 GROUPS_TABLE = "groups"

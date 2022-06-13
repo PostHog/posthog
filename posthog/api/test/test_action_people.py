@@ -3,9 +3,9 @@ from uuid import uuid4
 
 from freezegun import freeze_time
 
-from ee.clickhouse.models.session_recording_event import create_session_recording_event
 from posthog.constants import ENTITY_ID, ENTITY_MATH, ENTITY_TYPE, TRENDS_CUMULATIVE
 from posthog.models import Action, ActionStep, Cohort, Organization
+from posthog.models.session_recording_event.util import create_session_recording_event
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,

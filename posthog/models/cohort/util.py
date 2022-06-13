@@ -8,7 +8,12 @@ from django.conf import settings
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 
-from ee.clickhouse.sql.cohort import (
+from posthog.client import sync_execute
+from posthog.constants import PropertyOperatorType
+from posthog.models import Action, Filter, Team
+from posthog.models.action.util import format_action_filter
+from posthog.models.cohort.cohort import Cohort
+from posthog.models.cohort.sql import (
     CALCULATE_COHORT_PEOPLE_SQL,
     GET_COHORT_SIZE_SQL,
     GET_COHORTS_BY_PERSON_UUID,
@@ -18,12 +23,7 @@ from ee.clickhouse.sql.cohort import (
     GET_STATIC_COHORTPEOPLE_BY_PERSON_UUID,
     RECALCULATE_COHORT_BY_ID,
 )
-from ee.clickhouse.sql.person import GET_PERSON_IDS_BY_FILTER, INSERT_PERSON_STATIC_COHORT, PERSON_STATIC_COHORT_TABLE
-from posthog.client import sync_execute
-from posthog.constants import PropertyOperatorType
-from posthog.models import Action, Filter, Team
-from posthog.models.action.util import format_action_filter
-from posthog.models.cohort.cohort import Cohort
+from posthog.models.person.sql import GET_PERSON_IDS_BY_FILTER, INSERT_PERSON_STATIC_COHORT, PERSON_STATIC_COHORT_TABLE
 from posthog.models.property import Property, PropertyGroup
 from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
 

@@ -2,8 +2,8 @@ from typing import Any, List
 
 import structlog
 
-from ee.clickhouse.sql.events import EVENTS_DATA_TABLE
 from posthog.client import sync_execute
+from posthog.models.event.sql import EVENTS_DATA_TABLE
 from posthog.models.person import Person, PersonDistinctId
 from posthog.settings import CLICKHOUSE_CLUSTER
 

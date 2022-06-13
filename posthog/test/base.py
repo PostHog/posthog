@@ -18,18 +18,18 @@ from django.utils.timezone import now
 from rest_framework.test import APITestCase as DRFTestCase
 
 from ee.clickhouse.models.event import bulk_create_events
-from ee.clickhouse.sql.events import DISTRIBUTED_EVENTS_TABLE_SQL, DROP_EVENTS_TABLE_SQL, EVENTS_TABLE_SQL
-from ee.clickhouse.sql.person import DROP_PERSON_TABLE_SQL, PERSONS_TABLE_SQL, TRUNCATE_PERSON_DISTINCT_ID_TABLE_SQL
-from ee.clickhouse.sql.session_recording_events import (
+from posthog.client import ch_pool, sync_execute
+from posthog.models import Organization, Team, User
+from posthog.models.event.sql import DISTRIBUTED_EVENTS_TABLE_SQL, DROP_EVENTS_TABLE_SQL, EVENTS_TABLE_SQL
+from posthog.models.organization import OrganizationMembership
+from posthog.models.person import Person
+from posthog.models.person.sql import DROP_PERSON_TABLE_SQL, PERSONS_TABLE_SQL, TRUNCATE_PERSON_DISTINCT_ID_TABLE_SQL
+from posthog.models.person.util import bulk_create_persons, create_person
+from posthog.models.session_recording_event.sql import (
     DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL,
     DROP_SESSION_RECORDING_EVENTS_TABLE_SQL,
     SESSION_RECORDING_EVENTS_TABLE_SQL,
 )
-from posthog.client import ch_pool, sync_execute
-from posthog.models import Organization, Team, User
-from posthog.models.organization import OrganizationMembership
-from posthog.models.person import Person
-from posthog.models.person.util import bulk_create_persons, create_person
 from posthog.settings import CLICKHOUSE_REPLICATION
 
 persons_cache_tests: List[Dict[str, Any]] = []
