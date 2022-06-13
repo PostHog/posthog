@@ -105,6 +105,18 @@ class TestSubscription(BaseTest):
         subscription = unsubscribe_using_token(token)
         assert subscription.target_value == "test1@posthog.com,test3@posthog.com"
 
+    def test_unsubscribe_deletes_subscription_if_last_subscriber(self):
+        subscription = self._create_insight_subscription(target_value="test1@posthog.com,test2@posthog.com")
+        subscription.save()
+
+        assert not subscription.deleted
+        token = get_unsubscribe_token(subscription, "test1@posthog.com")
+        subscription = unsubscribe_using_token(token)
+        assert not subscription.deleted
+        token = get_unsubscribe_token(subscription, "test2@posthog.com")
+        subscription = unsubscribe_using_token(token)
+        assert subscription.deleted
+
     def test_complex_rrule_configuration(self):
         # Equivalent to last monday and wednesday of every other month
         subscription = self._create_insight_subscription(

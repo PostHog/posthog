@@ -43,6 +43,7 @@ class TestSubscriptionsTasks(APIBaseTest):
             _create_insight_subscription(team=self.team, insight=insight, created_by=self.user),
             _create_insight_subscription(team=self.team, insight=insight, created_by=self.user),
             _create_insight_subscription(team=self.team, insight=insight, created_by=self.user),
+            _create_insight_subscription(team=self.team, insight=insight, created_by=self.user, deleted=True),
         ]
 
     @patch("posthog.tasks.subscriptions.deliver_subscription_report")

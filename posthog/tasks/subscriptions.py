@@ -1,6 +1,7 @@
 import uuid
 from datetime import datetime, timedelta
 from typing import List
+from requests import delete
 
 import structlog
 
@@ -59,7 +60,7 @@ def schedule_all_subscriptions() -> None:
     """
 
     now_with_buffer = datetime.utcnow() + timedelta(minutes=15)
-    subscriptions = Subscription.objects.filter(next_delivery_date__lte=now_with_buffer).all()
+    subscriptions = Subscription.objects.filter(next_delivery_date__lte=now_with_buffer, deleted=False).all()
 
     for subscription in subscriptions:
         deliver_subscription_report.delay(subscription.id)

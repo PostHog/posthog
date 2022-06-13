@@ -147,7 +147,12 @@ def unsubscribe_using_token(token: str) -> Subscription:
 
     if info["email"] in emails:
         emails = [email for email in emails if email != info["email"]]
+
         subscription.target_value = ",".join(emails)
+
+        if not emails:
+            subscription.deleted = True
+
         subscription.save()
 
     return subscription
