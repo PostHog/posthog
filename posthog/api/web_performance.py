@@ -101,5 +101,9 @@ class WebPerformanceViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
                 )
 
         # todo a real serializer
-        # todo do we need to sort entries by timestamp?
-        return Response({"keys": keys, "results": [e.__dict__ for e in parsed_entries]})
+        return Response(
+            {
+                "keys": keys,
+                "results": [e.__dict__ for e in sorted(parsed_entries, key=lambda x: x.player_position.time)],
+            }
+        )
