@@ -29,6 +29,10 @@ def get_target_entity(filter: Union[Filter, StickinessFilter]) -> Entity:
         raise ValueError("An entity id and the entity type must be provided to determine an entity")
 
     entity_math = filter.target_entity_math or "total"  # make math explicit
+    possible_entity = entity_from_order(filter.target_entity_order, filter.entities)
+
+    if possible_entity:
+        return possible_entity
 
     possible_entity = retrieve_entity_from(
         filter.target_entity_id, filter.target_entity_type, entity_math, filter.events, filter.actions
@@ -39,6 +43,16 @@ def get_target_entity(filter: Union[Filter, StickinessFilter]) -> Entity:
         return Entity({"id": filter.target_entity_id, "type": filter.target_entity_type, "math": entity_math})
     else:
         raise ValueError("An entity must be provided for target entity to be determined")
+
+
+def entity_from_order(order: Optional[str], entities: List[Entity]) -> Optional[Entity]:
+    if not order:
+        return None
+
+    for entity in entities:
+        if entity.index == int(order):
+            return entity
+    return None
 
 
 def retrieve_entity_from(

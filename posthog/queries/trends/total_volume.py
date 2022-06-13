@@ -121,7 +121,12 @@ class TrendsTotalVolume:
             )
             time_range = enumerate_time_range(filter, seconds_in_interval)
             filter_params = filter.to_params()
-            extra_params = {"entity_id": entity.id, "entity_type": entity.type, "entity_math": entity.math}
+            extra_params = {
+                "entity_id": entity.id,
+                "entity_type": entity.type,
+                "entity_math": entity.math,
+                "entity_order": entity.order,
+            }
             parsed_params: Dict[str, str] = encode_get_request_params({**filter_params, **extra_params})
 
             return [
@@ -159,6 +164,7 @@ class TrendsTotalVolume:
                 "entity_math": entity.math,
                 "date_from": filter.date_from if filter.display == TRENDS_CUMULATIVE else date_in_utc,
                 "date_to": date_in_utc,
+                "entity_order": entity.order,
             }
 
             parsed_params: Dict[str, str] = encode_get_request_params({**filter_params, **extra_params})
