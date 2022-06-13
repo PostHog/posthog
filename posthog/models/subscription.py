@@ -17,11 +17,11 @@ from django.contrib.postgres.fields import ArrayField
 from django.db import models
 from django.utils import timezone
 
-
 # Copied from rrule as it is not exported
 FREQNAMES = ["YEARLY", "MONTHLY", "WEEKLY", "DAILY", "HOURLY", "MINUTELY", "SECONDLY"]
 
 UNSUBSCRIBE_TOKEN_EXP_DAYS = 30
+UNSUBSCRIBE_TOKEN_AUD = "posthog:unsubscribe"
 
 RRULE_WEEKDAY_MAP = {
     "monday": MO,
@@ -130,6 +130,7 @@ def get_unsubscribe_token(subscription: Subscription, email: str) -> str:
             "id": subscription.id,
             "email": email,
             "exp": datetime.now(tz=timezone.utc) + timedelta(days=UNSUBSCRIBE_TOKEN_EXP_DAYS),
+            "aud": UNSUBSCRIBE_TOKEN_AUD,
         },
         settings.SECRET_KEY,
         algorithm="HS256",
@@ -139,7 +140,7 @@ def get_unsubscribe_token(subscription: Subscription, email: str) -> str:
 
 
 def unsubscribe_using_token(token: str) -> Subscription:
-    info = jwt.decode(token, settings.SECRET_KEY, algorithms=["HS256"])
+    info = jwt.decode(token, settings.SECRET_KEY, audience=UNSUBSCRIBE_TOKEN_AUD, algorithms=["HS256"])
     subscription = Subscription.objects.get(pk=info["id"])
 
     emails = subscription.target_value.split(",")
