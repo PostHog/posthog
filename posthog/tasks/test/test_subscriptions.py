@@ -30,7 +30,7 @@ def _create_insight_subscription(**kwargs: Any) -> Subscription:
 
 @patch("posthog.tasks.subscriptions.export_task")
 @patch("posthog.tasks.subscriptions.EmailMessage")
-@freeze_time("2022-02-02T08:48:00.000Z")
+@freeze_time("2022-02-02T08:55:00.000Z")
 class TestSubscriptionsTasks(APIBaseTest):
     subscriptions: List[Subscription] = None  # type: ignore
 

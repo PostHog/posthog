@@ -55,7 +55,7 @@ def send_email_new_subscription(email: str, subscription: Subscription, exported
 def schedule_all_subscriptions() -> None:
     """
     Schedule all past notifications (with a buffer) to be delivered
-    NOTE: This task is scheduled hourly 10 minutes before the hour allowing for the 15 minute timedelta to cover
+    NOTE: This task is scheduled hourly just before the hour allowing for the 15 minute timedelta to cover
     all upcoming hourly scheduled subscriptions
     """
 
