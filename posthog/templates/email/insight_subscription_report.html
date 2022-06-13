@@ -15,19 +15,14 @@
 
 <img class="insight-image" src="{{ exported_asset.public_content_url }}" />
 
-<p>
-    You can manage your recurring subscriptions in PostHog. 
-    <a target="_blank" href="{{ subscription.url }}"><b>Manage this subscription</b></a>
+<p class="text-center">
+    <a target="_blank" href="{{ subscription.url }}"><b>Manage this subscription in PostHog</b></a>
+    or
+    <a target="_blank" href="{{ unsubscribe_url }}"><b>unsubscribe now.</b></a>
 </p>
 
 <div class="mb mt text-center">
     <a class="button primary" href="{{ subscription.insight.url }}">View in PostHog</a>
 </div>
-
-<br />
-<p class="muted">
-    If you no longer wish to be subscribed to these reports you can <a target="_blank" href="{{ unsubscribe_url }}"><b>click here to unsubscribe</b></a>.
-</p>
-
 
 {% endblock %}{% load posthog_filters %}
