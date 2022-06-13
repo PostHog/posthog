@@ -51,6 +51,11 @@ CONSTANCE_CONFIG = {
         "Whether to resume the migration, when celery worker crashed.",
         bool,
     ),
+    "CACHE_HISTORY_TRENDS": (
+        get_from_env("CACHE_HISTORY_TRENDS", ""),
+        "Whether to always try to find cached data for historical intervals on trends",
+        str,
+    ),
     "EMAIL_ENABLED": (
         get_from_env("EMAIL_ENABLED", True, type_cast=str_to_bool),
         "Whether email service is enabled or not.",

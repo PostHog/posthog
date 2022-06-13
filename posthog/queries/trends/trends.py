@@ -20,6 +20,7 @@ from posthog.models.action import Action
 from posthog.models.action_step import ActionStep
 from posthog.models.entity import Entity
 from posthog.models.filters import Filter
+from posthog.models.instance_setting import get_instance_setting
 from posthog.models.team import Team
 from posthog.queries.base import handle_compare
 from posthog.queries.trends.breakdown import TrendsBreakdown
@@ -43,6 +44,10 @@ class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
         return sql, params, parse_function
 
     def get_cached_result(self, filter: Filter, team: Team) -> Optional[List[Dict[str, Any]]]:
+
+        if not get_instance_setting("CACHE_HISTORY_TRENDS"):
+            return None
+
         cache_key = generate_cache_key(f"{filter.toJSON()}_{team.pk}")
         cached_result_package = get_safe_cache(cache_key)
         return cached_result_package.get("result") if cached_result_package else None
