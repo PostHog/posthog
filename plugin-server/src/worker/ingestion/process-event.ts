@@ -19,12 +19,7 @@ import {
 import { DB, GroupIdentifier } from '../../utils/db/db'
 import { elementsToString, extractElements } from '../../utils/db/elements-chain'
 import { KafkaProducerWrapper } from '../../utils/db/kafka-producer-wrapper'
-import {
-    personInitialAndUTMProperties,
-    safeClickhouseString,
-    sanitizeEventName,
-    timeoutGuard,
-} from '../../utils/db/utils'
+import { safeClickhouseString, sanitizeEventName, timeoutGuard } from '../../utils/db/utils'
 import { status } from '../../utils/status'
 import { castTimestampOrNow, UUID } from '../../utils/utils'
 import { KAFKA_BUFFER } from './../../config/kafka-topics'
@@ -84,15 +79,8 @@ export class EventsProcessor {
 
         let result: PreIngestionEvent | null = null
         try {
-            // Sanitize values, even though `sanitizeEvent` should have gotten to them
-            let properties: Properties = data.properties ?? {}
-            if (data['$set']) {
-                properties['$set'] = { ...properties['$set'], ...data['$set'] }
-            }
-            if (data['$set_once']) {
-                properties['$set_once'] = { ...properties['$set_once'], ...data['$set_once'] }
-            }
-            properties = data['event'] === '$snapshot' ? properties : personInitialAndUTMProperties(properties)
+            // We know `sanitizeEvent` has been called here.
+            const properties: Properties = data.properties!
 
             // TODO: we should just handle all person's related changes together not here and in capture separately
             const parsedTs = this.handleTimestamp(data, now, sentAt)

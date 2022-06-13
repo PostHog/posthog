@@ -12,6 +12,7 @@ import * as zlib from 'zlib'
 
 import { LogLevel, Plugin, PluginConfigId, PluginsServerConfig, TimestampFormat } from '../types'
 import { Hub } from './../types'
+import { personInitialAndUTMProperties } from './db/utils'
 import { status } from './status'
 
 /** Time until autoexit (due to error) gives up on graceful exit and kills the process right away. */
@@ -482,6 +483,18 @@ export function createPostgresPool(
 
 export function sanitizeEvent(event: PluginEvent): PluginEvent {
     event.distinct_id = event.distinct_id?.toString()
+
+    let properties = event.properties ?? {}
+    if (event['$set']) {
+        properties['$set'] = { ...properties['$set'], ...event['$set'] }
+    }
+    if (event['$set_once']) {
+        properties['$set_once'] = { ...properties['$set_once'], ...event['$set_once'] }
+    }
+    if (event.event !== '$snapshot') {
+        properties = personInitialAndUTMProperties(properties)
+    }
+    event.properties = properties
     return event
 }
 
