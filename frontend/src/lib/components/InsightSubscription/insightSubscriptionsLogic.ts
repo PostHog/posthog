@@ -1,4 +1,4 @@
-import { actions, afterMount, connect, kea, key, listeners, path, props, reducers } from 'kea'
+import { actions, afterMount, BreakPointFunction, connect, kea, key, listeners, path, props, reducers } from 'kea'
 import { InsightShortId, SubscriptionType } from '~/types'
 
 import api from 'lib/api'
@@ -26,14 +26,14 @@ export const insightSubscriptionsLogic = kea<insightSubscriptionsLogicType>([
     loaders(({ values }) => ({
         subscriptions: {
             __default: [] as SubscriptionType[],
-            loadSubscriptions: async (_, breakpoint) => {
+            loadSubscriptions: async (_?: any, breakpoint?: BreakPointFunction) => {
                 if (!values.insight.id) {
                     return []
                 }
 
-                breakpoint()
+                breakpoint?.()
                 const response = await api.subscriptions.list(values.insight.id)
-                breakpoint()
+                breakpoint?.()
                 return response.results
             },
         },

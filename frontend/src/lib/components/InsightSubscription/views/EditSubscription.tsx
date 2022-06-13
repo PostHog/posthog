@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react'
+import React from 'react'
 import { useActions, useValues } from 'kea'
 import { LemonButton } from 'lib/components/LemonButton'
 import { VerticalForm } from 'lib/forms/VerticalForm'
@@ -41,7 +41,7 @@ export function EditSubscription({ id, insightShortId, onCancel, onDelete }: Edi
         insightShortId,
     })
 
-    const { members, antSelectOptions } = useValues(membersLogic)
+    const { antSelectOptions } = useValues(membersLogic)
     const { subscription, isSubscriptionSubmitting } = useValues(logic)
     const { preflight, siteUrlMisconfigured } = useValues(preflightLogic)
     const { deleteSubscription } = useActions(subscriptionslogic)
