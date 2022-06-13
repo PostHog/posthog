@@ -38,7 +38,7 @@ export const bysetposOptions: LemonSelectOptions = {
     '-1': { label: 'last' },
 }
 
-export const timeOptions: LemonSelectOptions = range(0, 23).reduce(
+export const timeOptions: LemonSelectOptions = range(0, 24).reduce(
     (acc, x) => ({
         ...acc,
         [String(x)]: { label: `${String(x).padStart(2, '0')}:00` },
