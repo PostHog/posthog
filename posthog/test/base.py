@@ -403,7 +403,10 @@ def _create_person(*args, **kwargs):
         if kwargs.get("immediate"):
             del kwargs["immediate"]
         create_person(
-            team_id=kwargs.get("team_id") or kwargs["team"].pk, properties=kwargs.get("properties"), uuid=kwargs["uuid"]
+            team_id=kwargs.get("team_id") or kwargs["team"].pk,
+            properties=kwargs.get("properties"),
+            uuid=kwargs["uuid"],
+            version=kwargs.get("version", 0),
         )
         return Person.objects.create(**kwargs)
     if len(args) > 0:

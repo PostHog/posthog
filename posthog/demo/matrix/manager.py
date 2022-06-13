@@ -178,9 +178,7 @@ class MatrixManager:
         from posthog.models.person.util import create_person, create_person_distinct_id
 
         person_uuid_str = str(UUIDT(unix_time_ms=int(subject.events[0].timestamp.timestamp() * 1000)))
-        create_person(
-            uuid=person_uuid_str, team_id=team.pk, properties=subject.properties,
-        )
+        create_person(uuid=person_uuid_str, team_id=team.pk, properties=subject.properties, version=0)
         for distinct_id in subject.distinct_ids:
             create_person_distinct_id(team_id=team.pk, distinct_id=str(distinct_id), person_id=person_uuid_str)
         for event in subject.events:
