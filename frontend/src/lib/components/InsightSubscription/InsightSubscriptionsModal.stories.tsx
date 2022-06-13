@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { ComponentStory, ComponentMeta } from '@storybook/react'
 import { InsightSubscriptionsModal } from './InsightSubscriptionsModal'
 import { LemonButton } from '../LemonButton'
@@ -30,19 +30,19 @@ const createSubscription = (args: Partial<SubscriptionType> = {}): SubscriptionT
 const Template: ComponentStory<typeof InsightSubscriptionsModal> = (args) => {
     const [isOpen, setIsOpen] = useState(false)
 
-    const { emailEnabled = true, ...props } = args
+    const { preflightIssues = false, ...props } = args
 
-    const _setIsOpen = (open: boolean): void => {
-        setIsOpen(open)
-        // insightSubscriptionLogic({ id: 1 }).mount()
-
+    useEffect(() => {
         const subsLogic = insightSubscriptionsLogic({
             insightShortId: props.insightShortId || ('123' as InsightShortId),
         })
+        subsLogic.unmount()
         subsLogic.mount()
 
         setTimeout(() => {
+            console.log({ props })
             if (props.insightShortId === 'empty') {
+                console.log('HERE', subsLogic)
                 subsLogic.actions.loadSubscriptionsSuccess([])
             } else {
                 subsLogic.actions.loadSubscriptionsSuccess([
@@ -68,9 +68,14 @@ const Template: ComponentStory<typeof InsightSubscriptionsModal> = (args) => {
             preflightLogic().actions.loadPreflightSuccess({
                 ...preflightJson,
                 realm: Realm.Cloud,
-                email_service_available: emailEnabled,
+                email_service_available: preflightIssues ? false : true,
+                site_url: preflightIssues ? 'bad-value' : window.location.origin,
             })
         }, 1)
+    }, [args])
+
+    const _setIsOpen = (open: boolean): void => {
+        setIsOpen(open)
     }
 
     return (
@@ -104,7 +109,7 @@ InsightSubscriptionsModalNew_.args = {
 export const InsightSubscriptionsModalNewEmailDisabled = Template.bind({})
 InsightSubscriptionsModalNewEmailDisabled.args = {
     subscriptionId: 'new',
-    emailEnabled: false,
+    preflightIssues: true,
 }
 
 export const InsightSubscriptionsModalEdit = Template.bind({})

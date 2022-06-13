@@ -1,6 +1,6 @@
+import uuid
 from datetime import datetime, timedelta
 from typing import List
-import uuid
 
 import structlog
 

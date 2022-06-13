@@ -43,7 +43,7 @@ export function EditSubscription({ id, insightShortId, onCancel, onDelete }: Edi
 
     const { members } = useValues(membersLogic)
     const { subscription, isSubscriptionSubmitting } = useValues(logic)
-    const { preflight } = useValues(preflightLogic)
+    const { preflight, siteUrlMisconfigured } = useValues(preflightLogic)
     const { deleteSubscription } = useActions(subscriptionslogic)
 
     const emailOptions = useMemo(
@@ -102,6 +102,32 @@ export function EditSubscription({ id, insightShortId, onCancel, onDelete }: Edi
                             </>
                         </AlertMessage>
                     )}
+
+                    {siteUrlMisconfigured && (
+                        <AlertMessage type="warning">
+                            <>
+                                Your <code>SITE_URL</code> environment variable seems misconfigured. Your{' '}
+                                <code>SITE_URL</code> is set to{' '}
+                                <b>
+                                    <code>{preflight?.site_url}</code>
+                                </b>{' '}
+                                but you're currently browsing this page from{' '}
+                                <b>
+                                    <code>{window.location.origin}</code>
+                                </b>
+                                . In order for PostHog to work properly, please set this to the origin where your
+                                instance is hosted.{' '}
+                                <a
+                                    target="_blank"
+                                    rel="noopener"
+                                    href="https://posthog.com/docs/configuring-posthog/environment-variables?utm_medium=in-product&utm_campaign=system-status-site-url-misconfig"
+                                >
+                                    Learn more <IconOpenInNew />
+                                </a>
+                            </>
+                        </AlertMessage>
+                    )}
+
                     <Field name={'title'} label={'Name'}>
                         <LemonInput placeholder="e.g. Weekly team report" disabled={emailDisabled} />
                     </Field>

@@ -1,10 +1,21 @@
 from datetime import datetime, timedelta
-from dateutil.rrule import FREQNAMES, rrule, MO, TU, WE, TH, FR, SA, SU
+
+import jwt
+from dateutil.rrule import (
+    FR,
+    FREQNAMES,
+    MO,
+    SA,
+    SU,
+    TH,
+    TU,
+    WE,
+    rrule,
+)
 from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
 from django.utils import timezone
-import jwt
 
 UNSUBSCRIBE_TOKEN_EXP_DAYS = 30
 

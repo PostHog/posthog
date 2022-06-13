@@ -1,8 +1,8 @@
 from typing import Any, Dict
 
+import jwt
 from django.db.models import QuerySet
 from django.http import HttpRequest, JsonResponse
-import jwt
 from rest_framework import serializers, viewsets
 from rest_framework.authentication import BasicAuthentication, SessionAuthentication
 from rest_framework.exceptions import ValidationError

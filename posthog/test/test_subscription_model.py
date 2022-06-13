@@ -1,11 +1,11 @@
 from datetime import datetime, timedelta
 from unittest.mock import patch
-from django.utils import timezone
-from freezegun import freeze_time
+
 import jwt
 import pytest
-
 import pytz
+from django.utils import timezone
+from freezegun import freeze_time
 
 from posthog.models.insight import Insight
 from posthog.models.subscription import (
