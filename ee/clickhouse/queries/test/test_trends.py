@@ -56,7 +56,7 @@ class TestClickhouseTrends(trend_test_factory(Trends)):  # type: ignore
             timestamp="2020-01-02T12:00:02Z",
         )
 
-        response = Trends(
+        response = Trends().run(
             Filter(
                 data={
                     "date_from": "2020-01-01T00:00:00Z",
@@ -67,7 +67,7 @@ class TestClickhouseTrends(trend_test_factory(Trends)):  # type: ignore
                 }
             ),
             self.team,
-        ).run()
+        )
 
         self.assertEqual(len(response), 2)
         self.assertEqual(response[0]["breakdown_value"], "oh")
@@ -115,7 +115,7 @@ class TestClickhouseTrends(trend_test_factory(Trends)):  # type: ignore
                 "events": [{"id": "sign up", "name": "sign up", "type": "events", "order": 0,}],
             }
         )
-        response = Trends(filter, self.team,).run()
+        response = Trends().run(filter, self.team,)
 
         self.assertEqual(len(response), 2)
         self.assertEqual(response[0]["breakdown_value"], "finance")
@@ -168,7 +168,7 @@ class TestClickhouseTrends(trend_test_factory(Trends)):  # type: ignore
             }
         )
 
-        response = Trends(filter, self.team,).run()
+        response = Trends().run(filter, self.team,)
 
         self.assertEqual(len(response), 1)
         self.assertEqual(response[0]["breakdown_value"], "finance")
@@ -217,5 +217,5 @@ class TestClickhouseTrends(trend_test_factory(Trends)):  # type: ignore
             team=self.team,
         )
 
-        response = Trends(filter, self.team).run()
+        response = Trends().run(filter, self.team)
         self.assertEqual(response[0]["count"], 1)

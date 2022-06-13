@@ -30,33 +30,26 @@ from posthog.utils import generate_cache_key, get_safe_cache, relative_date_pars
 
 
 class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
-    _filter: Filter
-    _team: Team
-
-    def __init__(self, filter: Filter, team: Team) -> None:
-        self._filter = filter
-        self._team = team
-
-    def _get_sql_for_entity(self, filter: Filter, entity: Entity) -> Tuple[str, Dict, Callable]:
+    def _get_sql_for_entity(self, filter: Filter, team: Team, entity: Entity) -> Tuple[str, Dict, Callable]:
         if filter.breakdown:
             sql, params, parse_function = TrendsBreakdown(
-                entity, filter, self._team, using_person_on_events=self._team.actor_on_events_querying_enabled
+                entity, filter, team, using_person_on_events=team.actor_on_events_querying_enabled
             ).get_query()
         elif filter.shown_as == TRENDS_LIFECYCLE:
-            sql, params, parse_function = self._format_lifecycle_query(entity, filter, self._team)
+            sql, params, parse_function = self._format_lifecycle_query(entity, filter, team)
         else:
-            sql, params, parse_function = self._total_volume_query(entity, filter, self._team)
+            sql, params, parse_function = self._total_volume_query(entity, filter, team)
 
         return sql, params, parse_function
 
-    def get_cached_result(self, filter: Filter) -> Optional[List[Dict[str, Any]]]:
-        cache_key = generate_cache_key(f"{filter.toJSON()}_{self._team.pk}")
+    def get_cached_result(self, filter: Filter, team: Team) -> Optional[List[Dict[str, Any]]]:
+        cache_key = generate_cache_key(f"{filter.toJSON()}_{team.pk}")
         cached_result_package = get_safe_cache(cache_key)
         return cached_result_package.get("result") if cached_result_package else None
 
-    def adjusted_filter(self, filter: Filter) -> Filter:
+    def adjusted_filter(self, filter: Filter, team: Team) -> Filter:
         _is_present = is_present_timerange(filter)
-        _is_cached = self.get_cached_result(filter)
+        _is_cached = self.get_cached_result(filter, team)
 
         new_filter = (
             filter.with_data({"date_from": interval_unit(filter.interval)}) if _is_present and _is_cached else filter
@@ -64,8 +57,8 @@ class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
 
         return new_filter
 
-    def merge_results(self, result, filter: Filter):
-        cached_result = self.get_cached_result(filter)
+    def merge_results(self, result, filter: Filter, team: Team):
+        cached_result = self.get_cached_result(filter, team)
         if cached_result and filter.display != TRENDS_CUMULATIVE:
             label_to_val = {}
             new_res = []
@@ -86,27 +79,27 @@ class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
             return result
 
     def _run_query(self, filter: Filter, team: Team, entity: Entity) -> List[Dict[str, Any]]:
-        adjusted_filter = self.adjusted_filter(filter)
-        sql, params, parse_function = self._get_sql_for_entity(adjusted_filter, entity)
+        adjusted_filter = self.adjusted_filter(filter, team)
+        sql, params, parse_function = self._get_sql_for_entity(adjusted_filter, team, entity)
 
         result = sync_execute(sql, params)
         result = parse_function(result)
         serialized_data = self._format_serialized(entity, result)
-        merged_results = self.merge_results(serialized_data, filter)
+        merged_results = self.merge_results(serialized_data, filter, team)
 
         return merged_results
 
     def _run_query_for_threading(self, result: List, index: int, sql, params):
         result[index] = sync_execute(sql, params)
 
-    def _run_parallel(self, filter: Filter) -> List[Dict[str, Any]]:
+    def _run_parallel(self, filter: Filter, team: Team) -> List[Dict[str, Any]]:
         result: List[Union[None, List[Dict[str, Any]]]] = [None] * len(filter.entities)
         parse_functions: List[Union[None, Callable]] = [None] * len(filter.entities)
         jobs = []
 
         for entity in filter.entities:
-            adjusted_filter = self.adjusted_filter(filter)
-            sql, params, parse_function = self._get_sql_for_entity(adjusted_filter, entity)
+            adjusted_filter = self.adjusted_filter(filter, team)
+            sql, params, parse_function = self._get_sql_for_entity(adjusted_filter, team, entity)
             parse_functions[entity.index] = parse_function
             thread = threading.Thread(target=self._run_query_for_threading, args=(result, entity.index, sql, params),)
             jobs.append(thread)
@@ -136,30 +129,28 @@ class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
 
         return flat_results
 
-    def run(self, *args, **kwargs) -> List[Dict[str, Any]]:
-        actions = Action.objects.filter(team_id=self._team.pk).order_by("-id")
-        if len(self._filter.actions) > 0:
-            actions = Action.objects.filter(
-                pk__in=[entity.id for entity in self._filter.actions], team_id=self._team.pk
-            )
+    def run(self, filter: Filter, team: Team, *args, **kwargs) -> List[Dict[str, Any]]:
+        actions = Action.objects.filter(team_id=team.pk).order_by("-id")
+        if len(filter.actions) > 0:
+            actions = Action.objects.filter(pk__in=[entity.id for entity in filter.actions], team_id=team.pk)
         actions = actions.prefetch_related(Prefetch("steps", queryset=ActionStep.objects.order_by("id")))
 
-        if self._filter.formula:
-            return handle_compare(self._filter, self._run_formula_query, self._team)
+        if filter.formula:
+            return handle_compare(filter, self._run_formula_query, team)
 
-        for entity in self._filter.entities:
+        for entity in filter.entities:
             if entity.type == TREND_FILTER_TYPE_ACTIONS:
                 try:
                     entity.name = actions.get(id=entity.id).name
                 except Action.DoesNotExist:
                     return []
 
-        if len(self._filter.entities) == 1 or self._filter.compare:
+        if len(filter.entities) == 1 or filter.compare:
             result = []
-            for entity in self._filter.entities:
-                result.extend(handle_compare(self._filter, self._run_query, self._team, entity=entity))
+            for entity in filter.entities:
+                result.extend(handle_compare(filter, self._run_query, team, entity=entity))
         else:
-            result = self._run_parallel(self._filter, self._team)
+            result = self._run_parallel(filter, team)
 
         return result
 
