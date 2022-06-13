@@ -35,7 +35,7 @@ LongOptions.args = {
     allowClear: true,
     value: '1',
     options: [...Array(100)]
-        .map((x, i) => i)
+        .map((_, i) => i)
         .reduce(
             (acc, x) => ({
                 ...acc,
