@@ -1,5 +1,7 @@
 import { Properties } from '@posthog/plugin-scaffold'
 import * as Sentry from '@sentry/node'
+import equal from 'fast-deep-equal'
+import { StatsD } from 'hot-shots'
 import { DateTime } from 'luxon'
 
 import { Person, PropertyUpdateOperation } from '../../types'
@@ -13,13 +15,15 @@ export class PersonStateManager {
     newUuid: string
 
     private db: DB
+    private statsd: StatsD | undefined
     private personManager: PersonManager
 
-    constructor(timestamp: DateTime, db: DB, personManager: PersonManager) {
+    constructor(timestamp: DateTime, db: DB, statsd: StatsD | undefined, personManager: PersonManager) {
         this.timestamp = timestamp
         this.newUuid = new UUIDT().toString()
 
         this.db = db
+        this.statsd = statsd
         this.personManager = personManager
     }
 
@@ -88,5 +92,46 @@ export class PersonStateManager {
             uuid,
             distinctIds
         )
+    }
+
+    async updatePersonProperties(
+        teamId: number,
+        distinctId: string,
+        properties: Properties,
+        propertiesOnce: Properties,
+        unsetProperties: Array<string>
+    ): Promise<void> {
+        const personFound = await this.db.fetchPerson(teamId, distinctId)
+        if (!personFound) {
+            this.statsd?.increment('person_not_found', { teamId: String(teamId), key: 'update' })
+            throw new Error(
+                `Could not find person with distinct id "${distinctId}" in team "${teamId}" to update properties`
+            )
+        }
+
+        // Figure out which properties we are actually setting
+        const updatedProperties: Properties = { ...personFound.properties }
+        Object.entries(propertiesOnce).map(([key, value]) => {
+            if (typeof personFound?.properties[key] === 'undefined') {
+                updatedProperties[key] = value
+            }
+        })
+        Object.entries(properties).map(([key, value]) => {
+            if (personFound?.properties[key] !== value) {
+                updatedProperties[key] = value
+            }
+        })
+
+        unsetProperties.forEach((propertyKey) => {
+            delete updatedProperties[propertyKey]
+        })
+
+        const arePersonsEqual = equal(personFound.properties, updatedProperties)
+
+        if (arePersonsEqual) {
+            return
+        }
+
+        await this.db.updatePersonDeprecated(personFound, { properties: updatedProperties })
     }
 }

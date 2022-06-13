@@ -2,7 +2,6 @@ import ClickHouse from '@posthog/clickhouse'
 import { PluginEvent, Properties } from '@posthog/plugin-scaffold'
 import * as Sentry from '@sentry/node'
 import crypto from 'crypto'
-import equal from 'fast-deep-equal'
 import { ProducerRecord } from 'kafkajs'
 import { DateTime, Duration } from 'luxon'
 import { DatabaseError } from 'pg'
@@ -135,7 +134,12 @@ export class EventsProcessor {
                 throw new Error(`No team found with ID ${teamId}. Can't ingest event.`)
             }
 
-            const personStateManager = new PersonStateManager(ts, this.db, this.personManager)
+            const personStateManager = new PersonStateManager(
+                ts,
+                this.db,
+                this.pluginsServer.statsd,
+                this.personManager
+            )
             try {
                 await this.handleIdentifyOrAlias(personStateManager, data['event'], properties, distinctId, teamId, ts)
             } catch (e) {
@@ -224,57 +228,6 @@ export class EventsProcessor {
             return false
         }
         return !this.clickhouseExternalSchemasDisabledTeams.has(teamId)
-    }
-
-    private async updatePersonProperties(
-        teamId: number,
-        distinctId: string,
-        properties: Properties,
-        propertiesOnce: Properties,
-        unsetProperties: Array<string>
-    ): Promise<void> {
-        await this.updatePersonPropertiesDeprecated(teamId, distinctId, properties, propertiesOnce, unsetProperties)
-    }
-
-    private async updatePersonPropertiesDeprecated(
-        teamId: number,
-        distinctId: string,
-        properties: Properties,
-        propertiesOnce: Properties,
-        unsetProperties: Array<string>
-    ): Promise<void> {
-        const personFound = await this.db.fetchPerson(teamId, distinctId)
-        if (!personFound) {
-            this.pluginsServer.statsd?.increment('person_not_found', { teamId: String(teamId), key: 'update' })
-            throw new Error(
-                `Could not find person with distinct id "${distinctId}" in team "${teamId}" to update properties`
-            )
-        }
-
-        // Figure out which properties we are actually setting
-        const updatedProperties: Properties = { ...personFound.properties }
-        Object.entries(propertiesOnce).map(([key, value]) => {
-            if (typeof personFound?.properties[key] === 'undefined') {
-                updatedProperties[key] = value
-            }
-        })
-        Object.entries(properties).map(([key, value]) => {
-            if (personFound?.properties[key] !== value) {
-                updatedProperties[key] = value
-            }
-        })
-
-        unsetProperties.forEach((propertyKey) => {
-            delete updatedProperties[propertyKey]
-        })
-
-        const arePersonsEqual = equal(personFound.properties, updatedProperties)
-
-        if (arePersonsEqual) {
-            return
-        }
-
-        await this.db.updatePersonDeprecated(personFound, { properties: updatedProperties })
     }
 
     private async setIsIdentified(teamId: number, distinctId: string, isIdentified = true): Promise<void> {
@@ -576,7 +529,7 @@ export class EventsProcessor {
             !createdNewPersonWithProperties &&
             (properties['$set'] || properties['$set_once'] || properties['$unset'])
         ) {
-            await this.updatePersonProperties(
+            await personStateManager.updatePersonProperties(
                 team.id,
                 distinctId,
                 properties['$set'] || {},
