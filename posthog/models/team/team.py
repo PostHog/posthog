@@ -193,7 +193,7 @@ class Team(UUIDClassicModel):
 
     @property
     def strict_caching_enabled(self) -> bool:
-        enabled_teams = get_list(get_instance_setting("CACHE_HISTORY_TRENDS"))
+        enabled_teams = get_list(get_instance_setting("STRICT_CACHING_TEAMS"))
         return str(self.pk) in enabled_teams or "all" in enabled_teams
 
     def __str__(self):

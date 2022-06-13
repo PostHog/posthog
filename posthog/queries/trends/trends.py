@@ -45,6 +45,7 @@ class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
 
         return sql, params, parse_function
 
+    # Use cached result even on refresh if team has strict caching enabled
     def get_cached_result(self, filter: Filter, team: Team) -> Optional[List[Dict[str, Any]]]:
 
         if not team.strict_caching_enabled:
@@ -54,6 +55,7 @@ class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
         cached_result_package = get_safe_cache(cache_key)
         return cached_result_package.get("result") if cached_result_package else None
 
+    # Determine if the current timerange is present in the cache
     def is_present_timerange(self, filter: Filter, team: Team) -> bool:
         _is_cached = self.get_cached_result(filter, team)
         if _is_cached and len(_is_cached) > 0:
@@ -66,6 +68,7 @@ class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
 
         return _is_present
 
+    # Use a condensed filter if a cached result exists in the current timerange
     def adjusted_filter(self, filter: Filter, team: Team) -> Filter:
         _is_present = self.is_present_timerange(filter, team)
 

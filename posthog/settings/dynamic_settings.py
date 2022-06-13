@@ -51,8 +51,8 @@ CONSTANCE_CONFIG = {
         "Whether to resume the migration, when celery worker crashed.",
         bool,
     ),
-    "CACHE_HISTORY_TRENDS": (
-        get_from_env("CACHE_HISTORY_TRENDS", ""),
+    "STRICT_CACHING_TEAMS": (
+        get_from_env("STRICT_CACHING_TEAMS", ""),
         "Whether to always try to find cached data for historical intervals on trends",
         str,
     ),
