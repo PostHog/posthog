@@ -100,6 +100,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
         },
     })),
     listeners(({ sharedListeners }) => ({
+        setInsightMode: sharedListeners.reloadInsightLogic,
         setSceneState: sharedListeners.reloadInsightLogic,
     })),
     urlToAction(({ actions, values }) => ({
@@ -141,6 +142,17 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             const filters: Partial<FilterType> | null =
                 Object.keys(_filters || {}).length > 0 ? _filters : searchParams.insight ? searchParams : null
 
+            // Redirect to a simple URL if we had filters in the URL
+            if (filters) {
+                router.actions.replace(
+                    insightId === 'new'
+                        ? urls.insightNew(undefined, dashboard)
+                        : insightMode === ItemMode.Edit
+                        ? urls.insightEdit(insightId)
+                        : urls.insightView(insightId)
+                )
+            }
+
             // reset the insight's state if we have to
             if (initial || method === 'PUSH' || filters) {
                 if (insightId === 'new') {
@@ -153,7 +165,6 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                         {
                             fromPersistentApi: false,
                             overrideFilter: true,
-                            shouldMergeWithExisting: false,
                         }
                     )
                     values.insightCache?.logic.actions.loadResults()
@@ -161,17 +172,6 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                 } else if (filters) {
                     values.insightCache?.logic.actions.setFilters(cleanFilters(filters || {}))
                 }
-            }
-
-            // Redirect to a simple URL if we had filters in the URL
-            if (filters) {
-                router.actions.replace(
-                    insightId === 'new'
-                        ? urls.insightNew(undefined, dashboard)
-                        : insightMode === ItemMode.Edit
-                        ? urls.insightEdit(insightId)
-                        : urls.insightView(insightId)
-                )
             }
 
             // show a warning toast if opened `/edit#filters={...}`
@@ -200,7 +200,6 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             setInsightMode: actionToUrl,
         }
     }),
-
     beforeUnload(({ values }) => ({
         enabled: () => values.insightMode === ItemMode.Edit && !!values.insightCache?.logic.values.insightChanged,
         message: 'Leave insight? Changes you made will be discarded.',
