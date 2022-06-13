@@ -51,7 +51,10 @@ export async function eachBatchIngestion(payload: EachBatchPayload, queue: Kafka
             batches.push(currentBatch)
         }
         if (countingMode) {
-            queue.pluginsServer.statsd?.gauge('ingest_event_batching.batch_count_if_enabled_for_all', batches.length)
+            queue.pluginsServer.statsd?.histogram(
+                'ingest_event_batching.batch_count_if_enabled_for_all',
+                batches.length
+            )
             return groupIntoBatches(kafkaMessages, batchSize)
         }
         return batches
