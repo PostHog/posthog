@@ -56,7 +56,7 @@ class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
 
     def is_present_timerange(self, filter: Filter, team: Team) -> bool:
         _is_cached = self.get_cached_result(filter, team)
-        if _is_cached:
+        if _is_cached and len(_is_cached) > 0:
             latest_date = _is_cached[0]["days"].pop()
             parsed_latest_date = parser.parse(latest_date)
             parsed_latest_date = parsed_latest_date.replace(tzinfo=pytz.timezone(team.timezone))
