@@ -33,6 +33,7 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
     }
     const logic = actionEditLogic(logicProps)
     const { action, actionLoading, actionCount, actionCountLoading } = useValues(logic)
+    const { submitAction } = useActions(logic)
     const { loadActions } = useActions(actionsModel)
     const { currentTeam } = useValues(teamLogic)
     const { hasAvailableFeature } = useValues(userLogic)
@@ -90,11 +91,11 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
                                             ? onChange
                                             : undefined /* When creating a new action, change value on type */
                                     }
-                                    onSave={
-                                        !id
-                                            ? undefined
-                                            : onChange /* When not creating a new action, change value on save */
-                                    }
+                                    onSave={(value) => {
+                                        onChange(value)
+                                        submitAction()
+                                        /* When clicking 'Save' on an `EditableField`, save the form too */
+                                    }}
                                     mode={!id ? 'edit' : undefined /* When creating a new action, maintain edit mode */}
                                     minLength={1}
                                     maxLength={400} // Sync with action model
@@ -119,11 +120,11 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
                                                 ? onChange
                                                 : undefined /* When creating a new action, change value on type */
                                         }
-                                        onSave={
-                                            !id
-                                                ? undefined
-                                                : onChange /* When not creating a new action, change value on save */
-                                        }
+                                        onSave={(value) => {
+                                            onChange(value)
+                                            submitAction()
+                                            /* When clicking 'Set' on an `EditableField`, always save the form */
+                                        }}
                                         mode={
                                             !id
                                                 ? 'edit'
