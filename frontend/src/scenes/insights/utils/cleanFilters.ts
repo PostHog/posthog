@@ -149,6 +149,9 @@ export function cleanFilters(
             ...(filters.funnel_order_type ? { funnel_order_type: filters.funnel_order_type } : {}),
             ...(filters.hidden_legend_keys ? { hidden_legend_keys: filters.hidden_legend_keys } : {}),
             ...(filters.funnel_advanced ? { funnel_advanced: filters.funnel_advanced } : {}),
+            ...(filters.breakdown_attribution_type
+                ? { breakdown_attribution_type: filters.breakdown_attribution_type }
+                : {}),
             exclusions: deepCleanFunnelExclusionEvents(filters),
             interval: autocorrectInterval(filters),
             funnel_correlation_person_entity: filters.funnel_correlation_person_entity || undefined,

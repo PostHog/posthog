@@ -7,6 +7,7 @@ export interface LemonSelectOption {
     icon?: React.ReactElement
     disabled?: boolean
     'data-attr'?: string
+    element?: React.ReactElement
 }
 
 export type LemonSelectOptions = Record<string | number, LemonSelectOption>
@@ -68,6 +69,7 @@ export function LemonSelect<O extends LemonSelectOptions>({
                             data-attr={option['data-attr']}
                         >
                             {option.label || key}
+                            {option.element}
                         </LemonButton>
                     )),
                     sameWidth: dropdownMatchSelectWidth,

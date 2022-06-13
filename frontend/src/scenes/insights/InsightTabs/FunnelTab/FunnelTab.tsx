@@ -9,7 +9,13 @@ import { funnelCommandLogic } from './funnelCommandLogic'
 import { InfoCircleOutlined } from '@ant-design/icons'
 import { ToggleButtonChartFilter } from './ToggleButtonChartFilter'
 import { Tooltip } from 'lib/components/Tooltip'
-import { FunnelStepReference, FunnelVizType, StepOrderValue, PropertyGroupFilter } from '~/types'
+import {
+    FunnelStepReference,
+    FunnelVizType,
+    StepOrderValue,
+    PropertyGroupFilter,
+    BreakdownAttributionType,
+} from '~/types'
 import { BreakdownFilter } from 'scenes/insights/BreakdownFilter'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -167,12 +173,29 @@ export function FunnelTab(): JSX.Element {
                                 placeholder="Attribution"
                                 allowClear
                                 options={{
-                                    FIRST_TOUCHPOINT: { label: 'First touchpoint' },
-                                    LAST_TOUCHPOINT: { label: 'Last touchpoint' },
-                                    ...(true
-                                        ? { SPECIFIC_STEP: { label: 'Specific step' } }
-                                        : { ANY_STEP: { label: 'Any step' } }),
+                                    [BreakdownAttributionType.FirstTouch]: { label: 'First touchpoint' },
+                                    [BreakdownAttributionType.LastTouch]: { label: 'Last touchpoint' },
+                                    ...(filters.funnel_order_type === StepOrderValue.UNORDERED
+                                        ? { [BreakdownAttributionType.AnyStep]: { label: 'Any step' } }
+                                        : {
+                                              [BreakdownAttributionType.Step]: {
+                                                  label: 'Specific step',
+                                                  element: (
+                                                      <LemonSelect
+                                                          placeholder={`${filters.breakdown_attribution_value || 1}`}
+                                                          options={{ 1: { label: '1' } }}
+                                                      />
+                                                  ),
+                                              },
+                                          }),
                                 }}
+                                dropdownMatchSelectWidth={true}
+                                onChange={(value) => {
+                                    if (value) {
+                                        setFilters({ breakdown_attribution_type: value })
+                                    }
+                                }}
+                                style={{ width: '100%' }}
                                 outlined
                                 data-attr="copy-from-template"
                             />
