@@ -1,7 +1,7 @@
 .WorldMap {
     padding: 1rem 0;
     width: 100%;
-    color: hsl(0, 0, 85%); // Alpha-less equivalent of --border
+    color: hsl(0, 0%, 85%); // Alpha-less equivalent of --border
     .landxx {
         fill: currentColor;
         stroke: var(--bg-light);

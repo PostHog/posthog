@@ -62,6 +62,7 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
     # Cloud (posthog-cloud) cron jobs
     if getattr(settings, "MULTI_TENANCY", False):
         sender.add_periodic_task(crontab(hour=0, minute=0), calculate_billing_daily_usage.s())  # every day midnight UTC
+        sender.add_periodic_task(crontab(hour=4, minute=0), verify_persons_data_in_sync.s())
 
     sender.add_periodic_task(crontab(day_of_week="fri", hour=0, minute=0), clean_stale_partials.s())
 
@@ -428,6 +429,13 @@ def check_async_migration_health():
     from posthog.tasks.async_migrations import check_async_migration_health
 
     check_async_migration_health()
+
+
+@app.task(ignore_result=True)
+def verify_persons_data_in_sync():
+    from posthog.tasks.verify_persons_data_in_sync import verify_persons_data_in_sync as verify
+
+    verify()
 
 
 @app.task(ignore_result=True)

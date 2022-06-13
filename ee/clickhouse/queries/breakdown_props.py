@@ -8,7 +8,6 @@ from ee.clickhouse.models.property import (
 )
 from ee.clickhouse.queries.column_optimizer import EnterpriseColumnOptimizer
 from ee.clickhouse.queries.groups_join_query import GroupsJoinQuery
-from ee.clickhouse.sql.trends.top_elements import TOP_ELEMENTS_ARRAY_OF_KEY_SQL
 from posthog.client import sync_execute
 from posthog.constants import BREAKDOWN_TYPES, PropertyOperatorType
 from posthog.models.cohort import Cohort
@@ -21,6 +20,7 @@ from posthog.models.team import Team
 from posthog.models.utils import PersonPropertiesMode
 from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
 from posthog.queries.person_query import PersonQuery
+from posthog.queries.trends.sql import TOP_ELEMENTS_ARRAY_OF_KEY_SQL
 from posthog.queries.util import parse_timestamps
 
 ALL_USERS_COHORT_ID = 0
@@ -91,7 +91,7 @@ def get_breakdown_prop_values(
     )
 
     if use_all_funnel_entities:
-        from ee.clickhouse.queries.funnels.funnel_event_query import FunnelEventQuery
+        from posthog.queries.funnels.funnel_event_query import FunnelEventQuery
 
         entity_filter, entity_params = FunnelEventQuery(
             filter, team, using_person_on_events=team.actor_on_events_querying_enabled,
