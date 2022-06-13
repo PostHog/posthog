@@ -15,6 +15,7 @@
 !postcss.config.js
 !.kearc
 !tsconfig.json
+!frontend/@posthog
 !frontend/src
 !frontend/types
 !frontend/public
