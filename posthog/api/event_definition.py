@@ -1,11 +1,11 @@
 from typing import Type
 
-from django.db.models import BooleanField, Case, Prefetch, Q, Value, When
+from django.db.models import Prefetch
 from rest_framework import mixins, permissions, serializers, viewsets
 
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
-from posthog.api.utils import check_definition_ids_inclusion_field_sql
+from posthog.api.utils import create_event_definitions_sql
 from posthog.constants import AvailableFeature
 from posthog.exceptions import EnterpriseFeatureException
 from posthog.filters import TermSearchFilterBackend, term_search_filter_sql
@@ -52,33 +52,9 @@ class EventDefinitionViewSet(
     search_fields = ["name"]
 
     def get_queryset(self):
-        # `order_ids_first`
-        #   Any definition ids passed into the `order_ids_first` parameter will make sure that those definitions
-        #   appear at the beginning of the list of definitions. This is used in the app when we want specific
-        #   definitions to show at the top of a table so that they can be highlighted (i.e. viewing an individual
-        #   definition's context).
-        #
-        #   Note that ids included in `order_ids_first` will override the same ids in `excluded_ids`.
-        order_ids_first_field, order_ids_first = check_definition_ids_inclusion_field_sql(
-            raw_included_definition_ids=self.request.GET.get("order_ids_first", None),
-            is_property=False,
-            named_key="order_ids_first",
-        )
-
-        # `excluded_ids`
-        #   Any definitions ids specified in the `excluded_ids` parameter will be omitted from the results.
-        excluded_ids_field, excluded_ids = check_definition_ids_inclusion_field_sql(
-            raw_included_definition_ids=self.request.GET.get("excluded_ids", None),
-            is_property=False,
-            named_key="excluded_ids",
-        )
-
         # `include_actions`
         #   If true, return both list of event definitions and actions together.
-        include_actions = self.request.GET.get("include_actions", None)
-        actions_list = Action.objects.none()
-        if include_actions == "true":
-            actions_list = Action.objects.filter(deleted=False)
+        include_actions = self.request.GET.get("include_actions", None) == "true"
 
         if self.request.user.organization.is_feature_available(AvailableFeature.INGESTION_TAXONOMY):  # type: ignore
             try:
@@ -91,27 +67,17 @@ class EventDefinitionViewSet(
 
                 params = {
                     "team_id": self.team_id,
-                    "order_ids_first": order_ids_first,
-                    "excluded_ids": excluded_ids,
                     **search_kwargs,
                 }
 
                 # Prevent fetching deprecated `tags` field. Tags are separately fetched in TaggedItemSerializerMixin
-                event_definition_fields = ", ".join(
-                    [f'"{f.column}"' for f in EnterpriseEventDefinition._meta.get_fields() if hasattr(f, "column") and f.column != "tags"]  # type: ignore
-                )
+                table_sql = create_event_definitions_sql(include_actions)
 
                 ee_event_definitions = EnterpriseEventDefinition.objects.raw(
                     f"""
-                    SELECT {event_definition_fields},
-                           {order_ids_first_field} AS is_ordered_first
-                    FROM ee_enterpriseeventdefinition
-                    FULL OUTER JOIN posthog_eventdefinition ON posthog_eventdefinition.id=ee_enterpriseeventdefinition.eventdefinition_ptr_id
-                    WHERE team_id = %(team_id)s AND (
-                        {order_ids_first_field} = true
-                        OR {excluded_ids_field} = false
-                    ) {search_query}
-                    ORDER BY is_ordered_first DESC, query_usage_30_day DESC NULLS LAST, last_seen_at DESC NULLS LAST, name ASC
+                    {table_sql}
+                    WHERE team_id = %(team_id)s {search_query}
+                    ORDER BY last_seen_at DESC NULLS LAST, query_usage_30_day DESC NULLS LAST, name ASC
                     """,
                     params=params,
                 )
@@ -121,25 +87,11 @@ class EventDefinitionViewSet(
                     )
                 )
 
-                return actions_list | ee_event_definitions_list
+                return ee_event_definitions_list
 
-        event_definitions_list = (
-            self.filter_queryset_by_parents_lookups(EventDefinition.objects.all())
-            .annotate(
-                is_ordered_first=Case(
-                    When(id__in=order_ids_first, then=Value(True)), default=Value(False), output_field=BooleanField()
-                )
-            )
-            .annotate(
-                is_not_excluded_event=Case(
-                    When(id__in=excluded_ids, then=Value(True)), default=Value(False), output_field=BooleanField()
-                )
-            )
-            .filter(Q(is_ordered_first=True) | Q(is_not_excluded_event=False))
-            .order_by("-is_ordered_first", "name")
-        )
+        event_definitions_list = self.filter_queryset_by_parents_lookups(EventDefinition.objects.all()).order_by("name")
 
-        return actions_list | event_definitions_list
+        return event_definitions_list
 
     def get_object(self):
         id = self.kwargs["id"]

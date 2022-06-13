@@ -33,9 +33,8 @@ export const eventPropertyDefinitionsTableLogic = kea<eventPropertyDefinitionsTa
     props({} as EventPropertyDefinitionsTableLogicProps),
     key((props) => props.key || 'scene'),
     actions({
-        loadEventPropertyDefinitions: (url: string | null = '', orderIdsFirst: string[] = []) => ({
+        loadEventPropertyDefinitions: (url: string | null = '') => ({
             url,
-            orderIdsFirst,
         }),
         setFilters: (filters: Partial<Filters>) => ({ filters }),
         setHoveredDefinition: (definitionKey: string | null) => ({ definitionKey }),
@@ -77,15 +76,13 @@ export const eventPropertyDefinitionsTableLogic = kea<eventPropertyDefinitionsTa
                 results: [],
             } as PropertyDefinitionsPaginatedResponse,
             {
-                loadEventPropertyDefinitions: async ({ url, orderIdsFirst }, breakpoint) => {
+                loadEventPropertyDefinitions: async ({ url }, breakpoint) => {
                     if (url && url in (cache.apiCache ?? {})) {
                         return cache.apiCache[url]
                     }
 
                     if (!url) {
-                        url = api.propertyDefinitions.determineListEndpoint({
-                            order_ids_first: orderIdsFirst,
-                        })
+                        url = api.propertyDefinitions.determineListEndpoint({})
                     }
                     cache.propertiesStartTime = performance.now()
                     await breakpoint(200)

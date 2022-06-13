@@ -80,7 +80,7 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
     props({} as EventDefinitionsTableLogicProps),
     key((props) => props.key || 'scene'),
     actions({
-        loadEventDefinitions: (url: string | null = '', orderIdsFirst: string[] = []) => ({ url, orderIdsFirst }),
+        loadEventDefinitions: (url: string | null = '') => ({ url }),
         loadEventExample: (definition: EventDefinition) => ({ definition }),
         loadPropertiesForEvent: (definition: EventDefinition, url: string | null = '') => ({ definition, url }),
         setFilters: (filters: Partial<Filters>) => ({ filters }),
@@ -123,14 +123,13 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
                 results: [],
             } as EventDefinitionsPaginatedResponse,
             {
-                loadEventDefinitions: async ({ url, orderIdsFirst }, breakpoint) => {
+                loadEventDefinitions: async ({ url }, breakpoint) => {
                     if (url && url in (cache.apiCache ?? {})) {
                         return cache.apiCache[url]
                     }
 
                     if (!url) {
                         url = api.eventDefinitions.determineListEndpoint({
-                            order_ids_first: orderIdsFirst,
                             ...(!!featureFlagLogic.findMounted()?.values.featureFlags[FEATURE_FLAGS.SIMPLIFY_ACTIONS]
                                 ? {
                                       include_actions: true,

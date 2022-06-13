@@ -110,7 +110,7 @@ export const actionEditLogic = kea<actionEditLogicType>([
                     lemonToast.success('Action saved')
                     props.onSave(action as ActionType)
                     if (values.shouldSimplifyActions) {
-                        actions.loadEventDefinitions(null, [])
+                        actions.loadEventDefinitions(null)
                     } else {
                         actions.loadActions() // reload actions so they are immediately available
                     }
@@ -128,7 +128,7 @@ export const actionEditLogic = kea<actionEditLogicType>([
                 callback: () => {
                     router.actions.push(values.shouldSimplifyActions ? urls.eventDefinitions() : urls.actions())
                     if (values.shouldSimplifyActions) {
-                        actions.loadEventDefinitions(null, [])
+                        actions.loadEventDefinitions(null)
                     } else {
                         actions.loadActions()
                     }

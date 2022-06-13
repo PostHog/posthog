@@ -244,38 +244,6 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
 
         self.assertListEqual(sorted(response.json()["tags"]), ["a", "b"])
 
-    def test_order_ids_first_filter(self):
-        super(LicenseManager, cast(LicenseManager, License.objects)).create(
-            plan="enterprise", valid_until=timezone.datetime(2500, 1, 19, 3, 14, 7)
-        )
-        # rated_app, installed_app
-        rated_app_event = EnterpriseEventDefinition.objects.create(team=self.team, name="rated_app")
-        installed_app_event = EnterpriseEventDefinition.objects.create(team=self.team, name="installed_app")
-        ids = [rated_app_event.id, installed_app_event.id]
-
-        response = self.client.get("/api/projects/@current/event_definitions/?search=app")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["count"], 2)  # installed_app, rated_app
-        self.assertEqual(response.json()["results"][0]["name"], "installed_app")
-        self.assertEqual(response.json()["results"][1]["name"], "rated_app")
-
-        order_ids_first_str = f'["{str(ids[0])}"]'
-        response = self.client.get(
-            f'/api/projects/@current/event_definitions/?search=app&{urllib.parse.urlencode({"order_ids_first": order_ids_first_str})}'
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["count"], 2)
-        self.assertEqual(response.json()["results"][0]["id"], str(ids[0]))  # Test that included id is first item
-        self.assertEqual(response.json()["results"][0]["name"], "rated_app")
-
-        response = self.client.get(
-            f'/api/projects/@current/event_definitions/?search=app&{urllib.parse.urlencode({"order_ids_first": []})}'
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["count"], 2)  # installed_app, rated_app
-        self.assertEqual(response.json()["results"][0]["name"], "installed_app")
-        self.assertEqual(response.json()["results"][1]["name"], "rated_app")
-
     def test_excluded_ids_filter(self):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
             plan="enterprise", valid_until=timezone.datetime(2500, 1, 19, 3, 14, 7)
@@ -302,38 +270,6 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
 
         response = self.client.get(
             f'/api/projects/@current/event_definitions/?search=app&{urllib.parse.urlencode({"excluded_ids": []})}'
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["count"], 2)  # installed_app, rated_app
-        self.assertEqual(response.json()["results"][0]["name"], "installed_app")
-        self.assertEqual(response.json()["results"][1]["name"], "rated_app")
-
-    def test_order_ids_first_overrides_excluded_ids_filter(self):
-        super(LicenseManager, cast(LicenseManager, License.objects)).create(
-            plan="enterprise", valid_until=timezone.datetime(2500, 1, 19, 3, 14, 7)
-        )
-        # rated_app, installed_app
-        rated_app_event = EnterpriseEventDefinition.objects.create(team=self.team, name="rated_app")
-        installed_app_event = EnterpriseEventDefinition.objects.create(team=self.team, name="installed_app")
-        ids = [rated_app_event.id, installed_app_event.id]
-
-        response = self.client.get("/api/projects/@current/event_definitions/?search=app")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["count"], 2)  # installed_app, rated_app
-        self.assertEqual(response.json()["results"][0]["name"], "installed_app")
-        self.assertEqual(response.json()["results"][1]["name"], "rated_app")
-
-        ids_str = f'["{str(ids[0])}"]'
-        response = self.client.get(
-            f'/api/projects/@current/event_definitions/?search=app&{urllib.parse.urlencode({"excluded_ids": ids_str, "order_ids_first": ids_str})}'
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["count"], 2)
-        self.assertEqual(response.json()["results"][0]["id"], str(ids[0]))
-        self.assertEqual(response.json()["results"][0]["name"], "rated_app")
-
-        response = self.client.get(
-            f'/api/projects/@current/event_definitions/?search=app&{urllib.parse.urlencode({"excluded_ids": [], "order_ids_first": []})}'
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["count"], 2)  # installed_app, rated_app
