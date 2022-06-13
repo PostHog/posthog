@@ -79,9 +79,7 @@ class Person(models.Model):
                     sign=1,
                     version=pdi.version,
                 )
-                create_person(
-                    team_id=self.team_id, uuid=str(person.uuid),
-                )
+                create_person(team_id=self.team_id, uuid=str(person.uuid), version=person.version or 0)
 
     objects = PersonManager()
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True, blank=True)

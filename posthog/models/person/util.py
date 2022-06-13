@@ -38,6 +38,7 @@ if TEST:
             properties=instance.properties,
             uuid=str(instance.uuid),
             is_identified=instance.is_identified,
+            version=instance.version or 0,
         )
 
     @receiver(post_save, sender=PersonDistinctId)
@@ -82,7 +83,7 @@ if TEST:
             created_at = now().strftime("%Y-%m-%d %H:%M:%S.%f")
             timestamp = now().strftime("%Y-%m-%d %H:%M:%S")
             person_inserts.append(
-                f"('{person.uuid}', '{created_at}', {person.team_id}, '{json.dumps(person.properties)}', {'1' if person.is_identified else '0'}, '{timestamp}', 0, 0)"
+                f"('{person.uuid}', '{created_at}', {person.team_id}, '{json.dumps(person.properties)}', {'1' if person.is_identified else '0'}, '{timestamp}', 0, 0, 0)"
             )
 
         PersonDistinctId.objects.bulk_create(distinct_ids)
@@ -93,7 +94,9 @@ if TEST:
 
 
 def create_person(
+    *,
     team_id: int,
+    version: int,
     uuid: Optional[str] = None,
     properties: Optional[Dict] = {},
     sync: bool = False,
@@ -113,6 +116,7 @@ def create_person(
         "properties": json.dumps(properties),
         "is_identified": int(is_identified),
         "created_at": timestamp.strftime("%Y-%m-%d %H:%M:%S.%f"),
+        "version": version,
         "_timestamp": timestamp.strftime("%Y-%m-%d %H:%M:%S"),
     }
     p = ClickhouseProducer()

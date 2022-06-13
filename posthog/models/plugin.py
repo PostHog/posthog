@@ -14,6 +14,7 @@ from rest_framework.exceptions import ValidationError
 from semantic_version.base import SimpleSpec, Version
 
 from posthog.models.organization import Organization
+from posthog.models.signals import mutable_receiver
 from posthog.models.team import Team
 from posthog.plugins.access import can_configure_plugins, can_install_plugins
 from posthog.plugins.reload import reload_plugins_on_workers
@@ -174,6 +175,8 @@ class Plugin(models.Model):
         return config
 
     def __str__(self) -> str:
+        if not self.name:
+            return f"ID {self.id}"
         return self.name
 
     __repr__ = sane_repr("id", "name", "organization_id", "is_global")
@@ -332,18 +335,18 @@ def enable_preinstalled_plugins_for_new_team(sender, instance: Team, created: bo
             )
 
 
-@receiver([post_save, post_delete], sender=Plugin)
+@mutable_receiver([post_save, post_delete], sender=Plugin)
 def plugin_reload_needed(sender, instance, created=None, **kwargs):
     # Newly created plugins don't have a config yet, so no need to reload
     if not created:
         reload_plugins_on_workers()
 
 
-@receiver([post_save, post_delete], sender=PluginConfig)
+@mutable_receiver([post_save, post_delete], sender=PluginConfig)
 def plugin_config_reload_needed(sender, instance, created=None, **kwargs):
     reload_plugins_on_workers()
 
 
-@receiver([post_save, post_delete], sender=PluginAttachment)
+@mutable_receiver([post_save, post_delete], sender=PluginAttachment)
 def plugin_attachement_reload_needed(sender, instance, created=None, **kwargs):
     reload_plugins_on_workers()

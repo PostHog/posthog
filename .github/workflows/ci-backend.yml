@@ -34,6 +34,7 @@ jobs:
     # See https://github.com/dorny/paths-filter#conditional-execution for more details
     changes:
         runs-on: ubuntu-latest
+        timeout-minutes: 5
         if: github.repository == 'PostHog/posthog'
         name: Determine need to run backend checks
         # Set job outputs to values from filter step
@@ -69,6 +70,7 @@ jobs:
 
     backend-code-quality:
         needs: changes
+        timeout-minutes: 5
         # Make sure we only run on backend changes
         if: ${{ needs.changes.outputs.backend == 'true' && github.repository == 'PostHog/posthog' }}
 
@@ -124,6 +126,8 @@ jobs:
 
     check-migrations:
         needs: changes
+        timeout-minutes: 5
+
         if: ${{ needs.changes.outputs.backend == 'true' && github.repository == 'PostHog/posthog' }}
 
         name: Validate Django migrations
@@ -167,6 +171,7 @@ jobs:
 
     django:
         needs: changes
+        timeout-minutes: 30
         if: ${{ needs.changes.outputs.backend == 'true' && github.repository == 'PostHog/posthog' || github.event_name == 'workflow_dispatch' }}
 
         name: Django tests – Py ${{ matrix.python-version }} ${{ matrix.name }}, CH ${{ matrix.clickhouse-server-image }} (${{matrix.group}}/${{ matrix.concurrency }})
@@ -270,6 +275,7 @@ jobs:
 
     cloud:
         needs: changes
+        timeout-minutes: 30
         if: ${{ needs.changes.outputs.backend == 'true' && github.repository == 'PostHog/posthog' }}
 
         name: Django tests – Cloud

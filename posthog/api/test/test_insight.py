@@ -448,12 +448,14 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
             frozen_time.tick(delta=timedelta(minutes=10))
 
             response = self.client.patch(
-                f"/api/projects/{self.team.id}/insights/{insight_id}", {"name": "insight new name"},
+                f"/api/projects/{self.team.id}/insights/{insight_id}",
+                {"name": "insight new name", "tags": ["add", "these", "tags"]},
             )
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
             response_data = response.json()
             self.assertEqual(response_data["name"], "insight new name")
+            self.assertEqual(sorted(response_data["tags"]), sorted(["add", "these", "tags"]))
             self.assertEqual(response_data["created_by"]["distinct_id"], self.user.distinct_id)
             self.assertEqual(
                 response_data["effective_restriction_level"], Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT
@@ -470,11 +472,17 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                     {
                         "user": {"first_name": "", "email": "user1@posthog.com"},
                         "activity": "updated",
-                        "created_at": "2012-01-14T03:31:34Z",
                         "scope": "Insight",
                         "item_id": str(insight_id),
                         "detail": {
                             "changes": [
+                                {
+                                    "type": "Insight",
+                                    "action": "changed",
+                                    "field": "tags",
+                                    "before": [],
+                                    "after": ["add", "tags", "these"],
+                                },
                                 {
                                     "type": "Insight",
                                     "action": "changed",
@@ -487,14 +495,15 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                             "name": "insight new name",
                             "short_id": short_id,
                         },
+                        "created_at": "2012-01-14T03:31:34Z",
                     },
                     {
                         "user": {"first_name": "", "email": "user1@posthog.com"},
                         "activity": "created",
-                        "created_at": "2012-01-14T03:21:34Z",
                         "scope": "Insight",
                         "item_id": str(insight_id),
                         "detail": {"changes": None, "merge": None, "name": "insight name", "short_id": short_id},
+                        "created_at": "2012-01-14T03:21:34Z",
                     },
                 ],
             )
@@ -509,6 +518,96 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["filters_hash"], original_filters_hash)
+
+    @freeze_time("2012-01-14T03:21:34.000Z")
+    def test_can_add_and_remove_tags(self):
+        insight_id, response_data = self._create_insight(
+            {
+                "name": "a created dashboard",
+                "filters": {
+                    "events": [{"id": "$pageview"}],
+                    "properties": [{"key": "$browser", "value": "Mac OS X"}],
+                    "date_from": "-90d",
+                },
+            }
+        )
+        insight_short_id = response_data["short_id"]
+        self.assertEqual(response_data["tags"], [])
+
+        add_tags_response = self.client.patch(
+            # tags are displayed in order of insertion
+            f"/api/projects/{self.team.id}/insights/{insight_id}",
+            {"tags": ["2", "1", "3"]},
+        )
+
+        self.assertEqual(sorted(add_tags_response.json()["tags"]), ["1", "2", "3"])
+
+        remove_tags_response = self.client.patch(
+            f"/api/projects/{self.team.id}/insights/{insight_id}", {"tags": ["3"]},
+        )
+
+        self.assertEqual(remove_tags_response.json()["tags"], ["3"])
+
+        self.assert_insight_activity(
+            insight_id=insight_id,
+            expected=[
+                {
+                    "user": {"first_name": "", "email": "user1@posthog.com"},
+                    "activity": "created",
+                    "scope": "Insight",
+                    "item_id": str(insight_id),
+                    "detail": {
+                        "changes": None,
+                        "merge": None,
+                        "name": "a created dashboard",
+                        "short_id": insight_short_id,
+                    },
+                    "created_at": "2012-01-14T03:21:34Z",
+                },
+                {
+                    "user": {"first_name": "", "email": "user1@posthog.com"},
+                    "activity": "updated",
+                    "scope": "Insight",
+                    "item_id": str(insight_id),
+                    "detail": {
+                        "changes": [
+                            {
+                                "type": "Insight",
+                                "action": "changed",
+                                "field": "tags",
+                                "before": [],
+                                "after": ["1", "2", "3"],
+                            }
+                        ],
+                        "merge": None,
+                        "name": "a created dashboard",
+                        "short_id": insight_short_id,
+                    },
+                    "created_at": "2012-01-14T03:21:34Z",
+                },
+                {
+                    "user": {"first_name": "", "email": "user1@posthog.com"},
+                    "activity": "updated",
+                    "scope": "Insight",
+                    "item_id": str(insight_id),
+                    "detail": {
+                        "changes": [
+                            {
+                                "type": "Insight",
+                                "action": "changed",
+                                "field": "tags",
+                                "before": ["1", "2", "3"],
+                                "after": ["3"],
+                            }
+                        ],
+                        "merge": None,
+                        "name": "a created dashboard",
+                        "short_id": insight_short_id,
+                    },
+                    "created_at": "2012-01-14T03:21:34Z",
+                },
+            ],
+        )
 
     @skip("Compatibility issue caused by test account filters")
     def test_update_insight_filters(self):
@@ -1483,6 +1582,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         activity_response = self._get_insight_activity(insight_id)
 
         activity: List[Dict] = activity_response["results"]
+
         self.maxDiff = None
         self.assertEqual(
             activity, expected,

@@ -16,8 +16,7 @@ from ee.clickhouse.sql.cohort import (
     GET_PERSON_ID_BY_ENTITY_COUNT_SQL,
     GET_PERSON_ID_BY_PRECALCULATED_COHORT_ID,
     GET_STATIC_COHORTPEOPLE_BY_PERSON_UUID,
-    INSERT_PEOPLE_MATCHING_COHORT_ID_SQL,
-    REMOVE_PEOPLE_NOT_MATCHING_COHORT_ID_SQL,
+    RECALCULATE_COHORT_BY_ID,
 )
 from ee.clickhouse.sql.person import GET_PERSON_IDS_BY_FILTER, INSERT_PERSON_STATIC_COHORT, PERSON_STATIC_COHORT_TABLE
 from posthog.client import sync_execute
@@ -282,17 +281,19 @@ def insert_static_cohort(person_uuids: List[Optional[uuid.UUID]], cohort_id: int
     sync_execute(INSERT_PERSON_STATIC_COHORT, persons)
 
 
-def recalculate_cohortpeople(cohort: Cohort) -> Optional[int]:
+def recalculate_cohortpeople(cohort: Cohort, pending_version: int) -> Optional[int]:
 
     cohort_filter, cohort_params = format_person_query(cohort, 0, custom_match_field="id")
 
-    before_count = sync_execute(GET_COHORT_SIZE_SQL, {"cohort_id": cohort.pk, "team_id": cohort.team_id})
-    logger.info(
-        "Recalculating cohortpeople starting",
-        team_id=cohort.team_id,
-        cohort_id=cohort.pk,
-        size_before=before_count[0][0],
-    )
+    before_count = get_cohort_size(cohort.pk, cohort.team_id)
+
+    if before_count:
+        logger.info(
+            "Recalculating cohortpeople starting",
+            team_id=cohort.team_id,
+            cohort_id=cohort.pk,
+            size_before=before_count,
+        )
 
     cohort_filter = GET_PERSON_IDS_BY_FILTER.format(
         distinct_query="AND " + cohort_filter,
@@ -302,27 +303,33 @@ def recalculate_cohortpeople(cohort: Cohort) -> Optional[int]:
         GET_TEAM_PERSON_DISTINCT_IDS=get_team_distinct_ids_query(cohort.team_id),
     )
 
-    insert_cohortpeople_sql = INSERT_PEOPLE_MATCHING_COHORT_ID_SQL.format(cohort_filter=cohort_filter)
-    sync_execute(insert_cohortpeople_sql, {**cohort_params, "cohort_id": cohort.pk, "team_id": cohort.team_id})
+    recalcluate_cohortpeople_sql = RECALCULATE_COHORT_BY_ID.format(cohort_filter=cohort_filter)
+    sync_execute(
+        recalcluate_cohortpeople_sql,
+        {**cohort_params, "cohort_id": cohort.pk, "team_id": cohort.team_id, "new_version": pending_version,},
+    )
 
-    remove_cohortpeople_sql = REMOVE_PEOPLE_NOT_MATCHING_COHORT_ID_SQL.format(cohort_filter=cohort_filter)
-    sync_execute(remove_cohortpeople_sql, {**cohort_params, "cohort_id": cohort.pk, "team_id": cohort.team_id})
+    count = get_cohort_size(cohort.pk, cohort.team_id)
 
-    count_result = sync_execute(GET_COHORT_SIZE_SQL, {"cohort_id": cohort.pk, "team_id": cohort.team_id})
-
-    if count_result and len(count_result) and len(count_result[0]):
-        count = count_result[0][0]
-
+    if count is not None and before_count is not None:
         logger.info(
             "Recalculating cohortpeople done",
             team_id=cohort.team_id,
             cohort_id=cohort.pk,
-            size_before=before_count[0][0],
+            size_before=before_count,
             size=count,
         )
-        return count
 
-    return None
+    return count
+
+
+def get_cohort_size(cohort_id: int, team_id: int) -> Optional[int]:
+    count_result = sync_execute(GET_COHORT_SIZE_SQL, {"cohort_id": cohort_id, "team_id": team_id})
+
+    if count_result and len(count_result) and len(count_result[0]):
+        return count_result[0][0]
+    else:
+        return None
 
 
 def simplified_cohort_filter_properties(cohort: Cohort, team: Team, is_negated=False) -> PropertyGroup:

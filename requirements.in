@@ -16,7 +16,7 @@ clickhouse-pool==0.5.3
 dataclasses_json==0.5.7
 defusedxml==0.6.0
 dj-database-url==0.5.0
-Django==3.2.12
+Django==3.2.13
 django-axes==5.9.0
 django-cors-headers==3.5.0
 django-deprecate-fields==0.1.1
@@ -47,7 +47,7 @@ numpy==1.21.4
 parso==0.8.1
 pexpect==4.7.0
 pickleshare==0.7.5
-posthoganalytics==1.4.7
+posthoganalytics==1.4.9
 protobuf==3.13.0
 psycopg2-binary==2.8.6
 python-dateutil==2.8.1

@@ -89,26 +89,24 @@ export function IngestionWizard(): JSX.Element {
 function IngestionContainer({ children }: { children: React.ReactNode }): JSX.Element {
     const { isInviteModalShown } = useValues(inviteLogic)
     const { hideInviteModal } = useActions(inviteLogic)
-    const { onboardingSidebarEnabled } = useValues(ingestionLogic)
+    const { onboardingSidebarEnabled, isSmallScreen } = useValues(ingestionLogic)
 
     return (
         <div style={{ display: 'flex', height: '100%', flexDirection: 'column' }}>
             {onboardingSidebarEnabled && (
-                <div className="IngestionTopbar">
-                    <FriendlyLogo style={{ fontSize: '1.125rem' }} />
-                    <div style={{ display: 'flex' }}>
-                        <HelpButton />
-                        <SitePopover />
+                <>
+                    <div className="IngestionTopbar">
+                        <FriendlyLogo style={{ fontSize: '1.125rem' }} />
+                        <div style={{ display: 'flex' }}>
+                            <HelpButton />
+                            <SitePopover />
+                        </div>
                     </div>
-                </div>
+                </>
             )}
+            {onboardingSidebarEnabled && <InviteModal visible={isInviteModalShown} onClose={hideInviteModal} />}
             <div style={{ display: 'flex', height: '100%' }}>
-                {onboardingSidebarEnabled && (
-                    <>
-                        <InviteModal visible={isInviteModalShown} onClose={hideInviteModal} />
-                        <Sidebar />
-                    </>
-                )}
+                {onboardingSidebarEnabled && !isSmallScreen && <Sidebar />}
                 <div className="bridge-page IngestionContainer">
                     {!onboardingSidebarEnabled && (
                         <div className="mb">

@@ -15,12 +15,44 @@ type MemberAssignment = {
     readonly userData: Buffer
 }
 
+let latestRequestQueueSize = 0
+export function addMetricsEventListeners(consumer: Consumer, statsd: StatsD | undefined): void {
+    const listenEvents = [
+        consumer.events.GROUP_JOIN,
+        consumer.events.CONNECT,
+        consumer.events.DISCONNECT,
+        consumer.events.STOP,
+        consumer.events.CRASH,
+        consumer.events.RECEIVED_UNSUBSCRIBED_TOPICS,
+        consumer.events.REQUEST_TIMEOUT,
+    ]
+
+    listenEvents.forEach((event) => {
+        consumer.on(event, () => {
+            statsd?.increment('kafka_queue_consumer_event', { event })
+        })
+    })
+
+    consumer.on(consumer.events.REQUEST, ({ payload }) => {
+        statsd?.timing('kafka_queue_consumer_event_request_duration', payload.duration, 0.01)
+        statsd?.timing('kafka_queue_consumer_event_request_pending_duration', payload.pendingDuration, 0.01)
+    })
+
+    consumer.on(consumer.events.REQUEST_QUEUE_SIZE, ({ payload }) => {
+        latestRequestQueueSize = payload.queueSize
+    })
+}
+
 export async function emitConsumerGroupMetrics(
     consumer: Consumer,
     consumerGroupMemberId: string | null,
     pluginsServer: Hub
 ): Promise<void> {
     try {
+        pluginsServer.statsd?.increment('kafka_consumer_request_queue_size', latestRequestQueueSize, {
+            instanceId: pluginsServer.instanceId.toString(),
+        })
+
         const timer = new Date()
         const description = await consumer.describeGroup()
         pluginsServer.statsd?.timing('kafka_consumer_emit_describe', timer)
@@ -66,24 +98,6 @@ export async function emitConsumerGroupMetrics(
 
         Sentry.captureException(error)
     }
-}
-
-export function addMetricsEventListeners(consumer: Consumer, statsd: StatsD | undefined): void {
-    const listenEvents = [
-        consumer.events.GROUP_JOIN,
-        consumer.events.CONNECT,
-        consumer.events.DISCONNECT,
-        consumer.events.STOP,
-        consumer.events.CRASH,
-        consumer.events.RECEIVED_UNSUBSCRIBED_TOPICS,
-        consumer.events.REQUEST_TIMEOUT,
-    ]
-
-    listenEvents.forEach((event) => {
-        consumer.on(event, () => {
-            statsd?.increment('kafka_queue_consumer_event', { event })
-        })
-    })
 }
 
 // Lifted from https://github.com/tulios/kafkajs/issues/755

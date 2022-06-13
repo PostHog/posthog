@@ -17,6 +17,10 @@
             "essential": true,
             "environment": [
                 {
+                    "name": "PLUGIN_SERVER_MODE",
+                    "value": "async"
+                },
+                {
                     "name": "CLICKHOUSE_DATABASE",
                     "value": "posthog"
                 },
@@ -107,6 +111,10 @@
                 {
                     "name": "KAFKA_SECURITY_PROTOCOL",
                     "value": "SSL"
+                },
+                {
+                    "name": "WORKER_CONCURRENCY",
+                    "value": "2"
                 }
             ],
             "secrets": [
@@ -181,5 +189,5 @@
     ],
     "requiresCompatibilities": ["FARGATE"],
     "cpu": "4096",
-    "memory": "16384"
+    "memory": "8192"
 }

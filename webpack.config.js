@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-var-requires */
 /* global require, module, process, __dirname */
 const path = require('path')
 const HtmlWebpackPlugin = require('html-webpack-plugin')
@@ -54,7 +53,8 @@ function createEntry(entry) {
                 '~': path.resolve(__dirname, 'frontend', 'src'),
                 lib: path.resolve(__dirname, 'frontend', 'src', 'lib'),
                 scenes: path.resolve(__dirname, 'frontend', 'src', 'scenes'),
-                packages: path.resolve(__dirname, 'frontend', 'src', 'packages'),
+                '@posthog/apps-common': path.resolve(__dirname, 'frontend', '@posthog', 'apps-common', 'src'),
+                '@posthog/lemon-ui': path.resolve(__dirname, 'frontend', '@posthog', 'lemon-ui', 'src'),
                 storybook: path.resolve(__dirname, '.storybook'),
                 types: path.resolve(__dirname, 'frontend', 'types'),
                 public: path.resolve(__dirname, 'frontend', 'public'),
@@ -106,7 +106,7 @@ function createEntry(entry) {
 
                 {
                     // Now we apply rule for images
-                    test: /\.(png|jpe?g|gif|svg)$/,
+                    test: /\.(png|jpe?g|gif|svg|lottie)$/,
                     use: [
                         {
                             // Using file-loader for these files

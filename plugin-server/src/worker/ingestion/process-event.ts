@@ -22,10 +22,9 @@ import {
     TimestampFormat,
 } from '../../types'
 import { DB, GroupIdentifier } from '../../utils/db/db'
+import { elementsToString, extractElements } from '../../utils/db/elements-chain'
 import { KafkaProducerWrapper } from '../../utils/db/kafka-producer-wrapper'
 import {
-    elementsToString,
-    extractElements,
     personInitialAndUTMProperties,
     safeClickhouseString,
     sanitizeEventName,
@@ -42,9 +41,6 @@ import { TeamManager } from './team-manager'
 import { parseDate } from './utils'
 
 const MAX_FAILED_PERSON_MERGE_ATTEMPTS = 3
-
-// for e.g. internal events we don't want to be available for users in the UI
-const EVENTS_WITHOUT_EVENT_DEFINITION = ['$$plugin_metrics']
 
 // used to prevent identify from being used with generic IDs
 // that we can safely assume stem from a bug or mistake
@@ -538,11 +534,8 @@ export class EventsProcessor {
             properties['$ip'] = ip
         }
 
-        if (!EVENTS_WITHOUT_EVENT_DEFINITION.includes(event)) {
-            await this.teamManager.updateEventNamesAndProperties(team.id, event, properties)
-        }
-
         properties = personInitialAndUTMProperties(properties)
+        await this.teamManager.updateEventNamesAndProperties(team.id, event, properties)
         properties = await addGroupProperties(team.id, properties, this.groupTypeManager)
 
         const createdNewPersonWithProperties = await this.createPersonIfDistinctIdIsNew(

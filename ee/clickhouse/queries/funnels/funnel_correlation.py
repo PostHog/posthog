@@ -16,7 +16,6 @@ from rest_framework.exceptions import ValidationError
 from ee.clickhouse.models.event import ElementSerializer
 from ee.clickhouse.models.property import get_property_string_expr
 from ee.clickhouse.queries.column_optimizer import EnterpriseColumnOptimizer
-from ee.clickhouse.queries.funnels.utils import get_funnel_order_actor_class
 from ee.clickhouse.queries.groups_join_query import GroupsJoinQuery
 from ee.clickhouse.sql.clickhouse import trim_quotes_expr
 from posthog.client import sync_execute
@@ -24,6 +23,7 @@ from posthog.constants import AUTOCAPTURE_EVENT, TREND_FILTER_TYPE_ACTIONS, Funn
 from posthog.models import Team
 from posthog.models.element import chain_to_elements
 from posthog.models.filters import Filter
+from posthog.queries.funnels.utils import get_funnel_order_actor_class
 from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
 from posthog.queries.person_query import PersonQuery
 

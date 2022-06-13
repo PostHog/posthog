@@ -111,13 +111,14 @@ class Organization(UUIDModel):
         Obtains details on the billing plan for the organization.
         Returns a tuple with (billing_plan_key, billing_realm)
         """
-
+        # Demo gets all features
+        if settings.DEMO:
+            return (License.ENTERPRISE_PLAN, "demo")
         # If on Cloud, grab the organization's price
         if hasattr(self, "billing"):
             if self.billing is None:  # type: ignore
                 return (None, None)
             return (self.billing.get_plan_key(), "cloud")  # type: ignore
-
         # Otherwise, try to find a valid license on this instance
         if License is not None:
             license = License.objects.first_valid()
@@ -134,7 +135,7 @@ class Organization(UUIDModel):
         plan, realm = self._billing_plan_details
         if not plan:
             self.available_features = []
-        elif realm == "ee":
+        elif realm in ("ee", "demo"):
             self.available_features = License.PLANS.get(plan, [])
         else:
             self.available_features = self.billing.available_features  # type: ignore

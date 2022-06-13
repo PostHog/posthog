@@ -13,7 +13,6 @@ debug.log
 node_modules/
 *.code-workspace
 node_modules
-.vscode/
 frontend/.cache/
 .mypy_cache
 frontend/dist/
@@ -27,6 +26,8 @@ celerybeat.pid
 yarn-error.log
 .yalc
 yalc.lock
+.vscode/*
+!.vscode/launch.json
 cypress/screenshots/
 cypress/downloads/
 cypress/**/*.diff.png

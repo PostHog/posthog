@@ -42,6 +42,7 @@ const EventsWithPerformanceTable = (): JSX.Element => {
             showExport={false}
             showAutoload={false}
             showEventFilter={false}
+            showPropertyFilter={true}
             showRowExpanders={false}
             showActionsButton={false}
             linkPropertiesToFilters={false}

@@ -93,7 +93,6 @@ export const propertyGroupFilterLogic = kea<propertyGroupFilterLogicType>([
         removeFilterGroup: () => actions.update(),
         addFilterGroup: () => {
             eventUsageLogic.actions.reportPropertyGroupFilterAdded()
-            actions.update()
         },
         update: () => {
             props.onChange(values.filters)

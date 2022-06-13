@@ -39,8 +39,6 @@ TRUNCATE TABLE
     posthog_actionstep,
     posthog_action_events,
     posthog_action,
-    posthog_element,
-    posthog_elementgroup,
     posthog_instancesetting,
     posthog_sessionrecordingevent,
     posthog_persondistinctid,
