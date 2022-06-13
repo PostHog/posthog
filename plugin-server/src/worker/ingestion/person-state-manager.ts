@@ -68,28 +68,20 @@ export class PersonStateManager {
     }
 
     async updateProperties(): Promise<void> {
-        const wasCreated = await this.createPersonIfDistinctIdIsNew(
-            this.eventProperties['$set'],
-            this.eventProperties['$set_once']
-        )
+        const wasPersonCreated = await this.createPersonIfDistinctIdIsNew()
         if (
-            !wasCreated &&
+            !wasPersonCreated &&
             (this.eventProperties['$set'] || this.eventProperties['$set_once'] || this.eventProperties['$unset'])
         ) {
-            await this.updatePersonProperties(
-                this.eventProperties['$set'] || {},
-                this.eventProperties['$set_once'] || {},
-                this.eventProperties['$unset'] || []
-            )
+            await this.updatePersonProperties()
         }
     }
 
-    private async createPersonIfDistinctIdIsNew(
-        properties?: Properties,
-        propertiesOnce?: Properties
-    ): Promise<boolean> {
+    private async createPersonIfDistinctIdIsNew(): Promise<boolean> {
         const isNewPerson = await this.personManager.isNewPerson(this.db, this.teamId, this.distinctId)
         if (isNewPerson) {
+            const properties = this.eventProperties['$set'] || {}
+            const propertiesOnce = this.eventProperties['$set_once'] || {}
             // Catch race condition where in between getting and creating, another request already created this user
             try {
                 await this.createPerson(
@@ -154,11 +146,7 @@ export class PersonStateManager {
         )
     }
 
-    private async updatePersonProperties(
-        properties: Properties,
-        propertiesOnce: Properties,
-        unsetProperties: Array<string>
-    ): Promise<void> {
+    private async updatePersonProperties(): Promise<void> {
         const personFound = await this.db.fetchPerson(this.teamId, this.distinctId)
         if (!personFound) {
             this.statsd?.increment('person_not_found', { teamId: String(this.teamId), key: 'update' })
@@ -166,6 +154,10 @@ export class PersonStateManager {
                 `Could not find person with distinct id "${this.distinctId}" in team "${this.teamId}" to update properties`
             )
         }
+
+        const properties: Properties = this.eventProperties['$set'] || {}
+        const propertiesOnce: Properties = this.eventProperties['$set_once'] || {}
+        const unsetProperties: Array<string> = this.eventProperties['$unset'] || []
 
         // Figure out which properties we are actually setting
         const updatedProperties: Properties = { ...personFound.properties }
