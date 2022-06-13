@@ -81,7 +81,7 @@ describe('eachBatchX', () => {
                 statsd: {
                     timing: jest.fn(),
                     increment: jest.fn(),
-                    gauge: jest.fn(),
+                    histogram: jest.fn(),
                 },
                 ingestionBatchBreakupByDistinctIdTeams: new Set(),
             },
@@ -180,10 +180,14 @@ describe('eachBatchX', () => {
             expect(batch.resolveOffset).toHaveBeenCalledWith(9)
             expect(batch.resolveOffset).toHaveBeenCalledWith(13)
 
-            expect(queue.pluginsServer.statsd.gauge).toHaveBeenCalledWith('ingest_event_batching.input_length', 13, {
-                key: 'ingestion',
-            })
-            expect(queue.pluginsServer.statsd.gauge).toHaveBeenCalledWith('ingest_event_batching.batch_count', 5, {
+            expect(queue.pluginsServer.statsd.histogram).toHaveBeenCalledWith(
+                'ingest_event_batching.input_length',
+                13,
+                {
+                    key: 'ingestion',
+                }
+            )
+            expect(queue.pluginsServer.statsd.histogram).toHaveBeenCalledWith('ingest_event_batching.batch_count', 5, {
                 key: 'ingestion',
             })
         })
@@ -211,14 +215,18 @@ describe('eachBatchX', () => {
             expect(batch.resolveOffset).toBeCalledTimes(2)
             expect(batch.resolveOffset).toHaveBeenCalledWith(10)
             expect(batch.resolveOffset).toHaveBeenCalledWith(13)
-            expect(queue.pluginsServer.statsd.gauge).toHaveBeenCalledWith(
+            expect(queue.pluginsServer.statsd.histogram).toHaveBeenCalledWith(
                 'ingest_event_batching.batch_count_if_enabled_for_all',
                 6
             )
-            expect(queue.pluginsServer.statsd.gauge).toHaveBeenCalledWith('ingest_event_batching.input_length', 13, {
-                key: 'ingestion',
-            })
-            expect(queue.pluginsServer.statsd.gauge).toHaveBeenCalledWith('ingest_event_batching.batch_count', 2, {
+            expect(queue.pluginsServer.statsd.histogram).toHaveBeenCalledWith(
+                'ingest_event_batching.input_length',
+                13,
+                {
+                    key: 'ingestion',
+                }
+            )
+            expect(queue.pluginsServer.statsd.histogram).toHaveBeenCalledWith('ingest_event_batching.batch_count', 2, {
                 key: 'ingestion',
             })
         })
