@@ -127,7 +127,6 @@ export function cleanFilters(
                 ? { display: insightChanged ? ChartDisplayType.FunnelViz : filters.display }
                 : {}),
             ...(filters.layout ? { layout: filters.layout } : {}),
-            ...(filters.new_entity ? { new_entity: filters.new_entity } : {}),
             ...(filters.interval ? { interval: filters.interval } : {}),
             ...(filters.properties ? { properties: filters.properties } : {}),
             ...(filters.filter_test_accounts ? { filter_test_accounts: filters.filter_test_accounts } : {}),

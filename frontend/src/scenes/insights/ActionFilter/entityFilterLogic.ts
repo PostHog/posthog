@@ -215,12 +215,11 @@ export const entityFilterLogic = kea<entityFilterLogicType>({
             const precedingEntity = values.localFilters[previousLength - 1] as LocalFilter | undefined
             actions.setFilters([
                 ...values.localFilters,
-
                 {
-                    id: 'empty',
-                    type: EntityTypes.NEW_ENTITY,
+                    id: '$pageview',
+                    type: 'events',
                     order: precedingEntity ? precedingEntity.order + 1 : 0,
-                    name: 'empty',
+                    name: '$pageview',
                     ...props.addFilterDefaultOptions,
                 },
             ])

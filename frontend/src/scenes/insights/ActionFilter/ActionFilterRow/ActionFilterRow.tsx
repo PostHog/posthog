@@ -175,15 +175,12 @@ export function ActionFilterRow({
         ) : (
             <SeriesLetter seriesIndex={index} hasBreakdown={hasBreakdown} />
         )
+
     const filterElement = (
         <Popup
             overlay={
                 <TaxonomicFilter
-                    groupType={
-                        filter.type === EntityTypes.NEW_ENTITY
-                            ? TaxonomicFilterGroupType.Events
-                            : (filter.type as TaxonomicFilterGroupType)
-                    }
+                    groupType={filter.type as TaxonomicFilterGroupType}
                     value={
                         filter.type === 'actions' && typeof value === 'string' ? parseInt(value) : value || undefined
                     }

@@ -568,14 +568,6 @@ export const insightLogic = kea<insightLogicType>({
             if (objectsEqual(previousFilters, filters)) {
                 return
             }
-            const dupeFilters = { ...filters }
-            const dupePrevFilters = { ...selectors.filters(previousState) }
-            delete dupeFilters.new_entity
-            delete dupePrevFilters.new_entity
-
-            if (objectsEqual(dupePrevFilters, dupeFilters)) {
-                return
-            }
 
             actions.reportInsightViewed(values.insight, filters, previousFilters)
 
