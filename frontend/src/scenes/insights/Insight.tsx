@@ -62,8 +62,7 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
         insightSaving,
     } = useValues(logic)
     useMountedLogic(insightCommandLogic(insightProps))
-    const { saveInsight, setInsightMetadata, saveAs, cancelChanges, reportInsightViewedForRecentInsights } =
-        useActions(logic)
+    const { saveInsight, setInsightMetadata, saveAs, reportInsightViewedForRecentInsights } = useActions(logic)
     const { duplicateInsight, loadInsights } = useActions(savedInsightsLogic)
 
     const { hasAvailableFeature } = useValues(userLogic)
