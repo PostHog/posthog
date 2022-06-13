@@ -6,6 +6,7 @@ import equal from 'fast-deep-equal'
 import { ProducerRecord } from 'kafkajs'
 import { DateTime, Duration } from 'luxon'
 import { DatabaseError } from 'pg'
+import { PersonStateManager } from 'worker/ingestion/person-state-manager'
 
 import { Event as EventProto, IEvent } from '../../config/idl/protos'
 import { KAFKA_EVENTS, KAFKA_SESSION_RECORDING_EVENTS } from '../../config/kafka-topics'
@@ -120,8 +121,6 @@ export class EventsProcessor {
                 properties['$set_once'] = { ...properties['$set_once'], ...data['$set_once'] }
             }
 
-            const personUuid = new UUIDT().toString()
-
             // TODO: we should just handle all person's related changes together not here and in capture separately
             const parsedTs = this.handleTimestamp(data, now, sentAt)
             const ts = parsedTs.isValid ? parsedTs : DateTime.now()
@@ -144,6 +143,7 @@ export class EventsProcessor {
                 throw new Error(`No team found with ID ${teamId}. Can't ingest event.`)
             }
 
+            const personStateManager = new PersonStateManager(ts, this.db)
             if (data['event'] === '$snapshot') {
                 if (team.session_recording_opt_in) {
                     const timeout2 = timeoutGuard(
@@ -152,6 +152,7 @@ export class EventsProcessor {
                     )
                     try {
                         result = await this.createSessionRecordingEvent(
+                            personStateManager,
                             eventUuid,
                             teamId,
                             distinctId,
@@ -160,7 +161,6 @@ export class EventsProcessor {
                             ts,
                             properties['$snapshot_data'],
                             properties,
-                            personUuid,
                             ip
                         )
                         this.pluginsServer.statsd?.timing('kafka_queue.single_save.snapshot', singleSaveTimer, {
@@ -175,8 +175,8 @@ export class EventsProcessor {
                 const timeout3 = timeoutGuard('Still running "capture". Timeout warning after 30 sec!', { eventUuid })
                 try {
                     result = await this.capture(
+                        personStateManager,
                         eventUuid,
-                        personUuid,
                         ip,
                         team,
                         data['event'],
@@ -512,8 +512,8 @@ export class EventsProcessor {
     }
 
     private async capture(
+        personStateManager: PersonStateManager,
         eventUuid: string,
-        personUuid: string,
         ip: string | null,
         team: Team,
         event: string,
@@ -542,7 +542,7 @@ export class EventsProcessor {
             team.id,
             distinctId,
             timestamp,
-            personUuid,
+            personStateManager.newUuid,
             properties['$set'],
             properties['$set_once']
         )
@@ -663,6 +663,7 @@ export class EventsProcessor {
     }
 
     private async createSessionRecordingEvent(
+        personStateManager: PersonStateManager,
         uuid: string,
         team_id: number,
         distinct_id: string,
@@ -671,7 +672,6 @@ export class EventsProcessor {
         timestamp: DateTime,
         snapshot_data: Record<any, any>,
         properties: Properties,
-        personUuid: string,
         ip: string | null
     ): Promise<PreIngestionEvent> {
         const timestampString = castTimestampOrNow(
@@ -679,7 +679,7 @@ export class EventsProcessor {
             this.kafkaProducer ? TimestampFormat.ClickHouse : TimestampFormat.ISO
         )
 
-        await this.createPersonIfDistinctIdIsNew(team_id, distinct_id, timestamp, personUuid.toString())
+        await this.createPersonIfDistinctIdIsNew(team_id, distinct_id, timestamp, personStateManager.newUuid)
 
         const data: SessionRecordingEvent = {
             uuid,
