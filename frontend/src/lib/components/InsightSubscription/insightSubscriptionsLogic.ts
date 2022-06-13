@@ -19,6 +19,7 @@ export const insightSubscriptionsLogic = kea<insightSubscriptionsLogicType>([
     }),
     connect(({ insightShortId }: InsightSubscriptionLogicProps) => ({
         values: [insightLogic({ dashboardItemId: insightShortId }), ['insight']],
+        actions: [insightLogic({ dashboardItemId: insightShortId }), ['loadInsightSuccess']],
     })),
     actions({
         deleteSubscription: (id: number) => ({ id }),
@@ -51,6 +52,9 @@ export const insightSubscriptionsLogic = kea<insightSubscriptionsLogicType>([
                 object: { name: 'Subscription', id },
                 callback: () => actions.loadSubscriptions(),
             })
+        },
+        loadInsightSuccess: async () => {
+            actions.loadSubscriptions()
         },
     })),
 
