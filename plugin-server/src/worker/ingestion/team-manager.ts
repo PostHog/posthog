@@ -13,6 +13,9 @@ import { getByAge, UUIDT } from '../../utils/utils'
 import { detectPropertyDefinitionTypes } from './property-definitions-auto-discovery'
 import { PropertyDefinitionsCache } from './property-definitions-cache'
 
+// for e.g. internal events we don't want to be available for users in the UI
+const EVENTS_WITHOUT_EVENT_DEFINITION = ['$$plugin_metrics']
+
 type TeamCache<T> = Map<TeamId, [T, number]>
 
 export class TeamManager {
@@ -71,6 +74,10 @@ export class TeamManager {
     }
 
     public async updateEventNamesAndProperties(teamId: number, event: string, properties: Properties): Promise<void> {
+        if (EVENTS_WITHOUT_EVENT_DEFINITION.includes(event)) {
+            return
+        }
+
         const startTime = DateTime.now()
         const team: Team | null = await this.fetchTeam(teamId)
 
