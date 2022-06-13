@@ -100,7 +100,6 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
                                     minLength={1}
                                     maxLength={400} // Sync with action model
                                     data-attr={`action-name-${id ? 'edit' : 'create'}`}
-                                    saveButtonText="Set"
                                     className="action-name"
                                 />
                             )}
@@ -136,7 +135,6 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
                                         compactButtons
                                         maxLength={600} // No limit on backend model, but enforce shortish description
                                         paywall={!hasAvailableFeature(AvailableFeature.INGESTION_TAXONOMY)}
-                                        saveButtonText="Set"
                                     />
                                 )}
                             </Field>
