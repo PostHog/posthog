@@ -14,9 +14,7 @@ export interface InsightSubscriptionLogicProps {
 export const insightSubscriptionsLogic = kea<insightSubscriptionsLogicType>([
     path(['lib', 'components', 'InsightSubscription', 'insightSubscriptionsLogic']),
     props({} as InsightSubscriptionLogicProps),
-    key(({ insightShortId }) => {
-        return insightShortId
-    }),
+    key(({ insightShortId }) => insightShortId),
     connect(({ insightShortId }: InsightSubscriptionLogicProps) => ({
         values: [insightLogic({ dashboardItemId: insightShortId }), ['insight']],
         actions: [insightLogic({ dashboardItemId: insightShortId }), ['loadInsightSuccess']],

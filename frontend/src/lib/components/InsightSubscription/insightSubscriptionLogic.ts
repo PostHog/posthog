@@ -65,15 +65,18 @@ export const insightSubscriptionLogic = kea<insightSubscriptionLogicType>([
                         : undefined,
             }),
             submit: async (subscription) => {
-                subscription.insight = values.insight.id
+                const payload = {
+                    ...subscription,
+                    insight: values.insight.id,
+                }
 
                 let subscriptionId = props.id
 
-                if (props.id === 'new') {
-                    const newSub = await api.subscriptions.create(subscription)
+                if (subscriptionId === 'new') {
+                    const newSub = await api.subscriptions.create(payload)
                     subscriptionId = newSub.id
                 } else {
-                    await api.subscriptions.update(props.id, subscription)
+                    await api.subscriptions.update(subscriptionId, payload)
                 }
                 actions.loadSubscriptions()
                 actions.loadSubscription()
