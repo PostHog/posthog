@@ -326,6 +326,11 @@ def create_event_definitions_sql(include_actions: bool, is_enterprise: bool = Fa
         f'"{f.column}"' for f in EventDefinition._meta.get_fields() if hasattr(f, "column") and f.column != "tags"  # type: ignore
     }
     shared_conditions = f"WHERE team_id = %(team_id)s {conditions}"
+    ordering = (
+        "ORDER BY last_seen_at DESC NULLS LAST, query_usage_30_day DESC NULLS LAST, name ASC"
+        if is_enterprise
+        else "ORDER BY name ASC"
+    )
 
     if include_actions:
         event_definition_fields.discard("id")
@@ -348,8 +353,8 @@ def create_event_definitions_sql(include_actions: bool, is_enterprise: bool = Fa
         event_definition_table = (
             f"""
                 SELECT {raw_event_definition_fields}
-                    FROM ee_enterpriseeventdefinition
-                    FULL OUTER JOIN posthog_eventdefinition ON posthog_eventdefinition.id=ee_enterpriseeventdefinition.eventdefinition_ptr_id
+                FROM ee_enterpriseeventdefinition
+                FULL OUTER JOIN posthog_eventdefinition ON posthog_eventdefinition.id=ee_enterpriseeventdefinition.eventdefinition_ptr_id
             """
             if is_enterprise
             else f"""
@@ -365,6 +370,7 @@ def create_event_definitions_sql(include_actions: bool, is_enterprise: bool = Fa
             SELECT {raw_action_fields} FROM posthog_action
             {shared_conditions} AND posthog_action.deleted = false
         ) as T
+        {ordering}
         """
 
     raw_event_definition_fields = ",".join(event_definition_fields)
@@ -375,10 +381,12 @@ def create_event_definitions_sql(include_actions: bool, is_enterprise: bool = Fa
         FROM ee_enterpriseeventdefinition
         FULL OUTER JOIN posthog_eventdefinition ON posthog_eventdefinition.id=ee_enterpriseeventdefinition.eventdefinition_ptr_id
         {shared_conditions}
+        {ordering}
     """
         if is_enterprise
         else f"""
         SELECT {raw_event_definition_fields} FROM posthog_eventdefinition
         {shared_conditions}
+        {ordering}
     """
     )

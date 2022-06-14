@@ -79,29 +79,17 @@ class EventDefinitionViewSet(
 
         if EE_AVAILABLE:
             # Prevent fetching deprecated `tags` field. Tags are separately fetched in TaggedItemSerializerMixin
-            table_sql = create_event_definitions_sql(include_actions, is_enterprise=True, conditions=search_query)
+            sql = create_event_definitions_sql(include_actions, is_enterprise=True, conditions=search_query)
 
-            ee_event_definitions = EventDefinition.objects.raw(
-                f"""
-                {table_sql}
-                ORDER BY last_seen_at DESC NULLS LAST, query_usage_30_day DESC NULLS LAST, name ASC
-                """,
-                params=params,
-            )
+            ee_event_definitions = EventDefinition.objects.raw(sql, params=params)
             ee_event_definitions_list = ee_event_definitions.prefetch_related(
                 Prefetch("tagged_items", queryset=TaggedItem.objects.select_related("tag"), to_attr="prefetched_tags")
             )
 
             return ee_event_definitions_list
 
-        table_sql = create_event_definitions_sql(include_actions, is_enterprise=False, conditions=search_query)
-        event_definitions_list = EventDefinition.objects.raw(
-            f"""
-            {table_sql}
-            ORDER BY name ASC
-            """,
-            params=params,
-        )
+        sql = create_event_definitions_sql(include_actions, is_enterprise=False, conditions=search_query)
+        event_definitions_list = EventDefinition.objects.raw(sql, params=params)
 
         return event_definitions_list
 
