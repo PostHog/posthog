@@ -105,8 +105,10 @@ class SubscriptionViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.M
             queryset = queryset.filter(deleted=False)
 
         for key in filters:
-            if key == "insight_id":
-                queryset = queryset.filter(insight_id=filters["insight_id"])
+            if key == "insight":
+                queryset = queryset.filter(insight_id=filters["insight"])
+            if key == "dashboard":
+                queryset = queryset.filter(dashboard_id=filters["dashboard"])
             elif key == "deleted":
                 queryset = queryset.filter(deleted=str_to_bool(filters["deleted"]))
 

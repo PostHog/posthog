@@ -24,9 +24,14 @@ import { urls } from 'scenes/urls'
 import { Link } from 'lib/components/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
+import {
+    InsightSubscriptionsModal,
+    SubscribeButton,
+} from 'lib/components/InsightSubscription/InsightSubscriptionsModal'
+import { router } from 'kea-router'
 
 export function DashboardHeader(): JSX.Element | null {
-    const { dashboard, allItemsLoading, dashboardMode, canEditDashboard } = useValues(dashboardLogic)
+    const { dashboard, allItemsLoading, dashboardMode, canEditDashboard, subscriptionMode } = useValues(dashboardLogic)
     const { setDashboardMode, triggerDashboardUpdate } = useActions(dashboardLogic)
     const { dashboardTags } = useValues(dashboardsLogic)
     const { updateDashboard, pinDashboard, unpinDashboard, deleteDashboard, duplicateDashboard } =
@@ -38,13 +43,26 @@ export function DashboardHeader(): JSX.Element | null {
 
     const { featureFlags } = useValues(featureFlagLogic)
     const usingExportFeature = featureFlags[FEATURE_FLAGS.EXPORT_DASHBOARD_INSIGHTS]
+    const usingSubscriptionFeature = featureFlags[FEATURE_FLAGS.INSIGHT_SUBSCRIPTIONS]
+    const { push } = useActions(router)
 
+    console.log({ subscriptionMode })
     return dashboard || allItemsLoading ? (
         <>
             {dashboardMode === DashboardMode.Fullscreen && (
                 <FullScreen onExit={() => setDashboardMode(null, DashboardEventSource.Browser)} />
             )}
             {dashboard && <ShareModal onCancel={() => setIsShareModalVisible(false)} visible={isShareModalVisible} />}
+
+            {dashboard && (
+                <InsightSubscriptionsModal
+                    visible={subscriptionMode.enabled}
+                    closeModal={() => push(urls.dashboard(dashboard.id))}
+                    dashboardId={dashboard.id}
+                    subscriptionId={subscriptionMode.id}
+                />
+            )}
+
             <PageHeader
                 title={
                     <div style={{ display: 'flex', alignItems: 'center' }}>
@@ -165,6 +183,7 @@ export function DashboardHeader(): JSX.Element | null {
                                             {usingExportFeature && (
                                                 <ExportButton dashboardId={dashboard.id} fullWidth type="stealth" />
                                             )}
+                                            {usingSubscriptionFeature && <SubscribeButton dashboardId={dashboard.id} />}
                                             <LemonDivider />
                                             <LemonButton
                                                 onClick={() =>

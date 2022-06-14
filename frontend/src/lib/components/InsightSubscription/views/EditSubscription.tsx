@@ -12,7 +12,6 @@ import { insightSubscriptionLogic } from '../insightSubscriptionLogic'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 import { IconChevronLeft, IconOpenInNew } from 'lib/components/icons'
 import { AlertMessage } from 'lib/components/AlertMessage'
-import { InsightShortId } from '~/types'
 import { insightSubscriptionsLogic } from '../insightSubscriptionsLogic'
 import {
     bysetposOptions,
@@ -26,19 +25,28 @@ import { LemonDivider, LemonInput, LemonTextArea } from '@posthog/lemon-ui'
 
 interface EditSubscriptionProps {
     id: number | 'new'
-    insightShortId: InsightShortId
+    insightId?: number
+    dashboardId?: number
     onCancel: () => void
     onDelete: () => void
 }
 
-export function EditSubscription({ id, insightShortId, onCancel, onDelete }: EditSubscriptionProps): JSX.Element {
+export function EditSubscription({
+    id,
+    insightId,
+    dashboardId,
+    onCancel,
+    onDelete,
+}: EditSubscriptionProps): JSX.Element {
     const logicProps = {
         id,
-        insightShortId,
+        insightId,
+        dashboardId,
     }
     const logic = insightSubscriptionLogic(logicProps)
     const subscriptionslogic = insightSubscriptionsLogic({
-        insightShortId,
+        insightId,
+        dashboardId,
     })
 
     const { antSelectOptions } = useValues(membersLogic)

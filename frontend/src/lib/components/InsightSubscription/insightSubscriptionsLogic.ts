@@ -1,38 +1,40 @@
-import { actions, afterMount, BreakPointFunction, connect, kea, key, listeners, path, props, reducers } from 'kea'
-import { InsightShortId, SubscriptionType } from '~/types'
+import { actions, afterMount, BreakPointFunction, kea, key, listeners, path, props, reducers } from 'kea'
+import { SubscriptionType } from '~/types'
 
 import api from 'lib/api'
 import { loaders } from 'kea-loaders'
 
 import type { insightSubscriptionsLogicType } from './insightSubscriptionsLogicType'
 import { deleteWithUndo } from 'lib/utils'
-import { insightLogic } from 'scenes/insights/insightLogic'
 
 export interface InsightSubscriptionLogicProps {
-    insightShortId: InsightShortId
+    insightId?: number
+    dashboardId?: number
 }
 export const insightSubscriptionsLogic = kea<insightSubscriptionsLogicType>([
     path(['lib', 'components', 'InsightSubscription', 'insightSubscriptionsLogic']),
     props({} as InsightSubscriptionLogicProps),
-    key(({ insightShortId }) => insightShortId),
-    connect(({ insightShortId }: InsightSubscriptionLogicProps) => ({
-        values: [insightLogic({ dashboardItemId: insightShortId }), ['insight']],
-        actions: [insightLogic({ dashboardItemId: insightShortId }), ['loadInsightSuccess']],
-    })),
+    key(({ insightId, dashboardId }) =>
+        insightId ? `insight-${insightId}` : dashboardId ? `dashboard-${dashboardId}` : 'subscriptions'
+    ),
     actions({
         deleteSubscription: (id: number) => ({ id }),
     }),
 
-    loaders(({ values }) => ({
+    loaders(({ props }) => ({
         subscriptions: {
             __default: [] as SubscriptionType[],
             loadSubscriptions: async (_?: any, breakpoint?: BreakPointFunction) => {
-                if (!values.insight.id) {
+                if (!props.dashboardId && !props.insightId) {
                     return []
                 }
 
                 breakpoint?.()
-                const response = await api.subscriptions.list(values.insight.id)
+                console.log(props)
+                const response = await api.subscriptions.list({
+                    dashboardId: props.dashboardId,
+                    insightId: props.insightId,
+                })
                 breakpoint?.()
                 return response.results
             },
@@ -52,9 +54,6 @@ export const insightSubscriptionsLogic = kea<insightSubscriptionsLogicType>([
                 object: { name: 'Subscription', id },
                 callback: () => actions.loadSubscriptions(),
             })
-        },
-        loadInsightSuccess: async () => {
-            actions.loadSubscriptions()
         },
     })),
 

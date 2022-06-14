@@ -41,7 +41,6 @@ const maxSizeModifier: Modifier<any, any> = {
     requiresIfExists: ['offset', 'preventOverflow', 'flip'],
     fn({ state, name }) {
         const overflow = detectOverflow(state)
-        console.log({ overflow })
         const { x, y } = state.modifiersData.preventOverflow || { x: 0, y: 0 }
         const { width, height } = state.rects.popper
         const [basePlacement] = state.placement.split('-')

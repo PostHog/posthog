@@ -99,6 +99,7 @@ export const dashboardLogic = kea<dashboardLogicType>({
         setRefreshError: (shortId: InsightShortId) => ({ shortId }),
         reportDashboardViewed: true, // Reports `viewed dashboard` and `dashboard analyzed` events
         setShouldReportOnAPILoad: (shouldReport: boolean) => ({ shouldReport }), // See reducer for details
+        setSubscriptionMode: (enabled: boolean, id?: number | 'new') => ({ enabled, id }),
     },
 
     loaders: ({ actions, props }) => ({
@@ -332,6 +333,17 @@ export const dashboardLogic = kea<dashboardLogicType>({
             false,
             {
                 setShouldReportOnAPILoad: (_, { shouldReport }) => shouldReport,
+            },
+        ],
+
+        subscriptionMode: [
+            /* Whether to report viewed/analyzed events after the API is loaded (and this logic is mounted).
+            We need this because the DashboardView component might be mounted (and subsequent `useEffect`) before the API request
+            to `loadDashboardItems` is completed (e.g. if you open PH directly to a dashboard)
+            */
+            { enabled: false, id: null },
+            {
+                setSubscriptionMode: (_, { enabled, id }) => ({ enabled, id }),
             },
         ],
     }),
@@ -751,6 +763,25 @@ export const dashboardLogic = kea<dashboardLogicType>({
                 // allItems has not loaded yet, report after API request is completed
                 actions.setShouldReportOnAPILoad(true)
             }
+        },
+    }),
+
+    urlToAction: ({ actions }) => ({
+        '/dashboard/:id/subscriptions(/:subscriptionId)': (
+            { subscriptionId } // url params
+        ) => {
+            console.log('actiontourl', { subscriptionId })
+            const id = subscriptionId
+                ? subscriptionId == 'new'
+                    ? subscriptionId
+                    : parseInt(subscriptionId, 10)
+                : undefined
+            actions.setSubscriptionMode(true, id)
+        },
+
+        '/dashboard/:id': () => {
+            console.log('actiontourl away')
+            actions.setSubscriptionMode(false, undefined)
         },
     }),
 })

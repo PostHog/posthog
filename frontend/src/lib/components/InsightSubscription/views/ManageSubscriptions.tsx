@@ -1,7 +1,7 @@
 import React from 'react'
 import { useActions, useValues } from 'kea'
 import { LemonButton, LemonButtonWithSideAction } from 'lib/components/LemonButton'
-import { InsightShortId, SubscriptionType } from '~/types'
+import { SubscriptionType } from '~/types'
 import { pluralize } from 'lib/utils'
 import { IconEllipsis } from 'lib/components/icons'
 import { ProfileBubbles } from 'lib/components/ProfilePicture'
@@ -77,14 +77,21 @@ export function SubscriptionListItem({ subscription, onClick, onDelete }: Subscr
 }
 
 interface ManageSubscriptionsProps {
-    insightShortId: InsightShortId
+    insightId?: number
+    dashboardId?: number
     onCancel: () => void
     onSelect: (value: number | 'new') => void
 }
 
-export function ManageSubscriptions({ insightShortId, onCancel, onSelect }: ManageSubscriptionsProps): JSX.Element {
+export function ManageSubscriptions({
+    insightId,
+    dashboardId,
+    onCancel,
+    onSelect,
+}: ManageSubscriptionsProps): JSX.Element {
     const logic = insightSubscriptionsLogic({
-        insightShortId,
+        insightId,
+        dashboardId,
     })
 
     const { subscriptions, subscriptionsLoading } = useValues(logic)

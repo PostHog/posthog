@@ -87,11 +87,14 @@ def schedule_all_subscriptions() -> None:
 
 @app.task()
 def deliver_subscription_report(subscription_id: int) -> None:
-    subscription = Subscription.objects.select_related("created_by", "insight").get(pk=subscription_id)
+    subscription = Subscription.objects.select_related("created_by", "insight", "dashboard").get(pk=subscription_id)
 
     if subscription.target_type == "email":
         asset = ExportedAsset.objects.create(
-            team=subscription.team, insight=subscription.insight, export_format="image/png"
+            team=subscription.team,
+            export_format="image/png",
+            insight=subscription.insight,
+            dashboard=subscription.dashboard,
         )
         export_task(asset.id)
 
@@ -112,11 +115,15 @@ def deliver_subscription_report(subscription_id: int) -> None:
 def deliver_new_subscription(subscription_id: int, new_emails: List[str], invite_message: Optional[str] = None) -> None:
     if not new_emails:
         return
-    subscription = Subscription.objects.select_related("created_by", "insight").get(pk=subscription_id)
+
+    subscription = Subscription.objects.select_related("created_by", "insight", "dashboard").get(pk=subscription_id)
 
     if subscription.target_type == "email":
         asset = ExportedAsset.objects.create(
-            team=subscription.team, insight=subscription.insight, export_format="image/png"
+            team=subscription.team,
+            export_format="image/png",
+            insight=subscription.insight,
+            dashboard=subscription.dashboard,
         )
         export_task(asset.id)
 
