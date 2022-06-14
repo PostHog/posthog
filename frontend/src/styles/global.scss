@@ -488,6 +488,11 @@ code.code {
     padding: 1rem;
 }
 
+.pa-05 {
+    // Padding all
+    padding: 0.5rem;
+}
+
 .pb {
     padding-bottom: 1rem;
 }
@@ -569,6 +574,15 @@ code.code {
 
 .flex {
     display: flex;
+}
+
+.flex-column {
+    display: flex;
+    flex-direction: column;
+}
+
+.flex-wrap {
+    flex-wrap: wrap;
 }
 
 .flex-auto {

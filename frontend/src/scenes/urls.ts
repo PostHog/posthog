@@ -29,6 +29,9 @@ export const urls = {
         combineUrl('/insights/new', dashboardId ? { dashboard: dashboardId } : {}, filters ? { filters } : {}).url,
     insightEdit: (id: InsightShortId): string => `/insights/${id}/edit`,
     insightView: (id: InsightShortId): string => `/insights/${id}`,
+    insightSubcriptions: (id: InsightShortId): string => `/insights/${id}/subscriptions`,
+    insightSubcription: (id: InsightShortId, subscriptionId: string): string =>
+        `/insights/${id}/subscriptions/${subscriptionId}`,
     savedInsights: (): string => '/insights',
     webPerformance: (): string => '/web-performance',
     webPerformanceWaterfall: (id: string): string => `/web-performance/${id}/waterfall`,
@@ -77,4 +80,5 @@ export const urls = {
     instanceMetrics: (): string => `/instance/metrics`,
     asyncMigrations: (): string => '/instance/async_migrations',
     deadLetterQueue: (): string => '/instance/dead_letter_queue',
+    unsubscribe: (): string => '/unsubscribe',
 }

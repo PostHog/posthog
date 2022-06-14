@@ -37,7 +37,7 @@ class TestExporterTask(APIBaseTest):
 
         assert driver is not None
 
-        driver.get("http://example.com")
+        driver.get("https://example.com")
 
         if driver:
             driver.close()

@@ -114,6 +114,7 @@ export const FEATURE_FLAGS = {
     PROPERTY_FILTER_ON_DASHBOARD: 'property-filter-on-dashboard', // owner: @edscode
     EXPORT_DASHBOARD_INSIGHTS: 'export-dashboard-insights', // owner: @benjackwhite
     ONBOARDING_1_5: 'onboarding-1_5', // owner: @liyiy
+    INSIGHT_SUBSCRIPTIONS: 'insight-subscriptions', // owner: @benjackwhite
 }
 
 /** Which self-hosted plan's features are available with Cloud's "Standard" plan (aka card attached). */

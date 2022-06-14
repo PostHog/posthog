@@ -50,6 +50,7 @@ pickleshare==0.7.5
 posthoganalytics==1.4.9
 protobuf==3.13.0
 psycopg2-binary==2.8.6
+pyjwt==2.4.0
 python-dateutil==2.8.1
 python3-saml==1.12.0
 pytz==2021.1

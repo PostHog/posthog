@@ -6,11 +6,12 @@ import React from 'react'
 export interface FieldProps extends KeaFieldProps {
     showOptional?: boolean
     className?: string
+    style?: React.CSSProperties
     help?: string
 }
 
 /** Compatible replacement for Form.Item. Passes `value` and `onChange(value: any)` to its children. */
-export const Field = ({ showOptional, name, help, className, ...keaFieldProps }: FieldProps): JSX.Element => {
+export const Field = ({ showOptional, name, help, className, style, ...keaFieldProps }: FieldProps): JSX.Element => {
     /** Drop-in replacement antd template for kea forms */
     const template: FieldProps['template'] = ({ label, kids, hint, error }) => {
         return (
@@ -22,6 +23,7 @@ export const Field = ({ showOptional, name, help, className, ...keaFieldProps }:
                     error ? `ant-form-item-has-error` : '',
                     className
                 )}
+                style={style}
             >
                 {label ? (
                     <div className="ant-col ant-form-item-label">
