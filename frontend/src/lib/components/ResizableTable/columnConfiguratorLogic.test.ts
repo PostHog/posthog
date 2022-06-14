@@ -2,6 +2,7 @@ import { columnConfiguratorLogic } from 'lib/components/ResizableTable/columnCon
 import { expectLogic } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
 import { tableConfigLogic } from 'lib/components/ResizableTable/tableConfigLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 describe('the column configurator lets the user change which columns should be visible', () => {
     let logic: ReturnType<typeof columnConfiguratorLogic.build>
@@ -51,5 +52,14 @@ describe('the column configurator lets the user change which columns should be v
         }).toMatchValues({
             saveAsDefault: true,
         })
+    })
+
+    it.only('saves columns as default', async () => {
+        await expectLogic(logic, () => {
+            logic.actions.selectColumn('added')
+            logic.actions.toggleSaveAsDefault()
+        }).toDispatchActions([
+            teamLogic.actionCreators.updateCurrentTeam({ live_events_columns: ['a', 'b', 'ant', 'aardvark', 'added'] }),
+        ])
     })
 })

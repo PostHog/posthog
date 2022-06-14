@@ -12,7 +12,6 @@ import clsx from 'clsx'
 import { Tooltip } from 'lib/components/Tooltip'
 import { columnConfiguratorLogic } from 'lib/components/ResizableTable/columnConfiguratorLogic'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
-import { ColumnChoice } from '~/types'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { LemonButton } from 'lib/components/LemonButton'
 import { IconTuning } from 'lib/components/icons'
@@ -23,7 +22,6 @@ import {
     SortableElement as sortableElement,
 } from 'react-sortable-hoc'
 import { SortableDragIcon } from 'lib/components/icons'
-import { teamLogic } from 'scenes/teamLogic'
 
 const DragHandle = sortableHandle(() => (
     <span className="drag-handle">
@@ -65,11 +63,8 @@ function ColumnConfigurator({ immutableColumns, defaultColumns }: TableConfigPro
     const { selectedColumns: currentlySelectedColumns, modalVisible } = useValues(tableConfigLogic)
     const { hideModal } = useActions(tableConfigLogic)
 
-    const { updateCurrentTeam } = useActions(teamLogic)
     const configuratorLogic = columnConfiguratorLogic({
         selectedColumns: currentlySelectedColumns === 'DEFAULT' ? defaultColumns : currentlySelectedColumns,
-        onSaveAsDefault: (columns: ColumnChoice) =>
-            updateCurrentTeam({ live_events_columns: columns === 'DEFAULT' ? null : columns }),
     })
     const { selectColumn, unselectColumn, resetColumns, setColumns, toggleSaveAsDefault, save } =
         useActions(configuratorLogic)
@@ -211,7 +206,7 @@ function ColumnConfigurator({ immutableColumns, defaultColumns }: TableConfigPro
                     data-attr="events-table-save-columns-as-default-toggle"
                     onChange={toggleSaveAsDefault}
                     defaultChecked={false}
-                 />
+                />
             </div>
         </Modal>
     )
