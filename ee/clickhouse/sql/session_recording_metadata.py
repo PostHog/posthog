@@ -27,7 +27,7 @@ SESSION_RECORDING_METADATA_DATA_TABLE_ENGINE = lambda: ReplacingMergeTree(
 SESSION_RECORDING_METADATA_TABLE_SQL = lambda: (
     SESSION_RECORDING_METADATA_TABLE_BASE_SQL
     + """PARTITION BY toYYYYMMDD(session_end)
-ORDER BY (team_id, session_id, session_end, toHour(session_end))
+ORDER BY (team_id, session_id, session_end)
 """
 ).format(
     table_name=SESSION_RECORDING_METADATA_DATA_TABLE,
