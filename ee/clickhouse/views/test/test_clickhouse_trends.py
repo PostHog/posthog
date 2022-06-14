@@ -1145,7 +1145,11 @@ class ClickhouseTestTrendsCaching(ClickhouseTestMixin, LicensedTestMixin, APIBas
 
         events_by_person = {
             "1": [
-                {"event": "$action", "timestamp": datetime(2012, 1, 13, 3), "properties": {"key": "2"}},
+                {
+                    "event": "$action",
+                    "timestamp": datetime(2012, 1, 13, 3),
+                    "properties": {"key": "2"},
+                },  # this won't be counted
                 {"event": "$action", "timestamp": datetime(2012, 1, 15, 3), "properties": {"key": "2"}},
             ],
         }
@@ -1242,8 +1246,16 @@ class ClickhouseTestTrendsCaching(ClickhouseTestMixin, LicensedTestMixin, APIBas
 
         events_by_person = {
             "1": [
-                {"event": "$pageview", "timestamp": datetime(2012, 1, 13, 3), "properties": {"key": "1"}},
-                {"event": "$action", "timestamp": datetime(2012, 1, 13, 3), "properties": {"key": "2"}},
+                {
+                    "event": "$pageview",
+                    "timestamp": datetime(2012, 1, 13, 3),
+                    "properties": {"key": "1"},
+                },  # this won't be counted
+                {
+                    "event": "$action",
+                    "timestamp": datetime(2012, 1, 13, 3),
+                    "properties": {"key": "2"},
+                },  # this won't be counted
                 {"event": "$pageview", "timestamp": datetime(2012, 1, 15, 3), "properties": {"key": "1"}},
                 {"event": "$action", "timestamp": datetime(2012, 1, 15, 3), "properties": {"key": "2"}},
             ],
