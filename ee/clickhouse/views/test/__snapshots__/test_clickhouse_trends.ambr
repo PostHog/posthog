@@ -904,7 +904,7 @@
            CROSS JOIN
              (SELECT breakdown_value
               FROM
-                (SELECT ['1', '2'] as breakdown_value) ARRAY
+                (SELECT ['1'] as breakdown_value) ARRAY
               JOIN breakdown_value) as sec
            ORDER BY breakdown_value,
                     day_start
@@ -920,10 +920,10 @@
               GROUP BY distinct_id
               HAVING argMax(is_deleted, version) = 0) as pdi ON events.distinct_id = pdi.distinct_id
            WHERE e.team_id = 2
-             AND event = '$action'
+             AND event = '$pageview'
              AND timestamp >= toStartOfDay(toDateTime('2012-01-01 00:00:00'), 'UTC')
              AND timestamp <= toDateTime('2012-01-15 23:59:59')
-             AND replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '') in (['1', '2'])
+             AND replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '') in (['1'])
            GROUP BY day_start,
                     breakdown_value))
      GROUP BY day_start,
@@ -957,7 +957,7 @@
            CROSS JOIN
              (SELECT breakdown_value
               FROM
-                (SELECT ['1'] as breakdown_value) ARRAY
+                (SELECT ['1', '2'] as breakdown_value) ARRAY
               JOIN breakdown_value) as sec
            ORDER BY breakdown_value,
                     day_start
@@ -973,10 +973,10 @@
               GROUP BY distinct_id
               HAVING argMax(is_deleted, version) = 0) as pdi ON events.distinct_id = pdi.distinct_id
            WHERE e.team_id = 2
-             AND event = '$pageview'
+             AND event = '$action'
              AND timestamp >= toStartOfDay(toDateTime('2012-01-01 00:00:00'), 'UTC')
              AND timestamp <= toDateTime('2012-01-15 23:59:59')
-             AND replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '') in (['1'])
+             AND replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '') in (['1', '2'])
            GROUP BY day_start,
                     breakdown_value))
      GROUP BY day_start,
@@ -1229,7 +1229,7 @@
               GROUP BY distinct_id
               HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
            WHERE team_id = 2
-             AND event = '$pageview'
+             AND event = '$action'
              AND timestamp >= toDateTime('2012-01-14 00:00:00')
              AND timestamp <= toDateTime('2012-01-15 23:59:59') )
         GROUP BY date)
@@ -1265,7 +1265,7 @@
               GROUP BY distinct_id
               HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
            WHERE team_id = 2
-             AND event = '$action'
+             AND event = '$pageview'
              AND timestamp >= toDateTime('2012-01-14 00:00:00')
              AND timestamp <= toDateTime('2012-01-15 23:59:59') )
         GROUP BY date)
