@@ -1376,6 +1376,36 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
             },
         )
 
+    def test_old_old_style_properties(self):
+        cohort = _create_cohort(
+            team=self.team,
+            name="cohort1",
+            groups=[
+                {"properties": [{"key": "email", "value": ["fake@test.com"], "operator": "exact"}]},
+                {"properties": {"abra": "cadabra", "name": "alakazam"}},
+            ],
+        )
+
+        self.assertEqual(
+            cohort.properties.to_dict(),
+            {
+                "type": "OR",
+                "values": [
+                    {
+                        "type": "AND",
+                        "values": [{"key": "email", "value": ["fake@test.com"], "operator": "exact", "type": "person"}],
+                    },
+                    {
+                        "type": "AND",
+                        "values": [
+                            {"key": "abra", "value": "cadabra", "type": "person"},
+                            {"key": "name", "value": "alakazam", "type": "person"},
+                        ],
+                    },
+                ],
+            },
+        )
+
     def test_precalculated_cohort_filter(self):
         p1 = _create_person(team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "test", "name": "test"})
         cohort = _create_cohort(
