@@ -53,4 +53,5 @@ export const appScenes: Record<Scene, () => any> = {
     [Scene.SavedInsights]: () => import('./saved-insights/SavedInsights'),
     [Scene.PasswordReset]: () => import('./authentication/PasswordReset'),
     [Scene.PasswordResetComplete]: () => import('./authentication/PasswordResetComplete'),
+    [Scene.Unsubscribe]: () => import('./Unsubscribe/Unsubscribe'),
 }
