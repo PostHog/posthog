@@ -9,61 +9,79 @@ import { LemonButton } from 'lib/components/LemonButton'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { Spinner } from 'lib/components/Spinner/Spinner'
 import { colonDelimitedDuration } from 'lib/utils'
+import { Tooltip } from 'lib/components/Tooltip'
 
-function Title({ networkRequest, title }: { networkRequest: SessionNetworkRequest; title: string }): JSX.Element {
+const HumanizeURL = ({ url }: { url: string | undefined }): JSX.Element => {
+    if (!url) {
+        return <span>(empty string)</span>
+    }
+    const parsedUrl = new URL(url)
     return (
-        <div className="Title">
-            <h3>{title}</h3>{' '}
-            <div className="NetworkRequestTime">
-                {colonDelimitedDuration(Math.floor((networkRequest.playerPosition?.time ?? 0) / 1000))}
-            </div>
+        <span>
+            <Tooltip
+                title={
+                    <>
+                        <div>
+                            {parsedUrl.protocol}&#47;&#47;
+                            {parsedUrl.hostname}
+                        </div>
+                        <div>{parsedUrl.pathname}</div>
+                        {parsedUrl.search && <div>{parsedUrl.search}</div>}
+                    </>
+                }
+            >
+                {parsedUrl.pathname}
+            </Tooltip>
+        </span>
+    )
+}
+
+const Title = ({ networkRequest, title }: { networkRequest: SessionNetworkRequest; title: string }): JSX.Element => (
+    <div className="Title">
+        <h3>{title}</h3>{' '}
+        <div className="NetworkRequestTime">
+            {colonDelimitedDuration(Math.floor((networkRequest.playerPosition?.time ?? 0) / 1000))}
         </div>
-    )
-}
+    </div>
+)
 
-function NavigationRequestRow({ networkRequest }: { networkRequest: SessionNetworkRequest }): JSX.Element {
-    return (
-        <>
-            <Title networkRequest={networkRequest} title="Navigation" />
-            <p>
-                to {networkRequest.url} took {networkRequest.duration ?? 'unknown number of'} milliseconds
-            </p>
-        </>
-    )
-}
+const NavigationRequestRow = ({ networkRequest }: { networkRequest: SessionNetworkRequest }): JSX.Element => (
+    <>
+        <Title networkRequest={networkRequest} title="Navigation" />
+        <p>
+            to <HumanizeURL url={networkRequest.url} /> took {networkRequest.duration ?? 'unknown number of'}{' '}
+            milliseconds
+        </p>
+    </>
+)
 
-function PaintRequestRow({ networkRequest }: { networkRequest: SessionNetworkRequest }): JSX.Element {
-    return (
-        <>
-            <Title networkRequest={networkRequest} title="Browser Event" />
-            <p>
-                {networkRequest.eventName} occurred after {networkRequest.timing ?? 'unknown number of'} milliseconds
-            </p>
-        </>
-    )
-}
+const PaintRequestRow = ({ networkRequest }: { networkRequest: SessionNetworkRequest }): JSX.Element => (
+    <>
+        <Title networkRequest={networkRequest} title="Browser Event" />
+        <p>
+            {networkRequest.eventName} occurred after {networkRequest.timing ?? 'unknown number of'} milliseconds
+        </p>
+    </>
+)
 
-function ResourceRequestRow({ networkRequest }: { networkRequest: SessionNetworkRequest }): JSX.Element {
-    return (
-        <>
-            <Title networkRequest={networkRequest} title="Network Request" />
-            <p>
-                to {networkRequest.url} took {networkRequest.duration ?? 'unknown number of'} milliseconds
-            </p>
-        </>
-    )
-}
+const ResourceRequestRow = ({ networkRequest }: { networkRequest: SessionNetworkRequest }): JSX.Element => (
+    <>
+        <Title networkRequest={networkRequest} title="Network Request" />
+        <p>
+            to <HumanizeURL url={networkRequest.url} /> took {networkRequest.duration ?? 'unknown number of'}{' '}
+            milliseconds
+        </p>
+    </>
+)
 
-function UnknownRequestTypeRow({ networkRequest }: { networkRequest: SessionNetworkRequest }): JSX.Element {
-    return (
-        <>
-            <Title networkRequest={networkRequest} title="Unknown request type" />
-            <pre>{JSON.stringify(networkRequest)}</pre>
-        </>
-    )
-}
+const UnknownRequestTypeRow = ({ networkRequest }: { networkRequest: SessionNetworkRequest }): JSX.Element => (
+    <>
+        <Title networkRequest={networkRequest} title="Unknown request type" />
+        <pre>{JSON.stringify(networkRequest)}</pre>
+    </>
+)
 
-function renderNetworkRequestRow(sessionNetworkRequest: SessionNetworkRequest): JSX.Element {
+const NetworkRequestRow = (sessionNetworkRequest: SessionNetworkRequest): JSX.Element => {
     switch (sessionNetworkRequest.type) {
         case 'navigation':
             return <NavigationRequestRow networkRequest={sessionNetworkRequest} />
@@ -91,7 +109,7 @@ export function NetworkRequests(): JSX.Element | null {
                     seek(sessionNetworkRequest.playerPosition)
                 }}
             >
-                <div className="NetworkRequestEntry">{renderNetworkRequestRow(sessionNetworkRequest)}</div>
+                <div className="NetworkRequestEntry">{NetworkRequestRow(sessionNetworkRequest)}</div>
             </div>
         )
     }
