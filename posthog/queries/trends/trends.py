@@ -86,7 +86,7 @@ class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
         return _is_present
 
     # Use a condensed filter if a cached result exists in the current timerange
-    def adjusted_filter(self, filter: Filter, team: Team) -> Tuple[Filter, Optional[Dict[int, Dict[str, Any]]]]:
+    def adjusted_filter(self, filter: Filter, team: Team) -> Tuple[Filter, Optional[Dict[str, Any]]]:
         cached_result = self.get_cached_result(filter, team)
 
         new_filter = filter.with_data({"date_from": interval_unit(filter.interval)}) if cached_result else filter
@@ -129,8 +129,9 @@ class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
             serialized_data, cached_result, entity.order or entity.index, filter, team
         )
 
-        for value in cached_result.values():
-            merged_results.append(value)
+        if cached_result:
+            for value in cached_result.values():
+                merged_results.append(value)
 
         return merged_results
 
@@ -173,8 +174,9 @@ class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
             for flat in cast(List[Dict[str, Any]], item):
                 flat_results.append(flat)
 
-            for value in cached_result.values():
-                flat_results.append(value)
+            if cached_result:
+                for value in cached_result.values():
+                    flat_results.append(value)
 
         return flat_results
 

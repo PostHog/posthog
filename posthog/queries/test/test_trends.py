@@ -3862,13 +3862,13 @@ class TestTrendUtils(ClickhouseTestMixin, APIBaseTest):
 
     def test_merge_result(self):
         set_instance_setting("STRICT_CACHING_TEAMS", "all")
-        fake_cached = [
-            {
+        fake_cached = {
+            "sign up - Chrome_0": {
                 "label": "sign up - Chrome",
                 "days": ["2020-01-02", "2020-01-03", "2020-01-04",],
                 "data": [23.0, 15.0, 1.0],
             }
-        ]
+        }
         filter = Filter(
             data={
                 "date_from": "2020-01-02",
@@ -3879,8 +3879,7 @@ class TestTrendUtils(ClickhouseTestMixin, APIBaseTest):
         )
         result = [{"label": "sign up - Chrome", "data": [15.0, 12.0],}]
 
-        merged_result = Trends().merge_results(result, fake_cached, filter, self.team)
-
+        merged_result, _ = Trends().merge_results(result, fake_cached, 0, filter, self.team)
         self.assertEqual(merged_result[0]["data"], [23.0, 15.0, 12.0])
 
     def test_merge_result_no_cache(self):
@@ -3896,24 +3895,24 @@ class TestTrendUtils(ClickhouseTestMixin, APIBaseTest):
 
         result = [{"label": "sign up - Chrome", "data": [15.0, 12.0],}]
 
-        merged_result = Trends().merge_results(result, [], filter, self.team)
+        merged_result, _ = Trends().merge_results(result, {}, 0, filter, self.team)
 
         self.assertEqual(merged_result[0]["data"], [15.0, 12.0])
 
     def test_merge_result_multiple(self):
         set_instance_setting("STRICT_CACHING_TEAMS", "all")
-        fake_cached = [
-            {
+        fake_cached = {
+            "sign up - Chrome_0": {
                 "label": "sign up - Chrome",
                 "days": ["2020-01-02", "2020-01-03", "2020-01-04",],
                 "data": [23.0, 15.0, 1.0],
             },
-            {
+            "sign up - Safari_0": {
                 "label": "sign up - Safari",
                 "days": ["2020-01-02", "2020-01-03", "2020-01-04",],
                 "data": [12.0, 11.0, 8.0],
             },
-        ]
+        }
         filter = Filter(
             data={
                 "date_from": "2020-01-02",
@@ -3928,7 +3927,7 @@ class TestTrendUtils(ClickhouseTestMixin, APIBaseTest):
             {"label": "sign up - Safari", "data": [15.0, 9.0],},
         ]
 
-        merged_result = Trends().merge_results(result, fake_cached, filter, self.team)
+        merged_result, _ = Trends().merge_results(result, fake_cached, 0, filter, self.team)
 
         self.assertEqual(merged_result[0]["data"], [23.0, 15.0, 12.0])
         self.assertEqual(merged_result[1]["data"], [12.0, 11.0, 9.0])
