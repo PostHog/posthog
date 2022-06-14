@@ -111,7 +111,7 @@ class Cohort(models.Model):
                         for prop in props:
                             if prop.get("type", "event") == "event":
                                 prop["type"] = "person"
-                    elif isinstance(props, dict):
+                    elif isinstance(props, dict) and "type" not in props and "values" not in props:
                         # these are old-old properties
                         # of the form {'key': 'value'}.
                         # It's implicit here that they're all event types
