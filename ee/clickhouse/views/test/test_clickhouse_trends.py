@@ -1179,7 +1179,6 @@ class ClickhouseTestTrendsCaching(ClickhouseTestMixin, LicensedTestMixin, APIBas
         assert data["$action - 2"]["2012-01-14"].value == 0
         assert data["$action - 2"]["2012-01-15"].value == 1
 
-    @snapshot_clickhouse_queries
     def test_insight_trends_merging_breakdown_multiple(self):
         set_instance_setting("STRICT_CACHING_TEAMS", "all")
 
