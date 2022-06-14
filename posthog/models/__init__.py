@@ -8,7 +8,7 @@ from .dashboard_tile import DashboardTile
 from .element import Element
 from .element_group import ElementGroup
 from .entity import Entity
-from .event import Event
+from .event.event import Event
 from .event_definition import EventDefinition
 from .event_property import EventProperty
 from .experiment import Experiment
@@ -28,6 +28,7 @@ from .plugin import Plugin, PluginAttachment, PluginConfig, PluginSourceFile
 from .property import Property
 from .property_definition import PropertyDefinition
 from .session_recording_event import SessionRecordingEvent
+from .subscription import Subscription
 from .tag import Tag
 from .tagged_item import TaggedItem
 from .team import Team
@@ -74,6 +75,7 @@ __all__ = [
     "PropertyDefinition",
     "RetentionFilter",
     "SessionRecordingEvent",
+    "Subscription",
     "Tag",
     "TaggedItem",
     "Team",

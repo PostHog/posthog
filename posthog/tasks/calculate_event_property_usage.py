@@ -57,8 +57,8 @@ def calculate_event_property_usage_for_team(team_id: int) -> None:
 
 
 def _get_events_volume(team: Team, since: timezone.datetime) -> Dict[str, Tuple[int, timezone.datetime]]:
-    from ee.clickhouse.sql.events import GET_EVENTS_VOLUME
     from posthog.client import sync_execute
+    from posthog.models.event.sql import GET_EVENTS_VOLUME
 
     return {
         event: (volume, last_seen_at)

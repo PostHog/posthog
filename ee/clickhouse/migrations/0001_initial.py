@@ -1,6 +1,6 @@
 from infi.clickhouse_orm import migrations
 
-from ee.clickhouse.sql.events import EVENTS_TABLE_SQL
+from posthog.models.event.sql import EVENTS_TABLE_SQL
 from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
 
 operations = [

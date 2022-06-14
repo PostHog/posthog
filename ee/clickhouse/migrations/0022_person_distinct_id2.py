@@ -1,6 +1,6 @@
 from infi.clickhouse_orm import migrations
 
-from ee.clickhouse.sql.person import (
+from posthog.models.person.sql import (
     KAFKA_PERSON_DISTINCT_ID2_TABLE_SQL,
     PERSON_DISTINCT_ID2_MV_SQL,
     PERSON_DISTINCT_ID2_TABLE_SQL,
