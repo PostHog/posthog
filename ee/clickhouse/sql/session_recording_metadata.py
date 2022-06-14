@@ -19,7 +19,7 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
     window_id VARCHAR,
     session_start DateTime64(6, 'UTC'),
     session_end DateTime64(6, 'UTC'),
-    snapshot_data_location VARCHAR  -- no trailing comma, extra_fields leads with one
+    snapshot_data_location VARCHAR
     {extra_fields}
 ) ENGINE = {engine}
 """
