@@ -7,16 +7,11 @@ from ee.clickhouse.sql.session_recording_metadata import (
     SESSION_RECORDING_METADATA_TABLE_SQL,
     WRITABLE_SESSION_RECORDING_METADATA_TABLE_SQL,
 )
-from posthog.settings.data_stores import CLICKHOUSE_REPLICATION
 
 operations = [
     migrations.RunSQL(SESSION_RECORDING_METADATA_TABLE_SQL()),
     migrations.RunSQL(KAFKA_SESSION_RECORDING_METADATA_TABLE_SQL()),
     migrations.RunSQL(SESSION_RECORDING_METADATA_TABLE_MV_SQL()),
+    migrations.RunSQL(WRITABLE_SESSION_RECORDING_METADATA_TABLE_SQL()),
+    migrations.RunSQL(DISTRIBUTED_SESSION_RECORDING_METADATA_TABLE_SQL()),
 ]
-
-if CLICKHOUSE_REPLICATION:
-    operations = [
-        migrations.RunSQL(WRITABLE_SESSION_RECORDING_METADATA_TABLE_SQL()),
-        migrations.RunSQL(DISTRIBUTED_SESSION_RECORDING_METADATA_TABLE_SQL()),
-    ] + operations
