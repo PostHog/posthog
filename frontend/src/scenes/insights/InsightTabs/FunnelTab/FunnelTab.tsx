@@ -38,9 +38,14 @@ const FUNNEL_STEP_COUNT_LIMIT = 20
 export function FunnelTab(): JSX.Element {
     const { insightProps, allEventNames } = useValues(insightLogic)
     const { loadResults } = useActions(insightLogic)
-    const { isStepsEmpty, filters, aggregationTargetLabel, filterSteps, advancedOptionsUsedCount } = useValues(
-        funnelLogic(insightProps)
-    )
+    const {
+        isStepsEmpty,
+        filters,
+        aggregationTargetLabel,
+        filterSteps,
+        advancedOptionsUsedCount,
+        breakdownAttributionStepOptions,
+    } = useValues(funnelLogic(insightProps))
     const { setFilters, toggleAdvancedMode, setStepReference } = useActions(funnelLogic(insightProps))
     const { featureFlags } = useValues(featureFlagLogic)
     const { groupsTaxonomicTypes, showGroupsOptions } = useValues(groupsModel)
@@ -173,7 +178,6 @@ export function FunnelTab(): JSX.Element {
                                 <Row>
                                     <LemonSelect
                                         placeholder="Attribution"
-                                        allowClear
                                         options={{
                                             [BreakdownAttributionType.FirstTouch]: { label: 'First touchpoint' },
                                             [BreakdownAttributionType.LastTouch]: { label: 'Last touchpoint' },
@@ -186,10 +190,19 @@ export function FunnelTab(): JSX.Element {
                                                               <LemonSelect
                                                                   outlined
                                                                   className="ml-05"
+                                                                  onChange={(value) => {
+                                                                      if (value) {
+                                                                          setFilters({
+                                                                              breakdown_attribution_type:
+                                                                                  BreakdownAttributionType.Step,
+                                                                              breakdown_attribution_value: value,
+                                                                          })
+                                                                      }
+                                                                  }}
                                                                   placeholder={`Step ${
                                                                       filters.breakdown_attribution_value || 1
                                                                   }`}
-                                                                  options={{ 1: { label: '1' } }}
+                                                                  options={breakdownAttributionStepOptions}
                                                               />
                                                           ),
                                                       },
@@ -197,7 +210,10 @@ export function FunnelTab(): JSX.Element {
                                         }}
                                         onChange={(value) => {
                                             if (value) {
-                                                setFilters({ breakdown_attribution_type: value })
+                                                setFilters({
+                                                    breakdown_attribution_type: value,
+                                                    breakdown_attribution_value: 1,
+                                                })
                                             }
                                         }}
                                         dropdownMaxContentWidth={true}

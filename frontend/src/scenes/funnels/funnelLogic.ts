@@ -1202,6 +1202,14 @@ export const funnelLogic = kea<funnelLogicType>({
                 }
             },
         ],
+        breakdownAttributionStepOptions: [
+            (s) => [s.steps],
+            (steps) => {
+                const options = {}
+                steps.map((_, idx) => (options[idx] = { label: `Step ${idx + 1}` }))
+                return options
+            },
+        ],
     }),
 
     listeners: ({ actions, values, props }) => ({

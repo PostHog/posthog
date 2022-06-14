@@ -152,6 +152,9 @@ export function cleanFilters(
             ...(filters.breakdown_attribution_type
                 ? { breakdown_attribution_type: filters.breakdown_attribution_type }
                 : {}),
+            ...(filters.breakdown_attribution_value
+                ? { breakdown_attribution_value: filters.breakdown_attribution_value }
+                : {}),
             exclusions: deepCleanFunnelExclusionEvents(filters),
             interval: autocorrectInterval(filters),
             funnel_correlation_person_entity: filters.funnel_correlation_person_entity || undefined,
