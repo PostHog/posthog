@@ -30,7 +30,7 @@ class EventDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelSeri
             "tags",
             # Action specific fields
             "is_action",
-            "action_id"
+            "action_id",
         )
 
     def update(self, event_definition: EventDefinition, validated_data):
@@ -63,9 +63,9 @@ class EventDefinitionViewSet(
         search_query, search_kwargs = term_search_filter_sql(self.search_fields, search)
 
         params = {
-                    "team_id": self.team_id,
-                    **search_kwargs,
-                }
+            "team_id": self.team_id,
+            **search_kwargs,
+        }
 
         if self.request.user.organization.is_feature_available(AvailableFeature.INGESTION_TAXONOMY):  # type: ignore
             try:
@@ -82,7 +82,7 @@ class EventDefinitionViewSet(
                     WHERE team_id = %(team_id)s {search_query}
                     ORDER BY last_seen_at DESC NULLS LAST, query_usage_30_day DESC NULLS LAST, name ASC
                     """,
-                    params=params
+                    params=params,
                 )
                 ee_event_definitions_list = ee_event_definitions.prefetch_related(
                     Prefetch(
@@ -99,7 +99,7 @@ class EventDefinitionViewSet(
             WHERE team_id = %(team_id)s {search_query}
             ORDER BY name ASC
             """,
-            params=params
+            params=params,
         )
 
         return event_definitions_list

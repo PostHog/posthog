@@ -31,7 +31,7 @@ class EnterpriseEventDefinitionSerializer(TaggedItemSerializerMixin, serializers
             "verified_by",
             # Action specific fields
             "is_action",
-            "action_id"
+            "action_id",
         )
         read_only_fields = [
             "id",
@@ -45,7 +45,7 @@ class EnterpriseEventDefinitionSerializer(TaggedItemSerializerMixin, serializers
             "verified_by",
             # Action specific fields
             "is_action",
-            "action_id"
+            "action_id",
         ]
 
     def update(self, event_definition: EnterpriseEventDefinition, validated_data):

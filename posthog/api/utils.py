@@ -323,11 +323,9 @@ def safe_clickhouse_string(s: str) -> str:
 
 def create_event_definitions_sql(include_actions: bool, is_enterprise: bool = False) -> str:
     # Prevent fetching deprecated `tags` field. Tags are separately fetched in TaggedItemSerializerMixin
-    ee_model = (EnterpriseEventDefinition if is_enterprise else EventDefinition)
+    ee_model = EnterpriseEventDefinition if is_enterprise else EventDefinition
     event_definition_fields = {
-        f'"{f.column}"'
-        for f in ee_model._meta.get_fields()
-        if hasattr(f, "column") and f.column != "tags"
+        f'"{f.column}"' for f in ee_model._meta.get_fields() if hasattr(f, "column") and f.column != "tags"
     }
 
     if include_actions:
@@ -348,13 +346,17 @@ def create_event_definitions_sql(include_actions: bool, is_enterprise: bool = Fa
             + ["NULL AS id", "id AS action_id"]
         )
 
-        event_definition_table = f"""
+        event_definition_table = (
+            f"""
                 SELECT {raw_event_definition_fields}
                     FROM ee_enterpriseeventdefinition
                     FULL OUTER JOIN posthog_eventdefinition ON posthog_eventdefinition.id=ee_enterpriseeventdefinition.eventdefinition_ptr_id
-            """ if is_enterprise else f"""
+            """
+            if is_enterprise
+            else f"""
                 SELECT {raw_event_definition_fields} FROM posthog_eventdefinition
             """
+        )
 
         return f"""
         SELECT * FROM (
@@ -367,10 +369,14 @@ def create_event_definitions_sql(include_actions: bool, is_enterprise: bool = Fa
 
     raw_event_definition_fields = ",".join(event_definition_fields)
 
-    return f"""
+    return (
+        f"""
         SELECT {raw_event_definition_fields}
         FROM ee_enterpriseeventdefinition
         FULL OUTER JOIN posthog_eventdefinition ON posthog_eventdefinition.id=ee_enterpriseeventdefinition.eventdefinition_ptr_id
-    """ if is_enterprise else f"""
+    """
+        if is_enterprise
+        else f"""
         SELECT {raw_event_definition_fields} FROM posthog_eventdefinition
     """
+    )
