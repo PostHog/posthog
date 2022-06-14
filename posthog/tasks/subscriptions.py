@@ -21,8 +21,10 @@ def get_unsubscribe_url(subscription: Subscription, email: str) -> str:
 def send_email_subscription_report(
     email: str, subscription: Subscription, exported_asset: ExportedAsset, invite_message: Optional[str] = None
 ) -> None:
-    is_invite = invite_message is not None
     inviter = subscription.created_by
+    is_invite = invite_message is not None
+    self_invite = inviter.email == email
+
     subject = "Posthog Report"
     resource_noun = None
     resource_url = None
@@ -42,7 +44,10 @@ def send_email_subscription_report(
     campaign_key = f"{resource_noun.lower()}_subscription_report_{subscription.next_delivery_date.isoformat()}"
 
     if is_invite:
-        subject = f"{inviter.first_name} subscribed you to a PostHog Insight"
+        if self_invite:
+            subject = f"You have been subscribed to a PostHog {resource_noun}"
+        else:
+            subject = f"{inviter.first_name or 'Someone'} subscribed you to a PostHog {resource_noun}"
         campaign_key = f"{resource_noun.lower()}_subscription_new_{uuid.uuid4()}"
 
     message = EmailMessage(
@@ -57,6 +62,7 @@ def send_email_subscription_report(
             "subscription_url": subscription.url,
             "unsubscribe_url": get_unsubscribe_url(subscription=subscription, email=email),
             "inviter": inviter if is_invite else None,
+            "self_invite": self_invite,
             "invite_message": invite_message,
         },
     )

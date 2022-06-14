@@ -2,9 +2,15 @@
 <p><strong>Hello,</strong></p>
 
 {% if inviter %}
+
 <p>
-    <strong>{{ inviter.first_name }}</strong> ({{ inviter.email }}) has subscribed you to the PostHog {{ resource_noun }}
-    <strong>{{ resource_name }}</strong>.
+    {% if self_invite %}
+        You have been subscribed
+    {% else %}
+        <strong>{{ inviter.first_name }}</strong> ({{ inviter.email }}) has subscribed you 
+    {% endif %}
+
+    to the PostHog {{ resource_noun }} <strong>{{ resource_name }}</strong>.
 </p>
 
 {% if invite_message %}
