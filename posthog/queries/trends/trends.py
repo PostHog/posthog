@@ -53,13 +53,30 @@ class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
 
         cache_key = generate_cache_key(f"{filter.toJSON()}_{team.pk}")
         cached_result_package = get_safe_cache(cache_key)
-        return cached_result_package.get("result") if cached_result_package else None
+        cached_result = (
+            cached_result_package.get("result")
+            if cached_result_package and isinstance(cached_result_package, dict)
+            else None
+        )
+
+        if not cached_result:
+            return None
+
+        _is_present = self.is_present_timerange(cached_result, filter, team)
+
+        return cached_result if _is_present else None
 
     # Determine if the current timerange is present in the cache
-    def is_present_timerange(self, filter: Filter, team: Team) -> bool:
-        _is_cached = self.get_cached_result(filter, team)
-        if _is_cached and len(_is_cached) > 0:
-            latest_date = _is_cached[0]["days"].pop()
+    def is_present_timerange(self, cached_result: List[Dict[str, Any]], filter: Filter, team: Team) -> bool:
+        if (
+            len(cached_result) > 0
+            and cached_result[0].get("days")
+            and cached_result[0].get("data")
+            and len(cached_result[0]["days"]) > 0
+            and len(cached_result[0]["days"]) == len(cached_result[0]["data"])
+        ):
+            latest_date = cached_result[0]["days"][len(cached_result[0]["days"]) - 1]
+
             parsed_latest_date = parser.parse(latest_date)
             parsed_latest_date = parsed_latest_date.replace(tzinfo=pytz.timezone(team.timezone))
             _is_present = is_filter_date_present(filter, parsed_latest_date)
@@ -69,44 +86,52 @@ class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
         return _is_present
 
     # Use a condensed filter if a cached result exists in the current timerange
-    def adjusted_filter(self, filter: Filter, team: Team) -> Filter:
-        _is_present = self.is_present_timerange(filter, team)
-
-        new_filter = filter.with_data({"date_from": interval_unit(filter.interval)}) if _is_present else filter
-
-        return new_filter
-
-    def merge_results(self, result, filter: Filter, team: Team):
+    def adjusted_filter(self, filter: Filter, team: Team) -> Tuple[Filter, Optional[Dict[str, Any]]]:
         cached_result = self.get_cached_result(filter, team)
-        is_present = self.is_present_timerange(filter, team)
 
-        if is_present and cached_result and filter.display != TRENDS_CUMULATIVE:
-            label_to_val = {}
+        new_filter = filter.with_data({"date_from": interval_unit(filter.interval)}) if cached_result else filter
+
+        label_to_payload = {}
+        if cached_result:
+            for payload in cached_result:
+                label_to_payload[f'{payload["label"]}_{payload["action"]["order"]}'] = payload
+
+        return new_filter, label_to_payload
+
+    def merge_results(
+        self, result, cached_result: Optional[Dict[str, Any]], entity_order: int, filter: Filter, team: Team
+    ):
+        if cached_result and filter.display != TRENDS_CUMULATIVE:
             new_res = []
+
             for payload in result:
-                label_to_val[payload["label"]] = payload["data"].pop()
-
-            for series in cached_result:
-                data = series["data"]
+                cached_series = cached_result.pop(f'{payload["label"]}_{entity_order}')
+                data = cached_series["data"]
                 data.pop()
-                data.append(label_to_val[series["label"]])
-                series["data"] = data
-                new_res.append(series)
+                data.append(payload["data"].pop())
+                cached_series["data"] = data
+                new_res.append(cached_series)
 
-            return new_res
+            return new_res, cached_result
         elif filter.display == TRENDS_CUMULATIVE:
-            return self._handle_cumulative(result)
+            return self._handle_cumulative(result), {}
         else:
-            return result
+            return result, {}
 
     def _run_query(self, filter: Filter, team: Team, entity: Entity) -> List[Dict[str, Any]]:
-        adjusted_filter = self.adjusted_filter(filter, team)
+        adjusted_filter, cached_result = self.adjusted_filter(filter, team)
         sql, params, parse_function = self._get_sql_for_entity(adjusted_filter, team, entity)
 
         result = sync_execute(sql, params)
         result = parse_function(result)
         serialized_data = self._format_serialized(entity, result)
-        merged_results = self.merge_results(serialized_data, filter, team)
+        merged_results, cached_result = self.merge_results(
+            serialized_data, cached_result, entity.order or entity.index, filter, team
+        )
+
+        if cached_result:
+            for value in cached_result.values():
+                merged_results.append(value)
 
         return merged_results
 
@@ -116,10 +141,11 @@ class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
     def _run_parallel(self, filter: Filter, team: Team) -> List[Dict[str, Any]]:
         result: List[Union[None, List[Dict[str, Any]]]] = [None] * len(filter.entities)
         parse_functions: List[Union[None, Callable]] = [None] * len(filter.entities)
+        cached_result = None
         jobs = []
 
         for entity in filter.entities:
-            adjusted_filter = self.adjusted_filter(filter, team)
+            adjusted_filter, cached_result = self.adjusted_filter(filter, team)
             sql, params, parse_function = self._get_sql_for_entity(adjusted_filter, team, entity)
             parse_functions[entity.index] = parse_function
             thread = threading.Thread(target=self._run_query_for_threading, args=(result, entity.index, sql, params),)
@@ -137,16 +163,20 @@ class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
         for entity in filter.entities:
             serialized_data = cast(List[Callable], parse_functions)[entity.index](result[entity.index])
             serialized_data = self._format_serialized(entity, serialized_data)
-
-            if filter.display == TRENDS_CUMULATIVE:
-                serialized_data = self._handle_cumulative(serialized_data)
-            result[entity.index] = serialized_data
+            merged_results, cached_result = self.merge_results(
+                serialized_data, cached_result, entity.order or entity.index, filter, team
+            )
+            result[entity.index] = merged_results
 
         # flatten results
         flat_results: List[Dict[str, Any]] = []
         for item in result:
             for flat in cast(List[Dict[str, Any]], item):
                 flat_results.append(flat)
+
+            if cached_result:
+                for value in cached_result.values():
+                    flat_results.append(value)
 
         return flat_results
 
