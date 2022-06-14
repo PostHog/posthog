@@ -47,13 +47,13 @@ jobs:
                   key: ${{ runner.os }}-cypress-node-modules-3-${{ hashFiles('**/yarn.lock') }}
                   restore-keys: |
                       ${{ runner.os }}-cypress-node-modules-3-
-            - name: Yarn install deps
+            - name: PNPM install deps
               if: steps.cypress-node-modules-cache-3.outputs.cache-hit != 'true'
               run: |
-                  yarn install --frozen-lockfile
-                  yarn add cypress@10.0.3 cypress-terminal-report@3.5.2
+                  pnpm install --frozen-lockfile
+                  pnpm add cypress@10.0.3 cypress-terminal-report@3.5.2
                   cd plugin-server
-                  yarn install --frozen-lockfile
+                  pnpm install --frozen-lockfile
     cypress:
         name: Cypress E2E tests (${{ strategy.job-index }})
         if: ${{ github.ref != 'refs/heads/master' }} # Don't run on master, we only cace about node_modules cache
@@ -108,18 +108,18 @@ jobs:
                   path: |
                       **/node_modules
                       ~/.cache/Cypress
-                  key: ${{ runner.os }}-cypress-node-modules-3-${{ hashFiles('**/yarn.lock') }}
+                  key: ${{ runner.os }}-cypress-node-modules-3-${{ hashFiles('**/pnpm-lock.yaml') }}
                   restore-keys: |
                       ${{ runner.os }}-cypress-node-modules-3-
-            - name: Yarn install deps
-              # NOTE: we always try to run yarn install, as we're using a cache
+            - name: PNPM install deps
+              # NOTE: we always try to run pnpm install, as we're using a cache
               # from the prep phase that hasn't been proven to be correct. We
               # should still get some cache benefits.
               run: |
-                  yarn install --frozen-lockfile
-                  yarn add cypress@10.0.3 cypress-terminal-report@3.5.2 
+                  pnpm install --frozen-lockfile
+                  pnpm add cypress@10.0.3 cypress-terminal-report@3.5.2 
                   cd plugin-server
-                  yarn install --frozen-lockfile
+                  pnpm install --frozen-lockfile
             - name: Yarn build
               env:
                   GENERATE_SOURCEMAP: 'false'

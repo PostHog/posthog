@@ -26,16 +26,16 @@ jobs:
 
             - name: Install package.json dependencies with Yarn
               if: steps.node-modules-cache.outputs.cache-hit != 'true'
-              run: yarn install --frozen-lockfile
+              run: pnpm install --frozen-lockfile
 
             - name: Check formatting with prettier
-              run: yarn prettier:check
+              run: pnpm prettier:check
 
             - name: Lint with ESLint
-              run: yarn eslint
+              run: pnpm eslint
 
             - name: Generate logic types and run typescript with strict
-              run: yarn typegen:write && yarn typescript:check
+              run: pnpm typegen:write && pnpm typescript:check
 
     jest-setup:
         # Split the tests into multiple chunks
@@ -45,7 +45,7 @@ jobs:
             test-chunk-ids: ${{ steps['set-test-chunk-ids'].outputs['test-chunk-ids'] }}
         steps:
             - uses: actions/checkout@v1
-            - run: yarn install --frozen-lockfile
+            - run: pnpm install --frozen-lockfile
             - id: set-test-chunks
               name: Set Chunks
               # Looks at the output of 'yarn test --listTests --json'
@@ -87,9 +87,9 @@ jobs:
 
             - name: Install package.json dependencies with Yarn
               if: steps.node-modules-cache.outputs.cache-hit != 'true'
-              run: yarn install --frozen-lockfile
+              run: pnpm install --frozen-lockfile
 
             - name: Test with Jest
-              run: echo $CHUNKS | jq '.[${{ matrix.chunk }}] | .[] | @text' | xargs yarn test
+              run: echo $CHUNKS | jq '.[${{ matrix.chunk }}] | .[] | @text' | xargs pnpm test
               env:
                   CHUNKS: ${{ needs.jest-setup.outputs['test-chunks'] }}

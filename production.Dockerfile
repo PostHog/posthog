@@ -70,8 +70,8 @@ RUN apk --update --no-cache --virtual .build-deps add \
     "gcc~=10.3" \
     && \
     yarn config set network-timeout 300000 && \
-    yarn install --frozen-lockfile && \
-    yarn install --frozen-lockfile --cwd plugin-server && \
+    pnpm install --frozen-lockfile && \
+    pnpm install --frozen-lockfile --cwd plugin-server && \
     yarn cache clean \
     && \
     apk del .build-deps

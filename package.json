@@ -13,7 +13,7 @@
     "homepage": "https://github.com/posthog/posthog#readme",
     "license": "MIT",
     "engines": {
-        "node": ">=16 <17"
+        "node": ">=16 <=18"
     },
     "scripts": {
         "copy-scripts": "mkdir -p frontend/dist/ && yarn copy-scripts:array && yarn copy-scripts:recorder",
@@ -94,6 +94,8 @@
         "posthog-js-lite": "^0.0.3",
         "prop-types": "^15.7.2",
         "query-selector-shadow-dom": "^1.0.0",
+        "rc-picker": "^2.6.9",
+        "rc-select": "^14.1.5",
         "rc-trigger": "^5.2.5",
         "react": "^16.13.1",
         "react-dom": "^16.12.0",
@@ -156,6 +158,7 @@
         "babel-jest": "^27.0.6",
         "babel-loader": "^8.0.6",
         "babel-plugin-import": "^1.13.0",
+        "chokidar": "^3.5.3",
         "concurrently": "^5.3.0",
         "cors": "^2.8.5",
         "css-loader": "^3.4.2",
