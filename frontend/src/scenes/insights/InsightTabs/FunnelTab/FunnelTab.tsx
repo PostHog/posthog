@@ -162,47 +162,51 @@ export function FunnelTab(): JSX.Element {
                                 useMultiBreakdown={!!featureFlags[FEATURE_FLAGS.BREAKDOWN_BY_MULTIPLE_PROPERTIES]}
                             />
                         </Row>
-                        <h4 className="secondary mt">
-                            Attribution
-                            <Tooltip placement="right" title="filler">
-                                <InfoCircleOutlined className="info-indicator" />
-                            </Tooltip>
-                        </h4>
-                        <Row>
-                            <LemonSelect
-                                placeholder="Attribution"
-                                allowClear
-                                options={{
-                                    [BreakdownAttributionType.FirstTouch]: { label: 'First touchpoint' },
-                                    [BreakdownAttributionType.LastTouch]: { label: 'Last touchpoint' },
-                                    ...(filters.funnel_order_type === StepOrderValue.UNORDERED
-                                        ? { [BreakdownAttributionType.AnyStep]: { label: 'Any step' } }
-                                        : {
-                                              [BreakdownAttributionType.Step]: {
-                                                  label: 'Specific step',
-                                                  element: (
-                                                      <LemonSelect
-                                                          outlined
-                                                          className="ml-05"
-                                                          placeholder={`Step ${
-                                                              filters.breakdown_attribution_value || 1
-                                                          }`}
-                                                          options={{ 1: { label: '1' } }}
-                                                      />
-                                                  ),
-                                              },
-                                          }),
-                                }}
-                                onChange={(value) => {
-                                    if (value) {
-                                        setFilters({ breakdown_attribution_type: value })
-                                    }
-                                }}
-                                dropdownMaxContentWidth={true}
-                                outlined
-                                data-attr="breakdown-attributions"
-                            />
-                        </Row>
+                        {featureFlags[FEATURE_FLAGS.BREAKDOWN_ATTRIBUTION] && (
+                            <>
+                                <h4 className="secondary mt">
+                                    Attribution
+                                    <Tooltip placement="right" title="filler">
+                                        <InfoCircleOutlined className="info-indicator" />
+                                    </Tooltip>
+                                </h4>
+                                <Row>
+                                    <LemonSelect
+                                        placeholder="Attribution"
+                                        allowClear
+                                        options={{
+                                            [BreakdownAttributionType.FirstTouch]: { label: 'First touchpoint' },
+                                            [BreakdownAttributionType.LastTouch]: { label: 'Last touchpoint' },
+                                            ...(filters.funnel_order_type === StepOrderValue.UNORDERED
+                                                ? { [BreakdownAttributionType.AnyStep]: { label: 'Any step' } }
+                                                : {
+                                                      [BreakdownAttributionType.Step]: {
+                                                          label: 'Specific step',
+                                                          element: (
+                                                              <LemonSelect
+                                                                  outlined
+                                                                  className="ml-05"
+                                                                  placeholder={`Step ${
+                                                                      filters.breakdown_attribution_value || 1
+                                                                  }`}
+                                                                  options={{ 1: { label: '1' } }}
+                                                              />
+                                                          ),
+                                                      },
+                                                  }),
+                                        }}
+                                        onChange={(value) => {
+                                            if (value) {
+                                                setFilters({ breakdown_attribution_type: value })
+                                            }
+                                        }}
+                                        dropdownMaxContentWidth={true}
+                                        outlined
+                                        data-attr="breakdown-attributions"
+                                    />
+                                </Row>
+                            </>
+                        )}
                     </>
                 )}
 
