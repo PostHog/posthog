@@ -60,7 +60,7 @@ export const membersLogic = kea<membersLogicType>({
                 members.map((member) => ({
                     key: member.user.email,
                     value: member.user.email,
-                    label: member.user.email,
+                    label: `${member.user.first_name} <${member.user.email}>`,
                 })),
         ],
     },
