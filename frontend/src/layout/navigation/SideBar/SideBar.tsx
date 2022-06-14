@@ -1,7 +1,7 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Link } from 'lib/components/Link'
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { ProjectSwitcherOverlay } from '~/layout/navigation/ProjectSwitcher'
 import {
     EventStackGearIcon,
@@ -56,6 +56,20 @@ function Pages(): JSX.Element {
 
     const [arePinnedDashboardsShown, setArePinnedDashboardsShown] = useState(false)
 
+    useEffect(() => console.log('currentOrganization', currentOrganization), [currentOrganization])
+    useEffect(() => console.log('hideSideBarMobile', hideSideBarMobile), [hideSideBarMobile])
+    useEffect(() => console.log('toggleProjectSwitcher', toggleProjectSwitcher), [toggleProjectSwitcher])
+    useEffect(() => console.log('hideProjectSwitcher', hideProjectSwitcher), [hideProjectSwitcher])
+    useEffect(() => console.log('isProjectSwitcherShown', isProjectSwitcherShown), [isProjectSwitcherShown])
+    useEffect(() => console.log('pinnedDashboards', pinnedDashboards), [pinnedDashboards])
+    useEffect(() => console.log('featureFlags', featureFlags), [featureFlags])
+    useEffect(() => console.log('showGroupsOptions', showGroupsOptions), [showGroupsOptions])
+    useEffect(() => console.log('hasAvailableFeature', hasAvailableFeature), [hasAvailableFeature])
+    useEffect(() => console.log('preflight', preflight), [preflight])
+    useEffect(() => console.log('currentTeam', currentTeam), [currentTeam])
+    useEffect(() => console.log('frontendApps', frontendApps), [frontendApps])
+    useEffect(() => console.log('arePinnedDashboardsShown', arePinnedDashboardsShown), [arePinnedDashboardsShown])
+
     return (
         <div className="Pages">
             <div className="SideBar__heading">Project</div>
@@ -84,40 +98,45 @@ function Pages(): JSX.Element {
                         sideAction={{
                             identifier: 'pinned-dashboards',
                             tooltip: 'Pinned dashboards',
-                            onClick: () => setArePinnedDashboardsShown((state) => !state),
+                            onClick: () => setArePinnedDashboardsShown(!arePinnedDashboardsShown),
                             popup: {
                                 visible: arePinnedDashboardsShown,
-                                onClickOutside: () => setArePinnedDashboardsShown(false),
+                                onClickOutside: () => {
+                                    setArePinnedDashboardsShown(false)
+                                    console.log('clicked')
+                                },
                                 onClickInside: hideSideBarMobile,
                                 overlay: (
-                                    <div className="SideBar__pinned-dashboards">
-                                        <h5>Pinned dashboards</h5>
-                                        <LemonDivider />
-                                        {pinnedDashboards.length > 0 ? (
-                                            pinnedDashboards.map((dashboard) => (
-                                                <PageButton
-                                                    key={dashboard.id}
-                                                    title={dashboard.name || <i>Untitled</i>}
-                                                    identifier={dashboard.id}
-                                                    onClick={() => setArePinnedDashboardsShown(false)}
-                                                    to={urls.dashboard(dashboard.id)}
-                                                />
-                                            ))
-                                        ) : (
-                                            <LemonRow icon={<IconPin />} fullWidth>
-                                                <span>
-                                                    <Link
+                                    <LemonRow>
+                                        <div className="SideBar__pinned-dashboards">
+                                            <h5>Pinned dashboards</h5>
+                                            <LemonDivider />
+                                            {pinnedDashboards.length > 0 ? (
+                                                pinnedDashboards.map((dashboard) => (
+                                                    <PageButton
+                                                        key={dashboard.id}
+                                                        title={dashboard.name || <i>Untitled</i>}
+                                                        identifier={dashboard.id}
                                                         onClick={() => setArePinnedDashboardsShown(false)}
-                                                        to={urls.dashboards()}
-                                                    >
-                                                        Pin some dashboards
-                                                    </Link>
-                                                    <br />
-                                                    for them to show up here
-                                                </span>
-                                            </LemonRow>
-                                        )}
-                                    </div>
+                                                        to={urls.dashboard(dashboard.id)}
+                                                    />
+                                                ))
+                                            ) : (
+                                                <LemonRow icon={<IconPin />} fullWidth>
+                                                    <span>
+                                                        <Link
+                                                            onClick={() => setArePinnedDashboardsShown(false)}
+                                                            to={urls.dashboards()}
+                                                        >
+                                                            Pin some dashboards
+                                                        </Link>
+                                                        <br />
+                                                        for them to show up here
+                                                    </span>
+                                                </LemonRow>
+                                            )}
+                                        </div>
+                                    </LemonRow>
                                 ),
                             },
                         }}

@@ -1,12 +1,12 @@
 import './Popup.scss'
-import React, { MouseEventHandler, ReactElement, useMemo, useState } from 'react'
+import React, { MouseEventHandler, ReactElement, useEffect, useMemo } from 'react'
 import ReactDOM from 'react-dom'
-import { usePopper } from 'react-popper'
 import { useOutsideClickHandler } from 'lib/hooks/useOutsideClickHandler'
-import { Modifier, Placement } from '@popperjs/core'
+import { offset, useFloating } from '@floating-ui/react-dom'
 import clsx from 'clsx'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { CSSTransition } from 'react-transition-group'
+import { flip, Middleware, Placement } from '@floating-ui/react-dom-interactions'
 
 export interface PopupProps {
     visible?: boolean
@@ -25,7 +25,7 @@ export interface PopupProps {
     /** Whether the popover's width should be synced with the children's width. */
     sameWidth?: boolean
     className?: string
-    modifier?: Record<string, any>
+    middleware?: Middleware[]
 }
 
 /** 0 means no parent. */
@@ -48,85 +48,89 @@ export function Popup({
     className,
     actionable = false,
     sameWidth = false,
-    modifier = {},
+    middleware,
 }: PopupProps): JSX.Element {
-    const [referenceElement, setReferenceElement] = useState<HTMLDivElement | null>(null)
-    const [popperElement, setPopperElement] = useState<HTMLDivElement | null>(null)
+    useEffect(() => console.log('visible', visible), [visible])
+    useEffect(() => console.log('placement', placement), [placement])
 
     const popupId = useMemo(() => uniqueMemoizedIndex++, [])
-    const localRefs = [popperElement, referenceElement]
+    useEffect(() => console.log('popupId', popupId), [popupId])
 
-    useOutsideClickHandler(localRefs, (event) => visible && onClickOutside?.(event), [visible])
-
-    const modifiers = useMemo<Partial<Modifier<any, any>>[]>(
-        () => [
-            {
-                name: 'offset',
-                options: {
-                    offset: [0, 4],
-                },
-            },
-            fallbackPlacements
-                ? {
-                      name: 'flip',
-                      options: {
+    const {
+        x,
+        y,
+        reference,
+        floating,
+        refs: { reference: referenceRef, floating: floatingRef },
+        strategy,
+        update,
+    } = useFloating({
+        placement,
+        middleware: [
+            offset(4),
+            ...(fallbackPlacements
+                ? [
+                      flip({
                           fallbackPlacements: fallbackPlacements,
-                      },
-                  }
-                : {},
-            sameWidth
-                ? {
-                      name: 'sameWidth',
-                      enabled: true,
-                      fn: ({ state }) => {
-                          state.styles.popper.width = `${state.rects.reference.width}px`
-                      },
-                      phase: 'beforeWrite',
-                      requires: ['computeStyles'],
-                  }
-                : {},
-            modifier,
+                      }),
+                  ]
+                : []),
+            ...(sameWidth
+                ? [
+                      // {
+                      //     name: 'sameWidth',
+                      //     enabled: true,
+                      //     fn: ({ state }) => {
+                      //         state.styles.popper.width = `${state.rects.reference.width}px`
+                      //     },
+                      //     phase: 'beforeWrite',
+                      //     requires: ['computeStyles'],
+                      // },
+                  ]
+                : []),
+            ...(middleware ?? []),
         ],
-        []
-    )
-
-    const { styles, attributes, update } = usePopper(referenceElement, popperElement, {
-        placement: placement,
-        modifiers,
     })
+    // console.log({ visible, popupId, x, y, strategy })
+    useEffect(() => console.log('x', x), [x])
+    useEffect(() => console.log('y', y), [y])
+    useEffect(() => console.log('referenceRef', referenceRef.current), [referenceRef.current])
+    useEffect(() => console.log('floatingRef', floatingRef.current), [floatingRef.current])
+    useEffect(() => console.log('strategy', strategy), [strategy])
+
+    useOutsideClickHandler([floatingRef, referenceRef], (event) => visible && onClickOutside?.(event), [visible])
+
     useResizeObserver({
-        ref: popperElement,
+        ref: floatingRef,
         onResize: () => update?.(), // When the element is resized, schedule a popper update to reposition
     })
 
     const clonedChildren =
         typeof children === 'function'
-            ? children({
-                  setRef: setReferenceElement as (ref: HTMLElement | null) => void,
-              })
+            ? children({ setRef: reference })
             : React.Children.toArray(children).map((child) =>
-                  React.cloneElement(child as ReactElement, {
-                      ref: setReferenceElement,
-                  })
+                  React.cloneElement(child as ReactElement, { ref: reference })
               )
 
     return (
         <>
             {clonedChildren}
             {ReactDOM.createPortal(
-                <CSSTransition in={visible} timeout={100} classNames="Popup-" mountOnEnter unmountOnExit>
-                    <div
-                        className={clsx('Popup', actionable && 'Popup--actionable', className)}
-                        ref={setPopperElement}
-                        style={styles.popper}
-                        onClick={onClickInside}
-                        {...attributes.popper}
-                    >
-                        <div className="Popup__box">
-                            <PopupContext.Provider value={popupId}>{overlay}</PopupContext.Provider>
+                <PopupContext.Provider value={popupId}>
+                    <CSSTransition in={visible} timeout={100} classNames="Popup-" mountOnEnter unmountOnExit>
+                        <div
+                            className={clsx('Popup', actionable && 'Popup--actionable', className)}
+                            ref={(ref) => {
+                                debugger
+                                ref && floating(ref)
+                            }}
+                            style={{ position: strategy, top: y ?? 0, left: x ?? 0 }}
+                            onClick={onClickInside}
+                        >
+                            <div className="Popup__box">{overlay}</div>
                         </div>
-                    </div>
-                </CSSTransition>,
+                    </CSSTransition>
+                </PopupContext.Provider>,
                 document.querySelector('body') as HTMLElement
             )}
         </>

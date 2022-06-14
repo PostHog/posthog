@@ -3,7 +3,7 @@ import { useEffect } from 'react'
 const exceptions = ['.ant-select-dropdown *', '.click-outside-block', '.click-outside-block *']
 
 export function useOutsideClickHandler(
-    refOrRefs: Element | null | (Element | null)[],
+    refOrRefs: React.MutableRefObject<any> | Element | null | (React.MutableRefObject<any> | Element | null)[],
     handleClickOutside?: (event: Event) => void,
     extraDeps: any[] = []
 ): void {
@@ -14,7 +14,12 @@ export function useOutsideClickHandler(
             if (exceptions.some((exception) => (event.target as Element).matches(exception))) {
                 return
             }
-            if (allRefs.some((ref) => ref?.contains(event.target as Element))) {
+            if (
+                allRefs.some((maybeRef) => {
+                    const ref = maybeRef && 'current' in maybeRef ? maybeRef.current : maybeRef
+                    return ref && `contains` in ref && ref.contains(event.target as Element)
+                })
+            ) {
                 return
             }
             handleClickOutside?.(event)
