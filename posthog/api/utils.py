@@ -9,7 +9,6 @@ from rest_framework import request, status
 from sentry_sdk import capture_exception
 from statshog.defaults.django import statsd
 
-from ee.models import EnterpriseEventDefinition
 from posthog.exceptions import RequestParsingError, generate_exception_response
 from posthog.models import Action, Entity, EventDefinition
 from posthog.models.entity import MATH_TYPE
@@ -323,9 +322,8 @@ def safe_clickhouse_string(s: str) -> str:
 
 def create_event_definitions_sql(include_actions: bool, is_enterprise: bool = False) -> str:
     # Prevent fetching deprecated `tags` field. Tags are separately fetched in TaggedItemSerializerMixin
-    ee_model = EnterpriseEventDefinition if is_enterprise else EventDefinition
     event_definition_fields = {
-        f'"{f.column}"' for f in ee_model._meta.get_fields() if hasattr(f, "column") and f.column != "tags"  # type: ignore
+        f'"{f.column}"' for f in EventDefinition._meta.get_fields() if hasattr(f, "column") and f.column != "tags"  # type: ignore
     }
 
     if include_actions:
