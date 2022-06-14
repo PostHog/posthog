@@ -87,8 +87,6 @@ export const insightSubscriptionLogic = kea<insightSubscriptionLogicType>([
                 //     router.actions.replace(urls.insightSubcription(props.insightShortId, subscriptionId.toString()))
                 // }
 
-                breakpoint()
-
                 actions.loadSubscriptions()
                 actions.loadSubscription()
                 lemonToast.success(`Subscription saved.`)
