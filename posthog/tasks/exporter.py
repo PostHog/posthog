@@ -27,13 +27,13 @@ def get_driver() -> webdriver.Chrome:
     options = Options()
     options.headless = True
     options.add_argument("--force-device-scale-factor=2")  # Scale factor for higher res image
-    options.add_argument("--disable-dev-shm-usage")
-    options.add_argument("--no-sandbox")
-    options.add_argument("--disable-gpu")
     options.add_argument("--use-gl=swiftshader")
     options.add_argument("--disable-software-rasterizer")
+    options.add_argument("--no-sandbox")
+    options.add_argument("--disable-gpu")
 
     if os.environ.get("CHROMEDRIVER_BIN"):
+
         return webdriver.Chrome(os.environ["CHROMEDRIVER_BIN"], options=options)
 
     return webdriver.Chrome(

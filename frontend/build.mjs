@@ -9,13 +9,11 @@ import {
     buildInParallel,
     copyIndexHtml,
 } from './utils.mjs'
-import fse from 'fs-extra'
 
 export const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 startDevServer(__dirname)
 copyPublicFolder(path.resolve(__dirname, 'public'), path.resolve(__dirname, 'dist'))
-writeSourceCodeEditorTypes()
 writeIndexHtml()
 writeSharedDashboardHtml()
 
@@ -28,6 +26,7 @@ await buildInParallel(
     [
         {
             name: 'PostHog App',
+            absWorkingDir: __dirname,
             entryPoints: ['src/index.tsx'],
             splitting: true,
             format: 'esm',
@@ -36,6 +35,7 @@ await buildInParallel(
         },
         {
             name: 'Shared Dashboard',
+            absWorkingDir: __dirname,
             entryPoints: ['src/scenes/dashboard/SharedDashboard.tsx'],
             format: 'iife',
             outfile: path.resolve(__dirname, 'dist', 'shared_dashboard.js'),
@@ -43,6 +43,7 @@ await buildInParallel(
         },
         {
             name: 'Exporter',
+            absWorkingDir: __dirname,
             entryPoints: ['src/exporter/ExportViewer.tsx'],
             format: 'iife',
             outfile: path.resolve(__dirname, 'dist', 'exporter.js'),
@@ -50,6 +51,7 @@ await buildInParallel(
         },
         {
             name: 'Toolbar',
+            absWorkingDir: __dirname,
             entryPoints: ['src/toolbar/index.tsx'],
             format: 'iife',
             outfile: path.resolve(__dirname, 'dist', 'toolbar.js'),
@@ -82,31 +84,6 @@ await buildInParallel(
         },
     }
 )
-
-export function writeSourceCodeEditorTypes() {
-    const readFile = (p) => {
-        try {
-            return fse.readFileSync(path.resolve(__dirname, p), { encoding: 'utf-8' })
-        } catch (e) {
-            if (isDev) {
-                console.warn(
-                    `🙈 Didn't find "${p}" for the app source editor. Build it with: yarn build:packages:types`
-                )
-            } else {
-                throw e
-            }
-        }
-    }
-    const types = {
-        '@types/react/index.d.ts': readFile('../node_modules/@types/react/index.d.ts'),
-        '@types/react/global.d.ts': readFile('../node_modules/@types/react/global.d.ts'),
-        '@types/kea/index.d.ts': readFile('../node_modules/kea/lib/index.d.ts'),
-    }
-    fse.writeFileSync(
-        path.resolve(__dirname, './src/scenes/plugins/source/types/packages.json'),
-        JSON.stringify(types, null, 4) + '\n'
-    )
-}
 
 export function writeIndexHtml(chunks = {}, entrypoints = []) {
     copyIndexHtml(__dirname, 'src/index.html', 'dist/index.html', 'index', chunks, entrypoints)

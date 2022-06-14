@@ -84,7 +84,7 @@ export function generateKafkaPersonUpdateMessage(
     teamId: number,
     isIdentified: boolean,
     id: string,
-    version: number | null,
+    version: number,
     isDeleted = 0
 ): ProducerRecord {
     return {

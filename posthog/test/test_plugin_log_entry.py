@@ -17,7 +17,7 @@ def create_plugin_log_entry(
     message: str,
     instance_id: str
 ):
-    from ee.clickhouse.sql.plugin_log_entries import INSERT_PLUGIN_LOG_ENTRY_SQL
+    from posthog.clickhouse.plugin_log_entries import INSERT_PLUGIN_LOG_ENTRY_SQL
 
     sync_execute(
         INSERT_PLUGIN_LOG_ENTRY_SQL,

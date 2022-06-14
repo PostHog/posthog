@@ -13,7 +13,6 @@ import { SceneExport, Params, Scene, SceneConfig, SceneParams, LoadedScene } fro
 import { emptySceneParams, preloadedScenes, redirects, routes, sceneConfigurations } from 'scenes/scenes'
 import { organizationLogic } from './organizationLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { preventDiscardingInsightChanges } from './insights/insightSceneLogic'
 import { UPGRADE_LINK } from 'lib/constants'
 
 /** Mapping of some scenes that aren't directly accessible from the sidebar to ones that are - for the sidebar. */
@@ -22,6 +21,8 @@ const sceneNavAlias: Partial<Record<Scene, Scene>> = {
     [Scene.Actions]: Scene.DataManagement,
     [Scene.EventDefinitions]: Scene.DataManagement,
     [Scene.EventPropertyDefinitions]: Scene.DataManagement,
+    [Scene.EventDefinition]: Scene.DataManagement,
+    [Scene.EventPropertyDefinition]: Scene.DataManagement,
     [Scene.Person]: Scene.Persons,
     [Scene.Cohort]: Scene.Cohorts,
     [Scene.Groups]: Scene.Persons,
@@ -224,12 +225,6 @@ export const sceneLogic = kea<sceneLogicType>({
             }
         },
         openScene: ({ scene, params, method }) => {
-            // If navigating from an Insight scene to a non-Insight scene and changes are unsaved, prompt the user
-            if (values.scene === Scene.Insight && scene !== Scene.Insight && preventDiscardingInsightChanges()) {
-                history.back()
-                return
-            }
-
             const sceneConfig = sceneConfigurations[scene] || {}
             const { user } = userLogic.values
             const { preflight } = preflightLogic.values

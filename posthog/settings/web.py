@@ -6,7 +6,7 @@ from typing import List
 
 from posthog.settings.base_variables import BASE_DIR, DEBUG, TEST
 from posthog.settings.statsd import STATSD_HOST
-from posthog.settings.utils import get_from_env, str_to_bool
+from posthog.settings.utils import get_from_env, get_list, str_to_bool
 
 # django-axes settings to lockout after too many attempts
 
@@ -44,6 +44,7 @@ INSTALLED_APPS = [
 
 
 MIDDLEWARE = [
+    "posthog.gzip_middleware.ScopedGZipMiddleware",
     "django_structlog.middlewares.RequestMiddleware",
     "django_structlog.middlewares.CeleryMiddleware",
     "django.middleware.security.SecurityMiddleware",
@@ -72,7 +73,7 @@ if STATSD_HOST is not None:
 # Append Enterprise Edition as an app if available
 INSTALLED_APPS.append("rest_hooks")
 INSTALLED_APPS.append("ee.apps.EnterpriseConfig")
-MIDDLEWARE.append("ee.clickhouse.middleware.CHQueries")
+MIDDLEWARE.append("posthog.middleware.CHQueries")
 
 # Use django-extensions if it exists
 try:
@@ -226,3 +227,24 @@ def add_recorder_js_headers(headers, path, url):
 WHITENOISE_ADD_HEADERS_FUNCTION = add_recorder_js_headers
 
 CSRF_COOKIE_NAME = "posthog_csrftoken"
+
+# see posthog.gzip_middleware.ScopedGZipMiddleware
+# for how adding paths here can add vulnerability to the "breach" attack
+GZIP_RESPONSE_ALLOW_LIST = get_list(
+    os.getenv(
+        "GZIP_RESPONSE_ALLOW_LIST",
+        ",".join(
+            [
+                "^/?api/projects/\\d+/session_recordings/.*/snapshots/?$",
+                "^/?api/plugin_config/\\d+/frontend/?$",
+                "^/?api/projects/@current/property_definitions/?$",
+                "^/?api/projects/\\d+/event_definitions/?$",
+                "^/?api/projects/\\d+/insights/(trend|funnel)/?$",
+                "^/?api/projects/\\d+/insights/\\d+/?$",
+                "^/?api/projects/\\d+/dashboards/\\d+/?$",
+                "^/?api/projects/\\d+/actions/?$",
+                "^/?api/projects/\\d+/session_recordings/?$",
+            ]
+        ),
+    )
+)

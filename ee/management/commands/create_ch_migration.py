@@ -7,9 +7,7 @@ MIGRATION_PATH = "ee/clickhouse/migrations"
 
 FILE_DEFAULT = """
 from infi.clickhouse_orm import migrations # type: ignore
-class Migration(migrations.Migration):
-    operations = [
-    ]
+operations = []
 """
 
 # ex: python manage.py create_ch_migration <name of migration>

@@ -13,6 +13,7 @@ import {
     LicenseType,
     PluginLogEntry,
     PropertyDefinition,
+    SubscriptionType,
     TeamType,
     UserType,
 } from '~/types'
@@ -153,8 +154,21 @@ class ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('event_definitions')
     }
 
+    public eventDefinitionDetail(eventDefinitionId: EventDefinition['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('event_definitions').addPathComponent(eventDefinitionId)
+    }
+
     public propertyDefinitions(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('property_definitions')
+    }
+
+    public propertyDefinitionDetail(
+        propertyDefinitionId: PropertyDefinition['id'],
+        teamId?: TeamType['id']
+    ): ApiRequest {
+        return this.projectsDetail(teamId)
+            .addPathComponent('property_definitions')
+            .addPathComponent(propertyDefinitionId)
     }
 
     // # Cohorts
@@ -237,6 +251,15 @@ class ApiRequest {
 
     public insightsActivity(teamId: TeamType['id']): ApiRequest {
         return this.insights(teamId).addPathComponent('activity')
+    }
+
+    // # Subscriptions
+    public subscriptions(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('subscriptions')
+    }
+
+    public subscription(id: SubscriptionType['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.subscriptions(teamId).addPathComponent(id)
     }
 
     // Request finalization
@@ -361,7 +384,11 @@ const api = {
 
     exports: {
         determineExportUrl(exportId: number, teamId: TeamType['id'] = getCurrentTeamId()): string {
-            return new ApiRequest().export(exportId, teamId).withAction('content').assembleFullUrl(true)
+            return new ApiRequest()
+                .export(exportId, teamId)
+                .withAction('content')
+                .withQueryString('download=true')
+                .assembleFullUrl(true)
         },
     },
 
@@ -396,6 +423,18 @@ const api = {
     },
 
     eventDefinitions: {
+        async get({ eventDefinitionId }: { eventDefinitionId: EventDefinition['id'] }): Promise<EventDefinition> {
+            return new ApiRequest().eventDefinitionDetail(eventDefinitionId).get()
+        },
+        async update({
+            eventDefinitionId,
+            eventDefinitionData,
+        }: {
+            eventDefinitionId: EventDefinition['id']
+            eventDefinitionData: Partial<Omit<EventDefinition, 'owner'> & { owner: number | null }>
+        }): Promise<EventDefinition> {
+            return new ApiRequest().eventDefinitionDetail(eventDefinitionId).update({ data: eventDefinitionData })
+        },
         async list({
             limit = EVENT_DEFINITIONS_PER_PAGE,
             teamId = getCurrentTeamId(),
@@ -431,6 +470,24 @@ const api = {
     },
 
     propertyDefinitions: {
+        async get({
+            propertyDefinitionId,
+        }: {
+            propertyDefinitionId: PropertyDefinition['id']
+        }): Promise<PropertyDefinition> {
+            return new ApiRequest().propertyDefinitionDetail(propertyDefinitionId).get()
+        },
+        async update({
+            propertyDefinitionId,
+            propertyDefinitionData,
+        }: {
+            propertyDefinitionId: PropertyDefinition['id']
+            propertyDefinitionData: Partial<PropertyDefinition>
+        }): Promise<PropertyDefinition> {
+            return new ApiRequest()
+                .propertyDefinitionDetail(propertyDefinitionId)
+                .update({ data: propertyDefinitionData })
+        },
         async list({
             limit = EVENT_PROPERTY_DEFINITIONS_PER_PAGE,
             teamId = getCurrentTeamId(),
@@ -578,6 +635,30 @@ const api = {
         },
         async delete(licenseId: LicenseType['id']): Promise<LicenseType> {
             return await new ApiRequest().license(licenseId).delete()
+        },
+    },
+
+    subscriptions: {
+        async get(subscriptionId: SubscriptionType['id']): Promise<SubscriptionType> {
+            return await new ApiRequest().subscription(subscriptionId).get()
+        },
+        async create(data: Partial<SubscriptionType>): Promise<SubscriptionType> {
+            return await new ApiRequest().subscriptions().create({ data })
+        },
+        async update(
+            subscriptionId: SubscriptionType['id'],
+            data: Partial<SubscriptionType>
+        ): Promise<SubscriptionType> {
+            return await new ApiRequest().subscription(subscriptionId).update({ data })
+        },
+        async list(insightId?: number): Promise<PaginatedResponse<SubscriptionType>> {
+            return await new ApiRequest()
+                .subscriptions()
+                .withQueryString(insightId ? `insight_id=${insightId}` : '')
+                .get()
+        },
+        determineDeleteEndpoint(): string {
+            return new ApiRequest().subscriptions().assembleEndpointUrl()
         },
     },
 

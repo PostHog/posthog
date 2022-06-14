@@ -26,18 +26,10 @@ from rest_framework.utils.serializer_helpers import ReturnDict
 from rest_framework_csv import renderers as csvrenderers
 from statshog.defaults.django import statsd
 
-from ee.clickhouse.models.cohort import get_all_cohort_ids_by_person_uuid
-from ee.clickhouse.queries.funnels import ClickhouseFunnelActors, ClickhouseFunnelTrendsActors
-from ee.clickhouse.queries.funnels.base import ClickhouseFunnelBase
 from ee.clickhouse.queries.funnels.funnel_correlation_persons import FunnelCorrelationActors
-from ee.clickhouse.queries.funnels.funnel_strict_persons import ClickhouseFunnelStrictActors
-from ee.clickhouse.queries.funnels.funnel_unordered_persons import ClickhouseFunnelUnorderedActors
 from ee.clickhouse.queries.paths import ClickhousePathsActors
-from ee.clickhouse.queries.property_values import get_person_property_values_for_key
-from ee.clickhouse.queries.retention.clickhouse_retention import ClickhouseRetention
-from ee.clickhouse.queries.stickiness.clickhouse_stickiness import ClickhouseStickiness
-from ee.clickhouse.queries.trends.lifecycle import ClickhouseLifecycle
-from ee.clickhouse.sql.person import GET_PERSON_PROPERTIES_COUNT
+from ee.clickhouse.queries.retention import ClickhouseRetention
+from ee.clickhouse.queries.stickiness import ClickhouseStickiness
 from posthog.api.capture import capture_internal
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.utils import format_paginated_url, get_target_entity
@@ -63,11 +55,19 @@ from posthog.models.activity_logging.activity_log import (
     log_activity,
 )
 from posthog.models.activity_logging.serializers import ActivityLogSerializer
+from posthog.models.cohort.util import get_all_cohort_ids_by_person_uuid
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
+from posthog.models.person.sql import GET_PERSON_PROPERTIES_COUNT
 from posthog.models.person.util import delete_person
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
+from posthog.queries.funnels import ClickhouseFunnelActors, ClickhouseFunnelTrendsActors
+from posthog.queries.funnels.base import ClickhouseFunnelBase
+from posthog.queries.funnels.funnel_strict_persons import ClickhouseFunnelStrictActors
+from posthog.queries.funnels.funnel_unordered_persons import ClickhouseFunnelUnorderedActors
+from posthog.queries.property_values import get_person_property_values_for_key
+from posthog.queries.trends.lifecycle import Lifecycle
 from posthog.queries.util import get_earliest_timestamp
 from posthog.tasks.split_person import split_person
 from posthog.utils import convert_property_value, format_query_params_absolute_url, is_anonymous_id, relative_date_parse
@@ -193,7 +193,7 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     pagination_class = PersonCursorPagination
     filterset_class = PersonFilter
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
-    lifecycle_class = ClickhouseLifecycle
+    lifecycle_class = Lifecycle
     retention_class = ClickhouseRetention
     stickiness_class = ClickhouseStickiness
 
@@ -401,8 +401,7 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             try:
                 result = get_person_property_values_for_key(key, self.team, value)
                 statsd.incr(
-                    "get_person_property_values_for_key_success",
-                    tags={"key": key, "value": value, "team_id": self.team.id},
+                    "get_person_property_values_for_key_success", tags={"team_id": self.team.id},
                 )
             except Exception as e:
                 statsd.incr(

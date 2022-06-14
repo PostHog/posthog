@@ -18,12 +18,6 @@ from rest_framework.settings import api_settings
 from rest_framework_csv import renderers as csvrenderers
 from sentry_sdk import capture_exception
 
-from ee.clickhouse.queries.funnels import ClickhouseFunnelTimeToConvert, ClickhouseFunnelTrends
-from ee.clickhouse.queries.funnels.utils import get_funnel_order_class
-from ee.clickhouse.queries.paths.paths import ClickhousePaths
-from ee.clickhouse.queries.retention.clickhouse_retention import ClickhouseRetention
-from ee.clickhouse.queries.stickiness.clickhouse_stickiness import ClickhouseStickiness
-from ee.clickhouse.queries.trends.clickhouse_trends import ClickhouseTrends
 from posthog.api.documentation import extend_schema
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.insight_serializers import (
@@ -65,6 +59,12 @@ from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.insight import InsightViewed, generate_insight_cache_key
 from posthog.models.utils import UUIDT
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
+from posthog.queries.funnels import ClickhouseFunnelTimeToConvert, ClickhouseFunnelTrends
+from posthog.queries.funnels.utils import get_funnel_order_class
+from posthog.queries.paths.paths import Paths
+from posthog.queries.retention import Retention
+from posthog.queries.stickiness import Stickiness
+from posthog.queries.trends.trends import Trends
 from posthog.queries.util import get_earliest_timestamp
 from posthog.settings import SITE_URL
 from posthog.tasks.update_cache import update_insight_cache
@@ -394,6 +394,10 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDestr
     filterset_fields = ["short_id", "created_by"]
     include_in_docs = True
 
+    retention_query_class = Retention
+    stickiness_query_class = Stickiness
+    paths_query_class = Paths
+
     def get_serializer_class(self) -> Type[serializers.BaseSerializer]:
 
         if (self.action == "list" or self.action == "retrieve") and str_to_bool(
@@ -578,9 +582,9 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDestr
             stickiness_filter = StickinessFilter(
                 request=request, team=team, get_earliest_timestamp=get_earliest_timestamp
             )
-            result = ClickhouseStickiness().run(stickiness_filter, team)
+            result = self.stickiness_query_class().run(stickiness_filter, team)
         else:
-            trends_query = ClickhouseTrends()
+            trends_query = Trends()
             result = trends_query.run(filter, team)
 
         return {"result": result, "timezone": team.timezone}
@@ -657,7 +661,7 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDestr
             data.update({"date_from": "-11d"})
         filter = RetentionFilter(data=data, request=request, team=self.team)
         base_uri = request.build_absolute_uri("/")
-        result = ClickhouseRetention(base_uri=base_uri).run(filter, team)
+        result = self.retention_query_class(base_uri=base_uri).run(filter, team)
         return {"result": result, "timezone": team.timezone}
 
     # ******************************************
@@ -687,7 +691,7 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDestr
         #  backwards compatibility
         if filter.path_type:
             filter = filter.with_data({PATHS_INCLUDE_EVENT_TYPES: [filter.path_type]})
-        resp = ClickhousePaths(filter=filter, team=team, funnel_filter=funnel_filter).run()
+        resp = self.paths_query_class(filter=filter, team=team, funnel_filter=funnel_filter).run()
 
         return {"result": resp, "timezone": team.timezone}
 

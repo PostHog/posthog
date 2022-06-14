@@ -1,13 +1,16 @@
 {
     "compilerOptions": {
-        "baseUrl": "./frontend/",
+        "baseUrl": "frontend",
         "paths": {
-            "lib/*": ["./src/lib/*"],
-            "scenes/*": ["./src/scenes/*"],
-            "packages/*": ["./src/packages/*"],
+            "lib/*": ["src/lib/*"],
+            "scenes/*": ["src/scenes/*"],
+            "@posthog/apps-common": ["@posthog/apps-common/src/index"],
+            "@posthog/apps-common/*": ["@posthog/apps-common/src/*"],
+            "@posthog/lemon-ui": ["@posthog/lemon-ui/src/index"],
+            "@posthog/lemon-ui/*": ["@posthog/lemon-ui/src/*"],
             "storybook/*": ["../.storybook/*"],
-            "~/*": ["./src/*"],
-            "public/*": ["./public/*"]
+            "~/*": ["src/*"],
+            "public/*": ["public/*"]
         },
         // https://www.sitepoint.com/react-with-typescript-best-practices/
         "allowJs": true, // Allow JavaScript files to be compiled

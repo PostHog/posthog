@@ -593,8 +593,8 @@ export function isURL(input: any): boolean {
     if (!input || typeof input !== 'string') {
         return false
     }
-    // Regex by elmervc
-    const regexp = new RegExp('^([a-zA-Z]+)://(-.)?(([^s/?.#-]+|([^s/?.#-]-[^s/?.#-])).?)+(/[^s]*)?', 'iu')
+    // Regex by regextester.com/115236
+    const regexp = /^(?:http(s)?:\/\/)([\w.-])+(?:[\w\.-]+)+([\w\-\._~:/?#[\]@%!\$&'\(\)\*\+,;=.])+$/
     return !!input.trim().match(regexp)
 }
 
@@ -1326,4 +1326,14 @@ export function calculateDays(timeValue: number, timeUnit: TimeUnitType): number
         return timeValue * 7
     }
     return timeValue
+}
+
+export function range(startOrEnd: number, end?: number): number[] {
+    let length = startOrEnd
+    let start = 0
+    if (typeof end == 'number') {
+        start = startOrEnd
+        length = end - start
+    }
+    return Array.from({ length }, (_, i) => i + start)
 }

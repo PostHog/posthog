@@ -250,7 +250,6 @@ export class HookCommander {
         })
         this.statsd?.increment('webhook_firings', {
             team_id: event.teamId.toString(),
-            action: action.name || 'unknown',
         })
     }
 

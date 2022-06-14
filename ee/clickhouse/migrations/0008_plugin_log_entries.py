@@ -1,6 +1,6 @@
 from infi.clickhouse_orm import migrations
 
-from ee.clickhouse.sql.plugin_log_entries import (
+from posthog.clickhouse.plugin_log_entries import (
     KAFKA_PLUGIN_LOG_ENTRIES_TABLE_SQL,
     PLUGIN_LOG_ENTRIES_TABLE_MV_SQL,
     PLUGIN_LOG_ENTRIES_TABLE_SQL,

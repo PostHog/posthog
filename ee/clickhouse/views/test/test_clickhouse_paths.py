@@ -2,9 +2,8 @@ import json
 
 from rest_framework import status
 
-from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.constants import FUNNEL_PATH_AFTER_STEP, INSIGHT_FUNNELS, INSIGHT_PATHS
-from posthog.test.base import APIBaseTest, _create_event, _create_person
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person
 
 
 class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):

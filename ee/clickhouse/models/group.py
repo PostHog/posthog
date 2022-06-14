@@ -11,18 +11,13 @@ from posthog.models import Group
 from posthog.models.filters.utils import GroupTypeIndex
 
 
-def create_group(
-    team_id: int,
-    group_type_index: GroupTypeIndex,
-    group_key: str,
-    properties: Optional[Dict] = {},
-    timestamp: Optional[datetime.datetime] = None,
-    *,
-    clickhouse_only: bool = False,
+def raw_create_group_ch(
+    team_id: int, group_type_index: GroupTypeIndex, group_key: str, properties: Dict, timestamp: datetime.datetime
 ):
-    if not timestamp:
-        timestamp = now()
+    """Create ClickHouse-only Group record.
 
+    DON'T USE DIRECTLY - `create_group` is the correct option,
+    unless you specifically want to sync Postgres state from ClickHouse yourself."""
     data = {
         "group_type_index": group_type_index,
         "group_key": group_key,
@@ -34,14 +29,23 @@ def create_group(
     p = ClickhouseProducer()
     p.produce(topic=KAFKA_GROUPS, sql=INSERT_GROUP_SQL, data=data)
 
-    if not clickhouse_only:
-        Group.objects.create(
-            team_id=team_id,
-            group_type_index=group_type_index,
-            group_key=group_key,
-            group_properties=properties,
-            version=0,
-        )
+
+def create_group(
+    team_id: int,
+    group_type_index: GroupTypeIndex,
+    group_key: str,
+    properties: Optional[Dict] = None,
+    timestamp: Optional[datetime.datetime] = None,
+):
+    """Create proper Group record (ClickHouse + Postgres)."""
+    if not properties:
+        properties = {}
+    if not timestamp:
+        timestamp = now()
+    raw_create_group_ch(team_id, group_type_index, group_key, properties, timestamp)
+    Group.objects.create(
+        team_id=team_id, group_type_index=group_type_index, group_key=group_key, group_properties=properties, version=0,
+    )
 
 
 def get_aggregation_target_field(
