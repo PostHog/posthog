@@ -62,7 +62,7 @@ class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
             latest_date = _is_cached[0]["days"].pop()
             parsed_latest_date = parser.parse(latest_date)
             parsed_latest_date = parsed_latest_date.replace(tzinfo=pytz.timezone(team.timezone))
-            _is_present = is_present_timerange(filter, parsed_latest_date)
+            _is_present = is_filter_date_present(filter, parsed_latest_date)
         else:
             _is_present = False
 
@@ -200,7 +200,7 @@ class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
         return entity_metrics
 
 
-def is_present_timerange(filter: Filter, latest_cached_datetime: datetime) -> bool:
+def is_filter_date_present(filter: Filter, latest_cached_datetime: datetime) -> bool:
     diff = filter.date_to - latest_cached_datetime
 
     if filter.interval == "hour":
