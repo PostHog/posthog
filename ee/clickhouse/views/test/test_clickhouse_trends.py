@@ -939,7 +939,7 @@ class ClickhouseTestTrendsCaching(ClickhouseTestMixin, LicensedTestMixin, APIBas
 
     @snapshot_clickhouse_queries
     def test_insight_trends_merging(self):
-        set_instance_setting("CACHE_HISTORY_TRENDS", "all")
+        set_instance_setting("STRICT_CACHING_TEAMS", "all")
 
         events_by_person = {
             "1": [{"event": "$pageview", "timestamp": datetime(2012, 1, 13, 3)},],
@@ -1004,7 +1004,7 @@ class ClickhouseTestTrendsCaching(ClickhouseTestMixin, LicensedTestMixin, APIBas
     # When the latest time interval in the cached result doesn't match the current interval, do not use caching pattern
     @snapshot_clickhouse_queries
     def test_insight_trends_merging_skipped_interval(self):
-        set_instance_setting("CACHE_HISTORY_TRENDS", "all")
+        set_instance_setting("STRICT_CACHING_TEAMS", "all")
 
         events_by_person = {
             "1": [{"event": "$pageview", "timestamp": datetime(2012, 1, 13, 3)},],
