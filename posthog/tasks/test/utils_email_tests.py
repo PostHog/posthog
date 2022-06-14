@@ -1,5 +1,5 @@
 import os
-from typing import Any, Dict, List
+from typing import Any, List
 from unittest.mock import MagicMock
 
 from posthog.email import EmailMessage
