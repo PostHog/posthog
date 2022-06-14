@@ -29,7 +29,6 @@ SESSION_RECORDING_METADATA_TABLE_SQL = lambda: (
     SESSION_RECORDING_METADATA_TABLE_BASE_SQL
     + """PARTITION BY toYYYYMMDD(session_end)
 ORDER BY (toHour(session_end), session_id, session_end)
-SETTINGS index_granularity=512
 """
 ).format(
     table_name=SESSION_RECORDING_METADATA_DATA_TABLE(),
