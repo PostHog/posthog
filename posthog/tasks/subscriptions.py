@@ -9,6 +9,7 @@ from celery import group
 from posthog import settings
 from posthog.celery import app
 from posthog.email import EmailMessage
+from posthog.models.dashboard import Dashboard
 from posthog.models.dashboard_tile import DashboardTile
 from posthog.models.exported_asset import ExportedAsset
 from posthog.models.subscription import Subscription, get_unsubscribe_token
@@ -19,6 +20,18 @@ logger = structlog.get_logger(__name__)
 
 def get_unsubscribe_url(subscription: Subscription, email: str) -> str:
     return f"{settings.SITE_URL}/unsubscribe?token={get_unsubscribe_token(subscription, email)}"
+
+
+def get_tiles_ordered_by_position(dashboard: Dashboard):
+    tiles = list(
+        DashboardTile.objects.filter(dashboard=dashboard)
+        .select_related("insight__created_by", "insight__last_modified_by", "insight__team__organization")
+        .prefetch_related("insight__dashboards__team__organization")
+        .order_by("insight__order")
+        .all()
+    )
+
+    return tiles.sort(key=lambda x: x.get("xs", {}).get("y", 100))
 
 
 def send_email_subscription_report(
@@ -92,13 +105,7 @@ def _deliver_subscription_report(
         assets = []
 
         if subscription.dashboard:
-            tiles = (
-                DashboardTile.objects.filter(dashboard=subscription.dashboard)
-                .select_related("insight__created_by", "insight__last_modified_by", "insight__team__organization")
-                .prefetch_related("insight__dashboards__team__organization")
-                .order_by("insight__order")
-                .all()
-            )
+            tiles = get_tiles_ordered_by_position(subscription.dashboard)
 
             for tile in tiles[:6]:
                 insights.append(tile.insight)
