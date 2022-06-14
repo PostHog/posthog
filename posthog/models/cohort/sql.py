@@ -1,5 +1,5 @@
-from ee.clickhouse.sql.person import PERSON_STATIC_COHORT_TABLE
-from ee.clickhouse.sql.table_engines import CollapsingMergeTree
+from posthog.clickhouse.table_engines import CollapsingMergeTree
+from posthog.models.person.sql import PERSON_STATIC_COHORT_TABLE
 from posthog.settings import CLICKHOUSE_CLUSTER
 
 CALCULATE_COHORT_PEOPLE_SQL = """

@@ -3,14 +3,13 @@ from unittest.mock import MagicMock, patch
 
 from freezegun import freeze_time
 
-from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.models import Organization, Team, User
 from posthog.models.instance_setting import set_instance_setting
 from posthog.models.messaging import MessagingRecord, get_email_hash
 from posthog.models.organization import OrganizationMembership
 from posthog.tasks.email import send_first_ingestion_reminder_emails, send_second_ingestion_reminder_emails
 from posthog.tasks.test.utils_email_tests import mock_email_messages
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
 
 def create_org_team_and_user(creation_date: str, email: str, ingested_event: bool = False) -> Organization:

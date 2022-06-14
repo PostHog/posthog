@@ -3,7 +3,7 @@ from itertools import accumulate
 from typing import Any, Dict, List
 
 from ee.clickhouse.queries.breakdown_props import get_breakdown_cohort_name
-from ee.clickhouse.sql.clickhouse import trim_quotes_expr
+from posthog.clickhouse.kafka_engine import trim_quotes_expr
 from posthog.client import sync_execute
 from posthog.constants import NON_TIME_SERIES_DISPLAY_TYPES, TRENDS_CUMULATIVE
 from posthog.models.filters.filter import Filter

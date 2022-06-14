@@ -114,8 +114,8 @@ class SimplifyFilterMixin:
 
     def _simplify_property(self, team: "Team", property: "Property", **kwargs) -> "PropertyGroup":
         if property.type == "cohort":
-            from ee.clickhouse.models.cohort import simplified_cohort_filter_properties
             from posthog.models import Cohort
+            from posthog.models.cohort.util import simplified_cohort_filter_properties
 
             try:
                 cohort = Cohort.objects.get(pk=property.value, team_id=team.pk)

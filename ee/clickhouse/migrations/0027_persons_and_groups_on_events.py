@@ -1,8 +1,8 @@
 from infi.clickhouse_orm import migrations
 
 from ee.clickhouse.replication.utils import clickhouse_is_replicated
-from ee.clickhouse.sql.events import EVENTS_TABLE_JSON_MV_SQL, KAFKA_EVENTS_TABLE_JSON_SQL
 from posthog.client import sync_execute
+from posthog.models.event.sql import EVENTS_TABLE_JSON_MV_SQL, KAFKA_EVENTS_TABLE_JSON_SQL
 from posthog.settings import CLICKHOUSE_CLUSTER
 
 ADD_COLUMNS_BASE_SQL = """

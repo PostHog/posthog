@@ -8,7 +8,7 @@ from .dashboard_tile import DashboardTile
 from .element import Element
 from .element_group import ElementGroup
 from .entity import Entity
-from .event import Event
+from .event.event import Event
 from .event_definition import EventDefinition
 from .event_property import EventProperty
 from .experiment import Experiment
