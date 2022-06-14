@@ -7,21 +7,22 @@ from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.api.utils import create_event_definitions_sql
-from posthog.constants import AvailableFeature
 from posthog.exceptions import EnterpriseFeatureException
 from posthog.filters import TermSearchFilterBackend, term_search_filter_sql
 from posthog.models import EventDefinition, TaggedItem
 from posthog.permissions import OrganizationMemberPermissions, TeamMemberAccessPermission
-
+from posthog.settings import EE_AVAILABLE
 
 # If EE is enabled, we use ee.api.ee_event_definition.EnterpriseEventDefinitionSerializer
+
+
 class EventDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
     is_action = serializers.SerializerMethodField(read_only=True)
     action_id = serializers.IntegerField(read_only=True)
     created_by = UserBasicSerializer(read_only=True)
     is_calculating = serializers.BooleanField(read_only=True)
     last_calculated_at = serializers.DateTimeField(read_only=True)
-    post_to_slack = serializers.BooleanField(read_only=True)
+    post_to_slack = serializers.BooleanField(default=False)
 
     class Meta:
         model = EventDefinition
@@ -39,7 +40,6 @@ class EventDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelSeri
             "is_calculating",
             "last_calculated_at",
             "created_by",
-            "steps",
             "post_to_slack",
         )
 
@@ -77,36 +77,27 @@ class EventDefinitionViewSet(
             **search_kwargs,
         }
 
-        if self.request.user.organization.is_feature_available(AvailableFeature.INGESTION_TAXONOMY):  # type: ignore
-            try:
-                from ee.models.event_definition import EnterpriseEventDefinition
-            except ImportError:
-                pass
-            else:
-                # Prevent fetching deprecated `tags` field. Tags are separately fetched in TaggedItemSerializerMixin
-                table_sql = create_event_definitions_sql(include_actions, is_enterprise=True)
+        if EE_AVAILABLE:
+            # Prevent fetching deprecated `tags` field. Tags are separately fetched in TaggedItemSerializerMixin
+            table_sql = create_event_definitions_sql(include_actions, is_enterprise=True, conditions=search_query)
 
-                ee_event_definitions = EnterpriseEventDefinition.objects.raw(
-                    f"""
-                    {table_sql}
-                    WHERE team_id = %(team_id)s {search_query}
-                    ORDER BY last_seen_at DESC NULLS LAST, query_usage_30_day DESC NULLS LAST, name ASC
-                    """,
-                    params=params,
-                )
-                ee_event_definitions_list = ee_event_definitions.prefetch_related(
-                    Prefetch(
-                        "tagged_items", queryset=TaggedItem.objects.select_related("tag"), to_attr="prefetched_tags"
-                    )
-                )
+            ee_event_definitions = EventDefinition.objects.raw(
+                f"""
+                {table_sql}
+                ORDER BY last_seen_at DESC NULLS LAST, query_usage_30_day DESC NULLS LAST, name ASC
+                """,
+                params=params,
+            )
+            ee_event_definitions_list = ee_event_definitions.prefetch_related(
+                Prefetch("tagged_items", queryset=TaggedItem.objects.select_related("tag"), to_attr="prefetched_tags")
+            )
 
-                return ee_event_definitions_list
+            return ee_event_definitions_list
 
-        table_sql = create_event_definitions_sql(include_actions, is_enterprise=False)
+        table_sql = create_event_definitions_sql(include_actions, is_enterprise=False, conditions=search_query)
         event_definitions_list = EventDefinition.objects.raw(
             f"""
             {table_sql}
-            WHERE team_id = %(team_id)s {search_query}
             ORDER BY name ASC
             """,
             params=params,
@@ -116,27 +107,24 @@ class EventDefinitionViewSet(
 
     def get_object(self):
         id = self.kwargs["id"]
-        if self.request.user.organization.is_feature_available(AvailableFeature.INGESTION_TAXONOMY):  # type: ignore
-            try:
-                from ee.models.event_definition import EnterpriseEventDefinition
-            except ImportError:
-                pass
-            else:
-                enterprise_event = EnterpriseEventDefinition.objects.filter(id=id).first()
-                if enterprise_event:
-                    return enterprise_event
-                non_enterprise_event = EventDefinition.objects.get(id=id)
-                new_enterprise_event = EnterpriseEventDefinition(
-                    eventdefinition_ptr_id=non_enterprise_event.id, description=""
-                )
-                new_enterprise_event.__dict__.update(non_enterprise_event.__dict__)
-                new_enterprise_event.save()
-                return new_enterprise_event
+        if EE_AVAILABLE:  # type: ignore
+            enterprise_event = EventDefinition.objects.filter(id=id).first()
+            if enterprise_event:
+                return enterprise_event
+
+            from posthog.models.event_definition.event_definition import EventDefinition as NonEnterpriseEventDefinition
+
+            non_enterprise_event = NonEnterpriseEventDefinition.objects.get(id=id)
+            new_enterprise_event = EventDefinition(eventdefinition_ptr_id=non_enterprise_event.id, description="")
+            new_enterprise_event.__dict__.update(non_enterprise_event.__dict__)
+            new_enterprise_event.save()
+            return new_enterprise_event
+
         return EventDefinition.objects.get(id=id)
 
     def get_serializer_class(self) -> Type[serializers.ModelSerializer]:
         serializer_class = self.serializer_class
-        if self.request.user.organization.is_feature_available(AvailableFeature.INGESTION_TAXONOMY):  # type: ignore
+        if EE_AVAILABLE:  # type: ignore
             try:
                 from ee.api.ee_event_definition import EnterpriseEventDefinitionSerializer
             except ImportError:

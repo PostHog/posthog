@@ -14,7 +14,7 @@ class EnterpriseEventDefinitionSerializer(TaggedItemSerializerMixin, serializers
     action_id = serializers.IntegerField(read_only=True)
     is_calculating = serializers.BooleanField(read_only=True)
     last_calculated_at = serializers.DateTimeField(read_only=True)
-    post_to_slack = serializers.BooleanField(read_only=True)
+    post_to_slack = serializers.BooleanField(default=False)
 
     class Meta:
         model = EnterpriseEventDefinition
