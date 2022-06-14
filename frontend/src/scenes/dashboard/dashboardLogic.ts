@@ -763,10 +763,7 @@ export const dashboardLogic = kea<dashboardLogicType>({
     }),
 
     urlToAction: ({ actions }) => ({
-        '/dashboard/:id/subscriptions(/:subscriptionId)': (
-            { subscriptionId } // url params
-        ) => {
-            console.log('actiontourl', { subscriptionId })
+        '/dashboard/:id/subscriptions(/:subscriptionId)': ({ subscriptionId }) => {
             const id = subscriptionId
                 ? subscriptionId == 'new'
                     ? subscriptionId
@@ -776,7 +773,6 @@ export const dashboardLogic = kea<dashboardLogicType>({
         },
 
         '/dashboard/:id': () => {
-            console.log('actiontourl away')
             actions.setSubscriptionMode(false, undefined)
         },
     }),
