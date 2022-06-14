@@ -1,5 +1,4 @@
 import random
-import urllib.parse
 from typing import Dict
 
 from rest_framework import status
@@ -170,35 +169,3 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["count"], 1)
         self.assertEqual(response.json()["results"][0]["name"], "is_first_movie")
-
-    def test_excluded_ids_filter(self):
-
-        # is_first_movie, first_visit
-        ids = (
-            PropertyDefinition.objects.filter(name__in=["first_visit", "is_first_movie"])
-            .values_list("id", flat=True)
-            .order_by("-name")
-        )
-
-        response = self.client.get("/api/projects/@current/property_definitions/?search=firs")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["count"], 2)  # first_visit, is_first_movie
-        self.assertEqual(response.json()["results"][0]["name"], "first_visit")
-        self.assertEqual(response.json()["results"][1]["name"], "is_first_movie")
-
-        excluded_ids_str = f'["{str(ids[0])}"]'
-        response = self.client.get(
-            f'/api/projects/@current/property_definitions/?search=firs&{urllib.parse.urlencode({"excluded_ids": excluded_ids_str})}'
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["count"], 1)
-        self.assertEqual(response.json()["results"][0]["id"], str(ids[1]))
-        self.assertEqual(response.json()["results"][0]["name"], "first_visit")
-
-        response = self.client.get(
-            f'/api/projects/@current/property_definitions/?search=firs&{urllib.parse.urlencode({"excluded_ids": []})}'
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["count"], 2)  # first_visit, is_first_movie
-        self.assertEqual(response.json()["results"][0]["name"], "first_visit")
-        self.assertEqual(response.json()["results"][1]["name"], "is_first_movie")

@@ -21,7 +21,7 @@ def execute_query(query: str) -> Any:
 class Test0002EventsSampleBy(AsyncMigrationBaseTest):
     # This set up is necessary to mimic the state of the DB before the new default schema came into place
     def setUp(self):
-        from ee.clickhouse.sql.events import EVENTS_TABLE_MV_SQL, KAFKA_EVENTS_TABLE_SQL
+        from posthog.models.event.sql import EVENTS_TABLE_MV_SQL, KAFKA_EVENTS_TABLE_SQL
 
         super().setUp()
         self.create_events_table_query = execute_query(f"SHOW CREATE TABLE {CLICKHOUSE_DATABASE}.events")[0][0]

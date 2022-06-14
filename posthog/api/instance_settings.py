@@ -77,8 +77,8 @@ class InstanceSettingsSerializer(serializers.Serializer):
                 raise serializers.ValidationError("This setting cannot be updated on MULTI_TENANCY.")
 
             # TODO: Move to top-level imports once CH is moved out of `ee`
-            from ee.clickhouse.sql.session_recording_events import UPDATE_RECORDINGS_TABLE_TTL_SQL
             from posthog.client import sync_execute
+            from posthog.models.session_recording_event.sql import UPDATE_RECORDINGS_TABLE_TTL_SQL
 
             sync_execute(UPDATE_RECORDINGS_TABLE_TTL_SQL(), {"weeks": new_value_parsed})
 

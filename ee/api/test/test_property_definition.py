@@ -1,4 +1,3 @@
-import urllib.parse
 from typing import cast
 
 import pytest
@@ -189,35 +188,3 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
         )
 
         self.assertListEqual(sorted(response.json()["tags"]), ["a", "b"])
-
-    def test_excluded_ids_filter(self):
-        super(LicenseManager, cast(LicenseManager, License.objects)).create(
-            plan="enterprise", valid_until=timezone.datetime(2010, 1, 19, 3, 14, 7)
-        )
-        # is_first_movie, first_visit
-        is_first_movie_property = EnterprisePropertyDefinition.objects.create(team=self.team, name="is_first_movie")
-        first_visit_property = EnterprisePropertyDefinition.objects.create(team=self.team, name="first_visit")
-        ids = [is_first_movie_property.id, first_visit_property.id]
-
-        response = self.client.get("/api/projects/@current/property_definitions/?search=firs")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["count"], 2)  # first_visit, is_first_movie
-        self.assertEqual(response.json()["results"][0]["name"], "first_visit")
-        self.assertEqual(response.json()["results"][1]["name"], "is_first_movie")
-
-        excluded_ids_str = f'["{str(ids[0])}"]'
-        response = self.client.get(
-            f'/api/projects/@current/property_definitions/?search=firs&{urllib.parse.urlencode({"excluded_ids": excluded_ids_str})}'
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["count"], 1)
-        self.assertEqual(response.json()["results"][0]["id"], str(ids[1]))
-        self.assertEqual(response.json()["results"][0]["name"], "first_visit")
-
-        response = self.client.get(
-            f'/api/projects/@current/property_definitions/?search=firs&{urllib.parse.urlencode({"excluded_ids": []})}'
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["count"], 2)  # first_visit, is_first_movie
-        self.assertEqual(response.json()["results"][0]["name"], "first_visit")
-        self.assertEqual(response.json()["results"][1]["name"], "is_first_movie")

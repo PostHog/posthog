@@ -1,4 +1,3 @@
-import urllib.parse
 from typing import cast
 
 import dateutil.parser
@@ -243,38 +242,6 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         )
 
         self.assertListEqual(sorted(response.json()["tags"]), ["a", "b"])
-
-    def test_excluded_ids_filter(self):
-        super(LicenseManager, cast(LicenseManager, License.objects)).create(
-            plan="enterprise", valid_until=timezone.datetime(2500, 1, 19, 3, 14, 7)
-        )
-        # rated_app, installed_app
-        rated_app_event = EnterpriseEventDefinition.objects.create(team=self.team, name="rated_app")
-        installed_app_event = EnterpriseEventDefinition.objects.create(team=self.team, name="installed_app")
-        ids = [rated_app_event.id, installed_app_event.id]
-
-        response = self.client.get("/api/projects/@current/event_definitions/?search=app")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["count"], 2)  # installed_app, rated_app
-        self.assertEqual(response.json()["results"][0]["name"], "installed_app")
-        self.assertEqual(response.json()["results"][1]["name"], "rated_app")
-
-        excluded_ids_str = f'["{str(ids[0])}"]'
-        response = self.client.get(
-            f'/api/projects/@current/event_definitions/?search=app&{urllib.parse.urlencode({"excluded_ids": excluded_ids_str})}'
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["count"], 1)
-        self.assertEqual(response.json()["results"][0]["id"], str(ids[1]))
-        self.assertEqual(response.json()["results"][0]["name"], "installed_app")
-
-        response = self.client.get(
-            f'/api/projects/@current/event_definitions/?search=app&{urllib.parse.urlencode({"excluded_ids": []})}'
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["count"], 2)  # installed_app, rated_app
-        self.assertEqual(response.json()["results"][0]["name"], "installed_app")
-        self.assertEqual(response.json()["results"][1]["name"], "rated_app")
 
     def test_include_actions(self):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(

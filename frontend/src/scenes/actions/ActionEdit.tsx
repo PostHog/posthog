@@ -31,7 +31,7 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
     }
     const logic = actionEditLogic(logicProps)
     const { action, actionLoading, actionCount, actionCountLoading, shouldSimplifyActions } = useValues(logic)
-    const { deleteAction } = useActions(logic)
+    const { submitAction, deleteAction } = useActions(logic)
     const { currentTeam } = useValues(teamLogic)
     const { hasAvailableFeature } = useValues(userLogic)
 
@@ -81,16 +81,15 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
                                             ? onChange
                                             : undefined /* When creating a new action, change value on type */
                                     }
-                                    onSave={
-                                        !id
-                                            ? undefined
-                                            : onChange /* When not creating a new action, change value on save */
-                                    }
+                                    onSave={(value) => {
+                                        onChange(value)
+                                        submitAction()
+                                        /* When clicking 'Save' on an `EditableField`, save the form too */
+                                    }}
                                     mode={!id ? 'edit' : undefined /* When creating a new action, maintain edit mode */}
                                     minLength={1}
                                     maxLength={400} // Sync with action model
                                     data-attr={`action-name-${id ? 'edit' : 'create'}`}
-                                    saveButtonText="Set"
                                     className="action-name"
                                 />
                             )}
@@ -110,11 +109,11 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
                                                 ? onChange
                                                 : undefined /* When creating a new action, change value on type */
                                         }
-                                        onSave={
-                                            !id
-                                                ? undefined
-                                                : onChange /* When not creating a new action, change value on save */
-                                        }
+                                        onSave={(value) => {
+                                            onChange(value)
+                                            submitAction()
+                                            /* When clicking 'Set' on an `EditableField`, always save the form */
+                                        }}
                                         mode={
                                             !id
                                                 ? 'edit'
@@ -126,7 +125,6 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
                                         compactButtons
                                         maxLength={600} // No limit on backend model, but enforce shortish description
                                         paywall={!hasAvailableFeature(AvailableFeature.INGESTION_TAXONOMY)}
-                                        saveButtonText="Set"
                                     />
                                 )}
                             </Field>
