@@ -1,12 +1,10 @@
 import type { columnConfiguratorLogicType } from './columnConfiguratorLogicType'
 import { tableConfigLogic } from 'lib/components/ResizableTable/tableConfigLogic'
 import { kea } from 'kea'
-import { ColumnChoice } from '~/types'
 import { teamLogic } from 'scenes/teamLogic'
 
 export interface ColumnConfiguratorLogicProps {
     selectedColumns: string[] // the columns the table is currently displaying
-    onSaveAsDefault?: (columns: ColumnChoice) => void
 }
 
 export const columnConfiguratorLogic = kea<columnConfiguratorLogicType>({
@@ -35,15 +33,15 @@ export const columnConfiguratorLogic = kea<columnConfiguratorLogicType>({
             false,
             {
                 toggleSaveAsDefault: (state) => !state,
-                save: () => false,
             },
         ],
     }),
-    listeners: ({ values, props }) => ({
+    listeners: ({ values, actions }) => ({
         save: () => {
             tableConfigLogic.actions.setSelectedColumns(values.selectedColumns)
-            if (values.saveAsDefault && props.onSaveAsDefault) {
+            if (values.saveAsDefault) {
                 teamLogic.actions.updateCurrentTeam({ live_events_columns: values.selectedColumns })
+                actions.toggleSaveAsDefault()
             }
         },
     }),

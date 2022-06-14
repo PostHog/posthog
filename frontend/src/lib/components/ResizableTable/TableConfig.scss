@@ -23,7 +23,7 @@
         }
 
         &.selected {
-            background-color: #eef2ff;
+            background-color: var(--bg-light-blue);
         }
 
         .property-key-info {
@@ -38,12 +38,12 @@
     }
 
     .main-content {
-        margin-bottom: 8px;
+        margin-bottom: 0.5rem;
 
         .lists {
             background-color: var(--bg-side);
-            border-radius: 4px;
-            padding: 8px;
+            border-radius: 0.25rem;
+            padding: 0.5rem;
             margin-left: 0 !important;
             margin-right: 0 !important;
         }
@@ -58,7 +58,7 @@
         cursor: move;
         color: var(--text-default);
         font-size: 1.2em;
-        padding-right: 5px;
+        padding-right: 0.25rem;
 
         svg {
             transform: rotate(90deg) translateX(2px);
@@ -67,21 +67,21 @@
 
     .save-as-default-button {
         border: 1px solid var(--dark-grey);
-        border-radius: 4px;
+        border-radius: 0.25rem;
     }
-}
 
-.column-configurator-modal-sortable-container {
-    z-index: 9999;
-    display: flex;
-    align-items: center;
-    justify-content: flex-start;
-    padding: 0.5rem;
+    .column-configurator-modal-sortable-container {
+        z-index: 9999;
+        display: flex;
+        align-items: center;
+        justify-content: flex-start;
+        padding: 0.5rem;
 
-    .drag-handle {
-        color: var(--text-default);
-        font-size: 1.2em;
-        padding-right: 5px;
-        transform: rotate(90deg) translateX(2px);
+        .drag-handle {
+            color: var(--text-default);
+            font-size: 1.2em;
+            padding-right: 0.25rem;
+            transform: rotate(90deg) translateX(2px);
+        }
     }
 }

@@ -49,6 +49,7 @@ $_lifecycle_dormant: #f86234;
     --brand-yellow: #f9bd2b;
     --brand-red: #f54e00;
     --bg-menu: #{$_bg_menu};
+    --bg-light-blue: #eef2ff;
     --bg-mid: #f2f2f2;
     --bg-side: #fafaf9;
     --bg-depth: #0f0f0f;
@@ -261,9 +262,11 @@ body strong {
     min-height: 2.5rem;
     gap: 0.5rem 1rem;
     margin: 1.25rem 0 0.25rem;
+
     @media screen and (min-width: $md) {
         flex-wrap: nowrap;
     }
+
     .ant-form-item {
         margin-bottom: 0 !important;
     }
@@ -388,6 +391,7 @@ mark {
     overflow: hidden;
     color: var(--muted-alt);
     font-size: 0.8125rem;
+
     &--danger {
         color: var(--danger);
         font-weight: 600;
@@ -592,6 +596,7 @@ code.code {
 .border-bottom {
     border-bottom: 1px solid var(--border);
 }
+
 // Vendor-specific adjustments
 
 input::-ms-clear {
@@ -636,6 +641,7 @@ input::-ms-clear {
     0% {
         background-color: var(--yellow-lightest);
     }
+
     100% {
         background-color: initial;
     }
@@ -647,6 +653,7 @@ input::-ms-clear {
     0% {
         transform: rotateZ(0deg);
     }
+
     100% {
         transform: rotateZ(360deg);
     }
@@ -676,10 +683,12 @@ input::-ms-clear {
     @extend .text-default;
     font-weight: 500;
     padding: 0;
+
     b,
     strong {
         font-weight: 700;
     }
+
     button {
         margin: 0 0.75rem;
     }
@@ -691,12 +700,15 @@ input::-ms-clear {
     height: 1.5rem;
     margin-right: 0.75rem;
     font-size: 1.5rem;
+
     .Toastify__toast--success & {
         color: var(--toastify-color-success);
     }
+
     .Toastify__toast--warning & {
         color: var(--toastify-color-warning);
     }
+
     .Toastify__toast--error & {
         color: var(--toastify-color-error);
     }
@@ -738,12 +750,15 @@ input::-ms-clear {
         height: 100%;
         pointer-events: none;
     }
+
     &::before {
         box-shadow: 16px 0 16px -16px rgba(0, 0, 0, 0.25) inset;
     }
+
     &::after {
         box-shadow: -16px 0 16px -16px rgba(0, 0, 0, 0.25) inset;
     }
+
     &.scrollable--right::after,
     &.scrollable--left::before {
         opacity: 1;
@@ -782,6 +797,7 @@ input::-ms-clear {
         .caption {
             color: var(--danger);
         }
+
         input[type='password'],
         input[type='text'] {
             border-color: var(--danger) !important;
@@ -808,6 +824,7 @@ input::-ms-clear {
 .ant-btn-primary.btn-danger {
     background-color: var(--danger) !important;
     border-color: var(--danger) !important;
+
     &:disabled {
         background-color: lighten($_danger, 20%) !important;
         color: lighten(#fff, 20%) !important;
@@ -842,6 +859,7 @@ input::-ms-clear {
 .btn-lg-2x {
     font-size: 1.5rem !important;
     line-height: 1 !important;
+
     svg {
         width: 1.5rem !important;
         height: 1.5rem !important;
@@ -859,6 +877,7 @@ input::-ms-clear {
     &.ant-btn {
         padding-top: 1.3rem !important;
     }
+
     &:not(.ant-btn-primary) {
         color: var(--primary);
     }
@@ -904,38 +923,48 @@ input::-ms-clear {
     color: #fff;
     font-size: 0.75rem;
     line-height: 1.5rem;
+
     code {
         color: inherit;
         font-size: inherit;
     }
+
     &.warning div {
         height: auto;
         background: var(--danger);
     }
+
     &.tricolor {
         cursor: pointer;
+
         div:nth-child(1) {
             background: var(--brand-blue);
         }
+
         div:nth-child(2) {
             background: var(--brand-red);
         }
+
         div:nth-child(3) {
             background: var(--brand-yellow);
         }
+
         span {
             cursor: text;
         }
     }
+
     div {
         flex-basis: 0;
         flex-grow: 1;
         height: 1.5rem;
         text-align: center;
     }
+
     span {
         display: none;
     }
+
     button {
         border: none;
         background: transparent;
@@ -947,15 +976,19 @@ input::-ms-clear {
         font-weight: bold;
         cursor: pointer;
     }
+
     @media screen and (min-width: 750px) {
         font-size: 1rem;
         line-height: 2rem;
+
         div {
             height: 2rem;
         }
+
         span {
             display: inline;
         }
+
         button {
             width: 2rem;
             height: 2rem;
@@ -977,6 +1010,7 @@ input::-ms-clear {
     height: 100%;
     top: 0;
     left: 0;
+
     .overlay--danger & {
         background: repeating-linear-gradient(
             -45deg,
@@ -1070,6 +1104,7 @@ body {
     h4 {
         color: var(--text-default);
     }
+
     h5 {
         font-size: 11px;
         font-weight: 600;
@@ -1079,6 +1114,7 @@ body {
         margin-bottom: 0.25rem;
         line-height: 2;
     }
+
     // AntD uses its own border color for the bottom of tab lists, but we want to use `var(--border)`
     .ant-tabs-top,
     .ant-tabs-bottom {
@@ -1089,26 +1125,33 @@ body {
             }
         }
     }
+
     .ant-dropdown {
         border-radius: var(--radius);
     }
+
     .ant-dropdown-menu {
         border-radius: var(--radius);
     }
+
     .ant-modal-content {
         box-shadow: var(--shadow-elevation);
     }
+
     .ant-form-item-label {
         > label {
             font-weight: 600;
+
             .ant-form-item-optional {
                 font-weight: 400;
                 color: var(--muted);
             }
         }
     }
+
     .ant-form-item {
         margin-bottom: 1rem;
+
         &:last-child {
             margin-bottom: 0;
         }
@@ -1132,6 +1175,7 @@ body {
     &.over-table {
         display: block;
         background: rgba(0, 0, 0, 0.1);
+
         td {
             display: block;
         }
