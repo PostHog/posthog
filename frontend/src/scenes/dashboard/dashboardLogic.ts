@@ -337,10 +337,6 @@ export const dashboardLogic = kea<dashboardLogicType>({
         ],
 
         subscriptionMode: [
-            /* Whether to report viewed/analyzed events after the API is loaded (and this logic is mounted).
-            We need this because the DashboardView component might be mounted (and subsequent `useEffect`) before the API request
-            to `loadDashboardItems` is completed (e.g. if you open PH directly to a dashboard)
-            */
             { enabled: false, id: null },
             {
                 setSubscriptionMode: (_, { enabled, id }) => ({ enabled, id }),

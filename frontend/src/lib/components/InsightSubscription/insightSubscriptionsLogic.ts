@@ -30,7 +30,6 @@ export const insightSubscriptionsLogic = kea<insightSubscriptionsLogicType>([
                 }
 
                 breakpoint?.()
-                console.log(props)
                 const response = await api.subscriptions.list({
                     dashboardId: props.dashboardId,
                     insightId: props.insightId,
