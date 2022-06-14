@@ -1,6 +1,5 @@
 from datetime import timedelta
 
-
 from dateutil.rrule import (
     FR,
     MO,
@@ -61,8 +60,6 @@ class Subscription(models.Model):
         SATURDAY = "saturday"
         SUNDAY = "sunday"
 
-    id: models.BigAutoField = models.BigAutoField(primary_key=True)
-
     # Relations - i.e. WHAT are we exporting?
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
     dashboard = models.ForeignKey("posthog.Dashboard", on_delete=models.CASCADE, null=True)
@@ -117,7 +114,11 @@ class Subscription(models.Model):
 
     @property
     def url(self):
-        return f"{settings.SITE_URL}/insights/{self.insight.short_id}/subscriptions/{self.id}"
+        if self.insight:
+            return f"{settings.SITE_URL}/insights/{self.insight.short_id}/subscriptions/{self.id}"
+        elif self.dashboard:
+            return f"{settings.SITE_URL}/dashboard/{self.dashboard.id}/subscriptions/{self.id}"
+        return None
 
 
 def to_rrule_weekdays(weekday: Subscription.SubscriptionByWeekDay):

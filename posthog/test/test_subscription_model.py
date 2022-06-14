@@ -7,9 +7,9 @@ import pytz
 from django.utils import timezone
 from freezegun import freeze_time
 
+from posthog.jwt import PosthogJwtAudience
 from posthog.models.insight import Insight
 from posthog.models.subscription import (
-    UNSUBSCRIBE_TOKEN_AUD,
     UNSUBSCRIBE_TOKEN_EXP_DAYS,
     Subscription,
     get_unsubscribe_token,
@@ -63,7 +63,7 @@ class TestSubscription(BaseTest):
         token = get_unsubscribe_token(subscription, "test2@posthog.com")
         assert token.startswith("ey")
 
-        info = jwt.decode(token, "not-so-secret", audience=UNSUBSCRIBE_TOKEN_AUD, algorithms=["HS256"])
+        info = jwt.decode(token, "not-so-secret", audience=PosthogJwtAudience.UNSUBSCRIBE, algorithms=["HS256"])
 
         assert info["id"] == subscription.id
         assert info["email"] == "test2@posthog.com"

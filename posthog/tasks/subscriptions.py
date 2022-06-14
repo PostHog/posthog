@@ -1,7 +1,6 @@
 import uuid
 from datetime import datetime, timedelta
 from typing import List
-from requests import delete
 
 import structlog
 
@@ -20,9 +19,16 @@ def get_unsubscribe_url(subscription: Subscription, email: str) -> str:
 
 
 def send_email_subscription_report(email: str, subscription: Subscription, exported_asset: ExportedAsset) -> None:
+    subject = "Posthog Report"
+
+    if subscription.insight:
+        subject = f"PostHog Insight report - {subscription.insight.name or subscription.insight.derived_name}"
+    elif subscription.dashboard:
+        subject = f"PostHog Dashboard report - {subscription.dashboard.name}"
+
     message = EmailMessage(
         campaign_key=f"insight_subscription_report_{subscription.next_delivery_date.isoformat()}",
-        subject=f"PostHog Insight report - {subscription.insight.name or subscription.insight.derived_name}",
+        subject=subject,
         template_name="insight_subscription_report",
         template_context={
             "exported_asset": exported_asset,

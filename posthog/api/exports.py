@@ -62,9 +62,6 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(
                 {"export_format": ["This type of export is not supported for this resource."]}
             )
-        except Exception as e:
-            # TODO: Remove this once chrome is working
-            raise serializers.ValidationError({"celery": [str(e)]})
 
         report_user_action(
             request.user, "export created", instance.get_analytics_metadata(),
