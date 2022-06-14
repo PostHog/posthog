@@ -21,10 +21,10 @@ import { UsageDisabledWarning } from 'scenes/events/UsageDisabledWarning'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { ThirtyDayQueryCountTitle, ThirtyDayVolumeTitle } from 'lib/components/DefinitionPopup/DefinitionPopupContents'
 import { ProfilePicture } from 'lib/components/ProfilePicture'
-import { createdAtColumn } from 'lib/components/LemonTable/columnUtils'
 import { teamLogic } from 'scenes/teamLogic'
 import { IconWebhook } from 'lib/components/icons'
 import { NewActionButton } from 'scenes/actions/NewActionButton'
+import { TZLabel } from 'lib/components/TimezoneAware'
 
 export const scene: SceneExport = {
     component: EventDefinitionsTable,
@@ -48,7 +48,7 @@ export function EventDefinitionsTable(): JSX.Element {
                 if (isActionEvent(definition)) {
                     return <ActionHeader definition={definition} hideText />
                 }
-                return <EventDefinitionHeader definition={definition} hideText/>
+                return <EventDefinitionHeader definition={definition} hideText />
             },
         },
         {
@@ -59,7 +59,7 @@ export function EventDefinitionsTable(): JSX.Element {
                 if (isActionEvent(definition)) {
                     return <ActionHeader definition={definition} hideIcon asLink />
                 }
-                return <EventDefinitionHeader definition={definition} hideIcon asLink shouldSimplifyActions/>
+                return <EventDefinitionHeader definition={definition} hideIcon asLink shouldSimplifyActions />
             },
             sorter: (a, b) => a.name?.localeCompare(b.name ?? '') ?? 0,
         },
@@ -102,7 +102,28 @@ export function EventDefinitionsTable(): JSX.Element {
                           )
                       },
                   } as LemonTableColumn<CombinedEvent, keyof CombinedEvent | undefined>,
-                  createdAtColumn() as LemonTableColumn<CombinedEvent, keyof CombinedEvent | undefined>,
+                  {
+                      title: 'Created',
+                      key: 'created_at',
+                      align: 'left',
+                      render: function Render(_, definition: CombinedEvent) {
+                          const created_at = isActionEvent(definition)
+                              ? definition.last_calculated_at
+                              : definition.created_at
+                          return created_at ? (
+                              <div style={{ whiteSpace: 'nowrap' }}>
+                                  <TZLabel time={created_at} />
+                              </div>
+                          ) : (
+                              <span style={{ color: 'var(--muted)' }}>—</span>
+                          )
+                      },
+                      sorter: (a, b) =>
+                          new Date((isActionEvent(a) ? a.last_calculated_at : a.created_at) || 0) >
+                          new Date((isActionEvent(b) ? b.last_calculated_at : b.created_at) || 0)
+                              ? 1
+                              : -1,
+                  } as LemonTableColumn<CombinedEvent, keyof CombinedEvent | undefined>,
                   {
                       title: 'Webhook',
                       key: 'webhook',

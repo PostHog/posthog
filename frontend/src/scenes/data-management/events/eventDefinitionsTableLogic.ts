@@ -56,15 +56,30 @@ export function normalizePropertyDefinitionEndpointUrl(
     })
 }
 
-function normalizeEventDefinitionEndpointUrl(
-    url: string | null | undefined,
-    searchParams: Record<string, any> = {},
-    full: boolean = false
-): string | null {
+function normalizeEventDefinitionEndpointUrl({
+    url,
+    searchParams = {},
+    full = false,
+    shouldSimplifyActions = false,
+}: {
+    url?: string | null | undefined
+    searchParams?: Record<string, any>
+    full?: boolean
+    shouldSimplifyActions?: boolean
+}): string | null {
     if (!full && !url) {
         return null
     }
-    return api.eventDefinitions.determineListEndpoint({ ...(url ? combineUrl(url).searchParams : {}), ...searchParams })
+    const params = {
+        ...(url
+            ? {
+                  ...combineUrl(url).searchParams,
+                  ...(shouldSimplifyActions ? { include_actions: true } : {}),
+              }
+            : {}),
+        ...searchParams,
+    }
+    return api.eventDefinitions.determineListEndpoint(params)
 }
 
 export function isActionEvent(event: CombinedEvent): event is ActionType {
@@ -116,14 +131,18 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
                 results: [],
             } as EventDefinitionsPaginatedResponse,
             {
-                loadEventDefinitions: async ({ url }, breakpoint) => {
+                loadEventDefinitions: async ({ url: _url }, breakpoint) => {
+                    let url = normalizeEventDefinitionEndpointUrl({
+                        url: _url,
+                        shouldSimplifyActions: values.shouldSimplifyActions,
+                    })
                     if (url && url in (cache.apiCache ?? {})) {
                         return cache.apiCache[url]
                     }
 
                     if (!url) {
                         url = api.eventDefinitions.determineListEndpoint({
-                            ...(!!featureFlagLogic.findMounted()?.values.featureFlags[FEATURE_FLAGS.SIMPLIFY_ACTIONS]
+                            ...(values.shouldSimplifyActions
                                 ? {
                                       include_actions: true,
                                   }
@@ -135,21 +154,24 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
                     const response = await api.get(url)
                     breakpoint()
 
-                    const currentUrl = `${normalizeEventDefinitionEndpointUrl(url)}`
                     cache.apiCache = {
                         ...(cache.apiCache ?? {}),
-                        [currentUrl]: {
+                        [url]: {
                             ...response,
-                            previous: normalizeEventDefinitionEndpointUrl(response.previous),
-                            next: normalizeEventDefinitionEndpointUrl(response.next),
-                            current: currentUrl,
+                            previous: normalizeEventDefinitionEndpointUrl({
+                                url: response.previous,
+                                shouldSimplifyActions: values.shouldSimplifyActions,
+                            }),
+                            next: normalizeEventDefinitionEndpointUrl({
+                                url: response.next,
+                                shouldSimplifyActions: values.shouldSimplifyActions,
+                            }),
+                            current: url,
                             page:
-                                Math.floor(
-                                    (combineUrl(currentUrl).searchParams.offset ?? 0) / EVENT_DEFINITIONS_PER_PAGE
-                                ) + 1,
+                                Math.floor((combineUrl(url).searchParams.offset ?? 0) / EVENT_DEFINITIONS_PER_PAGE) + 1,
                         },
                     }
-                    return cache.apiCache[currentUrl]
+                    return cache.apiCache[url]
                 },
                 setLocalEventDefinition: ({ definition }) => {
                     if (!values.eventDefinitions.current) {
@@ -270,11 +292,12 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
     listeners(({ actions, values, cache }) => ({
         setFilters: () => {
             actions.loadEventDefinitions(
-                normalizeEventDefinitionEndpointUrl(
-                    values.eventDefinitions.current,
-                    { search: values.filters.event },
-                    true
-                )
+                normalizeEventDefinitionEndpointUrl({
+                    url: values.eventDefinitions.current,
+                    searchParams: { search: values.filters.event },
+                    full: true,
+                    shouldSimplifyActions: values.shouldSimplifyActions,
+                })
             )
         },
         loadEventDefinitionsSuccess: () => {
