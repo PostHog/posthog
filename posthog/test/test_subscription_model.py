@@ -63,7 +63,7 @@ class TestSubscription(BaseTest):
         token = get_unsubscribe_token(subscription, "test2@posthog.com")
         assert token.startswith("ey")
 
-        info = jwt.decode(token, "not-so-secret", audience=PosthogJwtAudience.UNSUBSCRIBE, algorithms=["HS256"])
+        info = jwt.decode(token, "not-so-secret", audience=PosthogJwtAudience.UNSUBSCRIBE.value, algorithms=["HS256"])
 
         assert info["id"] == subscription.id
         assert info["email"] == "test2@posthog.com"

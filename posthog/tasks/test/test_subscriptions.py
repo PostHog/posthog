@@ -67,7 +67,7 @@ class TestSubscriptionsTasks(APIBaseTest):
         assert len(mocked_email_messages) == 2
         assert mocked_email_messages[0].send.call_count == 1
         assert "is ready!" in mocked_email_messages[0].html_body
-        assert f"/exports/export-my-test-subscription.png?token=ey" in mocked_email_messages[0].html_body
+        assert f"/exporter/export-my-test-subscription.png?token=ey" in mocked_email_messages[0].html_body
 
         assert mock_export_task.call_count == 1
 
