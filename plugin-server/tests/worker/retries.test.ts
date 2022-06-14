@@ -1,7 +1,7 @@
 import { ProcessedPluginEvent, RetryError } from '@posthog/plugin-scaffold'
 
 import { Hub } from '../../src/types'
-import { delay,UUID } from '../../src/utils/utils'
+import { delay, UUID } from '../../src/utils/utils'
 import { runRetriableFunction } from '../../src/worker/plugins/run'
 import { pluginConfig39 } from '../helpers/plugins'
 
