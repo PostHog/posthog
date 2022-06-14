@@ -10,7 +10,6 @@ export const ON_CAUSE_RETRY_MULTIPLIER = 2
 export const ON_CAUSE_RETRY_BASE_MS = 5000
 
 export async function runOnEvent(hub: Hub, event: ProcessedPluginEvent): Promise<void> {
-    console.log('LOLOL')
     const pluginMethodsToRun = await getPluginMethodsForTeam(hub, event.team_id, 'onEvent')
 
     await Promise.all(
@@ -210,7 +209,6 @@ async function getPluginMethodsForTeam<M extends keyof VMMethods>(
     teamId: number,
     method: M
 ): Promise<[PluginConfig, VMMethods[M]][]> {
-    console.log('BLAH')
     const pluginConfigs = hub.pluginConfigsPerTeam.get(teamId) || []
     if (pluginConfigs.length === 0) {
         return []
