@@ -19,6 +19,10 @@ env:
     OBJECT_STORAGE_SESSION_RECORDING_FOLDER: 'session_recordings'
     OBJECT_STORAGE_BUCKET: 'posthog'
 
+concurrency: 
+  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
+
 jobs:
     code-quality:
         name: Code quality
