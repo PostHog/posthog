@@ -48,7 +48,7 @@ class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
     # Use cached result even on refresh if team has strict caching enabled
     def get_cached_result(self, filter: Filter, team: Team) -> Optional[List[Dict[str, Any]]]:
 
-        if not team.strict_caching_enabled or filter.breakdown or filter.display == TRENDS_CUMULATIVE:
+        if not team.strict_caching_enabled or filter.formula or filter.breakdown or filter.display == TRENDS_CUMULATIVE:
             return None
 
         cache_key = generate_cache_key(f"{filter.toJSON()}_{team.pk}")
