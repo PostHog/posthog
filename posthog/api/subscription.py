@@ -14,7 +14,7 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.models.subscription import Subscription, unsubscribe_using_token
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
-from posthog.tasks.subscriptions import deliver_new_subscription
+from posthog.tasks import subscriptions
 from posthog.utils import str_to_bool
 
 
@@ -22,7 +22,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
     """Standard Subscription serializer."""
 
     created_by = UserBasicSerializer(read_only=True)
-    invite_message = serializers.CharField(required=False)
+    invite_message = serializers.CharField(required=False, allow_blank=True, allow_null=True)
 
     class Meta:
         model = Subscription
@@ -66,22 +66,22 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         request = self.context["request"]
         validated_data["team_id"] = self.context["team_id"]
         validated_data["created_by"] = request.user
+        invite_message = validated_data.pop("invite_message", "")
         instance: Subscription = super().create(validated_data)
 
         if instance.target_type == "email":
-            deliver_new_subscription.delay(
-                instance.id, instance.target_value.split(","), validated_data.get("invite_message")
-            )
+            subscriptions.deliver_new_subscription.delay(instance.id, instance.target_value.split(","), invite_message)
 
         return instance
 
     def update(self, instance: Subscription, validated_data: dict, *args: Any, **kwargs: Any) -> Subscription:
         old_emails = instance.target_value.split(",")
+        invite_message = validated_data.pop("invite_message", "")
         instance = super().update(instance, validated_data)
 
         if instance.target_type == "email" and "target_value" in validated_data:
             new_emails = list(set(validated_data["target_value"].split(",")) - set(old_emails))
-            deliver_new_subscription.delay(instance.id, new_emails, validated_data.get("invite_message"))
+            subscriptions.deliver_new_subscription.delay(instance.id, new_emails, invite_message)
 
         return instance
 
