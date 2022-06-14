@@ -945,7 +945,7 @@
               GROUP BY distinct_id
               HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
            WHERE team_id = 2
-             AND event = '$pageview'
+             AND event = '$action'
              AND timestamp >= toDateTime('2012-01-14 00:00:00')
              AND timestamp <= toDateTime('2012-01-15 23:59:59') )
         GROUP BY date)
@@ -981,7 +981,7 @@
               GROUP BY distinct_id
               HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
            WHERE team_id = 2
-             AND event = '$action'
+             AND event = '$pageview'
              AND timestamp >= toDateTime('2012-01-14 00:00:00')
              AND timestamp <= toDateTime('2012-01-15 23:59:59') )
         GROUP BY date)
