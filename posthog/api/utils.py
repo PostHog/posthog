@@ -361,7 +361,7 @@ def create_event_definitions_sql(include_actions: bool, is_enterprise: bool = Fa
         return f"""
         SELECT * FROM (
             {event_definition_table}
-            UNION 
+            UNION
             SELECT {raw_action_fields} FROM posthog_action
             WHERE posthog_action.deleted = false
         ) as T
