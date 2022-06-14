@@ -8,7 +8,7 @@ import { SessionNetworkRequest } from '~/types'
 import { LemonButton } from 'lib/components/LemonButton'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { Spinner } from 'lib/components/Spinner/Spinner'
-import { colonDelimitedDuration } from 'lib/utils'
+import { colonDelimitedDuration, humanFriendlyNumber } from 'lib/utils'
 import { Tooltip } from 'lib/components/Tooltip'
 
 const HumanizeURL = ({ url }: { url: string | undefined }): JSX.Element => {
@@ -36,6 +36,11 @@ const HumanizeURL = ({ url }: { url: string | undefined }): JSX.Element => {
     )
 }
 
+const friendlyMilliseconds = (duration: number | undefined): string => {
+    const numberPart = duration ? humanFriendlyNumber(duration, 0) : 'unknown number of'
+    return `${numberPart} milliseconds`
+}
+
 const Title = ({ networkRequest, title }: { networkRequest: SessionNetworkRequest; title: string }): JSX.Element => (
     <div className="Title">
         <h3>{title}</h3>{' '}
@@ -49,8 +54,7 @@ const NavigationRequestRow = ({ networkRequest }: { networkRequest: SessionNetwo
     <>
         <Title networkRequest={networkRequest} title="Navigation" />
         <p>
-            to <HumanizeURL url={networkRequest.url} /> took {networkRequest.duration ?? 'unknown number of'}{' '}
-            milliseconds
+            to <HumanizeURL url={networkRequest.url} /> took {friendlyMilliseconds(networkRequest.duration)}
         </p>
     </>
 )
@@ -59,7 +63,7 @@ const PaintRequestRow = ({ networkRequest }: { networkRequest: SessionNetworkReq
     <>
         <Title networkRequest={networkRequest} title="Browser Event" />
         <p>
-            {networkRequest.eventName} occurred after {networkRequest.timing ?? 'unknown number of'} milliseconds
+            {networkRequest.eventName} occurred after {friendlyMilliseconds(networkRequest.timing)}
         </p>
     </>
 )
@@ -68,8 +72,7 @@ const ResourceRequestRow = ({ networkRequest }: { networkRequest: SessionNetwork
     <>
         <Title networkRequest={networkRequest} title="Network Request" />
         <p>
-            to <HumanizeURL url={networkRequest.url} /> took {networkRequest.duration ?? 'unknown number of'}{' '}
-            milliseconds
+            to <HumanizeURL url={networkRequest.url} /> took {friendlyMilliseconds(networkRequest.duration)}
         </p>
     </>
 )
