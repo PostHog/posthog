@@ -36,7 +36,7 @@ import { combineUrl } from 'kea-router'
 import { ActionStack, CohortIcon } from 'lib/components/icons'
 import { keyMapping } from 'lib/components/PropertyKeyInfo'
 import {
-    getEventDefinitionOrActionIcon,
+    getEventDefinitionIcon,
     getPropertyDefinitionIcon,
 } from 'scenes/data-management/events/DefinitionHeader'
 import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
@@ -55,7 +55,7 @@ export const eventTaxonomicGroupProps: Pick<TaxonomicFilterGroup, 'getPopupHeade
         }
         return `${eventDefinition.verified ? 'Verified' : 'Unverified'} Event`
     },
-    getIcon: getEventDefinitionOrActionIcon,
+    getIcon: getEventDefinitionIcon,
 }
 
 export const propertyTaxonomicGroupProps = (
@@ -157,8 +157,8 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                     !!featureFlagLogic.findMounted()?.values?.featureFlags?.[FEATURE_FLAGS.SIMPLIFY_ACTIONS]
                 return [
                     {
-                        name: 'Events',
-                        searchPlaceholder: 'events',
+                        name: shouldSimplifyActions ? "Raw events" : 'Events',
+                        searchPlaceholder: shouldSimplifyActions ? "raw events" : 'events',
                         type: TaxonomicFilterGroupType.Events,
                         endpoint: `api/projects/${teamId}/event_definitions`,
                         getName: (eventDefinition: EventDefinition) => eventDefinition.name,
@@ -166,16 +166,16 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                         ...eventTaxonomicGroupProps,
                     },
                     {
-                        name: shouldSimplifyActions ? 'Calculated events' : 'Actions',
-                        searchPlaceholder: shouldSimplifyActions ? 'calculated events' : 'actions',
+                        name: shouldSimplifyActions ? 'Events' : 'Actions',
+                        searchPlaceholder: shouldSimplifyActions ? 'events' : 'actions',
                         type: TaxonomicFilterGroupType.Actions,
                         logic: actionsModel,
                         value: 'actions',
                         getName: (action: ActionType) => action.name || '',
                         getValue: (action: ActionType) => action.id,
-                        getPopupHeader: () => (shouldSimplifyActions ? 'Calculated event' : 'Action'),
+                        getPopupHeader: () => (shouldSimplifyActions ? 'Event' : 'Action'),
                         getIcon: shouldSimplifyActions
-                            ? getEventDefinitionOrActionIcon
+                            ? getEventDefinitionIcon
                             : function _getIcon(): JSX.Element {
                                   return <ActionStack className="taxonomy-icon taxonomy-icon-muted" />
                               },

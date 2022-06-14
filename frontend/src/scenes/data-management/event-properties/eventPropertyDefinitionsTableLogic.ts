@@ -59,12 +59,6 @@ export const eventPropertyDefinitionsTableLogic = kea<eventPropertyDefinitionsTa
                 setHoveredDefinition: (_, { definitionKey }) => definitionKey,
             },
         ],
-        openedDefinitionId: [
-            null as string | null,
-            {
-                setOpenedDefinition: (_, { id }) => id,
-            },
-        ],
     }),
     loaders(({ values, cache }) => ({
         eventPropertyDefinitions: [

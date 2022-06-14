@@ -39,7 +39,7 @@ export function getPropertyDefinitionIcon(definition: PropertyDefinition): JSX.E
     return <PropertyIcon className="taxonomy-icon taxonomy-icon-muted" />
 }
 
-export function getEventDefinitionOrActionIcon(definition: CombinedEvent): JSX.Element {
+export function getEventDefinitionIcon(definition: CombinedEvent): JSX.Element {
     // Rest are events
     if (definition.name === '$pageview') {
         return (
@@ -138,16 +138,16 @@ export function ActionHeader({
         <RawDefinitionHeader
             definition={definition}
             group={{
-                name: 'Calculated events',
-                searchPlaceholder: 'calculated events',
+                name: 'Events',
+                searchPlaceholder: 'events',
                 type: TaxonomicFilterGroupType.Actions,
                 logic: actionsModel,
                 value: 'actions',
                 getName: (action: ActionType) => action.name || '',
                 getValue: (action: ActionType) => action.name || '',
-                getFullDetailUrl: (action: ActionType) => urls.action(action.id),
-                getPopupHeader: () => 'Calculated event',
-                getIcon: getEventDefinitionOrActionIcon,
+                getFullDetailUrl: (action: ActionType) => action.action_id ? urls.action(action.action_id) : '',
+                getPopupHeader: () => 'event',
+                getIcon: getEventDefinitionIcon,
             }}
             shouldSimplifyActions
             {...props}
@@ -157,22 +157,25 @@ export function ActionHeader({
 
 export function EventDefinitionHeader({
     definition,
+    shouldSimplifyActions = false,
     ...props
 }: {
     definition: EventDefinition
+    shouldSimplifyActions?: boolean
 } & SharedDefinitionHeaderProps): JSX.Element {
     return (
         <RawDefinitionHeader
             definition={definition}
             group={{
-                name: 'Events',
-                searchPlaceholder: 'events',
+                name: shouldSimplifyActions ? 'Raw events': "Events",
+                searchPlaceholder: shouldSimplifyActions ? 'raw events' : "events",
                 type: TaxonomicFilterGroupType.Events,
                 getName: (eventDefinition: EventDefinition) => eventDefinition.name,
                 getValue: (eventDefinition: EventDefinition) => eventDefinition.name,
                 getFullDetailUrl: (eventDefinition: EventDefinition) => urls.eventDefinition(eventDefinition.id),
                 ...eventTaxonomicGroupProps,
             }}
+            shouldSimplifyActions={shouldSimplifyActions}
             {...props}
         />
     )

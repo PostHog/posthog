@@ -9,13 +9,14 @@ from posthog.api.utils import create_event_definitions_sql
 from posthog.constants import AvailableFeature
 from posthog.exceptions import EnterpriseFeatureException
 from posthog.filters import TermSearchFilterBackend, term_search_filter_sql
-from posthog.models import Action, EventDefinition, TaggedItem
+from posthog.models import EventDefinition, TaggedItem
 from posthog.permissions import OrganizationMemberPermissions, TeamMemberAccessPermission
 
 
 # If EE is enabled, we use ee.api.ee_event_definition.EnterpriseEventDefinitionSerializer
 class EventDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
     is_action = serializers.SerializerMethodField(read_only=True)
+    action_id = serializers.IntegerField(read_only=True)
 
     class Meta:
         model = EventDefinition
@@ -27,14 +28,16 @@ class EventDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelSeri
             "created_at",
             "last_seen_at",
             "tags",
+            # Action specific fields
             "is_action",
+            "action_id"
         )
 
     def update(self, event_definition: EventDefinition, validated_data):
         raise EnterpriseFeatureException()
 
     def get_is_action(self, obj):
-        return isinstance(obj, Action)
+        return hasattr(obj, "action_id") and obj.action_id is not None
 
 
 class EventDefinitionViewSet(
@@ -56,22 +59,22 @@ class EventDefinitionViewSet(
         #   If true, return both list of event definitions and actions together.
         include_actions = self.request.GET.get("include_actions", None) == "true"
 
+        search = self.request.GET.get("search", None)
+        search_query, search_kwargs = term_search_filter_sql(self.search_fields, search)
+
+        params = {
+                    "team_id": self.team_id,
+                    **search_kwargs,
+                }
+
         if self.request.user.organization.is_feature_available(AvailableFeature.INGESTION_TAXONOMY):  # type: ignore
             try:
                 from ee.models.event_definition import EnterpriseEventDefinition
             except ImportError:
                 pass
             else:
-                search = self.request.GET.get("search", None)
-                search_query, search_kwargs = term_search_filter_sql(self.search_fields, search)
-
-                params = {
-                    "team_id": self.team_id,
-                    **search_kwargs,
-                }
-
                 # Prevent fetching deprecated `tags` field. Tags are separately fetched in TaggedItemSerializerMixin
-                table_sql = create_event_definitions_sql(include_actions)
+                table_sql = create_event_definitions_sql(include_actions, is_enterprise=True)
 
                 ee_event_definitions = EnterpriseEventDefinition.objects.raw(
                     f"""
@@ -79,7 +82,7 @@ class EventDefinitionViewSet(
                     WHERE team_id = %(team_id)s {search_query}
                     ORDER BY last_seen_at DESC NULLS LAST, query_usage_30_day DESC NULLS LAST, name ASC
                     """,
-                    params=params,
+                    params=params
                 )
                 ee_event_definitions_list = ee_event_definitions.prefetch_related(
                     Prefetch(
@@ -89,7 +92,15 @@ class EventDefinitionViewSet(
 
                 return ee_event_definitions_list
 
-        event_definitions_list = self.filter_queryset_by_parents_lookups(EventDefinition.objects.all()).order_by("name")
+        table_sql = create_event_definitions_sql(include_actions, is_enterprise=False)
+        event_definitions_list = EventDefinition.objects.raw(
+            f"""
+            {table_sql}
+            WHERE team_id = %(team_id)s {search_query}
+            ORDER BY name ASC
+            """,
+            params=params
+        )
 
         return event_definitions_list
 

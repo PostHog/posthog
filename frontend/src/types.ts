@@ -263,8 +263,9 @@ export interface ActionType {
     steps?: ActionStepType[]
     created_by: UserBasicType | null
     tags?: string[]
-    is_action?: true
     verified?: boolean
+    is_action?: true
+    action_id?: number // alias of id to make it compatible with event definitions uuid
 }
 
 /** Sync with plugin-server/src/types.ts */

@@ -84,7 +84,6 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
         loadEventExample: (definition: EventDefinition) => ({ definition }),
         loadPropertiesForEvent: (definition: EventDefinition, url: string | null = '') => ({ definition, url }),
         setFilters: (filters: Partial<Filters>) => ({ filters }),
-        setOpenedDefinition: (id: string | null) => ({ id }),
         setLocalEventDefinition: (definition: EventDefinition) => ({ definition }),
         setLocalPropertyDefinition: (event: EventDefinition, definition: PropertyDefinition) => ({ event, definition }),
         setEventDefinitionPropertiesLoading: (ids: string[]) => ({ ids }),
@@ -98,12 +97,6 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
                     ...filters,
                     properties: convertPropertyGroupToProperties(filters.properties) ?? [],
                 }),
-            },
-        ],
-        openedDefinitionId: [
-            null as string | null,
-            {
-                setOpenedDefinition: (_, { id }) => id,
             },
         ],
         eventDefinitionPropertiesLoading: [
