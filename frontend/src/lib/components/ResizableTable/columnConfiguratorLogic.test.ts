@@ -58,8 +58,10 @@ describe('the column configurator lets the user change which columns should be v
         await expectLogic(logic, () => {
             logic.actions.selectColumn('added')
             logic.actions.toggleSaveAsDefault()
+            logic.actions.save()
         }).toDispatchActions([
             teamLogic.actionCreators.updateCurrentTeam({ live_events_columns: ['a', 'b', 'ant', 'aardvark', 'added'] }),
+            logic.actionCreators.toggleSaveAsDefault(),
         ])
     })
 })
