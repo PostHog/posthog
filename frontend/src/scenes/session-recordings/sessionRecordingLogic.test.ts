@@ -6,6 +6,7 @@ import { eventUsageLogic, RecordingWatchedSource } from 'lib/utils/eventUsageLog
 import recordingSnapshotsJson from './__mocks__/recording_snapshots.json'
 import recordingMetaJson from './__mocks__/recording_meta.json'
 import recordingEventsJson from './__mocks__/recording_events.json'
+import recordingNetworkRequestsJson from './__mocks__/recordings_network_requests.json'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { combineUrl, router } from 'kea-router'
 import { RecordingEventType } from '~/types'
@@ -28,6 +29,7 @@ describe('sessionRecordingLogic', () => {
                 '/api/projects/:team/session_recordings/:id/snapshots': { result: recordingSnapshotsJson },
                 '/api/projects/:team/session_recordings/:id': { result: recordingMetaJson },
                 '/api/projects/:team/events': { results: recordingEventsJson },
+                '/api/projects/:team/web_performance/for_session/:id': recordingNetworkRequestsJson,
             },
         })
         initKeaTests()
@@ -560,6 +562,32 @@ describe('sessionRecordingLogic', () => {
                             },
                         },
                     ],
+                })
+        })
+    })
+
+    describe('network requests', () => {
+        it('should load and parse network requests from the API', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.loadRecordingSnapshots('1')
+                logic.actions.loadRecordingMeta('1')
+                logic.actions.loadSessionNetworkRequests('1')
+            })
+                .toDispatchActionsInAnyOrder([
+                    'loadRecordingSnapshots',
+                    'loadRecordingSnapshotsSuccess',
+                    'loadRecordingMeta',
+                    'loadRecordingMetaSuccess',
+                    'loadSessionNetworkRequests',
+                    'loadSessionNetworkRequestsSuccess',
+                ])
+                .toMatchValues({
+                    parsedNetworkRequests: recordingNetworkRequestsJson.results.map((r) => ({
+                        ...r,
+                        // player time is altered based on window id lookup
+                        // against recordingMetaJson.start_and_end_times_by_window_id
+                        playerPosition: { windowId: r.playerPosition.windowId, time: r.type === 'paint' ? 2664.5 : 3 },
+                    })),
                 })
         })
     })

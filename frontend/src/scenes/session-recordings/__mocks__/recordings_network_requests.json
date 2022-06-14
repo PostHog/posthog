@@ -1,0 +1,41 @@
+{
+    "keys": ["the", "property", "names"],
+    "results": [
+        {
+            "playerPosition": {
+                "time": 1655136358346,
+                "windowId": "1815dd08f96202f-051b01cefdea5a-367a6700-384000-1815dd08f971ddc"
+            },
+            "type": "navigation",
+            "url": "http://navigated.to",
+            "eventName": null,
+            "duration": 2737.3,
+            "timing": null,
+            "raw": ["matches the keys"]
+        },
+        {
+            "playerPosition": {
+                "time": 1655136358346,
+                "windowId": "1815dd08f96202f-051b01cefdea5a-367a6700-384000-1815dd08f971ddc"
+            },
+            "type": "resource",
+            "url": "http://a.loaded.resource",
+            "eventName": null,
+            "duration": 2737.3,
+            "timing": null,
+            "raw": ["matches the keys"]
+        },
+        {
+            "playerPosition": {
+                "time": 1655136361007.5,
+                "windowId": "1815dd08f96202f-051b01cefdea5a-367a6700-384000-1815dd08f971ddc"
+            },
+            "type": "paint",
+            "url": null,
+            "eventName": "first-contentful-paint",
+            "duration": null,
+            "timing": 2515.5,
+            "raw": ["first-contentful-paint", "paint", 2515.5]
+        }
+    ]
+}
