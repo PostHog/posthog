@@ -17,6 +17,7 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
     window_id VARCHAR,
     session_start DateTime64(6, 'UTC'),
     session_end DateTime64(6, 'UTC'),
+    duration Int64,
     snapshot_data_location VARCHAR
     {extra_fields}
 ) ENGINE = {engine}
@@ -55,6 +56,7 @@ session_id,
 window_id,
 session_start,
 session_end,
+duration,
 snapshot_data_location
 _timestamp,
 _offset
