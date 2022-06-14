@@ -1,5 +1,6 @@
 import * as React from 'react'
 import '~/styles'
+import './storybook.scss'
 import { worker } from '~/mocks/browser'
 import { loadPostHogJS } from '~/loadPostHogJS'
 import { KeaStory } from './kea-story'

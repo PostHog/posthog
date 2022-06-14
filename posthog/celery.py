@@ -114,6 +114,9 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
 
     sender.add_periodic_task(120, calculate_cohort.s(), name="recalculate cohorts")
 
+    # Hourly check for email subscriptions
+    sender.add_periodic_task(crontab(hour="*", minute=55), schedule_all_subscriptions.s())
+
     if settings.ASYNC_EVENT_PROPERTY_USAGE:
         sender.add_periodic_task(
             EVENT_PROPERTY_USAGE_INTERVAL_SECONDS,
@@ -432,3 +435,10 @@ def verify_persons_data_in_sync():
     from posthog.tasks.verify_persons_data_in_sync import verify_persons_data_in_sync as verify
 
     verify()
+
+
+@app.task(ignore_result=True)
+def schedule_all_subscriptions():
+    from posthog.tasks.subscriptions import schedule_all_subscriptions
+
+    schedule_all_subscriptions()

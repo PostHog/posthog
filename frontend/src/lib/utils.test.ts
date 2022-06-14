@@ -33,6 +33,7 @@ import {
     convertPropertyGroupToProperties,
     convertPropertiesToPropertyGroup,
     calculateDays,
+    range,
 } from './utils'
 import { ActionFilter, ElementType, FilterLogicalOperator, PropertyOperator, PropertyType, TimeUnitType } from '~/types'
 import { dayjs } from 'lib/dayjs'
@@ -623,5 +624,15 @@ describe('calculateDays', () => {
     })
     it('1 year to 365 days', () => {
         expect(calculateDays(1, TimeUnitType.Year)).toEqual(365)
+    })
+})
+
+describe('range', () => {
+    it('creates simple range', () => {
+        expect(range(4)).toEqual([0, 1, 2, 3])
+    })
+
+    it('creates offset range', () => {
+        expect(range(1, 5)).toEqual([1, 2, 3, 4])
     })
 })

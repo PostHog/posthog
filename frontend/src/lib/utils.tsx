@@ -1327,3 +1327,13 @@ export function calculateDays(timeValue: number, timeUnit: TimeUnitType): number
     }
     return timeValue
 }
+
+export function range(startOrEnd: number, end?: number): number[] {
+    let length = startOrEnd
+    let start = 0
+    if (typeof end == 'number') {
+        start = startOrEnd
+        length = end - start
+    }
+    return Array.from({ length }, (_, i) => i + start)
+}
