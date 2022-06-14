@@ -41,10 +41,10 @@ export function formatTimeFromNow(day?: string): string {
     return day ? dayjs.utc(day).fromNow() : '-'
 }
 
-export function getSingularType(type: TaxonomicFilterGroupType, shouldSimplifyActions: boolean = false): string {
+export function getSingularType(type: TaxonomicFilterGroupType): string {
     switch (type) {
         case TaxonomicFilterGroupType.Actions:
-            return shouldSimplifyActions ? 'event' : 'action'
+            return 'action'
         case TaxonomicFilterGroupType.Cohorts:
         case TaxonomicFilterGroupType.CohortsWithAllUsers:
             return 'cohort'
@@ -52,7 +52,7 @@ export function getSingularType(type: TaxonomicFilterGroupType, shouldSimplifyAc
             return 'element'
         case TaxonomicFilterGroupType.Events:
         case TaxonomicFilterGroupType.CustomEvents:
-            return shouldSimplifyActions ? 'raw event' : "event"
+            return 'event'
         case TaxonomicFilterGroupType.EventProperties:
         case TaxonomicFilterGroupType.PersonProperties:
         case TaxonomicFilterGroupType.GroupsPrefix: // Group properties

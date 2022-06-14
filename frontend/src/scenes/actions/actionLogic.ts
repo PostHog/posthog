@@ -3,8 +3,6 @@ import api from 'lib/api'
 import type { actionLogicType } from './actionLogicType'
 import { ActionType, Breadcrumb } from '~/types'
 import { urls } from 'scenes/urls'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 
 export interface ActionLogicProps {
     id?: ActionType['id']
@@ -35,30 +33,13 @@ export const actionLogic = kea<actionLogicType>({
         ],
     }),
     selectors: {
-        shouldSimplifyActions: [
-            () => [featureFlagLogic.selectors.featureFlags],
-            (flags) => !!flags[FEATURE_FLAGS.SIMPLIFY_ACTIONS],
-        ],
         breadcrumbs: [
-            (s) => [s.action, s.shouldSimplifyActions],
-            (action, shouldSimplifyActions): Breadcrumb[] => [
-                ...(shouldSimplifyActions
-                    ? [
-                          {
-                              name: `Data Management`,
-                              path: urls.eventDefinitions(),
-                          },
-                          {
-                              name: 'Events',
-                              path: urls.eventDefinitions(),
-                          },
-                      ]
-                    : [
-                          {
-                              name: 'Data Management',
-                              path: urls.actions(),
-                          },
-                      ]),
+            (s) => [s.action],
+            (action): Breadcrumb[] => [
+                {
+                    name: 'Data Management',
+                    path: urls.actions(),
+                },
                 {
                     name: action?.name || 'Unnamed',
                     path: action ? urls.action(action.id) : undefined,

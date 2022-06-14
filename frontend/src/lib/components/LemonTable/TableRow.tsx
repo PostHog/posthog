@@ -31,7 +31,6 @@ function TableRowRaw<T extends Record<string, any>>({
     const rowExpandable: number = Number(
         !!expandable && (!expandable.rowExpandable || expandable.rowExpandable(record))
     )
-    console.log('EXPANDABLE', expandable, rowExpandable, record, recordIndex)
     const isRowExpanded =
         !expandable?.isRowExpanded || expandable?.isRowExpanded?.(record) === -1
             ? isRowExpandedLocal

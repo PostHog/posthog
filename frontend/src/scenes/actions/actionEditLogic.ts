@@ -1,6 +1,6 @@
-import { actions, afterMount, connect, kea, key, listeners, path, props, reducers } from 'kea'
+import { actions, afterMount, kea, key, path, props, reducers } from 'kea'
 import api from 'lib/api'
-import { deleteWithUndo, uuid } from 'lib/utils'
+import { uuid } from 'lib/utils'
 import { actionsModel } from '~/models/actionsModel'
 import type { actionEditLogicType } from './actionEditLogicType'
 import { ActionType } from '~/types'
@@ -8,10 +8,6 @@ import { lemonToast } from 'lib/components/lemonToast'
 import { duplicateActionErrorToast } from 'scenes/actions/ActionEdit'
 import { loaders } from 'kea-loaders'
 import { forms } from 'kea-forms'
-import { router } from 'kea-router'
-import { urls } from 'scenes/urls'
-import { eventDefinitionsTableLogic } from 'scenes/data-management/events/eventDefinitionsTableLogic'
-import { actionLogic } from 'scenes/actions/actionLogic'
 
 export type NewActionType = Partial<ActionType> &
     Pick<ActionType, 'name' | 'post_to_slack' | 'slack_message_format' | 'steps'>
@@ -39,13 +35,7 @@ export const actionEditLogic = kea<actionEditLogicType>([
         }),
         setCreateNew: (createNew: boolean) => ({ createNew }),
         actionAlreadyExists: (actionId: number | null) => ({ actionId }),
-        deleteAction: true,
     }),
-
-    connect((props: ActionEditLogicProps) => ({
-        values: [actionLogic({ id: props.id }), ['shouldSimplifyActions']],
-        actions: [actionsModel, ['loadActions'], eventDefinitionsTableLogic, ['loadEventDefinitions']],
-    })),
 
     reducers({
         createNew: [
@@ -68,7 +58,7 @@ export const actionEditLogic = kea<actionEditLogicType>([
         },
     })),
 
-    loaders(({ props, values, actions }) => ({
+    loaders(({ props, values }) => ({
         actionCount: {
             loadActionCount: async () => {
                 return props.id ? await api.actions.getCount(props.id) : 0
@@ -101,7 +91,7 @@ export const actionEditLogic = kea<actionEditLogicType>([
                             // Below works because `detail` in the format:
                             // `This project already has an action with this name, ID ${errorActionId}`
                             const dupeId = response.detail.split(' ').pop()
-                            duplicateActionErrorToast(dupeId, values.shouldSimplifyActions)
+                            duplicateActionErrorToast(dupeId)
                             return action
                         }
                         throw response
@@ -109,32 +99,11 @@ export const actionEditLogic = kea<actionEditLogicType>([
 
                     lemonToast.success('Action saved')
                     props.onSave(action as ActionType)
-                    if (values.shouldSimplifyActions) {
-                        actions.loadEventDefinitions(null)
-                    } else {
-                        actions.loadActions() // reload actions so they are immediately available
-                    }
+                    actionsModel.actions.loadActions() // reload actions so they are immediately available
                     return action
                 },
             },
         ],
-    })),
-
-    listeners(({ values, actions }) => ({
-        deleteAction: () => {
-            deleteWithUndo({
-                endpoint: api.actions.determineDeleteEndpoint(),
-                object: values.action,
-                callback: () => {
-                    router.actions.push(values.shouldSimplifyActions ? urls.eventDefinitions() : urls.actions())
-                    if (values.shouldSimplifyActions) {
-                        actions.loadEventDefinitions(null)
-                    } else {
-                        actions.loadActions()
-                    }
-                },
-            })
-        },
     })),
 
     afterMount(({ actions, props }) => {

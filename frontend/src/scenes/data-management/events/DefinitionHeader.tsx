@@ -1,5 +1,5 @@
 import React from 'react'
-import { ActionType, CombinedEvent, EventDefinition, PropertyDefinition } from '~/types'
+import { EventDefinition, PropertyDefinition } from '~/types'
 import {
     AutocaptureIcon,
     PageleaveIcon,
@@ -20,12 +20,10 @@ import {
     eventTaxonomicGroupProps,
     propertyTaxonomicGroupProps,
 } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
-import { actionsModel } from '~/models/actionsModel'
 
 export enum DefinitionType {
     Event = 'event',
     Property = 'property',
-    Action = 'action',
 }
 
 export function getPropertyDefinitionIcon(definition: PropertyDefinition): JSX.Element {
@@ -39,7 +37,7 @@ export function getPropertyDefinitionIcon(definition: PropertyDefinition): JSX.E
     return <PropertyIcon className="taxonomy-icon taxonomy-icon-muted" />
 }
 
-export function getEventDefinitionIcon(definition: CombinedEvent): JSX.Element {
+export function getEventDefinitionIcon(definition: EventDefinition): JSX.Element {
     // Rest are events
     if (definition.name === '$pageview') {
         return (
@@ -62,7 +60,7 @@ export function getEventDefinitionIcon(definition: CombinedEvent): JSX.Element {
             </Tooltip>
         )
     }
-    if (definition.name && (definition.verified || !!keyMapping.event[definition.name])) {
+    if (definition.verified || !!keyMapping.event[definition.name]) {
         return (
             <Tooltip title={`Verified${!!keyMapping.event[definition.name] ? ' PostHog' : ' event'}`}>
                 <VerifiedEventStack className="taxonomy-icon taxonomy-icon-verified" />
@@ -76,7 +74,6 @@ interface SharedDefinitionHeaderProps {
     hideIcon?: boolean
     hideText?: boolean
     asLink?: boolean
-    shouldSimplifyActions?: boolean
 }
 
 function RawDefinitionHeader({
@@ -85,9 +82,8 @@ function RawDefinitionHeader({
     hideIcon = false,
     hideText = false,
     asLink = false,
-    shouldSimplifyActions = false,
 }: {
-    definition: CombinedEvent | PropertyDefinition
+    definition: EventDefinition | PropertyDefinition
     group: TaxonomicFilterGroup
 } & SharedDefinitionHeaderProps): JSX.Element {
     const fullDetailUrl = group.getFullDetailUrl?.(definition)
@@ -120,9 +116,7 @@ function RawDefinitionHeader({
                 <div className="definition-column-name-content">
                     <div>{linkedInnerContent}</div>
                     <div className="definition-column-name-content-description">
-                        {definition.description || (
-                            <i>Add a description for this {getSingularType(group.type, shouldSimplifyActions)}</i>
-                        )}
+                        {definition.description || <i>Add a description for this {getSingularType(group.type)}</i>}
                     </div>
                 </div>
             )}
@@ -130,52 +124,24 @@ function RawDefinitionHeader({
     )
 }
 
-export function ActionHeader({
+export function EventDefinitionHeader({
     definition,
     ...props
-}: { definition: ActionType } & SharedDefinitionHeaderProps): JSX.Element {
+}: {
+    definition: EventDefinition
+} & SharedDefinitionHeaderProps): JSX.Element {
     return (
         <RawDefinitionHeader
             definition={definition}
             group={{
                 name: 'Events',
                 searchPlaceholder: 'events',
-                type: TaxonomicFilterGroupType.Actions,
-                logic: actionsModel,
-                value: 'actions',
-                getName: (action: ActionType) => action.name || '',
-                getValue: (action: ActionType) => action.name || '',
-                getFullDetailUrl: (action: ActionType) => action.action_id ? urls.action(action.action_id) : '',
-                getPopupHeader: () => 'event',
-                getIcon: getEventDefinitionIcon,
-            }}
-            shouldSimplifyActions
-            {...props}
-        />
-    )
-}
-
-export function EventDefinitionHeader({
-    definition,
-    shouldSimplifyActions = false,
-    ...props
-}: {
-    definition: EventDefinition
-    shouldSimplifyActions?: boolean
-} & SharedDefinitionHeaderProps): JSX.Element {
-    return (
-        <RawDefinitionHeader
-            definition={definition}
-            group={{
-                name: shouldSimplifyActions ? 'Raw events': "Events",
-                searchPlaceholder: shouldSimplifyActions ? 'raw events' : "events",
                 type: TaxonomicFilterGroupType.Events,
                 getName: (eventDefinition: EventDefinition) => eventDefinition.name,
                 getValue: (eventDefinition: EventDefinition) => eventDefinition.name,
                 getFullDetailUrl: (eventDefinition: EventDefinition) => urls.eventDefinition(eventDefinition.id),
                 ...eventTaxonomicGroupProps,
             }}
-            shouldSimplifyActions={shouldSimplifyActions}
             {...props}
         />
     )
