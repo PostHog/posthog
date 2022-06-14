@@ -4,10 +4,12 @@ import { EachBatchPayload, KafkaMessage } from 'kafkajs'
 import { Hub, WorkerMethods } from '../../../types'
 import { status } from '../../../utils/status'
 import { sanitizeEvent } from '../../../utils/utils'
+import { groupIntoBatches } from '../../../utils/utils'
 import { KafkaQueue } from '../kafka-queue'
 import { eachBatch } from './each-batch'
 
-export async function eachMessageIngestion(message: KafkaMessage, queue: KafkaQueue): Promise<void> {
+export function formPluginEvent(message: KafkaMessage): PluginEvent {
+    // TODO: inefficient to do this twice?
     const { data: dataStr, ...rawEvent } = JSON.parse(message.value!.toString())
     const combinedEvent = { ...rawEvent, ...JSON.parse(dataStr) }
     const event: PluginEvent = sanitizeEvent({
@@ -15,11 +17,50 @@ export async function eachMessageIngestion(message: KafkaMessage, queue: KafkaQu
         site_url: combinedEvent.site_url || null,
         ip: combinedEvent.ip || null,
     })
-    await ingestEvent(queue.pluginsServer, queue.workerMethods, event)
+    return event
+}
+
+export async function eachMessageIngestion(message: KafkaMessage, queue: KafkaQueue): Promise<void> {
+    await ingestEvent(queue.pluginsServer, queue.workerMethods, formPluginEvent(message))
 }
 
 export async function eachBatchIngestion(payload: EachBatchPayload, queue: KafkaQueue): Promise<void> {
-    await eachBatch(payload, queue, eachMessageIngestion, 'ingestion')
+    const enabledTeams = queue.pluginsServer.ingestionBatchBreakupByDistinctIdTeams
+    const countingMode = enabledTeams.size === 0
+
+    function groupIntoBatchesIngestion(kafkaMessages: KafkaMessage[], batchSize: number): KafkaMessage[][] {
+        // Once we see a distinct ID we've already seen break up the batch
+        const batches = []
+        const seenIds: Set<string> = new Set()
+        let currentBatch: KafkaMessage[] = []
+        for (const message of kafkaMessages) {
+            const pluginEvent = formPluginEvent(message)
+            const enabledBreakupById = countingMode || enabledTeams.has(pluginEvent.team_id)
+            const seenKey = `${pluginEvent.team_id}:${pluginEvent.distinct_id}`
+            if (currentBatch.length === batchSize || (enabledBreakupById && seenIds.has(seenKey))) {
+                seenIds.clear()
+                batches.push(currentBatch)
+                currentBatch = []
+            }
+            if (enabledBreakupById) {
+                seenIds.add(seenKey)
+            }
+            currentBatch.push(message)
+        }
+        if (currentBatch) {
+            batches.push(currentBatch)
+        }
+        if (countingMode) {
+            queue.pluginsServer.statsd?.histogram(
+                'ingest_event_batching.batch_count_if_enabled_for_all',
+                batches.length
+            )
+            return groupIntoBatches(kafkaMessages, batchSize)
+        }
+        return batches
+    }
+
+    await eachBatch(payload, queue, eachMessageIngestion, groupIntoBatchesIngestion, 'ingestion')
 }
 
 export async function ingestEvent(

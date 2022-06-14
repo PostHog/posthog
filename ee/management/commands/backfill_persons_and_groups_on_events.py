@@ -6,11 +6,11 @@ import structlog
 from django.conf import settings
 from django.core.management.base import BaseCommand
 
-from ee.clickhouse.sql.events import EVENTS_DATA_TABLE
 from ee.clickhouse.sql.groups import GROUPS_TABLE
-from ee.clickhouse.sql.person import PERSON_DISTINCT_ID2_TABLE, PERSONS_TABLE
 from posthog import client
 from posthog.client import sync_execute
+from posthog.models.event.sql import EVENTS_DATA_TABLE
+from posthog.models.person.sql import PERSON_DISTINCT_ID2_TABLE, PERSONS_TABLE
 from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
 from posthog.settings.data_stores import CLICKHOUSE_PASSWORD
 

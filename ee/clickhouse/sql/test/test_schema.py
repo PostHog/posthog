@@ -2,7 +2,7 @@ import uuid
 
 import pytest
 
-from ee.clickhouse.sql.schema import CREATE_TABLE_QUERIES, KAFKA_EVENTS_TABLE_SQL, build_query, get_table_name
+from posthog.clickhouse.schema import CREATE_TABLE_QUERIES, KAFKA_EVENTS_TABLE_SQL, build_query, get_table_name
 
 KAFKA_CREATE_TABLE_QUERIES = [query for query in CREATE_TABLE_QUERIES if "Kafka" in build_query(query)]
 MERGE_TREE_TABLE_QUERIES = [query for query in CREATE_TABLE_QUERIES if "MergeTree" in build_query(query)]

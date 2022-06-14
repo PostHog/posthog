@@ -148,18 +148,9 @@ class Team(UUIDClassicModel):
 
     objects: TeamManager = TeamManager()
 
-    def get_effective_membership_level(self, user_id: int) -> Optional["OrganizationMembership.Level"]:
-        """Return an effective membership level.
-        None returned if the user has no explicit membership and organization access is too low for implicit membership.
-        """
-        from posthog.models.organization import OrganizationMembership
-
-        try:
-            requesting_parent_membership: OrganizationMembership = OrganizationMembership.objects.select_related(
-                "organization"
-            ).get(organization_id=self.organization_id, user_id=user_id)
-        except OrganizationMembership.DoesNotExist:
-            return None
+    def get_effective_membership_level_for_parent_membership(
+        self, requesting_parent_membership: "OrganizationMembership"
+    ) -> Optional["OrganizationMembership.Level"]:
         if (
             not requesting_parent_membership.organization.is_feature_available(
                 AvailableFeature.PROJECT_BASED_PERMISSIONING
@@ -168,6 +159,7 @@ class Team(UUIDClassicModel):
         ):
             return requesting_parent_membership.level
         from ee.models import ExplicitTeamMembership
+        from posthog.models.organization import OrganizationMembership
 
         try:
             return (
@@ -180,6 +172,20 @@ class Team(UUIDClassicModel):
             if requesting_parent_membership.level < OrganizationMembership.Level.ADMIN:
                 return None
             return requesting_parent_membership.level
+
+    def get_effective_membership_level(self, user_id: int) -> Optional["OrganizationMembership.Level"]:
+        """Return an effective membership level.
+        None returned if the user has no explicit membership and organization access is too low for implicit membership.
+        """
+        from posthog.models.organization import OrganizationMembership
+
+        try:
+            requesting_parent_membership: OrganizationMembership = OrganizationMembership.objects.select_related(
+                "organization"
+            ).get(organization_id=self.organization_id, user_id=user_id)
+        except OrganizationMembership.DoesNotExist:
+            return None
+        return self.get_effective_membership_level_for_parent_membership(requesting_parent_membership)
 
     @property
     def actor_on_events_querying_enabled(self) -> bool:

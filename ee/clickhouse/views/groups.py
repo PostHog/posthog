@@ -8,8 +8,8 @@ from rest_framework.pagination import CursorPagination
 from rest_framework.permissions import IsAuthenticated
 
 from ee.clickhouse.queries.related_actors_query import RelatedActorsQuery
-from ee.clickhouse.sql.clickhouse import trim_quotes_expr
 from posthog.api.routing import StructuredViewSetMixin
+from posthog.clickhouse.kafka_engine import trim_quotes_expr
 from posthog.client import sync_execute
 from posthog.models.group import Group
 from posthog.models.group_type_mapping import GroupTypeMapping

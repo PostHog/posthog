@@ -3,6 +3,10 @@ name: Frontend CI
 on:
     - pull_request
 
+concurrency:
+    group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+    cancel-in-progress: true
+
 jobs:
     frontend-code-quality:
         name: Code quality checks

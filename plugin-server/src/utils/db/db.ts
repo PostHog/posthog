@@ -8,6 +8,7 @@ import { ProducerRecord } from 'kafkajs'
 import { DateTime } from 'luxon'
 import { Pool, PoolClient, QueryResult, QueryResultRow } from 'pg'
 
+import { CELERY_DEFAULT_QUEUE } from '../../config/constants'
 import {
     KAFKA_GROUPS,
     KAFKA_PERSON_DISTINCT_ID,
@@ -429,6 +430,37 @@ export class DB {
                 clearTimeout(timeout)
                 await this.redisPool.release(client)
             }
+        })
+    }
+
+    /** Calls Celery task. Works similarly to Task.apply_async in Python. */
+    async celeryApplyAsync(taskName: string, args: any[] = [], kwargs: Record<string, any> = {}): Promise<void> {
+        const taskId = new UUIDT().toString()
+        const deliveryTag = new UUIDT().toString()
+        const body = [args, kwargs, { callbacks: null, errbacks: null, chain: null, chord: null }]
+        /** A base64-encoded JSON representation of the body tuple. */
+        const bodySerialized = Buffer.from(JSON.stringify(body)).toString('base64')
+        await this.redisLPush(CELERY_DEFAULT_QUEUE, {
+            body: bodySerialized,
+            'content-encoding': 'utf-8',
+            'content-type': 'application/json',
+            headers: {
+                lang: 'js',
+                task: taskName,
+                id: taskId,
+                retries: 0,
+                root_id: taskId,
+                parent_id: null,
+                group: null,
+            },
+            properties: {
+                correlation_id: taskId,
+                delivery_mode: 2,
+                delivery_tag: deliveryTag,
+                delivery_info: { exchange: '', routing_key: CELERY_DEFAULT_QUEUE },
+                priority: 0,
+                body_encoding: 'base64',
+            },
         })
     }
 
@@ -878,19 +910,29 @@ export class DB {
         return client ? kafkaMessages : updatedPerson
     }
 
-    public async deletePerson(person: Person, client: PoolClient): Promise<ProducerRecord[]> {
-        await client.query('DELETE FROM posthog_person WHERE team_id = $1 AND id = $2', [person.team_id, person.id])
-        const kafkaMessages = [
-            generateKafkaPersonUpdateMessage(
-                person.created_at,
-                person.properties,
-                person.team_id,
-                person.is_identified,
-                person.uuid,
-                null,
-                1
-            ),
-        ]
+    public async deletePerson(person: Person, client?: PoolClient): Promise<ProducerRecord[]> {
+        const result = await this.postgresQuery<{ version: string }>(
+            'DELETE FROM posthog_person WHERE team_id = $1 AND id = $2 RETURNING version',
+            [person.team_id, person.id],
+            'deletePerson',
+            client
+        )
+
+        let kafkaMessages: ProducerRecord[] = []
+
+        if (result.rows.length > 0) {
+            kafkaMessages = [
+                generateKafkaPersonUpdateMessage(
+                    person.created_at,
+                    person.properties,
+                    person.team_id,
+                    person.is_identified,
+                    person.uuid,
+                    Number(result.rows[0].version || 0) + 100,
+                    1
+                ),
+            ]
+        }
         // TODO: remove from cache
         return kafkaMessages
     }
