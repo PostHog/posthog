@@ -729,6 +729,7 @@ export interface SessionNetworkRequest {
     type: string
     url?: string
     eventName?: string
+    eventId?: string
     duration?: number
     timing?: number
     raw: MinimalPerformanceResourceTiming | PerformanceResourceTiming | PerformanceNavigationTiming

@@ -30,6 +30,7 @@ class WebPerformanceLog:
     eventName: Optional[str]
     duration: Optional[int]
     timing: Optional[int]
+    eventId: Optional[int]
     raw: Dict
 
     @property
@@ -42,7 +43,7 @@ class WebPerformanceViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
     def for_session(self, request, session_id, *args, **kwargs) -> Response:
         # todo materialised column method instead of hard coded json extract raw?
         query = """
-        SELECT timestamp, JSONExtractRaw(properties, '$performance_raw'), $window_id
+        SELECT timestamp, JSONExtractRaw(properties, '$performance_raw'), $window_id, uuid
         FROM events
         WHERE event = '$pageview'
         and team_id = %(team_id)s
@@ -77,6 +78,7 @@ class WebPerformanceViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
                         eventName=None,
                         url=navigation_entry[0],
                         raw=navigation_entry,
+                        eventId=res[3],
                     )
                 )
 
@@ -90,6 +92,7 @@ class WebPerformanceViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
                         duration=None,
                         url=None,
                         eventName=paint_entry[0],
+                        eventId=None,
                         timing=paint_entry[2],
                         raw=paint_entry,
                     )
@@ -106,6 +109,7 @@ class WebPerformanceViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
                         url=resource_entry[0],
                         timing=None,
                         eventName=None,
+                        eventId=None,
                         raw=resource_entry,
                     )
                 )

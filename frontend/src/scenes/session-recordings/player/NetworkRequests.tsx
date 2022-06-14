@@ -10,6 +10,8 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { Spinner } from 'lib/components/Spinner/Spinner'
 import { colonDelimitedDuration, humanFriendlyNumber } from 'lib/utils'
 import { Tooltip } from 'lib/components/Tooltip'
+import { LinkButton } from 'lib/components/LinkButton'
+import { urls } from 'scenes/urls'
 
 const HumanizeURL = ({ url }: { url: string | undefined }): JSX.Element => {
     if (!url) {
@@ -50,16 +52,19 @@ const Title = ({ networkRequest, title }: { networkRequest: SessionNetworkReques
     </div>
 )
 
-const NavigationRequestRow = ({ networkRequest }: { networkRequest: SessionNetworkRequest }): JSX.Element => (
+const NavigationRequestEntry = ({ networkRequest }: { networkRequest: SessionNetworkRequest }): JSX.Element => (
     <>
         <Title networkRequest={networkRequest} title="Navigation" />
-        <p>
+        <div>
             to <HumanizeURL url={networkRequest.url} /> took {friendlyMilliseconds(networkRequest.duration)}
-        </p>
+        </div>
+        {networkRequest.eventId ? (
+            <LinkButton to={urls.webPerformanceWaterfall(networkRequest.eventId)}>View Waterfall Chart</LinkButton>
+        ) : null}
     </>
 )
 
-const PaintRequestRow = ({ networkRequest }: { networkRequest: SessionNetworkRequest }): JSX.Element => (
+const PaintRequestEntry = ({ networkRequest }: { networkRequest: SessionNetworkRequest }): JSX.Element => (
     <>
         <Title networkRequest={networkRequest} title="Browser Event" />
         <p>
@@ -68,7 +73,7 @@ const PaintRequestRow = ({ networkRequest }: { networkRequest: SessionNetworkReq
     </>
 )
 
-const ResourceRequestRow = ({ networkRequest }: { networkRequest: SessionNetworkRequest }): JSX.Element => (
+const ResourceRequestEntry = ({ networkRequest }: { networkRequest: SessionNetworkRequest }): JSX.Element => (
     <>
         <Title networkRequest={networkRequest} title="Network Request" />
         <p>
@@ -77,23 +82,27 @@ const ResourceRequestRow = ({ networkRequest }: { networkRequest: SessionNetwork
     </>
 )
 
-const UnknownRequestTypeRow = ({ networkRequest }: { networkRequest: SessionNetworkRequest }): JSX.Element => (
+const UnknownRequestTypeEntry = ({ networkRequest }: { networkRequest: SessionNetworkRequest }): JSX.Element => (
     <>
         <Title networkRequest={networkRequest} title="Unknown request type" />
         <pre>{JSON.stringify(networkRequest)}</pre>
     </>
 )
 
-const NetworkRequestRow = (sessionNetworkRequest: SessionNetworkRequest): JSX.Element => {
+const NetworkRequestEntry = ({
+    sessionNetworkRequest,
+}: {
+    sessionNetworkRequest: SessionNetworkRequest
+}): JSX.Element => {
     switch (sessionNetworkRequest.type) {
         case 'navigation':
-            return <NavigationRequestRow networkRequest={sessionNetworkRequest} />
+            return <NavigationRequestEntry networkRequest={sessionNetworkRequest} />
         case 'paint':
-            return <PaintRequestRow networkRequest={sessionNetworkRequest} />
+            return <PaintRequestEntry networkRequest={sessionNetworkRequest} />
         case 'resource':
-            return <ResourceRequestRow networkRequest={sessionNetworkRequest} />
+            return <ResourceRequestEntry networkRequest={sessionNetworkRequest} />
         default:
-            return <UnknownRequestTypeRow networkRequest={sessionNetworkRequest} />
+            return <UnknownRequestTypeEntry networkRequest={sessionNetworkRequest} />
     }
 }
 
@@ -112,7 +121,9 @@ export function NetworkRequests(): JSX.Element | null {
                     seek(sessionNetworkRequest.playerPosition)
                 }}
             >
-                <div className="NetworkRequestEntry">{NetworkRequestRow(sessionNetworkRequest)}</div>
+                <div className="NetworkRequestEntry">
+                    <NetworkRequestEntry sessionNetworkRequest={sessionNetworkRequest} />
+                </div>
             </div>
         )
     }
@@ -151,13 +162,6 @@ export function NetworkRequests(): JSX.Element | null {
                             For network requests to appear, the feature must first be enabled in <code>posthog-js</code>
                             .
                         </p>
-                        {/*<LemonButton*/}
-                        {/*    type="secondary"*/}
-                        {/*    style={{ margin: '0 8px' }}*/}
-                        {/*    href="https://posthog.com/docs/user-guides/recordings?utm_campaign=session-recording&utm_medium=in-product"*/}
-                        {/*>*/}
-                        {/*    Learn more*/}
-                        {/*</LemonButton>*/}
                     </div>
                 )}
             </div>
