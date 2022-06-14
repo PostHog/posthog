@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime, timedelta
-from typing import List
+from typing import List, Optional
 
 import structlog
 
@@ -18,39 +18,46 @@ def get_unsubscribe_url(subscription: Subscription, email: str) -> str:
     return f"{settings.SITE_URL}/unsubscribe?token={get_unsubscribe_token(subscription, email)}"
 
 
-def send_email_subscription_report(email: str, subscription: Subscription, exported_asset: ExportedAsset) -> None:
+def send_email_subscription_report(
+    email: str, subscription: Subscription, exported_asset: ExportedAsset, invite_message: Optional[str] = None
+) -> None:
+    is_invite = invite_message is not None
+    inviter = subscription.created_by
     subject = "Posthog Report"
+    resource_noun = None
+    resource_url = None
 
     if subscription.insight:
-        subject = f"PostHog Insight report - {subscription.insight.name or subscription.insight.derived_name}"
+        resource_name = f"{subscription.insight.name or subscription.insight.derived_name}"
+        resource_noun = "Insight"
+        resource_url = subscription.insight.url
     elif subscription.dashboard:
-        subject = f"PostHog Dashboard report - {subscription.dashboard.name}"
+        resource_name = subscription.dashboard.name
+        resource_noun = "Dashboard"
+        resource_url = subscription.dashboard.url
+    else:
+        raise NotImplementedError()
+
+    subject = f"PostHog {resource_noun} report - {resource_name}"
+    campaign_key = f"{resource_noun.lower()}_subscription_report_{subscription.next_delivery_date.isoformat()}"
+
+    if is_invite:
+        subject = f"{inviter.first_name} subscribed you to a PostHog Insight"
+        campaign_key = f"{resource_noun.lower()}_subscription_new_{uuid.uuid4()}"
 
     message = EmailMessage(
-        campaign_key=f"insight_subscription_report_{subscription.next_delivery_date.isoformat()}",
+        campaign_key=campaign_key,
         subject=subject,
-        template_name="insight_subscription_report",
+        template_name="subscription_report",
         template_context={
-            "exported_asset": exported_asset,
-            "subscription": subscription,
+            "images": [exported_asset.get_public_content_url()],
+            "resource_noun": resource_noun,
+            "resource_name": resource_name,
+            "resource_url": resource_url,
+            "subscription_url": subscription.url,
             "unsubscribe_url": get_unsubscribe_url(subscription=subscription, email=email),
-        },
-    )
-    message.add_recipient(email=email)
-    message.send()
-
-
-def send_email_new_subscription(email: str, subscription: Subscription, exported_asset: ExportedAsset) -> None:
-    inviter = subscription.created_by
-    message = EmailMessage(
-        campaign_key=f"insight_subscription_new_{uuid.uuid4()}",
-        subject=f"{inviter.first_name} subscribed you to a PostHog Insight",
-        template_name="insight_subscription_report",
-        template_context={
-            "exported_asset": exported_asset,
-            "subscription": subscription,
-            "unsubscribe_url": get_unsubscribe_url(subscription=subscription, email=email),
-            "inviter": inviter,
+            "inviter": inviter if is_invite else None,
+            "invite_message": invite_message,
         },
     )
     message.add_recipient(email=email)
@@ -96,7 +103,7 @@ def deliver_subscription_report(subscription_id: int) -> None:
 
 
 @app.task()
-def deliver_new_subscription(subscription_id: int, new_emails: List[str]) -> None:
+def deliver_new_subscription(subscription_id: int, new_emails: List[str], invite_message: Optional[str] = None) -> None:
     if not new_emails:
         return
     subscription = Subscription.objects.select_related("created_by", "insight").get(pk=subscription_id)
@@ -109,11 +116,9 @@ def deliver_new_subscription(subscription_id: int, new_emails: List[str]) -> Non
 
         for email in new_emails:
             try:
-                send_email_new_subscription(email, subscription, asset)
+                send_email_subscription_report(email, subscription, asset, invite_message=invite_message or "")
             except Exception as e:
                 logger.error(e)
                 raise e
     else:
         raise NotImplementedError(f"{subscription.target_type} is not supported")
-
-    subscription.save()

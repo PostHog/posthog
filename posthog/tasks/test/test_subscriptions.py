@@ -66,13 +66,20 @@ class TestSubscriptionsTasks(APIBaseTest):
 
         assert len(mocked_email_messages) == 2
         assert mocked_email_messages[0].send.call_count == 1
+        assert "is ready!" in mocked_email_messages[0].html_body
+        assert f"/exports/export-my-test-subscription.png?token=ey" in mocked_email_messages[0].html_body
+
         assert mock_export_task.call_count == 1
 
     def test_new_subscription_delivery(self, MockEmailMessage: MagicMock, mock_export_task: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
 
-        deliver_new_subscription(self.subscriptions[0].id, new_emails=["test@posthog.com"])
+        deliver_new_subscription(
+            self.subscriptions[0].id, new_emails=["test@posthog.com"], invite_message="My invite message"
+        )
 
         assert len(mocked_email_messages) == 1
         assert mocked_email_messages[0].send.call_count == 1
+        assert "has subscribed you" in mocked_email_messages[0].html_body
+        assert "My invite message" in mocked_email_messages[0].html_body
         assert mock_export_task.call_count == 1

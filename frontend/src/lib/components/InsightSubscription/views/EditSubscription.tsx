@@ -141,7 +141,7 @@ export function EditSubscription({ id, insightShortId, onCancel, onDelete }: Edi
                             </>
                         )}
                     </Field>
-                    <Field name={'email_message'} label={'Message (optional)'}>
+                    <Field name={'invite_message'} label={'Message (optional)'}>
                         <LemonTextArea
                             placeholder="Your message to new subscribers (optional)"
                             disabled={emailDisabled}

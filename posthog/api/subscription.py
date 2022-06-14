@@ -22,6 +22,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
     """Standard Subscription serializer."""
 
     created_by = UserBasicSerializer(read_only=True)
+    invite_message = serializers.CharField(required=False)
 
     class Meta:
         model = Subscription
@@ -43,6 +44,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             "deleted",
             "title",
             "next_delivery_date",
+            "invite_message",
         ]
         read_only_fields = ["id", "created_at", "created_by", "next_delivery_date"]
 
@@ -67,7 +69,9 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         instance: Subscription = super().create(validated_data)
 
         if instance.target_type == "email":
-            deliver_new_subscription.delay(instance.id, instance.target_value.split(","))
+            deliver_new_subscription.delay(
+                instance.id, instance.target_value.split(","), validated_data.get("invite_message")
+            )
 
         return instance
 
@@ -77,7 +81,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
 
         if instance.target_type == "email" and "target_value" in validated_data:
             new_emails = list(set(validated_data["target_value"].split(",")) - set(old_emails))
-            deliver_new_subscription.delay(instance.id, new_emails)
+            deliver_new_subscription.delay(instance.id, new_emails, validated_data.get("invite_message"))
 
         return instance
 

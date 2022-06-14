@@ -1,8 +1,14 @@
 import secrets
+from datetime import timedelta
+from typing import Optional
 
 from django.conf import settings
 from django.db import models
 from django.utils.text import slugify
+
+from posthog.jwt import PosthogJwtAudience, decode_jwt, encode_jwt
+
+PUBLIC_ACCESS_TOKEN_EXP_DAYS = 365
 
 
 def get_default_access_token() -> str:
@@ -60,7 +66,19 @@ class ExportedAsset(models.Model):
     def url(self):
         return f"{settings.SITE_URL}/exports/{self.access_token}"
 
-    @property
-    def public_content_url(self):
-        # TODO: JWT tokenize this
-        return f"{settings.SITE_URL}/exports/{self.id}"
+    def get_public_content_url(self, expiry_delta: Optional[timedelta] = None):
+        token = get_public_access_token(self, expiry_delta)
+        return f"{settings.SITE_URL}/exports/{self.filename}?token={token}"
+
+
+def get_public_access_token(asset: ExportedAsset, expiry_delta: Optional[timedelta] = None) -> str:
+    if not expiry_delta:
+        expiry_delta = timedelta(days=PUBLIC_ACCESS_TOKEN_EXP_DAYS)
+    return encode_jwt({"id": asset.id}, expiry_delta=expiry_delta, audience=PosthogJwtAudience.EXPORTED_ASSET,)
+
+
+def asset_for_token(token: str) -> ExportedAsset:
+    info = decode_jwt(token, audience=PosthogJwtAudience.EXPORTED_ASSET)
+    asset = ExportedAsset.objects.get(pk=info["id"])
+
+    return asset
