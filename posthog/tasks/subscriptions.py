@@ -22,7 +22,7 @@ def get_unsubscribe_url(subscription: Subscription, email: str) -> str:
     return f"{settings.SITE_URL}/unsubscribe?token={get_unsubscribe_token(subscription, email)}"
 
 
-def get_tiles_ordered_by_position(dashboard: Dashboard):
+def get_tiles_ordered_by_position(dashboard: Dashboard) -> List[DashboardTile]:
     tiles = list(
         DashboardTile.objects.filter(dashboard=dashboard)
         .select_related("insight__created_by", "insight__last_modified_by", "insight__team__organization")
@@ -31,7 +31,9 @@ def get_tiles_ordered_by_position(dashboard: Dashboard):
         .all()
     )
 
-    return tiles.sort(key=lambda x: x.get("xs", {}).get("y", 100))
+    tiles.sort(key=lambda x: x.layouts.get("xs", {}).get("y", 100))
+
+    return tiles
 
 
 def send_email_subscription_report(
