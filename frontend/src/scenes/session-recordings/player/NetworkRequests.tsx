@@ -8,11 +8,23 @@ import { SessionNetworkRequest } from '~/types'
 import { LemonButton } from 'lib/components/LemonButton'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { Spinner } from 'lib/components/Spinner/Spinner'
+import { colonDelimitedDuration } from 'lib/utils'
+
+function Title({ networkRequest, title }: { networkRequest: SessionNetworkRequest; title: string }): JSX.Element {
+    return (
+        <div className="Title">
+            <h3>{title}</h3>{' '}
+            <div className="NetworkRequestTime">
+                {colonDelimitedDuration(Math.floor((networkRequest.playerPosition?.time ?? 0) / 1000))}
+            </div>
+        </div>
+    )
+}
 
 function NavigationRequestRow({ networkRequest }: { networkRequest: SessionNetworkRequest }): JSX.Element {
     return (
         <>
-            <h3>Navigation</h3>
+            <Title networkRequest={networkRequest} title="Navigation" />
             <p>
                 to {networkRequest.url} took {networkRequest.duration ?? 'unknown number of'} milliseconds
             </p>
@@ -23,10 +35,9 @@ function NavigationRequestRow({ networkRequest }: { networkRequest: SessionNetwo
 function PaintRequestRow({ networkRequest }: { networkRequest: SessionNetworkRequest }): JSX.Element {
     return (
         <>
-            <h3>Browser Event</h3>
+            <Title networkRequest={networkRequest} title="Browser Event" />
             <p>
-                Browser event {networkRequest.eventName} occurred after {networkRequest.timing ?? 'unknown number of'}{' '}
-                milliseconds
+                {networkRequest.eventName} occurred after {networkRequest.timing ?? 'unknown number of'} milliseconds
             </p>
         </>
     )
@@ -35,10 +46,9 @@ function PaintRequestRow({ networkRequest }: { networkRequest: SessionNetworkReq
 function ResourceRequestRow({ networkRequest }: { networkRequest: SessionNetworkRequest }): JSX.Element {
     return (
         <>
-            <h3>Network Request</h3>
+            <Title networkRequest={networkRequest} title="Network Request" />
             <p>
-                A network request to {networkRequest.url} took {networkRequest.duration ?? 'unknown number of'}{' '}
-                milliseconds
+                to {networkRequest.url} took {networkRequest.duration ?? 'unknown number of'} milliseconds
             </p>
         </>
     )
@@ -47,7 +57,7 @@ function ResourceRequestRow({ networkRequest }: { networkRequest: SessionNetwork
 function UnknownRequestTypeRow({ networkRequest }: { networkRequest: SessionNetworkRequest }): JSX.Element {
     return (
         <>
-            <h3>Unknown network request type</h3>
+            <Title networkRequest={networkRequest} title="Unknown request type" />
             <pre>{JSON.stringify(networkRequest)}</pre>
         </>
     )

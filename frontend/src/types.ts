@@ -23,6 +23,7 @@ import { LogLevel } from 'rrweb'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { BehavioralFilterKey, BehavioralFilterType } from 'scenes/cohorts/CohortFilters/types'
 import { LogicWrapper } from 'kea'
+import { MinimalPerformanceResourceTiming } from 'scenes/performance/webPerformanceLogic'
 
 export type Optional<T, K extends string | number | symbol> = Omit<T, K> & { [K in keyof T]?: T[K] }
 
@@ -730,7 +731,7 @@ export interface SessionNetworkRequest {
     eventName?: string
     duration?: number
     timing?: number
-    raw: Record<string, any>
+    raw: MinimalPerformanceResourceTiming | PerformanceResourceTiming | PerformanceNavigationTiming
 }
 
 export interface CurrentBillCycleType {

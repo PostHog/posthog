@@ -30,8 +30,19 @@
     //    background-color: green;
     //}
 
+    .Title {
+        display: flex;
+        flex-direction: row;
+
+        h3 {
+            flex-grow: 1;
+        }
+
+        .NetworkRequestTime {
+            flex-grow: 0;
+        }
+    }
     .NetworkRequestEntry {
-        margin: 0px;
         min-height: 18px;
     }
 
