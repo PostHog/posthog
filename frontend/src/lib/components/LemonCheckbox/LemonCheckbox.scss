@@ -15,7 +15,10 @@
     padding-left: 0.5rem;
     overflow: hidden;
     text-overflow: ellipsis;
+    display: flex;
+    align-items: center;
     cursor: pointer;
+
     .LemonRow--disabled & {
         cursor: not-allowed;
     }
@@ -30,36 +33,45 @@
     width: 1em;
     height: 1em;
     cursor: pointer;
+
     .LemonRow--disabled & {
         cursor: not-allowed;
     }
+
     .LemonCheckbox--indeterminate & {
         --tick-length: 9;
     }
+
     .LemonCheckbox:not(.LemonRow--disabled):hover & {
         --box-color: var(--primary-hover);
     }
+
     .LemonCheckbox:not(.LemonRow--disabled):active & {
         --box-color: var(--primary-active);
     }
+
     svg {
         transition: border 200ms ease, background 200ms ease;
         background: var(--bg-light);
         border: 1.5px solid var(--border-dark);
         border-radius: 3px; // Intentionally a bit smaller than --radius
+
         path {
             transition: stroke-dashoffset 200ms ease;
             stroke: var(--bg-light);
             stroke-dasharray: var(--tick-length);
             stroke-dashoffset: var(--tick-length);
         }
+
         .LemonCheckbox:not(.LemonRow--disabled):hover &,
         .LemonCheckbox:not(.LemonRow--disabled):active & {
             border-color: var(--box-color);
         }
+
         .LemonCheckbox--checked & {
             background: var(--box-color);
             border-color: transparent;
+
             path {
                 stroke-dashoffset: 0;
             }

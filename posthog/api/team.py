@@ -75,6 +75,7 @@ class TeamSerializer(serializers.ModelSerializer):
             "access_control",
             "has_group_types",
             "primary_dashboard",
+            "live_events_columns",
         )
         read_only_fields = (
             "id",

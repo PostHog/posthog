@@ -10,7 +10,7 @@ describe('the column configurator lets the user change which columns should be v
 
     beforeEach(() => {
         initKeaTests()
-        logic = columnConfiguratorLogic({ selectedColumns })
+        logic = columnConfiguratorLogic({ selectedColumns, onSaveAsDefault: () => {} })
         logic.mount()
     })
 
@@ -42,6 +42,14 @@ describe('the column configurator lets the user change which columns should be v
             logic.actions.selectColumn('added')
         }).toMatchValues({
             selectedColumns: ['a', 'b', 'ant', 'aardvark', 'added'],
+        })
+    })
+
+    it('sets toggle to save columns as default', async () => {
+        await expectLogic(logic, () => {
+            logic.actions.toggleSaveAsDefault()
+        }).toMatchValues({
+            saveAsDefault: true,
         })
     })
 })
