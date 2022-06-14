@@ -1,8 +1,8 @@
 from django.conf import settings
 
-from ee.clickhouse.sql.clickhouse import KAFKA_COLUMNS, kafka_engine
-from ee.clickhouse.sql.table_engines import Distributed, ReplacingMergeTree, ReplicationScheme
 from ee.kafka_client.topics import KAFKA_SESSION_RECORDING_METADATA
+from posthog.clickhouse.kafka_engine import KAFKA_COLUMNS, kafka_engine
+from posthog.clickhouse.table_engines import Distributed, ReplacingMergeTree, ReplicationScheme
 
 SESSION_RECORDING_METADATA_DATA_TABLE = "sharded_session_recording_metadata"
 
