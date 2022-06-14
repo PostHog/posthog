@@ -18,7 +18,7 @@ from dateutil import parser
 from django.db.models.query import Prefetch
 
 from posthog.client import sync_execute
-from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TRENDS_CUMULATIVE, TRENDS_LIFECYCLE
+from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TRENDS_CUMULATIVE, TRENDS_LIFECYCLE, TRENDS_LINEAR
 from posthog.models.action import Action
 from posthog.models.action_step import ActionStep
 from posthog.models.entity import Entity
@@ -48,7 +48,7 @@ class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
     # Use cached result even on refresh if team has strict caching enabled
     def get_cached_result(self, filter: Filter, team: Team) -> Optional[List[Dict[str, Any]]]:
 
-        if not team.strict_caching_enabled:
+        if not team.strict_caching_enabled or filter.breakdown or filter.display != TRENDS_LINEAR:
             return None
 
         cache_key = generate_cache_key(f"{filter.toJSON()}_{team.pk}")
