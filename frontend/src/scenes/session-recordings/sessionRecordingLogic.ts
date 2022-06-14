@@ -12,6 +12,7 @@ import {
     RecordingSegment,
     RecordingStartAndEndTime,
     RRWebRecordingConsoleLogPayload,
+    SessionNetworkRequest,
     SessionPlayerData,
     SessionRecordingEvents,
     SessionRecordingId,
@@ -311,6 +312,13 @@ export const sessionRecordingLogic = kea<sessionRecordingLogicType>({
                 },
             },
         ],
+        sessionNetworkRequests: [
+            null as null | SessionNetworkRequest[],
+            {
+                loadSessionNetworkRequests: async (sessionRecordingId: string | undefined) =>
+                    (await api.webPerformance.forSession(sessionRecordingId)).results,
+            },
+        ],
         sessionEventsData: [
             null as null | SessionRecordingEvents,
             {
@@ -435,6 +443,21 @@ export const sessionRecordingLogic = kea<sessionRecordingLogicType>({
                 }
             },
         ],
+        parsedNetworkRequests: [
+            (selectors) => [selectors.sessionPlayerData, selectors.sessionNetworkRequests],
+            (sessionPlayerData, sessionNetworkRequests) =>
+                (sessionNetworkRequests || []).map(
+                    (snr: SessionNetworkRequest) =>
+                        ({
+                            ...snr,
+                            playerPosition: getPlayerPositionFromEpochTime(
+                                snr.playerPosition.time,
+                                snr.playerPosition.windowId,
+                                sessionPlayerData.metadata.startAndEndTimesByWindowId
+                            ),
+                        } as SessionNetworkRequest)
+                ),
+        ],
         orderedConsoleLogs: [
             (selectors) => [selectors.sessionPlayerData],
             (sessionPlayerData) => {
@@ -497,6 +520,7 @@ export const sessionRecordingLogic = kea<sessionRecordingLogicType>({
                         }
                     })
                 })
+
                 return orderedConsoleLogs
             },
         ],
@@ -533,6 +557,7 @@ export const sessionRecordingLogic = kea<sessionRecordingLogicType>({
                 cache.startTime = performance.now()
                 actions.loadRecordingMeta(sessionRecordingId)
                 actions.loadRecordingSnapshots(sessionRecordingId)
+                actions.loadSessionNetworkRequests(sessionRecordingId)
             }
         }
         // Anytime the URL changes, we check if sessionRecordingId is in the hash params.

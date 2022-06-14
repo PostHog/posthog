@@ -718,6 +718,21 @@ export interface SessionRecordingEvents {
     events: RecordingEventType[]
 }
 
+export interface SessionNetworkRequestsAPIResult {
+    keys: string[]
+    results: SessionNetworkRequest[]
+}
+
+export interface SessionNetworkRequest {
+    playerPosition: PlayerPosition
+    type: string
+    url?: string
+    eventName?: string
+    duration?: number
+    timing?: number
+    raw: Record<string, any>
+}
+
 export interface CurrentBillCycleType {
     current_period_start: number
     current_period_end: number

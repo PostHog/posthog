@@ -13,6 +13,7 @@ import {
     LicenseType,
     PluginLogEntry,
     PropertyDefinition,
+    SessionNetworkRequestsAPIResult,
     TeamType,
     UserType,
 } from '~/types'
@@ -268,6 +269,16 @@ class ApiRequest {
 
     public async delete(): Promise<any> {
         return await api.delete(this.assembleFullUrl())
+    }
+
+    // web performance
+
+    public webPerformance(teamId: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('web_performance')
+    }
+
+    public webPerformanceSession(sessionId: string, teamId: TeamType['id']): ApiRequest {
+        return this.webPerformance(teamId).addPathComponent('for_session').addPathComponent(sessionId)
     }
 }
 
@@ -606,6 +617,18 @@ const api = {
                 .get()
 
             return response.results
+        },
+    },
+
+    webPerformance: {
+        async forSession(
+            sessionId: string | undefined,
+            teamId = getCurrentTeamId()
+        ): Promise<SessionNetworkRequestsAPIResult> {
+            if (!sessionId) {
+                return { keys: [], results: [] } as SessionNetworkRequestsAPIResult
+            }
+            return new ApiRequest().webPerformanceSession(sessionId, teamId).get()
         },
     },
 

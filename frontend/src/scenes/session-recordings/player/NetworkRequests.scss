@@ -1,0 +1,53 @@
+.SessionNetworkRequestsContainer {
+    display: flex;
+    flex-direction: column;
+    background-color: var(--bg-light);
+    height: 100%;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: var(--recording-spacing);
+}
+
+.SessionNetworkRequestsList {
+    flex: 1;
+    margin-top: var(--recording-spacing);
+}
+
+.NetworkRequestRow {
+    padding: var(--recording-spacing);
+    cursor: pointer;
+    border-radius: var(--radius);
+
+    //&.Type__navigation {
+    //    background-color: blue;
+    //}
+    //
+    //&.Type__paint {
+    //    background-color: red;
+    //}
+    //
+    //&.Type__resource {
+    //    background-color: green;
+    //}
+
+    .NetworkRequestEntry {
+        margin: 0px;
+        min-height: 18px;
+    }
+
+    &:hover {
+        background: rgba(83, 117, 255, 0.1);
+    }
+}
+
+.more-logs-available {
+    text-align: center;
+    margin: 0.5rem;
+}
+
+.FeedbackContainer {
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 1rem;
+    margin-top: 1rem;
+}

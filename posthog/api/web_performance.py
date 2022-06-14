@@ -15,7 +15,7 @@ from posthog.client import sync_execute
 @dataclasses.dataclass
 class PlayerPosition:
     time: int
-    window_id: str
+    windowId: str
 
     @property
     def __dict__(self):
@@ -24,10 +24,12 @@ class PlayerPosition:
 
 @dataclasses.dataclass
 class WebPerformanceLog:
-    player_position: PlayerPosition
+    playerPosition: PlayerPosition
     type: str
     url: Optional[str]
+    eventName: Optional[str]
     duration: Optional[int]
+    timing: Optional[int]
     raw: Dict
 
     @property
@@ -62,13 +64,17 @@ class WebPerformanceViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
             # really lazy hard coding indexes :/
             keys["navigation"] = performance_entries.get("navigation", [])[0]
             for navigation_entry in performance_entries.get("navigation", [])[1]:
-                # 0: name e.g. the URL, 1: entryType (always navigation), 2: duration, startTime not present because its always 0
-                # start time for pageview is the timestamp of the page view event ??
+                # 0: name e.g. the URL,
+                # 1: entryType (always navigation),
+                # 2: duration,
+                # startTime not present because its always 0
                 parsed_entries.append(
                     WebPerformanceLog(
-                        player_position=PlayerPosition(time=start_timestamp, window_id=window_id),
+                        playerPosition=PlayerPosition(time=start_timestamp, windowId=window_id),
                         type="navigation",
                         duration=navigation_entry[2],
+                        timing=None,
+                        eventName=None,
                         url=navigation_entry[0],
                         raw=navigation_entry,
                     )
@@ -79,10 +85,12 @@ class WebPerformanceViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
                 # 0: name, 2: milliseconds of event after start
                 parsed_entries.append(
                     WebPerformanceLog(
-                        player_position=PlayerPosition(time=start_timestamp + paint_entry[2], window_id=window_id),
+                        playerPosition=PlayerPosition(time=start_timestamp + paint_entry[2], windowId=window_id),
                         type="paint",
                         duration=None,
                         url=None,
+                        eventName=paint_entry[0],
+                        timing=paint_entry[2],
                         raw=paint_entry,
                     )
                 )
@@ -92,10 +100,12 @@ class WebPerformanceViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
                 # 0 name, 1: startTime, 2: duration
                 parsed_entries.append(
                     WebPerformanceLog(
-                        player_position=PlayerPosition(time=start_timestamp + resource_entry[1], window_id=window_id),
+                        playerPosition=PlayerPosition(time=start_timestamp + resource_entry[1], windowId=window_id),
                         type="resource",
                         duration=resource_entry[2],
                         url=resource_entry[0],
+                        timing=None,
+                        eventName=None,
                         raw=resource_entry,
                     )
                 )
@@ -104,6 +114,6 @@ class WebPerformanceViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
         return Response(
             {
                 "keys": keys,
-                "results": [e.__dict__ for e in sorted(parsed_entries, key=lambda x: x.player_position.time)],
+                "results": [e.__dict__ for e in sorted(parsed_entries, key=lambda x: x.playerPosition.time)],
             }
         )

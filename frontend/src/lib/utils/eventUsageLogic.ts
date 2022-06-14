@@ -367,7 +367,13 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
             response,
             question,
         }),
+        reportRecordingNetworkRequestFeedback: (networkRequestsCount: number, response: string, question: string) => ({
+            networkRequestsCount,
+            response,
+            question,
+        }),
         reportRecordingConsoleViewed: (logCount: number) => ({ logCount }),
+        reportRecordingNetworkRequestsViewed: (networkRequestsCount: number) => ({ networkRequestsCount }),
         reportExperimentArchived: (experiment: Experiment) => ({ experiment }),
         reportExperimentCreated: (experiment: Experiment) => ({ experiment }),
         reportExperimentViewed: (experiment: Experiment) => ({ experiment }),
@@ -901,8 +907,18 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         reportRecordingConsoleFeedback: ({ response, logCount, question }) => {
             posthog.capture('recording console feedback', { question, response, log_count: logCount })
         },
+        reportRecordingNetworkRequestFeedback: ({ response, networkRequestsCount, question }) => {
+            posthog.capture('recording network requests feedback', {
+                question,
+                response,
+                network_requests_count: networkRequestsCount,
+            })
+        },
         reportRecordingConsoleViewed: ({ logCount }) => {
             posthog.capture('recording console logs viewed', { log_count: logCount })
+        },
+        reportRecordingNetworkRequestsViewed: ({ networkRequestsCount }) => {
+            posthog.capture('recording network requests viewed', { network_requests_count: networkRequestsCount })
         },
         reportExperimentArchived: ({ experiment }) => {
             posthog.capture('experiment archived', {

@@ -14,6 +14,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { sessionRecordingLogic } from '../sessionRecordingLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { Tooltip } from 'lib/components/Tooltip'
+import { NetworkRequests } from 'scenes/session-recordings/player/NetworkRequests'
 
 export function SessionRecordingPlayerV2(): JSX.Element {
     const { togglePlayPause, seekForward, seekBackward, setSpeed, setRootFrame } =
@@ -69,18 +70,17 @@ const { TabPane } = Tabs
 
 function PlayerSidebar(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
-    const { orderedConsoleLogs } = useValues(sessionRecordingLogic)
-    const { reportRecordingConsoleViewed } = useActions(eventUsageLogic)
+    const { orderedConsoleLogs, sessionNetworkRequests } = useValues(sessionRecordingLogic)
+    const { reportRecordingConsoleViewed, reportRecordingNetworkRequestsViewed } = useActions(eventUsageLogic)
     const sessionConsoleEnabled = featureFlags[FEATURE_FLAGS.SESSION_CONSOLE]
+    const sessionNetworkRequestsEnabled = featureFlags[FEATURE_FLAGS.SESSION_NETWORK_REQUESTS]
     return (
         <Col className="player-sidebar">
             <div className="player-meta">
                 <PlayerMeta />
             </div>
             <div className="player-events">
-                {!sessionConsoleEnabled ? (
-                    <PlayerEvents />
-                ) : (
+                {sessionConsoleEnabled || sessionNetworkRequestsEnabled ? (
                     <Tabs
                         data-attr="event-details"
                         defaultActiveKey="events"
@@ -90,25 +90,47 @@ function PlayerSidebar(): JSX.Element {
                             if (key === 'console') {
                                 reportRecordingConsoleViewed(orderedConsoleLogs.length)
                             }
+                            if (key === 'network-requests') {
+                                reportRecordingNetworkRequestsViewed(sessionNetworkRequests?.length || 0)
+                            }
                         }}
                     >
                         <TabPane tab="Events" key="events">
                             <PlayerEvents />
                         </TabPane>
-                        <TabPane
-                            tab={
-                                <div>
-                                    Console (beta)
-                                    <Tooltip title="While console logs are in beta, only 150 logs are displayed.">
-                                        <InfoCircleOutlined style={{ marginLeft: 6 }} />
-                                    </Tooltip>
-                                </div>
-                            }
-                            key="console"
-                        >
-                            <Console />
-                        </TabPane>
+                        {sessionConsoleEnabled && (
+                            <TabPane
+                                tab={
+                                    <div>
+                                        Console (beta)
+                                        <Tooltip title="While console logs are in beta, only 150 logs are displayed.">
+                                            <InfoCircleOutlined style={{ marginLeft: 6 }} />
+                                        </Tooltip>
+                                    </div>
+                                }
+                                key="console"
+                            >
+                                <Console />
+                            </TabPane>
+                        )}
+                        {sessionNetworkRequestsEnabled && (
+                            <TabPane
+                                tab={
+                                    <div>
+                                        Network Requests (beta)
+                                        <Tooltip title="Network requests are in beta, not all requests are captured.">
+                                            <InfoCircleOutlined style={{ marginLeft: 6 }} />
+                                        </Tooltip>
+                                    </div>
+                                }
+                                key="network-requests"
+                            >
+                                <NetworkRequests />
+                            </TabPane>
+                        )}
                     </Tabs>
+                ) : (
+                    <PlayerEvents />
                 )}
             </div>
         </Col>
