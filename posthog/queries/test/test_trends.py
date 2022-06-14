@@ -3,6 +3,8 @@ from datetime import datetime
 from typing import Dict, List, Optional, Tuple, Union
 from unittest.mock import patch
 
+from django.conf import settings
+from django.core.cache import cache
 from django.utils import timezone
 from freezegun import freeze_time
 from rest_framework.exceptions import ValidationError
@@ -10,7 +12,7 @@ from rest_framework.exceptions import ValidationError
 from ee.clickhouse.test.test_journeys import journeys_for
 from posthog.constants import ENTITY_ID, ENTITY_TYPE, TREND_FILTER_TYPE_EVENTS, TRENDS_BAR_VALUE, TRENDS_TABLE
 from posthog.models import Action, ActionStep, Cohort, Entity, Filter, Organization, Person
-from posthog.models.instance_setting import override_instance_config
+from posthog.models.instance_setting import override_instance_config, set_instance_setting
 from posthog.models.person.util import create_person_distinct_id
 from posthog.queries.trends.trends import Trends
 from posthog.test.base import (
@@ -22,6 +24,7 @@ from posthog.test.base import (
     snapshot_clickhouse_queries,
     test_with_materialized_columns,
 )
+from posthog.utils import generate_cache_key
 
 
 def breakdown_label(entity: Entity, value: Union[str, int]) -> Dict[str, Optional[Union[str, int]]]:
@@ -3696,3 +3699,228 @@ def trend_test_factory(trends):
 
 class TestFOSSTrends(trend_test_factory(Trends)):  # type: ignore
     maxDiff = None
+
+
+class TestTrendUtils(ClickhouseTestMixin, APIBaseTest):
+    maxDiff = None
+
+    def test_is_present_timerange_no_cache(self):
+        set_instance_setting("STRICT_CACHING_TEAMS", "all")
+
+        filter = Filter(
+            data={
+                "date_to": "2020-11-01 10:26:00",
+                "events": [{"id": "sign up", "name": "sign up"},],
+                "interval": "hour",
+            },
+            team=self.team,
+        )
+
+        is_present = Trends().is_present_timerange(filter, self.team)
+        self.assertFalse(is_present)
+
+    def test_is_present_timerange_hour(self):
+        set_instance_setting("STRICT_CACHING_TEAMS", "all")
+
+        fake_cached = {
+            "result": [
+                {
+                    "days": ["2020-11-01 05:20:00", "2020-11-01 10:22:00", "2020-11-01 10:25:00",],
+                    "data": [[0.0, 0.0, 0.0],],
+                }
+            ]
+        }
+
+        filter = Filter(
+            data={
+                "date_to": "2020-11-01 10:26:00",
+                "events": [{"id": "sign up", "name": "sign up"},],
+                "interval": "hour",
+            },
+            team=self.team,
+        )
+        cache_key = generate_cache_key(f"{filter.toJSON()}_{self.team.pk}")
+        cache.set(
+            cache_key, fake_cached, settings.CACHED_RESULTS_TTL,
+        )
+
+        is_present = Trends().is_present_timerange(filter, self.team)
+        self.assertTrue(is_present)
+
+        filter = Filter(
+            data={
+                "date_to": "2020-11-02 05:26:00",
+                "events": [{"id": "sign up", "name": "sign up"},],
+                "interval": "hour",
+            },
+            team=self.team,
+        )
+
+        is_present = Trends().is_present_timerange(filter, self.team)
+        self.assertFalse(is_present)
+
+    def test_is_present_timerange_day(self):
+        set_instance_setting("STRICT_CACHING_TEAMS", "all")
+        fake_cached = {"result": [{"days": ["2020-01-02", "2020-01-03", "2020-01-04",], "data": [[0.0, 0.0, 0.0],]}]}
+        filter = Filter(
+            data={
+                "date_from": "2020-01-02",
+                "date_to": "2020-01-04",
+                "events": [{"id": "sign up", "name": "sign up"},],
+            },
+            team=self.team,
+        )
+        cache_key = generate_cache_key(f"{filter.toJSON()}_{self.team.pk}")
+        cache.set(
+            cache_key, fake_cached, settings.CACHED_RESULTS_TTL,
+        )
+
+        is_present = Trends().is_present_timerange(filter, self.team)
+        self.assertTrue(is_present)
+
+        fake_cached = {"result": [{"days": ["2020-01-01", "2020-01-02", "2020-01-03",], "data": [[0.0, 0.0, 0.0],]}]}
+
+        cache.set(
+            cache_key, fake_cached, settings.CACHED_RESULTS_TTL,
+        )
+
+        is_present = Trends().is_present_timerange(filter, self.team)
+        self.assertFalse(is_present)
+
+    def test_is_present_timerange_week(self):
+        set_instance_setting("STRICT_CACHING_TEAMS", "all")
+
+        fake_cached = {"result": [{"days": ["2020-11-01", "2020-11-08", "2020-11-15",], "data": [[0.0, 0.0, 0.0],]}]}
+
+        filter = Filter(
+            data={"date_to": "2020-11-16", "events": [{"id": "sign up", "name": "sign up"},], "interval": "week",},
+            team=self.team,
+        )
+        cache_key = generate_cache_key(f"{filter.toJSON()}_{self.team.pk}")
+        cache.set(
+            cache_key, fake_cached, settings.CACHED_RESULTS_TTL,
+        )
+
+        is_present = Trends().is_present_timerange(filter, self.team)
+        self.assertTrue(is_present)
+
+        filter = Filter(
+            data={"date_to": "2020-11-23", "events": [{"id": "sign up", "name": "sign up"},], "interval": "week",},
+            team=self.team,
+        )
+
+        is_present = Trends().is_present_timerange(filter, self.team)
+        self.assertFalse(is_present)
+
+    def test_is_present_timerange_month(self):
+        set_instance_setting("STRICT_CACHING_TEAMS", "all")
+
+        fake_cached = {"result": [{"days": ["2020-09-01", "2020-10-01", "2020-11-01",], "data": [[0.0, 0.0, 0.0],]}]}
+
+        filter = Filter(
+            data={"date_to": "2020-11-16", "events": [{"id": "sign up", "name": "sign up"},], "interval": "month",},
+            team=self.team,
+        )
+        cache_key = generate_cache_key(f"{filter.toJSON()}_{self.team.pk}")
+        cache.set(
+            cache_key, fake_cached, settings.CACHED_RESULTS_TTL,
+        )
+
+        is_present = Trends().is_present_timerange(filter, self.team)
+        self.assertTrue(is_present)
+
+        filter = Filter(
+            data={"date_to": "2020-12-01", "events": [{"id": "sign up", "name": "sign up"},], "interval": "week",},
+            team=self.team,
+        )
+
+        is_present = Trends().is_present_timerange(filter, self.team)
+        self.assertFalse(is_present)
+
+    def test_merge_result(self):
+        set_instance_setting("STRICT_CACHING_TEAMS", "all")
+        fake_cached = {
+            "result": [
+                {
+                    "label": "sign up - Chrome",
+                    "days": ["2020-01-02", "2020-01-03", "2020-01-04",],
+                    "data": [23.0, 15.0, 1.0],
+                }
+            ]
+        }
+        filter = Filter(
+            data={
+                "date_from": "2020-01-02",
+                "date_to": "2020-01-04",
+                "events": [{"id": "sign up", "name": "sign up"},],
+            },
+            team=self.team,
+        )
+
+        cache_key = generate_cache_key(f"{filter.toJSON()}_{self.team.pk}")
+        cache.set(
+            cache_key, fake_cached, settings.CACHED_RESULTS_TTL,
+        )
+
+        result = [{"label": "sign up - Chrome", "data": [15.0, 12.0],}]
+
+        merged_result = Trends().merge_results(result, filter, self.team)
+
+        self.assertEqual(merged_result[0]["data"], [23.0, 15.0, 12.0])
+
+    def test_merge_result_no_cache(self):
+
+        filter = Filter(
+            data={
+                "date_from": "2020-01-02",
+                "date_to": "2020-01-04",
+                "events": [{"id": "sign up", "name": "sign up"},],
+            },
+            team=self.team,
+        )
+
+        result = [{"label": "sign up - Chrome", "data": [15.0, 12.0],}]
+
+        merged_result = Trends().merge_results(result, filter, self.team)
+
+        self.assertEqual(merged_result[0]["data"], [15.0, 12.0])
+
+    def test_merge_result_multiple(self):
+        set_instance_setting("STRICT_CACHING_TEAMS", "all")
+        fake_cached = {
+            "result": [
+                {
+                    "label": "sign up - Chrome",
+                    "days": ["2020-01-02", "2020-01-03", "2020-01-04",],
+                    "data": [23.0, 15.0, 1.0],
+                },
+                {
+                    "label": "sign up - Safari",
+                    "days": ["2020-01-02", "2020-01-03", "2020-01-04",],
+                    "data": [12.0, 11.0, 8.0],
+                },
+            ]
+        }
+        filter = Filter(
+            data={
+                "date_from": "2020-01-02",
+                "date_to": "2020-01-04",
+                "events": [{"id": "sign up", "name": "sign up"},],
+            },
+            team=self.team,
+        )
+
+        cache_key = generate_cache_key(f"{filter.toJSON()}_{self.team.pk}")
+        cache.set(
+            cache_key, fake_cached, settings.CACHED_RESULTS_TTL,
+        )
+
+        result = [
+            {"label": "sign up - Chrome", "data": [15.0, 12.0],},
+            {"label": "sign up - Safari", "data": [15.0, 9.0],},
+        ]
+
+        merged_result = Trends().merge_results(result, filter, self.team)
+
+        self.assertEqual(merged_result[0]["data"], [23.0, 15.0, 12.0])
+        self.assertEqual(merged_result[1]["data"], [12.0, 11.0, 9.0])
