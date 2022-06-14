@@ -109,7 +109,7 @@ export class LazyPluginVM {
         return tasks || {}
     }
 
-    private async getVmMethod<T extends keyof VMMethods>(method: T): Promise<VMMethods[T] | null> {
+    public async getVmMethod<T extends keyof VMMethods>(method: T): Promise<VMMethods[T] | null> {
         let vmMethod = (await this.resolveInternalVm)?.methods[method] || null
         if (!this.ready && vmMethod) {
             const pluginReady = await this.setupPluginIfNeeded()
