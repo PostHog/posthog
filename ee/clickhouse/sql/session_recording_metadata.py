@@ -11,8 +11,6 @@ SESSION_RECORDING_METADATA_DATA_TABLE = (
 SESSION_RECORDING_METADATA_TABLE_BASE_SQL = """
 CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
 (
-    uuid UUID,
-    timestamp DateTime64(6, 'UTC'),
     team_id Int64,
     distinct_id VARCHAR,
     session_id VARCHAR,
@@ -29,8 +27,8 @@ SESSION_RECORDING_METADATA_DATA_TABLE_ENGINE = lambda: ReplacingMergeTree(
 )
 SESSION_RECORDING_METADATA_TABLE_SQL = lambda: (
     SESSION_RECORDING_METADATA_TABLE_BASE_SQL
-    + """PARTITION BY toYYYYMMDD(timestamp)
-ORDER BY (toHour(timestamp), session_id, timestamp, uuid)
+    + """PARTITION BY toYYYYMMDD(session_end)
+ORDER BY (toHour(session_end), session_id, session_end)
 SETTINGS index_granularity=512
 """
 ).format(
@@ -52,8 +50,6 @@ SESSION_RECORDING_METADATA_TABLE_MV_SQL = lambda: """
 CREATE MATERIALIZED VIEW session_recording_metadata_mv ON CLUSTER '{cluster}'
 TO {database}.{target_table}
 AS SELECT
-uuid,
-timestamp,
 team_id,
 distinct_id,
 session_id,
