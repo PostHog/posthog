@@ -320,11 +320,12 @@ def safe_clickhouse_string(s: str) -> str:
     return s
 
 
-def create_event_definitions_sql(include_actions: bool, is_enterprise: bool = False) -> str:
+def create_event_definitions_sql(include_actions: bool, is_enterprise: bool = False, conditions: str = "") -> str:
     # Prevent fetching deprecated `tags` field. Tags are separately fetched in TaggedItemSerializerMixin
     event_definition_fields = {
         f'"{f.column}"' for f in EventDefinition._meta.get_fields() if hasattr(f, "column") and f.column != "tags"  # type: ignore
     }
+    shared_conditions = f"WHERE team_id = %(team_id)s {conditions}"
 
     if include_actions:
         event_definition_fields.discard("id")
@@ -359,9 +360,10 @@ def create_event_definitions_sql(include_actions: bool, is_enterprise: bool = Fa
         return f"""
         SELECT * FROM (
             {event_definition_table}
+            {shared_conditions}
             UNION
             SELECT {raw_action_fields} FROM posthog_action
-            WHERE posthog_action.deleted = false
+            {shared_conditions} AND posthog_action.deleted = false
         ) as T
         """
 
@@ -372,9 +374,11 @@ def create_event_definitions_sql(include_actions: bool, is_enterprise: bool = Fa
         SELECT {raw_event_definition_fields}
         FROM ee_enterpriseeventdefinition
         FULL OUTER JOIN posthog_eventdefinition ON posthog_eventdefinition.id=ee_enterpriseeventdefinition.eventdefinition_ptr_id
+        {shared_conditions}
     """
         if is_enterprise
         else f"""
         SELECT {raw_event_definition_fields} FROM posthog_eventdefinition
+        {shared_conditions}
     """
     )
