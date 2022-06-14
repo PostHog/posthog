@@ -3704,7 +3704,7 @@ class TestFOSSTrends(trend_test_factory(Trends)):  # type: ignore
 class TestTrendUtils(ClickhouseTestMixin, APIBaseTest):
     maxDiff = None
 
-    def test_is_present_timerange_no_cache(self):
+    def test_get_cached_result_no_cache(self):
         set_instance_setting("STRICT_CACHING_TEAMS", "all")
 
         filter = Filter(
@@ -3716,17 +3716,40 @@ class TestTrendUtils(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
         )
 
-        is_present = Trends().is_present_timerange(filter, self.team)
-        self.assertFalse(is_present)
+        is_present = Trends().get_cached_result(filter, self.team)
+        self.assertIsNone(is_present)
 
-    def test_is_present_timerange_hour(self):
+    def test_get_cached_result_bad_cache(self):
+        set_instance_setting("STRICT_CACHING_TEAMS", "all")
+
+        fake_cached = {
+            "result": [{"days": ["2020-11-01 05:20:00", "2020-11-01 10:22:00", "2020-11-01 10:25:00",], "data": [],}]
+        }
+
+        filter = Filter(
+            data={
+                "date_to": "2020-11-01 10:26:00",
+                "events": [{"id": "sign up", "name": "sign up"},],
+                "interval": "hour",
+            },
+            team=self.team,
+        )
+        cache_key = generate_cache_key(f"{filter.toJSON()}_{self.team.pk}")
+        cache.set(
+            cache_key, fake_cached, settings.CACHED_RESULTS_TTL,
+        )
+
+        is_present = Trends().get_cached_result(filter, self.team)
+        self.assertIsNone(is_present)
+
+    def test_get_cached_result_hour(self):
         set_instance_setting("STRICT_CACHING_TEAMS", "all")
 
         fake_cached = {
             "result": [
                 {
                     "days": ["2020-11-01 05:20:00", "2020-11-01 10:22:00", "2020-11-01 10:25:00",],
-                    "data": [[0.0, 0.0, 0.0],],
+                    "data": [0.0, 0.0, 0.0],
                 }
             ]
         }
@@ -3744,8 +3767,8 @@ class TestTrendUtils(ClickhouseTestMixin, APIBaseTest):
             cache_key, fake_cached, settings.CACHED_RESULTS_TTL,
         )
 
-        is_present = Trends().is_present_timerange(filter, self.team)
-        self.assertTrue(is_present)
+        res = Trends().get_cached_result(filter, self.team)
+        self.assertIsNotNone(res)
 
         filter = Filter(
             data={
@@ -3756,12 +3779,12 @@ class TestTrendUtils(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
         )
 
-        is_present = Trends().is_present_timerange(filter, self.team)
-        self.assertFalse(is_present)
+        res = Trends().get_cached_result(filter, self.team)
+        self.assertIsNone(res)
 
-    def test_is_present_timerange_day(self):
+    def test_get_cached_result_day(self):
         set_instance_setting("STRICT_CACHING_TEAMS", "all")
-        fake_cached = {"result": [{"days": ["2020-01-02", "2020-01-03", "2020-01-04",], "data": [[0.0, 0.0, 0.0],]}]}
+        fake_cached = {"result": [{"days": ["2020-01-02", "2020-01-03", "2020-01-04",], "data": [0.0, 0.0, 0.0]}]}
         filter = Filter(
             data={
                 "date_from": "2020-01-02",
@@ -3775,22 +3798,22 @@ class TestTrendUtils(ClickhouseTestMixin, APIBaseTest):
             cache_key, fake_cached, settings.CACHED_RESULTS_TTL,
         )
 
-        is_present = Trends().is_present_timerange(filter, self.team)
-        self.assertTrue(is_present)
+        res = Trends().get_cached_result(filter, self.team)
+        self.assertTrue(res)
 
-        fake_cached = {"result": [{"days": ["2020-01-01", "2020-01-02", "2020-01-03",], "data": [[0.0, 0.0, 0.0],]}]}
+        fake_cached = {"result": [{"days": ["2020-01-01", "2020-01-02", "2020-01-03",], "data": [0.0, 0.0, 0.0]}]}
 
         cache.set(
             cache_key, fake_cached, settings.CACHED_RESULTS_TTL,
         )
 
-        is_present = Trends().is_present_timerange(filter, self.team)
-        self.assertFalse(is_present)
+        res = Trends().get_cached_result(filter, self.team)
+        self.assertFalse(res)
 
-    def test_is_present_timerange_week(self):
+    def test_get_cached_result_week(self):
         set_instance_setting("STRICT_CACHING_TEAMS", "all")
 
-        fake_cached = {"result": [{"days": ["2020-11-01", "2020-11-08", "2020-11-15",], "data": [[0.0, 0.0, 0.0],]}]}
+        fake_cached = {"result": [{"days": ["2020-11-01", "2020-11-08", "2020-11-15",], "data": [0.0, 0.0, 0.0]}]}
 
         filter = Filter(
             data={"date_to": "2020-11-16", "events": [{"id": "sign up", "name": "sign up"},], "interval": "week",},
@@ -3801,21 +3824,21 @@ class TestTrendUtils(ClickhouseTestMixin, APIBaseTest):
             cache_key, fake_cached, settings.CACHED_RESULTS_TTL,
         )
 
-        is_present = Trends().is_present_timerange(filter, self.team)
-        self.assertTrue(is_present)
+        res = Trends().get_cached_result(filter, self.team)
+        self.assertTrue(res)
 
         filter = Filter(
             data={"date_to": "2020-11-23", "events": [{"id": "sign up", "name": "sign up"},], "interval": "week",},
             team=self.team,
         )
 
-        is_present = Trends().is_present_timerange(filter, self.team)
-        self.assertFalse(is_present)
+        res = Trends().get_cached_result(filter, self.team)
+        self.assertFalse(res)
 
-    def test_is_present_timerange_month(self):
+    def test_get_cached_result_month(self):
         set_instance_setting("STRICT_CACHING_TEAMS", "all")
 
-        fake_cached = {"result": [{"days": ["2020-09-01", "2020-10-01", "2020-11-01",], "data": [[0.0, 0.0, 0.0],]}]}
+        fake_cached = {"result": [{"days": ["2020-09-01", "2020-10-01", "2020-11-01",], "data": [0.0, 0.0, 0.0]}]}
 
         filter = Filter(
             data={"date_to": "2020-11-16", "events": [{"id": "sign up", "name": "sign up"},], "interval": "month",},
@@ -3826,28 +3849,26 @@ class TestTrendUtils(ClickhouseTestMixin, APIBaseTest):
             cache_key, fake_cached, settings.CACHED_RESULTS_TTL,
         )
 
-        is_present = Trends().is_present_timerange(filter, self.team)
-        self.assertTrue(is_present)
+        res = Trends().get_cached_result(filter, self.team)
+        self.assertTrue(res)
 
         filter = Filter(
             data={"date_to": "2020-12-01", "events": [{"id": "sign up", "name": "sign up"},], "interval": "week",},
             team=self.team,
         )
 
-        is_present = Trends().is_present_timerange(filter, self.team)
-        self.assertFalse(is_present)
+        res = Trends().get_cached_result(filter, self.team)
+        self.assertFalse(res)
 
     def test_merge_result(self):
         set_instance_setting("STRICT_CACHING_TEAMS", "all")
-        fake_cached = {
-            "result": [
-                {
-                    "label": "sign up - Chrome",
-                    "days": ["2020-01-02", "2020-01-03", "2020-01-04",],
-                    "data": [23.0, 15.0, 1.0],
-                }
-            ]
-        }
+        fake_cached = [
+            {
+                "label": "sign up - Chrome",
+                "days": ["2020-01-02", "2020-01-03", "2020-01-04",],
+                "data": [23.0, 15.0, 1.0],
+            }
+        ]
         filter = Filter(
             data={
                 "date_from": "2020-01-02",
@@ -3856,15 +3877,9 @@ class TestTrendUtils(ClickhouseTestMixin, APIBaseTest):
             },
             team=self.team,
         )
-
-        cache_key = generate_cache_key(f"{filter.toJSON()}_{self.team.pk}")
-        cache.set(
-            cache_key, fake_cached, settings.CACHED_RESULTS_TTL,
-        )
-
         result = [{"label": "sign up - Chrome", "data": [15.0, 12.0],}]
 
-        merged_result = Trends().merge_results(result, filter, self.team)
+        merged_result = Trends().merge_results(result, fake_cached, filter, self.team)
 
         self.assertEqual(merged_result[0]["data"], [23.0, 15.0, 12.0])
 
@@ -3881,26 +3896,24 @@ class TestTrendUtils(ClickhouseTestMixin, APIBaseTest):
 
         result = [{"label": "sign up - Chrome", "data": [15.0, 12.0],}]
 
-        merged_result = Trends().merge_results(result, filter, self.team)
+        merged_result = Trends().merge_results(result, [], filter, self.team)
 
         self.assertEqual(merged_result[0]["data"], [15.0, 12.0])
 
     def test_merge_result_multiple(self):
         set_instance_setting("STRICT_CACHING_TEAMS", "all")
-        fake_cached = {
-            "result": [
-                {
-                    "label": "sign up - Chrome",
-                    "days": ["2020-01-02", "2020-01-03", "2020-01-04",],
-                    "data": [23.0, 15.0, 1.0],
-                },
-                {
-                    "label": "sign up - Safari",
-                    "days": ["2020-01-02", "2020-01-03", "2020-01-04",],
-                    "data": [12.0, 11.0, 8.0],
-                },
-            ]
-        }
+        fake_cached = [
+            {
+                "label": "sign up - Chrome",
+                "days": ["2020-01-02", "2020-01-03", "2020-01-04",],
+                "data": [23.0, 15.0, 1.0],
+            },
+            {
+                "label": "sign up - Safari",
+                "days": ["2020-01-02", "2020-01-03", "2020-01-04",],
+                "data": [12.0, 11.0, 8.0],
+            },
+        ]
         filter = Filter(
             data={
                 "date_from": "2020-01-02",
@@ -3910,17 +3923,12 @@ class TestTrendUtils(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
         )
 
-        cache_key = generate_cache_key(f"{filter.toJSON()}_{self.team.pk}")
-        cache.set(
-            cache_key, fake_cached, settings.CACHED_RESULTS_TTL,
-        )
-
         result = [
             {"label": "sign up - Chrome", "data": [15.0, 12.0],},
             {"label": "sign up - Safari", "data": [15.0, 9.0],},
         ]
 
-        merged_result = Trends().merge_results(result, filter, self.team)
+        merged_result = Trends().merge_results(result, fake_cached, filter, self.team)
 
         self.assertEqual(merged_result[0]["data"], [23.0, 15.0, 12.0])
         self.assertEqual(merged_result[1]["data"], [12.0, 11.0, 9.0])
