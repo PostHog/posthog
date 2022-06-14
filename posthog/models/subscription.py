@@ -37,7 +37,7 @@ class Subscription(models.Model):
     # Subscription type (email, slack etc.)
     title: models.CharField = models.CharField(max_length=100, null=True, blank=True)
     target_type: models.CharField = models.CharField(max_length=10, choices=SubscriptionTarget.choices)
-    target_value: models.CharField = models.CharField(max_length=65535)
+    target_value: models.TextField = models.TextField()
 
     # Subscription delivery (related to rrule)
     frequency: models.CharField = models.CharField(max_length=10, choices=SubscriptionFrequency.choices)
