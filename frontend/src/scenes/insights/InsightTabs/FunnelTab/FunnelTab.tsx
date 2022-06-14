@@ -195,7 +195,7 @@ export function FunnelTab(): JSX.Element {
                                                                           setFilters({
                                                                               breakdown_attribution_type:
                                                                                   BreakdownAttributionType.Step,
-                                                                              breakdown_attribution_value: value,
+                                                                              breakdown_attribution_value: value + 1,
                                                                           })
                                                                       }
                                                                   }}
