@@ -1102,7 +1102,6 @@ class ClickhouseTestTrendsCaching(ClickhouseTestMixin, LicensedTestMixin, APIBas
         assert data["$action"]["2012-01-14"].value == 0
         assert data["$action"]["2012-01-15"].value == 1
 
-    @snapshot_clickhouse_queries
     def test_insight_trends_merging_breakdown(self):
         set_instance_setting("STRICT_CACHING_TEAMS", "all")
 
@@ -1145,7 +1144,10 @@ class ClickhouseTestTrendsCaching(ClickhouseTestMixin, LicensedTestMixin, APIBas
         assert data["$action - 2"]["2012-01-15"].value == 0
 
         events_by_person = {
-            "1": [{"event": "$action", "timestamp": datetime(2012, 1, 15, 3), "properties": {"key": "2"}}],
+            "1": [
+                {"event": "$action", "timestamp": datetime(2012, 1, 13, 3), "properties": {"key": "2"}},
+                {"event": "$action", "timestamp": datetime(2012, 1, 15, 3), "properties": {"key": "2"}},
+            ],
         }
         journeys_for(events_by_person, self.team)
 
@@ -1240,6 +1242,8 @@ class ClickhouseTestTrendsCaching(ClickhouseTestMixin, LicensedTestMixin, APIBas
 
         events_by_person = {
             "1": [
+                {"event": "$pageview", "timestamp": datetime(2012, 1, 13, 3), "properties": {"key": "1"}},
+                {"event": "$action", "timestamp": datetime(2012, 1, 13, 3), "properties": {"key": "2"}},
                 {"event": "$pageview", "timestamp": datetime(2012, 1, 15, 3), "properties": {"key": "1"}},
                 {"event": "$action", "timestamp": datetime(2012, 1, 15, 3), "properties": {"key": "2"}},
             ],
