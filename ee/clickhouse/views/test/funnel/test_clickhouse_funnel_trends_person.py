@@ -2,9 +2,8 @@ import json
 
 from rest_framework import status
 
-from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.constants import INSIGHT_FUNNELS, FunnelOrderType, FunnelVizType
-from posthog.test.base import APIBaseTest, _create_event, _create_person
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person
 
 
 class TestFunnelTrendsPerson(ClickhouseTestMixin, APIBaseTest):

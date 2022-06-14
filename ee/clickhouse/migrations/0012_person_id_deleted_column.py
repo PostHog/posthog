@@ -1,6 +1,6 @@
 from infi.clickhouse_orm import migrations
 
-from ee.clickhouse.sql.person import KAFKA_PERSONS_DISTINCT_ID_TABLE_SQL, PERSONS_DISTINCT_ID_TABLE_MV_SQL
+from posthog.models.person.sql import KAFKA_PERSONS_DISTINCT_ID_TABLE_SQL, PERSONS_DISTINCT_ID_TABLE_MV_SQL
 from posthog.settings import CLICKHOUSE_CLUSTER
 
 operations = [

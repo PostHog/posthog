@@ -1327,7 +1327,6 @@ export interface InsightLogicProps {
 }
 
 export interface SetInsightOptions {
-    shouldMergeWithExisting?: boolean
     /** this overrides the in-flight filters on the page, which may not equal the last returned API response */
     overrideFilter?: boolean
     /** calling with this updates the "last saved" filters */
@@ -1428,6 +1427,7 @@ export interface PreflightStatus {
 export enum ItemMode { // todo: consolidate this and dashboardmode
     Edit = 'edit',
     View = 'view',
+    Subscriptions = 'subscriptions',
 }
 
 export enum DashboardPlacement {
@@ -1879,6 +1879,27 @@ export enum ValueOptionType {
     MostRecent = 'most_recent',
     Previous = 'previous',
     OnDate = 'on_date',
+}
+
+export type WeekdayType = 'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday' | 'saturday' | 'sunday'
+
+export interface SubscriptionType {
+    id: number
+    insight?: number
+    dashboard?: number
+    target_type: string
+    target_value: string
+    frequency: 'daily' | 'weekly' | 'monthly' | 'yearly'
+    interval: number
+    byweekday: WeekdayType[]
+    bysetpos: number
+    start_date: string
+    until_date: string
+    title: string
+    created_by?: UserBasicType | null
+    created_at: string
+    updated_at: string
+    deleted?: boolean
 }
 
 export type Description = string | JSX.Element | null

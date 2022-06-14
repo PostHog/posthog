@@ -19,6 +19,7 @@ from ee.kafka_client.topics import KAFKA_DEAD_LETTER_QUEUE
 from ee.settings import KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC
 from posthog.api.utils import (
     EventIngestionContext,
+    capture_as_common_error_to_sentry_ratelimited,
     get_data,
     get_event_ingestion_context,
     get_token,
@@ -110,19 +111,23 @@ def _datetime_from_seconds_or_millis(timestamp: str) -> datetime:
 
 
 def _get_sent_at(data, request) -> Optional[datetime]:
-    if request.GET.get("_"):  # posthog-js
-        sent_at = request.GET["_"]
-    elif isinstance(data, dict) and data.get("sent_at"):  # posthog-android, posthog-ios
-        sent_at = data["sent_at"]
-    elif request.POST.get("sent_at"):  # when urlencoded body and not JSON (in some test)
-        sent_at = request.POST["sent_at"]
-    else:
+    try:
+        if request.GET.get("_"):  # posthog-js
+            sent_at = request.GET["_"]
+        elif isinstance(data, dict) and data.get("sent_at"):  # posthog-android, posthog-ios
+            sent_at = data["sent_at"]
+        elif request.POST.get("sent_at"):  # when urlencoded body and not JSON (in some test)
+            sent_at = request.POST["sent_at"]
+        else:
+            return None
+
+        if re.match(r"^[0-9]+$", sent_at):
+            return _datetime_from_seconds_or_millis(sent_at)
+
+        return parser.isoparse(sent_at)
+    except Exception as error:
+        capture_as_common_error_to_sentry_ratelimited("Invalid sent_at value", error)
         return None
-
-    if re.match(r"^[0-9]+$", sent_at):
-        return _datetime_from_seconds_or_millis(sent_at)
-
-    return parser.isoparse(sent_at)
 
 
 def _get_distinct_id(data: Dict[str, Any]) -> str:

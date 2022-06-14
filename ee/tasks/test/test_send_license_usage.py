@@ -3,10 +3,9 @@ from unittest.mock import ANY, patch
 from freezegun import freeze_time
 
 from ee.api.test.base import LicensedTestMixin
-from ee.clickhouse.util import ClickhouseDestroyTablesMixin
 from ee.tasks.send_license_usage import send_license_usage
 from posthog.models.team import Team
-from posthog.test.base import APIBaseTest, _create_event, flush_persons_and_events
+from posthog.test.base import APIBaseTest, ClickhouseDestroyTablesMixin, _create_event, flush_persons_and_events
 
 
 class SendLicenseUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest):

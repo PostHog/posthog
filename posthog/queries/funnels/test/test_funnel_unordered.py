@@ -3,7 +3,6 @@ from datetime import datetime
 from rest_framework.exceptions import ValidationError
 
 from ee.clickhouse.test.test_journeys import journeys_for
-from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
 from posthog.constants import INSIGHT_FUNNELS
 from posthog.models.action import Action
 from posthog.models.action_step import ActionStep
@@ -17,7 +16,13 @@ from posthog.queries.funnels.test.breakdown_cases import (
     funnel_breakdown_test_factory,
 )
 from posthog.queries.funnels.test.conversion_time_cases import funnel_conversion_time_test_factory
-from posthog.test.base import APIBaseTest, _create_event, _create_person
+from posthog.test.base import (
+    APIBaseTest,
+    ClickhouseTestMixin,
+    _create_event,
+    _create_person,
+    snapshot_clickhouse_queries,
+)
 
 FORMAT_TIME = "%Y-%m-%d 00:00:00"
 

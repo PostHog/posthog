@@ -3,9 +3,8 @@ from unittest.mock import patch
 from freezegun import freeze_time
 from rest_framework import status
 
-from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.models import Action, ActionStep, Organization, Tag
-from posthog.test.base import APIBaseTest, _create_event
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event
 
 
 class TestActionApi(ClickhouseTestMixin, APIBaseTest):

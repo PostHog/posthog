@@ -124,9 +124,7 @@ export class ActionMatcher {
                 const timer = new Date()
                 const res = this.checkAction(event, elements, person, action)
                 this.statsd?.timing('checkAction', timer, {
-                    event: String(event.event),
                     teamId: String(event.teamId),
-                    action: String(action.name),
                 })
                 return res
             })
