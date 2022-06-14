@@ -384,7 +384,11 @@ const api = {
 
     exports: {
         determineExportUrl(exportId: number, teamId: TeamType['id'] = getCurrentTeamId()): string {
-            return new ApiRequest().export(exportId, teamId).withAction('content').assembleFullUrl(true)
+            return new ApiRequest()
+                .export(exportId, teamId)
+                .withAction('content')
+                .withQueryString('download=true')
+                .assembleFullUrl(true)
         },
     },
 

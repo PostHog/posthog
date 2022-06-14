@@ -59,16 +59,20 @@ class ExportedAsset(models.Model):
 
         return filename
 
+    @property
+    def file_ext(self):
+        return self.export_format.split("/")[1]
+
     def get_analytics_metadata(self):
         return {"export_format": self.export_format, "dashboard_id": self.dashboard_id, "insight_id": self.insight_id}
 
     @property
     def url(self):
-        return f"{settings.SITE_URL}/exports/{self.access_token}"
+        return f"{settings.SITE_URL}/exporter/{self.access_token}"
 
     def get_public_content_url(self, expiry_delta: Optional[timedelta] = None):
         token = get_public_access_token(self, expiry_delta)
-        return f"{settings.SITE_URL}/exports/{self.filename}?token={token}"
+        return f"{settings.SITE_URL}/exporter/{self.filename}?token={token}"
 
 
 def get_public_access_token(asset: ExportedAsset, expiry_delta: Optional[timedelta] = None) -> str:
