@@ -9,8 +9,12 @@ from posthog.api.tagged_item import TaggedItemSerializerMixin
 class EnterpriseEventDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
     updated_by = UserBasicSerializer(read_only=True)
     verified_by = UserBasicSerializer(read_only=True)
+    created_by = UserBasicSerializer(read_only=True)
     is_action = serializers.SerializerMethodField(read_only=True)
     action_id = serializers.IntegerField(read_only=True)
+    is_calculating = serializers.BooleanField(read_only=True)
+    last_calculated_at = serializers.DateTimeField(read_only=True)
+    post_to_slack = serializers.BooleanField(read_only=True)
 
     class Meta:
         model = EnterpriseEventDefinition
@@ -29,9 +33,13 @@ class EnterpriseEventDefinitionSerializer(TaggedItemSerializerMixin, serializers
             "verified",
             "verified_at",
             "verified_by",
-            # Action specific fields
+            # Action fields
             "is_action",
             "action_id",
+            "is_calculating",
+            "last_calculated_at",
+            "created_by",
+            "post_to_slack",
         )
         read_only_fields = [
             "id",
@@ -43,9 +51,12 @@ class EnterpriseEventDefinitionSerializer(TaggedItemSerializerMixin, serializers
             "last_seen_at",
             "verified_at",
             "verified_by",
-            # Action specific fields
+            # Action fields
             "is_action",
             "action_id",
+            "is_calculating",
+            "last_calculated_at",
+            "created_by",
         ]
 
     def update(self, event_definition: EnterpriseEventDefinition, validated_data):

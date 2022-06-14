@@ -4,6 +4,7 @@ from django.db.models import Prefetch
 from rest_framework import mixins, permissions, serializers, viewsets
 
 from posthog.api.routing import StructuredViewSetMixin
+from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.api.utils import create_event_definitions_sql
 from posthog.constants import AvailableFeature
@@ -17,6 +18,10 @@ from posthog.permissions import OrganizationMemberPermissions, TeamMemberAccessP
 class EventDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
     is_action = serializers.SerializerMethodField(read_only=True)
     action_id = serializers.IntegerField(read_only=True)
+    created_by = UserBasicSerializer(read_only=True)
+    is_calculating = serializers.BooleanField(read_only=True)
+    last_calculated_at = serializers.DateTimeField(read_only=True)
+    post_to_slack = serializers.BooleanField(read_only=True)
 
     class Meta:
         model = EventDefinition
@@ -28,9 +33,14 @@ class EventDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelSeri
             "created_at",
             "last_seen_at",
             "tags",
-            # Action specific fields
+            # Action fields
             "is_action",
             "action_id",
+            "is_calculating",
+            "last_calculated_at",
+            "created_by",
+            "steps",
+            "post_to_slack",
         )
 
     def update(self, event_definition: EventDefinition, validated_data):
