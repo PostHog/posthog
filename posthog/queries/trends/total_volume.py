@@ -4,9 +4,9 @@ from typing import Any, Callable, Dict, List, Tuple
 
 import pytz
 
-from ee.clickhouse.sql.events import NULL_SQL
 from posthog.constants import MONTHLY_ACTIVE, NON_TIME_SERIES_DISPLAY_TYPES, TRENDS_CUMULATIVE, WEEKLY_ACTIVE
 from posthog.models.entity import Entity
+from posthog.models.event.sql import NULL_SQL
 from posthog.models.filters import Filter
 from posthog.models.team import Team
 from posthog.queries.trends.sql import (

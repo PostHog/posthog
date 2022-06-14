@@ -1,7 +1,7 @@
 from infi.clickhouse_orm import migrations
 
-from ee.clickhouse.sql.events import DISTRIBUTED_EVENTS_TABLE_SQL, WRITABLE_EVENTS_TABLE_SQL
-from ee.clickhouse.sql.person import (
+from posthog.models.event.sql import DISTRIBUTED_EVENTS_TABLE_SQL, WRITABLE_EVENTS_TABLE_SQL
+from posthog.models.person.sql import (
     KAFKA_PERSONS_DISTINCT_ID_TABLE_SQL,
     KAFKA_PERSONS_TABLE_SQL,
     PERSONS_DISTINCT_ID_TABLE_MV_SQL,

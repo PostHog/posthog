@@ -1,7 +1,6 @@
 from datetime import datetime, timedelta
 
 from ee.clickhouse.queries.cohort_query import CohortQuery, check_negation_clause
-from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
 from posthog.client import sync_execute
 from posthog.constants import PropertyOperatorType
 from posthog.models.action import Action
@@ -11,9 +10,11 @@ from posthog.models.filters.filter import Filter
 from posthog.models.property import Property, PropertyGroup
 from posthog.test.base import (
     BaseTest,
+    ClickhouseTestMixin,
     _create_event,
     _create_person,
     flush_persons_and_events,
+    snapshot_clickhouse_queries,
     test_with_materialized_columns,
 )
 

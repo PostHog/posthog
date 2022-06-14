@@ -11,7 +11,6 @@ from ee.clickhouse.materialized_columns.columns import (
     materialize,
 )
 from ee.clickhouse.materialized_columns.util import instance_memoize
-from ee.clickhouse.sql.person import GET_PERSON_PROPERTIES_COUNT
 from ee.settings import (
     MATERIALIZE_COLUMNS_ANALYSIS_PERIOD_HOURS,
     MATERIALIZE_COLUMNS_BACKFILL_PERIOD_DAYS,
@@ -20,6 +19,7 @@ from ee.settings import (
 )
 from posthog.client import sync_execute
 from posthog.models.filters.mixins.utils import cached_property
+from posthog.models.person.sql import GET_PERSON_PROPERTIES_COUNT
 from posthog.models.property import PropertyName, TableWithProperties
 from posthog.models.property_definition import PropertyDefinition
 from posthog.models.team import Team

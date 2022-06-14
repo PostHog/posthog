@@ -7,10 +7,10 @@ import structlog
 from sentry_sdk import capture_exception
 
 from ee.clickhouse.models.util import cast_timestamp_or_now
-from ee.clickhouse.sql.session_recording_events import INSERT_SESSION_RECORDING_EVENT_SQL
 from ee.kafka_client.client import ClickhouseProducer
 from ee.kafka_client.topics import KAFKA_SESSION_RECORDING_EVENTS
 from posthog.client import sync_execute
+from posthog.models.session_recording_event.sql import INSERT_SESSION_RECORDING_EVENT_SQL
 
 logger = structlog.get_logger(__name__)
 
