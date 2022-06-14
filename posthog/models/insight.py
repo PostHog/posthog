@@ -10,6 +10,7 @@ from django.utils import timezone
 from django_deprecate_fields import deprecate_field
 from rest_framework.exceptions import ValidationError
 
+from posthog import settings
 from posthog.models.dashboard import Dashboard
 from posthog.models.filters.utils import get_filter
 from posthog.utils import generate_cache_key
@@ -140,6 +141,10 @@ class Insight(models.Model):
             return Dashboard.PrivilegeLevel.CAN_EDIT
         else:
             return Dashboard.PrivilegeLevel.CAN_VIEW
+
+    @property
+    def url(self):
+        return f"{settings.SITE_URL}/insights/{self.short_id}"
 
 
 class InsightViewed(models.Model):

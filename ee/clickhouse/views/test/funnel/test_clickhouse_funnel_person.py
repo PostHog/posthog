@@ -4,10 +4,9 @@ from unittest.mock import patch
 from django.core.cache import cache
 from rest_framework import status
 
-from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.constants import INSIGHT_FUNNELS
 from posthog.models.person import Person
-from posthog.test.base import APIBaseTest, _create_event, _create_person
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person
 
 
 class TestFunnelPerson(ClickhouseTestMixin, APIBaseTest):

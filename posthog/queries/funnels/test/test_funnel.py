@@ -6,7 +6,6 @@ from freezegun import freeze_time
 from rest_framework.exceptions import ValidationError
 
 from ee.clickhouse.test.test_journeys import journeys_for
-from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
 from posthog.constants import FILTER_TEST_ACCOUNTS, INSIGHT_FUNNELS
 from posthog.models import Action, ActionStep, Element
 from posthog.models.cohort import Cohort
@@ -15,7 +14,14 @@ from posthog.queries.funnels import ClickhouseFunnel, ClickhouseFunnelActors
 from posthog.queries.funnels.test.breakdown_cases import assert_funnel_results_equal, funnel_breakdown_test_factory
 from posthog.queries.funnels.test.conversion_time_cases import funnel_conversion_time_test_factory
 from posthog.tasks.update_cache import update_cache_item
-from posthog.test.base import APIBaseTest, _create_event, _create_person, test_with_materialized_columns
+from posthog.test.base import (
+    APIBaseTest,
+    ClickhouseTestMixin,
+    _create_event,
+    _create_person,
+    snapshot_clickhouse_queries,
+    test_with_materialized_columns,
+)
 
 
 def _create_action(**kwargs):

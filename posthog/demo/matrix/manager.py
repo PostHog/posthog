@@ -111,9 +111,9 @@ class MatrixManager:
 
     @classmethod
     def copy_analytics_data_from_master_team(cls, target_team: Team):
-        from ee.clickhouse.sql.events import COPY_EVENTS_BETWEEN_TEAMS
         from ee.clickhouse.sql.groups import COPY_GROUPS_BETWEEN_TEAMS
-        from ee.clickhouse.sql.person import COPY_PERSON_DISTINCT_ID2S_BETWEEN_TEAMS, COPY_PERSONS_BETWEEN_TEAMS
+        from posthog.models.event.sql import COPY_EVENTS_BETWEEN_TEAMS
+        from posthog.models.person.sql import COPY_PERSON_DISTINCT_ID2S_BETWEEN_TEAMS, COPY_PERSONS_BETWEEN_TEAMS
 
         copy_params = {"source_team_id": cls.MASTER_TEAM_ID, "target_team_id": target_team.pk}
         sync_execute(COPY_PERSONS_BETWEEN_TEAMS, copy_params)
@@ -132,7 +132,7 @@ class MatrixManager:
     @classmethod
     def sync_postgres_with_clickhouse_data(cls, target_team: Team):
         from ee.clickhouse.sql.groups import SELECT_GROUPS_OF_TEAM
-        from ee.clickhouse.sql.person import SELECT_PERSON_DISTINCT_ID2S_OF_TEAM, SELECT_PERSONS_OF_TEAM
+        from posthog.models.person.sql import SELECT_PERSON_DISTINCT_ID2S_OF_TEAM, SELECT_PERSONS_OF_TEAM
 
         list_params = {"source_team_id": cls.MASTER_TEAM_ID}
         # Persons
@@ -178,9 +178,7 @@ class MatrixManager:
         from posthog.models.person.util import create_person, create_person_distinct_id
 
         person_uuid_str = str(UUIDT(unix_time_ms=int(subject.events[0].timestamp.timestamp() * 1000)))
-        create_person(
-            uuid=person_uuid_str, team_id=team.pk, properties=subject.properties,
-        )
+        create_person(uuid=person_uuid_str, team_id=team.pk, properties=subject.properties, version=0)
         for distinct_id in subject.distinct_ids:
             create_person_distinct_id(team_id=team.pk, distinct_id=str(distinct_id), person_id=person_uuid_str)
         for event in subject.events:
@@ -204,7 +202,7 @@ class MatrixManager:
 
     @classmethod
     def is_demo_data_pre_saved(cls) -> bool:
-        from ee.clickhouse.sql.events import GET_TOTAL_EVENTS_VOLUME
+        from posthog.models.event.sql import GET_TOTAL_EVENTS_VOLUME
 
         total_events_volume = sync_execute(GET_TOTAL_EVENTS_VOLUME, {"team_id": cls.MASTER_TEAM_ID})[0][0]
         return total_events_volume > 0

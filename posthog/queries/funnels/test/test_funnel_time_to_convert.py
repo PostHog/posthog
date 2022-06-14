@@ -1,10 +1,15 @@
 import unittest
 
-from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
 from posthog.constants import INSIGHT_FUNNELS, TRENDS_LINEAR, FunnelOrderType
 from posthog.models.filters import Filter
 from posthog.queries.funnels.funnel_time_to_convert import ClickhouseFunnelTimeToConvert
-from posthog.test.base import APIBaseTest, _create_event, _create_person
+from posthog.test.base import (
+    APIBaseTest,
+    ClickhouseTestMixin,
+    _create_event,
+    _create_person,
+    snapshot_clickhouse_queries,
+)
 
 FORMAT_TIME = "%Y-%m-%d %H:%M:%S"
 FORMAT_TIME_DAY_END = "%Y-%m-%d 23:59:59"

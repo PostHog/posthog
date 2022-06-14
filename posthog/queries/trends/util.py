@@ -4,9 +4,9 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 from rest_framework.exceptions import ValidationError
 
 from ee.clickhouse.models.property import get_property_string_expr
-from ee.clickhouse.sql.events import EVENT_JOIN_PERSON_SQL
 from posthog.constants import WEEKLY_ACTIVE
 from posthog.models.entity import Entity
+from posthog.models.event.sql import EVENT_JOIN_PERSON_SQL
 from posthog.models.filters import Filter, PathFilter
 from posthog.models.filters.utils import validate_group_type_index
 from posthog.models.team import Team

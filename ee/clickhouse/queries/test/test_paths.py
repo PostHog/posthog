@@ -8,10 +8,8 @@ from django.utils import timezone
 from freezegun import freeze_time
 
 from ee.clickhouse.models.group import create_group
-from ee.clickhouse.models.session_recording_event import create_session_recording_event
 from ee.clickhouse.queries.paths import ClickhousePaths, ClickhousePathsActors
 from ee.clickhouse.queries.paths.paths_event_query import PathEventQuery
-from ee.clickhouse.util import snapshot_clickhouse_queries
 from posthog.constants import (
     FUNNEL_PATH_AFTER_STEP,
     FUNNEL_PATH_BEFORE_STEP,
@@ -20,8 +18,9 @@ from posthog.constants import (
 )
 from posthog.models.filters import Filter, PathFilter
 from posthog.models.group_type_mapping import GroupTypeMapping
+from posthog.models.session_recording_event.util import create_session_recording_event
 from posthog.queries.test.test_paths import paths_test_factory
-from posthog.test.base import _create_event, _create_person, test_with_materialized_columns
+from posthog.test.base import _create_event, _create_person, snapshot_clickhouse_queries, test_with_materialized_columns
 
 ONE_MINUTE = 60_000  # 1 minute in milliseconds
 

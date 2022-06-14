@@ -28,3 +28,19 @@ Stealth.args = { type: 'stealth', outlined: true }
 
 export const Clearable = Template.bind({})
 Clearable.args = { allowClear: true, value: 'poodle' }
+
+export const LongOptions = Template.bind({})
+
+LongOptions.args = {
+    allowClear: true,
+    value: '1',
+    options: [...Array(100)]
+        .map((_, i) => i)
+        .reduce(
+            (acc, x) => ({
+                ...acc,
+                [`${x}`]: { label: `${x}` },
+            }),
+            {}
+        ),
+}

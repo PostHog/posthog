@@ -3,7 +3,7 @@ import React, { MouseEventHandler, ReactElement, useMemo, useState } from 'react
 import ReactDOM from 'react-dom'
 import { usePopper } from 'react-popper'
 import { useOutsideClickHandler } from 'lib/hooks/useOutsideClickHandler'
-import { Modifier, Placement } from '@popperjs/core'
+import { Modifier, Placement, detectOverflow } from '@popperjs/core'
 import clsx from 'clsx'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { CSSTransition } from 'react-transition-group'
@@ -33,6 +33,28 @@ export interface PopupProps {
 export const PopupContext = React.createContext<number>(0)
 
 let uniqueMemoizedIndex = 1
+
+// NOTE: copied from https://github.com/atomiks/popper-max-size-modifier/blob/370d0df2567d6083728eeeebff76cbeaf095ca1d/index.js
+const maxSizeModifier: Modifier<any, any> = {
+    name: 'maxSize',
+    enabled: true,
+    phase: 'main',
+    requiresIfExists: ['offset', 'preventOverflow', 'flip'],
+    fn({ state, name }) {
+        const overflow = detectOverflow(state)
+        const { x, y } = state.modifiersData.preventOverflow || { x: 0, y: 0 }
+        const { width, height } = state.rects.popper
+        const [basePlacement] = state.placement.split('-')
+
+        const widthProp = basePlacement === 'left' ? 'left' : 'right'
+        const heightProp = basePlacement === 'top' ? 'top' : 'bottom'
+
+        state.modifiersData[name] = {
+            width: width - overflow[widthProp] - x,
+            height: height - overflow[heightProp] - y,
+        }
+    },
+}
 
 /** This is a custom popup control that uses `react-popper` to position DOM nodes.
  *
@@ -68,6 +90,7 @@ export function Popup({
                     offset: [0, 4],
                 },
             },
+            maxSizeModifier,
             fallbackPlacements
                 ? {
                       name: 'flip',
@@ -92,7 +115,7 @@ export function Popup({
         []
     )
 
-    const { styles, attributes, update } = usePopper(referenceElement, popperElement, {
+    const { styles, attributes, update, state } = usePopper(referenceElement, popperElement, {
         placement: placement,
         modifiers,
     })
@@ -129,7 +152,13 @@ export function Popup({
                         onClick={onClickInside}
                         {...attributes.popper}
                     >
-                        <div className="Popup__box">
+                        <div
+                            className="Popup__box"
+                            style={{
+                                maxWidth: state?.modifiersData?.maxSize?.width,
+                                maxHeight: state?.modifiersData?.maxSize?.height,
+                            }}
+                        >
                             <PopupContext.Provider value={popupId}>{overlay}</PopupContext.Provider>
                         </div>
                     </div>

@@ -40,3 +40,4 @@ ee/benchmarks/results
 .coverage
 coverage-*.xml
 object_storage/
+__emails__
