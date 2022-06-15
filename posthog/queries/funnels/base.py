@@ -5,7 +5,6 @@ from typing import Any, Dict, List, Optional, Tuple, Union, cast
 
 from rest_framework.exceptions import ValidationError
 
-from ee.clickhouse.queries.breakdown_props import format_breakdown_cohort_join_query, get_breakdown_prop_values
 from posthog.clickhouse.materialized_columns.columns import ColumnName
 from posthog.client import sync_execute
 from posthog.constants import (
@@ -27,6 +26,7 @@ from posthog.models.property.util import (
     parse_prop_grouped_clauses,
 )
 from posthog.models.utils import PersonPropertiesMode
+from posthog.queries.breakdown_props import format_breakdown_cohort_join_query, get_breakdown_prop_values
 from posthog.queries.funnels.funnel_event_query import FunnelEventQuery
 from posthog.queries.funnels.sql import FUNNEL_INNER_EVENT_STEPS_QUERY
 from posthog.utils import relative_date_parse

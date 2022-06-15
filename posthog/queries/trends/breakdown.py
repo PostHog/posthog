@@ -4,12 +4,6 @@ from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 import pytz
 
-from ee.clickhouse.queries.breakdown_props import (
-    ALL_USERS_COHORT_ID,
-    format_breakdown_cohort_join_query,
-    get_breakdown_cohort_name,
-    get_breakdown_prop_values,
-)
 from ee.clickhouse.queries.column_optimizer import EnterpriseColumnOptimizer
 from ee.clickhouse.queries.groups_join_query import GroupsJoinQuery
 from posthog.constants import (
@@ -29,6 +23,12 @@ from posthog.models.property import PropertyGroup
 from posthog.models.property.util import get_property_string_expr, parse_prop_grouped_clauses
 from posthog.models.team import Team
 from posthog.models.utils import PersonPropertiesMode
+from posthog.queries.breakdown_props import (
+    ALL_USERS_COHORT_ID,
+    format_breakdown_cohort_join_query,
+    get_breakdown_cohort_name,
+    get_breakdown_prop_values,
+)
 from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
 from posthog.queries.person_query import PersonQuery
 from posthog.queries.trends.sql import (
