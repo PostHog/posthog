@@ -1313,7 +1313,7 @@ export interface FlattenedFunnelStepByBreakdown {
 export enum BreakdownAttributionType {
     FirstTouch = 'first_touch',
     LastTouch = 'last_touch',
-    AnyStep = 'all_events',
+    AllSteps = 'all_events',
     Step = 'step',
 }
 

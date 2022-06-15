@@ -153,7 +153,7 @@ export function cleanFilters(
             ...(filters.breakdown_attribution_type
                 ? { breakdown_attribution_type: filters.breakdown_attribution_type }
                 : {}),
-            ...(filters.breakdown_attribution_value
+            ...(filters.breakdown_attribution_value !== undefined
                 ? { breakdown_attribution_value: filters.breakdown_attribution_value }
                 : {}),
             exclusions: deepCleanFunnelExclusionEvents(filters),

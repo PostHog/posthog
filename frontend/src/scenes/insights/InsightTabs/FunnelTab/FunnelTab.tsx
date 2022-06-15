@@ -151,7 +151,7 @@ export function FunnelTab(): JSX.Element {
                     <>
                         <hr />
                         <h4 className="secondary">
-                            Breakdown
+                            Breakdown by
                             <Tooltip
                                 placement="right"
                                 title="Use breakdown to see the aggregation (total volume, active users, etc.) for each value of that property. For example, breaking down by Current URL with total volume will give you the event volume for each URL your users have visited."
@@ -170,7 +170,7 @@ export function FunnelTab(): JSX.Element {
                         {featureFlags[FEATURE_FLAGS.BREAKDOWN_ATTRIBUTION] && (
                             <>
                                 <h4 className="secondary mt">
-                                    Attribution
+                                    Attribution Type
                                     <Tooltip placement="right" title="filler">
                                         <InfoCircleOutlined className="info-indicator" />
                                     </Tooltip>
@@ -181,8 +181,9 @@ export function FunnelTab(): JSX.Element {
                                         options={{
                                             [BreakdownAttributionType.FirstTouch]: { label: 'First touchpoint' },
                                             [BreakdownAttributionType.LastTouch]: { label: 'Last touchpoint' },
+                                            [BreakdownAttributionType.AllSteps]: { label: 'All Steps' },
                                             ...(filters.funnel_order_type === StepOrderValue.UNORDERED
-                                                ? { [BreakdownAttributionType.AnyStep]: { label: 'Any step' } }
+                                                ? { [BreakdownAttributionType.Step]: { label: 'Any step' } }
                                                 : {
                                                       [BreakdownAttributionType.Step]: {
                                                           label: 'Specific step',
@@ -195,7 +196,7 @@ export function FunnelTab(): JSX.Element {
                                                                           setFilters({
                                                                               breakdown_attribution_type:
                                                                                   BreakdownAttributionType.Step,
-                                                                              breakdown_attribution_value: value + 1,
+                                                                              breakdown_attribution_value: value,
                                                                           })
                                                                       }
                                                                   }}
@@ -212,7 +213,7 @@ export function FunnelTab(): JSX.Element {
                                             if (value) {
                                                 setFilters({
                                                     breakdown_attribution_type: value,
-                                                    breakdown_attribution_value: 1,
+                                                    breakdown_attribution_value: 0,
                                                 })
                                             }
                                         }}
