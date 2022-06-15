@@ -433,6 +433,22 @@ export class DB {
         })
     }
 
+    public redisPublish(channel: string, message: string): Promise<number> {
+        return instrumentQuery(this.statsd, 'query.redisPublish', undefined, async () => {
+            const client = await this.redisPool.acquire()
+            const timeout = timeoutGuard('Publish delayed. Waiting over 30 sec to perform Publish', {
+                channel,
+                message,
+            })
+            try {
+                return await client.publish(channel, message)
+            } finally {
+                clearTimeout(timeout)
+                await this.redisPool.release(client)
+            }
+        })
+    }
+
     /** Calls Celery task. Works similarly to Task.apply_async in Python. */
     async celeryApplyAsync(taskName: string, args: any[] = [], kwargs: Record<string, any> = {}): Promise<void> {
         const taskId = new UUIDT().toString()
