@@ -27,9 +27,6 @@ from rest_framework_csv import renderers as csvrenderers
 from statshog.defaults.django import statsd
 
 from ee.clickhouse.queries.funnels.funnel_correlation_persons import FunnelCorrelationActors
-from ee.clickhouse.queries.paths import ClickhousePathsActors
-from ee.clickhouse.queries.retention import ClickhouseRetention
-from ee.clickhouse.queries.stickiness import ClickhouseStickiness
 from posthog.api.capture import capture_internal
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.utils import format_paginated_url, get_target_entity
@@ -66,7 +63,10 @@ from posthog.queries.funnels import ClickhouseFunnelActors, ClickhouseFunnelTren
 from posthog.queries.funnels.base import ClickhouseFunnelBase
 from posthog.queries.funnels.funnel_strict_persons import ClickhouseFunnelStrictActors
 from posthog.queries.funnels.funnel_unordered_persons import ClickhouseFunnelUnorderedActors
+from posthog.queries.paths import PathsActors
 from posthog.queries.property_values import get_person_property_values_for_key
+from posthog.queries.retention import Retention
+from posthog.queries.stickiness import Stickiness
 from posthog.queries.trends.lifecycle import Lifecycle
 from posthog.queries.util import get_earliest_timestamp
 from posthog.tasks.split_person import split_person
@@ -194,8 +194,8 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     filterset_class = PersonFilter
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
     lifecycle_class = Lifecycle
-    retention_class = ClickhouseRetention
-    stickiness_class = ClickhouseStickiness
+    retention_class = Retention
+    stickiness_class = Stickiness
 
     def paginate_queryset(self, queryset):
         if self.request.accepted_renderer.format == "csv" or not self.paginator:
@@ -382,7 +382,7 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
                 funnel_filter_data = json.loads(funnel_filter_data)
             funnel_filter = Filter(data={"insight": INSIGHT_FUNNELS, **funnel_filter_data}, team=self.team)
 
-        people, serialized_actors = ClickhousePathsActors(filter, self.team, funnel_filter=funnel_filter).get_actors()
+        people, serialized_actors = PathsActors(filter, self.team, funnel_filter=funnel_filter).get_actors()
         _should_paginate = should_paginate(people, filter.limit)
 
         next_url = format_query_params_absolute_url(request, filter.offset + filter.limit) if _should_paginate else None

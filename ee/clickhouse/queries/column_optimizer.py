@@ -8,7 +8,7 @@ from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.filters.utils import GroupTypeIndex
 from posthog.models.property import PropertyIdentifier
 from posthog.models.property.util import box_value, extract_tables_and_properties
-from posthog.queries.column_optimizer import ColumnOptimizer
+from posthog.queries.column_optimizer.column_optimizer import ColumnOptimizer
 
 
 class EnterpriseColumnOptimizer(ColumnOptimizer):
