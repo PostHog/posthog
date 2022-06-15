@@ -718,6 +718,11 @@ export interface SessionRecordingEvents {
     events: RecordingEventType[]
 }
 
+export interface CurrentBillCycleType {
+    current_period_start: number
+    current_period_end: number
+}
+
 export interface BillingType {
     should_setup_billing: boolean
     is_billing_active: boolean
@@ -727,9 +732,11 @@ export interface BillingType {
     current_usage: number | null
     subscription_url: string
     current_bill_amount: number | null
+    current_bill_usage: number | null
     should_display_current_bill: boolean
     billing_limit: number | null
     billing_limit_exceeded: boolean | null
+    current_bill_cycle: CurrentBillCycleType
     tiers: BillingTierType[] | null
 }
 
@@ -843,6 +850,7 @@ export interface OrganizationInviteType {
     created_by: UserBasicType | null
     created_at: string
     updated_at: string
+    message?: string
 }
 
 export interface PluginType {
@@ -1319,7 +1327,6 @@ export interface InsightLogicProps {
 }
 
 export interface SetInsightOptions {
-    shouldMergeWithExisting?: boolean
     /** this overrides the in-flight filters on the page, which may not equal the last returned API response */
     overrideFilter?: boolean
     /** calling with this updates the "last saved" filters */
@@ -1420,13 +1427,15 @@ export interface PreflightStatus {
 export enum ItemMode { // todo: consolidate this and dashboardmode
     Edit = 'edit',
     View = 'view',
+    Subscriptions = 'subscriptions',
 }
 
 export enum DashboardPlacement {
-    Public = 'public', // When viewing the dashboard publicly via a shareToken
+    Dashboard = 'dashboard', // When on the standard dashboard page
     InternalMetrics = 'internal-metrics', // When embedded in /instance/status
     ProjectHomepage = 'project-homepage', // When embedded on the project homepage
-    Dashboard = 'dashboard', // When on the standard dashboard page
+    Public = 'public', // When viewing the dashboard publicly via a shareToken
+    Export = 'export', // When the dashboard is being exported (alike to being printed)
 }
 
 export enum DashboardMode { // Default mode is null
@@ -1477,7 +1486,7 @@ export interface LicenseType {
 export interface EventDefinition {
     id: string
     name: string
-    description: string
+    description?: string
     tags?: string[]
     volume_30_day: number | null
     query_usage_30_day: number | null
@@ -1502,7 +1511,7 @@ export enum PropertyType {
 export interface PropertyDefinition {
     id: string
     name: string
-    description: string
+    description?: string
     tags?: string[]
     volume_30_day: number | null
     query_usage_30_day: number | null
@@ -1515,6 +1524,8 @@ export interface PropertyDefinition {
     last_seen_at?: string // TODO: Implement
     example?: string
 }
+
+export type Definition = EventDefinition | PropertyDefinition
 
 export interface PersonProperty {
     id: number
@@ -1868,4 +1879,33 @@ export enum ValueOptionType {
     MostRecent = 'most_recent',
     Previous = 'previous',
     OnDate = 'on_date',
+}
+
+export type WeekdayType = 'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday' | 'saturday' | 'sunday'
+
+export interface SubscriptionType {
+    id: number
+    insight?: number
+    dashboard?: number
+    target_type: string
+    target_value: string
+    frequency: 'daily' | 'weekly' | 'monthly' | 'yearly'
+    interval: number
+    byweekday: WeekdayType[] | null
+    bysetpos: number | null
+    start_date: string
+    until_date?: string
+    title: string
+    created_by?: UserBasicType | null
+    created_at: string
+    updated_at: string
+    deleted?: boolean
+}
+
+export type Description = string | JSX.Element | null
+
+export interface ChangeDescriptions {
+    descriptions: Description[]
+    // e.g. should description say "did deletion _to_ Y" or "deleted Y"
+    bareName: boolean
 }

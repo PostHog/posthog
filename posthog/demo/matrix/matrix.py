@@ -1,15 +1,6 @@
 from abc import ABC, abstractmethod
 from collections import defaultdict
-from typing import (
-    Any,
-    DefaultDict,
-    Dict,
-    List,
-    Optional,
-    Sequence,
-    Tuple,
-    Type,
-)
+from typing import Any, DefaultDict, Dict, List, Optional, Type
 
 import mimesis
 import mimesis.random
@@ -19,8 +10,6 @@ from django.utils import timezone
 from posthog.constants import GROUP_TYPES_LIMIT
 from posthog.demo.matrix.randomization import PropertiesProvider
 from posthog.models import Team, User
-from posthog.models.event_definition import EventDefinition
-from posthog.models.property_definition import PropertyDefinition, PropertyType
 
 from .models import SimPerson
 
@@ -132,8 +121,6 @@ class Cluster(ABC):
 class Matrix(ABC):
     person_model: Type[SimPerson]
     cluster_model: Type[Cluster]
-    event_definitions: Sequence[str]
-    property_definitions: Sequence[Tuple[str, Optional[PropertyType]]]
 
     start: timezone.datetime
     end: timezone.datetime
@@ -176,23 +163,6 @@ class Matrix(ABC):
     @abstractmethod
     def set_project_up(self, team: Team, user: User):
         """Project setup, such as relevant insights, dashboards, feature flags, etc."""
-        EventDefinition.objects.bulk_create(
-            (
-                EventDefinition(team=team, name=event_definition, created_at=self.start)
-                for event_definition in self.event_definitions
-            )
-        )
-        PropertyDefinition.objects.bulk_create(
-            (
-                PropertyDefinition(
-                    team=team,
-                    name=property_name,
-                    property_type=property_type,
-                    is_numerical=property_type == PropertyType.Numeric,
-                )
-                for (property_name, property_type) in self.property_definitions
-            )
-        )
 
     def simulate(self):
         if self.simulation_complete is not None:

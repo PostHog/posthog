@@ -1,7 +1,6 @@
 from datetime import datetime, timedelta
 
 from ee.clickhouse.queries.cohort_query import CohortQuery, check_negation_clause
-from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
 from posthog.client import sync_execute
 from posthog.constants import PropertyOperatorType
 from posthog.models.action import Action
@@ -11,9 +10,11 @@ from posthog.models.filters.filter import Filter
 from posthog.models.property import Property, PropertyGroup
 from posthog.test.base import (
     BaseTest,
+    ClickhouseTestMixin,
     _create_event,
     _create_person,
     flush_persons_and_events,
+    snapshot_clickhouse_queries,
     test_with_materialized_columns,
 )
 
@@ -83,6 +84,25 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
             event="$pageview",
             properties={},
             distinct_id="p2",
+            timestamp=datetime.now() - timedelta(days=1),
+        )
+
+        # doesn't satisfy property condition
+        p3 = _create_person(
+            team_id=self.team.pk, distinct_ids=["p3"], properties={"name": "test", "email": "testXX@posthog.com"}
+        )
+        _create_event(
+            team=self.team,
+            event="$autocapture",
+            properties={"$current_url": "https://posthog.com/feedback/123"},
+            distinct_id="p3",
+            timestamp=datetime.now() - timedelta(days=2),
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            properties={},
+            distinct_id="p3",
             timestamp=datetime.now() - timedelta(days=1),
         )
         flush_persons_and_events()
@@ -1336,6 +1356,56 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
             },
         )
 
+    def test_missing_type(self):
+        cohort = _create_cohort(
+            team=self.team,
+            name="cohort1",
+            groups=[{"properties": [{"key": "email", "value": ["fake@test.com"], "operator": "exact"}]}],
+        )
+
+        self.assertEqual(
+            cohort.properties.to_dict(),
+            {
+                "type": "OR",
+                "values": [
+                    {
+                        "type": "AND",
+                        "values": [{"key": "email", "value": ["fake@test.com"], "operator": "exact", "type": "person"}],
+                    }
+                ],
+            },
+        )
+
+    def test_old_old_style_properties(self):
+        cohort = _create_cohort(
+            team=self.team,
+            name="cohort1",
+            groups=[
+                {"properties": [{"key": "email", "value": ["fake@test.com"], "operator": "exact"}]},
+                {"properties": {"abra": "cadabra", "name": "alakazam"}},
+            ],
+        )
+
+        self.assertEqual(
+            cohort.properties.to_dict(),
+            {
+                "type": "OR",
+                "values": [
+                    {
+                        "type": "AND",
+                        "values": [{"key": "email", "value": ["fake@test.com"], "operator": "exact", "type": "person"}],
+                    },
+                    {
+                        "type": "AND",
+                        "values": [
+                            {"key": "abra", "value": "cadabra", "type": "person"},
+                            {"key": "name", "value": "alakazam", "type": "person"},
+                        ],
+                    },
+                ],
+            },
+        )
+
     def test_precalculated_cohort_filter(self):
         p1 = _create_person(team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "test", "name": "test"})
         cohort = _create_cohort(
@@ -1814,6 +1884,104 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
                     ],
                 },
             }
+        )
+
+        q, params = CohortQuery(filter=filter, team=self.team).get_query()
+        res = sync_execute(q, params)
+
+        self.assertEqual([p1.uuid], [r[0] for r in res])
+
+    @snapshot_clickhouse_queries
+    def test_performed_event_sequence_with_person_properties(self):
+        p1 = _create_person(
+            team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "test", "email": "test@posthog.com"}
+        )
+
+        _make_event_sequence(self.team, "p1", 2, [1, 1])
+
+        _create_event(
+            team=self.team,
+            event="$some_event",
+            properties={},
+            distinct_id="p1",
+            timestamp=datetime.now() - timedelta(days=2),
+        )
+
+        _create_event(
+            team=self.team,
+            event="$some_event",
+            properties={},
+            distinct_id="p1",
+            timestamp=datetime.now() - timedelta(days=4),
+        )
+
+        p2 = _create_person(
+            team_id=self.team.pk, distinct_ids=["p2"], properties={"name": "test", "email": "test@posthog.com"}
+        )
+
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            properties={},
+            distinct_id="p2",
+            timestamp=datetime.now() - timedelta(days=2),
+        )
+
+        p3 = _create_person(
+            team_id=self.team.pk, distinct_ids=["p3"], properties={"name": "test22", "email": "test22@posthog.com"}
+        )
+
+        _make_event_sequence(self.team, "p3", 2, [1, 1])
+
+        _create_event(
+            team=self.team,
+            event="$some_event",
+            properties={},
+            distinct_id="p3",
+            timestamp=datetime.now() - timedelta(days=2),
+        )
+
+        _create_event(
+            team=self.team,
+            event="$some_event",
+            properties={},
+            distinct_id="p3",
+            timestamp=datetime.now() - timedelta(days=4),
+        )
+
+        flush_persons_and_events()
+
+        filter = Filter(
+            data={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "key": "$pageview",
+                            "event_type": "events",
+                            "time_interval": "day",
+                            "time_value": 7,
+                            "seq_time_interval": "day",
+                            "seq_time_value": 3,
+                            "seq_event": "$pageview",
+                            "seq_event_type": "events",
+                            "value": "performed_event_sequence",
+                            "type": "behavioral",
+                        },
+                        {
+                            "key": "$pageview",
+                            "event_type": "events",
+                            "operator": "gte",
+                            "operator_value": 1,
+                            "time_value": 1,
+                            "time_interval": "week",
+                            "value": "performed_event_multiple",
+                            "type": "behavioral",
+                        },
+                        {"key": "email", "value": "test@posthog.com", "type": "person"},  # pushed down
+                    ],
+                },
+            },
         )
 
         q, params = CohortQuery(filter=filter, team=self.team).get_query()

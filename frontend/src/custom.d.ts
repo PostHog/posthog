@@ -15,3 +15,9 @@ declare module '*.mp3' {
     const content: any
     export default content
 }
+
+// This fixes TS errors when importing an .lottie file
+declare module '*.lottie' {
+    const content: any
+    export default content
+}

@@ -39,7 +39,7 @@ export class JobQueueManager implements JobQueue {
                     logOrThrowJobQueueError(
                         this.pluginsServer,
                         error,
-                        `Can not start job queue producer "${jobQueueType}": ${error.message}`
+                        `Cannot start job queue producer "${jobQueueType}": ${error.message}`
                     )
                 }
             })

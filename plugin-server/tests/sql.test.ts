@@ -8,9 +8,10 @@ import {
     setError,
     setPluginMetrics,
 } from '../src/utils/db/sql'
-import { transformPostgresElementsToEventPayloadFormat } from '../src/utils/db/utils'
 import { commonOrganizationId } from './helpers/plugins'
 import { resetTestDatabase } from './helpers/sql'
+
+jest.setTimeout(20_000)
 
 describe('sql', () => {
     let hub: Hub
@@ -170,14 +171,20 @@ describe('sql', () => {
         })
 
         test('disablePlugin disables a plugin', async () => {
+            const redis = await hub.db.redisPool.acquire()
             const rowsBefore = await getPluginConfigRows(hub)
             expect(rowsBefore[0].plugin_id).toEqual(60)
             expect(rowsBefore[0].enabled).toEqual(true)
 
+            const receivedMessage = redis.subscribe(hub.PLUGINS_RELOAD_PUBSUB_CHANNEL)
             await disablePlugin(hub, 39)
 
             const rowsAfter = await getPluginConfigRows(hub)
+
             expect(rowsAfter).toEqual([])
+            await expect(receivedMessage).resolves.toEqual(1)
+
+            await hub.db.redisPool.release(redis)
         })
     })
 
@@ -204,76 +211,5 @@ describe('sql', () => {
             const rowsAfter = await getPluginRows(hub)
             expect(rowsAfter[0].metrics).toEqual({ metric1: 'sum' })
         })
-    })
-
-    test('fetchPostgresElementsByHash', async () => {
-        jest.spyOn(hub.db, 'redisSet')
-        jest.spyOn(hub.db, 'redisGet')
-
-        const teamId = 2
-        const elements = [
-            { tag_name: 'button', text: 'Sign up!', attr_class: ['my-class'], attr_id: 'my-id', href: 'posthog.com' },
-            { tag_name: 'div', nth_child: 1, nth_of_type: 2 },
-        ]
-
-        const elementsHash = await hub!.db.createElementGroup(elements, teamId)
-
-        const result = await hub!.db.fetchPostgresElementsByHash(teamId, elementsHash)
-
-        expect(hub.db.redisGet).toHaveBeenCalledTimes(1)
-        expect(hub.db.redisSet).toHaveBeenCalledTimes(1)
-
-        expect(result).toEqual([
-            {
-                text: 'Sign up!',
-                attr_class: ['my-class'],
-                href: 'posthog.com',
-                attr_id: 'my-id',
-                nth_child: null,
-                nth_of_type: null,
-                tag_name: 'button',
-                attributes: {},
-            },
-            {
-                text: null,
-                attr_class: null,
-                href: null,
-                attr_id: null,
-                nth_child: 1,
-                nth_of_type: 2,
-                tag_name: 'div',
-                attributes: {},
-            },
-        ])
-
-        // test cache and transformPostgresElementsToEventPayloadFormat util
-        const result2 = await hub!.db.fetchPostgresElementsByHash(teamId, elementsHash)
-
-        // we hit the cache for the second result
-        expect(hub.db.redisGet).toHaveBeenCalledTimes(2)
-        expect(hub.db.redisSet).toHaveBeenCalledTimes(1)
-
-        const parsedResult = transformPostgresElementsToEventPayloadFormat(result2)
-
-        expect(parsedResult).toEqual([
-            {
-                $el_text: 'Sign up!',
-                attr__class: ['my-class'],
-                attr__href: 'posthog.com',
-                attr__id: 'my-id',
-                nth_child: null,
-                nth_of_type: null,
-                tag_name: 'button',
-            },
-            {
-                $el_text: null,
-                attr__class: null,
-                attr__href: null,
-                attr__id: null,
-                nth_child: 1,
-                nth_of_type: 2,
-                tag_name: 'div',
-            },
-        ])
     })
 })

@@ -124,42 +124,6 @@ describe('eventPropertyDefinitionsTableLogic', () => {
             expect(api.get).toBeCalledTimes(1)
         })
 
-        it('load property definitions on navigate and open specific definition', async () => {
-            const startingDefinitionUrl = `api/projects/${MOCK_TEAM_ID}/property_definitions${
-                combineUrl('', {
-                    limit: EVENT_PROPERTY_DEFINITIONS_PER_PAGE,
-                    order_ids_first: ['uuid-5-foobar'],
-                }).search
-            }`
-
-            const url = urls.eventPropertyDefinition('uuid-5-foobar')
-            router.actions.push(url)
-            await expectLogic(logic)
-                .toDispatchActionsInAnyOrder([
-                    router.actionCreators.push(url),
-                    'loadEventPropertyDefinitions',
-                    'loadEventPropertyDefinitionsSuccess',
-                    'setOpenedDefinition',
-                ])
-                .toMatchValues({
-                    eventPropertyDefinitions: partial({
-                        count: 50,
-                        results: [
-                            mockEventPropertyDefinitions.find(({ id }) => id === 'uuid-5-foobar'),
-                            ...mockEventPropertyDefinitions.filter(({ id }) => id !== 'uuid-5-foobar'),
-                        ],
-                    }),
-                    apiCache: partial({
-                        [startingDefinitionUrl]: partial({
-                            count: 50,
-                        }),
-                    }),
-                })
-
-            expect(api.get).toBeCalledTimes(1)
-            expect(api.get).toBeCalledWith(startingDefinitionUrl)
-        })
-
         it('pagination forwards and backwards', async () => {
             const url = urls.eventPropertyDefinitions()
             router.actions.push(url)

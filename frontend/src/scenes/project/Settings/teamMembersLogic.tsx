@@ -11,7 +11,7 @@ import {
     UserBasicType,
     UserType,
 } from '~/types'
-import { teamMembersLogicType } from './teamMembersLogicType'
+import type { teamMembersLogicType } from './teamMembersLogicType'
 import { membersLogic } from '../../organization/Settings/membersLogic'
 import { membershipLevelToName } from '../../../lib/utils/permissioning'
 import { userLogic } from '../../userLogic'

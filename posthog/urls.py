@@ -14,11 +14,13 @@ from posthog.api import (
     capture,
     dashboard,
     decide,
+    exports,
     organizations_router,
     project_dashboards_router,
     projects_router,
     router,
     signup,
+    subscription,
     user,
 )
 from posthog.api.decide import hostname_in_app_urls
@@ -104,6 +106,7 @@ urlpatterns = [
     # ee
     *ee_urlpatterns,
     # api
+    path("api/unsubscribe", subscription.unsubscribe),
     path("api/", include(router.urls)),
     opt_slash_path("api/user/redirect_to_site", user.redirect_to_site),
     opt_slash_path("api/user/test_slack_webhook", user.test_slack_webhook),
@@ -117,6 +120,7 @@ urlpatterns = [
     re_path(r"^api.+", api_not_found),
     path("authorize_and_redirect/", login_required(authorize_and_redirect)),
     path("shared_dashboard/<str:share_token>", dashboard.shared_dashboard),
+    path("exporter/<str:access_token>", exports.ExportedViewerPageViewSet.as_view({"get": "retrieve"})),
     re_path(r"^demo.*", login_required(demo_route)),
     # ingestion
     opt_slash_path("decide", decide.get_decide),
@@ -141,8 +145,8 @@ if settings.TEST:
     # Used in posthog-js e2e tests
     @csrf_exempt
     def delete_events(request):
-        from ee.clickhouse.sql.events import TRUNCATE_EVENTS_TABLE_SQL
         from posthog.client import sync_execute
+        from posthog.models.event.sql import TRUNCATE_EVENTS_TABLE_SQL
 
         sync_execute(TRUNCATE_EVENTS_TABLE_SQL())
         return HttpResponse()
@@ -159,6 +163,7 @@ frontend_unauthenticated_routes = [
     "organization/billing/subscribed",
     "organization/confirm-creation",
     "login",
+    "unsubscribe",
 ]
 for route in frontend_unauthenticated_routes:
     urlpatterns.append(re_path(route, home))

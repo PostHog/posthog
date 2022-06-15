@@ -3,7 +3,7 @@ import { actions, kea, key, listeners, path, props, propsChanged, reducers, sele
 import { PropertyGroupFilter, FilterLogicalOperator } from '~/types'
 import { PropertyGroupFilterLogicProps } from 'lib/components/PropertyFilters/types'
 
-import { propertyGroupFilterLogicType } from './propertyGroupFilterLogicType'
+import type { propertyGroupFilterLogicType } from './propertyGroupFilterLogicType'
 import { convertPropertiesToPropertyGroup, objectsEqual } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
@@ -93,7 +93,6 @@ export const propertyGroupFilterLogic = kea<propertyGroupFilterLogicType>([
         removeFilterGroup: () => actions.update(),
         addFilterGroup: () => {
             eventUsageLogic.actions.reportPropertyGroupFilterAdded()
-            actions.update()
         },
         update: () => {
             props.onChange(values.filters)

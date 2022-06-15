@@ -81,7 +81,6 @@ export interface PluginsServerConfig extends Record<string, any> {
     CLICKHOUSE_PASSWORD: string | null
     CLICKHOUSE_CA: string | null
     CLICKHOUSE_SECURE: boolean
-    KAFKA_ENABLED: boolean
     KAFKA_HOSTS: string
     KAFKA_CLIENT_CERT_B64: string | null
     KAFKA_CLIENT_CERT_KEY_B64: string | null
@@ -149,6 +148,8 @@ export interface PluginsServerConfig extends Record<string, any> {
     OBJECT_STORAGE_SESSION_RECORDING_FOLDER: string
     OBJECT_STORAGE_BUCKET: string
     PLUGIN_SERVER_MODE: 'ingestion' | 'async' | null
+    INGESTION_BATCH_BREAKUP_BY_DISTINCT_ID_TEAMS: string
+    KAFKAJS_LOG_LEVEL: 'NOTHING' | 'DEBUG' | 'INFO' | 'WARN' | 'ERROR'
 }
 
 export interface Hub extends PluginsServerConfig {
@@ -193,6 +194,7 @@ export interface Hub extends PluginsServerConfig {
     lastActivityType: string
     statelessVms: StatelessVmMap
     conversionBufferEnabledTeams: Set<number>
+    ingestionBatchBreakupByDistinctIdTeams: Set<number>
 }
 
 export interface PluginServerCapabilities {
@@ -517,12 +519,6 @@ export interface Element {
     group_id?: number
 }
 
-export interface ElementGroup {
-    id: number
-    hash: string
-    team_id: number
-}
-
 /** Usable Event model. */
 export interface Event {
     id: number
@@ -544,7 +540,20 @@ export interface Event {
 
 export interface ClickHouseEvent extends Omit<Event, 'id' | 'elements' | 'elements_hash'> {
     uuid: string
+    elements_chain: string | undefined
+}
+
+// Clickhouse event as read from kafka
+export interface ClickhouseEventKafka {
+    event: string
+    timestamp: string
+    team_id: number
+    distinct_id: string
+    created_at: string
+    uuid: string
     elements_chain: string
+    properties: string
+    person_properties: string | null
 }
 
 export interface DeadLetterQueueEvent {

@@ -1,5 +1,3 @@
-@import '~/vars';
-
 .InsightCard {
     transition: border 200ms ease;
     position: relative;
@@ -160,15 +158,6 @@
     overflow: auto;
 }
 
-.LastModified {
-    display: flex;
-    align-items: center;
-    margin-top: 0.25rem;
-    font-size: 0.8125rem;
-    white-space: nowrap;
-    overflow-x: auto;
-}
-
 .handle {
     display: flex;
     align-items: flex-end;
@@ -177,7 +166,7 @@
     width: 100%;
     height: 100%;
     pointer-events: none;
-    z-index: $z_raised;
+    z-index: var(--z-raised);
     &.horizontal {
         svg {
             transform: rotate(90deg) translateX(0.75rem);

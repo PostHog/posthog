@@ -10,7 +10,7 @@ import {
     THIRD_PARTY,
     ThirdPartySource,
 } from 'scenes/ingestion/constants'
-import { ingestionLogicType } from './ingestionLogicType'
+import type { ingestionLogicType } from './ingestionLogicType'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { teamLogic } from 'scenes/teamLogic'
@@ -18,7 +18,9 @@ import { PluginTypeWithConfig } from 'scenes/plugins/types'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { urls } from 'scenes/urls'
-import { actionToUrl, urlToAction } from 'kea-router'
+import { actionToUrl, router, urlToAction } from 'kea-router'
+import { getBreakpoint } from 'lib/utils/responsiveUtils'
+import { windowValues } from 'kea-window-values'
 
 export const ingestionLogic = kea<ingestionLogicType>([
     path(['scenes', 'ingestion', 'ingestionLogic']),
@@ -39,9 +41,12 @@ export const ingestionLogic = kea<ingestionLogicType>([
         setInstructionsModal: (isOpen: boolean) => ({ isOpen }),
         setThirdPartySource: (sourceIndex: number) => ({ sourceIndex }),
         openThirdPartyPluginModal: (plugin: PluginTypeWithConfig) => ({ plugin }),
+        setIndex: (index: number) => ({ index }),
         completeOnboarding: true,
     }),
-
+    windowValues({
+        isSmallScreen: (window: Window) => window.innerWidth < getBreakpoint('md'),
+    }),
     reducers({
         platform: [
             null as null | PlatformType,
@@ -91,6 +96,24 @@ export const ingestionLogic = kea<ingestionLogicType>([
                 openThirdPartyPluginModal: (_, { plugin }) => plugin,
             },
         ],
+        currentIndex: [
+            0,
+            {
+                setIndex: (_, { index }) => index,
+                setPlatform: (state, { platform }) => (platform ? 1 : Math.max(state - 1, 0)),
+                setFramework: (state, { framework }) => (framework ? 1 : Math.max(state - 1, 0)),
+                setVerify: () => 2,
+                setState: (_, { platform, framework, verify }) => {
+                    if (verify) {
+                        return 2
+                    }
+                    if (platform || framework) {
+                        return 1
+                    }
+                    return 0
+                },
+            },
+        ],
     }),
 
     selectors(({ values }) => ({
@@ -106,11 +129,10 @@ export const ingestionLogic = kea<ingestionLogicType>([
                 return (verify ? 1 : 0) + (framework ? 1 : 0) + (platform ? 1 : 0)
             },
         ],
-        onboarding1: [
+        onboardingSidebarEnabled: [
             () => [],
             (): boolean => {
-                const featFlags = values.featureFlags
-                return featFlags[FEATURE_FLAGS.ONBOARDING_1] === 'test'
+                return values.featureFlags[FEATURE_FLAGS.ONBOARDING_1_5] === 'test'
             },
         ],
         frameworkString: [
@@ -141,7 +163,11 @@ export const ingestionLogic = kea<ingestionLogicType>([
         setPlatform: () => getUrl(values),
         setFramework: () => getUrl(values),
         setVerify: () => getUrl(values),
-        updateCurrentTeamSuccess: () => urls.events(),
+        updateCurrentTeamSuccess: () => {
+            if (router.values.location.pathname == '/ingestion/verify') {
+                return urls.events()
+            }
+        },
     })),
 
     urlToAction(({ actions }) => ({

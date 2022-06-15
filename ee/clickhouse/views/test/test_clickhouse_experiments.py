@@ -4,10 +4,10 @@ from rest_framework import status
 
 from ee.api.test.base import APILicensedTest
 from ee.clickhouse.test.test_journeys import journeys_for
-from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
 from posthog.constants import ExperimentSignificanceCode
 from posthog.models.experiment import Experiment
 from posthog.models.feature_flag import FeatureFlag
+from posthog.test.base import ClickhouseTestMixin, snapshot_clickhouse_queries
 
 
 class TestExperimentCRUD(APILicensedTest):
@@ -507,7 +507,7 @@ class TestExperimentCRUD(APILicensedTest):
         response = self.client.post(f"/api/projects/{self.team.id}/experiments/", data)
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
-    def test_deleting_feature_flag_deletes_experiment(self):
+    def test_soft_deleting_feature_flag_does_not_delete_experiment(self):
         ff_key = "a-b-tests"
         response = self.client.post(
             f"/api/projects/{self.team.id}/experiments/",
@@ -536,13 +536,14 @@ class TestExperimentCRUD(APILicensedTest):
         id = response.json()["id"]
 
         # Now delete the feature flag
-        response = self.client.delete(f"/api/projects/{self.team.id}/feature_flags/{created_ff.pk}/")
+        response = self.client.patch(f"/api/projects/{self.team.id}/feature_flags/{created_ff.pk}/", {"deleted": True})
 
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
-        self.assertFalse(FeatureFlag.objects.filter(pk=created_ff.pk).exists())
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-        with self.assertRaises(Experiment.DoesNotExist):
-            Experiment.objects.get(pk=id)
+        feature_flag_response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/{created_ff.pk}/")
+        self.assertEqual(feature_flag_response.json().get("deleted"), True)
+
+        self.assertIsNotNone(Experiment.objects.get(pk=id))
 
     def test_creating_updating_experiment_with_group_aggregation(self):
         ff_key = "a-b-tests"

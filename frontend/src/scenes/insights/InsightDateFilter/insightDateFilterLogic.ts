@@ -1,5 +1,5 @@
 import { kea } from 'kea'
-import { insightDateFilterLogicType } from './insightDateFilterLogicType'
+import type { insightDateFilterLogicType } from './insightDateFilterLogicType'
 import { InsightLogicProps } from '~/types'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'

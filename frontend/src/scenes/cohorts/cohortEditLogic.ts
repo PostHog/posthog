@@ -42,7 +42,7 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
         deleteCohort: true,
         fetchCohort: (id: CohortType['id']) => ({ id }),
         onCriteriaChange: (newGroup: Partial<CohortGroupType>, id: string) => ({ newGroup, id }),
-        setPollTimeout: (pollTimeout: NodeJS.Timeout | null) => ({ pollTimeout }),
+        setPollTimeout: (pollTimeout: number | null) => ({ pollTimeout }),
         checkIfFinishedCalculating: (cohort: CohortType) => ({ cohort }),
 
         setOuterGroupsType: (type: FilterLogicalOperator) => ({ type }),
@@ -138,7 +138,7 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
             },
         ],
         pollTimeout: [
-            null as NodeJS.Timeout | null,
+            null as number | null,
             {
                 setPollTimeout: (_, { pollTimeout }) => pollTimeout,
             },
@@ -148,14 +148,14 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
     forms(({ actions, values }) => ({
         cohort: {
             defaults: NEW_COHORT,
-            errors: ({ name, csv, is_static, groups, filters }) => ({
+            errors: ({ id, name, csv, is_static, groups, filters }) => ({
                 name: !name ? 'Cohort name cannot be empty' : undefined,
-                csv: is_static && !csv ? 'You need to upload a CSV file' : (null as any),
+                csv: is_static && id === 'new' && !csv ? 'You need to upload a CSV file' : (null as any),
                 ...(values.newCohortFiltersEnabled
                     ? {
                           filters: {
                               properties: {
-                                  values: filters.properties.values.map(validateGroup),
+                                  values: is_static ? undefined : filters.properties.values.map(validateGroup),
                               },
                           },
                       }
@@ -262,7 +262,7 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
         checkIfFinishedCalculating: async ({ cohort }, breakpoint) => {
             if (cohort.is_calculating) {
                 actions.setPollTimeout(
-                    setTimeout(async () => {
+                    window.setTimeout(async () => {
                         const newCohort = await api.cohorts.get(cohort.id)
                         breakpoint()
                         actions.checkIfFinishedCalculating(newCohort)

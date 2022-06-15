@@ -12,8 +12,13 @@ import { PlatformPanel } from 'scenes/ingestion/panels/PlatformPanel'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { BookmarkletPanel } from './panels/BookmarkletPanel'
-import posthogLogo from 'public/posthog-logo.png'
 import { ThirdPartyPanel } from './panels/ThirdPartyPanel'
+import { Sidebar } from './Sidebar'
+import { InviteModal } from 'scenes/organization/Settings/InviteModal'
+import { inviteLogic } from 'scenes/organization/Settings/inviteLogic'
+import { FriendlyLogo } from '~/toolbar/assets/FriendlyLogo'
+import { SitePopover } from '~/layout/navigation/TopBar/SitePopover'
+import { HelpButton } from 'lib/components/HelpButton/HelpButton'
 
 export const scene: SceneExport = {
     component: IngestionWizard,
@@ -30,7 +35,7 @@ export function IngestionWizard(): JSX.Element {
         }
     }, [platform])
 
-    if (!platform) {
+    if (!platform && !verify) {
         return (
             <IngestionContainer>
                 <PlatformPanel />
@@ -82,12 +87,35 @@ export function IngestionWizard(): JSX.Element {
 }
 
 function IngestionContainer({ children }: { children: React.ReactNode }): JSX.Element {
+    const { isInviteModalShown } = useValues(inviteLogic)
+    const { hideInviteModal } = useActions(inviteLogic)
+    const { onboardingSidebarEnabled, isSmallScreen } = useValues(ingestionLogic)
+
     return (
-        <div className="bridge-page IngestionContainer">
-            <div className="mb">
-                <img src={posthogLogo} style={{ width: 157, height: 30 }} />
+        <div style={{ display: 'flex', height: '100%', flexDirection: 'column' }}>
+            {onboardingSidebarEnabled && (
+                <>
+                    <div className="IngestionTopbar">
+                        <FriendlyLogo style={{ fontSize: '1.125rem' }} />
+                        <div style={{ display: 'flex' }}>
+                            <HelpButton />
+                            <SitePopover />
+                        </div>
+                    </div>
+                </>
+            )}
+            {onboardingSidebarEnabled && <InviteModal visible={isInviteModalShown} onClose={hideInviteModal} />}
+            <div style={{ display: 'flex', height: '100%' }}>
+                {onboardingSidebarEnabled && !isSmallScreen && <Sidebar />}
+                <div className="bridge-page IngestionContainer">
+                    {!onboardingSidebarEnabled && (
+                        <div className="mb">
+                            <FriendlyLogo style={{ fontSize: '1.125rem' }} />
+                        </div>
+                    )}
+                    {children}
+                </div>
             </div>
-            {children}
         </div>
     )
 }

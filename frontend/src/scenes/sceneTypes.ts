@@ -14,7 +14,9 @@ export enum Scene {
     Events = 'Events',
     DataManagement = 'DataManagement',
     EventDefinitions = 'EventDefinitionsTable',
+    EventDefinition = 'EventDefinition',
     EventPropertyDefinitions = 'EventPropertyDefinitionsTable',
+    EventPropertyDefinition = 'EventPropertyDefinition',
     SessionRecordings = 'SessionsRecordings',
     Person = 'Person',
     Persons = 'Persons',
@@ -53,6 +55,7 @@ export enum Scene {
     PreflightCheck = 'PreflightCheck',
     Ingestion = 'IngestionWizard',
     OrganizationCreationConfirm = 'OrganizationCreationConfirm',
+    Unsubscribe = 'Unsubscribe',
 }
 
 export type SceneProps = Record<string, any>

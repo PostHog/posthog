@@ -1,6 +1,6 @@
 from infi.clickhouse_orm import migrations
 
-from ee.clickhouse.sql.session_recording_events import (
+from posthog.models.session_recording_event.sql import (
     KAFKA_SESSION_RECORDING_EVENTS_TABLE_SQL,
     SESSION_RECORDING_EVENTS_TABLE_MV_SQL,
 )

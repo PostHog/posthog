@@ -2,16 +2,17 @@ import json
 from typing import Any, Dict, Optional, cast
 
 from django.db.models import Prefetch, QuerySet
-from rest_framework import authentication, exceptions, request, response, serializers, status, viewsets
+from rest_framework import authentication, exceptions, request, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
+from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.auth import PersonalAPIKeyAuthentication, TemporaryTokenAuthentication
 from posthog.event_usage import report_user_action
-from posthog.mixins import AnalyticsDestroyModelMixin, log_deletion_metadata_to_posthog
+from posthog.mixins import AnalyticsDestroyModelMixin
 from posthog.models import FeatureFlag
 from posthog.models.activity_logging.activity_log import (
     ActivityPage,
@@ -175,7 +176,7 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
             validated_data["filters"] = validated_data.pop("get_filters")
 
 
-class FeatureFlagViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
+class FeatureFlagViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     """
     Create, read, update and delete feature flags. [See docs](https://posthog.com/docs/user-guides/feature-flags) for more information on feature flags.
 
@@ -205,6 +206,7 @@ class FeatureFlagViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
         feature_flags = (
             FeatureFlag.objects.filter(team=self.team, active=True, deleted=False)
+            .select_related("created_by")
             .prefetch_related(
                 Prefetch(
                     "featureflagoverride_set",
@@ -306,25 +308,6 @@ class FeatureFlagViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             activity="updated",
             detail=Detail(changes=changes, name=serializer.instance.key),
         )
-
-    @log_deletion_metadata_to_posthog
-    def destroy(self, request, *args, **kwargs):
-        instance: FeatureFlag = self.get_object()
-        instance_id = instance.id
-
-        instance.delete()
-
-        log_activity(
-            organization_id=self.organization.id,
-            team_id=self.team_id,
-            user=request.user,
-            item_id=instance_id,
-            scope="FeatureFlag",
-            activity="deleted",
-            detail=Detail(name=instance.key),
-        )
-
-        return response.Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class FeatureFlagOverrideSerializer(serializers.ModelSerializer):

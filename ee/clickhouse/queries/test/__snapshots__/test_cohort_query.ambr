@@ -282,6 +282,67 @@
           OR (performed_event_multiple_condition_None_level_level_0_level_1_0))) SETTINGS allow_experimental_window_functions = 1
   '
 ---
+# name: TestCohortQuery.test_performed_event_sequence_with_person_properties
+  '
+  
+  SELECT person.person_id AS id
+  FROM
+    (SELECT person_id,
+            max(if(event = '$pageview'
+                   AND event_0_latest_0 < event_0_latest_1
+                   AND event_0_latest_1 <= event_0_latest_0 + INTERVAL 3 day, 2, 1)) = 2 AS steps_0,
+            countIf(timestamp > now() - INTERVAL 1 week
+                    AND timestamp < now()
+                    AND event = '$pageview') >= 1 AS performed_event_multiple_condition_None_level_level_0_level_1_0
+     FROM
+       (SELECT person_id,
+               event,
+               properties,
+               distinct_id,
+               timestamp,
+               event_0_latest_0,
+               min(event_0_latest_1) over (PARTITION by person_id
+                                           ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING) event_0_latest_1
+        FROM
+          (SELECT pdi.person_id AS person_id,
+                  event,
+                  properties,
+                  distinct_id,
+                  timestamp,
+                  if(event = '$pageview'
+                     AND timestamp > now() - INTERVAL 7 day, 1, 0) AS event_0_step_0,
+                  if(event_0_step_0 = 1, timestamp, null) AS event_0_latest_0,
+                  if(event = '$pageview'
+                     AND timestamp > now() - INTERVAL 7 day, 1, 0) AS event_0_step_1,
+                  if(event_0_step_1 = 1, timestamp, null) AS event_0_latest_1
+           FROM events AS e
+           INNER JOIN
+             (SELECT distinct_id,
+                     argMax(person_id, version) as person_id
+              FROM person_distinct_id2
+              WHERE team_id = 2
+              GROUP BY distinct_id
+              HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+           WHERE team_id = 2
+             AND event IN ['$pageview', '$pageview', '$pageview']
+             AND timestamp <= now()
+             AND timestamp >= now() - INTERVAL 1 week ))
+     GROUP BY person_id) funnel_query
+  INNER JOIN
+    (SELECT *,
+            id AS person_id
+     FROM
+       (SELECT id
+        FROM person
+        WHERE team_id = 2
+        GROUP BY id
+        HAVING max(is_deleted) = 0
+        AND ((has(['test@posthog.com'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'email'), '^"|"$', '')))))) person ON person.person_id = funnel_query.person_id
+  WHERE 1 = 1
+    AND (((steps_0)
+          AND (performed_event_multiple_condition_None_level_level_0_level_1_0))) SETTINGS allow_experimental_window_functions = 1
+  '
+---
 # name: TestCohortQuery.test_person
   '
   
@@ -426,7 +487,8 @@
        AND cohort_id = 2
      GROUP BY person_id,
               cohort_id,
-              team_id
+              team_id,
+              version
      HAVING sum(sign) > 0)
   '
 ---
@@ -441,7 +503,8 @@
        AND cohort_id = 2
      GROUP BY person_id,
               cohort_id,
-              team_id
+              team_id,
+              version
      HAVING sum(sign) > 0)
   '
 ---

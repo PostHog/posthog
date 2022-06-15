@@ -1,5 +1,3 @@
-@import '~/vars';
-
 .authorized-urls-table {
     .authorized-url-col {
         display: flex;
@@ -8,7 +6,7 @@
             margin-left: 6px;
         }
         &.suggestion {
-            color: $text_muted_alt;
+            color: var(--text-muted-alt);
         }
         &.authorized {
             color: var(--success);

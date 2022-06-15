@@ -1,6 +1,11 @@
-from ee.clickhouse.sql.clickhouse import KAFKA_COLUMNS, STORAGE_POLICY, kafka_engine
-from ee.clickhouse.sql.table_engines import ReplacingMergeTree
 from ee.kafka_client.topics import KAFKA_GROUPS
+from posthog.clickhouse.kafka_engine import (
+    COPY_ROWS_BETWEEN_TEAMS_BASE_SQL,
+    KAFKA_COLUMNS,
+    STORAGE_POLICY,
+    kafka_engine,
+)
+from posthog.clickhouse.table_engines import ReplacingMergeTree
 from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
 
 GROUPS_TABLE = "groups"
@@ -67,3 +72,16 @@ SELECT DISTINCT group_key
 FROM groups
 WHERE team_id = %(team_id)s AND group_type_index = %({group_type_index_var})s {filters}
 """
+
+#
+# Copying demo data
+#
+
+COPY_GROUPS_BETWEEN_TEAMS = COPY_ROWS_BETWEEN_TEAMS_BASE_SQL.format(
+    table_name=GROUPS_TABLE,
+    columns_except_team_id="""group_type_index, group_key, group_properties, created_at, _timestamp, _offset""",
+)
+
+SELECT_GROUPS_OF_TEAM = """SELECT * FROM {table_name} WHERE team_id = %(source_team_id)s""".format(
+    table_name=GROUPS_TABLE,
+)

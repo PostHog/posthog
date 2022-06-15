@@ -12,7 +12,7 @@ from rest_framework import exceptions
 from posthog.constants import MAX_SLUG_LENGTH, AvailableFeature
 from posthog.email import is_email_available
 from posthog.models.utils import LowercaseSlugField, UUIDModel, create_with_slug, sane_repr
-from posthog.utils import mask_email_address
+from posthog.utils import absolute_uri, mask_email_address
 
 if TYPE_CHECKING:
     from posthog.models import Team, User
@@ -111,13 +111,14 @@ class Organization(UUIDModel):
         Obtains details on the billing plan for the organization.
         Returns a tuple with (billing_plan_key, billing_realm)
         """
-
+        # Demo gets all features
+        if settings.DEMO:
+            return (License.ENTERPRISE_PLAN, "demo")
         # If on Cloud, grab the organization's price
         if hasattr(self, "billing"):
             if self.billing is None:  # type: ignore
                 return (None, None)
             return (self.billing.get_plan_key(), "cloud")  # type: ignore
-
         # Otherwise, try to find a valid license on this instance
         if License is not None:
             license = License.objects.first_valid()
@@ -134,7 +135,7 @@ class Organization(UUIDModel):
         plan, realm = self._billing_plan_details
         if not plan:
             self.available_features = []
-        elif realm == "ee":
+        elif realm in ("ee", "demo"):
             self.available_features = License.PLANS.get(plan, [])
         else:
             self.available_features = self.billing.available_features  # type: ignore
@@ -240,6 +241,7 @@ class OrganizationInvite(UUIDModel):
     emailing_attempt_made: models.BooleanField = models.BooleanField(default=False)
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True)
     updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
+    message: models.TextField = models.TextField(blank=True, null=True)
 
     def validate(self, *, user: Optional["User"] = None, email: Optional[str] = None) -> None:
         _email = email or getattr(user, "email", None)
@@ -284,7 +286,7 @@ class OrganizationInvite(UUIDModel):
         return self.created_at < timezone.now() - timezone.timedelta(INVITE_DAYS_VALIDITY)
 
     def __str__(self):
-        return f"{settings.SITE_URL}/signup/{self.id}"
+        return absolute_uri(f"/signup/{self.id}")
 
     __repr__ = sane_repr("organization", "target_email", "created_by")
 

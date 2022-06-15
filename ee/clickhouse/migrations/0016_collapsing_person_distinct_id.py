@@ -1,6 +1,6 @@
 from infi.clickhouse_orm import migrations
 
-from ee.clickhouse.sql.person import *
+from posthog.models.person.sql import *
 from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_REPLICATION
 
 TEMPORARY_TABLE_NAME = "person_distinct_id_tmp_migration_0016"

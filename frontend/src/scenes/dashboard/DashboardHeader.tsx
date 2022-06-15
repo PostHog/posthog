@@ -16,15 +16,20 @@ import { dashboardLogic } from './dashboardLogic'
 import { dashboardsLogic } from './dashboardsLogic'
 import { DASHBOARD_RESTRICTION_OPTIONS, ShareModal } from './ShareModal'
 import { userLogic } from 'scenes/userLogic'
-import { privilegeLevelToName } from 'lib/constants'
+import { FEATURE_FLAGS, privilegeLevelToName } from 'lib/constants'
 import { ProfileBubbles } from 'lib/components/ProfilePicture/ProfileBubbles'
 import { dashboardCollaboratorsLogic } from './dashboardCollaboratorsLogic'
 import { IconLock } from 'lib/components/icons'
 import { urls } from 'scenes/urls'
 import { Link } from 'lib/components/Link'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { ExportButton } from 'lib/components/ExportButton/ExportButton'
+import { SubscriptionsModal, SubscribeButton } from 'lib/components/Subscriptions/SubscriptionsModal'
+import { router } from 'kea-router'
 
 export function DashboardHeader(): JSX.Element | null {
-    const { dashboard, allItemsLoading, dashboardMode, canEditDashboard } = useValues(dashboardLogic)
+    const { dashboard, allItemsLoading, dashboardMode, canEditDashboard, showSubscriptions, subscriptionId } =
+        useValues(dashboardLogic)
     const { setDashboardMode, triggerDashboardUpdate } = useActions(dashboardLogic)
     const { dashboardTags } = useValues(dashboardsLogic)
     const { updateDashboard, pinDashboard, unpinDashboard, deleteDashboard, duplicateDashboard } =
@@ -34,12 +39,27 @@ export function DashboardHeader(): JSX.Element | null {
 
     const [isShareModalVisible, setIsShareModalVisible] = useState(false)
 
+    const { featureFlags } = useValues(featureFlagLogic)
+    const usingExportFeature = featureFlags[FEATURE_FLAGS.EXPORT_DASHBOARD_INSIGHTS]
+    const usingSubscriptionFeature = featureFlags[FEATURE_FLAGS.INSIGHT_SUBSCRIPTIONS]
+    const { push } = useActions(router)
+
     return dashboard || allItemsLoading ? (
         <>
             {dashboardMode === DashboardMode.Fullscreen && (
                 <FullScreen onExit={() => setDashboardMode(null, DashboardEventSource.Browser)} />
             )}
             {dashboard && <ShareModal onCancel={() => setIsShareModalVisible(false)} visible={isShareModalVisible} />}
+
+            {dashboard && (
+                <SubscriptionsModal
+                    visible={showSubscriptions}
+                    closeModal={() => push(urls.dashboard(dashboard.id))}
+                    dashboardId={dashboard.id}
+                    subscriptionId={subscriptionId}
+                />
+            )}
+
             <PageHeader
                 title={
                     <div style={{ display: 'flex', alignItems: 'center' }}>
@@ -157,6 +177,10 @@ export function DashboardHeader(): JSX.Element | null {
                                                         Pin dashboard
                                                     </LemonButton>
                                                 ))}
+                                            {usingSubscriptionFeature && <SubscribeButton dashboardId={dashboard.id} />}
+                                            {usingExportFeature && (
+                                                <ExportButton dashboardId={dashboard.id} fullWidth type="stealth" />
+                                            )}
                                             <LemonDivider />
                                             <LemonButton
                                                 onClick={() =>

@@ -39,6 +39,7 @@ import { LemonTableConfig } from 'lib/components/ResizableTable/TableConfig'
 
 export interface FixedFilters {
     action_id?: ActionType['id']
+    event_filter?: string
     person_id?: string | number
     distinct_ids?: string[]
     properties?: AnyPropertyFilter[]
@@ -55,6 +56,7 @@ interface EventsTable {
     showExport?: boolean
     showAutoload?: boolean
     showEventFilter?: boolean
+    showPropertyFilter?: boolean
     showRowExpanders?: boolean
     showActionsButton?: boolean
     showPersonColumn?: boolean
@@ -75,6 +77,7 @@ export function EventsTable({
     showExport = true,
     showAutoload = true,
     showEventFilter = true,
+    showPropertyFilter = true,
     showRowExpanders = true,
     showActionsButton = true,
     showPersonColumn = true,
@@ -360,28 +363,37 @@ export function EventsTable({
     return (
         <div data-attr="manage-events-table">
             <div className="events" data-attr="events-table">
-                <div className="flex pt pb border-top space-x">
-                    {showEventFilter ? (
-                        <LemonEventName
-                            value={eventFilter}
-                            onChange={(value: string) => {
-                                setEventFilter(value || '')
-                            }}
-                        />
-                    ) : null}
-                    <PropertyFilters
-                        propertyFilters={properties}
-                        onChange={setProperties}
-                        pageKey={pageKey}
-                        taxonomicPopoverPlacement="bottom-start"
-                        style={{ marginBottom: 0, marginTop: 0 }}
-                        eventNames={eventFilter ? [eventFilter] : []}
-                        useLemonButton
-                    />
-                </div>
+                {(showEventFilter || showPropertyFilter) && (
+                    <div className="flex pt pb space-x border-top">
+                        {showEventFilter && (
+                            <LemonEventName
+                                value={eventFilter}
+                                onChange={(value: string) => {
+                                    setEventFilter(value || '')
+                                }}
+                            />
+                        )}
+                        {showPropertyFilter && (
+                            <PropertyFilters
+                                propertyFilters={properties}
+                                onChange={setProperties}
+                                pageKey={pageKey}
+                                taxonomicPopoverPlacement="bottom-start"
+                                style={{ marginBottom: 0, marginTop: 0 }}
+                                eventNames={eventFilter ? [eventFilter] : []}
+                                useLemonButton
+                            />
+                        )}
+                    </div>
+                )}
 
                 {showAutoload || showCustomizeColumns || showExport ? (
-                    <div className="space-between-items pt pb border-top">
+                    <div
+                        className={clsx(
+                            'space-between-items pt pb',
+                            (showEventFilter || showPropertyFilter) && 'border-top'
+                        )}
+                    >
                         {showAutoload && (
                             <LemonSwitch
                                 type="primary"

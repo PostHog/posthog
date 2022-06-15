@@ -1,7 +1,7 @@
 import React from 'react'
 import { kea } from 'kea'
 import api from 'lib/api'
-import { membersLogicType } from './membersLogicType'
+import type { membersLogicType } from './membersLogicType'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { OrganizationMemberType } from '~/types'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -52,6 +52,16 @@ export const membersLogic = kea<membersLogicType>({
                 }
                 return result
             },
+        ],
+
+        antSelectOptions: [
+            (s) => [s.members],
+            (members) =>
+                members.map((member) => ({
+                    key: member.user.email,
+                    value: member.user.email,
+                    label: `${member.user.first_name} <${member.user.email}>`,
+                })),
         ],
     },
     listeners: ({ actions }) => ({

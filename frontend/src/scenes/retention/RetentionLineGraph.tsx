@@ -6,7 +6,6 @@ import { InsightEmptyState } from '../insights/EmptyStates'
 import { GraphType, GraphDataset } from '~/types'
 import { RetentionTablePayload, RetentionTablePeoplePayload } from 'scenes/retention/types'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import './RetentionLineGraph.scss'
 import { RetentionModal } from './RetentionModal'
 import { roundToDecimal } from 'lib/utils'
 

@@ -13,7 +13,6 @@ debug.log
 node_modules/
 *.code-workspace
 node_modules
-.vscode/
 frontend/.cache/
 .mypy_cache
 frontend/dist/
@@ -27,7 +26,11 @@ celerybeat.pid
 yarn-error.log
 .yalc
 yalc.lock
+.vscode/*
+!.vscode/launch.json
 cypress/screenshots/
+cypress/downloads/
+cypress/**/*.diff.png
 docker-compose.prod.yml
 .python-version
 *.isorted
@@ -37,3 +40,4 @@ ee/benchmarks/results
 .coverage
 coverage-*.xml
 object_storage/
+__emails__

@@ -4,9 +4,7 @@ from django.utils.timezone import now
 from freezegun.api import freeze_time
 
 from ee.clickhouse.models.group import create_group
-from ee.clickhouse.queries.trends.clickhouse_trends import ClickhouseTrends
 from ee.clickhouse.test.test_journeys import journeys_for
-from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
 from posthog.constants import FILTER_TEST_ACCOUNTS, TRENDS_LIFECYCLE
 from posthog.models.action import Action
 from posthog.models.action_step import ActionStep
@@ -14,7 +12,8 @@ from posthog.models.filters.filter import Filter
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.person import Person
 from posthog.queries.test.test_lifecycle import lifecycle_test_factory
-from posthog.test.base import _create_event, _create_person
+from posthog.queries.trends.trends import Trends
+from posthog.test.base import ClickhouseTestMixin, _create_event, _create_person, snapshot_clickhouse_queries
 
 
 def _create_action(**kwargs):
@@ -25,7 +24,7 @@ def _create_action(**kwargs):
     return action
 
 
-class TestClickhouseLifecycle(ClickhouseTestMixin, lifecycle_test_factory(ClickhouseTrends, _create_event, _create_person, _create_action)):  # type: ignore
+class TestClickhouseLifecycle(ClickhouseTestMixin, lifecycle_test_factory(Trends, _create_event, _create_person, _create_action)):  # type: ignore
     @snapshot_clickhouse_queries
     def test_test_account_filters_with_groups(self):
         self.team.test_account_filters = [
@@ -57,7 +56,7 @@ class TestClickhouseLifecycle(ClickhouseTestMixin, lifecycle_test_factory(Clickh
             self.team,
         )
 
-        result = ClickhouseTrends().run(
+        result = Trends().run(
             Filter(
                 data={
                     "date_from": "2020-01-12T00:00:00Z",
@@ -99,7 +98,7 @@ class TestClickhouseLifecycle(ClickhouseTestMixin, lifecycle_test_factory(Clickh
             self.team,
         )
 
-        result = ClickhouseTrends().run(
+        result = Trends().run(
             Filter(
                 data={
                     "date_from": "2020-01-11T00:00:00Z",
@@ -212,4 +211,4 @@ class TestClickhouseLifecycle(ClickhouseTestMixin, lifecycle_test_factory(Clickh
             data={"events": [{"id": "$pageview", "type": "events", "order": 0}], "shown_as": TRENDS_LIFECYCLE, **data,},
             team=self.team,
         )
-        return ClickhouseTrends().run(filter, self.team,)
+        return Trends().run(filter, self.team,)

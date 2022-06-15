@@ -1,14 +1,32 @@
-# flake8: noqa
 # Make tasks ready for celery autoimport
-import posthog.tasks.async_migrations
-import posthog.tasks.calculate_cohort
-import posthog.tasks.calculate_event_property_usage
-import posthog.tasks.check_clickhouse_schema_drift
-import posthog.tasks.delete_clickhouse_data
-import posthog.tasks.delete_old_plugin_logs
-import posthog.tasks.email
-import posthog.tasks.split_person
-import posthog.tasks.status_report
-import posthog.tasks.sync_all_organization_available_features
-import posthog.tasks.update_cache
-import posthog.tasks.user_identify
+from . import (
+    async_migrations,
+    calculate_cohort,
+    calculate_event_property_usage,
+    check_clickhouse_schema_drift,
+    delete_clickhouse_data,
+    email,
+    exporter,
+    split_person,
+    status_report,
+    subscriptions,
+    sync_all_organization_available_features,
+    update_cache,
+    user_identify,
+)
+
+__all__ = [
+    "async_migrations",
+    "calculate_cohort",
+    "calculate_event_property_usage",
+    "check_clickhouse_schema_drift",
+    "delete_clickhouse_data",
+    "email",
+    "exporter",
+    "split_person",
+    "status_report",
+    "subscriptions",
+    "sync_all_organization_available_features",
+    "update_cache",
+    "user_identify",
+]

@@ -14,7 +14,9 @@ export const appScenes: Record<Scene, () => any> = {
     [Scene.Events]: () => import('./events/Events'),
     [Scene.Actions]: () => import('./actions/ActionsTable'),
     [Scene.EventDefinitions]: () => import('./data-management/events/EventDefinitionsTable'),
+    [Scene.EventDefinition]: () => import('./data-management/definition/DefinitionView'),
     [Scene.EventPropertyDefinitions]: () => import('./data-management/event-properties/EventPropertyDefinitionsTable'),
+    [Scene.EventPropertyDefinition]: () => import('./data-management/definition/DefinitionView'),
     [Scene.WebPerformance]: () => import('./performance/WebPerformance'),
     [Scene.SessionRecordings]: () => import('./session-recordings/SessionRecordings'),
     [Scene.Person]: () => import('./persons/Person'),
@@ -51,4 +53,5 @@ export const appScenes: Record<Scene, () => any> = {
     [Scene.SavedInsights]: () => import('./saved-insights/SavedInsights'),
     [Scene.PasswordReset]: () => import('./authentication/PasswordReset'),
     [Scene.PasswordResetComplete]: () => import('./authentication/PasswordResetComplete'),
+    [Scene.Unsubscribe]: () => import('./Unsubscribe/Unsubscribe'),
 }

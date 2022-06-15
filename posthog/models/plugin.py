@@ -1,7 +1,8 @@
 import datetime
 import os
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Union, cast
+from enum import Enum
+from typing import Any, Dict, List, Optional, cast
 from uuid import UUID
 
 from django.conf import settings
@@ -13,6 +14,7 @@ from rest_framework.exceptions import ValidationError
 from semantic_version.base import SimpleSpec, Version
 
 from posthog.models.organization import Organization
+from posthog.models.signals import mutable_receiver
 from posthog.models.team import Team
 from posthog.plugins.access import can_configure_plugins, can_install_plugins
 from posthog.plugins.reload import reload_plugins_on_workers
@@ -173,6 +175,8 @@ class Plugin(models.Model):
         return config
 
     def __str__(self) -> str:
+        if not self.name:
+            return f"ID {self.id}"
         return self.name
 
     __repr__ = sane_repr("id", "name", "organization_id", "is_global")
@@ -214,34 +218,18 @@ class PluginStorage(models.Model):
     value: models.TextField = models.TextField(blank=True, null=True)
 
 
-class PluginLogEntry(UUIDModel):
-    class Meta:
-        indexes = [
-            models.Index(fields=["plugin_config_id", "timestamp"]),
-        ]
+class PluginLogEntrySource(str, Enum):
+    SYSTEM = "SYSTEM"
+    PLUGIN = "PLUGIN"
+    CONSOLE = "CONSOLE"
 
-    class Source(models.TextChoices):
-        SYSTEM = "SYSTEM", "system"
-        PLUGIN = "PLUGIN", "plugin"
-        CONSOLE = "CONSOLE", "console"
 
-    class Type(models.TextChoices):
-        DEBUG = "DEBUG", "debug"
-        LOG = "LOG", "log"
-        INFO = "INFO", "info"
-        WARN = "WARN", "warn"
-        ERROR = "ERROR", "error"
-
-    team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
-    plugin: models.ForeignKey = models.ForeignKey("Plugin", on_delete=models.CASCADE)
-    plugin_config: models.ForeignKey = models.ForeignKey("PluginConfig", on_delete=models.CASCADE)
-    timestamp: models.DateTimeField = models.DateTimeField(default=timezone.now)
-    source: models.CharField = models.CharField(max_length=20, choices=Source.choices)
-    type: models.CharField = models.CharField(max_length=20, choices=Type.choices)
-    message: models.TextField = models.TextField(db_index=True)
-    instance_id: models.UUIDField = models.UUIDField()
-
-    __repr__ = sane_repr("plugin_config_id", "timestamp", "source", "type", "message")
+class PluginLogEntryType(str, Enum):
+    DEBUG = "DEBUG"
+    LOG = "LOG"
+    INFO = "INFO"
+    WARN = "WARN"
+    ERROR = "ERROR"
 
 
 class PluginSourceFile(UUIDModel):
@@ -267,14 +255,14 @@ class PluginSourceFile(UUIDModel):
 
 
 @dataclass(frozen=True)
-class PluginLogEntryRaw:
+class PluginLogEntry:
     id: UUID
     team_id: int
     plugin_id: int
     plugin_config_id: int
     timestamp: datetime.datetime
-    source: PluginLogEntry.Source
-    type: PluginLogEntry.Type
+    source: PluginLogEntrySource
+    type: PluginLogEntryType
     message: str
     instance_id: UUID
 
@@ -287,8 +275,8 @@ def fetch_plugin_log_entries(
     before: Optional[timezone.datetime] = None,
     search: Optional[str] = None,
     limit: Optional[int] = None,
-    type_filter: List[PluginLogEntry.Type] = [],
-) -> List[Union[PluginLogEntry, PluginLogEntryRaw]]:
+    type_filter: List[PluginLogEntryType] = [],
+) -> List[PluginLogEntry]:
     clickhouse_where_parts: List[str] = []
     clickhouse_kwargs: Dict[str, Any] = {}
     if team_id is not None:
@@ -313,7 +301,7 @@ def fetch_plugin_log_entries(
         SELECT id, team_id, plugin_id, plugin_config_id, timestamp, source, type, message, instance_id FROM plugin_log_entries
         WHERE {' AND '.join(clickhouse_where_parts)} ORDER BY timestamp DESC {f'LIMIT {limit}' if limit else ''}
     """
-    return [PluginLogEntryRaw(*result) for result in cast(list, sync_execute(clickhouse_query, clickhouse_kwargs))]
+    return [PluginLogEntry(*result) for result in cast(list, sync_execute(clickhouse_query, clickhouse_kwargs))]
 
 
 @receiver(models.signals.post_save, sender=Organization)
@@ -347,18 +335,18 @@ def enable_preinstalled_plugins_for_new_team(sender, instance: Team, created: bo
             )
 
 
-@receiver([post_save, post_delete], sender=Plugin)
+@mutable_receiver([post_save, post_delete], sender=Plugin)
 def plugin_reload_needed(sender, instance, created=None, **kwargs):
     # Newly created plugins don't have a config yet, so no need to reload
     if not created:
         reload_plugins_on_workers()
 
 
-@receiver([post_save, post_delete], sender=PluginConfig)
+@mutable_receiver([post_save, post_delete], sender=PluginConfig)
 def plugin_config_reload_needed(sender, instance, created=None, **kwargs):
     reload_plugins_on_workers()
 
 
-@receiver([post_save, post_delete], sender=PluginAttachment)
+@mutable_receiver([post_save, post_delete], sender=PluginAttachment)
 def plugin_attachement_reload_needed(sender, instance, created=None, **kwargs):
     reload_plugins_on_workers()

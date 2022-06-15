@@ -8,6 +8,7 @@ import { ProducerRecord } from 'kafkajs'
 import { DateTime } from 'luxon'
 import { Pool, PoolClient, QueryResult, QueryResultRow } from 'pg'
 
+import { CELERY_DEFAULT_QUEUE } from '../../config/constants'
 import {
     KAFKA_GROUPS,
     KAFKA_PERSON_DISTINCT_ID,
@@ -28,7 +29,6 @@ import {
     Database,
     DeadLetterQueueEvent,
     Element,
-    ElementGroup,
     Event,
     EventDefinitionType,
     EventPropertyType,
@@ -71,14 +71,11 @@ import {
     UUIDT,
 } from '../utils'
 import { OrganizationPluginsAccessLevel } from './../../types'
+import { chainToElements } from './elements-chain'
 import { KafkaProducerWrapper } from './kafka-producer-wrapper'
-import { PostgresLogsWrapper } from './postgres-logs-wrapper'
 import {
-    chainToElements,
     generateKafkaPersonUpdateMessage,
-    generatePostgresValuesString,
     getFinalPostgresQuery,
-    hashElements,
     safeClickhouseString,
     shouldStoreLog,
     timeoutGuard,
@@ -162,16 +159,11 @@ export class DB {
     /** StatsD instance used to do instrumentation */
     statsd: StatsD | undefined
 
-    /** A buffer for Postgres logs to prevent too many log insert ueries */
-    postgresLogsWrapper: PostgresLogsWrapper
-
     /** How many unique group types to allow per team */
     MAX_GROUP_TYPES_PER_TEAM = 5
 
     /** Whether to write to clickhouse_person_unique_id topic */
     writeToPersonUniqueId?: boolean
-
-    KAFKA_ENABLED: boolean
 
     /** How many seconds to keep person info in Redis cache */
     PERSONS_AND_GROUPS_CACHE_TTL: number
@@ -185,7 +177,6 @@ export class DB {
         kafkaProducer: KafkaProducerWrapper,
         clickhouse: ClickHouse,
         statsd: StatsD | undefined,
-        kafkaEnabled = true,
         personAndGroupsCacheTtl = 1,
         personAndGroupsCachingEnabledTeams: Set<number> = new Set<number>()
     ) {
@@ -194,8 +185,6 @@ export class DB {
         this.kafkaProducer = kafkaProducer
         this.clickhouse = clickhouse
         this.statsd = statsd
-        this.postgresLogsWrapper = new PostgresLogsWrapper(this)
-        this.KAFKA_ENABLED = kafkaEnabled
         this.PERSONS_AND_GROUPS_CACHE_TTL = personAndGroupsCacheTtl
         this.personAndGroupsCachingEnabledTeams = personAndGroupsCachingEnabledTeams
     }
@@ -441,6 +430,53 @@ export class DB {
                 clearTimeout(timeout)
                 await this.redisPool.release(client)
             }
+        })
+    }
+
+    public redisPublish(channel: string, message: string): Promise<number> {
+        return instrumentQuery(this.statsd, 'query.redisPublish', undefined, async () => {
+            const client = await this.redisPool.acquire()
+            const timeout = timeoutGuard('Publish delayed. Waiting over 30 sec to perform Publish', {
+                channel,
+                message,
+            })
+            try {
+                return await client.publish(channel, message)
+            } finally {
+                clearTimeout(timeout)
+                await this.redisPool.release(client)
+            }
+        })
+    }
+
+    /** Calls Celery task. Works similarly to Task.apply_async in Python. */
+    async celeryApplyAsync(taskName: string, args: any[] = [], kwargs: Record<string, any> = {}): Promise<void> {
+        const taskId = new UUIDT().toString()
+        const deliveryTag = new UUIDT().toString()
+        const body = [args, kwargs, { callbacks: null, errbacks: null, chain: null, chord: null }]
+        /** A base64-encoded JSON representation of the body tuple. */
+        const bodySerialized = Buffer.from(JSON.stringify(body)).toString('base64')
+        await this.redisLPush(CELERY_DEFAULT_QUEUE, {
+            body: bodySerialized,
+            'content-encoding': 'utf-8',
+            'content-type': 'application/json',
+            headers: {
+                lang: 'js',
+                task: taskName,
+                id: taskId,
+                retries: 0,
+                root_id: taskId,
+                parent_id: null,
+                group: null,
+            },
+            properties: {
+                correlation_id: taskId,
+                delivery_mode: 2,
+                delivery_tag: deliveryTag,
+                delivery_info: { exchange: '', routing_key: CELERY_DEFAULT_QUEUE },
+                priority: 0,
+                body_encoding: 'base64',
+            },
         })
     }
 
@@ -800,11 +836,9 @@ export class DB {
                 version: Number(personCreated.version || 0),
             } as Person
 
-            if (this.KAFKA_ENABLED) {
-                kafkaMessages.push(
-                    generateKafkaPersonUpdateMessage(createdAt, properties, teamId, isIdentified, uuid, person.version)
-                )
-            }
+            kafkaMessages.push(
+                generateKafkaPersonUpdateMessage(createdAt, properties, teamId, isIdentified, uuid, person.version)
+            )
 
             for (const distinctId of distinctIds || []) {
                 const messages = await this.addDistinctIdPooled(person, distinctId, client)
@@ -814,9 +848,7 @@ export class DB {
             return person
         })
 
-        if (this.KAFKA_ENABLED) {
-            await this.kafkaProducer.queueMessages(kafkaMessages)
-        }
+        await this.kafkaProducer.queueMessages(kafkaMessages)
 
         // Update person info cache - we want to await to make sure the Event gets the right properties
         await Promise.all(
@@ -853,35 +885,38 @@ export class DB {
 
         const values = [...updateValues, person.id]
 
+        // Potentially overriding values badly if there was an update to the person after computing updateValues above
         const queryString = `UPDATE posthog_person SET version = COALESCE(version, 0)::numeric + 1, ${Object.keys(
             update
         ).map((field, index) => `"${sanitizeSqlIdentifier(field)}" = $${index + 1}`)} WHERE id = $${
             Object.values(update).length + 1
         }
-        RETURNING version`
+        RETURNING *`
 
         const updateResult: QueryResult = await this.postgresQuery(queryString, values, 'updatePerson', client)
         if (updateResult.rows.length == 0) {
             throw new Error(`Person with team_id="${person.team_id}" and uuid="${person.uuid} couldn't be updated`)
         }
-        const updatedPersonVersion: Person['version'] = Number(updateResult.rows[0].version)
-        const updatedPerson: Person = { ...person, ...update, version: updatedPersonVersion }
+        const updatedPersonRaw = updateResult.rows[0] as RawPerson
+        const updatedPerson = {
+            ...updatedPersonRaw,
+            created_at: DateTime.fromISO(updatedPersonRaw.created_at).toUTC(),
+            version: Number(updatedPersonRaw.version || 0),
+        } as Person
 
         const kafkaMessages = []
-        if (this.KAFKA_ENABLED) {
-            const message = generateKafkaPersonUpdateMessage(
-                updatedPerson.created_at,
-                updatedPerson.properties,
-                updatedPerson.team_id,
-                updatedPerson.is_identified,
-                updatedPerson.uuid,
-                updatedPersonVersion
-            )
-            if (client) {
-                kafkaMessages.push(message)
-            } else {
-                await this.kafkaProducer.queueMessage(message)
-            }
+        const message = generateKafkaPersonUpdateMessage(
+            updatedPerson.created_at,
+            updatedPerson.properties,
+            updatedPerson.team_id,
+            updatedPerson.is_identified,
+            updatedPerson.uuid,
+            updatedPerson.version
+        )
+        if (client) {
+            kafkaMessages.push(message)
+        } else {
+            await this.kafkaProducer.queueMessage(message)
         }
 
         // Update person info cache - we want to await to make sure the Event gets the right properties
@@ -891,21 +926,28 @@ export class DB {
         return client ? kafkaMessages : updatedPerson
     }
 
-    public async deletePerson(person: Person, client: PoolClient): Promise<ProducerRecord[]> {
-        await client.query('DELETE FROM posthog_person WHERE team_id = $1 AND id = $2', [person.team_id, person.id])
-        const kafkaMessages = []
-        if (this.KAFKA_ENABLED) {
-            kafkaMessages.push(
+    public async deletePerson(person: Person, client?: PoolClient): Promise<ProducerRecord[]> {
+        const result = await this.postgresQuery<{ version: string }>(
+            'DELETE FROM posthog_person WHERE team_id = $1 AND id = $2 RETURNING version',
+            [person.team_id, person.id],
+            'deletePerson',
+            client
+        )
+
+        let kafkaMessages: ProducerRecord[] = []
+
+        if (result.rows.length > 0) {
+            kafkaMessages = [
                 generateKafkaPersonUpdateMessage(
                     person.created_at,
                     person.properties,
                     person.team_id,
                     person.is_identified,
                     person.uuid,
-                    null,
+                    Number(result.rows[0].version || 0) + 100,
                     1
-                )
-            )
+                ),
+            ]
         }
         // TODO: remove from cache
         return kafkaMessages
@@ -957,7 +999,7 @@ export class DB {
 
     public async addDistinctId(person: Person, distinctId: string): Promise<void> {
         const kafkaMessages = await this.addDistinctIdPooled(person, distinctId)
-        if (this.KAFKA_ENABLED && kafkaMessages.length) {
+        if (kafkaMessages.length) {
             await this.kafkaProducer.queueMessages(kafkaMessages)
         }
         // Update person info cache - we want to await to make sure the Event gets the right properties
@@ -977,47 +1019,43 @@ export class DB {
         )
 
         const { id, version: versionStr, ...personDistinctIdCreated } = insertResult.rows[0] as PersonDistinctId
-        if (this.KAFKA_ENABLED) {
-            const version = Number(versionStr || 0)
-            const messages = [
-                {
-                    topic: KAFKA_PERSON_DISTINCT_ID,
-                    messages: [
-                        {
-                            value: Buffer.from(
-                                JSON.stringify({
-                                    ...personDistinctIdCreated,
-                                    version,
-                                    person_id: person.uuid,
-                                    is_deleted: 0,
-                                })
-                            ),
-                        },
-                    ],
-                },
-            ]
+        const version = Number(versionStr || 0)
+        const messages = [
+            {
+                topic: KAFKA_PERSON_DISTINCT_ID,
+                messages: [
+                    {
+                        value: Buffer.from(
+                            JSON.stringify({
+                                ...personDistinctIdCreated,
+                                version,
+                                person_id: person.uuid,
+                                is_deleted: 0,
+                            })
+                        ),
+                    },
+                ],
+            },
+        ]
 
-            if (await this.fetchWriteToPersonUniqueId()) {
-                messages.push({
-                    topic: KAFKA_PERSON_UNIQUE_ID,
-                    messages: [
-                        {
-                            value: Buffer.from(
-                                JSON.stringify({
-                                    ...personDistinctIdCreated,
-                                    person_id: person.uuid,
-                                    is_deleted: 0,
-                                })
-                            ),
-                        },
-                    ],
-                })
-            }
-
-            return messages
-        } else {
-            return []
+        if (await this.fetchWriteToPersonUniqueId()) {
+            messages.push({
+                topic: KAFKA_PERSON_UNIQUE_ID,
+                messages: [
+                    {
+                        value: Buffer.from(
+                            JSON.stringify({
+                                ...personDistinctIdCreated,
+                                person_id: person.uuid,
+                                is_deleted: 0,
+                            })
+                        ),
+                    },
+                ],
+            })
         }
+
+        return messages
     }
 
     public async moveDistinctIds(source: Person, target: Person, client?: PoolClient): Promise<ProducerRecord[]> {
@@ -1060,45 +1098,39 @@ export class DB {
         }
 
         const kafkaMessages = []
-        if (this.KAFKA_ENABLED) {
-            for (const row of movedDistinctIdResult.rows) {
-                const { id, version: versionStr, ...usefulColumns } = row as PersonDistinctId
-                const version = Number(versionStr || 0)
+        for (const row of movedDistinctIdResult.rows) {
+            const { id, version: versionStr, ...usefulColumns } = row as PersonDistinctId
+            const version = Number(versionStr || 0)
+            kafkaMessages.push({
+                topic: KAFKA_PERSON_DISTINCT_ID,
+                messages: [
+                    {
+                        value: Buffer.from(
+                            JSON.stringify({ ...usefulColumns, version, person_id: target.uuid, is_deleted: 0 })
+                        ),
+                    },
+                ],
+            })
+
+            if (await this.fetchWriteToPersonUniqueId()) {
                 kafkaMessages.push({
-                    topic: KAFKA_PERSON_DISTINCT_ID,
+                    topic: KAFKA_PERSON_UNIQUE_ID,
                     messages: [
                         {
                             value: Buffer.from(
-                                JSON.stringify({ ...usefulColumns, version, person_id: target.uuid, is_deleted: 0 })
+                                JSON.stringify({ ...usefulColumns, person_id: target.uuid, is_deleted: 0 })
+                            ),
+                        },
+                        {
+                            value: Buffer.from(
+                                JSON.stringify({ ...usefulColumns, person_id: source.uuid, is_deleted: 1 })
                             ),
                         },
                     ],
                 })
-
-                if (await this.fetchWriteToPersonUniqueId()) {
-                    kafkaMessages.push({
-                        topic: KAFKA_PERSON_UNIQUE_ID,
-                        messages: [
-                            {
-                                value: Buffer.from(
-                                    JSON.stringify({ ...usefulColumns, person_id: target.uuid, is_deleted: 0 })
-                                ),
-                            },
-                            {
-                                value: Buffer.from(
-                                    JSON.stringify({ ...usefulColumns, person_id: source.uuid, is_deleted: 1 })
-                                ),
-                            },
-                        ],
-                    })
-                }
-                // Update person info cache - we want to await to make sure the Event gets the right properties
-                await this.updatePersonIdCache(
-                    usefulColumns.team_id,
-                    usefulColumns.distinct_id,
-                    usefulColumns.person_id
-                )
             }
+            // Update person info cache - we want to await to make sure the Event gets the right properties
+            await this.updatePersonIdCache(usefulColumns.team_id, usefulColumns.distinct_id, usefulColumns.person_id)
         }
         return kafkaMessages
     }
@@ -1133,20 +1165,18 @@ export class DB {
         person: CachedPersonData | Person,
         teamId: Team['id']
     ): Promise<boolean> {
-        if (this.KAFKA_ENABLED) {
-            const chResult = await this.clickhouseQuery(
-                `SELECT 1 FROM person_static_cohort
-                WHERE
-                    team_id = ${teamId}
-                    AND cohort_id = ${cohortId}
-                    AND person_id = '${escapeClickHouseString(person.uuid)}'
-                LIMIT 1`
-            )
+        const chResult = await this.clickhouseQuery(
+            `SELECT 1 FROM person_static_cohort
+            WHERE
+                team_id = ${teamId}
+                AND cohort_id = ${cohortId}
+                AND person_id = '${escapeClickHouseString(person.uuid)}'
+            LIMIT 1`
+        )
 
-            if (chResult.rows > 0) {
-                // Cohort is static and our person belongs to it
-                return true
-            }
+        if (chResult.rows > 0) {
+            // Cohort is static and our person belongs to it
+            return true
         }
 
         const psqlResult = await this.postgresQuery(
@@ -1169,47 +1199,38 @@ export class DB {
     // Event
 
     public async fetchEvents(): Promise<Event[] | ClickHouseEvent[]> {
-        if (this.KAFKA_ENABLED) {
-            const events = (await this.clickhouseQuery(`SELECT * FROM events ORDER BY timestamp ASC`))
-                .data as ClickHouseEvent[]
-            return (
-                events?.map(
-                    (event) =>
-                        ({
-                            ...event,
-                            ...(typeof event['properties'] === 'string'
-                                ? { properties: JSON.parse(event.properties) }
-                                : {}),
-                            ...(!!event['person_properties'] && typeof event['person_properties'] === 'string'
-                                ? { person_properties: JSON.parse(event.person_properties) }
-                                : {}),
-                            ...(!!event['group0_properties'] && typeof event['group0_properties'] === 'string'
-                                ? { group0_properties: JSON.parse(event.group0_properties) }
-                                : {}),
-                            ...(!!event['group1_properties'] && typeof event['group1_properties'] === 'string'
-                                ? { group1_properties: JSON.parse(event.group1_properties) }
-                                : {}),
-                            ...(!!event['group2_properties'] && typeof event['group2_properties'] === 'string'
-                                ? { group2_properties: JSON.parse(event.group2_properties) }
-                                : {}),
-                            ...(!!event['group3_properties'] && typeof event['group3_properties'] === 'string'
-                                ? { group3_properties: JSON.parse(event.group3_properties) }
-                                : {}),
-                            ...(!!event['group4_properties'] && typeof event['group4_properties'] === 'string'
-                                ? { group4_properties: JSON.parse(event.group4_properties) }
-                                : {}),
-                            timestamp: clickHouseTimestampToISO(event.timestamp),
-                        } as ClickHouseEvent)
-                ) || []
-            )
-        } else {
-            const result = await this.postgresQuery(
-                'SELECT * FROM posthog_event ORDER BY timestamp ASC',
-                undefined,
-                'fetchAllEvents'
-            )
-            return result.rows as Event[]
-        }
+        const events = (await this.clickhouseQuery(`SELECT * FROM events ORDER BY timestamp ASC`))
+            .data as ClickHouseEvent[]
+        return (
+            events?.map(
+                (event) =>
+                    ({
+                        ...event,
+                        ...(typeof event['properties'] === 'string'
+                            ? { properties: JSON.parse(event.properties) }
+                            : {}),
+                        ...(!!event['person_properties'] && typeof event['person_properties'] === 'string'
+                            ? { person_properties: JSON.parse(event.person_properties) }
+                            : {}),
+                        ...(!!event['group0_properties'] && typeof event['group0_properties'] === 'string'
+                            ? { group0_properties: JSON.parse(event.group0_properties) }
+                            : {}),
+                        ...(!!event['group1_properties'] && typeof event['group1_properties'] === 'string'
+                            ? { group1_properties: JSON.parse(event.group1_properties) }
+                            : {}),
+                        ...(!!event['group2_properties'] && typeof event['group2_properties'] === 'string'
+                            ? { group2_properties: JSON.parse(event.group2_properties) }
+                            : {}),
+                        ...(!!event['group3_properties'] && typeof event['group3_properties'] === 'string'
+                            ? { group3_properties: JSON.parse(event.group3_properties) }
+                            : {}),
+                        ...(!!event['group4_properties'] && typeof event['group4_properties'] === 'string'
+                            ? { group4_properties: JSON.parse(event.group4_properties) }
+                            : {}),
+                        timestamp: clickHouseTimestampToISO(event.timestamp),
+                    } as ClickHouseEvent)
+            ) || []
+        )
     }
 
     public async fetchDeadLetterQueueEvents(): Promise<DeadLetterQueueEvent[]> {
@@ -1221,152 +1242,34 @@ export class DB {
     // SessionRecordingEvent
 
     public async fetchSessionRecordingEvents(): Promise<PostgresSessionRecordingEvent[] | SessionRecordingEvent[]> {
-        if (this.KAFKA_ENABLED) {
-            const events = (
-                (await this.clickhouseQuery(`SELECT * FROM session_recording_events`)).data as SessionRecordingEvent[]
-            ).map((event) => {
-                return {
-                    ...event,
-                    snapshot_data: event.snapshot_data ? JSON.parse(event.snapshot_data) : null,
-                }
-            })
-            return events
-        } else {
-            const result = await this.postgresQuery(
-                'SELECT * FROM posthog_sessionrecordingevent',
-                undefined,
-                'fetchAllSessionRecordingEvents'
-            )
-            return result.rows as PostgresSessionRecordingEvent[]
-        }
+        const events = (
+            (await this.clickhouseQuery(`SELECT * FROM session_recording_events`)).data as SessionRecordingEvent[]
+        ).map((event) => {
+            return {
+                ...event,
+                snapshot_data: event.snapshot_data ? JSON.parse(event.snapshot_data) : null,
+            }
+        })
+        return events
     }
 
     // Element
 
     public async fetchElements(event?: Event): Promise<Element[]> {
-        if (this.KAFKA_ENABLED) {
-            const events = (
-                await this.clickhouseQuery(
-                    `SELECT elements_chain FROM events WHERE uuid='${escapeClickHouseString((event as any).uuid)}'`
-                )
-            ).data as ClickHouseEvent[]
-            const chain = events?.[0]?.elements_chain
-            return chainToElements(chain)
-        } else {
-            return (await this.postgresQuery('SELECT * FROM posthog_element', undefined, 'fetchAllElements')).rows
-        }
+        const events = (
+            await this.clickhouseQuery(
+                `SELECT elements_chain FROM events WHERE uuid='${escapeClickHouseString((event as any).uuid)}'`
+            )
+        ).data as ClickHouseEvent[]
+        const chain = events?.[0]?.elements_chain
+        return chain ? chainToElements(chain) : []
     }
 
-    public async fetchPostgresElementsByHash(teamId: number, elementsHash: string): Promise<Record<string, any>[]> {
-        const cachedResult = await this.redisGet(elementsHash, null)
-
-        let result: Record<string, any>[]
-
-        if (cachedResult) {
-            result = JSON.parse(String(cachedResult))
-        } else {
-            result = (
-                await this.postgresQuery(
-                    `
-                SELECT text, tag_name, href, attr_id, nth_child, nth_of_type, attributes, attr_class
-                FROM posthog_element
-                LEFT JOIN posthog_elementgroup on posthog_element.group_id = posthog_elementgroup.id
-                WHERE
-                    posthog_elementgroup.team_id=$1 AND
-                    posthog_elementgroup.hash=$2
-                ORDER BY posthog_element.order
-                `,
-                    [teamId, elementsHash],
-                    'fetchPostgresElementsByHash'
-                )
-            ).rows
-
-            await this.redisSet(elementsHash, JSON.stringify(result), 60 * 2) // 2 hour TTL
-        }
-
-        return result
-    }
-
-    public async createElementGroup(elements: Element[], teamId: number): Promise<string> {
-        const cleanedElements = elements.map((element, index) => ({ ...element, order: index }))
-        const hash = hashElements(cleanedElements)
-
-        try {
-            await this.postgresTransaction(async (client) => {
-                const insertResult = await this.postgresQuery(
-                    'INSERT INTO posthog_elementgroup (hash, team_id) VALUES ($1, $2) ON CONFLICT DO NOTHING RETURNING *',
-                    [hash, teamId],
-                    'createElementGroup',
-                    client
-                )
-
-                if (insertResult.rows.length > 0) {
-                    const ELEMENTS_TABLE_COLUMN_COUNT = 11
-                    const elementGroup = insertResult.rows[0] as ElementGroup
-                    const values = []
-                    const rowStrings = []
-
-                    for (let rowIndex = 0; rowIndex < cleanedElements.length; ++rowIndex) {
-                        const {
-                            text,
-                            tag_name,
-                            href,
-                            attr_id,
-                            nth_child,
-                            nth_of_type,
-                            attributes,
-                            order,
-                            event_id,
-                            attr_class,
-                        } = cleanedElements[rowIndex]
-
-                        rowStrings.push(generatePostgresValuesString(ELEMENTS_TABLE_COLUMN_COUNT, rowIndex))
-
-                        values.push(
-                            text,
-                            tag_name,
-                            href,
-                            attr_id,
-                            nth_child,
-                            nth_of_type,
-                            attributes || {},
-                            order,
-                            event_id,
-                            attr_class,
-                            elementGroup.id
-                        )
-                    }
-
-                    await this.postgresQuery(
-                        `INSERT INTO posthog_element (text, tag_name, href, attr_id, nth_child, nth_of_type, attributes, "order", event_id, attr_class, group_id) VALUES ${rowStrings.join(
-                            ', '
-                        )}`,
-                        values,
-                        'insertElement',
-                        client
-                    )
-                }
-            })
-        } catch (error) {
-            // Throw further if not postgres error nr "23505" == "unique_violation"
-            // https://www.postgresql.org/docs/12/errcodes-appendix.html
-            if ((error as any).code !== '23505') {
-                throw error
-            }
-        }
-
-        return hash
-    }
-
-    // PluginLogEntry
+    // PluginLogEntry (NOTE: not a Django model anymore, stored in ClickHouse table `plugin_log_entries`)
 
     public async fetchPluginLogEntries(): Promise<PluginLogEntry[]> {
-        if (this.KAFKA_ENABLED) {
-            return (await this.clickhouseQuery(`SELECT * FROM plugin_log_entries`)).data as PluginLogEntry[]
-        } else {
-            return (await this.postgresQuery('SELECT * FROM posthog_pluginlogentry', undefined, 'fetchAllPluginLogs'))
-                .rows as PluginLogEntry[]
-        }
+        const queryResult = await this.clickhouseQuery(`SELECT * FROM plugin_log_entries`)
+        return queryResult.data as PluginLogEntry[]
     }
 
     public async queuePluginLogEntry(entry: LogEntryPayload): Promise<void> {
@@ -1396,45 +1299,8 @@ export class DB {
             plugin_id: pluginConfig.plugin_id.toString(),
         })
 
-        if (this.KAFKA_ENABLED) {
-            try {
-                await this.kafkaProducer.queueMessage({
-                    topic: KAFKA_PLUGIN_LOG_ENTRIES,
-                    messages: [{ key: parsedEntry.id, value: Buffer.from(JSON.stringify(parsedEntry)) }],
-                })
-            } catch (e) {
-                captureException(e)
-                console.error(parsedEntry)
-                console.error(e)
-            }
-        } else {
-            await this.postgresLogsWrapper.addLog(parsedEntry)
-        }
-    }
-
-    public async batchInsertPostgresLogs(entries: ParsedLogEntry[]): Promise<void> {
-        const LOG_ENTRY_COLUMN_COUNT = 9
-
-        const rowStrings: string[] = []
-        const values: any[] = []
-
-        for (let rowIndex = 0; rowIndex < entries.length; ++rowIndex) {
-            const { id, team_id, plugin_id, plugin_config_id, timestamp, source, type, message, instance_id } =
-                entries[rowIndex]
-
-            rowStrings.push(generatePostgresValuesString(LOG_ENTRY_COLUMN_COUNT, rowIndex))
-
-            values.push(id, team_id, plugin_id, plugin_config_id, timestamp, source, type, message, instance_id)
-        }
         try {
-            await this.postgresQuery(
-                `INSERT INTO posthog_pluginlogentry
-                (id, team_id, plugin_id, plugin_config_id, timestamp, source, type, message, instance_id)
-                VALUES
-                ${rowStrings.join(', ')}`,
-                values,
-                'insertPluginLogEntries'
-            )
+            await this.kafkaProducer.queueSingleJsonMessage(KAFKA_PLUGIN_LOG_ENTRIES, parsedEntry.id, parsedEntry)
         } catch (e) {
             captureException(e)
             console.error(e)
@@ -1861,25 +1727,23 @@ export class DB {
         createdAt: DateTime,
         version: number
     ): Promise<void> {
-        if (this.KAFKA_ENABLED) {
-            await this.kafkaProducer.queueMessage({
-                topic: KAFKA_GROUPS,
-                messages: [
-                    {
-                        value: Buffer.from(
-                            JSON.stringify({
-                                group_type_index: groupTypeIndex,
-                                group_key: groupKey,
-                                team_id: teamId,
-                                group_properties: JSON.stringify(properties),
-                                created_at: castTimestampOrNow(createdAt, TimestampFormat.ClickHouseSecondPrecision),
-                                version,
-                            })
-                        ),
-                    },
-                ],
-            })
-        }
+        await this.kafkaProducer.queueMessage({
+            topic: KAFKA_GROUPS,
+            messages: [
+                {
+                    value: Buffer.from(
+                        JSON.stringify({
+                            group_type_index: groupTypeIndex,
+                            group_key: groupKey,
+                            team_id: teamId,
+                            group_properties: JSON.stringify(properties),
+                            created_at: castTimestampOrNow(createdAt, TimestampFormat.ClickHouseSecondPrecision),
+                            version,
+                        })
+                    ),
+                },
+            ],
+        })
     }
 
     // Used in tests

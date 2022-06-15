@@ -1,5 +1,3 @@
-@import '~/vars';
-
 .funnel-bin-filter-dropdown {
     .funnel-bins-custom-picker {
         width: 43px; // enough to hold two characters
@@ -46,7 +44,7 @@
             .time-value-input {
                 flex-grow: 1;
                 max-width: 80px;
-                margin-right: $default_spacing / 2;
+                margin-right: 0.5rem;
             }
 
             .time-unit-input {

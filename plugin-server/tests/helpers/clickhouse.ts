@@ -3,7 +3,7 @@ import { performance } from 'perf_hooks'
 
 import { defaultConfig } from '../../src/config/config'
 import { PluginsServerConfig } from '../../src/types'
-import { determineNodeEnv, NodeEnv } from '../../src/utils/env-utils'
+import { isDevEnv } from '../../src/utils/env-utils'
 import { delay } from '../../src/utils/utils'
 
 export async function resetTestDatabaseClickhouse(extraServerConfig?: Partial<PluginsServerConfig>): Promise<void> {
@@ -30,26 +30,29 @@ export async function resetTestDatabaseClickhouse(extraServerConfig?: Partial<Pl
     ])
 }
 
-export async function delayUntilEventIngested(
-    fetchEvents: () => Promise<any[] | number>,
-    minCount = 1,
+export async function delayUntilEventIngested<T extends any[] | number>(
+    fetchData: () => Promise<T>,
+    minLength = 1,
     delayMs = 100,
     maxDelayCount = 100
-): Promise<void> {
+): Promise<T> {
     const timer = performance.now()
+    let data: T
+    let dataLength = 0
     for (let i = 0; i < maxDelayCount; i++) {
-        const events = await fetchEvents()
-        const eventCount = typeof events === 'number' ? events : events.length
-        if (determineNodeEnv() === NodeEnv.Development) {
+        data = await fetchData()
+        dataLength = typeof data === 'number' ? data : data.length
+        if (isDevEnv()) {
             console.log(
-                `Waiting. ${Math.round((performance.now() - timer) / 100) / 10}s since the start. ${eventCount} event${
-                    eventCount !== 1 ? 's' : ''
+                `Waiting. ${Math.round((performance.now() - timer) / 100) / 10}s since the start. ${dataLength} event${
+                    dataLength !== 1 ? 's' : ''
                 }.`
             )
         }
-        if (eventCount >= minCount) {
-            return
+        if (dataLength >= minLength) {
+            return data
         }
         await delay(delayMs)
     }
+    return data
 }

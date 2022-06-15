@@ -62,7 +62,15 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
         projectBased: true,
         name: 'Data Management',
     },
+    [Scene.EventDefinition]: {
+        projectBased: true,
+        name: 'Data Management',
+    },
     [Scene.EventPropertyDefinitions]: {
+        projectBased: true,
+        name: 'Data Management',
+    },
+    [Scene.EventPropertyDefinition]: {
         projectBased: true,
         name: 'Data Management',
     },
@@ -204,6 +212,9 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
         plain: true,
         allowUnauthenticated: true,
     },
+    [Scene.Unsubscribe]: {
+        allowUnauthenticated: true,
+    },
 }
 
 export const redirects: Record<string, string | ((params: Params) => string)> = {
@@ -227,17 +238,21 @@ export const redirects: Record<string, string | ((params: Params) => string)> = 
 export const routes: Record<string, Scene> = {
     [urls.dashboards()]: Scene.Dashboards,
     [urls.dashboard(':id')]: Scene.Dashboard,
+    [urls.dashboardSubcriptions(':id')]: Scene.Dashboard,
+    [urls.dashboardSubcription(':id', ':subscriptionId')]: Scene.Dashboard,
     [urls.createAction()]: Scene.Action,
     [urls.action(':id')]: Scene.Action,
     [urls.insightNew()]: Scene.Insight,
     [urls.insightEdit(':shortId' as InsightShortId)]: Scene.Insight,
     [urls.insightView(':shortId' as InsightShortId)]: Scene.Insight,
+    [urls.insightSubcriptions(':shortId' as InsightShortId)]: Scene.Insight,
+    [urls.insightSubcription(':shortId' as InsightShortId, ':subscriptionId')]: Scene.Insight,
     [urls.savedInsights()]: Scene.SavedInsights,
     [urls.actions()]: Scene.Actions,
     [urls.eventDefinitions()]: Scene.EventDefinitions,
-    [urls.eventDefinition(':id')]: Scene.EventDefinitions,
+    [urls.eventDefinition(':id')]: Scene.EventDefinition,
     [urls.eventPropertyDefinitions()]: Scene.EventPropertyDefinitions,
-    [urls.eventPropertyDefinition(':id')]: Scene.EventPropertyDefinitions,
+    [urls.eventPropertyDefinition(':id')]: Scene.EventPropertyDefinition,
     [urls.events()]: Scene.Events,
     [urls.webPerformance()]: Scene.WebPerformance,
     [urls.webPerformance() + '/*']: Scene.WebPerformance,
@@ -282,4 +297,5 @@ export const routes: Record<string, Scene> = {
     [urls.passwordResetComplete(':uuid', ':token')]: Scene.PasswordResetComplete,
     [urls.ingestion()]: Scene.Ingestion,
     [urls.ingestion() + '/*']: Scene.Ingestion,
+    [urls.unsubscribe()]: Scene.Unsubscribe,
 }

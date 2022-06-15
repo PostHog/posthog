@@ -30,6 +30,7 @@ from urllib.parse import urljoin, urlparse
 
 import lzstring
 import pytz
+from celery.schedules import crontab
 from dateutil import parser
 from dateutil.relativedelta import relativedelta
 from django.conf import settings
@@ -40,6 +41,7 @@ from django.template.loader import get_template
 from django.utils import timezone
 from rest_framework.request import Request
 from sentry_sdk import configure_scope
+from sentry_sdk.api import capture_exception
 
 from posthog.constants import AvailableFeature
 from posthog.exceptions import RequestParsingError
@@ -214,6 +216,16 @@ def get_git_commit() -> Optional[str]:
         return None
 
 
+def get_js_url(request: HttpRequest) -> str:
+    """
+    As the web app may be loaded from a non-localhost url (e.g. from the worker container calling the web container)
+    it is necessary to set the JS_URL host based on the calling origin
+    """
+    if settings.DEBUG and settings.JS_URL == "http://localhost:8234":
+        return f"http://{request.get_host().split(':')[0]}:8234"
+    return settings.JS_URL
+
+
 def render_template(template_name: str, request: HttpRequest, context: Dict = {}) -> HttpResponse:
     from loginas.utils import is_impersonated_session
 
@@ -244,7 +256,7 @@ def render_template(template_name: str, request: HttpRequest, context: Dict = {}
         context["js_posthog_host"] = "'https://app.posthog.com'"
 
     context["js_capture_internal_metrics"] = settings.CAPTURE_INTERNAL_METRICS
-    context["js_url"] = settings.JS_URL
+    context["js_url"] = get_js_url(request)
 
     posthog_app_context: Dict[str, Any] = {
         "persisted_feature_flags": settings.PERSISTED_FEATURE_FLAGS,
@@ -361,6 +373,11 @@ def get_ip_address(request: HttpRequest) -> str:
         ip = x_forwarded_for.split(",")[0]
     else:
         ip = request.META.get("REMOTE_ADDR")  # Real IP address of client Machine
+
+    # Strip port from ip address as Azure gateway handles x-forwarded-for incorrectly
+    if ip and len(ip.split(":")) == 2:
+        ip = ip.split(":")[0]
+
     return ip
 
 
@@ -840,6 +857,7 @@ def get_available_timezones_with_offsets() -> Dict[str, float]:
 def should_refresh(request: Request) -> bool:
     query_param = request.query_params.get("refresh")
     data_value = request.data.get("refresh")
+
     return (query_param is not None and (query_param == "" or query_param.lower() == "true")) or data_value is True
 
 
@@ -876,7 +894,7 @@ def format_query_params_absolute_url(
     OFFSET_REGEX = re.compile(fr"([&?]{offset_alias}=)(\d+)")
     LIMIT_REGEX = re.compile(fr"([&?]{limit_alias}=)(\d+)")
 
-    url_to_format = request.get_raw_uri()
+    url_to_format = request.build_absolute_uri()
 
     if not url_to_format:
         return None
@@ -925,3 +943,17 @@ def encode_value_as_param(value: Union[str, list, dict, datetime.datetime]) -> s
         return value.isoformat()
     else:
         return value
+
+
+def get_crontab(schedule: Optional[str]) -> Optional[crontab]:
+    if schedule is None or schedule == "":
+        return None
+
+    try:
+        minute, hour, day_of_month, month_of_year, day_of_week = schedule.strip().split(" ")
+        return crontab(
+            minute=minute, hour=hour, day_of_month=day_of_month, month_of_year=month_of_year, day_of_week=day_of_week,
+        )
+    except Exception as err:
+        capture_exception(err)
+        return None

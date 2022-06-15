@@ -14,6 +14,8 @@ from posthog.mixins import AnalyticsDestroyModelMixin
 from posthog.models import Insight, Organization, Team, User
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.organization import OrganizationMembership
+from posthog.models.signals import mute_selected_signals
+from posthog.models.team.util import delete_bulky_postgres_data
 from posthog.models.utils import generate_random_token_project
 from posthog.permissions import (
     CREATE_METHODS,
@@ -211,8 +213,10 @@ class TeamViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
 
     def perform_destroy(self, team: Team):
         team_id = team.pk
-        super().perform_destroy(team)
+        delete_bulky_postgres_data(team_ids=[team_id])
         delete_clickhouse_data.delay(team_ids=[team_id])
+        with mute_selected_signals():
+            super().perform_destroy(team)
 
     @action(methods=["PATCH"], detail=True)
     def reset_token(self, request: request.Request, id: str, **kwargs) -> response.Response:

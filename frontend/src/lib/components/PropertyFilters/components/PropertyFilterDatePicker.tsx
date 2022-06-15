@@ -1,13 +1,10 @@
-import generatePicker from 'antd/lib/date-picker/generatePicker'
 import { dayjs } from 'lib/dayjs'
-import dayjsGenerateConfig from 'rc-picker/lib/generate/dayjs'
 import React, { useEffect, useState } from 'react'
 import { isOperatorDate } from 'lib/utils'
 import { LemonSwitch } from 'lib/components/LemonSwitch/LemonSwitch'
 import { PropertyOperator } from '~/types'
 import { PropertyValueProps } from 'lib/components/PropertyFilters/components/PropertyValue'
-
-export const DatePicker = generatePicker<dayjs.Dayjs>(dayjsGenerateConfig)
+import { DatePicker } from 'lib/components/DatePicker'
 
 const dayJSMightParse = (
     candidateDateTimeValue: string | number | (string | number)[] | null | undefined

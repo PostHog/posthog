@@ -4,10 +4,9 @@ from unittest.mock import patch
 from django.core.cache import cache
 from rest_framework import status
 
-from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.constants import INSIGHT_FUNNELS
 from posthog.models.person import Person
-from posthog.test.base import APIBaseTest, _create_event, _create_person
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person
 
 
 class TestFunnelPerson(ClickhouseTestMixin, APIBaseTest):
@@ -139,7 +138,7 @@ class TestFunnelPerson(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(10, len(people))
         self.assertEqual(None, j["next"])
 
-    @patch("ee.clickhouse.models.person.delete_person")
+    @patch("posthog.models.person.util.delete_person")
     def test_basic_pagination_with_deleted(self, delete_person_patch):
         cache.clear()
         self._create_sample_data(110, delete=True)

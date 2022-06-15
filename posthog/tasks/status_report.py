@@ -75,7 +75,7 @@ def status_report(*, dry_run: bool = False) -> Dict[str, Any]:
                 get_events_count_for_team_by_client_lib,
                 get_events_count_for_team_by_event_type,
             )
-            from ee.clickhouse.models.person import (
+            from posthog.models.person.util import (
                 count_duplicate_distinct_ids_for_team,
                 count_total_persons_with_multiple_ids,
             )

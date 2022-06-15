@@ -1,7 +1,5 @@
 from typing import Any, Dict, List, Optional, Tuple, Union, cast
 
-from ee.clickhouse.models.cohort import format_filter_query
-from ee.clickhouse.models.entity import get_entity_filtering_params
 from ee.clickhouse.models.property import (
     get_property_string_expr,
     get_single_or_multi_property_string_expr,
@@ -9,11 +7,12 @@ from ee.clickhouse.models.property import (
 )
 from ee.clickhouse.queries.column_optimizer import EnterpriseColumnOptimizer
 from ee.clickhouse.queries.groups_join_query import GroupsJoinQuery
-from ee.clickhouse.sql.trends.top_elements import TOP_ELEMENTS_ARRAY_OF_KEY_SQL
 from posthog.client import sync_execute
 from posthog.constants import BREAKDOWN_TYPES, PropertyOperatorType
 from posthog.models.cohort import Cohort
+from posthog.models.cohort.util import format_filter_query
 from posthog.models.entity import Entity
+from posthog.models.entity.util import get_entity_filtering_params
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.utils import GroupTypeIndex
 from posthog.models.property import PropertyGroup
@@ -21,6 +20,7 @@ from posthog.models.team import Team
 from posthog.models.utils import PersonPropertiesMode
 from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
 from posthog.queries.person_query import PersonQuery
+from posthog.queries.trends.sql import TOP_ELEMENTS_ARRAY_OF_KEY_SQL
 from posthog.queries.util import parse_timestamps
 
 ALL_USERS_COHORT_ID = 0
@@ -34,6 +34,7 @@ def get_breakdown_prop_values(
     extra_params={},
     column_optimizer: Optional[EnterpriseColumnOptimizer] = None,
     person_properties_mode: PersonPropertiesMode = PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
+    use_all_funnel_entities: bool = False,
 ):
     """
     Returns the top N breakdown prop values for event/person breakdown
@@ -43,7 +44,12 @@ def get_breakdown_prop_values(
     column_optimizer = column_optimizer or EnterpriseColumnOptimizer(filter, team.id)
     parsed_date_from, parsed_date_to, date_params = parse_timestamps(filter=filter, team=team)
 
-    props_to_filter = filter.property_groups.combine_property_group(PropertyOperatorType.AND, entity.property_groups)
+    if not use_all_funnel_entities:
+        props_to_filter = filter.property_groups.combine_property_group(
+            PropertyOperatorType.AND, entity.property_groups
+        )
+    else:
+        props_to_filter = filter.property_groups
 
     person_join_clauses = ""
     person_join_params: Dict = {}
@@ -58,7 +64,9 @@ def get_breakdown_prop_values(
         outer_properties = column_optimizer.property_optimizer.parse_property_groups(props_to_filter).outer
         person_id_joined_alias = "pdi.person_id"
 
-        person_query = PersonQuery(filter, team.pk, column_optimizer=column_optimizer, entity=entity)
+        person_query = PersonQuery(
+            filter, team.pk, column_optimizer=column_optimizer, entity=entity if not use_all_funnel_entities else None
+        )
         if person_query.is_used:
             person_subquery, person_join_params = person_query.get_query()
             person_join_clauses = f"""
@@ -82,13 +90,21 @@ def get_breakdown_prop_values(
         person_id_joined_alias=person_id_joined_alias,
     )
 
-    entity_params, entity_format_params = get_entity_filtering_params(
-        entity=entity,
-        team_id=team.pk,
-        table_name="e",
-        person_id_joined_alias=person_id_joined_alias,
-        person_properties_mode=person_properties_mode,
-    )
+    if use_all_funnel_entities:
+        from posthog.queries.funnels.funnel_event_query import FunnelEventQuery
+
+        entity_filter, entity_params = FunnelEventQuery(
+            filter, team, using_person_on_events=team.actor_on_events_querying_enabled,
+        )._get_entity_query()
+        entity_format_params = {"entity_query": entity_filter}
+    else:
+        entity_params, entity_format_params = get_entity_filtering_params(
+            entity=entity,
+            team_id=team.pk,
+            table_name="e",
+            person_id_joined_alias=person_id_joined_alias,
+            person_properties_mode=person_properties_mode,
+        )
 
     value_expression = _to_value_expression(
         filter.breakdown_type,

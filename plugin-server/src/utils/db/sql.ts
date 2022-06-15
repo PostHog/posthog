@@ -97,7 +97,7 @@ export async function setError(hub: Hub, pluginError: PluginError | null, plugin
             pluginConfig,
             source: PluginLogEntrySource.Plugin,
             type: PluginLogEntryType.Error,
-            message: pluginError.message,
+            message: pluginError.stack ?? pluginError.message,
             instanceId: hub.instanceId,
             timestamp: pluginError.time,
         })
@@ -110,4 +110,5 @@ export async function disablePlugin(hub: Hub, pluginConfigId: PluginConfigId): P
         [pluginConfigId],
         'disablePlugin'
     )
+    await hub.db.redisPublish(hub.PLUGINS_RELOAD_PUBSUB_CHANNEL, 'reload!')
 }

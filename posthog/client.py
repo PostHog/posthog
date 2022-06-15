@@ -5,7 +5,16 @@ import time
 import types
 from dataclasses import dataclass
 from time import perf_counter
-from typing import Any, Dict, List, Optional, Tuple, Union, cast
+from typing import (
+    Any,
+    Dict,
+    List,
+    Optional,
+    Sequence,
+    Tuple,
+    Union,
+    cast,
+)
 
 import sqlparse
 from aioch import Client
@@ -63,6 +72,13 @@ def default_client():
     """
     return SyncClient(
         host=CLICKHOUSE_HOST,
+        # We set "system" here as we don't necessarily have a "default" database,
+        # which is what the clickhouse_driver would use by default. We are
+        # assuming that this exists and we have permissions to access it. This
+        # feels like a reasonably safe assumption as e.g. we already reference
+        # `system.numbers` in multiple places within queries. We also assume
+        # access to various other tables e.g. to handle async migrations.
+        database="system",
         secure=CLICKHOUSE_SECURE,
         user=CLICKHOUSE_USER,
         password=CLICKHOUSE_PASSWORD,
@@ -183,7 +199,16 @@ def sync_execute(query, args=None, settings=None, with_column_types=False, flush
     return result
 
 
-def query_with_columns(query, args=None, columns_to_remove=[]) -> List[Dict]:
+def query_with_columns(
+    query: str,
+    args: Optional[QueryArgs] = None,
+    columns_to_remove: Optional[Sequence[str]] = None,
+    columns_to_rename: Optional[Dict[str, str]] = None,
+) -> List[Dict]:
+    if columns_to_remove is None:
+        columns_to_remove = []
+    if columns_to_rename is None:
+        columns_to_rename = {}
     metrics, types = sync_execute(query, args, with_column_types=True)
     type_names = [key for key, _type in types]
 
@@ -194,7 +219,7 @@ def query_with_columns(query, args=None, columns_to_remove=[]) -> List[Dict]:
             if isinstance(value, list):
                 value = ", ".join(map(str, value))
             if type_name not in columns_to_remove:
-                result[type_name] = value
+                result[columns_to_rename.get(type_name, type_name)] = value
 
         rows.append(result)
 

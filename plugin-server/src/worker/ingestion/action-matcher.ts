@@ -21,7 +21,7 @@ import {
     PropertyOperator,
 } from '../../types'
 import { CachedPersonData, DB } from '../../utils/db/db'
-import { extractElements } from '../../utils/db/utils'
+import { extractElements } from '../../utils/db/elements-chain'
 import { stringToBoolean } from '../../utils/env-utils'
 import { stringify } from '../../utils/utils'
 import { ActionManager } from './action-manager'
@@ -124,9 +124,7 @@ export class ActionMatcher {
                 const timer = new Date()
                 const res = this.checkAction(event, elements, person, action)
                 this.statsd?.timing('checkAction', timer, {
-                    event: String(event.event),
                     teamId: String(event.teamId),
-                    action: String(action.name),
                 })
                 return res
             })
