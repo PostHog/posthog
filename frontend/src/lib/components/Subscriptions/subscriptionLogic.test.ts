@@ -2,7 +2,7 @@ import { expectLogic } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
 import { useMocks } from '~/mocks/jest'
 import { InsightShortId, SubscriptionType } from '~/types'
-import { insightSubscriptionLogic } from './insightSubscriptionLogic'
+import { subscriptionLogic } from './subscriptionLogic'
 
 const Insight1 = '1' as InsightShortId
 
@@ -20,9 +20,9 @@ export const fixtureSubscriptionResponse = (id: number, args: Partial<Subscripti
         ...args,
     } as SubscriptionType)
 
-describe('insightSubscriptionLogic', () => {
-    let newLogic: ReturnType<typeof insightSubscriptionLogic.build>
-    let existingLogic: ReturnType<typeof insightSubscriptionLogic.build>
+describe('subscriptionLogic', () => {
+    let newLogic: ReturnType<typeof subscriptionLogic.build>
+    let existingLogic: ReturnType<typeof subscriptionLogic.build>
     let subscriptions: SubscriptionType[] = []
     beforeEach(async () => {
         subscriptions = [fixtureSubscriptionResponse(1), fixtureSubscriptionResponse(2)]
@@ -32,11 +32,11 @@ describe('insightSubscriptionLogic', () => {
             },
         })
         initKeaTests()
-        newLogic = insightSubscriptionLogic({
+        newLogic = subscriptionLogic({
             insightShortId: Insight1,
             id: 'new',
         })
-        existingLogic = insightSubscriptionLogic({
+        existingLogic = subscriptionLogic({
             insightShortId: Insight1,
             id: subscriptions[0].id,
         })

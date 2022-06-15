@@ -1,9 +1,8 @@
 import { expectLogic } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
 import { useMocks } from '~/mocks/jest'
-import { insightSubscriptionsLogic } from './insightSubscriptionsLogic'
+import { subscriptionsLogic } from './subscriptionsLogic'
 import { InsightModel, InsightShortId, InsightType, PropertyOperator, SubscriptionType } from '~/types'
-import { insightLogic } from 'scenes/insights/insightLogic'
 
 const Insight1 = '1' as InsightShortId
 const Insight2 = '2' as InsightShortId
@@ -38,8 +37,8 @@ function fixtureInsightResponse(id: number, data?: Partial<InsightModel>): Parti
     }
 }
 
-describe('insightSubscriptionsLogic', () => {
-    let logic: ReturnType<typeof insightSubscriptionsLogic.build>
+describe('subscriptionsLogic', () => {
+    let logic: ReturnType<typeof subscriptionsLogic.build>
     let subscriptions: SubscriptionType[] = []
     beforeEach(async () => {
         subscriptions = [fixtureSubscriptionResponse(1), fixtureSubscriptionResponse(2)]
@@ -54,7 +53,7 @@ describe('insightSubscriptionsLogic', () => {
                 },
 
                 '/api/projects/:team/subscriptions': (req) => {
-                    const insightId = req.url.searchParams.get('insight_id')
+                    const insightId = req.url.searchParams.get('insight')
                     let results: SubscriptionType[] = []
 
                     if (insightId === Insight2) {
@@ -72,29 +71,24 @@ describe('insightSubscriptionsLogic', () => {
             },
         })
         initKeaTests()
-        logic = insightSubscriptionsLogic({
+        logic = subscriptionsLogic({
             insightShortId: Insight1,
         })
         logic.mount()
     })
 
-    it('mounts other logics', async () => {
-        await expectLogic(logic).toMount([insightLogic({ dashboardItemId: Insight1 })])
-    })
-
     it('loads subscriptions', async () => {
-        await expectLogic(logic).delay(1).toMatchValues({
+        await expectLogic(logic).toFinishListeners().toMatchValues({
             subscriptions: [],
             subscriptionsLoading: false,
         })
 
-        logic = insightSubscriptionsLogic({
+        logic = subscriptionsLogic({
             insightShortId: Insight2,
         })
         logic.mount()
 
-        await expectLogic(logic).toFinishListeners()
-        await expectLogic(logic).delay(100).toMatchValues({
+        await expectLogic(logic).toFinishListeners().toMatchValues({
             subscriptions: subscriptions,
             subscriptionsLoading: false,
         })

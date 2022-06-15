@@ -1,18 +1,19 @@
 import { afterMount, connect, kea, key, listeners, path, props } from 'kea'
-import { InsightShortId, SubscriptionType } from '~/types'
+import { SubscriptionType } from '~/types'
 
 import api from 'lib/api'
 import { loaders } from 'kea-loaders'
 import { forms } from 'kea-forms'
 
-import type { insightSubscriptionLogicType } from './insightSubscriptionLogicType'
 import { isEmail } from 'lib/utils'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from '../lemonToast'
-import { insightLogic } from 'scenes/insights/insightLogic'
 import { beforeUnload, router } from 'kea-router'
-import { urls } from 'scenes/urls'
-import { insightSubscriptionsLogic } from './insightSubscriptionsLogic'
+import { subscriptionsLogic } from './subscriptionsLogic'
+
+import type { subscriptionLogicType } from './subscriptionLogicType'
+import { getInsightId } from 'scenes/insights/utils'
+import { SubscriptionBaseProps, urlForSubscription } from './utils'
 
 const NEW_SUBSCRIPTION: Partial<SubscriptionType> = {
     frequency: 'weekly',
@@ -23,17 +24,15 @@ const NEW_SUBSCRIPTION: Partial<SubscriptionType> = {
     bysetpos: 1,
 }
 
-export interface InsightSubscriptionLogicProps {
+export interface SubscriptionsLogicProps extends SubscriptionBaseProps {
     id: number | 'new'
-    insightShortId: InsightShortId
 }
-export const insightSubscriptionLogic = kea<insightSubscriptionLogicType>([
-    path(['lib', 'components', 'InsightSubscription', 'insightSubscriptionLogic']),
-    props({} as InsightSubscriptionLogicProps),
-    key(({ id, insightShortId }) => `${insightShortId}-${id ?? 'new'}`),
-    connect(({ insightShortId }: InsightSubscriptionLogicProps) => ({
-        values: [insightLogic({ dashboardItemId: insightShortId }), ['insight']],
-        actions: [insightSubscriptionsLogic({ insightShortId }), ['loadSubscriptions']],
+export const subscriptionLogic = kea<subscriptionLogicType>([
+    path(['lib', 'components', 'Subscriptions', 'subscriptionLogic']),
+    props({} as SubscriptionsLogicProps),
+    key(({ id, insightShortId, dashboardId }) => `${insightShortId || dashboardId}-${id ?? 'new'}`),
+    connect(({ insightShortId, dashboardId }: SubscriptionsLogicProps) => ({
+        actions: [subscriptionsLogic({ insightShortId, dashboardId }), ['loadSubscriptions']],
     })),
 
     loaders(({ props }) => ({
@@ -48,13 +47,14 @@ export const insightSubscriptionLogic = kea<insightSubscriptionLogicType>([
         },
     })),
 
-    forms(({ props, values, actions }) => ({
+    forms(({ props, actions }) => ({
         subscription: {
             defaults: { ...NEW_SUBSCRIPTION } as SubscriptionType,
-            errors: ({ frequency, interval, target_value, target_type, title }) => ({
+            errors: ({ frequency, interval, target_value, target_type, title, start_date }) => ({
                 frequency: !frequency ? 'You need to set a schedule frequency' : undefined,
-                title: !title ? 'You need to give your subscripiton a name' : undefined,
-                interval: !interval ? 'You need to set a schedule time' : undefined,
+                title: !title ? 'You need to give your subscription a name' : undefined,
+                interval: !interval ? 'You need to set an interval' : undefined,
+                start_date: !start_date ? 'You need to set a delivery time' : undefined,
                 target_value:
                     target_type == 'email'
                         ? !target_value
@@ -65,9 +65,12 @@ export const insightSubscriptionLogic = kea<insightSubscriptionLogicType>([
                         : undefined,
             }),
             submit: async (subscription, breakpoint) => {
+                const insightId = props.insightShortId ? await getInsightId(props.insightShortId) : undefined
+
                 const payload = {
                     ...subscription,
-                    insight: values.insight.id,
+                    insight: insightId,
+                    dashboard: props.dashboardId,
                 }
 
                 let subscriptionId = props.id
@@ -84,7 +87,7 @@ export const insightSubscriptionLogic = kea<insightSubscriptionLogicType>([
                 actions.resetSubscription()
 
                 if (subscriptionId !== props.id) {
-                    router.actions.replace(urls.insightSubcription(props.insightShortId, subscriptionId.toString()))
+                    router.actions.replace(urlForSubscription(subscriptionId, props))
                 }
 
                 actions.loadSubscriptions()

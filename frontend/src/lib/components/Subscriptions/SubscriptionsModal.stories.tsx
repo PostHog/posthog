@@ -1,17 +1,17 @@
 import React, { useEffect, useState } from 'react'
 import { ComponentStory, ComponentMeta } from '@storybook/react'
-import { InsightSubscriptionsModal } from './InsightSubscriptionsModal'
+import { SubscriptionsModal } from './SubscriptionsModal'
 import { LemonButton } from '../LemonButton'
 import { InsightShortId, Realm, SubscriptionType } from '~/types'
 import preflightJson from '~/mocks/fixtures/_preflight.json'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { insightSubscriptionLogic } from './insightSubscriptionLogic'
-import { insightSubscriptionsLogic } from './insightSubscriptionsLogic'
+import { subscriptionLogic } from './subscriptionLogic'
+import { subscriptionsLogic } from './subscriptionsLogic'
 
 export default {
     title: 'Components/Subscription Modal',
-    component: InsightSubscriptionsModal,
-} as ComponentMeta<typeof InsightSubscriptionsModal>
+    component: SubscriptionsModal,
+} as ComponentMeta<typeof SubscriptionsModal>
 
 const createSubscription = (args: Partial<SubscriptionType> = {}): SubscriptionType =>
     ({
@@ -33,7 +33,7 @@ const Template: ComponentStory<any> = (args) => {
     const { preflightIssues = false, ...props } = args
 
     useEffect(() => {
-        const subsLogic = insightSubscriptionsLogic({
+        const subsLogic = subscriptionsLogic({
             insightShortId: props.insightShortId || ('123' as InsightShortId),
         })
         subsLogic.unmount()
@@ -57,7 +57,7 @@ const Template: ComponentStory<any> = (args) => {
             }
 
             if (typeof args.subscriptionId === 'number') {
-                const subLogic = insightSubscriptionLogic({
+                const subLogic = subscriptionLogic({
                     insightShortId: '123' as InsightShortId,
                     id: args.subscriptionId,
                 })
@@ -83,7 +83,7 @@ const Template: ComponentStory<any> = (args) => {
             <LemonButton type="primary" onClick={() => _setIsOpen(true)}>
                 Show Subscriptions
             </LemonButton>
-            <InsightSubscriptionsModal
+            <SubscriptionsModal
                 {...props}
                 insightShortId={'123' as InsightShortId}
                 visible={isOpen}
@@ -93,26 +93,26 @@ const Template: ComponentStory<any> = (args) => {
     )
 }
 
-export const InsightSubscriptionsModal_ = Template.bind({})
-InsightSubscriptionsModal_.args = {}
+export const SubscriptionsModal_ = Template.bind({})
+SubscriptionsModal_.args = {}
 
-export const InsightSubscriptionsModalEmpty = Template.bind({})
-InsightSubscriptionsModalEmpty.args = {
+export const SubscriptionsModalEmpty = Template.bind({})
+SubscriptionsModalEmpty.args = {
     insightShortId: 'empty' as InsightShortId,
 }
 
-export const InsightSubscriptionsModalNew_ = Template.bind({})
-InsightSubscriptionsModalNew_.args = {
+export const SubscriptionsModalNew_ = Template.bind({})
+SubscriptionsModalNew_.args = {
     subscriptionId: 'new',
 }
 
-export const InsightSubscriptionsModalNewEmailDisabled = Template.bind({})
-InsightSubscriptionsModalNewEmailDisabled.args = {
+export const SubscriptionsModalNewEmailDisabled = Template.bind({})
+SubscriptionsModalNewEmailDisabled.args = {
     subscriptionId: 'new',
     preflightIssues: true,
 }
 
-export const InsightSubscriptionsModalEdit = Template.bind({})
-InsightSubscriptionsModalEdit.args = {
+export const SubscriptionsModalEdit = Template.bind({})
+SubscriptionsModalEdit.args = {
     subscriptionId: 1,
 }
