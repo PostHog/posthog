@@ -1,5 +1,6 @@
 import React from 'react'
 import {
+    ActionType,
     AnyCohortCriteriaType,
     AnyCohortGroupType,
     BehavioralCohortType,
@@ -18,6 +19,7 @@ import {
     BehavioralFilterType,
     CohortClientErrors,
     FieldWithFieldKey,
+    FilterType,
 } from 'scenes/cohorts/CohortFilters/types'
 import { areObjectValuesEmpty, calculateDays, isNumeric } from 'lib/utils'
 import { DeepPartialMap, ValidationErrorType } from 'kea-forms'
@@ -445,16 +447,31 @@ export function cleanCriteria(criteria: AnyCohortCriteriaType, shouldPurge: bool
     }
 }
 
-export function criteriaToHumanSentence(criteria: AnyCohortCriteriaType): React.ReactNode {
-    const words: React.ReactNode[] = [BEHAVIORAL_TYPE_TO_LABEL[criteriaToBehavioralFilterType(criteria)].label]
+export function criteriaToHumanSentence(
+    criteria: AnyCohortCriteriaType,
+    cohortsById: Partial<Record<string | number, CohortType>>,
+    actionsById: Partial<Record<string | number, ActionType>>
+): React.ReactNode {
+    const words: React.ReactNode[] = []
+    const data = ROWS[criteriaToBehavioralFilterType(criteria)]
 
-    const { fields } = ROWS[criteriaToBehavioralFilterType(criteria)]
-    fields.forEach(({ fieldKey, defaultValue, hide }) => {
+    if (!data) {
+        return <></>
+    }
+
+    data.fields.forEach(({ type, fieldKey, defaultValue, hide }) => {
         if (!hide) {
-            if (!!fieldKey) {
-                words.push(<pre>{criteria[fieldKey]}</pre>)
-            } else {
+            if (type === FilterType.Text) {
                 words.push(defaultValue)
+            } else if (fieldKey) {
+                const value = criteria[fieldKey]
+                if (type === FilterType.CohortValues) {
+                    words.push(<pre>{cohortsById?.[value]?.name ?? `Cohort ${value}`}</pre>)
+                } else if (type === FilterType.EventsAndActions && typeof value === 'number') {
+                    words.push(<pre>{actionsById?.[value]?.name ?? `Action ${value}`}</pre>)
+                } else {
+                    words.push(<pre>{value}</pre>)
+                }
             }
         }
     })

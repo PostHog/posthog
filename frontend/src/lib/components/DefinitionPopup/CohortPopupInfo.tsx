@@ -8,22 +8,28 @@ import {
     propertyValueToHumanName,
 } from 'lib/components/DefinitionPopup/utils'
 import { COHORT_MATCHING_DAYS } from 'scenes/cohorts/MatchCriteriaSelector'
-import { useValues } from 'kea'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { criteriaToHumanSentence, isCohortCriteriaGroup } from 'scenes/cohorts/cohortUtils'
+import {
+    criteriaToBehavioralFilterType,
+    criteriaToHumanSentence,
+    isCohortCriteriaGroup,
+} from 'scenes/cohorts/cohortUtils'
 import { pluralize } from 'lib/utils'
+import { BEHAVIORAL_TYPE_TO_LABEL } from 'scenes/cohorts/CohortFilters/constants'
+import { useValues } from 'kea'
+import { cohortsModel } from '~/models/cohortsModel'
+import { actionsModel } from '~/models/actionsModel'
 
 const MAX_CRITERIA_GROUPS = 2
 const MAX_CRITERIA = 2
 
 export function CohortPopupInfo({ cohort }: { cohort: CohortType }): JSX.Element | null {
-    const { featureFlags } = useValues(featureFlagLogic)
+    const { cohortsById } = useValues(cohortsModel)
+    const { actionsById } = useValues(actionsModel)
 
     if (!cohort) {
         return null
     }
-    return !!featureFlags[FEATURE_FLAGS.COHORT_FILTERS] && cohort.filters?.properties ? (
+    return cohort.filters?.properties ? (
         <>
             {(cohort.filters.properties?.values?.length || 0 > 0) && <DefinitionPopup.HorizontalLine />}
             {cohort.filters.properties.values.slice(0, MAX_CRITERIA_GROUPS).map(
@@ -37,11 +43,26 @@ export function CohortPopupInfo({ cohort }: { cohort: CohortType }): JSX.Element
                                 value={
                                     <ul>
                                         {cohortGroup.values.slice(0, MAX_CRITERIA).map((criteria, criteriaIndex) => (
-                                            <li key={criteriaIndex}>
-                                                <span>
-                                                    {criteriaToHumanSentence(criteria as AnyCohortCriteriaType)}
-                                                </span>
-                                            </li>
+                                            <>
+                                                <li>
+                                                    {BEHAVIORAL_TYPE_TO_LABEL[
+                                                        criteriaToBehavioralFilterType(
+                                                            criteria as AnyCohortCriteriaType
+                                                        )
+                                                    ]?.label ?? 'Unknown criteria'}
+                                                </li>
+                                                <ul>
+                                                    <li key={criteriaIndex}>
+                                                        <span>
+                                                            {criteriaToHumanSentence(
+                                                                criteria as AnyCohortCriteriaType,
+                                                                cohortsById,
+                                                                actionsById
+                                                            )}
+                                                        </span>
+                                                    </li>
+                                                </ul>
+                                            </>
                                         ))}
                                         {cohortGroup.values.length > MAX_CRITERIA && (
                                             <li>
