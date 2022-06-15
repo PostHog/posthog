@@ -1,6 +1,6 @@
 import { Button, Col, Row, Space } from 'antd'
 import React from 'react'
-import { LockOutlined } from '@ant-design/icons'
+import { LockOutlined, CloseOutlined } from '@ant-design/icons'
 import './TableConfig.scss'
 import { useActions, useValues } from 'kea'
 import { tableConfigLogic } from './tableConfigLogic'
@@ -22,6 +22,7 @@ import {
     SortableElement as sortableElement,
 } from 'react-sortable-hoc'
 import { SortableDragIcon } from 'lib/components/icons'
+import { userLogic } from 'scenes/userLogic'
 
 const DragHandle = sortableHandle(() => (
     <span className="drag-handle">
@@ -69,30 +70,25 @@ function ColumnConfigurator({ immutableColumns, defaultColumns }: TableConfigPro
     const { selectColumn, unselectColumn, resetColumns, setColumns, toggleSaveAsDefault, save } =
         useActions(configuratorLogic)
     const { selectedColumns } = useValues(configuratorLogic)
+    const { user } = useValues(userLogic)
 
-    const SelectedColumn = ({ column }: { column: string }): JSX.Element => {
-        const disabled = immutableColumns?.includes(column)
-
+    const SelectedColumn = ({ column, disabled }: { column: string; disabled?: boolean }): JSX.Element => {
         return (
             <div
                 className={clsx(['column-display-item', { selected: !disabled, disabled: disabled }])}
                 style={{ height: `${rowItemHeight}px` }}
             >
-                <DragHandle />
-                <LemonCheckbox
-                    className="item-label"
-                    label={<PropertyKeyInfo value={column} />}
-                    onChange={() => !disabled && unselectColumn(column)}
-                    defaultChecked={true}
-                    disabled={disabled}
-                />
-                {disabled && (
-                    <div className="text-right" style={{ flex: 1 }}>
-                        <Tooltip title={disabled ? 'Reserved' : 'Remove'}>
+                {!disabled && <DragHandle />}
+                <PropertyKeyInfo value={column} />
+                <div className="text-right" style={{ flex: 1 }}>
+                    <Tooltip title={disabled ? 'Reserved' : 'Remove'}>
+                        {disabled ? (
                             <LockOutlined />
-                        </Tooltip>
-                    </div>
-                )}
+                        ) : (
+                            <CloseOutlined style={{ color: 'var(--danger)' }} onClick={() => unselectColumn(column)} />
+                        )}
+                    </Tooltip>
+                </div>
             </div>
         )
     }
@@ -100,9 +96,11 @@ function ColumnConfigurator({ immutableColumns, defaultColumns }: TableConfigPro
     const SortableSelectedColumn = sortableElement(SelectedColumn)
 
     const SortableSelectedColumnRenderer = ({ index, style, key }: ListRowProps): JSX.Element => {
+        const disabled = immutableColumns?.includes(selectedColumns[index])
         return (
             <div style={style} key={key}>
-                <SortableSelectedColumn column={selectedColumns[index]} index={index} />
+                {disabled && <SelectedColumn column={selectedColumns[index]} disabled={Boolean(disabled)} />}
+                {!disabled && <SortableSelectedColumn column={selectedColumns[index]} index={index} />}
             </div>
         )
     }
@@ -177,6 +175,7 @@ function ColumnConfigurator({ immutableColumns, defaultColumns }: TableConfigPro
                             onSortEnd={handleSort}
                             distance={5}
                             useDragHandle
+                            lockAxis="y"
                         />
                     </Col>
                     <Col xs={24} sm={12}>
@@ -201,11 +200,22 @@ function ColumnConfigurator({ immutableColumns, defaultColumns }: TableConfigPro
                     </Col>
                 </Row>
                 <LemonCheckbox
-                    label={'Save as default for all project members'}
+                    label={
+                        <Tooltip
+                            title={
+                                !user?.is_staff
+                                    ? `You don't have permission to set default columns for all project members`
+                                    : undefined
+                            }
+                        >
+                            Save as default for all project members
+                        </Tooltip>
+                    }
                     className="save-as-default-button mt"
                     data-attr="events-table-save-columns-as-default-toggle"
                     onChange={toggleSaveAsDefault}
                     defaultChecked={false}
+                    disabled={!user?.is_staff}
                 />
             </div>
         </Modal>

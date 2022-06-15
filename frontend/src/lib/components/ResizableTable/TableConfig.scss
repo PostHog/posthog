@@ -31,10 +31,6 @@
             overflow: hidden;
             text-overflow: ellipsis;
         }
-
-        .item-label {
-            padding: 0;
-        }
     }
 
     .main-content {
@@ -69,19 +65,19 @@
         border: 1px solid var(--dark-grey);
         border-radius: 0.25rem;
     }
+}
 
-    .column-configurator-modal-sortable-container {
-        z-index: 9999;
-        display: flex;
-        align-items: center;
-        justify-content: flex-start;
-        padding: 0.5rem;
+.column-configurator-modal-sortable-container {
+    z-index: 9999;
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    padding: 0.5rem;
 
-        .drag-handle {
-            color: var(--text-default);
-            font-size: 1.2em;
-            padding-right: 0.25rem;
-            transform: rotate(90deg) translateX(2px);
-        }
+    .drag-handle {
+        color: var(--text-default);
+        font-size: 1.2em;
+        padding-right: 0.25rem;
+        transform: rotate(90deg) translateX(2px);
     }
 }
