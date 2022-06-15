@@ -16,7 +16,7 @@ import { ANTD_TOOLTIP_PLACEMENTS } from 'lib/utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { toLocalFilters } from 'scenes/insights/ActionFilter/entityFilterLogic'
 import { Tooltip } from '../Tooltip'
-import { WarningTag } from '../WarningTag/WarningTag'
+import { LemonTag } from '../LemonTag/LemonTag'
 
 interface ChartFilterProps {
     filters: FilterType
@@ -78,7 +78,9 @@ export function ChartFilter({ filters, onChange, disabled }: ChartFilterProps): 
                       label: (
                           <Label icon={<LineChartOutlined />}>
                               Trends
-                              <WarningTag>BETA</WarningTag>
+                              <LemonTag type="warning" style={{ marginLeft: 6, lineHeight: '1.4em' }}>
+                                  BETA
+                              </LemonTag>
                           </Label>
                       ),
                   },

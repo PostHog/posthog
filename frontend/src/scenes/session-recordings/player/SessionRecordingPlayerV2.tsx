@@ -13,7 +13,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { sessionRecordingLogic } from '../sessionRecordingLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { Tooltip } from 'lib/components/Tooltip'
-import { WarningTag } from 'lib/components/WarningTag/WarningTag'
+import { LemonTag } from 'packages/apps-common'
 
 export function SessionRecordingPlayerV2(): JSX.Element {
     const { togglePlayPause, seekForward, seekBackward, setSpeed, setRootFrame } =
@@ -100,7 +100,9 @@ function PlayerSidebar(): JSX.Element {
                                 <Tooltip title="While console logs are in BETA, only 150 logs are displayed.">
                                     <div>
                                         Console
-                                        <WarningTag>BETA</WarningTag>
+                                        <LemonTag type="warning" style={{ marginLeft: 6, lineHeight: '1.4em' }}>
+                                            BETA
+                                        </LemonTag>
                                     </div>
                                 </Tooltip>
                             }
