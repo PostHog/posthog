@@ -16,6 +16,7 @@ from webdriver_manager.utils import ChromeType
 from posthog.celery import app
 from posthog.internal_metrics import incr, timing
 from posthog.models.exported_asset import ExportedAsset
+from posthog.utils import absolute_uri
 
 logger = structlog.get_logger(__name__)
 
@@ -72,12 +73,12 @@ def _export_to_png(exported_asset: ExportedAsset) -> None:
             os.makedirs(TMP_DIR)
 
         if exported_asset.insight is not None:
-            url_to_render = f"{settings.SITE_URL}/exporter/{exported_asset.access_token}"
+            url_to_render = absolute_uri(f"/exporter/{exported_asset.access_token}")
             wait_for_css_selector = ".ExportedInsight"
             screenshot_width = 800
 
         elif exported_asset.dashboard is not None:
-            url_to_render = f"{settings.SITE_URL}/exporter/{exported_asset.access_token}"
+            url_to_render = absolute_uri(f"/exporter/{exported_asset.access_token}")
             wait_for_css_selector = ".InsightCard"
             screenshot_width = 1920
         else:

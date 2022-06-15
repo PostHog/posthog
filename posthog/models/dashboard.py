@@ -1,11 +1,11 @@
 from typing import Any, Dict, cast
 
-from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
 from django_deprecate_fields import deprecate_field
 
 from posthog.constants import AvailableFeature
+from posthog.utils import absolute_uri
 
 
 class Dashboard(models.Model):
@@ -53,7 +53,7 @@ class Dashboard(models.Model):
 
     @property
     def url(self):
-        return f"{settings.SITE_URL}/dashboard/{self.id}"
+        return absolute_uri(f"/dashboard/{self.id}")
 
     @property
     def effective_restriction_level(self) -> RestrictionLevel:

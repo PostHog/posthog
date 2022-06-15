@@ -6,7 +6,6 @@ from typing import List, Optional
 import structlog
 from celery import group
 
-from posthog import settings
 from posthog.celery import app
 from posthog.email import EmailMessage
 from posthog.models.dashboard import Dashboard
@@ -14,14 +13,16 @@ from posthog.models.dashboard_tile import DashboardTile
 from posthog.models.exported_asset import ExportedAsset
 from posthog.models.subscription import Subscription, get_unsubscribe_token
 from posthog.tasks.exporter import export_task
+from posthog.utils import absolute_uri
 
 logger = structlog.get_logger(__name__)
 
 MAX_ASSET_COUNT = 6
+UTM_TAGS = "utm_source=posthog&utm_medium=email&utm_campaign=subscription_report"
 
 
 def get_unsubscribe_url(subscription: Subscription, email: str) -> str:
-    return f"{settings.SITE_URL}/unsubscribe?token={get_unsubscribe_token(subscription, email)}"
+    return absolute_uri(f"/unsubscribe?token={get_unsubscribe_token(subscription, email)}&{UTM_TAGS}")
 
 
 def get_tiles_ordered_by_position(dashboard: Dashboard) -> List[DashboardTile]:
@@ -74,8 +75,8 @@ def send_email_subscription_report(
             "images": [x.get_public_content_url() for x in assets],
             "resource_noun": resource_noun,
             "resource_name": resource_name,
-            "resource_url": resource_url,
-            "subscription_url": subscription.url,
+            "resource_url": f"{resource_url}?{UTM_TAGS}",
+            "subscription_url": f"{subscription.url}?{UTM_TAGS}",
             "unsubscribe_url": get_unsubscribe_url(subscription=subscription, email=email),
             "inviter": inviter if is_invite else None,
             "self_invite": self_invite,

@@ -10,12 +10,12 @@ from dateutil.rrule import (
     WE,
     rrule,
 )
-from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
 from django.utils import timezone
 
 from posthog.jwt import PosthogJwtAudience, decode_jwt, encode_jwt
+from posthog.utils import absolute_uri
 
 # Copied from rrule as it is not exported
 FREQNAMES = ["YEARLY", "MONTHLY", "WEEKLY", "DAILY", "HOURLY", "MINUTELY", "SECONDLY"]
@@ -115,9 +115,9 @@ class Subscription(models.Model):
     @property
     def url(self):
         if self.insight:
-            return f"{settings.SITE_URL}/insights/{self.insight.short_id}/subscriptions/{self.id}"
+            return absolute_uri(f"/insights/{self.insight.short_id}/subscriptions/{self.id}")
         elif self.dashboard:
-            return f"{settings.SITE_URL}/dashboard/{self.dashboard.id}/subscriptions/{self.id}"
+            return absolute_uri(f"/dashboard/{self.dashboard.id}/subscriptions/{self.id}")
         return None
 
 

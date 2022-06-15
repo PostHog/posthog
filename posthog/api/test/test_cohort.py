@@ -30,6 +30,7 @@ class TestCohort(APIBaseTest):
         self.assertEqual(response.status_code, 201, response.content)
         self.assertEqual(response.json()["created_by"]["id"], self.user.pk)
         self.assertEqual(patch_calculate_cohort.call_count, 1)
+        self.assertEqual(patch_capture.call_count, 1)
 
         # Assert analytics are sent
         patch_capture.assert_called_with(
@@ -38,7 +39,7 @@ class TestCohort(APIBaseTest):
             {
                 "filters": {
                     "type": "OR",
-                    "values": [{"type": "AND", "values": [{"key": "team_id", "value": 5, "type": "event"}]}],
+                    "values": [{"type": "AND", "values": [{"key": "team_id", "value": 5, "type": "person"}]}],
                 },
                 "name_length": 8,
                 "person_count_precalc": 0,
@@ -72,7 +73,7 @@ class TestCohort(APIBaseTest):
             {
                 "filters": {
                     "type": "OR",
-                    "values": [{"type": "AND", "values": [{"key": "team_id", "value": 6, "type": "event"}]}],
+                    "values": [{"type": "AND", "values": [{"key": "team_id", "value": 6, "type": "person"}]}],
                 },
                 "name_length": 9,
                 "person_count_precalc": 0,

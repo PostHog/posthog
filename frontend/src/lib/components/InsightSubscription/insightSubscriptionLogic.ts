@@ -1,4 +1,4 @@
-import { afterMount, connect, kea, key, path, props } from 'kea'
+import { afterMount, connect, kea, key, listeners, path, props } from 'kea'
 import { SubscriptionType } from '~/types'
 
 import api from 'lib/api'
@@ -94,6 +94,24 @@ export const insightSubscriptionLogic = kea<insightSubscriptionLogicType>([
         },
     })),
 
+    listeners(({ actions }) => ({
+        setSubscriptionValue: ({ name, value }) => {
+            const key = Array.isArray(name) ? name[0] : name
+            if (key === 'frequency') {
+                if (value === 'daily') {
+                    actions.setSubscriptionValues({
+                        bysetpos: null,
+                        byweekday: null,
+                    })
+                } else {
+                    actions.setSubscriptionValues({
+                        bysetpos: NEW_SUBSCRIPTION.bysetpos,
+                        byweekday: NEW_SUBSCRIPTION.byweekday,
+                    })
+                }
+            }
+        },
+    })),
     beforeUnload(({ actions, values }) => ({
         enabled: () => values.subscriptionChanged,
         message: 'Changes you made will be discarded.',

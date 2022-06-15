@@ -57,7 +57,7 @@ def cached_function(f: Callable[[U, Request], T]) -> Callable[[U, Request], T]:
                 fresh_result_package["last_refresh"] = now()
                 fresh_result_package["is_cached"] = False
                 cache.set(
-                    cache_key, fresh_result_package, settings.TEMP_CACHE_RESULTS_TTL,
+                    cache_key, fresh_result_package, settings.CACHED_RESULTS_TTL,
                 )
                 if filter:
                     insights = Insight.objects.filter(team_id=team.pk, filters_hash=cache_key)

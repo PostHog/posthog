@@ -26,7 +26,7 @@ export function summarizeSubscription(subscription: SubscriptionType): string {
     const frequency = pluralize(subscription.interval, humanFrequencyMap[subscription.frequency], undefined, false)
     let summary = `Sent every ${subscription.interval > 1 ? subscription.interval + ' ' : ''}${frequency}`
 
-    if (subscription.byweekday?.length) {
+    if (subscription.byweekday?.length && subscription.bysetpos) {
         summary += ` on the ${bysetposOptions[subscription.bysetpos]?.label} ${
             subscription.byweekday.length === 1 ? subscription.byweekday[0] : 'day'
         }`

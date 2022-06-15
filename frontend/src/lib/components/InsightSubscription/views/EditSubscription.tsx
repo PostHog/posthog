@@ -184,7 +184,7 @@ export function EditSubscription({
                                             <LemonSelect
                                                 {...commonSelectProps}
                                                 options={weekdayOptions}
-                                                value={value ? value[0] : 'monday'}
+                                                value={value ? value[0] : null}
                                                 onChange={(val) => onChange([val])}
                                             />
                                         )}
@@ -200,7 +200,7 @@ export function EditSubscription({
                                             <LemonSelect
                                                 {...commonSelectProps}
                                                 options={bysetposOptions}
-                                                value={String(value || '1')}
+                                                value={value ? String(value) : null}
                                                 onChange={(val) => {
                                                     onChange(typeof val === 'string' ? parseInt(val, 10) : null)
                                                 }}
