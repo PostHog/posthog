@@ -8,14 +8,17 @@ export function getNextRetryMs(baseMs: number, multiplier: number, attempt: numb
     return baseMs * multiplier ** (attempt - 1)
 }
 
-export interface RetriableFunctionOptions {
+export interface RetriableFunctionDefinition {
     event: ProcessedPluginEvent
-    tryFn: () => Promise<void>
-    catchFn?: (error: Error) => Promise<void>
-    finallyFn?: (attempts: number) => Promise<void>
-    maxAttempts?: number
-    retryBaseMs?: number
-    retryMultiplier?: number
+    tryFn: () => void | Promise<void>
+    catchFn?: (error: Error) => void | Promise<void>
+    finallyFn?: (attempts: number) => void | Promise<void>
+}
+
+export interface RetryParams {
+    maxAttempts: number
+    retryBaseMs: number
+    retryMultiplier: number
 }
 
 async function iterateRetryLoop(
@@ -27,10 +30,10 @@ async function iterateRetryLoop(
         tryFn,
         catchFn,
         finallyFn,
-        maxAttempts = 5,
-        retryBaseMs = 5000,
-        retryMultiplier = 2,
-    }: RetriableFunctionOptions,
+        maxAttempts,
+        retryBaseMs,
+        retryMultiplier,
+    }: RetriableFunctionDefinition & RetryParams,
     attempt = 1
 ): Promise<void> {
     const teamIdString = event.team_id.toString()
@@ -87,12 +90,30 @@ export async function runRetriableFunction(
     tag: string,
     hub: Hub,
     pluginConfig: PluginConfig,
-    options: RetriableFunctionOptions
+    {
+        event,
+        tryFn,
+        catchFn,
+        finallyFn,
+        maxAttempts = 5,
+        retryBaseMs = 5000,
+        retryMultiplier = 2,
+    }: RetriableFunctionDefinition & Partial<RetryParams>
 ): Promise<void> {
     const timer = new Date()
-    await iterateRetryLoop(tag, hub, pluginConfig, options)
-    hub.statsd?.timing(`plugin.${tag}`, timer, {
-        plugin: pluginConfig.plugin?.name ?? '?',
-        teamId: options.event.team_id.toString(),
+    await iterateRetryLoop(tag, hub, pluginConfig, {
+        event,
+        tryFn,
+        catchFn,
+        finallyFn: (attempts) => {
+            finallyFn?.(attempts)
+            hub.statsd?.timing(`plugin.${tag}`, timer, {
+                plugin: pluginConfig.plugin?.name ?? '?',
+                teamId: event.team_id.toString(),
+            })
+        },
+        maxAttempts,
+        retryBaseMs,
+        retryMultiplier,
     })
 }
