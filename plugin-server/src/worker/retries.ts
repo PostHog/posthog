@@ -36,7 +36,6 @@ async function iterateRetryLoop(
     }: RetriableFunctionDefinition & RetryParams,
     attempt = 1
 ): Promise<void> {
-    const teamIdString = event.team_id.toString()
     let nextIterationTimeout: NodeJS.Timeout | undefined
     try {
         await tryFn()
@@ -49,7 +48,7 @@ async function iterateRetryLoop(
             const nextRetryMs = getNextRetryMs(retryBaseMs, retryMultiplier, attempt)
             hub.statsd?.increment(`plugin.${tag}.RETRY`, {
                 plugin: pluginConfig.plugin?.name ?? '?',
-                teamId: teamIdString,
+                teamId: event.team_id.toString(),
                 attempt: attempt.toString(),
             })
             nextIterationTimeout = setTimeout(() => {
@@ -75,7 +74,7 @@ async function iterateRetryLoop(
             await processError(hub, pluginConfig, error, event)
             hub.statsd?.increment(`plugin.${tag}.ERROR`, {
                 plugin: pluginConfig.plugin?.name ?? '?',
-                teamId: teamIdString,
+                teamId: event.team_id.toString(),
                 attempt: attempt.toString(),
             })
         }
