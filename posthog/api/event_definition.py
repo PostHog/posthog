@@ -95,7 +95,7 @@ class EventDefinitionViewSet(
 
     def get_object(self):
         id = self.kwargs["id"]
-        if EE_AVAILABLE:  # type: ignore
+        if EE_AVAILABLE:
             enterprise_event = EventDefinition.objects.filter(id=id).first()
             if enterprise_event:
                 return enterprise_event
@@ -112,7 +112,7 @@ class EventDefinitionViewSet(
 
     def get_serializer_class(self) -> Type[serializers.ModelSerializer]:
         serializer_class = self.serializer_class
-        if EE_AVAILABLE:  # type: ignore
+        if EE_AVAILABLE:
             try:
                 from ee.api.ee_event_definition import EnterpriseEventDefinitionSerializer
             except ImportError:
