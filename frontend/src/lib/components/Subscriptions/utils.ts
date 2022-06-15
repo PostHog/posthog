@@ -1,5 +1,33 @@
 import { LemonSelectOptions } from '@posthog/lemon-ui'
 import { range } from 'lib/utils'
+import { urls } from 'scenes/urls'
+import { InsightShortId } from '~/types'
+
+export interface SubscriptionBaseProps {
+    dashboardId?: number
+    insightShortId?: InsightShortId
+}
+
+export const urlForSubscriptions = ({ dashboardId, insightShortId }: SubscriptionBaseProps): string => {
+    if (insightShortId) {
+        return urls.insightSubcriptions(insightShortId)
+    } else if (dashboardId) {
+        return urls.dashboardSubcriptions(dashboardId)
+    }
+    return ''
+}
+
+export const urlForSubscription = (
+    id: number | 'new',
+    { dashboardId, insightShortId }: SubscriptionBaseProps
+): string => {
+    if (insightShortId) {
+        return urls.insightSubcription(insightShortId, id.toString())
+    } else if (dashboardId) {
+        return urls.dashboardSubcription(dashboardId, id.toString())
+    }
+    return ''
+}
 
 export const intervalOptions: LemonSelectOptions = range(1, 13).reduce(
     (acc, x) => ({

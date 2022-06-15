@@ -39,10 +39,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
-import {
-    InsightSubscriptionsModal,
-    SubscribeButton,
-} from 'lib/components/InsightSubscription/InsightSubscriptionsModal'
+import { SubscriptionsModal, SubscribeButton } from 'lib/components/Subscriptions/SubscriptionsModal'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 
 export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): JSX.Element {
@@ -109,7 +106,7 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
     const insightScene = (
         <div className="insights-page">
             {insightId !== 'new' && (
-                <InsightSubscriptionsModal
+                <SubscriptionsModal
                     visible={insightMode === ItemMode.Subscriptions}
                     closeModal={() => push(urls.insightView(insight.short_id as InsightShortId))}
                     insightShortId={insightId}

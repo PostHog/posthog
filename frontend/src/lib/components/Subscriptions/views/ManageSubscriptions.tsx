@@ -5,9 +5,9 @@ import { SubscriptionType } from '~/types'
 import { pluralize } from 'lib/utils'
 import { IconEllipsis } from 'lib/components/icons'
 import { ProfileBubbles } from 'lib/components/ProfilePicture'
-import { insightSubscriptionsLogic } from '../insightSubscriptionsLogic'
+import { subscriptionsLogic } from '../subscriptionsLogic'
 import { Skeleton } from 'antd'
-import { bysetposOptions } from '../utils'
+import { bysetposOptions, SubscriptionBaseProps } from '../utils'
 
 interface SubscriptionListItemProps {
     subscription: SubscriptionType
@@ -76,21 +76,19 @@ export function SubscriptionListItem({ subscription, onClick, onDelete }: Subscr
     )
 }
 
-interface ManageSubscriptionsProps {
-    insightId?: number
-    dashboardId?: number
+interface ManageSubscriptionsProps extends SubscriptionBaseProps {
     onCancel: () => void
     onSelect: (value: number | 'new') => void
 }
 
 export function ManageSubscriptions({
-    insightId,
+    insightShortId,
     dashboardId,
     onCancel,
     onSelect,
 }: ManageSubscriptionsProps): JSX.Element {
-    const logic = insightSubscriptionsLogic({
-        insightId,
+    const logic = subscriptionsLogic({
+        insightShortId,
         dashboardId,
     })
 

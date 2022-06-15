@@ -4,18 +4,17 @@ import { SubscriptionType } from '~/types'
 import api from 'lib/api'
 import { loaders } from 'kea-loaders'
 
-import type { insightSubscriptionsLogicType } from './insightSubscriptionsLogicType'
 import { deleteWithUndo } from 'lib/utils'
 
-export interface InsightSubscriptionLogicProps {
-    insightId?: number
-    dashboardId?: number
-}
-export const insightSubscriptionsLogic = kea<insightSubscriptionsLogicType>([
-    path(['lib', 'components', 'InsightSubscription', 'insightSubscriptionsLogic']),
-    props({} as InsightSubscriptionLogicProps),
-    key(({ insightId, dashboardId }) =>
-        insightId ? `insight-${insightId}` : dashboardId ? `dashboard-${dashboardId}` : 'subscriptions'
+import type { subscriptionsLogicType } from './subscriptionsLogicType'
+import { getInsightId } from 'scenes/insights/utils'
+import { SubscriptionBaseProps } from './utils'
+
+export const subscriptionsLogic = kea<subscriptionsLogicType>([
+    path(['lib', 'components', 'Subscriptions', 'subscriptionsLogic']),
+    props({} as SubscriptionBaseProps),
+    key(({ insightShortId, dashboardId }) =>
+        insightShortId ? `insight-${insightShortId}` : dashboardId ? `dashboard-${dashboardId}` : 'subscriptions'
     ),
     actions({
         deleteSubscription: (id: number) => ({ id }),
@@ -25,14 +24,16 @@ export const insightSubscriptionsLogic = kea<insightSubscriptionsLogicType>([
         subscriptions: {
             __default: [] as SubscriptionType[],
             loadSubscriptions: async (_?: any, breakpoint?: BreakPointFunction) => {
-                if (!props.dashboardId && !props.insightId) {
+                if (!props.dashboardId && !props.insightShortId) {
                     return []
                 }
 
                 breakpoint?.()
+
+                const insightId = props.insightShortId ? await getInsightId(props.insightShortId) : undefined
                 const response = await api.subscriptions.list({
                     dashboardId: props.dashboardId,
-                    insightId: props.insightId,
+                    insightId: insightId,
                 })
                 breakpoint?.()
                 return response.results

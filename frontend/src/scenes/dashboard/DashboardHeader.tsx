@@ -24,10 +24,7 @@ import { urls } from 'scenes/urls'
 import { Link } from 'lib/components/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
-import {
-    InsightSubscriptionsModal,
-    SubscribeButton,
-} from 'lib/components/InsightSubscription/InsightSubscriptionsModal'
+import { SubscriptionsModal, SubscribeButton } from 'lib/components/Subscriptions/SubscriptionsModal'
 import { router } from 'kea-router'
 
 export function DashboardHeader(): JSX.Element | null {
@@ -55,7 +52,7 @@ export function DashboardHeader(): JSX.Element | null {
             {dashboard && <ShareModal onCancel={() => setIsShareModalVisible(false)} visible={isShareModalVisible} />}
 
             {dashboard && (
-                <InsightSubscriptionsModal
+                <SubscriptionsModal
                     visible={subscriptionMode.enabled}
                     closeModal={() => push(urls.dashboard(dashboard.id))}
                     dashboardId={dashboard.id}

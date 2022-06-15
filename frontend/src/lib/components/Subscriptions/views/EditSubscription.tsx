@@ -8,44 +8,43 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { Field } from 'lib/forms/Field'
 import { dayjs } from 'lib/dayjs'
 import { LemonSelect, LemonSelectOptions, LemonSelectProps } from 'lib/components/LemonSelect'
-import { insightSubscriptionLogic } from '../insightSubscriptionLogic'
+import { subscriptionLogic } from '../subscriptionLogic'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 import { IconChevronLeft, IconOpenInNew } from 'lib/components/icons'
 import { AlertMessage } from 'lib/components/AlertMessage'
-import { insightSubscriptionsLogic } from '../insightSubscriptionsLogic'
+import { subscriptionsLogic } from '../subscriptionsLogic'
 import {
     bysetposOptions,
     frequencyOptions,
     intervalOptions,
     monthlyWeekdayOptions,
+    SubscriptionBaseProps,
     timeOptions,
     weekdayOptions,
 } from '../utils'
 import { LemonDivider, LemonInput, LemonTextArea } from '@posthog/lemon-ui'
 
-interface EditSubscriptionProps {
+interface EditSubscriptionProps extends SubscriptionBaseProps {
     id: number | 'new'
-    insightId?: number
-    dashboardId?: number
     onCancel: () => void
     onDelete: () => void
 }
 
 export function EditSubscription({
     id,
-    insightId,
+    insightShortId,
     dashboardId,
     onCancel,
     onDelete,
 }: EditSubscriptionProps): JSX.Element {
     const logicProps = {
         id,
-        insightId,
+        insightShortId,
         dashboardId,
     }
-    const logic = insightSubscriptionLogic(logicProps)
-    const subscriptionslogic = insightSubscriptionsLogic({
-        insightId,
+    const logic = subscriptionLogic(logicProps)
+    const subscriptionslogic = subscriptionsLogic({
+        insightShortId,
         dashboardId,
     })
 
@@ -73,7 +72,7 @@ export function EditSubscription({
 
     return (
         <>
-            <VerticalForm logic={insightSubscriptionLogic} props={logicProps} formKey="subscription" enableFormOnSubmit>
+            <VerticalForm logic={subscriptionLogic} props={logicProps} formKey="subscription" enableFormOnSubmit>
                 <header className="flex items-center border-bottom pb-05">
                     <LemonButton type="stealth" onClick={onCancel} size="small">
                         <IconChevronLeft fontSize={'1rem'} />
