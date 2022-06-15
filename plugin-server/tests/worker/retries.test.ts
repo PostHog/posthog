@@ -2,7 +2,7 @@ import { ProcessedPluginEvent, RetryError } from '@posthog/plugin-scaffold'
 
 import { Hub } from '../../src/types'
 import { delay, UUID } from '../../src/utils/utils'
-import { runRetriableFunction } from '../../src/worker/plugins/run'
+import { runRetriableFunction } from '../../src/worker/retries'
 import { pluginConfig39 } from '../helpers/plugins'
 
 jest.mock('../../src/utils/utils', () => ({
@@ -30,7 +30,12 @@ describe('runRetriableFunction', () => {
         const catchFn = jest.fn()
         const finallyFn = jest.fn()
 
-        const promise = runRetriableFunction(mockHub, pluginConfig39, testEvent, 'on_foo', tryFn, catchFn, finallyFn)
+        const promise = runRetriableFunction('on_foo', mockHub, pluginConfig39, {
+            event: testEvent,
+            tryFn,
+            catchFn,
+            finallyFn,
+        })
 
         await expect(promise).resolves.toEqual(1)
         expect(tryFn).toHaveBeenCalledTimes(1)
@@ -48,7 +53,12 @@ describe('runRetriableFunction', () => {
         const catchFn = jest.fn()
         const finallyFn = jest.fn()
 
-        const promise = runRetriableFunction(mockHub, pluginConfig39, testEvent, 'on_foo', tryFn, catchFn, finallyFn)
+        const promise = runRetriableFunction('on_foo', mockHub, pluginConfig39, {
+            event: testEvent,
+            tryFn,
+            catchFn,
+            finallyFn,
+        })
 
         await expect(promise).resolves.toEqual(1)
         expect(tryFn).toHaveBeenCalledTimes(1)
@@ -65,7 +75,12 @@ describe('runRetriableFunction', () => {
         const catchFn = jest.fn()
         const finallyFn = jest.fn()
 
-        const promise = runRetriableFunction(mockHub, pluginConfig39, testEvent, 'on_foo', tryFn, catchFn, finallyFn)
+        const promise = runRetriableFunction('on_foo', mockHub, pluginConfig39, {
+            event: testEvent,
+            tryFn,
+            catchFn,
+            finallyFn,
+        })
 
         await expect(promise).resolves.toEqual(5)
         expect(tryFn).toHaveBeenCalledTimes(5)
@@ -92,7 +107,12 @@ describe('runRetriableFunction', () => {
         const catchFn = jest.fn()
         const finallyFn = jest.fn()
 
-        const promise = runRetriableFunction(mockHub, pluginConfig39, testEvent, 'on_foo', tryFn, catchFn, finallyFn)
+        const promise = runRetriableFunction('on_foo', mockHub, pluginConfig39, {
+            event: testEvent,
+            tryFn,
+            catchFn,
+            finallyFn,
+        })
 
         await expect(promise).resolves.toEqual(3)
         expect(tryFn).toHaveBeenCalledTimes(3)

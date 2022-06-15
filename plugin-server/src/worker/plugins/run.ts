@@ -1,13 +1,10 @@
-import { PluginEvent, ProcessedPluginEvent, RetryError } from '@posthog/plugin-scaffold'
+import { PluginEvent, ProcessedPluginEvent } from '@posthog/plugin-scaffold'
+import { runRetriableFunction } from 'worker/retries'
 
 import { Hub, PluginConfig, PluginTaskType, VMMethods } from '../../types'
 import { processError } from '../../utils/db/error'
-import { delay, IllegalOperationError } from '../../utils/utils'
+import { IllegalOperationError } from '../../utils/utils'
 import { Action } from './../../types'
-
-export const ON_CAUSE_MAX_ATTEMPTS = 5
-export const ON_CAUSE_RETRY_MULTIPLIER = 2
-export const ON_CAUSE_RETRY_BASE_MS = 5000
 
 export async function runOnEvent(hub: Hub, event: ProcessedPluginEvent): Promise<void> {
     const pluginMethodsToRun = await getPluginMethodsForTeam(hub, event.team_id, 'onEvent')
@@ -17,7 +14,10 @@ export async function runOnEvent(hub: Hub, event: ProcessedPluginEvent): Promise
             .filter(([, method]) => !!method)
             .map(
                 async ([pluginConfig, onEvent]) =>
-                    await runRetriableFunction(hub, pluginConfig, event, 'on_event', async () => await onEvent!(event))
+                    await runRetriableFunction('on_event', hub, pluginConfig, {
+                        tryFn: async () => await onEvent!(event),
+                        event,
+                    })
             )
     )
 }
@@ -30,13 +30,10 @@ export async function runOnSnapshot(hub: Hub, event: ProcessedPluginEvent): Prom
             .filter(([, method]) => !!method)
             .map(
                 async ([pluginConfig, onSnapshot]) =>
-                    await runRetriableFunction(
-                        hub,
-                        pluginConfig,
+                    await runRetriableFunction('on_snapshot', hub, pluginConfig, {
+                        tryFn: async () => await onSnapshot!(event),
                         event,
-                        'on_snapshot',
-                        async () => await onSnapshot!(event)
-                    )
+                    })
             )
     )
 }
@@ -49,13 +46,10 @@ export async function runOnAction(hub: Hub, action: Action, event: ProcessedPlug
             .filter(([, method]) => !!method)
             .map(
                 async ([pluginConfig, onAction]) =>
-                    await runRetriableFunction(
-                        hub,
-                        pluginConfig,
+                    await runRetriableFunction('on_action', hub, pluginConfig, {
+                        tryFn: async () => await onAction!(action, event),
                         event,
-                        'on_action',
-                        async () => await onAction!(action, event)
-                    )
+                    })
             )
     )
 }
@@ -150,58 +144,6 @@ export async function runPluginTask(
         teamId: teamIdStr,
     })
     return response
-}
-
-/** Run function with `RetryError` handling. Returns the number of attempts made. */
-export async function runRetriableFunction(
-    hub: Hub,
-    pluginConfig: PluginConfig,
-    event: ProcessedPluginEvent,
-    tag: string,
-    tryFunc: () => Promise<void>,
-    catchFunc?: (error: Error) => Promise<void>,
-    finallyFunc?: () => Promise<void>
-): Promise<number> {
-    const timer = new Date()
-    let attempt = 0
-    const teamIdString = event.team_id.toString()
-    while (true) {
-        attempt++
-        let nextRetryMs: number
-        try {
-            await tryFunc()
-            break
-        } catch (error) {
-            if (error instanceof RetryError) {
-                error._attempt = attempt
-                error._maxAttempts = ON_CAUSE_MAX_ATTEMPTS
-            }
-            if (error instanceof RetryError && attempt < ON_CAUSE_MAX_ATTEMPTS) {
-                nextRetryMs = ON_CAUSE_RETRY_BASE_MS * ON_CAUSE_RETRY_MULTIPLIER ** (attempt - 1)
-                hub.statsd?.increment(`plugin.${tag}.RETRY`, {
-                    plugin: pluginConfig.plugin?.name ?? '?',
-                    teamId: teamIdString,
-                    attempt: attempt.toString(),
-                })
-            } else {
-                await catchFunc?.(error)
-                await processError(hub, pluginConfig, error, event)
-                hub.statsd?.increment(`plugin.${tag}.ERROR`, {
-                    plugin: pluginConfig.plugin?.name ?? '?',
-                    teamId: teamIdString,
-                    attempt: attempt.toString(),
-                })
-                break
-            }
-        }
-        await delay(nextRetryMs)
-    }
-    await finallyFunc?.()
-    hub.statsd?.timing(`plugin.${tag}`, timer, {
-        plugin: pluginConfig.plugin?.name ?? '?',
-        teamId: teamIdString,
-    })
-    return attempt
 }
 
 async function getPluginMethodsForTeam<M extends keyof VMMethods>(

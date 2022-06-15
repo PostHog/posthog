@@ -1,6 +1,7 @@
 import { RetryError } from '@posthog/plugin-scaffold'
 import equal from 'fast-deep-equal'
 import { VM } from 'vm2'
+import { getNextRetryMs } from 'worker/retries'
 
 import {
     Hub,
@@ -211,13 +212,15 @@ export class LazyPluginVM {
                 error._maxAttempts = VM_INIT_MAX_RETRIES
             }
             if (error instanceof RetryError && this.totalInitAttemptsCounter < VM_INIT_MAX_RETRIES) {
-                const nextRetryMs =
-                    INITIALIZATION_RETRY_MULTIPLIER ** (this.totalInitAttemptsCounter - 1) *
-                    INITIALIZATION_RETRY_BASE_MS
-                const nextRetrySeconds = `${nextRetryMs / 1000} s`
-                status.warn('⚠️', `setupPlugin failed with ${error} for ${logInfo}. Retrying in ${nextRetrySeconds}...`)
+                const nextRetryMs = getNextRetryMs(
+                    INITIALIZATION_RETRY_BASE_MS,
+                    INITIALIZATION_RETRY_MULTIPLIER,
+                    this.totalInitAttemptsCounter
+                )
+                const nextRetryInfo = `Retrying in ${nextRetryMs / 1000} s...`
+                status.warn('⚠️', `setupPlugin failed with ${error} for ${logInfo}. ${nextRetryInfo}`)
                 await this.createLogEntry(
-                    `setupPlugin failed with ${error} (instance ID ${this.hub.instanceId}). Retrying in ${nextRetrySeconds}...`,
+                    `setupPlugin failed with ${error} (instance ID ${this.hub.instanceId}). ${nextRetryInfo}`,
                     PluginLogEntryType.Error
                 )
                 this.initRetryTimeout = setTimeout(async () => {
