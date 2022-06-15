@@ -2,8 +2,7 @@ import json
 from typing import Any, Dict, List, Literal, Optional, Tuple
 
 from dateutil import parser
-from django.db import DEFAULT_DB_ALIAS, connection, connections
-from django.test.utils import CaptureQueriesContext
+from django.db import connection
 from django.utils import timezone
 from django.utils.timezone import now
 from freezegun import freeze_time
@@ -12,6 +11,7 @@ from rest_framework import status
 from posthog.models import Dashboard, DashboardTile, Filter, Insight, Team, User
 from posthog.models.organization import Organization
 from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries
+from posthog.test.db_test_helpers import capture_db_queries
 from posthog.utils import generate_cache_key
 
 
@@ -190,9 +190,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.assertEqual(response["items"][0]["result"][0]["count"], 0)
 
     def _get_dashboard_counting_queries(self, dashboard_id: int) -> Tuple[int, List[Dict[str, str]]]:
-        db_connection = connections[DEFAULT_DB_ALIAS]
-
-        with CaptureQueriesContext(db_connection) as capture_query_context:
+        with capture_db_queries() as capture_query_context:
             response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 

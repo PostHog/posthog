@@ -14,10 +14,12 @@ from posthog.tasks.subscriptions import (
     MAX_ASSET_COUNT,
     deliver_new_subscription,
     deliver_subscription_report,
+    get_tiles_ordered_by_position,
     schedule_all_subscriptions,
 )
 from posthog.tasks.test.utils_email_tests import mock_email_messages
 from posthog.test.base import APIBaseTest
+from posthog.test.db_test_helpers import capture_db_queries
 
 
 def _create_subscription(**kwargs: Any) -> Subscription:
@@ -137,3 +139,16 @@ class TestSubscriptionsTasks(APIBaseTest):
         assert "You have been subscribed to a PostHog Dashboard" == mocked_email_messages[0].subject
         assert f"SHOWING 6 OF {len(self.tiles)} DASHBOARD INSIGHTS" in mocked_email_messages[0].html_body
         assert mock_export_task.s.call_count == MAX_ASSET_COUNT
+
+    def test_loads_dashboard_tiles_efficiently(
+        self, MockEmailMessage: MagicMock, mock_export_task: MagicMock, mock_group: MagicMock
+    ) -> None:
+        with capture_db_queries() as capture_query_context:
+            tiles = get_tiles_ordered_by_position(dashboard=self.dashboard)
+
+            for tile in tiles:
+                assert tile.insight.id
+
+            assert len(tiles) == 10
+
+        assert len(capture_query_context.captured_queries) == 1

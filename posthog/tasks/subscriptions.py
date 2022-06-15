@@ -8,6 +8,7 @@ from celery import group
 
 from posthog.celery import app
 from posthog.email import EmailMessage
+from posthog.internal_metrics import incr
 from posthog.models.dashboard import Dashboard
 from posthog.models.dashboard_tile import DashboardTile
 from posthog.models.exported_asset import ExportedAsset
@@ -26,7 +27,9 @@ def get_unsubscribe_url(subscription: Subscription, email: str) -> str:
 
 
 def get_tiles_ordered_by_position(dashboard: Dashboard) -> List[DashboardTile]:
-    tiles = list(DashboardTile.objects.filter(dashboard=dashboard).order_by("insight__order").all())
+    tiles = list(
+        DashboardTile.objects.filter(dashboard=dashboard).select_related("insight").order_by("insight__order").all()
+    )
     tiles.sort(key=lambda x: x.layouts.get("xs", {}).get("y", 100))
     return tiles
 
@@ -143,8 +146,10 @@ def _deliver_subscription_report(
                     invite_message=invite_message or "" if is_invite else None,
                     total_asset_count=len(insights),
                 )
+                incr("subscription_email_send_success")
             except Exception as e:
                 logger.error(e)
+                incr("subscription_email_send_failure")
                 raise e
     else:
         raise NotImplementedError(f"{subscription.target_type} is not supported")
