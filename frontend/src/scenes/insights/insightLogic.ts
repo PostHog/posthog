@@ -279,7 +279,8 @@ export const insightLogic = kea<insightLogicType>({
                                 cache.abortController.signal
                             )
                         } else if (insight === InsightType.FUNNELS) {
-                            response = await pollFunnel(currentTeamId, params)
+                            const { new_entity, ...restParams } = params
+                            response = await pollFunnel(currentTeamId, restParams)
                         } else if (insight === InsightType.PATHS) {
                             response = await api.create(`api/projects/${currentTeamId}/insights/path`, params)
                         } else {
