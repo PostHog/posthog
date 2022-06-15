@@ -40,7 +40,6 @@ KAFKA_SESSION_RECORDING_METADATA_TABLE_SQL = lambda: SESSION_RECORDING_METADATA_
     table_name="kafka_session_recording_metadata",
     cluster=settings.CLICKHOUSE_CLUSTER,
     engine=kafka_engine(topic=KAFKA_SESSION_RECORDING_METADATA),
-    materialized_columns="",
     extra_fields="",
 )
 
@@ -71,7 +70,6 @@ WRITABLE_SESSION_RECORDING_METADATA_TABLE_SQL = lambda: SESSION_RECORDING_METADA
     cluster=settings.CLICKHOUSE_CLUSTER,
     engine=Distributed(data_table=SESSION_RECORDING_METADATA_DATA_TABLE, sharding_key="sipHash64(session_id)"),
     extra_fields=KAFKA_COLUMNS,
-    materialized_columns="",
 )
 
 # This table is responsible for reading from session_recording_events on a cluster setting
