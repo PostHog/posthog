@@ -10,10 +10,9 @@ from django.utils import timezone
 from django_deprecate_fields import deprecate_field
 from rest_framework.exceptions import ValidationError
 
-from posthog import settings
 from posthog.models.dashboard import Dashboard
 from posthog.models.filters.utils import get_filter
-from posthog.utils import generate_cache_key
+from posthog.utils import absolute_uri, generate_cache_key
 
 
 def generate_short_id():
@@ -144,7 +143,7 @@ class Insight(models.Model):
 
     @property
     def url(self):
-        return f"{settings.SITE_URL}/insights/{self.short_id}"
+        return absolute_uri(f"/insights/{self.short_id}")
 
 
 class InsightViewed(models.Model):

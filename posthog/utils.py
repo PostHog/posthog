@@ -894,7 +894,7 @@ def format_query_params_absolute_url(
     OFFSET_REGEX = re.compile(fr"([&?]{offset_alias}=)(\d+)")
     LIMIT_REGEX = re.compile(fr"([&?]{limit_alias}=)(\d+)")
 
-    url_to_format = request.get_raw_uri()
+    url_to_format = request.build_absolute_uri()
 
     if not url_to_format:
         return None

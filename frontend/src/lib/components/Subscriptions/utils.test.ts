@@ -1,6 +1,5 @@
 import { SubscriptionType, WeekdayType } from '~/types'
-import { weekdayOptions } from '../utils'
-import { summarizeSubscription } from './ManageSubscriptions'
+import { summarizeSubscription, weekdayOptions } from './utils'
 
 const createSubscription = (props: Partial<SubscriptionType> = {}): SubscriptionType =>
     ({
@@ -24,6 +23,8 @@ describe('summarizeSubscription', () => {
         expect(summarizeSubscription(subscription)).toEqual('Sent every 2 months on the first wednesday')
         subscription = createSubscription({ interval: 1, frequency: 'weekly', byweekday: ['wednesday'], bysetpos: -1 })
         expect(summarizeSubscription(subscription)).toEqual('Sent every week on the last wednesday')
+        subscription = createSubscription({ interval: 1, frequency: 'weekly', byweekday: ['wednesday'] })
+        expect(summarizeSubscription(subscription)).toEqual('Sent every week')
         subscription = createSubscription({
             interval: 1,
             frequency: 'monthly',

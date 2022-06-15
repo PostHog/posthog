@@ -194,6 +194,11 @@ class Team(UUIDClassicModel):
         enabled_teams = get_list(get_instance_setting("ENABLE_ACTOR_ON_EVENTS_TEAMS"))
         return str(self.pk) in enabled_teams or "all" in enabled_teams
 
+    @property
+    def strict_caching_enabled(self) -> bool:
+        enabled_teams = get_list(get_instance_setting("STRICT_CACHING_TEAMS"))
+        return str(self.pk) in enabled_teams or "all" in enabled_teams
+
     def __str__(self):
         if self.name:
             return self.name
