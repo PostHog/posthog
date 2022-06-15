@@ -569,11 +569,12 @@ export const insightLogic = kea<insightLogicType>({
             if (objectsEqual(previousFilters, filters)) {
                 return
             }
+
+            // do not make an api call until an actual filter is applied
             const dupeFilters = { ...filters }
-            const dupePrevFilters = { ...selectors.filters(previousState) }
+            const dupePrevFilters = { ...previousFilters }
             delete dupeFilters.new_entity
             delete dupePrevFilters.new_entity
-
             if (objectsEqual(dupePrevFilters, dupeFilters)) {
                 return
             }
