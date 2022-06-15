@@ -181,7 +181,7 @@ export function EditSubscription({ id, insightShortId, onCancel, onDelete }: Edi
                                                 options={weekdayOptions}
                                                 disabled={emailDisabled}
                                                 dropdownMatchSelectWidth={false}
-                                                value={value ? value[0] : 'monday'}
+                                                value={value ? value[0] : null}
                                                 onChange={(val) => onChange([val])}
                                             />
                                         )}
@@ -199,7 +199,7 @@ export function EditSubscription({ id, insightShortId, onCancel, onDelete }: Edi
                                                 outlined
                                                 options={bysetposOptions}
                                                 disabled={emailDisabled}
-                                                value={String(value || '1')}
+                                                value={value ? String(value) : null}
                                                 dropdownMatchSelectWidth={false}
                                                 onChange={(val) => {
                                                     onChange(typeof val === 'string' ? parseInt(val, 10) : null)
