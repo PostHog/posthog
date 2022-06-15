@@ -85,7 +85,11 @@ function ColumnConfigurator({ immutableColumns, defaultColumns }: TableConfigPro
                         {disabled ? (
                             <LockOutlined />
                         ) : (
-                            <CloseOutlined style={{ color: 'var(--danger)' }} onClick={() => unselectColumn(column)} />
+                            <CloseOutlined
+                                data-attr="column-display-item-remove-icon"
+                                style={{ color: 'var(--danger)' }}
+                                onClick={() => unselectColumn(column)}
+                            />
                         )}
                     </Tooltip>
                 </div>
