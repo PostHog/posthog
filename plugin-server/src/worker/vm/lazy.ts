@@ -1,7 +1,6 @@
 import { RetryError } from '@posthog/plugin-scaffold'
 import equal from 'fast-deep-equal'
 import { VM } from 'vm2'
-import { getNextRetryMs } from 'worker/retries'
 
 import {
     Hub,
@@ -17,6 +16,7 @@ import { clearError, processError } from '../../utils/db/error'
 import { disablePlugin, setPluginCapabilities } from '../../utils/db/sql'
 import { status } from '../../utils/status'
 import { pluginDigest } from '../../utils/utils'
+import { getNextRetryMs } from '../retries'
 import { getVMPluginCapabilities, shouldSetupPluginInServer } from '../vm/capabilities'
 import { createPluginConfigVM } from './vm'
 
