@@ -13,7 +13,7 @@ class TestWebPerformance(APIBaseTest):
     # test not all types present
     # test _no_ performance entries present
     def test_something(self) -> None:
-        _create_event(
+        event_id = _create_event(
             event="$pageview",
             team=self.team,
             distinct_id="some-random-uid",
@@ -58,22 +58,31 @@ class TestWebPerformance(APIBaseTest):
                 },
                 "results": [
                     {
-                        "player_position": {"time": 1333287900000, "window_id": "67890"},
+                        "playerPosition": {"time": 1333287900000, "windowId": "67890"},
                         "type": "navigation",
                         "url": "https://app.posthog.com/persons",
                         "duration": 1628.3,
+                        "eventId": event_id,
+                        "eventName": None,
+                        "timing": None,
                         "raw": ["https://app.posthog.com/persons", "navigation", 1628.3],
                     },
                     {
-                        "player_position": {"time": 1333287903155.7, "window_id": "67890"},
+                        "playerPosition": {"time": 1333287903155.7, "windowId": "67890"},
                         "type": "paint",
                         "url": None,
                         "duration": None,
+                        "eventId": None,
+                        "eventName": "first-paint",
+                        "timing": 3155.7,
                         "raw": ["first-paint", "paint", 3155.7],
                     },
                     {
-                        "player_position": {"time": 1333304282887.5, "window_id": "67890"},
+                        "playerPosition": {"time": 1333304282887.5, "windowId": "67890"},
                         "type": "resource",
+                        "eventId": None,
+                        "eventName": None,
+                        "timing": None,
                         "url": "https://app.posthog.com/api/person/?distinct_id=FAED5BE9-D446-4A70-9176-AA22AA569C23",
                         "duration": 121.3,
                         "raw": [
