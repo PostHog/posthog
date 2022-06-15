@@ -1,9 +1,9 @@
 import { PluginEvent, ProcessedPluginEvent } from '@posthog/plugin-scaffold'
-import { runRetriableFunction } from 'worker/retries'
 
 import { Hub, PluginConfig, PluginTaskType, VMMethods } from '../../types'
 import { processError } from '../../utils/db/error'
 import { IllegalOperationError } from '../../utils/utils'
+import { runRetriableFunction } from '../retries'
 import { Action } from './../../types'
 
 export async function runOnEvent(hub: Hub, event: ProcessedPluginEvent): Promise<void> {
