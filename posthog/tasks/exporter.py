@@ -16,6 +16,7 @@ from webdriver_manager.utils import ChromeType
 from posthog.celery import app
 from posthog.internal_metrics import incr, timing
 from posthog.models.exported_asset import ExportedAsset
+from posthog.utils import absolute_uri
 
 logger = structlog.get_logger(__name__)
 
@@ -27,13 +28,13 @@ def get_driver() -> webdriver.Chrome:
     options = Options()
     options.headless = True
     options.add_argument("--force-device-scale-factor=2")  # Scale factor for higher res image
-    options.add_argument("--disable-dev-shm-usage")
-    options.add_argument("--no-sandbox")
-    options.add_argument("--disable-gpu")
     options.add_argument("--use-gl=swiftshader")
     options.add_argument("--disable-software-rasterizer")
+    options.add_argument("--no-sandbox")
+    options.add_argument("--disable-gpu")
 
     if os.environ.get("CHROMEDRIVER_BIN"):
+
         return webdriver.Chrome(os.environ["CHROMEDRIVER_BIN"], options=options)
 
     return webdriver.Chrome(
@@ -72,12 +73,12 @@ def _export_to_png(exported_asset: ExportedAsset) -> None:
             os.makedirs(TMP_DIR)
 
         if exported_asset.insight is not None:
-            url_to_render = f"{settings.SITE_URL}/exporter/{exported_asset.access_token}"
+            url_to_render = absolute_uri(f"/exporter/{exported_asset.access_token}")
             wait_for_css_selector = ".ExportedInsight"
             screenshot_width = 800
 
         elif exported_asset.dashboard is not None:
-            url_to_render = f"{settings.SITE_URL}/exporter/{exported_asset.access_token}"
+            url_to_render = absolute_uri(f"/exporter/{exported_asset.access_token}")
             wait_for_css_selector = ".InsightCard"
             screenshot_width = 1920
         else:

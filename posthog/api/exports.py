@@ -10,7 +10,6 @@ from rest_framework.authentication import BasicAuthentication, SessionAuthentica
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import IsAuthenticated
-from rest_framework.renderers import TemplateHTMLRenderer
 from rest_framework.request import Request
 
 from posthog import settings
@@ -19,10 +18,22 @@ from posthog.api.insight import InsightSerializer
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.event_usage import report_user_action
-from posthog.models.exported_asset import ExportedAsset
+from posthog.models.exported_asset import ExportedAsset, asset_for_token
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.tasks import exporter
 from posthog.utils import render_template
+
+MAX_AGE_CONTENT = 86400  # 1 day
+
+
+def get_content_response(asset: ExportedAsset, download: bool = False):
+    res = HttpResponse(asset.content, content_type=asset.export_format)
+    if download:
+        res["Content-Disposition"] = f'attachment; filename="{asset.filename}"'
+
+    res["Cache-Control"] = f"max-age={MAX_AGE_CONTENT}"
+
+    return res
 
 
 class ExportedAssetSerializer(serializers.ModelSerializer):
@@ -62,9 +73,6 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(
                 {"export_format": ["This type of export is not supported for this resource."]}
             )
-        except Exception as e:
-            # TODO: Remove this once chrome is working
-            raise serializers.ValidationError({"celery": [str(e)]})
 
         report_user_action(
             request.user, "export created", instance.get_analytics_metadata(),
@@ -91,29 +99,47 @@ class ExportedAssetViewSet(
     @action(methods=["GET"], detail=True)
     def content(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
         instance = self.get_object()
-        res = HttpResponse(instance.content, content_type=instance.export_format)
-        res["Content-Disposition"] = f'attachment; filename="{instance.filename}"'
-
-        return res
+        return get_content_response(instance, request.query_params.get("download") == "true")
 
 
 class ExportedViewerPageViewSet(mixins.RetrieveModelMixin, StructuredViewSetMixin, viewsets.GenericViewSet):
-    # NOTE: To aid testing, DEBUG enables loading at any time.
-    # Otherwise only assets that haven't been successfully rendered in the last 15 mins are accessible for security's sake
-    queryset = (
-        ExportedAsset.objects.all()
-        if settings.DEBUG
-        else ExportedAsset.objects.filter(content=None, created_at__gte=datetime.now() - timedelta(minutes=15))
-    )
-    renderer_classes = [TemplateHTMLRenderer]
-    lookup_field = "access_token"
+    queryset = ExportedAsset.objects.none()
     authentication_classes = []  # type: ignore
     permission_classes = []  # type: ignore
+
+    def get_object(self):
+        token = self.request.query_params.get("token")
+        access_token = self.kwargs.get("access_token")
+
+        asset = None
+
+        if token:
+            asset = asset_for_token(token)
+        else:
+            if settings.DEBUG:
+                # NOTE: To aid testing, DEBUG enables loading at any time.
+                asset = ExportedAsset.objects.get(access_token=access_token)
+            else:
+                # Otherwise only assets that haven't been successfully rendered in the last 15 mins are accessible for security's sake
+                asset = ExportedAsset.objects.filter(
+                    content=None, created_at__gte=datetime.now() - timedelta(minutes=15)
+                ).get(access_token=access_token)
+
+        if not asset:
+            raise serializers.NotFound()
+
+        return asset
 
     def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Any:
         asset = self.get_object()
         context = {"view": self, "request": request}
         export_data = {}
+
+        if request.path.endswith(f".{asset.file_ext}"):
+            if not asset.content:
+                raise serializers.NotFound()
+
+            return get_content_response(asset, request.query_params.get("download") == "true")
 
         if asset.dashboard:
             dashboard_data = DashboardSerializer(asset.dashboard, context=context).data
