@@ -144,10 +144,10 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                                         <>
                                             {usingExportFeature && insight.short_id && (
                                                 <>
-                                                    <ExportButton insightShortId={insight.short_id} fullWidth />
                                                     {usingSubscriptionFeature && (
                                                         <SubscribeButton insightShortId={insight.short_id} />
                                                     )}
+                                                    <ExportButton insightShortId={insight.short_id} fullWidth />
                                                     <LemonDivider />
                                                 </>
                                             )}

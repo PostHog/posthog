@@ -177,10 +177,10 @@ export function DashboardHeader(): JSX.Element | null {
                                                         Pin dashboard
                                                     </LemonButton>
                                                 ))}
+                                            {usingSubscriptionFeature && <SubscribeButton dashboardId={dashboard.id} />}
                                             {usingExportFeature && (
                                                 <ExportButton dashboardId={dashboard.id} fullWidth type="stealth" />
                                             )}
-                                            {usingSubscriptionFeature && <SubscribeButton dashboardId={dashboard.id} />}
                                             <LemonDivider />
                                             <LemonButton
                                                 onClick={() =>
