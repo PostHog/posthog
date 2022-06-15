@@ -2,11 +2,11 @@ import secrets
 from datetime import timedelta
 from typing import Optional
 
-from django.conf import settings
 from django.db import models
 from django.utils.text import slugify
 
 from posthog.jwt import PosthogJwtAudience, decode_jwt, encode_jwt
+from posthog.utils import absolute_uri
 
 PUBLIC_ACCESS_TOKEN_EXP_DAYS = 365
 
@@ -68,11 +68,11 @@ class ExportedAsset(models.Model):
 
     @property
     def url(self):
-        return f"{settings.SITE_URL}/exporter/{self.access_token}"
+        return absolute_uri(f"/exporter/{self.access_token}")
 
     def get_public_content_url(self, expiry_delta: Optional[timedelta] = None):
         token = get_public_access_token(self, expiry_delta)
-        return f"{settings.SITE_URL}/exporter/{self.filename}?token={token}"
+        return absolute_uri(f"/exporter/{self.filename}?token={token}")
 
 
 def get_public_access_token(asset: ExportedAsset, expiry_delta: Optional[timedelta] = None) -> str:

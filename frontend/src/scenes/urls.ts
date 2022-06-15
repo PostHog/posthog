@@ -16,6 +16,11 @@ export const urls = {
     dashboards: (): string => '/dashboard',
     dashboard: (id: string | number, highlightInsightId?: string): string =>
         combineUrl(`/dashboard/${id}`, highlightInsightId ? { highlightInsightId } : {}).url,
+
+    dashboardSubcriptions: (id: string | number): string => `/dashboard/${id}/subscriptions`,
+    dashboardSubcription: (id: string | number, subscriptionId: string): string =>
+        `/dashboard/${id}/subscriptions/${subscriptionId}`,
+
     sharedDashboard: (shareToken: string): string => `/shared_dashboard/${shareToken}`,
     createAction: (): string => `/data-management/actions/new`, // TODO: For consistency, this should be `/action/new`
     action: (id: string | number): string => `/data-management/actions/${id}`,

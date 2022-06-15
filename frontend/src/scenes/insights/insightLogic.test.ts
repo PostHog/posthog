@@ -750,4 +750,21 @@ describe('insightLogic', () => {
             })
         })
     })
+
+    describe('setFilters with new entity', () => {
+        it('does not call the api on empty filters', async () => {
+            const insight = {
+                result: ['result from api'],
+            }
+            logic = insightLogic({
+                dashboardItemId: undefined,
+                cachedInsight: insight,
+            })
+            logic.mount()
+
+            await expectLogic(logic, () => {
+                logic.actions.setFilters({ new_entity: [] })
+            }).toNotHaveDispatchedActions(['loadResults'])
+        })
+    })
 })

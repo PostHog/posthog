@@ -1900,10 +1900,10 @@ export interface SubscriptionType {
     target_value: string
     frequency: 'daily' | 'weekly' | 'monthly' | 'yearly'
     interval: number
-    byweekday: WeekdayType[]
-    bysetpos: number
+    byweekday: WeekdayType[] | null
+    bysetpos: number | null
     start_date: string
-    until_date: string
+    until_date?: string
     title: string
     created_by?: UserBasicType | null
     created_at: string

@@ -49,6 +49,7 @@ const EDITABLE_INSTANCE_SETTINGS = [
     'EMAIL_REPLY_TO',
     'AGGREGATE_BY_DISTINCT_IDS_TEAMS',
     'ENABLE_ACTOR_ON_EVENTS_TEAMS',
+    'STRICT_CACHING_TEAMS',
 ]
 
 export const systemStatusLogic = kea<systemStatusLogicType>({

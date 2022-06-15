@@ -1,4 +1,5 @@
 from datetime import timedelta
+from typing import Any, Dict
 
 from dateutil.rrule import (
     FR,
@@ -10,12 +11,14 @@ from dateutil.rrule import (
     WE,
     rrule,
 )
-from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
+from django.db.models.signals import post_save
+from django.dispatch import receiver
 from django.utils import timezone
 
 from posthog.jwt import PosthogJwtAudience, decode_jwt, encode_jwt
+from posthog.utils import absolute_uri
 
 # Copied from rrule as it is not exported
 FREQNAMES = ["YEARLY", "MONTHLY", "WEEKLY", "DAILY", "HOURLY", "MINUTELY", "SECONDLY"]
@@ -115,10 +118,33 @@ class Subscription(models.Model):
     @property
     def url(self):
         if self.insight:
-            return f"{settings.SITE_URL}/insights/{self.insight.short_id}/subscriptions/{self.id}"
+            return absolute_uri(f"/insights/{self.insight.short_id}/subscriptions/{self.id}")
         elif self.dashboard:
-            return f"{settings.SITE_URL}/dashboard/{self.dashboard.id}/subscriptions/{self.id}"
+            return absolute_uri(f"/dashboard/{self.dashboard.id}/subscriptions/{self.id}")
         return None
+
+    def get_analytics_metadata(self) -> Dict[str, Any]:
+        """
+        Returns serialized information about the object for analytics reporting.
+        """
+        return {
+            "id": self.id,
+            "target_type": self.target_type,
+            "num_emails_invited": len(self.target_value.split(",")) if self.target_type == "email" else None,
+            "frequency": self.frequency,
+            "interval": self.interval,
+            "byweekday": self.byweekday,
+            "bysetpos": self.bysetpos,
+        }
+
+
+@receiver(post_save, sender=Subscription, dispatch_uid="hook-subscription-saved")
+def subscription_saved(sender, instance, created, raw, using, **kwargs):
+    from posthog.event_usage import report_user_action
+
+    if instance.created_by:
+        event_name: str = "subscription created" if created else "subscription updated"
+        report_user_action(instance.created_by, event_name, instance.get_analytics_metadata())
 
 
 def to_rrule_weekdays(weekday: Subscription.SubscriptionByWeekDay):
