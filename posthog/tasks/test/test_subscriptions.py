@@ -5,10 +5,13 @@ from unittest.mock import MagicMock, call, patch
 import pytz
 from freezegun import freeze_time
 
+from posthog.models.dashboard import Dashboard
+from posthog.models.dashboard_tile import DashboardTile
 from posthog.models.insight import Insight
 from posthog.models.instance_setting import set_instance_setting
 from posthog.models.subscription import Subscription
 from posthog.tasks.subscriptions import (
+    MAX_ASSET_COUNT,
     deliver_new_subscription,
     deliver_subscription_report,
     schedule_all_subscriptions,
@@ -17,7 +20,7 @@ from posthog.tasks.test.utils_email_tests import mock_email_messages
 from posthog.test.base import APIBaseTest
 
 
-def _create_insight_subscription(**kwargs: Any) -> Subscription:
+def _create_subscription(**kwargs: Any) -> Subscription:
     return Subscription.objects.create(
         target_type="email",
         target_value="test1@posthog.com,test2@posthog.com",
@@ -34,17 +37,25 @@ def _create_insight_subscription(**kwargs: Any) -> Subscription:
 @freeze_time("2022-02-02T08:55:00.000Z")
 class TestSubscriptionsTasks(APIBaseTest):
     subscriptions: List[Subscription] = None  # type: ignore
+    dashboard: Dashboard
+    insight: Insight
+    tiles: List[DashboardTile] = None  # type: ignore
 
     def setUp(self) -> None:
-        insight = Insight.objects.create(team=self.team, short_id="123456", name="My Test subscription")
+        self.dashboard = Dashboard.objects.create(team=self.team, name="private dashboard", created_by=self.user)
+        self.insight = Insight.objects.create(team=self.team, short_id="123456", name="My Test subscription")
+        self.tiles = []
+        for _ in range(10):
+            self.tiles.append(DashboardTile.objects.create(dashboard=self.dashboard, insight=self.insight))
+
         set_instance_setting("EMAIL_HOST", "fake_host")
         set_instance_setting("EMAIL_ENABLED", True)
 
         self.subscriptions = [
-            _create_insight_subscription(team=self.team, insight=insight, created_by=self.user),
-            _create_insight_subscription(team=self.team, insight=insight, created_by=self.user),
-            _create_insight_subscription(team=self.team, insight=insight, created_by=self.user),
-            _create_insight_subscription(team=self.team, insight=insight, created_by=self.user, deleted=True),
+            _create_subscription(team=self.team, insight=self.insight, created_by=self.user),
+            _create_subscription(team=self.team, insight=self.insight, created_by=self.user),
+            _create_subscription(team=self.team, dashboard=self.dashboard, created_by=self.user),
+            _create_subscription(team=self.team, dashboard=self.dashboard, created_by=self.user, deleted=True),
         ]
 
     @patch("posthog.tasks.subscriptions.deliver_subscription_report")
@@ -108,4 +119,21 @@ class TestSubscriptionsTasks(APIBaseTest):
         assert mocked_email_messages[0].send.call_count == 1
         assert "You have been subscribed" in mocked_email_messages[0].html_body
         assert "You have been subscribed to a PostHog Insight" == mocked_email_messages[0].subject
-        assert mock_export_task.s.call_count == 1
+
+    def test_sends_dashboard_subscription(
+        self, MockEmailMessage: MagicMock, mock_export_task: MagicMock, mock_group: MagicMock
+    ) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+
+        subscription = _create_subscription(team=self.team, dashboard=self.dashboard, created_by=self.user)
+
+        deliver_new_subscription(
+            subscription.id, new_emails=[self.user.email], invite_message="My invite message",
+        )
+
+        assert len(mocked_email_messages) == 1
+        assert mocked_email_messages[0].send.call_count == 1
+        assert "You have been subscribed" in mocked_email_messages[0].html_body
+        assert "You have been subscribed to a PostHog Dashboard" == mocked_email_messages[0].subject
+        assert f"SHOWING 6 OF {len(self.tiles)} DASHBOARD INSIGHTS" in mocked_email_messages[0].html_body
+        assert mock_export_task.s.call_count == MAX_ASSET_COUNT

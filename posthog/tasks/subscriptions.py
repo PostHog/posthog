@@ -17,27 +17,25 @@ from posthog.tasks.exporter import export_task
 
 logger = structlog.get_logger(__name__)
 
+MAX_ASSET_COUNT = 6
+
 
 def get_unsubscribe_url(subscription: Subscription, email: str) -> str:
     return f"{settings.SITE_URL}/unsubscribe?token={get_unsubscribe_token(subscription, email)}"
 
 
 def get_tiles_ordered_by_position(dashboard: Dashboard) -> List[DashboardTile]:
-    tiles = list(
-        DashboardTile.objects.filter(dashboard=dashboard)
-        .select_related("insight__created_by", "insight__last_modified_by", "insight__team__organization")
-        .prefetch_related("insight__dashboards__team__organization")
-        .order_by("insight__order")
-        .all()
-    )
-
+    tiles = list(DashboardTile.objects.filter(dashboard=dashboard).order_by("insight__order").all())
     tiles.sort(key=lambda x: x.layouts.get("xs", {}).get("y", 100))
-
     return tiles
 
 
 def send_email_subscription_report(
-    email: str, subscription: Subscription, assets: List[ExportedAsset], invite_message: Optional[str] = None
+    email: str,
+    subscription: Subscription,
+    assets: List[ExportedAsset],
+    invite_message: Optional[str] = None,
+    total_asset_count: Optional[int] = None,
 ) -> None:
     inviter = subscription.created_by
     is_invite = invite_message is not None
@@ -82,6 +80,7 @@ def send_email_subscription_report(
             "inviter": inviter if is_invite else None,
             "self_invite": self_invite,
             "invite_message": invite_message,
+            "total_asset_count": total_asset_count,
         },
     )
     message.add_recipient(email=email)
@@ -104,25 +103,24 @@ def _deliver_subscription_report(
 
     if subscription.target_type == "email":
         insights = []
-        assets = []
 
         if subscription.dashboard:
             tiles = get_tiles_ordered_by_position(subscription.dashboard)
-
-            for tile in tiles[:6]:
-                insights.append(tile.insight)
+            insights = [tile.insight for tile in tiles]
         elif subscription.insight:
             insights = [subscription.insight]
         else:
             raise Exception("There are no insights to be sent for this Subscription")
 
-        tasks = []
-        for insight in insights:
-            asset = ExportedAsset.objects.create(team=subscription.team, export_format="image/png", insight=insight)
+        # Create all the assets we need
+        assets = [
+            ExportedAsset(team=subscription.team, export_format="image/png", insight=insight)
+            for insight in insights[:MAX_ASSET_COUNT]
+        ]
+        ExportedAsset.objects.bulk_create(assets)
 
-            tasks.append(export_task.s(asset.id))
-            assets.append(asset)
-
+        # Wait for all assets to be exported
+        tasks = [export_task.s(asset.id) for asset in assets]
         parallel_job = group(tasks).apply_async()
 
         max_wait = 30
@@ -132,12 +130,17 @@ def _deliver_subscription_report(
             if max_wait < 0:
                 raise Exception("Timed out waiting for exports")
 
+        # Send emails
         emails_to_send = new_emails or subscription.target_value.split(",")
 
         for email in emails_to_send:
             try:
                 send_email_subscription_report(
-                    email, subscription, assets, invite_message=invite_message or "" if is_invite else None
+                    email,
+                    subscription,
+                    assets,
+                    invite_message=invite_message or "" if is_invite else None,
+                    total_asset_count=len(insights),
                 )
             except Exception as e:
                 logger.error(e)
