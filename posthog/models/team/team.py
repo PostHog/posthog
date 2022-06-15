@@ -94,9 +94,7 @@ class Team(UUIDClassicModel):
     )
     app_urls: ArrayField = ArrayField(models.CharField(max_length=200, null=True), default=list, blank=True)
     name: models.CharField = models.CharField(
-        max_length=200,
-        default="Default Project",
-        validators=[MinLengthValidator(1, "Project must have a name!")],
+        max_length=200, default="Default Project", validators=[MinLengthValidator(1, "Project must have a name!")],
     )
     slack_incoming_webhook: models.CharField = models.CharField(max_length=500, null=True, blank=True)
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True)
