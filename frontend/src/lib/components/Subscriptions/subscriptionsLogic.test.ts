@@ -78,8 +78,7 @@ describe('subscriptionsLogic', () => {
     })
 
     it('loads subscriptions', async () => {
-        await expectLogic(logic).toFinishListeners()
-        await expectLogic(logic).toMatchValues({
+        await expectLogic(logic).toFinishListeners().toMatchValues({
             subscriptions: [],
             subscriptionsLoading: false,
         })
@@ -89,8 +88,7 @@ describe('subscriptionsLogic', () => {
         })
         logic.mount()
 
-        await expectLogic(logic).toFinishListeners()
-        await expectLogic(logic).toMatchValues({
+        await expectLogic(logic).toFinishListeners().toMatchValues({
             subscriptions: subscriptions,
             subscriptionsLoading: false,
         })

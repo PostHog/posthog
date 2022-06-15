@@ -28,7 +28,8 @@ import { SubscriptionsModal, SubscribeButton } from 'lib/components/Subscription
 import { router } from 'kea-router'
 
 export function DashboardHeader(): JSX.Element | null {
-    const { dashboard, allItemsLoading, dashboardMode, canEditDashboard, subscriptionMode } = useValues(dashboardLogic)
+    const { dashboard, allItemsLoading, dashboardMode, canEditDashboard, showSubscriptions, subscriptionId } =
+        useValues(dashboardLogic)
     const { setDashboardMode, triggerDashboardUpdate } = useActions(dashboardLogic)
     const { dashboardTags } = useValues(dashboardsLogic)
     const { updateDashboard, pinDashboard, unpinDashboard, deleteDashboard, duplicateDashboard } =
@@ -43,7 +44,6 @@ export function DashboardHeader(): JSX.Element | null {
     const usingSubscriptionFeature = featureFlags[FEATURE_FLAGS.INSIGHT_SUBSCRIPTIONS]
     const { push } = useActions(router)
 
-    console.log({ subscriptionMode })
     return dashboard || allItemsLoading ? (
         <>
             {dashboardMode === DashboardMode.Fullscreen && (
@@ -53,10 +53,10 @@ export function DashboardHeader(): JSX.Element | null {
 
             {dashboard && (
                 <SubscriptionsModal
-                    visible={subscriptionMode.enabled}
+                    visible={showSubscriptions}
                     closeModal={() => push(urls.dashboard(dashboard.id))}
                     dashboardId={dashboard.id}
-                    subscriptionId={subscriptionMode.id}
+                    subscriptionId={subscriptionId}
                 />
             )}
 

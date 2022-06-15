@@ -336,10 +336,17 @@ export const dashboardLogic = kea<dashboardLogicType>({
             },
         ],
 
-        subscriptionMode: [
-            { enabled: false, id: null },
+        showSubscriptions: [
+            false,
             {
-                setSubscriptionMode: (_, { enabled, id }) => ({ enabled, id }),
+                setSubscriptionMode: (_, { enabled }) => enabled,
+            },
+        ],
+
+        subscriptionId: [
+            null as number | 'new' | null,
+            {
+                setSubscriptionMode: (_, { id }) => id || null,
             },
         ],
     }),
