@@ -7,32 +7,12 @@ import { IconEllipsis } from 'lib/components/icons'
 import { ProfileBubbles } from 'lib/components/ProfilePicture'
 import { subscriptionsLogic } from '../subscriptionsLogic'
 import { Skeleton } from 'antd'
-import { bysetposOptions, SubscriptionBaseProps } from '../utils'
+import { SubscriptionBaseProps, summarizeSubscription } from '../utils'
 
 interface SubscriptionListItemProps {
     subscription: SubscriptionType
     onClick: () => void
     onDelete?: () => void
-}
-
-const humanFrequencyMap: { [key in SubscriptionType['frequency']]: string } = {
-    daily: 'day',
-    weekly: 'week',
-    monthly: 'month',
-    yearly: 'year',
-}
-
-export function summarizeSubscription(subscription: SubscriptionType): string {
-    const frequency = pluralize(subscription.interval, humanFrequencyMap[subscription.frequency], undefined, false)
-    let summary = `Sent every ${subscription.interval > 1 ? subscription.interval + ' ' : ''}${frequency}`
-
-    if (subscription.byweekday?.length && subscription.bysetpos) {
-        summary += ` on the ${bysetposOptions[subscription.bysetpos]?.label} ${
-            subscription.byweekday.length === 1 ? subscription.byweekday[0] : 'day'
-        }`
-    }
-
-    return summary
 }
 
 export function SubscriptionListItem({ subscription, onClick, onDelete }: SubscriptionListItemProps): JSX.Element {

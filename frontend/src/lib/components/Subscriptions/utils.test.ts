@@ -1,6 +1,5 @@
 import { SubscriptionType, WeekdayType } from '~/types'
-import { weekdayOptions } from '../utils'
-import { summarizeSubscription } from './ManageSubscriptions'
+import { summarizeSubscription, weekdayOptions } from './utils'
 
 const createSubscription = (props: Partial<SubscriptionType> = {}): SubscriptionType =>
     ({
