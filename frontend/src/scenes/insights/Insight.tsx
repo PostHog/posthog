@@ -142,6 +142,25 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                                 <More
                                     overlay={
                                         <>
+                                            <LemonButton
+                                                type="stealth"
+                                                onClick={() => duplicateInsight(insight as InsightModel, true)}
+                                                fullWidth
+                                            >
+                                                Duplicate
+                                            </LemonButton>
+                                            <LemonButton
+                                                type="stealth"
+                                                onClick={() =>
+                                                    setInsightMetadata({
+                                                        favorited: !insight.favorited,
+                                                    })
+                                                }
+                                                fullWidth
+                                            >
+                                                {insight.favorited ? 'Remove from favorites' : 'Add to favorites'}
+                                            </LemonButton>
+                                            <LemonDivider />
                                             {usingExportFeature && insight.short_id && (
                                                 <>
                                                     {usingSubscriptionFeature && (
@@ -151,15 +170,7 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                                                     <LemonDivider />
                                                 </>
                                             )}
-                                            <LemonButton
-                                                type="stealth"
-                                                onClick={() => duplicateInsight(insight as InsightModel, true)}
-                                                fullWidth
-                                            >
-                                                Duplicate
-                                            </LemonButton>
 
-                                            <LemonDivider />
                                             <LemonButton
                                                 type="stealth"
                                                 status="danger"
