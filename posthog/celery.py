@@ -274,7 +274,7 @@ def recompute_materialized_columns_enabled() -> bool:
 @app.task(ignore_result=True)
 def clickhouse_materialize_columns():
     if recompute_materialized_columns_enabled():
-        from ee.clickhouse.materialized_columns.analyze import materialize_properties_task
+        from posthog.clickhouse.materialized_columns.analyze import materialize_properties_task
 
         materialize_properties_task()
 

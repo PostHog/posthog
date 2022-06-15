@@ -14,8 +14,8 @@ import django
 
 django.setup()
 
-from ee.clickhouse.materialized_columns.columns import get_materialized_columns
 from posthog import client
+from posthog.clickhouse.materialized_columns.columns import get_materialized_columns
 from posthog.models.utils import UUIDT
 
 get_column = lambda rows, index: [row[index] for row in rows]

@@ -1,5 +1,5 @@
-from ee.clickhouse.materialized_columns.analyze import Query, TeamManager
 from posthog.clickhouse.kafka_engine import trim_quotes_expr
+from posthog.clickhouse.materialized_columns.analyze import Query, TeamManager
 from posthog.models import Person, PropertyDefinition
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 

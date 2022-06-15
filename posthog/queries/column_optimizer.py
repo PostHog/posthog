@@ -1,6 +1,6 @@
 from typing import Counter, List, Set, Union, cast
 
-from ee.clickhouse.materialized_columns.columns import ColumnName, get_materialized_columns
+from posthog.clickhouse.materialized_columns.columns import ColumnName, get_materialized_columns
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, FunnelCorrelationType
 from posthog.models.action.util import get_action_tables_and_properties, uses_elements_chain
 from posthog.models.entity import Entity

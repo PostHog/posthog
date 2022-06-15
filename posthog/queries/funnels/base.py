@@ -5,8 +5,8 @@ from typing import Any, Dict, List, Optional, Tuple, Union, cast
 
 from rest_framework.exceptions import ValidationError
 
-from ee.clickhouse.materialized_columns.columns import ColumnName
 from ee.clickhouse.queries.breakdown_props import format_breakdown_cohort_join_query, get_breakdown_prop_values
+from posthog.clickhouse.materialized_columns.columns import ColumnName
 from posthog.client import sync_execute
 from posthog.constants import (
     FUNNEL_WINDOW_INTERVAL,

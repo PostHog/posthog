@@ -3,7 +3,7 @@
 from .helpers import *
 from datetime import timedelta
 from typing import List, Tuple
-from ee.clickhouse.materialized_columns import backfill_materialized_columns, get_materialized_columns, materialize
+from posthog.clickhouse.materialized_columns import backfill_materialized_columns, get_materialized_columns, materialize
 from ee.clickhouse.queries.stickiness import ClickhouseStickiness
 from ee.clickhouse.queries.funnels.funnel_correlation import FunnelCorrelation
 from posthog.queries.funnels import ClickhouseFunnel

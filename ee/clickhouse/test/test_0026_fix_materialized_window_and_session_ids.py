@@ -1,6 +1,6 @@
 import importlib
 
-from ee.clickhouse.materialized_columns.columns import materialize
+from posthog.clickhouse.materialized_columns.columns import materialize
 from posthog.client import sync_execute
 from posthog.conftest import create_clickhouse_tables
 from posthog.settings import CLICKHOUSE_DATABASE

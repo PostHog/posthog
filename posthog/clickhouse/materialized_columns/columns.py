@@ -4,9 +4,9 @@ from typing import Dict, List, Literal, Union
 
 from django.utils.timezone import now
 
-from ee.clickhouse.materialized_columns.util import cache_for
-from ee.clickhouse.replication.utils import clickhouse_is_replicated
 from posthog.clickhouse.kafka_engine import trim_quotes_expr
+from posthog.clickhouse.materialized_columns.util import cache_for
+from posthog.clickhouse.replication.utils import clickhouse_is_replicated
 from posthog.client import sync_execute
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.property import PropertyName, TableWithProperties

@@ -1,6 +1,6 @@
 import pytest
 
-from ee.clickhouse.materialized_columns import materialize
+from posthog.clickhouse.materialized_columns import materialize
 from posthog.client import sync_execute
 from posthog.models.filters import Filter
 from posthog.models.team import Team

@@ -1,7 +1,11 @@
 from celery.utils.log import get_task_logger
 
-from ee.clickhouse.materialized_columns.columns import TRIM_AND_EXTRACT_PROPERTY, ColumnName, get_materialized_columns
-from ee.clickhouse.replication.utils import clickhouse_is_replicated
+from posthog.clickhouse.materialized_columns.columns import (
+    TRIM_AND_EXTRACT_PROPERTY,
+    ColumnName,
+    get_materialized_columns,
+)
+from posthog.clickhouse.replication.utils import clickhouse_is_replicated
 from posthog.client import sync_execute
 from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
 

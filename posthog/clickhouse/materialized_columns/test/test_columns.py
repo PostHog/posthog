@@ -4,12 +4,12 @@ from time import sleep
 
 from freezegun import freeze_time
 
-from ee.clickhouse.materialized_columns.columns import (
+from ee.tasks.materialized_columns import mark_all_materialized
+from posthog.clickhouse.materialized_columns.columns import (
     backfill_materialized_columns,
     get_materialized_columns,
     materialize,
 )
-from ee.tasks.materialized_columns import mark_all_materialized
 from posthog.client import sync_execute
 from posthog.conftest import create_clickhouse_tables
 from posthog.constants import GROUP_TYPES_LIMIT

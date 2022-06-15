@@ -212,7 +212,7 @@ def test_with_materialized_columns(event_properties=[], person_properties=[], ve
     """
 
     try:
-        from ee.clickhouse.materialized_columns import get_materialized_columns, materialize
+        from posthog.clickhouse.materialized_columns import get_materialized_columns, materialize
     except:
         # EE not available? Just run the main test
         return lambda fn: fn

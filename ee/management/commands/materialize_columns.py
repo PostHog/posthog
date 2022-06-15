@@ -2,7 +2,7 @@ import logging
 
 from django.core.management.base import BaseCommand
 
-from ee.clickhouse.materialized_columns.analyze import logger, materialize_properties_task
+from posthog.clickhouse.materialized_columns.analyze import logger, materialize_properties_task
 from posthog.settings import (
     MATERIALIZE_COLUMNS_ANALYSIS_PERIOD_HOURS,
     MATERIALIZE_COLUMNS_BACKFILL_PERIOD_DAYS,

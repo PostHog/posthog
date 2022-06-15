@@ -5,7 +5,7 @@ from typing import Dict, List, Literal, Optional, Tuple, Union, cast
 
 from rest_framework.exceptions import ValidationError
 
-from ee.clickhouse.materialized_columns.columns import ColumnName
+from posthog.clickhouse.materialized_columns.columns import ColumnName
 from posthog.client import sync_execute
 from posthog.constants import FUNNEL_PATH_BETWEEN_STEPS, LIMIT, PATH_EDGE_LIMIT
 from posthog.models import Filter, Team

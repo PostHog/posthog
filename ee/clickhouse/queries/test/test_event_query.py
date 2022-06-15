@@ -1,7 +1,7 @@
 from freezegun import freeze_time
 
-from ee.clickhouse.materialized_columns import materialize
 from ee.clickhouse.models.group import create_group
+from posthog.clickhouse.materialized_columns import materialize
 from posthog.client import sync_execute
 from posthog.models import Action, ActionStep
 from posthog.models.cohort import Cohort

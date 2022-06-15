@@ -1,6 +1,6 @@
 from infi.clickhouse_orm import migrations
 
-from ee.clickhouse.materialized_columns.columns import materialize
+from posthog.clickhouse.materialized_columns.columns import materialize
 
 
 def create_materialized_columns(database):

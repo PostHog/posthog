@@ -5,18 +5,18 @@ from typing import Dict, Generator, List, Optional, Set, Tuple
 
 import structlog
 
-from ee.clickhouse.materialized_columns.columns import (
-    backfill_materialized_columns,
-    get_materialized_columns,
-    materialize,
-)
-from ee.clickhouse.materialized_columns.util import instance_memoize
 from ee.settings import (
     MATERIALIZE_COLUMNS_ANALYSIS_PERIOD_HOURS,
     MATERIALIZE_COLUMNS_BACKFILL_PERIOD_DAYS,
     MATERIALIZE_COLUMNS_MAX_AT_ONCE,
     MATERIALIZE_COLUMNS_MINIMUM_QUERY_TIME,
 )
+from posthog.clickhouse.materialized_columns.columns import (
+    backfill_materialized_columns,
+    get_materialized_columns,
+    materialize,
+)
+from posthog.clickhouse.materialized_columns.util import instance_memoize
 from posthog.client import sync_execute
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.person.sql import GET_PERSON_PROPERTIES_COUNT
