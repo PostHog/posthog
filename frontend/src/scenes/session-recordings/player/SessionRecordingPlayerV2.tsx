@@ -13,7 +13,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { sessionRecordingLogic } from '../sessionRecordingLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { Tooltip } from 'lib/components/Tooltip'
-import { LemonTag } from 'packages/apps-common'
+import { LemonTag } from 'lib/components/LemonTag/LemonTag'
 
 export function SessionRecordingPlayerV2(): JSX.Element {
     const { togglePlayPause, seekForward, seekBackward, setSpeed, setRootFrame } =
