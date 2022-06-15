@@ -50,10 +50,11 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
     forms(({ props, actions }) => ({
         subscription: {
             defaults: { ...NEW_SUBSCRIPTION } as SubscriptionType,
-            errors: ({ frequency, interval, target_value, target_type, title }) => ({
+            errors: ({ frequency, interval, target_value, target_type, title, start_date }) => ({
                 frequency: !frequency ? 'You need to set a schedule frequency' : undefined,
                 title: !title ? 'You need to give your subscription a name' : undefined,
-                interval: !interval ? 'You need to set a schedule time' : undefined,
+                interval: !interval ? 'You need to set an interval' : undefined,
+                start_date: !start_date ? 'You need to set a delivery time' : undefined,
                 target_value:
                     target_type == 'email'
                         ? !target_value
