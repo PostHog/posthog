@@ -1,4 +1,5 @@
 import { ProcessedPluginEvent, RetryError } from '@posthog/plugin-scaffold'
+import { captureException } from '@sentry/node'
 
 import { Hub, PluginConfig } from '../types'
 import { processError } from '../utils/db/error'
@@ -50,7 +51,7 @@ async function iterateRetryLoop(
             })
             nextIterationTimeout = setTimeout(() => {
                 // This is intentionally voided so that attempts beyond the first one don't stall the event queue
-                void iterateRetryLoop(
+                iterateRetryLoop(
                     tag,
                     hub,
                     pluginConfig,
@@ -64,7 +65,7 @@ async function iterateRetryLoop(
                         retryMultiplier,
                     },
                     attempt + 1
-                )
+                ).catch(captureException)
             }, nextRetryMs)
         } else {
             await catchFn?.(error)
