@@ -73,7 +73,7 @@ export function HelpButton({
         <Popup
             overlay={
                 <>
-                    <a href={`https://posthog.com/slack${HELP_UTM_TAGS}`} rel="noopener" target="_blank">
+                    <a href={`https://posthog.com/questions${HELP_UTM_TAGS}`} rel="noopener" target="_blank">
                         <LemonButton
                             icon={<IconQuestionAnswer />}
                             type="stealth"
@@ -83,7 +83,7 @@ export function HelpButton({
                                 hideHelp()
                             }}
                         >
-                            Message us on Slack
+                            Ask us a question
                         </LemonButton>
                     </a>
                     <a href="https://github.com/PostHog/posthog/issues/new/choose" rel="noopener" target="_blank">
