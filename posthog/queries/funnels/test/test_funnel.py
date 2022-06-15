@@ -5,7 +5,6 @@ from unittest.mock import patch
 from freezegun import freeze_time
 from rest_framework.exceptions import ValidationError
 
-from ee.clickhouse.test.test_journeys import journeys_for
 from posthog.constants import FILTER_TEST_ACCOUNTS, INSIGHT_FUNNELS
 from posthog.models import Action, ActionStep, Element
 from posthog.models.cohort import Cohort
@@ -22,6 +21,7 @@ from posthog.test.base import (
     snapshot_clickhouse_queries,
     test_with_materialized_columns,
 )
+from posthog.test.test_journeys import journeys_for
 
 
 def _create_action(**kwargs):

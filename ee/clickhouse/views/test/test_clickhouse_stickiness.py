@@ -6,13 +6,13 @@ from freezegun.api import freeze_time
 
 from ee.clickhouse.models.group import create_group
 from ee.clickhouse.queries.stickiness import ClickhouseStickiness
-from ee.clickhouse.test.test_journeys import journeys_for
 from posthog.api.test.test_stickiness import get_stickiness_time_series_ok, stickiness_test_factory
 from posthog.models.action import Action
 from posthog.models.action_step import ActionStep
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.queries.util import get_earliest_timestamp
 from posthog.test.base import ClickhouseTestMixin, _create_event, _create_person, snapshot_clickhouse_queries
+from posthog.test.test_journeys import journeys_for
 
 
 def _create_action(**kwargs):

@@ -2,7 +2,6 @@ from datetime import datetime
 
 from ee.clickhouse.models.group import create_group
 from ee.clickhouse.queries.funnels.test.breakdown_cases import funnel_breakdown_group_test_factory
-from ee.clickhouse.test.test_journeys import journeys_for
 from posthog.constants import INSIGHT_FUNNELS
 from posthog.models.action import Action
 from posthog.models.action_step import ActionStep
@@ -14,6 +13,7 @@ from posthog.queries.funnels.funnel_persons import ClickhouseFunnelActors
 from posthog.queries.funnels.test.breakdown_cases import funnel_breakdown_test_factory
 from posthog.queries.funnels.test.test_funnel import _create_action, funnel_test_factory
 from posthog.test.base import ClickhouseTestMixin, _create_event, _create_person
+from posthog.test.test_journeys import journeys_for
 
 
 class TestFunnelBreakdown(ClickhouseTestMixin, funnel_breakdown_test_factory(ClickhouseFunnel, ClickhouseFunnelActors, _create_event, _create_action, _create_person), funnel_breakdown_group_test_factory(ClickhouseFunnel, ClickhouseFunnelActors, _create_event, _create_action, _create_person)):  # type: ignore

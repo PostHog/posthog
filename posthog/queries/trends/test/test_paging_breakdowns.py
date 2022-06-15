@@ -2,10 +2,10 @@ from typing import Dict, Optional
 
 from freezegun import freeze_time
 
-from ee.clickhouse.test.test_journeys import journeys_for
 from posthog.models import Filter
 from posthog.queries.trends.trends import Trends
 from posthog.test.base import APIBaseTest
+from posthog.test.test_journeys import journeys_for
 
 
 class TestPagingBreakdowns(APIBaseTest):

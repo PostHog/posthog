@@ -1,7 +1,6 @@
 from datetime import datetime
 
 from ee.clickhouse.models.group import create_group
-from ee.clickhouse.test.test_journeys import journeys_for
 from posthog.models.entity import Entity
 from posthog.models.filters import Filter
 from posthog.models.group_type_mapping import GroupTypeMapping
@@ -10,6 +9,7 @@ from posthog.queries.test.test_trends import trend_test_factory
 from posthog.queries.trends.person import TrendsActors
 from posthog.queries.trends.trends import Trends
 from posthog.test.base import _create_event, snapshot_clickhouse_queries
+from posthog.test.test_journeys import journeys_for
 
 
 # override tests from test factory if intervals are different
