@@ -10,7 +10,7 @@ from posthog.models import FeatureFlag, GroupTypeMapping, User
 from posthog.models.cohort import Cohort
 from posthog.models.feature_flag import FeatureFlagOverride
 from posthog.test.base import APIBaseTest
-from posthog.test.db_test_helpers import capture_db_queries
+from posthog.test.db_context_capturing import capture_db_queries
 
 
 class TestFeatureFlag(APIBaseTest):

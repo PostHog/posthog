@@ -11,7 +11,7 @@ from rest_framework import status
 from posthog.models import Dashboard, DashboardTile, Filter, Insight, Team, User
 from posthog.models.organization import Organization
 from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries
-from posthog.test.db_test_helpers import capture_db_queries
+from posthog.test.db_context_capturing import capture_db_queries
 from posthog.utils import generate_cache_key
 
 

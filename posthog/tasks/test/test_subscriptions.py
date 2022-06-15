@@ -19,7 +19,7 @@ from posthog.tasks.subscriptions import (
 )
 from posthog.tasks.test.utils_email_tests import mock_email_messages
 from posthog.test.base import APIBaseTest
-from posthog.test.db_test_helpers import capture_db_queries
+from posthog.test.db_context_capturing import capture_db_queries
 
 
 def _create_subscription(**kwargs: Any) -> Subscription:

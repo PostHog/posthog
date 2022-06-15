@@ -26,7 +26,7 @@ from posthog.models import (
 from posthog.models.organization import OrganizationMembership
 from posthog.tasks.update_cache import update_insight_cache
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest, _create_event, _create_person
-from posthog.test.db_test_helpers import capture_db_queries
+from posthog.test.db_context_capturing import capture_db_queries
 
 
 class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatchingTest):
