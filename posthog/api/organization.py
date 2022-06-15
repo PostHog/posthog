@@ -9,7 +9,7 @@ from rest_framework.request import Request
 from posthog.api.shared import TeamBasicSerializer
 from posthog.constants import AvailableFeature
 from posthog.event_usage import report_organization_deleted
-from posthog.models import EventDefinition, Organization, User
+from posthog.models import Organization, User
 from posthog.models.organization import OrganizationMembership
 from posthog.models.signals import mute_selected_signals
 from posthog.models.team.util import delete_bulky_postgres_data
@@ -19,7 +19,6 @@ from posthog.permissions import (
     OrganizationMemberPermissions,
     extract_organization,
 )
-from posthog.settings import EE_AVAILABLE
 from posthog.tasks.delete_clickhouse_data import delete_clickhouse_data
 
 
@@ -115,13 +114,17 @@ class OrganizationSerializer(serializers.ModelSerializer):
             "taxonomy_set_properties_count": 0,
         }
 
-        if EE_AVAILABLE:
-            output["taxonomy_set_events_count"] = EventDefinition.objects.exclude(
-                description="", tagged_items__isnull=True
-            ).count()
-            output["taxonomy_set_properties_count"] = EventDefinition.objects.exclude(
-                description="", tagged_items__isnull=True
-            ).count()
+        try:
+            from ee.models import EnterpriseEventDefinition, EnterprisePropertyDefinition
+        except ImportError:
+            return output
+
+        output["taxonomy_set_events_count"] = EnterpriseEventDefinition.objects.exclude(
+            description="", tagged_items__isnull=True
+        ).count()
+        output["taxonomy_set_properties_count"] = EnterprisePropertyDefinition.objects.exclude(
+            description="", tagged_items__isnull=True
+        ).count()
 
         return output
 
