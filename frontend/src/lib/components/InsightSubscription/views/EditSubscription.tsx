@@ -7,7 +7,7 @@ import { membersLogic } from 'scenes/organization/Settings/membersLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { Field } from 'lib/forms/Field'
 import { dayjs } from 'lib/dayjs'
-import { LemonSelect } from 'lib/components/LemonSelect'
+import { LemonSelect, LemonSelectOptions, LemonSelectProps } from 'lib/components/LemonSelect'
 import { insightSubscriptionLogic } from '../insightSubscriptionLogic'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 import { IconChevronLeft, IconOpenInNew } from 'lib/components/icons'
@@ -61,6 +61,14 @@ export function EditSubscription({
             deleteSubscription(id)
             onDelete()
         }
+    }
+
+    const commonSelectProps: Partial<LemonSelectProps<LemonSelectOptions>> = {
+        dropdownPlacement: 'top-start',
+        type: 'stealth',
+        outlined: true,
+        disabled: emailDisabled,
+        dropdownMatchSelectWidth: false,
     }
 
     return (
@@ -162,20 +170,10 @@ export function EditSubscription({
                         <div className="flex gap-05 items-center border-all pa-05 flex-wrap">
                             <span>Send every</span>
                             <Field name={'interval'} style={{ marginBottom: 0 }}>
-                                <LemonSelect
-                                    type="stealth"
-                                    outlined
-                                    options={intervalOptions}
-                                    disabled={emailDisabled}
-                                />
+                                <LemonSelect {...commonSelectProps} options={intervalOptions} />
                             </Field>
                             <Field name={'frequency'} style={{ marginBottom: 0 }}>
-                                <LemonSelect
-                                    type="stealth"
-                                    outlined
-                                    options={frequencyOptions}
-                                    disabled={emailDisabled}
-                                />
+                                <LemonSelect {...commonSelectProps} options={frequencyOptions} />
                             </Field>
 
                             {subscription.frequency === 'weekly' && (
@@ -184,11 +182,8 @@ export function EditSubscription({
                                     <Field name={'byweekday'} style={{ marginBottom: 0 }}>
                                         {({ value, onChange }) => (
                                             <LemonSelect
-                                                type="stealth"
-                                                outlined
+                                                {...commonSelectProps}
                                                 options={weekdayOptions}
-                                                disabled={emailDisabled}
-                                                dropdownMatchSelectWidth={false}
                                                 value={value ? value[0] : 'monday'}
                                                 onChange={(val) => onChange([val])}
                                             />
@@ -203,12 +198,9 @@ export function EditSubscription({
                                     <Field name={'bysetpos'} style={{ marginBottom: 0 }}>
                                         {({ value, onChange }) => (
                                             <LemonSelect
-                                                type="stealth"
-                                                outlined
+                                                {...commonSelectProps}
                                                 options={bysetposOptions}
-                                                disabled={emailDisabled}
                                                 value={String(value || '1')}
-                                                dropdownMatchSelectWidth={false}
                                                 onChange={(val) => {
                                                     onChange(typeof val === 'string' ? parseInt(val, 10) : null)
                                                 }}
@@ -218,11 +210,8 @@ export function EditSubscription({
                                     <Field name={'byweekday'} style={{ marginBottom: 0 }}>
                                         {({ value, onChange }) => (
                                             <LemonSelect
-                                                type="stealth"
-                                                outlined
+                                                {...commonSelectProps}
                                                 options={monthlyWeekdayOptions}
-                                                disabled={emailDisabled}
-                                                dropdownMatchSelectWidth={false}
                                                 // "day" is a special case where it is a list of all available days
                                                 value={value ? (value.length === 1 ? value[0] : 'day') : null}
                                                 onChange={(val) =>
@@ -237,10 +226,8 @@ export function EditSubscription({
                             <Field name={'start_date'}>
                                 {({ value, onChange }) => (
                                     <LemonSelect
-                                        type="stealth"
-                                        outlined
+                                        {...commonSelectProps}
                                         options={timeOptions}
-                                        disabled={emailDisabled}
                                         value={dayjs(value).hour().toString()}
                                         onChange={(val) => {
                                             onChange(
