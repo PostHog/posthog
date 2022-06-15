@@ -103,16 +103,24 @@ class Cohort(models.Model):
             for group in self.groups:
                 if group.get("properties"):
 
-                    # KLUDGE: map 'event' to 'person' to handle faulty event type that used to be saved
+                    # KLUDGE: map 'event' to 'person' to handle faulty event type that
+                    # used to be saved for old properties
                     # TODO: Remove once the event type is swapped over
                     props = group.get("properties")
                     if isinstance(props, list):
                         for prop in props:
-                            if prop.get("type") == "event":
+                            if prop.get("type", "event") == "event":
                                 prop["type"] = "person"
-                    elif isinstance(props, dict):
-                        if props.get("type") == "event":
-                            props["type"] = "person"
+                    elif isinstance(props, dict) and "type" not in props and "values" not in props:
+                        # these are old-old properties
+                        # of the form {'key': 'value'}.
+                        # It's implicit here that they're all event types
+                        # so we convert them to a list
+                        new_properties = []
+                        for key, value in props.items():
+                            new_properties.append({"key": key, "value": value, "type": "person"})
+
+                        group["properties"] = new_properties
 
                     # Do not try simplifying properties at this stage. We'll let this happen at query time.
                     property_groups.append(
