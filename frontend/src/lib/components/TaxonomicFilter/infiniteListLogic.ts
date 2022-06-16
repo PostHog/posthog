@@ -130,17 +130,11 @@ export const infiniteListLogic = kea<infiniteListLogicType>({
                         return createEmptyListStorage(searchQuery)
                     }
 
-                    let searchParams = {
+                    const searchParams = {
                         [`${values.group?.searchAlias || 'search'}`]: searchQuery,
                         limit,
                         offset,
-                    }
-
-                    if (excludedProperties) {
-                        searchParams = {
-                            ...searchParams,
-                            excluded_properties: JSON.stringify(excludedProperties),
-                        }
+                        excluded_properties: JSON.stringify(excludedProperties),
                     }
 
                     const [response, expandedCountResponse] = await Promise.all([
