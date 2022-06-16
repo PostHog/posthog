@@ -1,24 +1,22 @@
 import React from 'react'
-import ReactDOM from 'react-dom'
-import { initKea } from '~/initKea'
 import { Dashboard } from '~/scenes/dashboard/Dashboard'
-import { loadPostHogJS } from '~/loadPostHogJS'
 import { FriendlyLogo } from '~/toolbar/assets/FriendlyLogo'
 import '~/styles'
 import './SharedDashboard.scss'
-import { DashboardPlacement, AvailableFeature } from '~/types'
+import { DashboardPlacement, AvailableFeature, DashboardType, TeamType } from '~/types'
 
-loadPostHogJS()
-initKea()
+interface SharedDashboardProps {
+    dashboard: Partial<DashboardType>
+    team: Partial<TeamType>
+    availableFeatures: AvailableFeature[]
+}
 
-const dashboard = (window as any).__SHARED_DASHBOARD__
-const isEmbedded = window.location.search.includes('embedded')
-const whiteLabel =
-    window.location.search.includes('whitelabel') &&
-    dashboard.available_features.includes(AvailableFeature.WHITE_LABELLING)
+export function SharedDashboard({ team, dashboard, availableFeatures }: SharedDashboardProps): JSX.Element {
+    const isEmbedded = window.location.search.includes('embedded')
+    const whiteLabel =
+        window.location.search.includes('whitelabel') && availableFeatures.includes(AvailableFeature.WHITE_LABELLING)
 
-ReactDOM.render(
-    <>
+    return (
         <div className="SharedDashboard">
             {!whiteLabel ? (
                 !isEmbedded ? (
@@ -32,7 +30,7 @@ ReactDOM.render(
                             </h1>
                             <span>{dashboard.description}</span>
                         </div>
-                        <span className="SharedDashboard-header-team">{dashboard.team_name}</span>
+                        <span className="SharedDashboard-header-team">{team.name}</span>
                     </div>
                 ) : (
                     <a
@@ -46,7 +44,11 @@ ReactDOM.render(
                 )
             ) : null}
 
-            <Dashboard id={dashboard.id} shareToken={dashboard.share_token} placement={DashboardPlacement.Public} />
+            <Dashboard
+                id={String(dashboard.id)}
+                shareToken={dashboard.share_token}
+                placement={DashboardPlacement.Public}
+            />
 
             {!whiteLabel && (
                 <div className="text-center pb">
@@ -61,6 +63,5 @@ ReactDOM.render(
                 </div>
             )}
         </div>
-    </>,
-    document.getElementById('root')
-)
+    )
+}

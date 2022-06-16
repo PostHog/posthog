@@ -15,7 +15,7 @@ export const __dirname = path.dirname(fileURLToPath(import.meta.url))
 startDevServer(__dirname)
 copyPublicFolder(path.resolve(__dirname, 'public'), path.resolve(__dirname, 'dist'))
 writeIndexHtml()
-writeSharedDashboardHtml()
+writeExporterHtml()
 
 const common = {
     absWorkingDir: __dirname,
@@ -33,15 +33,8 @@ await buildInParallel(
             ...common,
         },
         {
-            name: 'Shared Dashboard',
-            entryPoints: ['src/exporter/SharedDashboard.tsx'],
-            format: 'iife',
-            outfile: path.resolve(__dirname, 'dist', 'shared_dashboard.js'),
-            ...common,
-        },
-        {
             name: 'Exporter',
-            entryPoints: ['src/exporter/ExportViewer.tsx'],
+            entryPoints: ['src/exporter/Exporter.tsx'],
             format: 'iife',
             outfile: path.resolve(__dirname, 'dist', 'exporter.js'),
             ...common,
@@ -68,10 +61,6 @@ await buildInParallel(
                 writeIndexHtml(chunks, entrypoints)
             }
 
-            if (config.name === 'Shared Dashboard') {
-                writeSharedDashboardHtml(chunks, entrypoints)
-            }
-
             if (config.name === 'Exporter') {
                 writeExporterHtml(chunks, entrypoints)
             }
@@ -84,17 +73,6 @@ await buildInParallel(
 export function writeIndexHtml(chunks = {}, entrypoints = []) {
     copyIndexHtml(__dirname, 'src/index.html', 'dist/index.html', 'index', chunks, entrypoints)
     copyIndexHtml(__dirname, 'src/layout.html', 'dist/layout.html', 'index', chunks, entrypoints)
-}
-
-export function writeSharedDashboardHtml(chunks = {}, entrypoints = []) {
-    copyIndexHtml(
-        __dirname,
-        'src/exporter/shared_dashboard.html',
-        'dist/shared_dashboard.html',
-        'shared_dashboard',
-        chunks,
-        entrypoints
-    )
 }
 
 export function writeExporterHtml(chunks = {}, entrypoints = []) {

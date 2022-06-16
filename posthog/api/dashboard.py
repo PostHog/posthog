@@ -295,20 +295,19 @@ def shared_dashboard(request: HttpRequest, share_token: str):
     dashboard = get_object_or_404(
         Dashboard.objects.select_related("team__organization"), is_shared=True, share_token=share_token
     )
-    shared_dashboard_serialized = {
-        "id": dashboard.id,
-        "share_token": dashboard.share_token,
-        "name": dashboard.name,
-        "description": dashboard.description,
-        "team_name": dashboard.team.name,
-        "available_features": dashboard.team.organization.available_features,
+    exported_data = {
+        "type": "scene",
+        "dashboard": {
+            "id": dashboard.id,
+            "share_token": dashboard.share_token,
+            "name": dashboard.name,
+            "description": dashboard.description,
+        },
+        "team": {"name": dashboard.team.name},
+        "organization": {"available_features": dashboard.team.organization.available_features,},
     }
 
-    return render_template(
-        "shared_dashboard.html",
-        request=request,
-        context={"shared_dashboard_serialized": json.dumps(shared_dashboard_serialized)},
-    )
+    return render_template("exporter.html", request=request, context={"exported_data": json.dumps(exported_data)},)
 
 
 class LegacyInsightViewSet(InsightViewSet):
