@@ -36,6 +36,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { createActionFromEvent } from './createActionFromEvent'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { LemonTableConfig } from 'lib/components/ResizableTable/TableConfig'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 export interface FixedFilters {
     action_id?: ActionType['id']
@@ -120,7 +121,12 @@ export function EventsTable({
 
     const showLinkToPerson = !fixedFilters?.person_id
 
-    usePageVisibility(setPollingActive)
+    const { reportEventsTablePollingReactedToPageVisibility } = useActions(eventUsageLogic)
+
+    usePageVisibility((pageIsVisible) => {
+        setPollingActive(pageIsVisible)
+        reportEventsTablePollingReactedToPageVisibility(pageIsVisible)
+    })
 
     const newEventsRender = (
         { date_break, new_events }: EventsTableRowItem,

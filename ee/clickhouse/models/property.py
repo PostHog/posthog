@@ -16,7 +16,6 @@ from clickhouse_driver.util.escape import escape_param
 from rest_framework import exceptions
 
 from ee.clickhouse.materialized_columns.columns import TableWithProperties, get_materialized_columns
-from ee.clickhouse.models.util import is_json
 from ee.clickhouse.sql.groups import GET_GROUP_IDS_BY_PROPERTY_SQL
 from posthog.clickhouse.kafka_engine import trim_quotes_expr
 from posthog.constants import PropertyOperatorType
@@ -40,7 +39,7 @@ from posthog.models.property import (
 )
 from posthog.models.utils import PersonPropertiesMode
 from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
-from posthog.utils import is_valid_regex
+from posthog.utils import is_json, is_valid_regex
 
 # Property Groups Example:
 # {type: 'AND', groups: [
