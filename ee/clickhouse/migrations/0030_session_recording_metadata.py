@@ -1,6 +1,6 @@
 from infi.clickhouse_orm import migrations
 
-from posthog.models.session_recording_metadata.session_recording_metadata import (
+from posthog.models.session_recording_metadata.sql import (
     DISTRIBUTED_SESSION_RECORDING_METADATA_TABLE_SQL,
     KAFKA_SESSION_RECORDING_METADATA_TABLE_SQL,
     SESSION_RECORDING_METADATA_TABLE_MV_SQL,
