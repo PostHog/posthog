@@ -82,6 +82,8 @@ export class EventsProcessor {
 
             const personState = new PersonState(
                 data,
+                teamId,
+                distinctId,
                 timestamp,
                 this.db,
                 this.pluginsServer.statsd,

@@ -39,6 +39,7 @@ const isDistinctIdIllegal = (id: string): boolean => {
 // This class is responsible for creating/updating a single person through the process-event pipeline
 export class PersonState {
     event: PluginEvent
+    distinctId: string
     teamId: number
     eventProperties: Properties
     timestamp: DateTime
@@ -50,6 +51,8 @@ export class PersonState {
 
     constructor(
         event: PluginEvent,
+        teamId: number,
+        distinctId: string,
         timestamp: DateTime,
         db: DB,
         statsd: StatsD | undefined,
@@ -57,7 +60,8 @@ export class PersonState {
         uuid?: UUIDT
     ) {
         this.event = event
-        this.teamId = event.team_id
+        this.distinctId = distinctId
+        this.teamId = teamId
         this.eventProperties = event.properties!
         this.timestamp = timestamp
         this.newUuid = (uuid || new UUIDT()).toString()
@@ -84,7 +88,7 @@ export class PersonState {
     }
 
     private async createPersonIfDistinctIdIsNew(): Promise<Person | undefined> {
-        const isNewPerson = await this.personManager.isNewPerson(this.db, this.teamId, this.event.distinct_id)
+        const isNewPerson = await this.personManager.isNewPerson(this.db, this.teamId, this.distinctId)
         if (isNewPerson) {
             const properties = this.eventProperties['$set'] || {}
             const propertiesOnce = this.eventProperties['$set_once'] || {}
@@ -98,14 +102,14 @@ export class PersonState {
                     null,
                     false,
                     this.newUuid.toString(),
-                    [this.event.distinct_id]
+                    [this.distinctId]
                 )
             } catch (error) {
                 if (!error.message || !error.message.includes('duplicate key value violates unique constraint')) {
                     Sentry.captureException(error, {
                         extra: {
                             teamId: this.teamId,
-                            distinctId: this.event.distinct_id,
+                            distinctId: this.distinctId,
                             timestamp: this.timestamp,
                             personUuid: this.newUuid,
                         },
@@ -152,11 +156,11 @@ export class PersonState {
     }
 
     private async updatePersonProperties(): Promise<Person> {
-        const personFound = await this.db.fetchPerson(this.teamId, this.event.distinct_id)
+        const personFound = await this.db.fetchPerson(this.teamId, this.distinctId)
         if (!personFound) {
             this.statsd?.increment('person_not_found', { teamId: String(this.teamId), key: 'update' })
             throw new Error(
-                `Could not find person with distinct id "${this.event.distinct_id}" in team "${this.teamId}" to update properties`
+                `Could not find person with distinct id "${this.distinctId}" in team "${this.teamId}" to update properties`
             )
         }
 
@@ -193,25 +197,19 @@ export class PersonState {
     // Alias & merge
 
     async handleIdentifyOrAlias(): Promise<void> {
-        if (isDistinctIdIllegal(this.event.distinct_id)) {
-            this.statsd?.increment(`illegal_distinct_ids.total`, { distinctId: this.event.distinct_id })
+        if (isDistinctIdIllegal(this.distinctId)) {
+            this.statsd?.increment(`illegal_distinct_ids.total`, { distinctId: this.distinctId })
             return
         }
 
         const timeout = timeoutGuard('Still running "handleIdentifyOrAlias". Timeout warning after 30 sec!')
         try {
             if (this.event.event === '$create_alias') {
-                await this.merge(
-                    this.eventProperties['alias'],
-                    this.event.distinct_id,
-                    this.teamId,
-                    this.timestamp,
-                    false
-                )
+                await this.merge(this.eventProperties['alias'], this.distinctId, this.teamId, this.timestamp, false)
             } else if (this.event.event === '$identify' && this.eventProperties['$anon_distinct_id']) {
                 await this.merge(
                     this.eventProperties['$anon_distinct_id'],
-                    this.event.distinct_id,
+                    this.distinctId,
                     this.teamId,
                     this.timestamp,
                     true

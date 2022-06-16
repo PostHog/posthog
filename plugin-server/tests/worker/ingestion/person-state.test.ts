@@ -37,7 +37,16 @@ describe('PersonState.update()', () => {
             properties: {},
             ...event,
         }
-        return new PersonState(fullEvent as any, timestamp, hub.db, hub.statsd, hub.personManager, uuid)
+        return new PersonState(
+            fullEvent as any,
+            2,
+            event.distinct_id!,
+            timestamp,
+            hub.db,
+            hub.statsd,
+            hub.personManager,
+            uuid
+        )
     }
 
     async function fetchPersonsRows(options: { final?: boolean } = {}) {
