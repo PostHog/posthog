@@ -24,7 +24,7 @@ import { KAFKA_BUFFER } from './../../config/kafka-topics'
 import { GroupTypeManager } from './group-type-manager'
 import { addGroupProperties } from './groups'
 import { PersonManager } from './person-manager'
-import { PersonStateManager } from './person-state-manager'
+import { PersonState } from './person-state'
 import { upsertGroup } from './properties-updater'
 import { TeamManager } from './team-manager'
 
@@ -83,7 +83,7 @@ export class EventsProcessor {
                 throw new Error(`No team found with ID ${teamId}. Can't ingest event.`)
             }
 
-            const personStateManager = new PersonStateManager(
+            const personState = new PersonState(
                 teamId,
                 distinctId,
                 properties,
@@ -93,8 +93,8 @@ export class EventsProcessor {
                 this.personManager
             )
 
-            await personStateManager.handleIdentifyOrAlias(data['event'], data)
-            await personStateManager.updateProperties()
+            await personState.handleIdentifyOrAlias(data['event'], data)
+            await personState.updateProperties()
 
             if (data['event'] === '$snapshot') {
                 if (team.session_recording_opt_in) {

@@ -1725,7 +1725,6 @@ test('team event_properties', async () => {
         { event: 'purchase', properties: { price: 299.99, name: 'AirPods Pro' } } as any as PluginEvent,
         team.id,
         now,
-        now,
         new UUIDT().toString()
     )
 

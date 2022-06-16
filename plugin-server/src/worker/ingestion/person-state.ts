@@ -37,7 +37,7 @@ const isDistinctIdIllegal = (id: string): boolean => {
 }
 
 // This class is responsible for creating/updating a single person through the process-event pipeline
-export class PersonStateManager {
+export class PersonState {
     teamId: number
     distinctId: string
     eventProperties: Properties
