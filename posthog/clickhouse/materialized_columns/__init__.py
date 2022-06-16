@@ -1,3 +1,8 @@
-# flake8: noqa
-from .analyze import analyze, get_queries, materialize_properties_task
-from .columns import backfill_materialized_columns, get_materialized_columns, materialize, materialized_column_name
+from posthog.settings import EE_AVAILABLE
+
+if EE_AVAILABLE:
+    from ee.clickhouse.materialized_columns.analyze import *
+    from ee.clickhouse.materialized_columns.columns import *
+else:
+    from .analyze import *  # type: ignore
+    from .column import *  # type: ignore

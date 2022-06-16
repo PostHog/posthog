@@ -4,8 +4,7 @@ from time import sleep
 
 from freezegun import freeze_time
 
-from ee.tasks.materialized_columns import mark_all_materialized
-from posthog.clickhouse.materialized_columns.columns import (
+from ee.clickhouse.materialized_columns.columns import (
     backfill_materialized_columns,
     get_materialized_columns,
     materialize,
@@ -162,8 +161,13 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
         backfill_materialized_columns("events", ["myprop"], timedelta(days=50))
         self.assertEqual(("DEFAULT", expr), self._get_column_types("mat_myprop"))
 
-        mark_all_materialized()
-        self.assertEqual(("MATERIALIZED", expr), self._get_column_types("mat_myprop"))
+        try:
+            from ee.tasks.materialized_columns import mark_all_materialized
+        except ImportError:
+            pass
+        else:
+            mark_all_materialized()
+            self.assertEqual(("MATERIALIZED", expr), self._get_column_types("mat_myprop"))
 
     def _count_materialized_rows(self, column):
         return sync_execute(

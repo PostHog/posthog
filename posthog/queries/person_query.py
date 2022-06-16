@@ -1,6 +1,6 @@
 from typing import Dict, List, Optional, Set, Tuple, Union
 
-from posthog.clickhouse.materialized_columns.columns import ColumnName
+from posthog.clickhouse.materialized_columns import ColumnName
 from posthog.constants import PropertyOperatorType
 from posthog.models import Filter
 from posthog.models.cohort import Cohort

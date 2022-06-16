@@ -16,7 +16,7 @@ from clickhouse_driver.util.escape import escape_param
 from rest_framework import exceptions
 
 from posthog.clickhouse.kafka_engine import trim_quotes_expr
-from posthog.clickhouse.materialized_columns.columns import TableWithProperties, get_materialized_columns
+from posthog.clickhouse.materialized_columns import TableWithProperties, get_materialized_columns
 from posthog.constants import PropertyOperatorType
 from posthog.models.cohort import Cohort
 from posthog.models.cohort.util import (

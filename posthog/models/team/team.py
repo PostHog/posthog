@@ -157,20 +157,27 @@ class Team(UUIDClassicModel):
             or not self.access_control
         ):
             return requesting_parent_membership.level
-        from ee.models import ExplicitTeamMembership
         from posthog.models.organization import OrganizationMembership
 
         try:
-            return (
-                requesting_parent_membership.explicit_team_memberships.only("parent_membership", "level")
-                .get(team=self)
-                .effective_level
-            )
-        except ExplicitTeamMembership.DoesNotExist:
+            from ee.models import ExplicitTeamMembership
+        except ImportError:
             # Only organizations admins and above get implicit project membership
             if requesting_parent_membership.level < OrganizationMembership.Level.ADMIN:
                 return None
             return requesting_parent_membership.level
+        else:
+            try:
+                return (
+                    requesting_parent_membership.explicit_team_memberships.only("parent_membership", "level")
+                    .get(team=self)
+                    .effective_level
+                )
+            except ExplicitTeamMembership.DoesNotExist:
+                # Only organizations admins and above get implicit project membership
+                if requesting_parent_membership.level < OrganizationMembership.Level.ADMIN:
+                    return None
+                return requesting_parent_membership.level
 
     def get_effective_membership_level(self, user_id: int) -> Optional["OrganizationMembership.Level"]:
         """Return an effective membership level.
