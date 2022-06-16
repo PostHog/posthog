@@ -282,9 +282,12 @@ def clickhouse_materialize_columns():
 @app.task(ignore_result=True)
 def clickhouse_mark_all_materialized():
     if recompute_materialized_columns_enabled():
-        from ee.tasks.materialized_columns import mark_all_materialized
-
-        mark_all_materialized()
+        try:
+            from ee.tasks.materialized_columns import mark_all_materialized
+        except ImportError:
+            pass
+        else:
+            mark_all_materialized()
 
 
 @app.task(ignore_result=True)
@@ -297,16 +300,22 @@ def clickhouse_clear_removed_data():
 @app.task(ignore_result=True)
 def clickhouse_send_license_usage():
     if not settings.MULTI_TENANCY:
-        from ee.tasks.send_license_usage import send_license_usage
-
-        send_license_usage()
+        try:
+            from ee.tasks.send_license_usage import send_license_usage
+        except ImportError:
+            pass
+        else:
+            send_license_usage()
 
 
 @app.task(ignore_result=True)
 def send_org_usage_report():
-    from ee.tasks.org_usage_report import send_all_org_usage_reports as send_reports_clickhouse
-
-    send_reports_clickhouse()
+    try:
+        from ee.tasks.org_usage_report import send_all_org_usage_reports as send_reports_clickhouse
+    except ImportError:
+        pass
+    else:
+        send_reports_clickhouse()
 
 
 @app.task(ignore_result=True)
