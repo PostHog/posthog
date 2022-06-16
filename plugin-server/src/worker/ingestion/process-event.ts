@@ -23,7 +23,6 @@ import { castTimestampOrNow, UUID } from '../../utils/utils'
 import { KAFKA_BUFFER } from './../../config/kafka-topics'
 import { GroupTypeManager } from './group-type-manager'
 import { addGroupProperties } from './groups'
-import { PersonManager } from './person-manager'
 import { PersonState } from './person-state'
 import { upsertGroup } from './properties-updater'
 import { TeamManager } from './team-manager'
@@ -40,7 +39,6 @@ export class EventsProcessor {
     clickhouse: ClickHouse
     kafkaProducer: KafkaProducerWrapper
     teamManager: TeamManager
-    personManager: PersonManager
     groupTypeManager: GroupTypeManager
     clickhouseExternalSchemasDisabledTeams: Set<number>
 
@@ -50,7 +48,6 @@ export class EventsProcessor {
         this.clickhouse = pluginsServer.clickhouse
         this.kafkaProducer = pluginsServer.kafkaProducer
         this.teamManager = pluginsServer.teamManager
-        this.personManager = new PersonManager(pluginsServer)
         this.groupTypeManager = new GroupTypeManager(pluginsServer.db, this.teamManager, pluginsServer.SITE_URL)
         this.clickhouseExternalSchemasDisabledTeams = new Set(
             pluginsServer.CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS_TEAMS.split(',').filter(String).map(Number)
@@ -83,7 +80,13 @@ export class EventsProcessor {
                 throw new Error(`No team found with ID ${teamId}. Can't ingest event.`)
             }
 
-            const personState = new PersonState(data, timestamp, this.db, this.pluginsServer.statsd, this.personManager)
+            const personState = new PersonState(
+                data,
+                timestamp,
+                this.db,
+                this.pluginsServer.statsd,
+                this.pluginsServer.personManager
+            )
 
             await personState.update()
 
