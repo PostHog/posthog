@@ -9,6 +9,7 @@ import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../../help
 import { resetTestDatabase } from '../../helpers/sql'
 
 jest.mock('../../../src/utils/status')
+jest.setTimeout(60000) // 60 sec timeout
 
 const timestamp = DateTime.fromISO('2020-01-01T12:00:05.200Z').toUTC()
 const uuid = new UUIDT()
