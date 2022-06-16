@@ -1,6 +1,0 @@
-from posthog.settings import EE_AVAILABLE
-
-if EE_AVAILABLE:
-    from ee.clickhouse.queries.column_optimizer import EnterpriseColumnOptimizer as ColumnOptimizer
-else:
-    from posthog.queries.column_optimizer.column_optimizer import ColumnOptimizer  # type: ignore

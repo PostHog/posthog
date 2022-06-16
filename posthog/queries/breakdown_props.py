@@ -16,7 +16,7 @@ from posthog.models.property.util import (
 )
 from posthog.models.team import Team
 from posthog.models.utils import PersonPropertiesMode
-from posthog.queries.column_optimizer import ColumnOptimizer
+from posthog.queries.column_optimizer.column_optimizer import ColumnOptimizer
 from posthog.queries.groups_join_query import GroupsJoinQuery
 from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
 from posthog.queries.person_query import PersonQuery

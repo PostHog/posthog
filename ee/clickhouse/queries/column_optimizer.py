@@ -8,10 +8,10 @@ from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.filters.utils import GroupTypeIndex
 from posthog.models.property import PropertyIdentifier
 from posthog.models.property.util import box_value, extract_tables_and_properties
-from posthog.queries.column_optimizer.column_optimizer import ColumnOptimizer
+from posthog.queries.column_optimizer.foss_column_optimizer import FOSSColumnOptimizer
 
 
-class EnterpriseColumnOptimizer(ColumnOptimizer):
+class EnterpriseColumnOptimizer(FOSSColumnOptimizer):
     @cached_property
     def group_types_to_query(self) -> Set[GroupTypeIndex]:
         used_properties = self._used_properties_with_type("group")

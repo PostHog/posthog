@@ -27,7 +27,7 @@ from posthog.queries.breakdown_props import (
     get_breakdown_cohort_name,
     get_breakdown_prop_values,
 )
-from posthog.queries.column_optimizer import ColumnOptimizer
+from posthog.queries.column_optimizer.column_optimizer import ColumnOptimizer
 from posthog.queries.groups_join_query import GroupsJoinQuery
 from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
 from posthog.queries.person_query import PersonQuery

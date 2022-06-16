@@ -49,8 +49,8 @@ from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.person.sql import GET_PERSON_PROPERTIES_COUNT
 from posthog.models.person.util import delete_person
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
+from posthog.queries.actor_base_query import ActorBaseQuery
 from posthog.queries.funnels import ClickhouseFunnelActors, ClickhouseFunnelTrendsActors
-from posthog.queries.funnels.base import ClickhouseFunnelBase
 from posthog.queries.funnels.funnel_strict_persons import ClickhouseFunnelStrictActors
 from posthog.queries.funnels.funnel_unordered_persons import ClickhouseFunnelUnorderedActors
 from posthog.queries.paths import PathsActors
@@ -162,10 +162,14 @@ def should_paginate(results, limit: Union[str, int]) -> bool:
     return len(results) > int(limit) - 1
 
 
-def _get_funnel_actor_class(filter: Filter) -> Callable:
-    funnel_actor_class: Type[ClickhouseFunnelBase]
+def get_funnel_actor_class(filter: Filter) -> Callable:
+    funnel_actor_class: Type[ActorBaseQuery]
 
-    if filter.funnel_viz_type == FunnelVizType.TRENDS:
+    if filter.correlation_person_entity and EE_AVAILABLE:
+        from ee.clickhouse.queries.funnels.funnel_correlation_persons import FunnelCorrelationActors
+
+        funnel_actor_class = FunnelCorrelationActors
+    elif filter.funnel_viz_type == FunnelVizType.TRENDS:
         funnel_actor_class = ClickhouseFunnelTrendsActors
     else:
         if filter.funnel_order_type == "unordered":
@@ -176,14 +180,6 @@ def _get_funnel_actor_class(filter: Filter) -> Callable:
             funnel_actor_class = ClickhouseFunnelActors
 
     return funnel_actor_class
-
-
-if EE_AVAILABLE:
-    from ee.clickhouse.views.person import _get_funnel_actor_class_ee
-
-    get_funnel_actor_class = _get_funnel_actor_class_ee
-else:
-    get_funnel_actor_class = _get_funnel_actor_class
 
 
 class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):

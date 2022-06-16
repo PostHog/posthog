@@ -1,42 +1,14 @@
-from typing import Callable, Dict, Optional, Tuple, Type
+from typing import Dict, Optional, Tuple
 
 from rest_framework import request, response
 from rest_framework.decorators import action
 
 from ee.clickhouse.queries.funnels.funnel_correlation_persons import FunnelCorrelationActors
 from posthog.api.person import PersonViewSet, should_paginate
-from posthog.constants import (
-    FUNNEL_CORRELATION_PERSON_LIMIT,
-    FUNNEL_CORRELATION_PERSON_OFFSET,
-    INSIGHT_FUNNELS,
-    FunnelVizType,
-)
+from posthog.constants import FUNNEL_CORRELATION_PERSON_LIMIT, FUNNEL_CORRELATION_PERSON_OFFSET, INSIGHT_FUNNELS
 from posthog.decorators import cached_function
 from posthog.models import Filter
-from posthog.queries.actor_base_query import ActorBaseQuery
-from posthog.queries.funnels.funnel_persons import ClickhouseFunnelActors
-from posthog.queries.funnels.funnel_strict_persons import ClickhouseFunnelStrictActors
-from posthog.queries.funnels.funnel_trends_persons import ClickhouseFunnelTrendsActors
-from posthog.queries.funnels.funnel_unordered_persons import ClickhouseFunnelUnorderedActors
 from posthog.utils import format_query_params_absolute_url
-
-
-def _get_funnel_actor_class_ee(filter: Filter) -> Callable:
-    funnel_actor_class: Type[ActorBaseQuery]
-
-    if filter.correlation_person_entity:
-        funnel_actor_class = FunnelCorrelationActors
-    elif filter.funnel_viz_type == FunnelVizType.TRENDS:
-        funnel_actor_class = ClickhouseFunnelTrendsActors
-    else:
-        if filter.funnel_order_type == "unordered":
-            funnel_actor_class = ClickhouseFunnelUnorderedActors
-        elif filter.funnel_order_type == "strict":
-            funnel_actor_class = ClickhouseFunnelStrictActors
-        else:
-            funnel_actor_class = ClickhouseFunnelActors
-
-    return funnel_actor_class
 
 
 class EnterprisePersonViewSet(PersonViewSet):
