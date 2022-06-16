@@ -3,6 +3,7 @@ import { ProcessedPluginEvent, RetryError } from '@posthog/plugin-scaffold'
 import { Hub } from '../../src/types'
 import { UUID } from '../../src/utils/utils'
 import { getNextRetryMs, runRetriableFunction } from '../../src/worker/retries'
+import { PromiseManager } from '../../src/worker/vm/promise-manager'
 import { pluginConfig39 } from '../helpers/plugins'
 
 jest.useFakeTimers()
@@ -11,7 +12,9 @@ jest.mock('../../src/utils/db/error') // Mocking setError which we don't need in
 
 const mockHub: Hub = {
     instanceId: new UUID('F8B2F832-6639-4596-ABFC-F9664BC88E84'),
+    promiseManager: new PromiseManager({ MAX_PENDING_PROMISES_PER_WORKER: 1 } as any),
 } as Hub
+
 const testEvent: ProcessedPluginEvent = {
     uuid: '4CCCB5FD-BD27-4D6C-8737-88EB7294C437',
     distinct_id: 'my_id',

@@ -1,5 +1,4 @@
 import { ProcessedPluginEvent, RetryError } from '@posthog/plugin-scaffold'
-import { captureException } from '@sentry/node'
 
 import { Hub, PluginConfig } from '../types'
 import { processError } from '../utils/db/error'
@@ -39,7 +38,7 @@ async function iterateRetryLoop(
     }: RetriableFunctionDefinition & RetryParams,
     attempt = 1
 ): Promise<void> {
-    let nextIterationTimeout: NodeJS.Timeout | undefined
+    let nextIterationPromise: Promise<void> | undefined
     try {
         await tryFn()
     } catch (error) {
@@ -54,24 +53,30 @@ async function iterateRetryLoop(
                 teamId: event.team_id.toString(),
                 attempt: attempt.toString(),
             })
-            nextIterationTimeout = setTimeout(() => {
-                // This is intentionally voided so that attempts beyond the first one don't stall the event queue
-                iterateRetryLoop(
-                    tag,
-                    hub,
-                    pluginConfig,
-                    {
-                        event,
-                        tryFn,
-                        catchFn,
-                        finallyFn,
-                        maxAttempts,
-                        retryBaseMs,
-                        retryMultiplier,
-                    },
-                    attempt + 1
-                ).catch(captureException)
-            }, nextRetryMs)
+            nextIterationPromise = new Promise((resolve, reject) =>
+                setTimeout(() => {
+                    // This is not awaited directly so that attempts beyond the first one don't stall the event queue
+                    iterateRetryLoop(
+                        tag,
+                        hub,
+                        pluginConfig,
+                        {
+                            event,
+                            tryFn,
+                            catchFn,
+                            finallyFn,
+                            maxAttempts,
+                            retryBaseMs,
+                            retryMultiplier,
+                        },
+                        attempt + 1
+                    )
+                        .then(resolve)
+                        .catch(reject)
+                }, nextRetryMs)
+            )
+            hub.promiseManager.trackPromise(nextIterationPromise)
+            await hub.promiseManager.awaitPromisesIfNeeded()
         } else {
             await catchFn?.(error)
             await processError(hub, pluginConfig, error, event)
@@ -82,7 +87,7 @@ async function iterateRetryLoop(
             })
         }
     }
-    if (!nextIterationTimeout) {
+    if (!nextIterationPromise) {
         await finallyFn?.(attempt)
     }
 }
