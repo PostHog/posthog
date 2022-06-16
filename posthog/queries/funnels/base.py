@@ -107,7 +107,7 @@ class ClickhouseFunnelBase(ABC):
             "action_id": step.id,
             "name": name,
             "custom_name": step.custom_name,
-            "order": step.order,
+            "order": step.index,
             "people": people if people else [],
             "count": count,
             "type": step.type,
@@ -173,14 +173,14 @@ class ClickhouseFunnelBase(ABC):
         for step in reversed(self._filter.entities):
 
             if results and len(results) > 0:
-                total_people += results[step.order]
+                total_people += results[step.index]
 
             serialized_result = self._serialize_step(step, total_people, [])  # persons not needed on initial return
-            if cast(int, step.order) > 0:
+            if cast(int, step.index) > 0:
                 serialized_result.update(
                     {
-                        "average_conversion_time": results[cast(int, step.order) + len(self._filter.entities) - 1],
-                        "median_conversion_time": results[cast(int, step.order) + len(self._filter.entities) * 2 - 2],
+                        "average_conversion_time": results[cast(int, step.index) + len(self._filter.entities) - 1],
+                        "median_conversion_time": results[cast(int, step.index) + len(self._filter.entities) * 2 - 2],
                     }
                 )
             else:

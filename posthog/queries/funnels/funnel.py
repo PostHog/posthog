@@ -65,15 +65,15 @@ class ClickhouseFunnel(ClickhouseFunnelBase):
         for step in reversed(self._filter.entities):
 
             if result and len(result) > 0:
-                total_people += result[step.order]
+                total_people += result[step.index]
 
             serialized_result = self._serialize_step(step, total_people, [])  # persons not needed on initial return
-            if cast(int, step.order) > 0:
+            if cast(int, step.index) > 0:
 
                 serialized_result.update(
                     {
-                        "average_conversion_time": result[cast(int, step.order) + num_entities * 1 - 1],
-                        "median_conversion_time": result[cast(int, step.order) + num_entities * 2 - 2],
+                        "average_conversion_time": result[cast(int, step.index) + num_entities * 1 - 1],
+                        "median_conversion_time": result[cast(int, step.index) + num_entities * 2 - 2],
                     }
                 )
             else:
