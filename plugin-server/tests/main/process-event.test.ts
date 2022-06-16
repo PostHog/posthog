@@ -1974,20 +1974,18 @@ test('any event can do $set_once on props', async () => {
     expect(person2.properties).toEqual({ a_prop: 'test-1', b_prop: 'test-2b', c_prop: 'test-1' })
 })
 
-test('$set and $set_once merge with properties', async () => {
+test('$set and $set_once', async () => {
     await processEvent(
         'distinct_id1',
         '',
         '',
         {
             event: 'some_event',
-            $set: { key1: 'value1', key2: 'value2' },
-            $set_once: { key1_once: 'value1', key2_once: 'value2' },
             properties: {
                 token: team.api_token,
                 distinct_id: 'distinct_id1',
-                $set: { key2: 'value3', key3: 'value4' },
-                $set_once: { key2_once: 'value3', key3_once: 'value4' },
+                $set: { key1: 'value1', key2: 'value2', key3: 'value4' },
+                $set_once: { key1_once: 'value1', key2_once: 'value2', key3_once: 'value4' },
             },
         } as any as PluginEvent,
         team.id,
@@ -1996,10 +1994,6 @@ test('$set and $set_once merge with properties', async () => {
     )
 
     expect((await hub.db.fetchEvents()).length).toBe(1)
-
-    const [event] = await hub.db.fetchEvents()
-    expect(event.properties['$set']).toEqual({ key1: 'value1', key2: 'value2', key3: 'value4' })
-    expect(event.properties['$set_once']).toEqual({ key1_once: 'value1', key2_once: 'value2', key3_once: 'value4' })
 
     const [person] = await hub.db.fetchPersons()
     expect(await hub.db.fetchDistinctIdValues(person)).toEqual(['distinct_id1'])
@@ -2309,8 +2303,10 @@ describe('ingestion in any order', () => {
             '',
             {
                 event: 'some_event',
-                $set: set,
-                $set_once: setOnce,
+                properties: {
+                    $set: set,
+                    $set_once: setOnce,
+                },
             } as any as PluginEvent,
             team.id,
             ts,
