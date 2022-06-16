@@ -187,21 +187,21 @@ export class PersonStateManager {
 
     // Alias & merge
 
-    async handleIdentifyOrAlias(
-        event: string,
-        properties: Properties,
-        distinctId: string,
-        teamId: number,
-        timestamp: DateTime
-    ): Promise<void> {
-        if (isDistinctIdIllegal(distinctId)) {
-            this.statsd?.increment(`illegal_distinct_ids.total`, { distinctId })
+    async handleIdentifyOrAlias(event: string): Promise<void> {
+        if (isDistinctIdIllegal(this.distinctId)) {
+            this.statsd?.increment(`illegal_distinct_ids.total`, { distinctId: this.distinctId })
             return
         }
         if (event === '$create_alias') {
-            await this.merge(properties['alias'], distinctId, teamId, timestamp, false)
-        } else if (event === '$identify' && properties['$anon_distinct_id']) {
-            await this.merge(properties['$anon_distinct_id'], distinctId, teamId, timestamp, true)
+            await this.merge(this.eventProperties['alias'], this.distinctId, this.teamId, this.timestamp, false)
+        } else if (event === '$identify' && this.eventProperties['$anon_distinct_id']) {
+            await this.merge(
+                this.eventProperties['$anon_distinct_id'],
+                this.distinctId,
+                this.teamId,
+                this.timestamp,
+                true
+            )
         }
     }
 

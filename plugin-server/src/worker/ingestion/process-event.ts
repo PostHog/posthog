@@ -107,7 +107,7 @@ export class EventsProcessor {
                 this.personManager
             )
             try {
-                await personStateManager.handleIdentifyOrAlias(data['event'], properties, distinctId, teamId, ts)
+                await personStateManager.handleIdentifyOrAlias(data['event'])
             } catch (e) {
                 console.error('handleIdentifyOrAlias failed', e, data)
             } finally {
