@@ -103,11 +103,10 @@ async function processEvent(
     _siteUrl: string,
     data: PluginEvent,
     teamId: number,
-    now: DateTime,
-    sentAt: DateTime | null,
+    timestamp: DateTime,
     eventUuid: string
 ): Promise<PreIngestionEvent | null> {
-    const response = await eventsProcessor.processEvent(distinctId, ip, data, teamId, now, sentAt, eventUuid)
+    const response = await eventsProcessor.processEvent(distinctId, ip, data, teamId, timestamp, eventUuid)
     if (response) {
         await eventsProcessor.createEvent(response)
     }
@@ -209,7 +208,6 @@ test('merge people', async () => {
         } as any as PluginEvent,
         team.id,
         now,
-        now,
         new UUIDT().toString()
     )
 
@@ -228,7 +226,6 @@ test('merge people', async () => {
             properties: { $anon_distinct_id: 'person_1' },
         } as any as PluginEvent,
         team.id,
-        now,
         now,
         new UUIDT().toString()
     )
@@ -282,7 +279,6 @@ test('capture new person', async () => {
             },
         } as any as PluginEvent,
         team.id,
-        now,
         now,
         new UUIDT().toString()
     )
@@ -355,7 +351,6 @@ test('capture new person', async () => {
         } as any as PluginEvent,
         team.id,
         DateTime.now(),
-        DateTime.now(),
         new UUIDT().toString()
     )
 
@@ -426,7 +421,6 @@ test('capture new person', async () => {
             },
         } as any as PluginEvent,
         team.id,
-        DateTime.now(),
         DateTime.now(),
         new UUIDT().toString()
     )
@@ -597,7 +591,6 @@ test('initial current domain regression test', async () => {
         } as any as PluginEvent,
         team.id,
         now,
-        now,
         new UUIDT().toString()
     )
 
@@ -619,7 +612,6 @@ test('capture bad team', async () => {
             } as any as PluginEvent,
             1337,
             now,
-            now,
             new UUIDT().toString()
         )
     }).rejects.toThrowError("No team found with ID 1337. Can't ingest event.")
@@ -637,7 +629,6 @@ test('capture no element', async () => {
             properties: { distinct_id: 'asdfasdfasdf', token: team.api_token },
         } as any as PluginEvent,
         team.id,
-        now,
         now,
         new UUIDT().toString()
     )
@@ -660,7 +651,6 @@ test('ip none', async () => {
         } as any as PluginEvent,
         team.id,
         now,
-        now,
         new UUIDT().toString()
     )
     const [event] = await hub.db.fetchEvents()
@@ -680,7 +670,6 @@ test('ip capture', async () => {
         } as any as PluginEvent,
         team.id,
         now,
-        now,
         new UUIDT().toString()
     )
     const [event] = await hub.db.fetchEvents()
@@ -699,7 +688,6 @@ test('ip override', async () => {
             properties: { $ip: '1.0.0.1', distinct_id: 'asdfasdfasdf', token: team.api_token },
         } as any as PluginEvent,
         team.id,
-        now,
         now,
         new UUIDT().toString()
     )
@@ -722,7 +710,6 @@ test('anonymized ip capture', async () => {
         } as any as PluginEvent,
         team.id,
         now,
-        now,
         new UUIDT().toString()
     )
 
@@ -742,7 +729,6 @@ test('alias', async () => {
             properties: { distinct_id: 'new_distinct_id', token: team.api_token, alias: 'old_distinct_id' },
         } as any as PluginEvent,
         team.id,
-        now,
         now,
         new UUIDT().toString()
     )
@@ -767,7 +753,6 @@ test('alias reverse', async () => {
         } as any as PluginEvent,
         team.id,
         now,
-        now,
         new UUIDT().toString()
     )
 
@@ -790,7 +775,6 @@ test('alias twice', async () => {
             properties: { distinct_id: 'new_distinct_id', token: team.api_token, alias: 'old_distinct_id' },
         } as any as PluginEvent,
         team.id,
-        now,
         now,
         new UUIDT().toString()
     )
@@ -815,7 +799,6 @@ test('alias twice', async () => {
         } as any as PluginEvent,
         team.id,
         now,
-        now,
         new UUIDT().toString()
     )
     expect((await hub.db.fetchEvents()).length).toBe(2)
@@ -837,7 +820,6 @@ test('alias before person', async () => {
             properties: { distinct_id: 'new_distinct_id', token: team.api_token, alias: 'old_distinct_id' },
         } as any as PluginEvent,
         team.id,
-        now,
         now,
         new UUIDT().toString()
     )
@@ -863,7 +845,6 @@ test('alias both existing', async () => {
             properties: { distinct_id: 'new_distinct_id', token: team.api_token, alias: 'old_distinct_id' },
         } as any as PluginEvent,
         team.id,
-        now,
         now,
         new UUIDT().toString()
     )
@@ -894,7 +875,6 @@ test('alias merge properties', async () => {
             properties: { distinct_id: 'new_distinct_id', token: team.api_token, alias: 'old_distinct_id' },
         } as any as PluginEvent,
         team.id,
-        now,
         now,
         new UUIDT().toString()
     )
@@ -934,7 +914,6 @@ test('long htext', async () => {
         } as any as PluginEvent,
         team.id,
         now,
-        now,
         new UUIDT().toString()
     )
 
@@ -963,7 +942,6 @@ test('capture first team event', async () => {
             },
         } as any as PluginEvent,
         team.id,
-        now,
         now,
         new UUIDT().toString()
     )
@@ -998,7 +976,6 @@ it('snapshot event not stored if session recording disabled', async () => {
         } as any as PluginEvent,
         team.id,
         now,
-        now,
         new UUIDT().toString()
     )
     await delayUntilEventIngested(() => hub.db.fetchSessionRecordingEvents())
@@ -1019,7 +996,6 @@ test('snapshot event stored as session_recording_event', async () => {
             properties: { $session_id: 'abcf-efg', $snapshot_data: { timestamp: 123 } },
         } as any as PluginEvent,
         team.id,
-        now,
         now,
         new UUIDT().toString()
     )
@@ -1046,7 +1022,6 @@ test('$snapshot event creates new person if needed', async () => {
             properties: { $session_id: 'abcf-efg', $snapshot_data: { timestamp: 123 } },
         } as any as PluginEvent,
         team.id,
-        now,
         now,
         new UUIDT().toString()
     )
@@ -1076,7 +1051,6 @@ test('identify set', async () => {
         } as any as PluginEvent,
         team.id,
         ts_before,
-        ts_before,
         new UUIDT().toString()
     )
 
@@ -1104,7 +1078,6 @@ test('identify set', async () => {
         } as any as PluginEvent,
         team.id,
         ts_after,
-        ts_after,
         new UUIDT().toString()
     )
     expect((await hub.db.fetchEvents()).length).toBe(2)
@@ -1128,7 +1101,6 @@ test('identify set_once', async () => {
             },
         } as any as PluginEvent,
         team.id,
-        now,
         now,
         new UUIDT().toString()
     )
@@ -1156,7 +1128,6 @@ test('identify set_once', async () => {
             },
         } as any as PluginEvent,
         team.id,
-        now,
         now,
         new UUIDT().toString()
     )
@@ -1186,7 +1157,6 @@ test('identify with illegal (generic) id', async () => {
                 },
             } as any as PluginEvent,
             team.id,
-            now,
             now,
             new UUIDT().toString()
         )
@@ -1237,7 +1207,6 @@ test('Alias with illegal (generic) id', async () => {
         } as any as PluginEvent,
         team.id,
         now,
-        now,
         new UUIDT().toString()
     )
     // person with illegal id got created but not merged
@@ -1261,7 +1230,6 @@ test('distinct with anonymous_id', async () => {
             },
         } as any as PluginEvent,
         team.id,
-        now,
         now,
         new UUIDT().toString()
     )
@@ -1290,7 +1258,6 @@ test('distinct with anonymous_id', async () => {
         } as any as PluginEvent,
         team.id,
         now,
-        now,
         new UUIDT().toString()
     )
 })
@@ -1318,7 +1285,6 @@ test('distinct with anonymous_id which was already created', async () => {
         } as any as PluginEvent,
         team.id,
         now,
-        now,
         new UUIDT().toString()
     )
 
@@ -1344,7 +1310,6 @@ test('identify with the same distinct_id as anon_distinct_id', async () => {
             },
         } as any as PluginEvent,
         team.id,
-        now,
         now,
         new UUIDT().toString()
     )
@@ -1372,7 +1337,6 @@ test('distinct with multiple anonymous_ids which were already created', async ()
         } as any as PluginEvent,
         team.id,
         now,
-        now,
         new UUIDT().toString()
     )
 
@@ -1397,7 +1361,6 @@ test('distinct with multiple anonymous_ids which were already created', async ()
             },
         } as any as PluginEvent,
         team.id,
-        now,
         now,
         new UUIDT().toString()
     )
@@ -1439,7 +1402,6 @@ test('distinct team leakage', async () => {
             },
         } as any as PluginEvent,
         team.id,
-        now,
         now,
         new UUIDT().toString()
     )
@@ -1844,7 +1806,6 @@ test('event name object json', async () => {
         { event: { 'event name': 'as object' }, properties: {} } as any as PluginEvent,
         team.id,
         now,
-        now,
         new UUIDT().toString()
     )
     const [event] = await hub.db.fetchEvents()
@@ -1859,7 +1820,6 @@ test('event name array json', async () => {
         { event: ['event name', 'a list'], properties: {} } as any as PluginEvent,
         team.id,
         now,
-        now,
         new UUIDT().toString()
     )
     const [event] = await hub.db.fetchEvents()
@@ -1873,7 +1833,6 @@ test('long event name substr', async () => {
         '',
         { event: 'E'.repeat(300), properties: { price: 299.99, name: 'AirPods Pro' } } as any as PluginEvent,
         team.id,
-        DateTime.utc(),
         DateTime.utc(),
         new UUIDT().toString()
     )
@@ -1891,7 +1850,6 @@ test('throws with bad uuid', async () => {
             { event: 'E', properties: { price: 299.99, name: 'AirPods Pro' } } as any as PluginEvent,
             team.id,
             DateTime.utc(),
-            DateTime.utc(),
             'this is not an uuid'
         )
     ).rejects.toEqual(new Error('Not a valid UUID: "this is not an uuid"'))
@@ -1903,7 +1861,6 @@ test('throws with bad uuid', async () => {
             '',
             { event: 'E', properties: { price: 299.99, name: 'AirPods Pro' } } as any as PluginEvent,
             team.id,
-            DateTime.utc(),
             DateTime.utc(),
             null as any
         )
@@ -1926,7 +1883,6 @@ test('any event can do $set on props (user exists)', async () => {
             },
         } as any as PluginEvent,
         team.id,
-        now,
         now,
         new UUIDT().toString()
     )
@@ -1955,7 +1911,6 @@ test('any event can do $set on props (new user)', async () => {
             },
         } as any as PluginEvent,
         team.id,
-        now,
         now,
         new UUIDT().toString()
     )
@@ -1987,7 +1942,6 @@ test('any event can do $set_once on props', async () => {
         } as any as PluginEvent,
         team.id,
         now,
-        now,
         new UUIDT().toString()
     )
 
@@ -2014,7 +1968,6 @@ test('any event can do $set_once on props', async () => {
         } as any as PluginEvent,
         team.id,
         now,
-        now,
         new UUIDT().toString()
     )
     expect((await hub.db.fetchEvents()).length).toBe(2)
@@ -2039,7 +1992,6 @@ test('$set and $set_once merge with properties', async () => {
             },
         } as any as PluginEvent,
         team.id,
-        now,
         now,
         new UUIDT().toString()
     )
@@ -2082,7 +2034,6 @@ test('groupidentify', async () => {
             },
         } as any as PluginEvent,
         team.id,
-        now,
         now,
         new UUIDT().toString()
     )
@@ -2147,7 +2098,6 @@ test('$groupidentify updating properties', async () => {
         } as any as PluginEvent,
         team.id,
         next,
-        next,
         new UUIDT().toString()
     )
 
@@ -2204,7 +2154,6 @@ test('person and group properties on events', async () => {
         } as any as PluginEvent,
         team.id,
         now,
-        now,
         new UUIDT().toString()
     )
     await processEvent(
@@ -2225,7 +2174,6 @@ test('person and group properties on events', async () => {
         } as any as PluginEvent,
         team.id,
         now,
-        now,
         new UUIDT().toString()
     )
     await processEvent(
@@ -2243,7 +2191,6 @@ test('person and group properties on events', async () => {
             },
         } as any as PluginEvent,
         team.id,
-        now,
         now,
         new UUIDT().toString()
     )
@@ -2275,7 +2222,6 @@ test('set and set_once on the same key', async () => {
         } as any as PluginEvent,
         team.id,
         now,
-        now,
         new UUIDT().toString()
     )
     expect((await hub.db.fetchEvents()).length).toBe(1)
@@ -2305,7 +2251,6 @@ test('$unset person property', async () => {
             },
         } as any as PluginEvent,
         team.id,
-        now,
         now,
         new UUIDT().toString()
     )
@@ -2369,7 +2314,6 @@ describe('ingestion in any order', () => {
                 $set_once: setOnce,
             } as any as PluginEvent,
             team.id,
-            ts,
             ts,
             new UUIDT().toString()
         )
