@@ -54,7 +54,7 @@ window_id,
 session_start,
 session_end,
 duration,
-snapshot_data_location
+snapshot_data_location,
 _timestamp,
 _offset
 FROM {database}.kafka_session_recording_metadata
