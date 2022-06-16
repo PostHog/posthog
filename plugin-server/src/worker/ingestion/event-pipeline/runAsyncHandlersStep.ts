@@ -22,13 +22,14 @@ export async function runAsyncHandlersStep(
 async function processOnEvent(runner: EventPipelineRunner, event: IngestionEvent) {
     const processedPluginEvent = convertToProcessedPluginEvent(event)
     const isSnapshot = event.event === '$snapshot'
+    const method = isSnapshot ? runOnSnapshot : runOnEvent
 
     await runInstrumentedFunction({
         server: runner.hub,
         event: processedPluginEvent,
-        func: async (event) => await (isSnapshot ? runOnSnapshot(runner.hub, event) : runOnEvent(runner.hub, event)),
-        statsKey: `kafka_queue.single_on_${isSnapshot ? 'snapshot' : 'event'}`,
-        timeoutMessage: `After 30 seconds still running on${isSnapshot ? 'Snapshot' : 'Event'}`,
+        func: (event) => method(runner.hub, event),
+        statsKey: `kafka_queue.single_${isSnapshot ? 'on_snapshot' : 'on_event'}`,
+        timeoutMessage: `After 30 seconds still running ${isSnapshot ? 'onSnapshot' : 'onEvent'}`,
     })
 }
 
