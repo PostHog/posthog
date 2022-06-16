@@ -115,7 +115,7 @@ export const FEATURE_FLAGS = {
     EXPORT_DASHBOARD_INSIGHTS: 'export-dashboard-insights', // owner: @benjackwhite
     ONBOARDING_1_5: 'onboarding-1_5', // owner: @liyiy
     INSIGHT_SUBSCRIPTIONS: 'insight-subscriptions', // owner: @benjackwhite
-    SESSION_NETWORK_REQUESTS: 'session-network-requests', // @oauldambra
+    SESSION_NETWORK_REQUESTS: 'session-network-requests', // @pauldambra
 }
 
 /** Which self-hosted plan's features are available with Cloud's "Standard" plan (aka card attached). */
