@@ -53,13 +53,14 @@ export class PersonState {
         timestamp: DateTime,
         db: DB,
         statsd: StatsD | undefined,
-        personManager: PersonManager
+        personManager: PersonManager,
+        uuid?: UUIDT
     ) {
         this.event = event
         this.teamId = event.team_id
         this.eventProperties = event.properties!
         this.timestamp = timestamp
-        this.newUuid = new UUIDT().toString()
+        this.newUuid = (uuid || new UUIDT()).toString()
 
         this.db = db
         this.statsd = statsd
@@ -254,9 +255,12 @@ export class PersonState {
         const oldPerson = await this.db.fetchPerson(teamId, previousDistinctId)
         const newPerson = await this.db.fetchPerson(teamId, distinctId)
 
+        let updateIsIdentified = false
+
         if (oldPerson && !newPerson) {
             try {
                 await this.db.addDistinctId(oldPerson, distinctId)
+                updateIsIdentified = shouldIdentifyPerson
                 // Catch race case when somebody already added this distinct_id between .get and .addDistinctId
             } catch {
                 // integrity error
@@ -275,6 +279,7 @@ export class PersonState {
         } else if (!oldPerson && newPerson) {
             try {
                 await this.db.addDistinctId(newPerson, previousDistinctId)
+                updateIsIdentified = shouldIdentifyPerson
                 // Catch race case when somebody already added this distinct_id between .get and .addDistinctId
             } catch {
                 // integrity error
@@ -292,10 +297,16 @@ export class PersonState {
             }
         } else if (!oldPerson && !newPerson) {
             try {
-                await this.createPerson(timestamp, {}, {}, teamId, null, shouldIdentifyPerson, new UUIDT().toString(), [
-                    distinctId,
-                    previousDistinctId,
-                ])
+                await this.createPerson(
+                    timestamp,
+                    this.eventProperties['$set'],
+                    this.eventProperties['$set_once'],
+                    teamId,
+                    null,
+                    shouldIdentifyPerson,
+                    new UUIDT().toString(),
+                    [distinctId, previousDistinctId]
+                )
             } catch {
                 // Catch race condition where in between getting and creating,
                 // another request already created this person
@@ -328,10 +339,12 @@ export class PersonState {
                     otherPersonDistinctId: previousDistinctId,
                     timestamp: timestamp,
                 })
+                updateIsIdentified = shouldIdentifyPerson
             }
         }
 
-        if (shouldIdentifyPerson) {
+        // :KLUDGE: Only update isIdentified once, avoid recursively calling it or when not needed
+        if (updateIsIdentified) {
             await this.setIsIdentified(teamId, distinctId)
         }
     }
