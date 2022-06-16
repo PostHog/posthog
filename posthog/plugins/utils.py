@@ -3,7 +3,7 @@ import json
 import os
 import re
 import tarfile
-from typing import Dict, Optional, Tuple
+from typing import Callable, Dict, Optional, Tuple, TypeVar
 from urllib.parse import parse_qs, quote
 from zipfile import ZIP_DEFLATED, BadZipFile, ZipFile
 
@@ -216,18 +216,25 @@ def load_json_file(filename: str):
         return None
 
 
-def get_json_from_zip_archive(archive: bytes, filename: str):
+T = TypeVar("T")
+
+
+def get_file_from_zip_archive(
+    archive: bytes, filename: str, *, parse_with: Callable[[bytes], T] = json.loads
+) -> Optional[T]:
     zip_file = ZipFile(io.BytesIO(archive), "r")
     root_folder = zip_file.namelist()[0]
     file_path = os.path.join(root_folder, filename)
     try:
         with zip_file.open(file_path) as reader:
-            return json.loads(reader.read())
+            return parse_with(reader.read())
     except KeyError:
         return None
 
 
-def get_json_from_tgz_archive(archive: bytes, filename: str):
+def get_file_from_tgz_archive(
+    archive: bytes, filename, *, parse_with: Callable[[bytes], T] = json.loads
+) -> Optional[T]:
     with tarfile.open(fileobj=io.BytesIO(archive), mode="r:gz") as tar:
         if tar.getmembers()[0].isdir():
             root_folder = tar.getmembers()[0].name
@@ -238,14 +245,16 @@ def get_json_from_tgz_archive(archive: bytes, filename: str):
         if not extracted_file:
             return None
         json_bytes = extracted_file.read()
-        return json.loads(json_bytes)
+        return parse_with(json_bytes)
 
 
-def get_json_from_archive(archive: bytes, filename: str):
+def get_file_from_archive(
+    archive: bytes, filename: str, *, parse_with: Callable[[bytes], T] = json.loads
+) -> Optional[T]:
     try:
-        return get_json_from_zip_archive(archive, filename)
+        return get_file_from_zip_archive(archive, filename, parse_with=parse_with)
     except BadZipFile:
-        return get_json_from_tgz_archive(archive, filename)
+        return get_file_from_tgz_archive(archive, filename, parse_with=parse_with)
 
 
 def put_json_into_zip_archive(archive: bytes, json_data: dict, filename: str):

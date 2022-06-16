@@ -51,7 +51,6 @@
         "@sentry/node": "^6.7.0",
         "@sentry/tracing": "^6.7.0",
         "@types/lru-cache": "^5.1.0",
-        "adm-zip": "0.5.3",
         "aws-sdk": "^2.927.0",
         "escape-string-regexp": "^4.0.0",
         "ethers": "^5.5.2",
@@ -74,7 +73,6 @@
         "redlock": "^4.2.0",
         "snowflake-sdk": "^1.6.10",
         "structlog": "^1.0.2",
-        "tar-stream": "^2.2.0",
         "uuid": "^8.3.2",
         "vm2": "3.9.6"
     },

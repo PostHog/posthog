@@ -4,7 +4,7 @@ import * as path from 'path'
 import { Hub, PluginConfig, PluginJsonConfig } from '../../types'
 import { processError } from '../../utils/db/error'
 import { status } from '../../utils/status'
-import { getFileFromArchive, pluginDigest } from '../../utils/utils'
+import { pluginDigest } from '../../utils/utils'
 import { transpileFrontend } from '../frontend/transpile'
 
 export async function loadPlugin(hub: Hub, pluginConfig: PluginConfig): Promise<boolean> {
@@ -23,26 +23,18 @@ export async function loadPlugin(hub: Hub, pluginConfig: PluginConfig): Promise<
                 const fullPath = path.resolve(pluginPath, file)
                 return Promise.resolve(fs.existsSync(fullPath) ? fs.readFileSync(fullPath).toString() : null)
             }
-        } else if (plugin.archive) {
-            const archive = Buffer.from(plugin.archive)
-            getFile = (file) => getFileFromArchive(archive, file)
-        } else if (plugin.plugin_type === 'source') {
+        } else {
             getFile = async (file) => {
-                if (file === 'index.ts' && plugin.source__index_ts) {
+                if (file === 'plugin.json' && plugin.source__plugin_json) {
+                    return plugin.source__plugin_json
+                } else if (file === 'index.ts' && plugin.source__index_ts) {
                     return plugin.source__index_ts
                 } else if (file === 'frontend.tsx' && plugin.source__frontend_tsx) {
                     return plugin.source__frontend_tsx
                 }
-                return await hub.db.getPluginSource(plugin.id, file)
+                const fetchedFile = await hub.db.getPluginSource(plugin.id, file)
+                return fetchedFile
             }
-        } else {
-            pluginConfig.vm?.failInitialization!()
-            await processError(
-                hub,
-                pluginConfig,
-                `Plugin ${pluginDigest(plugin)} is not a local, remote or source plugin. Cannot load.`
-            )
-            return false
         }
 
         // load config json

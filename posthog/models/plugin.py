@@ -1,4 +1,5 @@
 import datetime
+import json
 import os
 from dataclasses import dataclass
 from enum import Enum
@@ -18,7 +19,7 @@ from posthog.models.signals import mutable_receiver
 from posthog.models.team import Team
 from posthog.plugins.access import can_configure_plugins, can_install_plugins
 from posthog.plugins.reload import reload_plugins_on_workers
-from posthog.plugins.utils import download_plugin_archive, get_json_from_archive, load_json_file, parse_url
+from posthog.plugins.utils import download_plugin_archive, get_file_from_archive, load_json_file, parse_url
 from posthog.version import VERSION
 
 from .utils import UUIDModel, sane_repr
@@ -41,31 +42,34 @@ def raise_if_plugin_installed(url: str, organization_id: str):
         raise ValidationError(f'Plugin from URL "{url_without_private_key}" already installed!')
 
 
-def update_validated_data_from_url(validated_data: Dict[str, Any], url: str) -> Dict:
-    """If remote plugin, download the archive and get up-to-date validated_data from there."""
+def update_validated_data_from_url(validated_data: Dict[str, Any], url: str) -> Dict[str, Any]:
+    """If remote plugin, download the archive and get up-to-date validated_data from there. Returns plugin.json."""
+    plugin_json: Optional[Dict[str, Any]]
     if url.startswith("file:"):
         plugin_path = url[5:]
-        json_path = os.path.join(plugin_path, "plugin.json")
-        json = load_json_file(json_path)
-        if not json:
-            raise ValidationError(f"Could not load plugin.json from: {json_path}")
+        plugin_json_path = os.path.join(plugin_path, "plugin.json")
+        plugin_json = cast(Optional[Dict[str, Any]], load_json_file(plugin_json_path))
+        if not plugin_json:
+            raise ValidationError(f"Could not load plugin.json from: {plugin_json_path}")
         validated_data["plugin_type"] = "local"
         validated_data["url"] = url
         validated_data["tag"] = None
         validated_data["archive"] = None
-        validated_data["name"] = json.get("name", json_path.split("/")[-2])
-        validated_data["description"] = json.get("description", "")
-        validated_data["config_schema"] = json.get("config", [])
-        validated_data["public_jobs"] = json.get("publicJobs", {})
-        posthog_version = json.get("posthogVersion", None)
-        validated_data["is_stateless"] = json.get("stateless", False)
+        validated_data["name"] = plugin_json.get("name", plugin_json_path.split("/")[-2])
+        validated_data["description"] = plugin_json.get("description", "")
+        validated_data["config_schema"] = plugin_json.get("config", [])
+        validated_data["public_jobs"] = plugin_json.get("publicJobs", {})
+        posthog_version = plugin_json.get("posthogVersion", None)
+        validated_data["is_stateless"] = plugin_json.get("stateless", False)
     else:
         parsed_url = parse_url(url, get_latest_if_none=True)
         if parsed_url:
             validated_data["url"] = parsed_url["root_url"]
             validated_data["tag"] = parsed_url.get("tag", None)
             validated_data["archive"] = download_plugin_archive(validated_data["url"], validated_data["tag"])
-            plugin_json = get_json_from_archive(validated_data["archive"], "plugin.json")
+            plugin_json = cast(
+                Optional[Dict[str, Any]], get_file_from_archive(validated_data["archive"], "plugin.json")
+            )
             if not plugin_json:
                 raise ValidationError("Could not find plugin.json in the plugin")
             validated_data["name"] = plugin_json["name"]
@@ -97,18 +101,41 @@ def update_validated_data_from_url(validated_data: Dict[str, Any], url: str) -> 
                 f'Currently running PostHog version {VERSION} does not match this plugin\'s semantic version requirement "{posthog_version}".'
             )
 
-    return validated_data
+    return plugin_json
 
 
 class PluginManager(models.Manager):
     def install(self, **kwargs) -> "Plugin":
         if "organization_id" not in kwargs and "organization" in kwargs:
             kwargs["organization_id"] = kwargs["organization"].id
+        plugin_json: Optional[Dict[str, Any]] = None
         if kwargs.get("plugin_type", None) != Plugin.PluginType.SOURCE:
-            update_validated_data_from_url(kwargs, kwargs["url"])
+            plugin_json = update_validated_data_from_url(kwargs, kwargs["url"])
             raise_if_plugin_installed(kwargs["url"], kwargs["organization_id"])
-        reload_plugins_on_workers()
-        return Plugin.objects.create(**kwargs)
+        plugin = Plugin.objects.create(**kwargs)
+        if plugin_json:
+            PluginSourceFile.objects.create(
+                plugin=plugin, filename="plugin.json", source=json.dumps(plugin_json),
+            )
+            main_filename_defined = plugin_json.get("main")
+            main_filenames_to_try = [main_filename_defined] if main_filename_defined else ["index.js", "index.ts"]
+            for main_filename in main_filenames_to_try:
+                if index_ts := get_file_from_archive(
+                    kwargs["archive"], main_filename, parse_with=lambda b: b.decode("utf-8")
+                ):
+                    PluginSourceFile.objects.create(
+                        plugin=plugin, filename=main_filename, source=index_ts,
+                    )
+                    break
+            else:
+                raise ValidationError(f"Could not find main file {' or '.join(main_filenames_to_try)} in the plugin")
+            if frontend_tsx := get_file_from_archive(
+                kwargs["archive"], "frontend.tsx", parse_with=lambda b: b.decode("utf-8")
+            ):
+                PluginSourceFile.objects.create(
+                    plugin=plugin, filename="frontend.tsx", source=frontend_tsx,
+                )
+        return plugin
 
 
 class Plugin(models.Model):
