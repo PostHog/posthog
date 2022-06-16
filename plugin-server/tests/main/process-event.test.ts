@@ -647,94 +647,6 @@ test('capture no element', async () => {
     expect(event.event).toBe('$pageview')
 })
 
-test('capture sent_at', async () => {
-    await createPerson(hub, team, ['asdfasdfasdf'])
-
-    const rightNow = DateTime.utc()
-    const tomorrow = rightNow.plus({ days: 1, hours: 2 })
-    const tomorrowSentAt = rightNow.plus({ days: 1, hours: 2, minutes: 10 })
-
-    await processEvent(
-        'movie played',
-        '',
-        '',
-        {
-            event: '$pageview',
-            timestamp: tomorrow.toISO(),
-            properties: { distinct_id: 'asdfasdfasdf', token: team.api_token },
-        } as any as PluginEvent,
-        team.id,
-        rightNow,
-        tomorrowSentAt,
-        new UUIDT().toString()
-    )
-
-    const [event] = await hub.db.fetchEvents()
-    const eventSecondsBeforeNow = rightNow.diff(DateTime.fromISO(event.timestamp), 'seconds').seconds
-
-    expect(eventSecondsBeforeNow).toBeGreaterThan(590)
-    expect(eventSecondsBeforeNow).toBeLessThan(610)
-})
-
-test('capture sent_at no timezones', async () => {
-    await createPerson(hub, team, ['asdfasdfasdf'])
-
-    const rightNow = DateTime.utc()
-    const tomorrow = rightNow.plus({ days: 1, hours: 2 }).setZone('UTC+4')
-    const tomorrowSentAt = rightNow.plus({ days: 1, hours: 2, minutes: 10 }).setZone('UTC+4')
-
-    // TODO: not sure if this is correct?
-    // tomorrow = tomorrow.replace(tzinfo=None)
-    // tomorrow_sent_at = tomorrow_sent_at.replace(tzinfo=None)
-
-    await processEvent(
-        'movie played',
-        '',
-        '',
-        {
-            event: '$pageview',
-            timestamp: tomorrow,
-            properties: { distinct_id: 'asdfasdfasdf', token: team.api_token },
-        } as any as PluginEvent,
-        team.id,
-        rightNow,
-        tomorrowSentAt,
-        new UUIDT().toString()
-    )
-
-    const [event] = await hub.db.fetchEvents()
-    const eventSecondsBeforeNow = rightNow.diff(DateTime.fromISO(event.timestamp), 'seconds').seconds
-
-    expect(eventSecondsBeforeNow).toBeGreaterThan(590)
-    expect(eventSecondsBeforeNow).toBeLessThan(610)
-})
-
-test('capture no sent_at', async () => {
-    await createPerson(hub, team, ['asdfasdfasdf'])
-
-    const rightNow = DateTime.utc()
-    const tomorrow = rightNow.plus({ days: 1, hours: 2 })
-
-    await processEvent(
-        'movie played',
-        '',
-        '',
-        {
-            event: '$pageview',
-            timestamp: tomorrow.toISO(),
-            properties: { distinct_id: 'asdfasdfasdf', token: team.api_token },
-        } as any as PluginEvent,
-        team.id,
-        rightNow,
-        null,
-        new UUIDT().toString()
-    )
-
-    const [event] = await hub.db.fetchEvents()
-    const difference = tomorrow.diff(DateTime.fromISO(event.timestamp), 'seconds').seconds
-    expect(difference).toBeLessThan(1)
-})
-
 test('ip none', async () => {
     await createPerson(hub, team, ['asdfasdfasdf'])
 
@@ -961,44 +873,6 @@ test('alias both existing', async () => {
         'old_distinct_id',
         'new_distinct_id',
     ])
-})
-
-test('offset timestamp', async () => {
-    now = DateTime.fromISO('2020-01-01T12:00:05.200Z')
-
-    await processEvent(
-        'distinct_id1',
-        '',
-        '',
-        { offset: 150, event: '$autocapture', distinct_id: 'distinct_id1' } as any as PluginEvent,
-        team.id,
-        now,
-        now,
-        new UUIDT().toString()
-    )
-    expect((await hub.db.fetchEvents()).length).toBe(1)
-
-    const [event] = await hub.db.fetchEvents()
-    expect(event.timestamp).toEqual('2020-01-01T12:00:05.050Z')
-})
-
-test('offset timestamp no sent_at', async () => {
-    now = DateTime.fromISO('2020-01-01T12:00:05.200Z')
-
-    await processEvent(
-        'distinct_id1',
-        '',
-        '',
-        { offset: 150, event: '$autocapture', distinct_id: 'distinct_id1' } as any as PluginEvent,
-        team.id,
-        now,
-        null,
-        new UUIDT().toString()
-    )
-    expect((await hub.db.fetchEvents()).length).toBe(1)
-
-    const [event] = await hub.db.fetchEvents()
-    expect(event.timestamp).toEqual('2020-01-01T12:00:05.050Z')
 })
 
 test('alias merge properties', async () => {
