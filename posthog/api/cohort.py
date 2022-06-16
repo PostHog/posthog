@@ -16,7 +16,6 @@ from rest_framework.settings import api_settings
 from rest_framework_csv import renderers as csvrenderers
 from sentry_sdk.api import capture_exception
 
-from ee.clickhouse.queries.funnels.funnel_correlation_persons import FunnelCorrelationActors
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.person import get_funnel_actor_class, should_paginate
 from posthog.api.routing import StructuredViewSetMixin
@@ -283,11 +282,8 @@ def insert_cohort_actors_into_ch(cohort: Cohort, filter_data: Dict):
         query_builder = StickinessActors(cohort.team, entity, stickiness_filter)
     elif insight_type == INSIGHT_FUNNELS:
         funnel_filter = Filter(data=filter_data, team=cohort.team)
-        if funnel_filter.correlation_person_entity:
-            query_builder = FunnelCorrelationActors(filter=funnel_filter, team=cohort.team)
-        else:
-            funnel_actor_class = get_funnel_actor_class(funnel_filter)
-            query_builder = funnel_actor_class(filter=funnel_filter, team=cohort.team)
+        funnel_actor_class = get_funnel_actor_class(funnel_filter)
+        query_builder = funnel_actor_class(filter=funnel_filter, team=cohort.team)
     elif insight_type == INSIGHT_PATHS:
         path_filter = PathFilter(data=filter_data, team=cohort.team)
         query_builder = PathsActors(path_filter, cohort.team, funnel_filter=None)

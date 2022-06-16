@@ -134,10 +134,13 @@ if EE_AVAILABLE:
     from ee.clickhouse.views.experiments import ClickhouseExperimentsViewSet
     from ee.clickhouse.views.groups import ClickhouseGroupsTypesView, ClickhouseGroupsView
     from ee.clickhouse.views.insights import ClickhouseInsightsViewSet
+    from ee.clickhouse.views.person import EnterprisePersonViewSet
 
     projects_router.register(r"experiments", ClickhouseExperimentsViewSet, "project_experiments", ["team_id"])
     projects_router.register(r"groups", ClickhouseGroupsView, "project_groups", ["team_id"])
     projects_router.register(r"groups_types", ClickhouseGroupsTypesView, "project_groups_types", ["team_id"])
     projects_router.register(r"insights", ClickhouseInsightsViewSet, "project_insights", ["team_id"])
+    projects_router.register(r"persons", EnterprisePersonViewSet, "project_persons", ["team_id"])
 else:
     projects_router.register(r"insights", InsightViewSet, "project_insights", ["team_id"])
+    projects_router.register(r"persons", PersonViewSet, "project_persons", ["team_id"])

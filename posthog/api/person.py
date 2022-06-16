@@ -26,21 +26,11 @@ from rest_framework.utils.serializer_helpers import ReturnDict
 from rest_framework_csv import renderers as csvrenderers
 from statshog.defaults.django import statsd
 
-from ee.clickhouse.queries.funnels.funnel_correlation_persons import FunnelCorrelationActors
 from posthog.api.capture import capture_internal
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.utils import format_paginated_url, get_target_entity
 from posthog.client import sync_execute
-from posthog.constants import (
-    CSV_EXPORT_LIMIT,
-    FUNNEL_CORRELATION_PERSON_LIMIT,
-    FUNNEL_CORRELATION_PERSON_OFFSET,
-    INSIGHT_FUNNELS,
-    INSIGHT_PATHS,
-    LIMIT,
-    TRENDS_TABLE,
-    FunnelVizType,
-)
+from posthog.constants import CSV_EXPORT_LIMIT, INSIGHT_FUNNELS, INSIGHT_PATHS, LIMIT, TRENDS_TABLE, FunnelVizType
 from posthog.decorators import cached_function
 from posthog.models import Cohort, Filter, Person, User
 from posthog.models.activity_logging.activity_log import (
@@ -69,6 +59,7 @@ from posthog.queries.retention import Retention
 from posthog.queries.stickiness import Stickiness
 from posthog.queries.trends.lifecycle import Lifecycle
 from posthog.queries.util import get_earliest_timestamp
+from posthog.settings import EE_AVAILABLE
 from posthog.tasks.split_person import split_person
 from posthog.utils import convert_property_value, format_query_params_absolute_url, is_anonymous_id, relative_date_parse
 
@@ -171,8 +162,9 @@ def should_paginate(results, limit: Union[str, int]) -> bool:
     return len(results) > int(limit) - 1
 
 
-def get_funnel_actor_class(filter: Filter) -> Callable:
+def _get_funnel_actor_class(filter: Filter) -> Callable:
     funnel_actor_class: Type[ClickhouseFunnelBase]
+
     if filter.funnel_viz_type == FunnelVizType.TRENDS:
         funnel_actor_class = ClickhouseFunnelTrendsActors
     else:
@@ -184,6 +176,14 @@ def get_funnel_actor_class(filter: Filter) -> Callable:
             funnel_actor_class = ClickhouseFunnelActors
 
     return funnel_actor_class
+
+
+if EE_AVAILABLE:
+    from ee.clickhouse.views.person import _get_funnel_actor_class_ee
+
+    get_funnel_actor_class = _get_funnel_actor_class_ee
+else:
+    get_funnel_actor_class = _get_funnel_actor_class
 
 
 class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
@@ -276,59 +276,6 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         actors, serialized_actors = funnel_actor_class(filter, self.team).get_actors()
         _should_paginate = should_paginate(actors, filter.limit)
         next_url = format_query_params_absolute_url(request, filter.offset + filter.limit) if _should_paginate else None
-        initial_url = format_query_params_absolute_url(request, 0)
-
-        # cached_function expects a dict with the key result
-        return {"result": (serialized_actors, next_url, initial_url)}
-
-    @action(methods=["GET", "POST"], url_path="funnel/correlation", detail=False)
-    def funnel_correlation(self, request: request.Request, **kwargs) -> response.Response:
-        if request.user.is_anonymous or not self.team:
-            return response.Response(data=[])
-
-        results_package = self.calculate_funnel_correlation_persons(request)
-
-        if not results_package:
-            return response.Response(data=[])
-
-        people, next_url, initial_url = results_package["result"]
-
-        return response.Response(
-            data={
-                "results": [{"people": people, "count": len(people)}],
-                "next": next_url,
-                "initial": initial_url,
-                "is_cached": results_package.get("is_cached"),
-                "last_refresh": results_package.get("last_refresh"),
-            }
-        )
-
-    @cached_function
-    def calculate_funnel_correlation_persons(
-        self, request: request.Request
-    ) -> Dict[str, Tuple[list, Optional[str], Optional[str]]]:
-        if request.user.is_anonymous or not self.team:
-            return {"result": ([], None, None)}
-
-        filter = Filter(request=request, data={"insight": INSIGHT_FUNNELS}, team=self.team)
-        if not filter.correlation_person_limit:
-            filter = filter.with_data({FUNNEL_CORRELATION_PERSON_LIMIT: 100})
-        base_uri = request.build_absolute_uri("/")
-        actors, serialized_actors = FunnelCorrelationActors(
-            filter=filter, team=self.team, base_uri=base_uri
-        ).get_actors()
-        _should_paginate = should_paginate(actors, filter.correlation_person_limit)
-
-        next_url = (
-            format_query_params_absolute_url(
-                request,
-                filter.correlation_person_offset + filter.correlation_person_limit,
-                offset_alias=FUNNEL_CORRELATION_PERSON_OFFSET,
-                limit_alias=FUNNEL_CORRELATION_PERSON_LIMIT,
-            )
-            if _should_paginate
-            else None
-        )
         initial_url = format_query_params_absolute_url(request, 0)
 
         # cached_function expects a dict with the key result
