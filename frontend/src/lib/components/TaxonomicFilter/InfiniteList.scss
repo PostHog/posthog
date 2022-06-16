@@ -24,6 +24,7 @@
         .taxonomic-list-row-contents {
             display: flex;
             align-items: center;
+            user-select: none;
 
             .taxonomic-list-row-contents-icon {
                 width: 30px;
