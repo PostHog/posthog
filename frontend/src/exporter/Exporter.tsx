@@ -22,9 +22,10 @@ initKea()
 function Exporter(): JSX.Element {
     if (type === ExportType.Image) {
         return <ExportViewer exportedData={exportedData} />
-    } else if (type === ExportType.Scene && dashboard) {
+    } else if ((type === ExportType.Scene || type === ExportType.Embed) && dashboard) {
         return (
             <SharedDashboard
+                type={type}
                 dashboard={dashboard}
                 availableFeatures={organization?.available_features ?? []}
                 team={team ?? {}}

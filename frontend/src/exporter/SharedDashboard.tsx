@@ -2,23 +2,24 @@ import React from 'react'
 import { Dashboard } from '~/scenes/dashboard/Dashboard'
 import { FriendlyLogo } from '~/toolbar/assets/FriendlyLogo'
 import './SharedDashboard.scss'
-import { DashboardPlacement, AvailableFeature, DashboardType, TeamType } from '~/types'
+import { AvailableFeature, DashboardPlacement, DashboardType, TeamType } from '~/types'
+import { ExportType } from '~/exporter/types'
 
 interface SharedDashboardProps {
+    type: ExportType
     dashboard: Partial<DashboardType>
     team: Partial<TeamType>
     availableFeatures: AvailableFeature[]
 }
 
-export function SharedDashboard({ team, dashboard, availableFeatures }: SharedDashboardProps): JSX.Element {
-    const isEmbedded = window.location.search.includes('embedded')
+export function SharedDashboard({ type, team, dashboard, availableFeatures }: SharedDashboardProps): JSX.Element {
     const whiteLabel =
         window.location.search.includes('whitelabel') && availableFeatures.includes(AvailableFeature.WHITE_LABELLING)
 
     return (
         <div className="SharedDashboard">
             {!whiteLabel ? (
-                !isEmbedded ? (
+                type !== ExportType.Embed ? (
                     <div className="SharedDashboard-header">
                         <a href="https://posthog.com" target="_blank" rel="noopener noreferrer">
                             <FriendlyLogo style={{ fontSize: '1.125rem' }} />
