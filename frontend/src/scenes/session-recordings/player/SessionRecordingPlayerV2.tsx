@@ -6,7 +6,6 @@ import { PlayerFrame } from 'scenes/session-recordings/player/PlayerFrame'
 import { PlayerController } from 'scenes/session-recordings/player/PlayerController'
 import { PlayerEvents } from 'scenes/session-recordings/player/PlayerEvents'
 import { Col, Row, Tabs } from 'antd'
-import { InfoCircleOutlined } from '@ant-design/icons'
 import { PlayerMeta } from './PlayerMeta'
 import { Console } from './Console'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -14,6 +13,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { sessionRecordingLogic } from '../sessionRecordingLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { Tooltip } from 'lib/components/Tooltip'
+import { LemonTag } from 'lib/components/LemonTag/LemonTag'
 import { NetworkRequests } from 'scenes/session-recordings/player/NetworkRequests'
 
 export function SessionRecordingPlayerV2(): JSX.Element {
@@ -101,12 +101,14 @@ function PlayerSidebar(): JSX.Element {
                         {sessionConsoleEnabled && (
                             <TabPane
                                 tab={
-                                    <div>
-                                        Console (beta)
-                                        <Tooltip title="While console logs are in beta, only 150 logs are displayed.">
-                                            <InfoCircleOutlined style={{ marginLeft: 6 }} />
-                                        </Tooltip>
-                                    </div>
+                                    <Tooltip title="While console logs are in BETA, only 150 logs are displayed.">
+                                        <div>
+                                            Console
+                                            <LemonTag type="warning" style={{ marginLeft: 6, lineHeight: '1.4em' }}>
+                                                BETA
+                                            </LemonTag>
+                                        </div>
+                                    </Tooltip>
                                 }
                                 key="console"
                             >
@@ -116,12 +118,14 @@ function PlayerSidebar(): JSX.Element {
                         {sessionNetworkRequestsEnabled && (
                             <TabPane
                                 tab={
-                                    <div>
-                                        Network Requests (beta)
-                                        <Tooltip title="Network requests are in beta, not all requests are captured.">
-                                            <InfoCircleOutlined style={{ marginLeft: 6 }} />
-                                        </Tooltip>
-                                    </div>
+                                    <Tooltip title="Network requests are in beta, not all requests are captured.">
+                                        <div>
+                                            Network Requests
+                                            <LemonTag type="warning" style={{ marginLeft: 6, lineHeight: '1.4em' }}>
+                                                BETA
+                                            </LemonTag>
+                                        </div>
+                                    </Tooltip>
                                 }
                                 key="network-requests"
                             >

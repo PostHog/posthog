@@ -240,6 +240,7 @@ export interface TeamType extends TeamBasicType {
     person_display_name_properties: string[]
     has_group_types: boolean
     primary_dashboard: number // Dashboard shown on the project homepage
+    live_events_columns: string[] | null // Custom columns shown on the Live Events page
 
     // Uses to exclude person properties from correlation analysis results, for
     // example can be used to exclude properties that have trivial causation
@@ -1908,10 +1909,10 @@ export interface SubscriptionType {
     target_value: string
     frequency: 'daily' | 'weekly' | 'monthly' | 'yearly'
     interval: number
-    byweekday: WeekdayType[]
-    bysetpos: number
+    byweekday: WeekdayType[] | null
+    bysetpos: number | null
     start_date: string
-    until_date: string
+    until_date?: string
     title: string
     created_by?: UserBasicType | null
     created_at: string

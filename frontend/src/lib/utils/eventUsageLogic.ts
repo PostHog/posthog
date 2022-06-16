@@ -202,6 +202,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         values: [preflightLogic, ['realm'], userLogic, ['user']],
     },
     actions: {
+        reportEventsTablePollingReactedToPageVisibility: (pageIsVisible: boolean) => ({ pageIsVisible }),
         reportAnnotationViewed: (annotations: AnnotationType[] | null) => ({ annotations }),
         reportPersonDetailViewed: (person: PersonType) => ({ person }),
         reportInsightCreated: (insight: InsightType | null) => ({ insight }),
@@ -455,6 +456,9 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         reportIngestionSidebarButtonClicked: (name: string) => ({ name }),
     },
     listeners: ({ values }) => ({
+        reportEventsTablePollingReactedToPageVisibility: async ({ pageIsVisible }) => {
+            posthog.capture(`events table polling ${pageIsVisible ? 'resumed' : 'paused'}`, { pageIsVisible })
+        },
         reportAnnotationViewed: async ({ annotations }, breakpoint) => {
             if (!annotations) {
                 // If value is `null` the component has been unmounted, don't report
