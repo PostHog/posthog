@@ -1,7 +1,7 @@
 import React from 'react'
 import ReactDOM from 'react-dom'
 import { initKea } from '~/initKea'
-import { Dashboard } from './Dashboard'
+import { Dashboard } from '~/scenes/dashboard/Dashboard'
 import { loadPostHogJS } from '~/loadPostHogJS'
 import { FriendlyLogo } from '~/toolbar/assets/FriendlyLogo'
 import '~/styles'

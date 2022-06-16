@@ -26,7 +26,6 @@ await buildInParallel(
     [
         {
             name: 'PostHog App',
-            absWorkingDir: __dirname,
             entryPoints: ['src/index.tsx'],
             splitting: true,
             format: 'esm',
@@ -35,15 +34,13 @@ await buildInParallel(
         },
         {
             name: 'Shared Dashboard',
-            absWorkingDir: __dirname,
-            entryPoints: ['src/scenes/dashboard/SharedDashboard.tsx'],
+            entryPoints: ['src/exporter/SharedDashboard.tsx'],
             format: 'iife',
             outfile: path.resolve(__dirname, 'dist', 'shared_dashboard.js'),
             ...common,
         },
         {
             name: 'Exporter',
-            absWorkingDir: __dirname,
             entryPoints: ['src/exporter/ExportViewer.tsx'],
             format: 'iife',
             outfile: path.resolve(__dirname, 'dist', 'exporter.js'),
@@ -51,7 +48,6 @@ await buildInParallel(
         },
         {
             name: 'Toolbar',
-            absWorkingDir: __dirname,
             entryPoints: ['src/toolbar/index.tsx'],
             format: 'iife',
             outfile: path.resolve(__dirname, 'dist', 'toolbar.js'),
@@ -93,7 +89,7 @@ export function writeIndexHtml(chunks = {}, entrypoints = []) {
 export function writeSharedDashboardHtml(chunks = {}, entrypoints = []) {
     copyIndexHtml(
         __dirname,
-        'src/shared_dashboard.html',
+        'src/exporter/shared_dashboard.html',
         'dist/shared_dashboard.html',
         'shared_dashboard',
         chunks,
@@ -102,5 +98,5 @@ export function writeSharedDashboardHtml(chunks = {}, entrypoints = []) {
 }
 
 export function writeExporterHtml(chunks = {}, entrypoints = []) {
-    copyIndexHtml(__dirname, 'src/exporter.html', 'dist/exporter.html', 'exporter', chunks, entrypoints)
+    copyIndexHtml(__dirname, 'src/exporter/exporter.html', 'dist/exporter.html', 'exporter', chunks, entrypoints)
 }
