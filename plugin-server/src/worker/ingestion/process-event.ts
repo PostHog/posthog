@@ -7,8 +7,8 @@ import { Event as EventProto, IEvent } from '../../config/idl/protos'
 import { KAFKA_EVENTS, KAFKA_SESSION_RECORDING_EVENTS } from '../../config/kafka-topics'
 import {
     Element,
-    Event,
     Hub,
+    IngestionEvent,
     Person,
     PostgresSessionRecordingEvent,
     PreIngestionEvent,
@@ -206,9 +206,7 @@ export class EventsProcessor {
         return res
     }
 
-    async createEvent(
-        preIngestionEvent: PreIngestionEvent
-    ): Promise<[IEvent, Event['id'] | undefined, Element[] | undefined]> {
+    async createEvent(preIngestionEvent: PreIngestionEvent): Promise<IngestionEvent> {
         const {
             eventUuid: uuid,
             event,
@@ -228,11 +226,13 @@ export class EventsProcessor {
 
         let eventPersonUuid: string | null = null
         let eventPersonProperties: string | null = null
-        if (preIngestionEvent.person) {
-            eventPersonUuid = preIngestionEvent.person.uuid
-            eventPersonProperties = JSON.stringify(preIngestionEvent.person.properties)
+        let personInfo = preIngestionEvent.person
+
+        if (personInfo) {
+            eventPersonUuid = personInfo.uuid
+            eventPersonProperties = JSON.stringify(personInfo.properties)
         } else {
-            const personInfo = await this.db.getPersonData(teamId, distinctId)
+            personInfo = await this.db.getPersonData(teamId, distinctId)
             if (personInfo) {
                 // For consistency, we'd like events to contain the properties that they set, even if those were changed
                 // before the event is ingested. Thus we fetch the updated properties but override the values with the event's
@@ -252,8 +252,6 @@ export class EventsProcessor {
             elements_chain: safeClickhouseString(elementsChain),
             created_at: castTimestampOrNow(null, timestampFormat),
         }
-
-        let eventId: Event['id'] | undefined
 
         const useExternalSchemas = this.clickhouseExternalSchemasEnabled(teamId)
         // proto ingestion is deprecated and we won't support new additions to the schema
@@ -278,7 +276,7 @@ export class EventsProcessor {
             ],
         })
 
-        return [eventPayload, eventId, elements]
+        return { ...preIngestionEvent, person: personInfo }
     }
 
     async produceEventToBuffer(bufferEvent: PreIngestionEvent): Promise<void> {

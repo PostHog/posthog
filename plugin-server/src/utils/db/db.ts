@@ -578,9 +578,9 @@ export class DB {
         return null
     }
 
-    public async getPersonDataByPersonId(teamId: number, personId: number): Promise<IngestionPersonData | null> {
+    public async getPersonDataByPersonId(teamId: number, personId: number): Promise<IngestionPersonData | undefined> {
         if (!this.personAndGroupsCachingEnabledTeams.has(teamId)) {
-            return null
+            return undefined
         }
         const [personUuid, personCreatedAtIso, personProperties] = await Promise.all([
             this.redisGet(this.getPersonUuidCacheKey(teamId, personId), null),
@@ -620,15 +620,15 @@ export class DB {
                 id: personId,
             }
         }
-        return null
+        return undefined
     }
 
-    public async getPersonData(teamId: number, distinctId: string): Promise<IngestionPersonData | null> {
+    public async getPersonData(teamId: number, distinctId: string): Promise<IngestionPersonData | undefined> {
         const personId = await this.getPersonId(teamId, distinctId)
         if (personId) {
             return await this.getPersonDataByPersonId(teamId, personId)
         }
-        return null
+        return undefined
     }
 
     private async getGroupProperty(teamId: number, groupIdentifier: GroupIdentifier): Promise<GroupProperties> {

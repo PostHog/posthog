@@ -4,15 +4,11 @@ import { convertToProcessedPluginEvent } from '../../../utils/event'
 import { runOnAction, runOnEvent, runOnSnapshot } from '../../plugins/run'
 import { EventPipelineRunner, StepResult } from './runner'
 
-export async function runAsyncHandlersStep(
-    runner: EventPipelineRunner,
-    event: IngestionEvent,
-    person: IngestionPersonData | undefined
-): Promise<StepResult> {
+export async function runAsyncHandlersStep(runner: EventPipelineRunner, event: IngestionEvent): Promise<StepResult> {
     if (runner.hub.capabilities.processAsyncHandlers) {
         await Promise.all([
             processOnEvent(runner, event),
-            processOnActionAndWebhooks(runner, event, person, event.elementsList),
+            processOnActionAndWebhooks(runner, event, event.person, event.elementsList),
         ])
     }
 
