@@ -78,7 +78,7 @@ class EventDefinitionViewSet(
             **search_kwargs,
         }
 
-        if EE_AVAILABLE and self.request.user.organization.is_feature_available(AvailableFeature.INGESTION_TAXONOMY):
+        if EE_AVAILABLE and self.request.user.organization.is_feature_available(AvailableFeature.INGESTION_TAXONOMY):  # type: ignore
             from ee.models.event_definition import EnterpriseEventDefinition
 
             # Prevent fetching deprecated `tags` field. Tags are separately fetched in TaggedItemSerializerMixin
@@ -98,7 +98,7 @@ class EventDefinitionViewSet(
 
     def get_object(self):
         id = self.kwargs["id"]
-        if EE_AVAILABLE and self.request.user.organization.is_feature_available(AvailableFeature.INGESTION_TAXONOMY):
+        if EE_AVAILABLE and self.request.user.organization.is_feature_available(AvailableFeature.INGESTION_TAXONOMY):  # type: ignore
             from ee.models.event_definition import EnterpriseEventDefinition
 
             enterprise_event = EnterpriseEventDefinition.objects.filter(id=id).first()
@@ -117,8 +117,8 @@ class EventDefinitionViewSet(
 
     def get_serializer_class(self) -> Type[serializers.ModelSerializer]:
         serializer_class = self.serializer_class
-        if EE_AVAILABLE and self.request.user.organization.is_feature_available(AvailableFeature.INGESTION_TAXONOMY):
+        if EE_AVAILABLE and self.request.user.organization.is_feature_available(AvailableFeature.INGESTION_TAXONOMY):  # type: ignore
             from ee.api.ee_event_definition import EnterpriseEventDefinitionSerializer
 
-            serializer_class = EnterpriseEventDefinitionSerializer
+            serializer_class = EnterpriseEventDefinitionSerializer  # type: ignore
         return serializer_class
