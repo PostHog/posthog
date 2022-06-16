@@ -1,8 +1,7 @@
 import ClickHouse from '@posthog/clickhouse'
 import { PluginEvent, Properties } from '@posthog/plugin-scaffold'
-import * as Sentry from '@sentry/node'
 import crypto from 'crypto'
-import { DateTime, Duration } from 'luxon'
+import { DateTime } from 'luxon'
 
 import { Event as EventProto, IEvent } from '../../config/idl/protos'
 import { KAFKA_EVENTS, KAFKA_SESSION_RECORDING_EVENTS } from '../../config/kafka-topics'
@@ -20,7 +19,6 @@ import { DB, GroupIdentifier } from '../../utils/db/db'
 import { elementsToString, extractElements } from '../../utils/db/elements-chain'
 import { KafkaProducerWrapper } from '../../utils/db/kafka-producer-wrapper'
 import { safeClickhouseString, sanitizeEventName, timeoutGuard } from '../../utils/db/utils'
-import { status } from '../../utils/status'
 import { castTimestampOrNow, UUID } from '../../utils/utils'
 import { KAFKA_BUFFER } from './../../config/kafka-topics'
 import { GroupTypeManager } from './group-type-manager'
@@ -29,7 +27,6 @@ import { PersonManager } from './person-manager'
 import { PersonStateManager } from './person-state-manager'
 import { upsertGroup } from './properties-updater'
 import { TeamManager } from './team-manager'
-import { parseDate } from './utils'
 
 export interface EventProcessingResult {
     event: IEvent | SessionRecordingEvent | PostgresSessionRecordingEvent
@@ -65,8 +62,7 @@ export class EventsProcessor {
         ip: string | null,
         data: PluginEvent,
         teamId: number,
-        now: DateTime,
-        sentAt: DateTime | null,
+        timestamp: DateTime,
         eventUuid: string
     ): Promise<PreIngestionEvent | null> {
         if (!UUID.validateString(eventUuid, false)) {
@@ -82,13 +78,6 @@ export class EventsProcessor {
             // We know `sanitizeEvent` has been called here.
             const properties: Properties = data.properties!
 
-            // TODO: we should just handle all person's related changes together not here and in capture separately
-            const parsedTs = this.handleTimestamp(data, now, sentAt)
-            const ts = parsedTs.isValid ? parsedTs : DateTime.now()
-            if (!parsedTs.isValid) {
-                this.pluginsServer.statsd?.increment('process_event_invalid_timestamp', { teamId: String(teamId) })
-            }
-
             const team = await this.teamManager.fetchTeam(teamId)
             if (!team) {
                 throw new Error(`No team found with ID ${teamId}. Can't ingest event.`)
@@ -98,7 +87,7 @@ export class EventsProcessor {
                 teamId,
                 distinctId,
                 properties,
-                ts,
+                timestamp,
                 this.db,
                 this.pluginsServer.statsd,
                 this.personManager
@@ -120,7 +109,7 @@ export class EventsProcessor {
                             distinctId,
                             properties['$session_id'],
                             properties['$window_id'],
-                            ts,
+                            timestamp,
                             properties['$snapshot_data'],
                             properties,
                             ip
@@ -136,7 +125,7 @@ export class EventsProcessor {
             } else {
                 const timeout3 = timeoutGuard('Still running "capture". Timeout warning after 30 sec!', { eventUuid })
                 try {
-                    result = await this.capture(eventUuid, ip, team, data['event'], distinctId, properties, ts)
+                    result = await this.capture(eventUuid, ip, team, data['event'], distinctId, properties, timestamp)
                     this.pluginsServer.statsd?.timing('kafka_queue.single_save.standard', singleSaveTimer, {
                         team_id: teamId.toString(),
                     })
@@ -148,28 +137,6 @@ export class EventsProcessor {
             clearTimeout(timeout)
         }
         return result
-    }
-
-    public handleTimestamp(data: PluginEvent, now: DateTime, sentAt: DateTime | null): DateTime {
-        if (data['timestamp']) {
-            if (sentAt) {
-                // sent_at - timestamp == now - x
-                // x = now + (timestamp - sent_at)
-                try {
-                    // timestamp and sent_at must both be in the same format: either both with or both without timezones
-                    // otherwise we can't get a diff to add to now
-                    return now.plus(parseDate(data['timestamp']).diff(sentAt))
-                } catch (error) {
-                    status.error('⚠️', 'Error when handling timestamp:', error)
-                    Sentry.captureException(error, { extra: { data, now, sentAt } })
-                }
-            }
-            return parseDate(data['timestamp'])
-        }
-        if (data['offset']) {
-            return now.minus(Duration.fromMillis(data['offset']))
-        }
-        return now
     }
 
     public clickhouseExternalSchemasEnabled(teamId: number): boolean {
