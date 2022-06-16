@@ -43,7 +43,7 @@ class WebPerformanceViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
     def for_session(self, request, session_id, *args, **kwargs) -> Response:
         # todo materialised column method instead of hard coded json extract raw?
         query = """
-        SELECT timestamp, JSONExtractRaw(properties, '$performance_raw'), $window_id, uuid
+        SELECT timestamp, JSONExtractString(properties, '$performance_raw'), $window_id, uuid
         FROM events
         WHERE event = '$pageview'
         and team_id = %(team_id)s
@@ -54,65 +54,70 @@ class WebPerformanceViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
         parsed_entries: List[WebPerformanceLog] = []
         keys: Dict[str, List[str]] = {}
         for res in query_result:
-            # whaaat a tuple whose first entry is doubly stringified JSON
             pageview_timestamp = res[0]
             start_timestamp = math.floor(datetime.timestamp(pageview_timestamp) * 1000)
-            performance_entries: Dict = json.loads(json.loads(res[1]))
+            performance_entries: Dict = json.loads(res[1])
             window_id = res[2]
 
             # each is an array of arrays, the first entry is an array of the property names,
             # the remaining are each an array of the values for each of the properties in the first index
             # really lazy hard coding indexes :/
-            keys["navigation"] = performance_entries.get("navigation", [])[0]
-            for navigation_entry in performance_entries.get("navigation", [])[1]:
-                # 0: name e.g. the URL,
-                # 1: entryType (always navigation),
-                # 2: duration,
-                # startTime not present because its always 0
-                parsed_entries.append(
-                    WebPerformanceLog(
-                        playerPosition=PlayerPosition(time=start_timestamp, windowId=window_id),
-                        type="navigation",
-                        duration=navigation_entry[2],
-                        timing=None,
-                        eventName=None,
-                        url=navigation_entry[0],
-                        raw=navigation_entry,
-                        eventId=res[3],
+            navigation_entries = performance_entries.get("navigation", [])
+            if navigation_entries:
+                keys["navigation"] = navigation_entries[0]
+                for navigation_entry in navigation_entries[1]:
+                    # 0: name e.g. the URL,
+                    # 1: entryType (always navigation),
+                    # 2: duration,
+                    # startTime not present because its always 0
+                    parsed_entries.append(
+                        WebPerformanceLog(
+                            playerPosition=PlayerPosition(time=start_timestamp, windowId=window_id),
+                            type="navigation",
+                            duration=navigation_entry[2],
+                            timing=None,
+                            eventName=None,
+                            url=navigation_entry[0],
+                            raw=navigation_entry,
+                            eventId=res[3],
+                        )
                     )
-                )
 
-            keys["paint"] = performance_entries.get("paint", [])[0]
-            for paint_entry in performance_entries.get("paint", [])[1]:
-                # 0: name, 2: milliseconds of event after start
-                parsed_entries.append(
-                    WebPerformanceLog(
-                        playerPosition=PlayerPosition(time=start_timestamp + paint_entry[2], windowId=window_id),
-                        type="paint",
-                        duration=None,
-                        url=None,
-                        eventName=paint_entry[0],
-                        eventId=None,
-                        timing=paint_entry[2],
-                        raw=paint_entry,
+            paint_entries = performance_entries.get("paint", [])
+            if paint_entries:
+                keys["paint"] = paint_entries[0]
+                for paint_entry in paint_entries[1]:
+                    # 0: name, 2: milliseconds of event after start
+                    parsed_entries.append(
+                        WebPerformanceLog(
+                            playerPosition=PlayerPosition(time=start_timestamp + paint_entry[2], windowId=window_id),
+                            type="paint",
+                            duration=None,
+                            url=None,
+                            eventName=paint_entry[0],
+                            eventId=None,
+                            timing=paint_entry[2],
+                            raw=paint_entry,
+                        )
                     )
-                )
 
-            keys["resource"] = performance_entries.get("resource", [])[0]
-            for resource_entry in performance_entries.get("resource", [])[1]:
-                # 0 name, 1: startTime, 2: duration
-                parsed_entries.append(
-                    WebPerformanceLog(
-                        playerPosition=PlayerPosition(time=start_timestamp + resource_entry[1], windowId=window_id),
-                        type="resource",
-                        duration=resource_entry[2],
-                        url=resource_entry[0],
-                        timing=None,
-                        eventName=None,
-                        eventId=None,
-                        raw=resource_entry,
+            resource_entries = performance_entries.get("resource", [])
+            if resource_entries:
+                keys["resource"] = resource_entries[0]
+                for resource_entry in resource_entries[1]:
+                    # 0 name, 1: startTime, 2: duration
+                    parsed_entries.append(
+                        WebPerformanceLog(
+                            playerPosition=PlayerPosition(time=start_timestamp + resource_entry[1], windowId=window_id),
+                            type="resource",
+                            duration=resource_entry[2],
+                            url=resource_entry[0],
+                            timing=None,
+                            eventName=None,
+                            eventId=None,
+                            raw=resource_entry,
+                        )
                     )
-                )
 
         # todo a real serializer
         return Response(
