@@ -1,4 +1,4 @@
-import { Properties } from '@posthog/plugin-scaffold'
+import { PluginEvent, Properties } from '@posthog/plugin-scaffold'
 import * as Sentry from '@sentry/node'
 import equal from 'fast-deep-equal'
 import { StatsD } from 'hot-shots'
@@ -8,6 +8,7 @@ import { DatabaseError } from 'pg'
 
 import { Person, PropertyUpdateOperation } from '../../types'
 import { DB } from '../../utils/db/db'
+import { timeoutGuard } from '../../utils/db/utils'
 import { status } from '../../utils/status'
 import { UUIDT } from '../../utils/utils'
 import { PersonManager } from './person-manager'
@@ -187,21 +188,29 @@ export class PersonStateManager {
 
     // Alias & merge
 
-    async handleIdentifyOrAlias(event: string): Promise<void> {
+    async handleIdentifyOrAlias(event: string, data: PluginEvent): Promise<void> {
         if (isDistinctIdIllegal(this.distinctId)) {
             this.statsd?.increment(`illegal_distinct_ids.total`, { distinctId: this.distinctId })
             return
         }
-        if (event === '$create_alias') {
-            await this.merge(this.eventProperties['alias'], this.distinctId, this.teamId, this.timestamp, false)
-        } else if (event === '$identify' && this.eventProperties['$anon_distinct_id']) {
-            await this.merge(
-                this.eventProperties['$anon_distinct_id'],
-                this.distinctId,
-                this.teamId,
-                this.timestamp,
-                true
-            )
+
+        const timeout = timeoutGuard('Still running "handleIdentifyOrAlias". Timeout warning after 30 sec!')
+        try {
+            if (event === '$create_alias') {
+                await this.merge(this.eventProperties['alias'], this.distinctId, this.teamId, this.timestamp, false)
+            } else if (event === '$identify' && this.eventProperties['$anon_distinct_id']) {
+                await this.merge(
+                    this.eventProperties['$anon_distinct_id'],
+                    this.distinctId,
+                    this.teamId,
+                    this.timestamp,
+                    true
+                )
+            }
+        } catch (e) {
+            console.error('handleIdentifyOrAlias failed', e, data)
+        } finally {
+            clearTimeout(timeout)
         }
     }
 

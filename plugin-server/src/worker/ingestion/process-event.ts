@@ -88,9 +88,6 @@ export class EventsProcessor {
             if (!parsedTs.isValid) {
                 this.pluginsServer.statsd?.increment('process_event_invalid_timestamp', { teamId: String(teamId) })
             }
-            const timeout1 = timeoutGuard('Still running "handleIdentifyOrAlias". Timeout warning after 30 sec!', {
-                eventUuid,
-            })
 
             const team = await this.teamManager.fetchTeam(teamId)
             if (!team) {
@@ -106,14 +103,8 @@ export class EventsProcessor {
                 this.pluginsServer.statsd,
                 this.personManager
             )
-            try {
-                await personStateManager.handleIdentifyOrAlias(data['event'])
-            } catch (e) {
-                console.error('handleIdentifyOrAlias failed', e, data)
-            } finally {
-                clearTimeout(timeout1)
-            }
 
+            await personStateManager.handleIdentifyOrAlias(data['event'], data)
             await personStateManager.updateProperties()
 
             if (data['event'] === '$snapshot') {
