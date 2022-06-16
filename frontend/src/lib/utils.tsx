@@ -1352,7 +1352,7 @@ export function processCohort(cohort: CohortType, isNewCohortFilterEnabled: bool
                   filters: {
                       properties: {
                           ...cohort.filters.properties,
-                          values: (cohort.filters.properties.values?.map((group) =>
+                          values: (cohort.filters.properties?.values?.map((group) =>
                               'values' in group
                                   ? {
                                         ...group,
