@@ -1002,7 +1002,6 @@ class ClickhouseTestTrendsCaching(ClickhouseTestMixin, LicensedTestMixin, APIBas
         assert data["$pageview"]["2012-01-14"].value == 0
         assert data["$pageview"]["2012-01-15"].value == 1
 
-    @snapshot_clickhouse_queries
     def test_insight_trends_merging_multiple(self):
         set_instance_setting("STRICT_CACHING_TEAMS", "all")
 
@@ -1060,6 +1059,10 @@ class ClickhouseTestTrendsCaching(ClickhouseTestMixin, LicensedTestMixin, APIBas
             "1": [
                 {"event": "$pageview", "timestamp": datetime(2012, 1, 15, 3)},
                 {"event": "$action", "timestamp": datetime(2012, 1, 15, 3)},
+            ],
+            "3": [  # thhis won't be counted
+                {"event": "$pageview", "timestamp": datetime(2012, 1, 13, 3)},
+                {"event": "$action", "timestamp": datetime(2012, 1, 13, 3)},
             ],
         }
         journeys_for(events_by_person, self.team)

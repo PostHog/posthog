@@ -17,10 +17,10 @@ from django.test.utils import CaptureQueriesContext
 from django.utils.timezone import now
 from rest_framework.test import APITestCase as DRFTestCase
 
-from ee.clickhouse.models.event import bulk_create_events
 from posthog.client import ch_pool, sync_execute
 from posthog.models import Organization, Team, User
 from posthog.models.event.sql import DISTRIBUTED_EVENTS_TABLE_SQL, DROP_EVENTS_TABLE_SQL, EVENTS_TABLE_SQL
+from posthog.models.event.util import bulk_create_events
 from posthog.models.organization import OrganizationMembership
 from posthog.models.person import Person
 from posthog.models.person.sql import DROP_PERSON_TABLE_SQL, PERSONS_TABLE_SQL, TRUNCATE_PERSON_DISTINCT_ID_TABLE_SQL

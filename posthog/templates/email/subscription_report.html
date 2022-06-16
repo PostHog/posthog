@@ -28,8 +28,14 @@
 </p>
 {% endif %}
 
+{% if images|length < total_asset_count  %}
+<p class="text-center muted font-bold">
+    SHOWING {{ images|length }} OF {{ total_asset_count }} DASHBOARD INSIGHTS
+</p>
+{% endif %}
+
 {% for image in images %}
-<img class="insight-image" src="{{ image }}" />
+<img class="insight-image mb" src="{{ image }}" />
 {% endfor %}
 
 <p class="text-center">

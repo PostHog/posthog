@@ -2,7 +2,7 @@ from django.core.management.base import BaseCommand
 from django.db import transaction
 
 from posthog.demo import ORGANIZATION_NAME, TEAM_NAME, create_demo_data
-from posthog.models import EventDefinition, PersonalAPIKey, User
+from posthog.models import EventDefinition, PersonalAPIKey, Plugin, PluginConfig, PluginSourceFile, User
 from posthog.models.property_definition import PropertyDefinition
 
 
@@ -12,6 +12,9 @@ class Command(BaseCommand):
     def add_arguments(self, parser):
         parser.add_argument(
             "--no-data", action="store_true", help="Create demo account without data",
+        )
+        parser.add_argument(
+            "--create-e2e-test-plugin", action="store_true", help="Create plugin for charts E2E test",
         )
 
     def handle(self, *args, **options):
@@ -41,3 +44,31 @@ class Command(BaseCommand):
             PersonalAPIKey.objects.create(user=user, label="e2e_demo_api_key key", value="e2e_demo_api_key")
             if not options["no_data"]:
                 create_demo_data(team)
+
+            if options["create_e2e_test_plugin"]:
+                self.create_plugin(team)
+
+    def create_plugin(self, team):
+        plugin = Plugin.objects.create(organization=team.organization, name="e2e test plugin", plugin_type="source")
+        plugin_config = PluginConfig.objects.create(plugin=plugin, team=team, order=1, config={})
+
+        PluginSourceFile.objects.update_or_create(
+            plugin=plugin, filename="plugin.json", source='{ "name": "e2e test plugin", "config": [] }',
+        )
+        PluginSourceFile.objects.update_or_create(
+            plugin=plugin,
+            filename="index.ts",
+            source="""
+                export async function onEvent(event, meta) {
+                    const ratelimit = await meta.cache.get('ratelimit')
+                    if (!ratelimit && event.event !== '$pluginEvent') {
+                        posthog.capture('$pluginEvent', { event: event.event })
+                        await meta.cache.set('ratelimit', 1)
+                        await meta.cache.expire('ratelimit', 60)
+                    }
+                }
+            """,
+        )
+
+        plugin_config.enabled = True
+        plugin_config.save()
