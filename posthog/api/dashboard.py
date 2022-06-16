@@ -296,7 +296,7 @@ def shared_dashboard(request: HttpRequest, share_token: str):
         Dashboard.objects.select_related("team__organization"), is_shared=True, share_token=share_token
     )
 
-    exported_data = {
+    exported_data: Dict[str, Any] = {
         "type": "embed" if "embedded" in request.GET else "scene",
         "dashboard": {
             "id": dashboard.id,

@@ -133,7 +133,7 @@ class ExportedViewerPageViewSet(mixins.RetrieveModelMixin, StructuredViewSetMixi
     def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Any:
         asset = self.get_object()
         context = {"view": self, "request": request}
-        exported_data = {"type": "image"}
+        exported_data: Dict[str, Any] = {"type": "image"}
 
         if request.path.endswith(f".{asset.file_ext}"):
             if not asset.content:
