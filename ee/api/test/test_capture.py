@@ -21,7 +21,7 @@ class TestCaptureAPI(APIBaseTest):
         super().setUp()
         self.client = Client()
 
-    @patch("ee.kafka_client.client._KafkaProducer.produce")
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_produce_to_kafka(self, kafka_produce):
         response = self.client.post(
             "/track/",
@@ -131,7 +131,7 @@ class TestCaptureAPI(APIBaseTest):
         self.assertEqual(team, None)
         self.assertEqual(db_error, "Exception('test exception')")
 
-    @patch("ee.kafka_client.client._KafkaProducer.produce")
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_capture_event_with_uuid_in_payload(self, kafka_produce):
         response = self.client.post(
             "/track/",
@@ -157,7 +157,7 @@ class TestCaptureAPI(APIBaseTest):
         self.assertEqual(event_data["event"], "event1")
         self.assertEqual(kafka_produce_call["data"]["uuid"], "017d37c1-f285-0000-0e8b-e02d131925dc")
 
-    @patch("ee.kafka_client.client._KafkaProducer.produce")
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_kafka_connection_error(self, kafka_produce):
         kafka_produce.side_effect = NoBrokersAvailable()
         response = self.client.post(
