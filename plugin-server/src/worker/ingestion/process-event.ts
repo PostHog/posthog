@@ -9,6 +9,7 @@ import {
     Element,
     Event,
     Hub,
+    Person,
     PostgresSessionRecordingEvent,
     PreIngestionEvent,
     SessionRecordingEvent,
@@ -90,7 +91,7 @@ export class EventsProcessor {
                 this.pluginsServer.personManager
             )
 
-            await personState.update()
+            const person = await personState.update()
 
             if (data['event'] === '$snapshot') {
                 if (team.session_recording_opt_in) {
@@ -121,7 +122,16 @@ export class EventsProcessor {
             } else {
                 const timeout3 = timeoutGuard('Still running "capture". Timeout warning after 30 sec!', { eventUuid })
                 try {
-                    result = await this.capture(eventUuid, ip, team, data['event'], distinctId, properties, timestamp)
+                    result = await this.capture(
+                        eventUuid,
+                        ip,
+                        team,
+                        data['event'],
+                        distinctId,
+                        properties,
+                        timestamp,
+                        person
+                    )
                     this.pluginsServer.statsd?.timing('kafka_queue.single_save.standard', singleSaveTimer, {
                         team_id: teamId.toString(),
                     })
@@ -149,7 +159,8 @@ export class EventsProcessor {
         event: string,
         distinctId: string,
         properties: Properties,
-        timestamp: DateTime
+        timestamp: DateTime,
+        person: Person | undefined
     ): Promise<PreIngestionEvent> {
         event = sanitizeEventName(event)
         const elements: Record<string, any>[] | undefined = properties['$elements']
@@ -180,6 +191,7 @@ export class EventsProcessor {
             timestamp,
             elementsList,
             teamId: team.id,
+            person,
         }
     }
 
