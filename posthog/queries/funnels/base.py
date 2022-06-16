@@ -169,7 +169,7 @@ class ClickhouseFunnelBase(ABC):
 
         self._filter = self._filter.with_data(data)
 
-    def _format_single_funnel(self, result, with_breakdown=False):
+    def _format_single_funnel(self, results, with_breakdown=False):
         # Format of this is [step order, person count (that reached that step), array of person uuids]
         steps = []
         total_people = 0
@@ -178,15 +178,15 @@ class ClickhouseFunnelBase(ABC):
 
         for step in reversed(self._filter.entities):
 
-            if result and len(result) > 0:
-                total_people += result[step.index]
+            if results and len(results) > 0:
+                total_people += results[step.index]
 
             serialized_result = self._serialize_step(step, total_people, [])  # persons not needed on initial return
             if cast(int, step.index) > 0:
                 serialized_result.update(
                     {
-                        "average_conversion_time": result[cast(int, step.index) + num_entities * 1 - 1],
-                        "median_conversion_time": result[cast(int, step.index) + num_entities * 2 - 2],
+                        "average_conversion_time": results[cast(int, step.index) + num_entities * 1 - 1],
+                        "median_conversion_time": results[cast(int, step.index) + num_entities * 2 - 2],
                     }
                 )
             else:
@@ -202,18 +202,18 @@ class ClickhouseFunnelBase(ABC):
                 # breakdown_value will return the underlying id if different from display ready value (ex: cohort id)
                 serialized_result.update(
                     {
-                        "breakdown": get_breakdown_cohort_name(result[-1])
+                        "breakdown": get_breakdown_cohort_name(results[-1])
                         if self._filter.breakdown_type == "cohort"
-                        else result[-1],
-                        "breakdown_value": result[-1],
+                        else results[-1],
+                        "breakdown_value": results[-1],
                     }
                 )
                 # important to not try and modify this value any how - as these
                 # are keys for fetching persons
 
                 # Add in the breakdown to people urls as well
-                converted_people_filter = converted_people_filter.with_data({"funnel_step_breakdown": result[-1]})
-                dropped_people_filter = dropped_people_filter.with_data({"funnel_step_breakdown": result[-1]})
+                converted_people_filter = converted_people_filter.with_data({"funnel_step_breakdown": results[-1]})
+                dropped_people_filter = dropped_people_filter.with_data({"funnel_step_breakdown": results[-1]})
 
             serialized_result.update(
                 {
