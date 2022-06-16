@@ -1,8 +1,7 @@
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError
 
-from ee.models.event_definition import EnterpriseEventDefinition
-from ee.models.property_definition import EnterprisePropertyDefinition
+from ee.models import EnterpriseEventDefinition, EnterprisePropertyDefinition
 from posthog.models import Action, Dashboard, DashboardTile, Insight, Tag, TaggedItem
 
 from .base import BaseTest

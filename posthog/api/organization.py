@@ -115,8 +115,7 @@ class OrganizationSerializer(serializers.ModelSerializer):
         }
 
         try:
-            from ee.models.event_definition import EnterpriseEventDefinition
-            from ee.models.property_definition import EnterprisePropertyDefinition
+            from ee.models import EnterpriseEventDefinition, EnterprisePropertyDefinition
         except ImportError:
             return output
 

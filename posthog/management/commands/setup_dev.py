@@ -2,8 +2,7 @@ from django.core.management.base import BaseCommand
 from django.db import transaction
 
 from posthog.demo import ORGANIZATION_NAME, TEAM_NAME, create_demo_data
-from posthog.models import PersonalAPIKey, User
-from posthog.models.event_definition import EventDefinition
+from posthog.models import EventDefinition, PersonalAPIKey, User
 from posthog.models.property_definition import PropertyDefinition
 
 

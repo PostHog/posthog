@@ -3,9 +3,7 @@ from typing import Callable
 
 from freezegun import freeze_time
 
-from posthog.models import Insight, Organization
-from posthog.models.event_definition import EventDefinition
-from posthog.models.property_definition import PropertyDefinition
+from posthog.models import EventDefinition, Insight, Organization, PropertyDefinition
 from posthog.models.team import Team
 from posthog.tasks.calculate_event_property_usage import calculate_event_property_usage_for_team
 from posthog.test.base import BaseTest

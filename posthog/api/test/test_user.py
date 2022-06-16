@@ -94,8 +94,7 @@ class TestUserAPI(APIBaseTest):
     @pytest.mark.ee
     def test_organization_metadata_on_user_serializer(self):
 
-        from ee.models.event_definition import EnterpriseEventDefinition
-        from ee.models.property_definition import EnterprisePropertyDefinition
+        from ee.models import EnterpriseEventDefinition, EnterprisePropertyDefinition
 
         enterprise_event = EnterpriseEventDefinition.objects.create(
             team=self.team, name="enterprise event", owner=self.user

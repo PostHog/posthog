@@ -5,8 +5,7 @@ from typing import DefaultDict, Dict, Tuple
 from celery.app import shared_task
 from django.utils import timezone
 
-from posthog.models import Team
-from posthog.models.event_definition import EventDefinition
+from posthog.models import EventDefinition, Team
 from posthog.models.insight import Insight
 from posthog.models.property_definition import PropertyDefinition
 

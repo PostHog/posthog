@@ -7,8 +7,7 @@ from rest_framework import status
 
 from ee.models.event_definition import EnterpriseEventDefinition
 from ee.models.license import License, LicenseManager
-from posthog.models import Action, Tag
-from posthog.models.event_definition import EventDefinition
+from posthog.models import Action, EventDefinition, Tag
 from posthog.test.base import APIBaseTest
 
 
