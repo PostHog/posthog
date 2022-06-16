@@ -478,16 +478,19 @@ class TestPluginsUtils(BaseTest):
 
     def test_get_file_from_archive(self, mock_get):
         plugin_json_zip = get_file_from_archive(base64.b64decode(HELLO_WORLD_PLUGIN_GITHUB_ZIP[1]), "plugin.json")
+        assert plugin_json_zip is not None
         self.assertEqual(plugin_json_zip["name"], "helloworldplugin")
         self.assertEqual(plugin_json_zip["url"], "https://github.com/PostHog/helloworldplugin")
         self.assertEqual(plugin_json_zip["description"], "Greet the World and Foo a Bar, JS edition!")
 
         plugin_json_zip = get_file_from_archive(base64.b64decode(HELLO_WORLD_PLUGIN_GITLAB_ZIP[1]), "plugin.json")
+        assert plugin_json_zip is not None
         self.assertEqual(plugin_json_zip["name"], "hellojsplugin")
         self.assertEqual(plugin_json_zip["url"], "https://github.com/PosthHog/helloworldplugin")
         self.assertEqual(plugin_json_zip["description"], "Greet the World and Foo a Bar, JS edition!")
 
         plugin_json_tgz = get_file_from_archive(base64.b64decode(HELLO_WORLD_PLUGIN_NPM_TGZ[1]), "plugin.json")
+        assert plugin_json_tgz is not None
         self.assertEqual(plugin_json_tgz["name"], "helloworldplugin")
         self.assertEqual(plugin_json_tgz["url"], "https://github.com/PostHog/helloworldplugin")
         self.assertEqual(plugin_json_tgz["description"], "Greet the World and Foo a Bar, JS edition!")
@@ -495,18 +498,22 @@ class TestPluginsUtils(BaseTest):
     def test_put_json_into_zip_archive(self, mock_get):
         archive = base64.b64decode(HELLO_WORLD_PLUGIN_GITHUB_ZIP[1])
         plugin_json = get_file_from_archive(archive, "plugin.json")
+        assert plugin_json is not None
         plugin_json["posthogVersion"] = "0.0.0"
 
         # check that we can override files
         new_archive = put_json_into_zip_archive(archive, plugin_json, "plugin.json")
         new_plugin_json = get_file_from_zip_archive(new_archive, "plugin.json")
+        assert new_plugin_json is not None
         self.assertEqual(new_plugin_json["posthogVersion"], "0.0.0")
 
         # check that new the file is there
         new_archive_2 = put_json_into_zip_archive(archive, plugin_json, "plugin2.json")
         new_plugin_json_2 = get_file_from_archive(new_archive_2, "plugin2.json")
+        assert new_plugin_json_2 is not None
         self.assertEqual(new_plugin_json_2["posthogVersion"], "0.0.0")
 
         # check that old files are intact
         old_plugin_json_2 = get_file_from_archive(new_archive_2, "plugin.json")
+        assert old_plugin_json_2 is not None
         self.assertEqual(old_plugin_json_2["name"], "helloworldplugin")

@@ -110,6 +110,7 @@ def mocked_plugin_requests_get(*args, **kwargs):
 
         archive = base64.b64decode(HELLO_WORLD_PLUGIN_GITHUB_ZIP[1])
         plugin_json = get_file_from_zip_archive(archive, "plugin.json")
+        assert plugin_json is not None
         plugin_json["posthogVersion"] = url_version
 
         if url_repo == "version-greater-than":
