@@ -5,9 +5,9 @@ from uuid import uuid4
 from kafka import KafkaProducer
 
 from ee.clickhouse.models.test.utils.util import delay_until_clickhouse_consumes_from_kafka
-from ee.kafka_client.topics import KAFKA_DEAD_LETTER_QUEUE
 from posthog.clickhouse.dead_letter_queue import DEAD_LETTER_QUEUE_TABLE, INSERT_DEAD_LETTER_QUEUE_EVENT_SQL
 from posthog.client import sync_execute
+from posthog.kafka_client.topics import KAFKA_DEAD_LETTER_QUEUE
 from posthog.settings import KAFKA_HOSTS
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 

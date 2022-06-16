@@ -1,8 +1,8 @@
 from datetime import datetime
 
-from ee.clickhouse.models.group import create_group
 from posthog.models.entity import Entity
 from posthog.models.filters import Filter
+from posthog.models.group.util import create_group
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.person import Person
 from posthog.queries.test.test_trends import trend_test_factory

@@ -1,6 +1,6 @@
-from ee.clickhouse.models.group import create_group
 from posthog.client import sync_execute
 from posthog.models import Team
+from posthog.models.group.util import create_group
 from posthog.models.team.util import delete_teams_clickhouse_data
 from posthog.test.base import BaseTest, ClickhouseDestroyTablesMixin, ClickhouseTestMixin
 

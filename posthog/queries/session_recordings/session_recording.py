@@ -1,9 +1,11 @@
 import dataclasses
+import json
 from datetime import datetime, timezone
 from typing import Dict, List, Optional, Tuple, cast
 
 from rest_framework.request import Request
 
+from posthog.client import sync_execute
 from posthog.helpers.session_recording import (
     DecompressedRecordingData,
     EventActivityData,
@@ -34,8 +36,29 @@ class SessionRecording:
         self._session_recording_id = session_recording_id
         self._team = team
 
+    _recording_snapshot_query = """
+        SELECT session_id, window_id, distinct_id, timestamp, snapshot_data
+        FROM session_recording_events
+        WHERE
+            team_id = %(team_id)s
+            AND session_id = %(session_id)s
+        ORDER BY timestamp
+    """
+
     def _query_recording_snapshots(self) -> List[SessionRecordingEvent]:
-        raise NotImplementedError()
+        response = sync_execute(
+            self._recording_snapshot_query, {"team_id": self._team.id, "session_id": self._session_recording_id,},
+        )
+        return [
+            SessionRecordingEvent(
+                session_id=session_id,
+                window_id=window_id,
+                distinct_id=distinct_id,
+                timestamp=timestamp,
+                snapshot_data=json.loads(snapshot_data),
+            )
+            for session_id, window_id, distinct_id, timestamp, snapshot_data in response
+        ]
 
     def get_snapshots(self, limit, offset) -> DecompressedRecordingData:
         all_snapshots = [

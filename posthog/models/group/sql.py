@@ -1,4 +1,3 @@
-from ee.kafka_client.topics import KAFKA_GROUPS
 from posthog.clickhouse.kafka_engine import (
     COPY_ROWS_BETWEEN_TEAMS_BASE_SQL,
     KAFKA_COLUMNS,
@@ -6,6 +5,7 @@ from posthog.clickhouse.kafka_engine import (
     kafka_engine,
 )
 from posthog.clickhouse.table_engines import ReplacingMergeTree
+from posthog.kafka_client.topics import KAFKA_GROUPS
 from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
 
 GROUPS_TABLE = "groups"

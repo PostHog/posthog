@@ -111,8 +111,8 @@ class MatrixManager:
 
     @classmethod
     def copy_analytics_data_from_master_team(cls, target_team: Team):
-        from ee.clickhouse.sql.groups import COPY_GROUPS_BETWEEN_TEAMS
         from posthog.models.event.sql import COPY_EVENTS_BETWEEN_TEAMS
+        from posthog.models.group.sql import COPY_GROUPS_BETWEEN_TEAMS
         from posthog.models.person.sql import COPY_PERSON_DISTINCT_ID2S_BETWEEN_TEAMS, COPY_PERSONS_BETWEEN_TEAMS
 
         copy_params = {"source_team_id": cls.MASTER_TEAM_ID, "target_team_id": target_team.pk}
@@ -131,7 +131,7 @@ class MatrixManager:
 
     @classmethod
     def sync_postgres_with_clickhouse_data(cls, target_team: Team):
-        from ee.clickhouse.sql.groups import SELECT_GROUPS_OF_TEAM
+        from posthog.models.group.sql import SELECT_GROUPS_OF_TEAM
         from posthog.models.person.sql import SELECT_PERSON_DISTINCT_ID2S_OF_TEAM, SELECT_PERSONS_OF_TEAM
 
         list_params = {"source_team_id": cls.MASTER_TEAM_ID}
@@ -196,7 +196,7 @@ class MatrixManager:
     def save_sim_group(
         team: Team, type_index: Literal[0, 1, 2, 3, 4], key: str, properties: Dict[str, Any], timestamp: dt.datetime
     ):
-        from ee.clickhouse.models.group import raw_create_group_ch
+        from posthog.models.group.util import raw_create_group_ch
 
         raw_create_group_ch(team.pk, type_index, key, properties, timestamp)
 

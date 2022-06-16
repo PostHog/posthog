@@ -2,7 +2,6 @@ import unittest
 
 from rest_framework.exceptions import ValidationError
 
-from ee.clickhouse.models.group import create_group
 from ee.clickhouse.queries.funnels.funnel_correlation import EventContingencyTable, EventStats, FunnelCorrelation
 from ee.clickhouse.queries.funnels.funnel_correlation_persons import FunnelCorrelationActors
 from posthog.constants import INSIGHT_FUNNELS
@@ -10,6 +9,7 @@ from posthog.models.action import Action
 from posthog.models.action_step import ActionStep
 from posthog.models.element import Element
 from posthog.models.filters import Filter
+from posthog.models.group.util import create_group
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.test.base import (
     APIBaseTest,

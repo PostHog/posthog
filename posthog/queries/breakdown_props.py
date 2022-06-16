@@ -1,6 +1,5 @@
 from typing import Any, Dict, List, Optional, Tuple, Union, cast
 
-from ee.clickhouse.queries.groups_join_query import GroupsJoinQuery
 from posthog.client import sync_execute
 from posthog.constants import BREAKDOWN_TYPES, PropertyOperatorType
 from posthog.models.cohort import Cohort
@@ -18,6 +17,7 @@ from posthog.models.property.util import (
 from posthog.models.team import Team
 from posthog.models.utils import PersonPropertiesMode
 from posthog.queries.column_optimizer import ColumnOptimizer
+from posthog.queries.groups_join_query import GroupsJoinQuery
 from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
 from posthog.queries.person_query import PersonQuery
 from posthog.queries.trends.sql import TOP_ELEMENTS_ARRAY_OF_KEY_SQL

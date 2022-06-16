@@ -1,6 +1,5 @@
 from django.conf import settings
 
-from ee.kafka_client.topics import KAFKA_EVENTS, KAFKA_EVENTS_JSON
 from posthog.clickhouse.kafka_engine import (
     COPY_ROWS_BETWEEN_TEAMS_BASE_SQL,
     KAFKA_COLUMNS,
@@ -9,6 +8,7 @@ from posthog.clickhouse.kafka_engine import (
     trim_quotes_expr,
 )
 from posthog.clickhouse.table_engines import Distributed, ReplacingMergeTree, ReplicationScheme
+from posthog.kafka_client.topics import KAFKA_EVENTS, KAFKA_EVENTS_JSON
 
 EVENTS_DATA_TABLE = lambda: "sharded_events" if settings.CLICKHOUSE_REPLICATION else "events"
 WRITABLE_EVENTS_DATA_TABLE = lambda: "writable_events" if settings.CLICKHOUSE_REPLICATION else EVENTS_DATA_TABLE()

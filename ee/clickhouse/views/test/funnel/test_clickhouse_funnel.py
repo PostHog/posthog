@@ -2,9 +2,9 @@ import json
 from datetime import datetime
 
 from ee.api.test.base import LicensedTestMixin
-from ee.clickhouse.models.group import create_group
 from ee.clickhouse.views.test.funnel.util import EventPattern, FunnelRequest, get_funnel_actors_ok, get_funnel_ok
 from posthog.constants import INSIGHT_FUNNELS
+from posthog.models.group.util import create_group
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, snapshot_clickhouse_queries
 from posthog.test.test_journeys import journeys_for

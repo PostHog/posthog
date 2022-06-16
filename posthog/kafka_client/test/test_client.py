@@ -3,7 +3,7 @@ from unittest.mock import patch
 import kafka
 from django.test import TestCase
 
-from ee.kafka_client.client import _KafkaProducer, build_kafka_consumer
+from posthog.kafka_client.client import _KafkaProducer, build_kafka_consumer
 
 
 class KafkaClientTestCase(TestCase):

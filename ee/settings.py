@@ -4,7 +4,7 @@ Django settings for PostHog Enterprise Edition.
 import os
 from typing import Dict, List
 
-from ee.kafka_client.topics import KAFKA_EVENTS_PLUGIN_INGESTION as DEFAULT_KAFKA_EVENTS_PLUGIN_INGESTION
+from posthog.kafka_client.topics import KAFKA_EVENTS_PLUGIN_INGESTION as DEFAULT_KAFKA_EVENTS_PLUGIN_INGESTION
 from posthog.settings import AUTHENTICATION_BACKENDS, SITE_URL, get_from_env
 
 # Zapier REST hooks

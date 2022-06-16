@@ -1,12 +1,12 @@
 from datetime import datetime
 
-from ee.clickhouse.models.group import create_group
 from ee.clickhouse.queries.funnels.test.breakdown_cases import funnel_breakdown_group_test_factory
 from posthog.constants import INSIGHT_FUNNELS
 from posthog.models.action import Action
 from posthog.models.action_step import ActionStep
 from posthog.models.cohort import Cohort
 from posthog.models.filters import Filter
+from posthog.models.group.util import create_group
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.queries.funnels.funnel import ClickhouseFunnel
 from posthog.queries.funnels.funnel_persons import ClickhouseFunnelActors

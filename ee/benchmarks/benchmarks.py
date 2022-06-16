@@ -9,7 +9,7 @@ from ee.clickhouse.queries.funnels.funnel_correlation import FunnelCorrelation
 from posthog.queries.funnels import ClickhouseFunnel
 from posthog.queries.property_values import get_property_values_for_key, get_person_property_values_for_key
 from posthog.queries.trends.trends import Trends
-from ee.clickhouse.queries.session_recordings.clickhouse_session_recording_list import ClickhouseSessionRecordingList
+from posthog.queries.session_recordings.session_recording_list import SessionRecordingList
 from ee.clickhouse.queries.retention import ClickhouseRetention
 from posthog.queries.util import get_earliest_timestamp
 from posthog.models import Action, ActionStep, Cohort, Team, Organization
@@ -399,13 +399,13 @@ class QuerySuite:
     def track_session_recordings_list(self):
         filter = SessionRecordingsFilter(data=SESSIONS_DATE_RANGE, team=self.team,)
 
-        ClickhouseSessionRecordingList(filter, self.team).run()
+        SessionRecordingList(filter, self.team).run()
 
     @benchmark_clickhouse
     def track_session_recordings_list_event_filter(self):
         filter = SessionRecordingsFilter(data={"events": [{"id": "$pageview"}], **SESSIONS_DATE_RANGE}, team=self.team,)
 
-        ClickhouseSessionRecordingList(filter, self.team).run()
+        SessionRecordingList(filter, self.team).run()
 
     @benchmark_clickhouse
     def track_session_recordings_list_person_property_filter(self):
@@ -422,7 +422,7 @@ class QuerySuite:
             team=self.team,
         )
 
-        ClickhouseSessionRecordingList(filter, self.team).run()
+        SessionRecordingList(filter, self.team).run()
 
     @benchmark_clickhouse
     def track_retention(self):
