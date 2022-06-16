@@ -3,7 +3,9 @@ import api from 'lib/api'
 import type { cohortsModelType } from './cohortsModelType'
 import { CohortType } from '~/types'
 import { personsLogic } from 'scenes/persons/personsLogic'
-import { deleteWithUndo } from 'lib/utils'
+import { deleteWithUndo, processCohort } from 'lib/utils'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 const POLL_TIMEOUT = 5000
 
@@ -24,7 +26,14 @@ export const cohortsModel = kea<cohortsModelType>({
                 // TRICKY in tests this was returning undefined without calling list
                 const response = await api.cohorts.list()
                 personsLogic.findMounted({ syncWithUrl: true })?.actions.loadCohorts() // To ensure sync on person page
-                return response?.results || []
+                return (
+                    response?.results?.map((cohort) =>
+                        processCohort(
+                            cohort,
+                            !!featureFlagLogic.findMounted()?.values.featureFlags[FEATURE_FLAGS.COHORT_FILTERS]
+                        )
+                    ) || []
+                )
             },
         },
     }),

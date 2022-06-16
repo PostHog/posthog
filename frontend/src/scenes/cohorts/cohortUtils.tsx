@@ -1,4 +1,6 @@
+import React from 'react'
 import {
+    ActionType,
     AnyCohortCriteriaType,
     AnyCohortGroupType,
     BehavioralCohortType,
@@ -17,8 +19,9 @@ import {
     BehavioralFilterType,
     CohortClientErrors,
     FieldWithFieldKey,
+    FilterType,
 } from 'scenes/cohorts/CohortFilters/types'
-import { areObjectValuesEmpty, calculateDays, convertPropertyGroupToProperties, isNumeric } from 'lib/utils'
+import { areObjectValuesEmpty, calculateDays, isNumeric } from 'lib/utils'
 import { DeepPartialMap, ValidationErrorType } from 'kea-forms'
 import equal from 'fast-deep-equal'
 import { BEHAVIORAL_TYPE_TO_LABEL, CRITERIA_VALIDATIONS, ROWS } from 'scenes/cohorts/CohortFilters/constants'
@@ -146,53 +149,6 @@ export function createCohortFormData(cohort: CohortType, isNewCohortFilterEnable
         cohortFormData.append(itemKey, value as string | Blob)
     }
     return cohortFormData
-}
-
-export function addLocalCohortGroupId(group: Partial<CohortGroupType>): CohortGroupType {
-    const matchType = group.action_id || group.event_id ? ENTITY_MATCH_TYPE : PROPERTY_MATCH_TYPE
-
-    return {
-        matchType,
-        id: Math.random().toString().substr(2, 5),
-        ...group,
-    }
-}
-
-export function processCohortOnSet(cohort: CohortType, isNewCohortFilterEnabled: boolean = false): CohortType {
-    return {
-        ...cohort,
-        ...(isNewCohortFilterEnabled
-            ? {
-                  filters: {
-                      /* Populate value_property with value and overwrite value with corresponding behavioral filter type */
-                      properties: applyAllNestedCriteria(cohort, (criteriaList) =>
-                          criteriaList.map((c) =>
-                              c.type &&
-                              [BehavioralFilterKey.Cohort, BehavioralFilterKey.Person].includes(c.type) &&
-                              !('value_property' in c)
-                                  ? {
-                                        ...c,
-                                        value_property: c.value,
-                                        value:
-                                            c.type === BehavioralFilterKey.Cohort
-                                                ? BehavioralCohortType.InCohort
-                                                : BehavioralEventType.HaveProperty,
-                                    }
-                                  : c
-                          )
-                      ).filters.properties,
-                  },
-              }
-            : {
-                  groups:
-                      cohort.groups?.map((group) => ({
-                          ...addLocalCohortGroupId(group),
-                          ...(group.properties
-                              ? { properties: convertPropertyGroupToProperties(group.properties) }
-                              : {}),
-                      })) ?? [],
-              }),
-    }
 }
 
 export function validateGroup(
@@ -489,4 +445,35 @@ export function cleanCriteria(criteria: AnyCohortCriteriaType, shouldPurge: bool
         ...populatedCriteria,
         ...determineFilterType(populatedCriteria['type'], populatedCriteria['value'], populatedCriteria['negation']),
     }
+}
+
+export function criteriaToHumanSentence(
+    criteria: AnyCohortCriteriaType,
+    cohortsById: Partial<Record<string | number, CohortType>>,
+    actionsById: Partial<Record<string | number, ActionType>>
+): React.ReactNode {
+    const words: React.ReactNode[] = []
+    const data = ROWS[criteriaToBehavioralFilterType(criteria)]
+
+    if (!data) {
+        return <></>
+    }
+
+    data.fields.forEach(({ type, fieldKey, defaultValue, hide }) => {
+        if (!hide) {
+            if (type === FilterType.Text) {
+                words.push(defaultValue)
+            } else if (fieldKey) {
+                const value = criteria[fieldKey]
+                if (type === FilterType.CohortValues) {
+                    words.push(<pre>{cohortsById?.[value]?.name ?? `Cohort ${value}`}</pre>)
+                } else if (type === FilterType.EventsAndActions && typeof value === 'number') {
+                    words.push(<pre>{actionsById?.[value]?.name ?? `Action ${value}`}</pre>)
+                } else {
+                    words.push(<pre>{value}</pre>)
+                }
+            }
+        }
+    })
+    return <>{words}</>
 }

@@ -9,21 +9,28 @@ import { timeoutGuard } from '../utils/db/utils'
 import { status } from '../utils/status'
 import { delay } from '../utils/utils'
 
-class KafkaConsumerError extends Error {}
+class KafkaConsumerError extends Error {
+    constructor(message: string) {
+        super(message)
+        this.name = 'KafkaConsumerError'
+    }
+}
 
-export async function runInstrumentedFunction<T, EventType>({
+interface FunctionInstrumentation<T, E> {
+    server: Hub
+    event: E
+    timeoutMessage: string
+    statsKey: string
+    func: (event: E) => Promise<T>
+}
+
+export async function runInstrumentedFunction<T, E>({
     server,
     timeoutMessage,
     event,
     func,
     statsKey,
-}: {
-    server: Hub
-    event: EventType
-    timeoutMessage: string
-    statsKey: string
-    func: (event: EventType) => Promise<T>
-}): Promise<T> {
+}: FunctionInstrumentation<T, E>): Promise<T> {
     const timeout = timeoutGuard(timeoutMessage, {
         event: JSON.stringify(event),
     })
