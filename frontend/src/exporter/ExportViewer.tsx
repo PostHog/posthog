@@ -1,8 +1,6 @@
 import React, { useEffect } from 'react'
 import { Dashboard } from '~/scenes/dashboard/Dashboard'
 import { FriendlyLogo } from '~/toolbar/assets/FriendlyLogo'
-import '~/styles'
-import './ExportViewer.scss'
 import { DashboardPlacement, DashboardType } from '~/types'
 import { useActions } from 'kea'
 import { dashboardsModel } from '~/models/dashboardsModel'

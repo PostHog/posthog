@@ -1,7 +1,6 @@
 import React from 'react'
 import { Dashboard } from '~/scenes/dashboard/Dashboard'
 import { FriendlyLogo } from '~/toolbar/assets/FriendlyLogo'
-import '~/styles'
 import './SharedDashboard.scss'
 import { DashboardPlacement, AvailableFeature, DashboardType, TeamType } from '~/types'
 
