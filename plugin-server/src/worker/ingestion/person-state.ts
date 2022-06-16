@@ -299,12 +299,12 @@ export class PersonState {
             try {
                 await this.createPerson(
                     timestamp,
-                    this.eventProperties['$set'],
-                    this.eventProperties['$set_once'],
+                    this.eventProperties['$set'] || {},
+                    this.eventProperties['$set_once'] || {},
                     teamId,
                     null,
                     shouldIdentifyPerson,
-                    new UUIDT().toString(),
+                    this.newUuid.toString(),
                     [distinctId, previousDistinctId]
                 )
             } catch {
