@@ -224,16 +224,22 @@ export class EventsProcessor {
 
         const elementsChain = elements && elements.length ? elementsToString(elements) : ''
 
-        const personInfo = await this.db.getPersonData(teamId, distinctId)
         const groupProperties = await this.db.getGroupProperties(teamId, this.getGroupIdentifiers(properties))
 
+        let eventPersonUuid: string | null = null
         let eventPersonProperties: string | null = null
-        if (personInfo) {
-            // For consistency, we'd like events to contain the properties that they set, even if those were changed
-            // before the event is ingested. Thus we fetch the updated properties but override the values with the event's
-            // $set properties if they exist.
-            const latestPersonProperties = personInfo ? personInfo?.properties : {}
-            eventPersonProperties = JSON.stringify({ ...latestPersonProperties, ...(properties.$set || {}) })
+        if (preIngestionEvent.person) {
+            eventPersonUuid = preIngestionEvent.person.uuid
+            eventPersonProperties = JSON.stringify(preIngestionEvent.person.properties)
+        } else {
+            const personInfo = await this.db.getPersonData(teamId, distinctId)
+            if (personInfo) {
+                // For consistency, we'd like events to contain the properties that they set, even if those were changed
+                // before the event is ingested. Thus we fetch the updated properties but override the values with the event's
+                // $set properties if they exist.
+                const latestPersonProperties = personInfo ? personInfo?.properties : {}
+                eventPersonProperties = JSON.stringify({ ...latestPersonProperties, ...(properties.$set || {}) })
+            }
         }
 
         const eventPayload: IEvent = {
@@ -256,7 +262,7 @@ export class EventsProcessor {
             : Buffer.from(
                   JSON.stringify({
                       ...eventPayload,
-                      person_id: personInfo?.uuid,
+                      person_id: eventPersonUuid,
                       person_properties: eventPersonProperties,
                       ...groupProperties,
                   })
