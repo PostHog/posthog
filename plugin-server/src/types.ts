@@ -944,7 +944,4 @@ export interface PreIngestionEvent {
     person?: IngestionPersonData | undefined
 }
 
-export type IngestionEvent = PreIngestionEvent & {
-    // It will always be passed on!
-    person: IngestionPersonData | undefined
-}
+export type IngestionEvent = PreIngestionEvent
