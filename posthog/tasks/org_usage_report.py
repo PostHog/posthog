@@ -7,13 +7,13 @@ import structlog
 from django.db.models.manager import BaseManager
 from sentry_sdk import capture_exception
 
-from ee.clickhouse.models.event import (
+from posthog.event_usage import report_org_usage, report_org_usage_failure
+from posthog.models import GroupTypeMapping, OrganizationMembership, Team, User
+from posthog.models.event.util import (
     get_agg_event_count_for_teams,
     get_agg_event_count_for_teams_and_period,
     get_agg_events_with_groups_count_for_teams_and_period,
 )
-from posthog.event_usage import report_org_usage, report_org_usage_failure
-from posthog.models import GroupTypeMapping, OrganizationMembership, Team, User
 from posthog.tasks.status_report import get_instance_licenses
 from posthog.utils import get_instance_realm, get_previous_day
 from posthog.version import VERSION

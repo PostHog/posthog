@@ -19,6 +19,8 @@ export interface TaxonomicFilterProps {
     width?: number
     popoverEnabled?: boolean
     selectFirstItem?: boolean
+    /** use to filter results in a group by name, currently only working for EventProperties */
+    excludedProperties?: { [key in TaxonomicFilterGroupType]?: string[] }
 }
 
 export interface TaxonomicFilterLogicProps extends TaxonomicFilterProps {
@@ -46,6 +48,7 @@ export interface TaxonomicFilterGroup {
     getIcon?: (instance: any) => JSX.Element
     groupTypeIndex?: number
     getFullDetailUrl?: (instance: any) => string
+    excludedProperties?: string[]
 }
 
 export enum TaxonomicFilterGroupType {

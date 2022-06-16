@@ -135,18 +135,24 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
             (taxonomicFilterLogicKey) => taxonomicFilterLogicKey,
         ],
         eventNames: [() => [(_, props) => props.eventNames], (eventNames) => eventNames ?? []],
+        excludedProperties: [
+            () => [(_, props) => props.excludedProperties],
+            (excludedProperties) => excludedProperties ?? {},
+        ],
         taxonomicGroups: [
             (selectors) => [
                 selectors.currentTeamId,
                 selectors.groupAnalyticsTaxonomicGroups,
                 selectors.groupAnalyticsTaxonomicGroupNames,
                 selectors.eventNames,
+                selectors.excludedProperties,
             ],
             (
                 teamId,
                 groupAnalyticsTaxonomicGroups,
                 groupAnalyticsTaxonomicGroupNames,
-                eventNames
+                eventNames,
+                excludedProperties
             ): TaxonomicFilterGroup[] => [
                 {
                     name: 'Events',
@@ -205,6 +211,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                         )}n't been seen with ${pluralize(eventNames.length, 'this event', 'these events', false)}`,
                     getName: (propertyDefinition: PropertyDefinition) => propertyDefinition.name,
                     getValue: (propertyDefinition: PropertyDefinition) => propertyDefinition.name,
+                    excludedProperties: excludedProperties[TaxonomicFilterGroupType.EventProperties],
                     ...propertyTaxonomicGroupProps(),
                 },
                 {

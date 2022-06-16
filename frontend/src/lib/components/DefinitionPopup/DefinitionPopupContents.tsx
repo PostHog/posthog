@@ -301,8 +301,7 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
                             value={formatTimeFromNow(_definition.last_calculation)}
                         />
                     </DefinitionPopup.Grid>
-                    {(_definition.groups?.length || 0 > 0) && <DefinitionPopup.HorizontalLine />}
-                    <CohortPopupInfo entity={_definition} />
+                    <CohortPopupInfo cohort={_definition} />
                 </>
             )
         }

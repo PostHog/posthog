@@ -16,6 +16,7 @@ import { clearError, processError } from '../../utils/db/error'
 import { disablePlugin, setPluginCapabilities } from '../../utils/db/sql'
 import { status } from '../../utils/status'
 import { pluginDigest } from '../../utils/utils'
+import { getNextRetryMs } from '../retries'
 import { getVMPluginCapabilities, shouldSetupPluginInServer } from '../vm/capabilities'
 import { createPluginConfigVM } from './vm'
 
@@ -23,7 +24,12 @@ export const VM_INIT_MAX_RETRIES = 5
 export const INITIALIZATION_RETRY_MULTIPLIER = 2
 export const INITIALIZATION_RETRY_BASE_MS = 5000
 
-export class SetupPluginError extends Error {}
+export class SetupPluginError extends Error {
+    constructor(message: string) {
+        super(message)
+        this.name = 'SetupPluginError'
+    }
+}
 
 export class LazyPluginVM {
     initialize?: (indexJs: string, logInfo: string) => Promise<void>
@@ -104,7 +110,7 @@ export class LazyPluginVM {
         return tasks || {}
     }
 
-    private async getVmMethod<T extends keyof VMMethods>(method: T): Promise<VMMethods[T] | null> {
+    public async getVmMethod<T extends keyof VMMethods>(method: T): Promise<VMMethods[T] | null> {
         let vmMethod = (await this.resolveInternalVm)?.methods[method] || null
         if (!this.ready && vmMethod) {
             const pluginReady = await this.setupPluginIfNeeded()
@@ -206,13 +212,15 @@ export class LazyPluginVM {
                 error._maxAttempts = VM_INIT_MAX_RETRIES
             }
             if (error instanceof RetryError && this.totalInitAttemptsCounter < VM_INIT_MAX_RETRIES) {
-                const nextRetryMs =
-                    INITIALIZATION_RETRY_MULTIPLIER ** (this.totalInitAttemptsCounter - 1) *
-                    INITIALIZATION_RETRY_BASE_MS
-                const nextRetrySeconds = `${nextRetryMs / 1000} s`
-                status.warn('⚠️', `setupPlugin failed with ${error} for ${logInfo}. Retrying in ${nextRetrySeconds}...`)
+                const nextRetryMs = getNextRetryMs(
+                    INITIALIZATION_RETRY_BASE_MS,
+                    INITIALIZATION_RETRY_MULTIPLIER,
+                    this.totalInitAttemptsCounter
+                )
+                const nextRetryInfo = `Retrying in ${nextRetryMs / 1000} s...`
+                status.warn('⚠️', `setupPlugin failed with ${error} for ${logInfo}. ${nextRetryInfo}`)
                 await this.createLogEntry(
-                    `setupPlugin failed with ${error} (instance ID ${this.hub.instanceId}). Retrying in ${nextRetrySeconds}...`,
+                    `setupPlugin failed with ${error} (instance ID ${this.hub.instanceId}). ${nextRetryInfo}`,
                     PluginLogEntryType.Error
                 )
                 this.initRetryTimeout = setTimeout(async () => {
