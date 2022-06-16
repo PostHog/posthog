@@ -36,6 +36,7 @@ import {
     GroupTypeIndex,
     GroupTypeToColumnIndex,
     Hook,
+    IngestionPersonData,
     OrganizationMembershipLevel,
     Person,
     PersonDistinctId,
@@ -124,14 +125,6 @@ export interface CreatePersonalApiKeyPayload {
     label: string
     value: string
     created_at: Date
-}
-
-export interface CachedPersonData {
-    uuid: string
-    created_at_iso: string
-    properties: Properties
-    team_id: TeamId
-    id: Person['id']
 }
 
 export type GroupIdentifier = {
@@ -585,7 +578,7 @@ export class DB {
         return null
     }
 
-    public async getPersonDataByPersonId(teamId: number, personId: number): Promise<CachedPersonData | null> {
+    public async getPersonDataByPersonId(teamId: number, personId: number): Promise<IngestionPersonData | null> {
         if (!this.personAndGroupsCachingEnabledTeams.has(teamId)) {
             return null
         }
@@ -600,7 +593,7 @@ export class DB {
             return {
                 team_id: teamId,
                 uuid: String(personUuid),
-                created_at_iso: String(personCreatedAtIso),
+                created_at: DateTime.fromISO(String(personCreatedAtIso)),
                 properties: personProperties as Properties, // redisGet does JSON.parse and we redisSet JSON.stringify(Properties)
                 id: personId,
             }
@@ -622,7 +615,7 @@ export class DB {
             return {
                 team_id: teamId,
                 uuid: personUuid,
-                created_at_iso: personCreatedAtIso,
+                created_at: DateTime.fromISO(personCreatedAtIso),
                 properties: personProperties,
                 id: personId,
             }
@@ -630,7 +623,7 @@ export class DB {
         return null
     }
 
-    public async getPersonData(teamId: number, distinctId: string): Promise<CachedPersonData | null> {
+    public async getPersonData(teamId: number, distinctId: string): Promise<IngestionPersonData | null> {
         const personId = await this.getPersonId(teamId, distinctId)
         if (personId) {
             return await this.getPersonDataByPersonId(teamId, personId)
@@ -1162,7 +1155,7 @@ export class DB {
 
     public async doesPersonBelongToCohort(
         cohortId: number,
-        person: CachedPersonData | Person,
+        person: IngestionPersonData,
         teamId: Team['id']
     ): Promise<boolean> {
         const chResult = await this.clickhouseQuery(

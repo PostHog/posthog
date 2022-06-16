@@ -1,6 +1,6 @@
 import { DateTime } from 'luxon'
 
-import { Hub, Person, PreIngestionEvent, TeamId } from '../../../types'
+import { Hub, IngestionPersonData, PreIngestionEvent, TeamId } from '../../../types'
 import { EventPipelineRunner, StepResult } from './runner'
 
 export async function emitToBufferStep(
@@ -9,7 +9,7 @@ export async function emitToBufferStep(
     shouldBuffer: (
         hub: Hub,
         event: PreIngestionEvent,
-        person: Person | undefined,
+        person: IngestionPersonData | undefined,
         teamId: TeamId
     ) => boolean = shouldSendEventToBuffer
 ): Promise<StepResult> {
@@ -30,7 +30,7 @@ export async function emitToBufferStep(
 export function shouldSendEventToBuffer(
     hub: Hub,
     event: PreIngestionEvent,
-    person: Person | undefined,
+    person: IngestionPersonData | undefined,
     teamId: TeamId
 ): boolean {
     const isAnonymousEvent =

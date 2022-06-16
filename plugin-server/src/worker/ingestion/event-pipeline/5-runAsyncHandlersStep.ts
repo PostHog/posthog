@@ -1,5 +1,5 @@
 import { runInstrumentedFunction } from '../../../main/utils'
-import { Action, Element, IngestionEvent, Person } from '../../../types'
+import { Action, Element, IngestionEvent, IngestionPersonData } from '../../../types'
 import { convertToProcessedPluginEvent } from '../../../utils/event'
 import { runOnAction, runOnEvent, runOnSnapshot } from '../../plugins/run'
 import { EventPipelineRunner, StepResult } from './runner'
@@ -7,7 +7,7 @@ import { EventPipelineRunner, StepResult } from './runner'
 export async function runAsyncHandlersStep(
     runner: EventPipelineRunner,
     event: IngestionEvent,
-    person: Person | undefined
+    person: IngestionPersonData | undefined
 ): Promise<StepResult> {
     if (runner.hub.capabilities.processAsyncHandlers) {
         await Promise.all([
@@ -36,7 +36,7 @@ async function processOnEvent(runner: EventPipelineRunner, event: IngestionEvent
 async function processOnActionAndWebhooks(
     runner: EventPipelineRunner,
     event: IngestionEvent,
-    person: Person | undefined,
+    person: IngestionPersonData | undefined,
     elements: Element[] | undefined
 ) {
     const promises = []

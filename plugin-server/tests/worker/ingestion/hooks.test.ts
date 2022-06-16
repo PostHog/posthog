@@ -307,7 +307,7 @@ describe('hooks', () => {
             })
         })
 
-        test('person instanceof CachedPersonData', async () => {
+        test('person instanceof IngestionPersonData', async () => {
             const now = new Date().toISOString()
             const uuid = new UUIDT().toString()
             const person = {
@@ -315,7 +315,7 @@ describe('hooks', () => {
                 properties: { foo: 'bar' },
                 team_id: 1,
                 id: 1,
-                created_at_iso: now,
+                created_at: DateTime.fromISO(now),
             }
             await hookCommander.postRestHook(hook, { event: 'foo' } as any, person)
             expect(fetch).toHaveBeenCalledWith('foo.bar', {

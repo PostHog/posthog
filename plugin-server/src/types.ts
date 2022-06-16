@@ -606,6 +606,8 @@ export interface Person extends BasePerson {
     version: number
 }
 
+export type IngestionPersonData = Pick<Person, 'id' | 'uuid' | 'team_id' | 'properties' | 'created_at'>
+
 /** Clickhouse Person model. */
 export interface ClickHousePerson {
     id: string
@@ -939,7 +941,7 @@ export interface PreIngestionEvent {
     properties: Properties
     timestamp: DateTime | string
     elementsList: Element[]
-    person?: Person | undefined
+    person?: IngestionPersonData | undefined
 }
 
 export type IngestionEvent = PreIngestionEvent
