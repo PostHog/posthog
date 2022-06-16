@@ -2,9 +2,14 @@ import { PluginEvent } from '@posthog/plugin-scaffold'
 
 import { runInstrumentedFunction } from '../../../main/utils'
 import { runProcessEvent } from '../../plugins/run'
+import { ForwardedPersonData } from './2-upsertPersonsStep'
 import { EventPipelineRunner, StepResult } from './runner'
 
-export async function pluginsProcessEventStep(runner: EventPipelineRunner, event: PluginEvent): Promise<StepResult> {
+export async function pluginsProcessEventStep(
+    runner: EventPipelineRunner,
+    event: PluginEvent,
+    forwardedPersonData: ForwardedPersonData
+): Promise<StepResult> {
     let processedEvent: PluginEvent | null = event
 
     // run processEvent on all events that are not $snapshot
@@ -19,7 +24,7 @@ export async function pluginsProcessEventStep(runner: EventPipelineRunner, event
     }
 
     if (processedEvent) {
-        return runner.nextStep('prepareEventStep', processedEvent)
+        return runner.nextStep('updatePersonIfTouchedByPlugins', processedEvent, forwardedPersonData)
     } else {
         // processEvent might not return an event. This is expected and plugins, e.g. downsample plugin uses it.
         runner.hub.statsd?.increment('kafka_queue.dropped_event', {

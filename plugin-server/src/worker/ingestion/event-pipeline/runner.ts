@@ -5,11 +5,13 @@ import { Hub, IngestionEvent, PreIngestionEvent } from '../../../types'
 import { timeoutGuard } from '../../../utils/db/utils'
 import { status } from '../../../utils/status'
 import { generateEventDeadLetterQueueMessage } from '../utils'
-import { pluginsProcessEventStep } from './1-pluginsProcessEventStep'
-import { prepareEventStep } from './2-prepareEventStep'
-import { emitToBufferStep } from './3-emitToBufferStep'
-import { createEventStep } from './4-createEventStep'
-import { runAsyncHandlersStep } from './5-runAsyncHandlersStep'
+import { emitToBufferStep } from './1-emitToBufferStep'
+import { upsertPersonsStep } from './2-upsertPersonsStep'
+import { pluginsProcessEventStep } from './3-pluginsProcessEventStep'
+import { updatePersonIfTouchedByPlugins } from './4-updatePersonIfTouchedByPlugins'
+import { prepareEventStep } from './5-prepareEventStep'
+import { createEventStep } from './6-createEventStep'
+import { runAsyncHandlersStep } from './7-runAsyncHandlersStep'
 
 export type StepParameters<T extends (...args: any[]) => any> = T extends (
     runner: EventPipelineRunner,
@@ -19,9 +21,11 @@ export type StepParameters<T extends (...args: any[]) => any> = T extends (
     : never
 
 const EVENT_PIPELINE_STEPS = {
-    pluginsProcessEventStep,
-    prepareEventStep,
     emitToBufferStep,
+    upsertPersonsStep,
+    pluginsProcessEventStep,
+    updatePersonIfTouchedByPlugins,
+    prepareEventStep,
     createEventStep,
     runAsyncHandlersStep,
 }
@@ -32,9 +36,11 @@ export type NextStep<Step extends StepType> = [StepType, StepParameters<EventPip
 
 export type StepResult =
     | null
-    | NextStep<'pluginsProcessEventStep'>
-    | NextStep<'prepareEventStep'>
     | NextStep<'emitToBufferStep'>
+    | NextStep<'upsertPersonsStep'>
+    | NextStep<'pluginsProcessEventStep'>
+    | NextStep<'updatePersonIfTouchedByPlugins'>
+    | NextStep<'prepareEventStep'>
     | NextStep<'createEventStep'>
     | NextStep<'runAsyncHandlersStep'>
 
@@ -46,9 +52,11 @@ export type EventPipelineResult = {
 }
 
 const STEPS_TO_EMIT_TO_DLQ_ON_FAILURE: Array<StepType> = [
-    'pluginsProcessEventStep',
-    'prepareEventStep',
     'emitToBufferStep',
+    'upsertPersonsStep',
+    'pluginsProcessEventStep',
+    'updatePersonIfTouchedByPlugins',
+    'prepareEventStep',
     'createEventStep',
 ]
 
@@ -63,15 +71,14 @@ export class EventPipelineRunner {
 
     async runEventPipeline(event: PluginEvent): Promise<EventPipelineResult> {
         this.hub.statsd?.increment('kafka_queue.event_pipeline.start', { pipeline: 'event' })
-        const result = await this.runPipeline('pluginsProcessEventStep', event)
+        const result = await this.runPipeline('emitToBufferStep', event)
         this.hub.statsd?.increment('kafka_queue.single_event.processed_and_ingested')
         return result
     }
 
-    async runBufferEventPipeline(event: PreIngestionEvent): Promise<EventPipelineResult> {
+    async runBufferEventPipeline(event: PluginEvent): Promise<EventPipelineResult> {
         this.hub.statsd?.increment('kafka_queue.event_pipeline.start', { pipeline: 'buffer' })
-        const person = await this.hub.db.fetchPerson(event.teamId, event.distinctId)
-        const result = await this.runPipeline('createEventStep', { ...event, person })
+        const result = await this.runPipeline('upsertPersonsStep', event)
         this.hub.statsd?.increment('kafka_queue.buffer_event.processed_and_ingested')
         return result
     }

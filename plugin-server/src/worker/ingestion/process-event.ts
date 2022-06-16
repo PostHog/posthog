@@ -277,9 +277,9 @@ export class EventsProcessor {
         return { ...preIngestionEvent, person: personInfo }
     }
 
-    async produceEventToBuffer(bufferEvent: PreIngestionEvent): Promise<void> {
+    async produceEventToBuffer(bufferEvent: PluginEvent): Promise<void> {
         const partitionKeyHash = crypto.createHash('sha256')
-        partitionKeyHash.update(`${bufferEvent.teamId}:${bufferEvent.distinctId}`)
+        partitionKeyHash.update(`${bufferEvent.team_id}:${bufferEvent.distinct_id}`)
         const partitionKey = partitionKeyHash.digest('hex')
 
         await this.kafkaProducer.queueSingleJsonMessage(KAFKA_BUFFER, partitionKey, bufferEvent)
