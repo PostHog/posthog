@@ -1,7 +1,5 @@
-import urllib.parse
 from typing import List, cast
 
-from ee.clickhouse.queries.breakdown_props import get_breakdown_cohort_name
 from posthog.queries.funnels.base import ClickhouseFunnelBase
 
 
@@ -54,71 +52,6 @@ class ClickhouseFunnel(ClickhouseFunnelBase):
             HAVING steps = max_steps
             SETTINGS allow_experimental_window_functions = 1
         """
-
-    def _format_single_funnel(self, result, with_breakdown=False):
-        # Format of this is [step order, person count (that reached that step), array of person uuids]
-        steps = []
-        total_people = 0
-
-        num_entities = len(self._filter.entities)
-
-        for step in reversed(self._filter.entities):
-
-            if result and len(result) > 0:
-                total_people += result[step.index]
-
-            serialized_result = self._serialize_step(step, total_people, [])  # persons not needed on initial return
-            if cast(int, step.index) > 0:
-
-                serialized_result.update(
-                    {
-                        "average_conversion_time": result[cast(int, step.index) + num_entities * 1 - 1],
-                        "median_conversion_time": result[cast(int, step.index) + num_entities * 2 - 2],
-                    }
-                )
-            else:
-                serialized_result.update({"average_conversion_time": None, "median_conversion_time": None})
-
-            # Construct converted and dropped people URLs
-            funnel_step = step.index + 1
-            converted_people_filter = self._filter.with_data({"funnel_step": funnel_step})
-            dropped_people_filter = self._filter.with_data({"funnel_step": -funnel_step})
-
-            if with_breakdown:
-                # breakdown will return a display ready value
-                # breakdown_value will return the underlying id if different from display ready value (ex: cohort id)
-                serialized_result.update(
-                    {
-                        "breakdown": get_breakdown_cohort_name(result[-1])
-                        if self._filter.breakdown_type == "cohort"
-                        else result[-1],
-                        "breakdown_value": result[-1],
-                    }
-                )
-                # important to not try and modify this value any how - as these
-                # are keys for fetching persons
-
-                # Add in the breakdown to people urls as well
-                converted_people_filter = converted_people_filter.with_data({"funnel_step_breakdown": result[-1]})
-                dropped_people_filter = dropped_people_filter.with_data({"funnel_step_breakdown": result[-1]})
-
-            serialized_result.update(
-                {
-                    "converted_people_url": f"{self._base_uri}api/person/funnel/?{urllib.parse.urlencode(converted_people_filter.to_params())}",
-                    "dropped_people_url": (
-                        f"{self._base_uri}api/person/funnel/?{urllib.parse.urlencode(dropped_people_filter.to_params())}"
-                        # NOTE: If we are looking at the first step, there is no drop off,
-                        # everyone converted, otherwise they would not have been
-                        # included in the funnel.
-                        if step.index > 0
-                        else None
-                    ),
-                }
-            )
-
-            steps.append(serialized_result)
-
-        return steps[::-1]  #  reverse
 
     def get_step_counts_without_aggregation_query(self):
         formatted_query = ""
