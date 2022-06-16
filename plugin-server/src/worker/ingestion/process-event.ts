@@ -9,7 +9,7 @@ import {
     Element,
     Hub,
     IngestionEvent,
-    Person,
+    IngestionPersonData,
     PostgresSessionRecordingEvent,
     PreIngestionEvent,
     SessionRecordingEvent,
@@ -91,7 +91,7 @@ export class EventsProcessor {
                 this.pluginsServer.personManager
             )
 
-            const person = await personState.update()
+            const person: IngestionPersonData | undefined = await personState.update()
 
             if (data['event'] === '$snapshot') {
                 if (team.session_recording_opt_in) {
@@ -160,7 +160,7 @@ export class EventsProcessor {
         distinctId: string,
         properties: Properties,
         timestamp: DateTime,
-        person: Person | undefined
+        person: IngestionPersonData | undefined
     ): Promise<PreIngestionEvent> {
         event = sanitizeEventName(event)
         const elements: Record<string, any>[] | undefined = properties['$elements']
