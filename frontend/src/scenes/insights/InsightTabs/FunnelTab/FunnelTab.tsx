@@ -185,30 +185,35 @@ export function FunnelTab(): JSX.Element {
                                             [BreakdownAttributionType.FirstTouch]: { label: 'First touchpoint' },
                                             [BreakdownAttributionType.LastTouch]: { label: 'Last touchpoint' },
                                             [BreakdownAttributionType.AllSteps]: { label: 'All Steps' },
-                                            [BreakdownAttributionType.Step]: {
-                                                label: 'Specific step',
-                                                element: (
-                                                    <LemonSelect
-                                                        outlined
-                                                        className="ml-05"
-                                                        onChange={(value) => {
-                                                            if (value) {
-                                                                setFilters({
-                                                                    breakdown_attribution_type:
-                                                                        BreakdownAttributionType.Step,
-                                                                    breakdown_attribution_value: parseInt(value),
-                                                                })
-                                                            }
-                                                        }}
-                                                        placeholder={`Step ${
-                                                            filters.breakdown_attribution_value
-                                                                ? filters.breakdown_attribution_value + 1
-                                                                : 1
-                                                        }`}
-                                                        options={breakdownAttributionStepOptions}
-                                                    />
-                                                ),
-                                            },
+                                            ...(filters.funnel_order_type === StepOrderValue.UNORDERED
+                                                ? { [BreakdownAttributionType.Step]: { label: 'Any step' } }
+                                                : {
+                                                      [BreakdownAttributionType.Step]: {
+                                                          label: 'Specific step',
+                                                          element: (
+                                                              <LemonSelect
+                                                                  outlined
+                                                                  className="ml-05"
+                                                                  onChange={(value) => {
+                                                                      if (value) {
+                                                                          setFilters({
+                                                                              breakdown_attribution_type:
+                                                                                  BreakdownAttributionType.Step,
+                                                                              breakdown_attribution_value:
+                                                                                  parseInt(value),
+                                                                          })
+                                                                      }
+                                                                  }}
+                                                                  placeholder={`Step ${
+                                                                      filters.breakdown_attribution_value
+                                                                          ? filters.breakdown_attribution_value + 1
+                                                                          : 1
+                                                                  }`}
+                                                                  options={breakdownAttributionStepOptions}
+                                                              />
+                                                          ),
+                                                      },
+                                                  }),
                                         }}
                                         onChange={(value) => {
                                             if (value) {
