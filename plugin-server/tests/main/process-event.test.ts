@@ -17,6 +17,7 @@ import {
     Team,
 } from '../../src/types'
 import { createHub } from '../../src/utils/db/hub'
+import { personInitialAndUTMProperties } from '../../src/utils/db/utils'
 import { posthog } from '../../src/utils/posthog'
 import { UUIDT } from '../../src/utils/utils'
 import { EventPipelineRunner } from '../../src/worker/ingestion/event-pipeline/runner'
@@ -255,28 +256,30 @@ test('capture new person', async () => {
     expect(await hub.db.fetchEventDefinitions()).toEqual([])
     expect(await hub.db.fetchPropertyDefinitions()).toEqual([])
 
+    const properties = personInitialAndUTMProperties({
+        distinct_id: 2,
+        token: team.api_token,
+        $browser: 'Chrome',
+        $current_url: 'https://test.com',
+        $os: 'Mac OS X',
+        $browser_version: '95',
+        $initial_referring_domain: 'https://google.com',
+        $initial_referrer_url: 'https://google.com/?q=posthog',
+        utm_medium: 'twitter',
+        gclid: 'GOOGLE ADS ID',
+        $elements: [
+            { tag_name: 'a', nth_child: 1, nth_of_type: 2, attr__class: 'btn btn-sm' },
+            { tag_name: 'div', nth_child: 1, nth_of_type: 2, $el_text: '💻' },
+        ],
+    })
+
     await processEvent(
         '2',
         '127.0.0.1',
         '',
         {
             event: '$autocapture',
-            properties: {
-                distinct_id: 2,
-                token: team.api_token,
-                $browser: 'Chrome',
-                $current_url: 'https://test.com',
-                $os: 'Mac OS X',
-                $browser_version: '95',
-                $initial_referring_domain: 'https://google.com',
-                $initial_referrer_url: 'https://google.com/?q=posthog',
-                utm_medium: 'twitter',
-                gclid: 'GOOGLE ADS ID',
-                $elements: [
-                    { tag_name: 'a', nth_child: 1, nth_of_type: 2, attr__class: 'btn btn-sm' },
-                    { tag_name: 'div', nth_child: 1, nth_of_type: 2, $el_text: '💻' },
-                ],
-            },
+            properties,
         } as any as PluginEvent,
         team.id,
         now,
@@ -284,7 +287,6 @@ test('capture new person', async () => {
     )
 
     let persons = await hub.db.fetchPersons()
-    let events = await hub.db.fetchEvents()
     expect(persons[0].version).toEqual(0)
     expect(persons[0].created_at).toEqual(now)
     let expectedProps = {
@@ -299,12 +301,14 @@ test('capture new person', async () => {
     }
     expect(persons[0].properties).toEqual(expectedProps)
 
+    await delayUntilEventIngested(() => hub.db.fetchEvents(), 1)
     await delayUntilEventIngested(() => hub.db.fetchPersons(Database.ClickHouse), 1)
     const chPeople = await hub.db.fetchPersons(Database.ClickHouse)
     expect(chPeople.length).toEqual(1)
     expect(JSON.parse(chPeople[0].properties)).toEqual(expectedProps)
     expect(chPeople[0].created_at).toEqual(now.toFormat('yyyy-MM-dd HH:mm:ss.000'))
 
+    let events = await hub.db.fetchEvents()
     expect(events[0].properties).toEqual({
         $ip: '127.0.0.1',
         $os: 'Mac OS X',
@@ -336,7 +340,7 @@ test('capture new person', async () => {
         '',
         {
             event: '$autocapture',
-            properties: {
+            properties: personInitialAndUTMProperties({
                 distinct_id: 2,
                 token: team.api_token,
                 utm_medium: 'instagram',
@@ -347,7 +351,7 @@ test('capture new person', async () => {
                     { tag_name: 'a', nth_child: 1, nth_of_type: 2, attr__class: 'btn btn-sm' },
                     { tag_name: 'div', nth_child: 1, nth_of_type: 2, $el_text: '💻' },
                 ],
-            },
+            }),
         } as any as PluginEvent,
         team.id,
         DateTime.now(),
@@ -407,7 +411,7 @@ test('capture new person', async () => {
         '',
         {
             event: '$autocapture',
-            properties: {
+            properties: personInitialAndUTMProperties({
                 distinct_id: 2,
                 token: team.api_token,
                 utm_medium: 'instagram',
@@ -418,7 +422,7 @@ test('capture new person', async () => {
                     { tag_name: 'a', nth_child: 1, nth_of_type: 2, attr__class: 'btn btn-sm' },
                     { tag_name: 'div', nth_child: 1, nth_of_type: 2, $el_text: '💻' },
                 ],
-            },
+            }),
         } as any as PluginEvent,
         team.id,
         DateTime.now(),
@@ -573,31 +577,6 @@ test('capture new person', async () => {
             volume_30_day: null,
         },
     ])
-})
-
-test('initial current domain regression test', async () => {
-    // we weren't capturing $initial_current_url if no utm tags were set
-    await processEvent(
-        '2',
-        '127.0.0.1',
-        '',
-        {
-            event: '$pageview',
-            properties: {
-                distinct_id: 2,
-                token: team.api_token,
-                $current_url: 'https://test.com',
-            },
-        } as any as PluginEvent,
-        team.id,
-        now,
-        new UUIDT().toString()
-    )
-
-    const persons = await hub.db.fetchPersons()
-    expect(persons[0].properties).toEqual({
-        $initial_current_url: 'https://test.com',
-    })
 })
 
 test('capture bad team', async () => {
