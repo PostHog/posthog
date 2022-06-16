@@ -104,7 +104,13 @@ function ColumnConfigurator({ immutableColumns, defaultColumns }: TableConfigPro
         return (
             <div style={style} key={key}>
                 {disabled && <SelectedColumn column={selectedColumns[index]} disabled={Boolean(disabled)} />}
-                {!disabled && <SortableSelectedColumn column={selectedColumns[index]} index={index} />}
+                {!disabled && (
+                    <SortableSelectedColumn
+                        column={selectedColumns[index]}
+                        index={index}
+                        collection="selected-columns"
+                    />
+                )}
             </div>
         )
     }
@@ -196,6 +202,9 @@ function ColumnConfigurator({ immutableColumns, defaultColumns }: TableConfigPro
                                             onChange={(_, value) => value && selectColumn(String(value))}
                                             popoverEnabled={false}
                                             selectFirstItem={false}
+                                            excludedProperties={{
+                                                [TaxonomicFilterGroupType.EventProperties]: selectedColumns,
+                                            }}
                                         />
                                     )
                                 }}
