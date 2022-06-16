@@ -3,7 +3,7 @@ import json
 import os
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Dict, List, Optional, cast
+from typing import Any, Dict, List, Optional, Tuple, cast
 from uuid import UUID
 
 from django.conf import settings
@@ -114,27 +114,7 @@ class PluginManager(models.Manager):
             raise_if_plugin_installed(kwargs["url"], kwargs["organization_id"])
         plugin = Plugin.objects.create(**kwargs)
         if plugin_json:
-            PluginSourceFile.objects.create(
-                plugin=plugin, filename="plugin.json", source=json.dumps(plugin_json),
-            )
-            main_filename_defined = plugin_json.get("main")
-            main_filenames_to_try = [main_filename_defined] if main_filename_defined else ["index.js", "index.ts"]
-            for main_filename in main_filenames_to_try:
-                if index_ts := get_file_from_archive(
-                    kwargs["archive"], main_filename, parse_with=lambda b: b.decode("utf-8")
-                ):
-                    PluginSourceFile.objects.create(
-                        plugin=plugin, filename=main_filename, source=index_ts,
-                    )
-                    break
-            else:
-                raise ValidationError(f"Could not find main file {' or '.join(main_filenames_to_try)} in the plugin")
-            if frontend_tsx := get_file_from_archive(
-                kwargs["archive"], "frontend.tsx", parse_with=lambda b: b.decode("utf-8")
-            ):
-                PluginSourceFile.objects.create(
-                    plugin=plugin, filename="frontend.tsx", source=frontend_tsx,
-                )
+            PluginSourceFile.objects.create_from_plugin_archive(plugin, plugin_json)
         return plugin
 
 
@@ -259,6 +239,39 @@ class PluginLogEntryType(str, Enum):
     ERROR = "ERROR"
 
 
+class PluginSourceFileManager(models.Manager):
+    def create_from_plugin_archive(
+        self, plugin: Plugin, plugin_json: Optional[Dict[str, Any]] = None
+    ) -> Tuple["PluginSourceFile", Optional["PluginSourceFile"], Optional["PluginSourceFile"]]:
+        plugin_json_instance: "PluginSourceFile"
+        index_ts_instance: Optional["PluginSourceFile"] = None
+        fronted_tsx_instance: Optional["PluginSourceFile"] = None
+        if not plugin_json:
+            plugin_json = cast(Optional[Dict[str, Any]], get_file_from_archive(plugin.archive, "plugin.json"))
+            if not plugin_json:
+                raise ValidationError("Could not find plugin.json in the plugin")
+        plugin_json_instance = PluginSourceFile.objects.create(
+            plugin=plugin, filename="plugin.json", source=json.dumps(plugin_json),
+        )
+        main_filename_defined = plugin_json.get("main")
+        main_filenames_to_try = [main_filename_defined] if main_filename_defined else ["index.js", "index.ts"]
+        for main_filename in main_filenames_to_try:
+            if index_ts := get_file_from_archive(plugin.archive, main_filename, parse_with=lambda b: b.decode("utf-8")):
+                index_ts_instance = PluginSourceFile.objects.create(
+                    plugin=plugin, filename=main_filename, source=index_ts,
+                )
+                break
+        else:
+            raise ValidationError(f"Could not find main file {' or '.join(main_filenames_to_try)} in the plugin")
+        if frontend_tsx := get_file_from_archive(
+            plugin.archive, "frontend.tsx", parse_with=lambda b: b.decode("utf-8")
+        ):
+            fronted_tsx_instance = PluginSourceFile.objects.create(
+                plugin=plugin, filename="frontend.tsx", source=frontend_tsx,
+            )
+        return plugin_json_instance, index_ts_instance, fronted_tsx_instance
+
+
 class PluginSourceFile(UUIDModel):
     class Meta:
         constraints = [
@@ -277,6 +290,8 @@ class PluginSourceFile(UUIDModel):
     status: models.CharField = models.CharField(max_length=20, choices=Status.choices, null=True)
     transpiled: models.TextField = models.TextField(blank=True, null=True)
     error: models.TextField = models.TextField(blank=True, null=True)
+
+    objects: PluginSourceFileManager = PluginSourceFileManager()
 
     __repr__ = sane_repr("plugin_id", "filename", "status")
 
