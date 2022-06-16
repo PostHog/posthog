@@ -12,12 +12,7 @@ interface ExportViewerProps {
     exportedData: ExportedData
 }
 
-export function ExportViewer({ exportedData }: ExportViewerProps): JSX.Element {
-    const searchParams = new URLSearchParams(window.location.search)
-    const hideDetails = searchParams.get('hide_details') === 'true'
-
-    const { dashboard, insight } = exportedData
-
+export function ExportViewer({ exportedData: { dashboard, insight, whitelabel } }: ExportViewerProps): JSX.Element {
     const modelLogic = dashboardsModel({ id: dashboard?.id })
     const logic = dashboardLogic({ id: dashboard?.id })
 
@@ -33,28 +28,26 @@ export function ExportViewer({ exportedData }: ExportViewerProps): JSX.Element {
         }
     }, [dashboard])
 
-    const content = insight ? (
-        <div>
-            <ExportedInsight insight={insight} showLogo={!hideDetails} />
-        </div>
-    ) : dashboard ? (
-        <Dashboard id={dashboard.id?.toString()} placement={DashboardPlacement.Export} />
-    ) : (
-        <h1 className="text-center pa">Something went wrong...</h1>
-    )
-
     return (
         <div className="pa" style={{ minHeight: '100vh' }}>
-            {!hideDetails && dashboard && (
+            {!whitelabel && dashboard && (
                 <>
                     <h1 className="mb-05">{dashboard.name}</h1>
                     <p>{dashboard.description}</p>
                 </>
             )}
 
-            {content}
+            {insight ? (
+                <div>
+                    <ExportedInsight insight={insight} showLogo={!whitelabel} />
+                </div>
+            ) : dashboard ? (
+                <Dashboard id={dashboard.id?.toString()} placement={DashboardPlacement.Export} />
+            ) : (
+                <h1 className="text-center pa">Something went wrong...</h1>
+            )}
 
-            {!hideDetails && dashboard && (
+            {!whitelabel && dashboard && (
                 <div className="text-center pb ma">
                     <FriendlyLogo style={{ fontSize: '1.125rem' }} />
                     <div>

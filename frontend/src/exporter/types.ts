@@ -1,4 +1,4 @@
-import { DashboardType, InsightModel, OrganizationType, TeamType } from '~/types'
+import { DashboardType, InsightModel, TeamType } from '~/types'
 
 export enum ExportType {
     Image = 'image',
@@ -8,8 +8,8 @@ export enum ExportType {
 
 export interface ExportedData {
     type: ExportType
+    whitelabel?: boolean
     dashboard?: Partial<DashboardType>
     insight?: InsightModel
     team?: Partial<TeamType>
-    organization?: Partial<OrganizationType>
 }

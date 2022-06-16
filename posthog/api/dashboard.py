@@ -295,6 +295,7 @@ def shared_dashboard(request: HttpRequest, share_token: str):
     dashboard = get_object_or_404(
         Dashboard.objects.select_related("team__organization"), is_shared=True, share_token=share_token
     )
+
     exported_data = {
         "type": "embed" if "embedded" in request.GET else "scene",
         "dashboard": {
@@ -304,8 +305,10 @@ def shared_dashboard(request: HttpRequest, share_token: str):
             "description": dashboard.description,
         },
         "team": {"name": dashboard.team.name},
-        "organization": {"available_features": dashboard.team.organization.available_features,},
     }
+
+    if "whitelabel" in request.GET and "white_labelling" in dashboard.team.organization.available_features:
+        exported_data.update({"whitelabel": True})
 
     return render_template("exporter.html", request=request, context={"exported_data": json.dumps(exported_data)},)
 

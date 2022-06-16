@@ -2,23 +2,22 @@ import React from 'react'
 import { Dashboard } from '~/scenes/dashboard/Dashboard'
 import { FriendlyLogo } from '~/toolbar/assets/FriendlyLogo'
 import './SharedDashboard.scss'
-import { AvailableFeature, DashboardPlacement, DashboardType, TeamType } from '~/types'
-import { ExportType } from '~/exporter/types'
+import { DashboardPlacement } from '~/types'
+import { ExportedData, ExportType } from '~/exporter/types'
 
 interface SharedDashboardProps {
-    type: ExportType
-    dashboard: Partial<DashboardType>
-    team: Partial<TeamType>
-    availableFeatures: AvailableFeature[]
+    exportedData: ExportedData
 }
 
-export function SharedDashboard({ type, team, dashboard, availableFeatures }: SharedDashboardProps): JSX.Element {
-    const whiteLabel =
-        window.location.search.includes('whitelabel') && availableFeatures.includes(AvailableFeature.WHITE_LABELLING)
-
+export function SharedDashboard({
+    exportedData: { type, whitelabel, team, dashboard },
+}: SharedDashboardProps): JSX.Element {
+    if (!dashboard) {
+        return <div>Error</div>
+    }
     return (
         <div className="SharedDashboard">
-            {!whiteLabel ? (
+            {!whitelabel ? (
                 type !== ExportType.Embed ? (
                     <div className="SharedDashboard-header">
                         <a href="https://posthog.com" target="_blank" rel="noopener noreferrer">
@@ -30,7 +29,7 @@ export function SharedDashboard({ type, team, dashboard, availableFeatures }: Sh
                             </h1>
                             <span>{dashboard.description}</span>
                         </div>
-                        <span className="SharedDashboard-header-team">{team.name}</span>
+                        <span className="SharedDashboard-header-team">{team?.name}</span>
                     </div>
                 ) : (
                     <a
@@ -50,7 +49,7 @@ export function SharedDashboard({ type, team, dashboard, availableFeatures }: Sh
                 placement={DashboardPlacement.Public}
             />
 
-            {!whiteLabel && (
+            {!whitelabel && (
                 <div className="text-center pb">
                     Made with{' '}
                     <a

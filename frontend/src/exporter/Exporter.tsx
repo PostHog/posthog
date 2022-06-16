@@ -9,7 +9,7 @@ import { ExportViewer } from '~/exporter/ExportViewer'
 import { SharedDashboard } from '~/exporter/SharedDashboard'
 
 const exportedData: ExportedData = window.POSTHOG_EXPORTED_DATA
-const { type, dashboard, organization, team } = exportedData
+const { type, dashboard } = exportedData
 
 if (type === ExportType.Image) {
     // Disable tracking for screenshot captures
@@ -23,14 +23,7 @@ function Exporter(): JSX.Element {
     if (type === ExportType.Image) {
         return <ExportViewer exportedData={exportedData} />
     } else if ((type === ExportType.Scene || type === ExportType.Embed) && dashboard) {
-        return (
-            <SharedDashboard
-                type={type}
-                dashboard={dashboard}
-                availableFeatures={organization?.available_features ?? []}
-                team={team ?? {}}
-            />
-        )
+        return <SharedDashboard exportedData={exportedData} />
     }
     return (
         <div>
