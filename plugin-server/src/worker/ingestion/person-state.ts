@@ -68,24 +68,25 @@ export class PersonState {
         this.personManager = personManager
     }
 
-    async updateProperties(): Promise<void> {
-        const wasPersonCreated = await this.createPersonIfDistinctIdIsNew()
+    async updateProperties(): Promise<Person | undefined> {
+        const createdPerson = await this.createPersonIfDistinctIdIsNew()
         if (
-            !wasPersonCreated &&
+            !createdPerson &&
             (this.eventProperties['$set'] || this.eventProperties['$set_once'] || this.eventProperties['$unset'])
         ) {
-            await this.updatePersonProperties()
+            return await this.updatePersonProperties()
         }
+        return createdPerson
     }
 
-    private async createPersonIfDistinctIdIsNew(): Promise<boolean> {
+    private async createPersonIfDistinctIdIsNew(): Promise<Person | undefined> {
         const isNewPerson = await this.personManager.isNewPerson(this.db, this.teamId, this.distinctId)
         if (isNewPerson) {
             const properties = this.eventProperties['$set'] || {}
             const propertiesOnce = this.eventProperties['$set_once'] || {}
             // Catch race condition where in between getting and creating, another request already created this user
             try {
-                await this.createPerson(
+                return await this.createPerson(
                     this.timestamp,
                     properties || {},
                     propertiesOnce || {},
@@ -95,7 +96,6 @@ export class PersonState {
                     this.newUuid.toString(),
                     [this.distinctId]
                 )
-                return true
             } catch (error) {
                 if (!error.message || !error.message.includes('duplicate key value violates unique constraint')) {
                     Sentry.captureException(error, {
@@ -109,7 +109,7 @@ export class PersonState {
                 }
             }
         }
-        return false
+        return undefined
     }
 
     private async createPerson(
@@ -147,7 +147,7 @@ export class PersonState {
         )
     }
 
-    private async updatePersonProperties(): Promise<void> {
+    private async updatePersonProperties(): Promise<Person> {
         const personFound = await this.db.fetchPerson(this.teamId, this.distinctId)
         if (!personFound) {
             this.statsd?.increment('person_not_found', { teamId: String(this.teamId), key: 'update' })
@@ -180,10 +180,10 @@ export class PersonState {
         const arePersonsEqual = equal(personFound.properties, updatedProperties)
 
         if (arePersonsEqual) {
-            return
+            return personFound
         }
 
-        await this.db.updatePersonDeprecated(personFound, { properties: updatedProperties })
+        return await this.db.updatePersonDeprecated(personFound, { properties: updatedProperties })
     }
 
     // Alias & merge
