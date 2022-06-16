@@ -16,12 +16,9 @@ from rest_framework.settings import api_settings
 from rest_framework_csv import renderers as csvrenderers
 from sentry_sdk.api import capture_exception
 
-from ee.clickhouse.queries.actor_base_query import ActorBaseQuery, get_people
 from ee.clickhouse.queries.funnels.funnel_correlation_persons import FunnelCorrelationActors
-from ee.clickhouse.queries.paths.paths_actors import ClickhousePathsActors
+from ee.clickhouse.queries.paths import ClickhousePathsActors
 from ee.clickhouse.queries.stickiness.stickiness_actors import ClickhouseStickinessActors
-from ee.clickhouse.queries.trends.person import ClickhouseTrendsActors
-from ee.clickhouse.sql.person import INSERT_COHORT_ALL_PEOPLE_THROUGH_PERSON_ID, PERSON_STATIC_COHORT_TABLE
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.person import get_funnel_actor_class, should_paginate
 from posthog.api.routing import StructuredViewSetMixin
@@ -43,9 +40,12 @@ from posthog.models.cohort import get_and_update_pending_version
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
+from posthog.models.person.sql import INSERT_COHORT_ALL_PEOPLE_THROUGH_PERSON_ID, PERSON_STATIC_COHORT_TABLE
 from posthog.models.team import Team
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
+from posthog.queries.actor_base_query import ActorBaseQuery, get_people
 from posthog.queries.person_query import PersonQuery
+from posthog.queries.trends.person import TrendsActors
 from posthog.queries.util import get_earliest_timestamp
 from posthog.tasks.calculate_cohort import (
     calculate_cohort_ch,
@@ -276,7 +276,7 @@ def insert_cohort_actors_into_ch(cohort: Cohort, filter_data: Dict):
     if insight_type == INSIGHT_TRENDS:
         filter = Filter(data=filter_data, team=cohort.team)
         entity = get_target_entity(filter)
-        query_builder = ClickhouseTrendsActors(cohort.team, entity, filter)
+        query_builder = TrendsActors(cohort.team, entity, filter)
     elif insight_type == INSIGHT_STICKINESS:
         stickiness_filter = StickinessFilter(data=filter_data, team=cohort.team)
         entity = get_target_entity(stickiness_filter)

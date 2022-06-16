@@ -1,6 +1,6 @@
 from infi.clickhouse_orm import migrations
 
-from ee.clickhouse.sql.dead_letter_queue import (
+from posthog.clickhouse.dead_letter_queue import (
     DEAD_LETTER_QUEUE_TABLE_MV_SQL,
     DEAD_LETTER_QUEUE_TABLE_SQL,
     KAFKA_DEAD_LETTER_QUEUE_TABLE_SQL,

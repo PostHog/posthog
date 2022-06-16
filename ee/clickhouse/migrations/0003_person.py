@@ -1,6 +1,6 @@
 from infi.clickhouse_orm import migrations
 
-from ee.clickhouse.sql.person import COMMENT_DISTINCT_ID_COLUMN_SQL, PERSONS_DISTINCT_ID_TABLE_SQL, PERSONS_TABLE_SQL
+from posthog.models.person.sql import COMMENT_DISTINCT_ID_COLUMN_SQL, PERSONS_DISTINCT_ID_TABLE_SQL, PERSONS_TABLE_SQL
 
 operations = [
     migrations.RunSQL(PERSONS_TABLE_SQL()),

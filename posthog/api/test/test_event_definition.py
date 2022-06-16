@@ -269,7 +269,7 @@ def capture_event(event: EventData):
     with real world, and could provide the abstraction over if we are using
     clickhouse or postgres as the primary backend
     """
-    from ee.clickhouse.models.event import create_event
+    from posthog.models.event.util import create_event
 
     team = Team.objects.get(id=event.team_id)
     create_event(

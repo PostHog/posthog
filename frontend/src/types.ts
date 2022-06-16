@@ -239,6 +239,7 @@ export interface TeamType extends TeamBasicType {
     person_display_name_properties: string[]
     has_group_types: boolean
     primary_dashboard: number // Dashboard shown on the project homepage
+    live_events_columns: string[] | null // Custom columns shown on the Live Events page
 
     // Uses to exclude person properties from correlation analysis results, for
     // example can be used to exclude properties that have trivial causation
@@ -1327,7 +1328,6 @@ export interface InsightLogicProps {
 }
 
 export interface SetInsightOptions {
-    shouldMergeWithExisting?: boolean
     /** this overrides the in-flight filters on the page, which may not equal the last returned API response */
     overrideFilter?: boolean
     /** calling with this updates the "last saved" filters */
@@ -1428,6 +1428,7 @@ export interface PreflightStatus {
 export enum ItemMode { // todo: consolidate this and dashboardmode
     Edit = 'edit',
     View = 'view',
+    Subscriptions = 'subscriptions',
 }
 
 export enum DashboardPlacement {
@@ -1879,6 +1880,27 @@ export enum ValueOptionType {
     MostRecent = 'most_recent',
     Previous = 'previous',
     OnDate = 'on_date',
+}
+
+export type WeekdayType = 'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday' | 'saturday' | 'sunday'
+
+export interface SubscriptionType {
+    id: number
+    insight?: number
+    dashboard?: number
+    target_type: string
+    target_value: string
+    frequency: 'daily' | 'weekly' | 'monthly' | 'yearly'
+    interval: number
+    byweekday: WeekdayType[] | null
+    bysetpos: number | null
+    start_date: string
+    until_date?: string
+    title: string
+    created_by?: UserBasicType | null
+    created_at: string
+    updated_at: string
+    deleted?: boolean
 }
 
 export type Description = string | JSX.Element | null

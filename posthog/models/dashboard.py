@@ -5,6 +5,7 @@ from django.db import models
 from django_deprecate_fields import deprecate_field
 
 from posthog.constants import AvailableFeature
+from posthog.utils import absolute_uri
 
 
 class Dashboard(models.Model):
@@ -49,6 +50,10 @@ class Dashboard(models.Model):
     tags: ArrayField = deprecate_field(
         ArrayField(models.CharField(max_length=32), blank=True, default=None), return_instead=[],
     )
+
+    @property
+    def url(self):
+        return absolute_uri(f"/dashboard/{self.id}")
 
     @property
     def effective_restriction_level(self) -> RestrictionLevel:

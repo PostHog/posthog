@@ -214,50 +214,29 @@ test('merge people', async () => {
     )
 
     expect((await hub.db.fetchPersons()).length).toEqual(2)
-    const [person0, person1] = await hub.db.fetchPersons()
 
     await delayUntilEventIngested(() => hub.db.fetchPersons(Database.ClickHouse), 2)
     const chPeople = await hub.db.fetchPersons(Database.ClickHouse)
     expect(chPeople.length).toEqual(2)
 
-    // try to merge and see if we queue any messages
-    jest.spyOn(hub!.db.kafkaProducer!, 'queueMessage')
-
-    jest.spyOn(hub!.db, 'updatePersonDeprecated').mockImplementationOnce(() => {
-        throw new Error('updatePersonDeprecated error')
-    })
-
-    await expect(async () => {
-        await hub!.eventsProcessor!.mergePeople({
-            mergeInto: person0,
-            mergeIntoDistinctId: 'person_0',
-            otherPerson: person1,
-            otherPersonDistinctId: 'person_1',
-            totalMergeAttempts: 0,
-            timestamp: DateTime.now(),
-        })
-    }).rejects.toThrow()
-
-    expect(hub!.db.kafkaProducer!.queueMessage).not.toHaveBeenCalled()
-
-    await eventsProcessor.mergePeople({
-        mergeInto: person0,
-        mergeIntoDistinctId: 'person_0',
-        otherPerson: person1,
-        otherPersonDistinctId: 'person_1',
-        totalMergeAttempts: 0,
-        timestamp: DateTime.now(),
-    })
+    await processEvent(
+        'person_0',
+        '',
+        '',
+        {
+            event: '$identify',
+            properties: { $anon_distinct_id: 'person_1' },
+        } as any as PluginEvent,
+        team.id,
+        now,
+        now,
+        new UUIDT().toString()
+    )
 
     await delayUntilEventIngested(async () =>
         (await hub.db.fetchPersons(Database.ClickHouse)).length === 1 ? [1] : []
     )
     expect((await hub.db.fetchPersons(Database.ClickHouse)).length).toEqual(1)
-
-    // moveDistinctIds 3x, deletePerson 1x
-    expect(hub!.db.kafkaProducer!.queueMessage).toHaveBeenCalledTimes(4)
-
-    expect((await hub.db.fetchPersons()).length).toEqual(1)
 
     const [person] = await hub.db.fetchPersons()
 

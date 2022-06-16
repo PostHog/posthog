@@ -3,8 +3,6 @@ import json
 from typing import Dict, List, Optional
 from unittest.mock import patch
 
-from django.db import DEFAULT_DB_ALIAS, connections
-from django.test.utils import CaptureQueriesContext
 from freezegun.api import freeze_time
 from rest_framework import status
 
@@ -12,6 +10,7 @@ from posthog.models import FeatureFlag, GroupTypeMapping, User
 from posthog.models.cohort import Cohort
 from posthog.models.feature_flag import FeatureFlagOverride
 from posthog.test.base import APIBaseTest
+from posthog.test.db_context_capturing import capture_db_queries
 
 
 class TestFeatureFlag(APIBaseTest):
@@ -589,8 +588,6 @@ class TestFeatureFlag(APIBaseTest):
         )
         self.client.force_login(new_user)
 
-        db_connection = connections[DEFAULT_DB_ALIAS]
-
         # create the flag
         create_response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/",
@@ -600,7 +597,7 @@ class TestFeatureFlag(APIBaseTest):
         flag_id = create_response.json()["id"]
 
         # get the activity and capture number of queries made
-        with CaptureQueriesContext(db_connection) as first_read_context:
+        with capture_db_queries() as first_read_context:
             self._get_feature_flag_activity(flag_id)
 
         if isinstance(first_read_context.final_queries, int) and isinstance(first_read_context.initial_queries, int):
@@ -620,7 +617,7 @@ class TestFeatureFlag(APIBaseTest):
         self.assertEqual(update_response.status_code, status.HTTP_200_OK)
 
         # get the activity and capture number of queries made
-        with CaptureQueriesContext(db_connection) as second_read_context:
+        with capture_db_queries() as second_read_context:
             self._get_feature_flag_activity(flag_id)
 
         if isinstance(second_read_context.final_queries, int) and isinstance(second_read_context.initial_queries, int):
@@ -811,6 +808,21 @@ class TestFeatureFlag(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         instance.refresh_from_db()
         self.assertEqual(instance.key, "alpha-feature")
+
+    def test_my_flags_is_not_nplus1(self) -> None:
+        with self.assertNumQueries(7):
+            response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/my_flags")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            data={"name": f"flag", "key": f"flag", "filters": {"groups": [{"rollout_percentage": 5,}]},},
+            format="json",
+        ).json()
+
+        with self.assertNumQueries(7):
+            response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/my_flags")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
 
     @patch("posthog.api.feature_flag.report_user_action")
     def test_my_flags(self, mock_capture):

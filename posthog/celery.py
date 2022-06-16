@@ -8,9 +8,9 @@ from celery.signals import task_postrun, task_prerun
 from django.conf import settings
 from django.db import connection
 from django.utils import timezone
-from sentry_sdk.api import capture_exception
 
 from posthog.redis import get_client
+from posthog.utils import get_crontab
 
 # set the default Django settings module for the 'celery' program.
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "posthog.settings")
@@ -62,6 +62,7 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
     # Cloud (posthog-cloud) cron jobs
     if getattr(settings, "MULTI_TENANCY", False):
         sender.add_periodic_task(crontab(hour=0, minute=0), calculate_billing_daily_usage.s())  # every day midnight UTC
+        sender.add_periodic_task(crontab(hour=4, minute=0), verify_persons_data_in_sync.s())
 
     sender.add_periodic_task(crontab(day_of_week="fri", hour=0, minute=0), clean_stale_partials.s())
 
@@ -98,21 +99,11 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
     sender.add_periodic_task(
         crontab(hour=0, minute=randrange(0, 40)), clickhouse_send_license_usage.s()
     )  # every day at a random minute past midnight. Randomize to avoid overloading license.posthog.com
-    try:
-        from ee.settings import MATERIALIZE_COLUMNS_SCHEDULE_CRON
 
-        minute, hour, day_of_month, month_of_year, day_of_week = MATERIALIZE_COLUMNS_SCHEDULE_CRON.strip().split(" ")
-
+    materialize_columns_crontab = get_crontab(settings.MATERIALIZE_COLUMNS_SCHEDULE_CRON)
+    if materialize_columns_crontab:
         sender.add_periodic_task(
-            crontab(
-                minute=minute,
-                hour=hour,
-                day_of_month=day_of_month,
-                month_of_year=month_of_year,
-                day_of_week=day_of_week,
-            ),
-            clickhouse_materialize_columns.s(),
-            name="clickhouse materialize columns",
+            materialize_columns_crontab, clickhouse_materialize_columns.s(), name="clickhouse materialize columns",
         )
 
         sender.add_periodic_task(
@@ -120,17 +111,23 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
             clickhouse_mark_all_materialized.s(),
             name="clickhouse mark all columns as materialized",
         )
-    except Exception as err:
-        capture_exception(err)
-        print(f"Scheduling materialized column task failed: {err}")
 
     sender.add_periodic_task(120, calculate_cohort.s(), name="recalculate cohorts")
+
+    # Hourly check for email subscriptions
+    sender.add_periodic_task(crontab(hour="*", minute=55), schedule_all_subscriptions.s())
 
     if settings.ASYNC_EVENT_PROPERTY_USAGE:
         sender.add_periodic_task(
             EVENT_PROPERTY_USAGE_INTERVAL_SECONDS,
             calculate_event_property_usage.s(),
             name="calculate event property usage",
+        )
+
+    clear_clickhouse_crontab = get_crontab(settings.CLEAR_CLICKHOUSE_REMOVED_DATA_SCHEDULE_CRON)
+    if clear_clickhouse_crontab:
+        sender.add_periodic_task(
+            clear_clickhouse_crontab, clickhouse_clear_removed_data.s(), name="clickhouse clear removed data"
         )
 
 
@@ -291,6 +288,13 @@ def clickhouse_mark_all_materialized():
 
 
 @app.task(ignore_result=True)
+def clickhouse_clear_removed_data():
+    from posthog.models.team.util import delete_clickhouse_data_for_deleted_teams
+
+    delete_clickhouse_data_for_deleted_teams()
+
+
+@app.task(ignore_result=True)
 def clickhouse_send_license_usage():
     if not settings.MULTI_TENANCY:
         from ee.tasks.send_license_usage import send_license_usage
@@ -424,3 +428,17 @@ def check_async_migration_health():
     from posthog.tasks.async_migrations import check_async_migration_health
 
     check_async_migration_health()
+
+
+@app.task(ignore_result=True)
+def verify_persons_data_in_sync():
+    from posthog.tasks.verify_persons_data_in_sync import verify_persons_data_in_sync as verify
+
+    verify()
+
+
+@app.task(ignore_result=True)
+def schedule_all_subscriptions():
+    from posthog.tasks.subscriptions import schedule_all_subscriptions
+
+    schedule_all_subscriptions()

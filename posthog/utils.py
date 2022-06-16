@@ -30,6 +30,7 @@ from urllib.parse import urljoin, urlparse
 
 import lzstring
 import pytz
+from celery.schedules import crontab
 from dateutil import parser
 from dateutil.relativedelta import relativedelta
 from django.conf import settings
@@ -40,6 +41,7 @@ from django.template.loader import get_template
 from django.utils import timezone
 from rest_framework.request import Request
 from sentry_sdk import configure_scope
+from sentry_sdk.api import capture_exception
 
 from posthog.constants import AvailableFeature
 from posthog.exceptions import RequestParsingError
@@ -371,6 +373,11 @@ def get_ip_address(request: HttpRequest) -> str:
         ip = x_forwarded_for.split(",")[0]
     else:
         ip = request.META.get("REMOTE_ADDR")  # Real IP address of client Machine
+
+    # Strip port from ip address as Azure gateway handles x-forwarded-for incorrectly
+    if ip and len(ip.split(":")) == 2:
+        ip = ip.split(":")[0]
+
     return ip
 
 
@@ -887,7 +894,7 @@ def format_query_params_absolute_url(
     OFFSET_REGEX = re.compile(fr"([&?]{offset_alias}=)(\d+)")
     LIMIT_REGEX = re.compile(fr"([&?]{limit_alias}=)(\d+)")
 
-    url_to_format = request.get_raw_uri()
+    url_to_format = request.build_absolute_uri()
 
     if not url_to_format:
         return None
@@ -936,3 +943,46 @@ def encode_value_as_param(value: Union[str, list, dict, datetime.datetime]) -> s
         return value.isoformat()
     else:
         return value
+
+
+def is_json(val):
+    if isinstance(val, int):
+        return False
+
+    try:
+        int(val)
+        return False
+    except:
+        pass
+    try:
+        json.loads(val)
+    except (ValueError, TypeError):
+        return False
+    return True
+
+
+def cast_timestamp_or_now(timestamp: Optional[Union[timezone.datetime, str]]) -> str:
+    if not timestamp:
+        timestamp = timezone.now()
+
+    # clickhouse specific formatting
+    if isinstance(timestamp, str):
+        timestamp = parser.isoparse(timestamp)
+    else:
+        timestamp = timestamp.astimezone(pytz.utc)
+
+    return timestamp.strftime("%Y-%m-%d %H:%M:%S.%f")
+
+
+def get_crontab(schedule: Optional[str]) -> Optional[crontab]:
+    if schedule is None or schedule == "":
+        return None
+
+    try:
+        minute, hour, day_of_month, month_of_year, day_of_week = schedule.strip().split(" ")
+        return crontab(
+            minute=minute, hour=hour, day_of_month=day_of_month, month_of_year=month_of_year, day_of_week=day_of_week,
+        )
+    except Exception as err:
+        capture_exception(err)
+        return None

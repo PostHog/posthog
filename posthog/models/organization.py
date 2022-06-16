@@ -12,7 +12,7 @@ from rest_framework import exceptions
 from posthog.constants import MAX_SLUG_LENGTH, AvailableFeature
 from posthog.email import is_email_available
 from posthog.models.utils import LowercaseSlugField, UUIDModel, create_with_slug, sane_repr
-from posthog.utils import mask_email_address
+from posthog.utils import absolute_uri, mask_email_address
 
 if TYPE_CHECKING:
     from posthog.models import Team, User
@@ -286,7 +286,7 @@ class OrganizationInvite(UUIDModel):
         return self.created_at < timezone.now() - timezone.timedelta(INVITE_DAYS_VALIDITY)
 
     def __str__(self):
-        return f"{settings.SITE_URL}/signup/{self.id}"
+        return absolute_uri(f"/signup/{self.id}")
 
     __repr__ = sane_repr("organization", "target_email", "created_by")
 

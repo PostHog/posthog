@@ -1,7 +1,7 @@
 # name: Test0004ReplicatedSchema.test_migration
   <class 'tuple'> (
     'cohortpeople',
-    "ReplicatedCollapsingMergeTree('/clickhouse/tables/am0004_20220201000000_noshard/posthog.cohortpeople', '{replica}-{shard}', sign) ORDER BY (team_id, cohort_id, person_id) SETTINGS index_granularity = 8192",
+    "ReplicatedCollapsingMergeTree('/clickhouse/tables/am0004_20220201000000_noshard/posthog.cohortpeople', '{replica}-{shard}', sign) ORDER BY (team_id, cohort_id, person_id, version) SETTINGS index_granularity = 8192",
   )
 ---
 # name: Test0004ReplicatedSchema.test_migration.1
@@ -127,7 +127,7 @@
 # name: Test0004ReplicatedSchema.test_rollback
   <class 'tuple'> (
     'cohortpeople',
-    'CollapsingMergeTree(sign) ORDER BY (team_id, cohort_id, person_id) SETTINGS index_granularity = 8192',
+    'CollapsingMergeTree(sign) ORDER BY (team_id, cohort_id, person_id, version) SETTINGS index_granularity = 8192',
   )
 ---
 # name: Test0004ReplicatedSchema.test_rollback.1
