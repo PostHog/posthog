@@ -83,18 +83,9 @@ export class EventsProcessor {
                 throw new Error(`No team found with ID ${teamId}. Can't ingest event.`)
             }
 
-            const personState = new PersonState(
-                teamId,
-                distinctId,
-                properties,
-                timestamp,
-                this.db,
-                this.pluginsServer.statsd,
-                this.personManager
-            )
+            const personState = new PersonState(data, timestamp, this.db, this.pluginsServer.statsd, this.personManager)
 
-            await personState.handleIdentifyOrAlias(data['event'], data)
-            await personState.updateProperties()
+            await personState.update()
 
             if (data['event'] === '$snapshot') {
                 if (team.session_recording_opt_in) {

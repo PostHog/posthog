@@ -38,8 +38,8 @@ const isDistinctIdIllegal = (id: string): boolean => {
 
 // This class is responsible for creating/updating a single person through the process-event pipeline
 export class PersonState {
+    event: PluginEvent
     teamId: number
-    distinctId: string
     eventProperties: Properties
     timestamp: DateTime
     newUuid: string
@@ -49,23 +49,26 @@ export class PersonState {
     private personManager: PersonManager
 
     constructor(
-        teamId: number,
-        distinctId: string,
-        eventProperties: Properties,
+        event: PluginEvent,
         timestamp: DateTime,
         db: DB,
         statsd: StatsD | undefined,
         personManager: PersonManager
     ) {
-        this.teamId = teamId
-        this.distinctId = distinctId
-        this.eventProperties = eventProperties
+        this.event = event
+        this.teamId = event.team_id
+        this.eventProperties = event.properties!
         this.timestamp = timestamp
         this.newUuid = new UUIDT().toString()
 
         this.db = db
         this.statsd = statsd
         this.personManager = personManager
+    }
+
+    async update(): Promise<Person | undefined> {
+        await this.handleIdentifyOrAlias()
+        return await this.updateProperties()
     }
 
     async updateProperties(): Promise<Person | undefined> {
@@ -80,7 +83,7 @@ export class PersonState {
     }
 
     private async createPersonIfDistinctIdIsNew(): Promise<Person | undefined> {
-        const isNewPerson = await this.personManager.isNewPerson(this.db, this.teamId, this.distinctId)
+        const isNewPerson = await this.personManager.isNewPerson(this.db, this.teamId, this.event.distinct_id)
         if (isNewPerson) {
             const properties = this.eventProperties['$set'] || {}
             const propertiesOnce = this.eventProperties['$set_once'] || {}
@@ -94,14 +97,14 @@ export class PersonState {
                     null,
                     false,
                     this.newUuid.toString(),
-                    [this.distinctId]
+                    [this.event.distinct_id]
                 )
             } catch (error) {
                 if (!error.message || !error.message.includes('duplicate key value violates unique constraint')) {
                     Sentry.captureException(error, {
                         extra: {
                             teamId: this.teamId,
-                            distinctId: this.distinctId,
+                            distinctId: this.event.distinct_id,
                             timestamp: this.timestamp,
                             personUuid: this.newUuid,
                         },
@@ -148,11 +151,11 @@ export class PersonState {
     }
 
     private async updatePersonProperties(): Promise<Person> {
-        const personFound = await this.db.fetchPerson(this.teamId, this.distinctId)
+        const personFound = await this.db.fetchPerson(this.teamId, this.event.distinct_id)
         if (!personFound) {
             this.statsd?.increment('person_not_found', { teamId: String(this.teamId), key: 'update' })
             throw new Error(
-                `Could not find person with distinct id "${this.distinctId}" in team "${this.teamId}" to update properties`
+                `Could not find person with distinct id "${this.event.distinct_id}" in team "${this.teamId}" to update properties`
             )
         }
 
@@ -188,27 +191,33 @@ export class PersonState {
 
     // Alias & merge
 
-    async handleIdentifyOrAlias(event: string, data: PluginEvent): Promise<void> {
-        if (isDistinctIdIllegal(this.distinctId)) {
-            this.statsd?.increment(`illegal_distinct_ids.total`, { distinctId: this.distinctId })
+    async handleIdentifyOrAlias(): Promise<void> {
+        if (isDistinctIdIllegal(this.event.distinct_id)) {
+            this.statsd?.increment(`illegal_distinct_ids.total`, { distinctId: this.event.distinct_id })
             return
         }
 
         const timeout = timeoutGuard('Still running "handleIdentifyOrAlias". Timeout warning after 30 sec!')
         try {
-            if (event === '$create_alias') {
-                await this.merge(this.eventProperties['alias'], this.distinctId, this.teamId, this.timestamp, false)
-            } else if (event === '$identify' && this.eventProperties['$anon_distinct_id']) {
+            if (this.event.event === '$create_alias') {
+                await this.merge(
+                    this.eventProperties['alias'],
+                    this.event.distinct_id,
+                    this.teamId,
+                    this.timestamp,
+                    false
+                )
+            } else if (this.event.event === '$identify' && this.eventProperties['$anon_distinct_id']) {
                 await this.merge(
                     this.eventProperties['$anon_distinct_id'],
-                    this.distinctId,
+                    this.event.distinct_id,
                     this.teamId,
                     this.timestamp,
                     true
                 )
             }
         } catch (e) {
-            console.error('handleIdentifyOrAlias failed', e, data)
+            console.error('handleIdentifyOrAlias failed', e, this.event)
         } finally {
             clearTimeout(timeout)
         }
