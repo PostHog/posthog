@@ -236,7 +236,7 @@ class Property:
             return value
 
     def property_to_Q(self) -> Q:
-        from .cohort import CohortPeople
+        from posthog.models.cohort import CohortPeople
 
         if self.type in CLICKHOUSE_ONLY_PROPERTY_TYPES:
             raise ValueError(f"property_to_Q: type is not supported: {repr(self.type)}")

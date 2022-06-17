@@ -140,7 +140,7 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
                             <div className="definition-matching-events">
                                 <span className="definition-matching-events-header">Matching raw events</span>
                                 <p className="definition-matching-events-subtext">
-                                    This is the list of recent raw events that match this event.
+                                    This is the list of recent raw events that match this definition.
                                 </p>
                                 <EventsTable
                                     sceneUrl={backDetailUrl}
