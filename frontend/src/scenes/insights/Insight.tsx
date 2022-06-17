@@ -2,6 +2,7 @@ import './Insight.scss'
 import React, { useEffect } from 'react'
 import { useActions, useMountedLogic, useValues, BindLogic } from 'kea'
 import { Card } from 'antd'
+import clsx from 'clsx'
 import { FunnelTab, PathTab, RetentionTab, TrendTab } from './InsightTabs'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { insightLogic } from './insightLogic'
@@ -101,10 +102,12 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
     const isSmallScreen = !screens.xl
     const verticalLayout = !isSmallScreen && activeView === InsightType.FUNNELS
 
-    const insightTab = usingEditorPanels ? <EditorFilters insightProps={insightProps} /> : insightTabFilters
-
     const insightScene = (
-        <div className="insights-page">
+        <div
+            className={clsx('insights-page', {
+                'editor-panels-showing': insightMode === ItemMode.Edit,
+            })}
+        >
             {insightId !== 'new' && (
                 <SubscriptionsModal
                     visible={insightMode === ItemMode.Subscriptions}
@@ -276,7 +279,9 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                         mountOnEnter
                         unmountOnExit
                     >
-                        <div className="insight-editor-area">{insightTab}</div>
+                        <div className="insight-editor-area-wrapper">
+                            <div className="insight-editor-area">{<EditorFilters insightProps={insightProps} />}</div>
+                        </div>
                     </CSSTransition>
                     <div className="insights-container">
                         <InsightContainer />
@@ -304,10 +309,10 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                                     }}
                                 >
                                     {verticalLayout ? (
-                                        insightTab
+                                        insightTabFilters
                                     ) : (
                                         <Card className="insight-controls">
-                                            <div className="tabs-inner">{insightTab}</div>
+                                            <div className="tabs-inner">{insightTabFilters}</div>
                                         </Card>
                                     )}
                                 </div>
