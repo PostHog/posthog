@@ -101,7 +101,7 @@ export class PersonState {
                     this.teamId,
                     null,
                     false,
-                    this.newUuid.toString(),
+                    this.newUuid,
                     [this.distinctId]
                 )
             } catch (error) {
@@ -302,7 +302,7 @@ export class PersonState {
                     teamId,
                     null,
                     shouldIdentifyPerson,
-                    this.newUuid.toString(),
+                    this.newUuid,
                     [distinctId, previousDistinctId]
                 )
             } catch {
