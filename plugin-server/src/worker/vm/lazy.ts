@@ -249,9 +249,9 @@ export class LazyPluginVM {
     }
 
     private async processFatalVmSetupError(error: Error, isSystemError: boolean): Promise<void> {
-        this.hub.statsd?.increment('plugin_disabled_by_system', {
-            team_id: this.pluginConfig.team_id.toString(),
-            plugin_id: this.pluginConfig.plugin_id.toString(),
+        this.hub.statsd?.increment('plugin.disabled.by_system', {
+            teamId: this.pluginConfig.team_id.toString(),
+            plugin: this.pluginConfig.plugin?.name.toString() ?? '?',
         })
         await processError(this.hub, this.pluginConfig, error)
         await disablePlugin(this.hub, this.pluginConfig.id)
