@@ -2,11 +2,6 @@ import pytest
 from django.conf import settings
 from infi.clickhouse_orm import Database
 
-from posthog.clickhouse.dead_letter_queue import (
-    DEAD_LETTER_QUEUE_TABLE_MV_SQL,
-    KAFKA_DEAD_LETTER_QUEUE_TABLE_SQL,
-    TRUNCATE_DEAD_LETTER_QUEUE_TABLE_MV_SQL,
-)
 from posthog.client import sync_execute
 from posthog.test.base import TestMixin, run_clickhouse_statement_in_parallel
 
@@ -15,7 +10,7 @@ def create_clickhouse_tables(num_tables: int):
     # Reset clickhouse tables to default before running test
     # Mostly so that test runs locally work correctly
     from ee.clickhouse.sql.groups import GROUPS_TABLE_SQL
-    from posthog.clickhouse.dead_letter_queue import DEAD_LETTER_QUEUE_TABLE_SQL
+    from posthog.clickhouse.dead_letter_queue import DEAD_LETTER_QUEUE_TABLE_MV_SQL, DEAD_LETTER_QUEUE_TABLE_SQL
     from posthog.clickhouse.plugin_log_entries import PLUGIN_LOG_ENTRIES_TABLE_SQL
     from posthog.models.cohort.sql import CREATE_COHORTPEOPLE_TABLE_SQL
     from posthog.models.event.sql import DISTRIBUTED_EVENTS_TABLE_SQL, EVENTS_TABLE_SQL, WRITABLE_EVENTS_TABLE_SQL
@@ -41,7 +36,6 @@ def create_clickhouse_tables(num_tables: int):
         SESSION_RECORDING_EVENTS_TABLE_SQL(),
         PLUGIN_LOG_ENTRIES_TABLE_SQL(),
         CREATE_COHORTPEOPLE_TABLE_SQL(),
-        KAFKA_DEAD_LETTER_QUEUE_TABLE_SQL(),
         DEAD_LETTER_QUEUE_TABLE_SQL(),
         GROUPS_TABLE_SQL(),
     ]
@@ -73,7 +67,10 @@ def reset_clickhouse_tables():
     # Reset clickhouse tables to default before running test
     # Mostly so that test runs locally work correctly
     from ee.clickhouse.sql.groups import TRUNCATE_GROUPS_TABLE_SQL
-    from posthog.clickhouse.dead_letter_queue import TRUNCATE_DEAD_LETTER_QUEUE_TABLE_SQL
+    from posthog.clickhouse.dead_letter_queue import (
+        TRUNCATE_DEAD_LETTER_QUEUE_TABLE_MV_SQL,
+        TRUNCATE_DEAD_LETTER_QUEUE_TABLE_SQL,
+    )
     from posthog.clickhouse.plugin_log_entries import TRUNCATE_PLUGIN_LOG_ENTRIES_TABLE_SQL
     from posthog.models.cohort.sql import TRUNCATE_COHORTPEOPLE_TABLE_SQL
     from posthog.models.event.sql import TRUNCATE_EVENTS_TABLE_SQL
