@@ -6,8 +6,6 @@
     "main": "dist/index.js",
     "scripts": {
         "test": "jest --runInBand --forceExit tests/",
-        "test:1": "jest --runInBand --forceExit tests/ --testPathIgnorePatterns tests/worker/",
-        "test:2": "jest --runInBand --forceExit tests/worker/",
         "start": "yarn start:dist",
         "start:dist": "BASE_DIR=.. node dist/index.js",
         "start:dev": "NODE_ENV=dev BASE_DIR=.. ts-node-dev --debug --exit-child src/index.ts",

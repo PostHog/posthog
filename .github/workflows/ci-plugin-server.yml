@@ -49,13 +49,13 @@ jobs:
               run: yarn lint
 
     tests:
-        name: Tests (${{matrix.group}})
+        name: Tests (${{matrix.shard}})
         runs-on: ubuntu-20.04
 
         strategy:
             fail-fast: false
             matrix:
-                group: [1, 2]
+                shard: [1/3, 2/3, 3/3]
 
         services:
             postgres:
@@ -132,4 +132,4 @@ jobs:
                   # Below DB name has `test_` prepended, as that's how Django (ran above) creates the test DB
                   DATABASE_URL: 'postgres://postgres:postgres@localhost:5432/test_posthog'
                   REDIS_URL: 'redis://localhost'
-              run: cd plugin-server && yarn test:${{matrix.group}}
+              run: cd plugin-server && yarn test --shard=${{matrix.shard}}
