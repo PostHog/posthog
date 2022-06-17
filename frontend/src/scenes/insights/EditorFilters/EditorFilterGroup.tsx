@@ -19,24 +19,26 @@ export function EditorFilterGroup({ editorFilterGroup, insight, insightProps }: 
     const [isRowExpanded, setIsRowExpanded] = useState(defaultExpanded)
     return (
         <div key={title} className="insights-filter-group">
-            <div className="insights-filter-group-title">
-                <LemonButton
-                    type={'stealth'}
-                    fullWidth
-                    onClick={() => setIsRowExpanded(!isRowExpanded)}
-                    sideIcon={isRowExpanded ? <IconUnfoldLess /> : <IconUnfoldMore />}
-                    title={isRowExpanded ? 'Show less' : 'Show more'}
-                    style={{
-                        fontWeight: 600,
-                    }}
-                    data-attr={'editor-filter-group-collapse-' + slugify(title)}
-                >
-                    <div className="flex items-center space-x-05">
-                        <span>{title}</span>
-                        <LemonBubble count={count} />
-                    </div>
-                </LemonButton>
-            </div>
+            {title && (
+                <div className="insights-filter-group-title">
+                    <LemonButton
+                        type={'stealth'}
+                        fullWidth
+                        onClick={() => setIsRowExpanded(!isRowExpanded)}
+                        sideIcon={isRowExpanded ? <IconUnfoldLess /> : <IconUnfoldMore />}
+                        title={isRowExpanded ? 'Show less' : 'Show more'}
+                        style={{
+                            fontWeight: 600,
+                        }}
+                        data-attr={'editor-filter-group-collapse-' + slugify(title)}
+                    >
+                        <div className="flex items-center space-x-05">
+                            <span>{title}</span>
+                            <LemonBubble count={count} />
+                        </div>
+                    </LemonButton>
+                </div>
+            )}
             {isRowExpanded ? (
                 <div className="insights-filter-group-content">
                     {editorFilters.map(({ label, tooltip, key, valueSelector, component: Component }) => (

@@ -1,18 +1,18 @@
 import json
 from typing import Optional
 
-from ee.clickhouse.models.event import ClickhouseEventSerializer
-from ee.clickhouse.models.property import parse_prop_grouped_clauses
 from ee.clickhouse.test.test_journeys import journeys_for
 from posthog.client import query_with_columns, sync_execute
 from posthog.constants import FILTER_TEST_ACCOUNTS
 from posthog.models import Element, Organization, Person, Team
 from posthog.models.cohort import Cohort
 from posthog.models.event.sql import GET_EVENTS_WITH_PROPERTIES
+from posthog.models.event.util import ClickhouseEventSerializer
 from posthog.models.filters import Filter
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.filters.test.test_filter import TestFilter as PGTestFilters
 from posthog.models.filters.test.test_filter import property_to_Q_test_factory
+from posthog.models.property.util import parse_prop_grouped_clauses
 from posthog.models.utils import PersonPropertiesMode
 from posthog.test.base import ClickhouseTestMixin, _create_event, _create_person
 

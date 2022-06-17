@@ -4,6 +4,7 @@ from unittest.mock import patch
 import jwt
 import pytest
 import pytz
+from django.conf import settings
 from django.utils import timezone
 from freezegun import freeze_time
 
@@ -13,7 +14,6 @@ from posthog.models.subscription import (
     UNSUBSCRIBE_TOKEN_EXP_DAYS,
     Subscription,
     get_unsubscribe_token,
-    settings,
     unsubscribe_using_token,
 )
 from posthog.test.base import BaseTest

@@ -9,6 +9,7 @@ from rest_framework import request, status
 from sentry_sdk import capture_exception
 from statshog.defaults.django import statsd
 
+from ee.models import EnterpriseEventDefinition
 from posthog.exceptions import RequestParsingError, generate_exception_response
 from posthog.models import Action, Entity, EventDefinition
 from posthog.models.entity import MATH_TYPE
@@ -322,13 +323,19 @@ def safe_clickhouse_string(s: str) -> str:
 
 def create_event_definitions_sql(include_actions: bool, is_enterprise: bool = False, conditions: str = "") -> str:
     # Prevent fetching deprecated `tags` field. Tags are separately fetched in TaggedItemSerializerMixin
+    ee_model = EnterpriseEventDefinition if is_enterprise else EventDefinition
     event_definition_fields = {
-        f'"{f.column}"' for f in EventDefinition._meta.get_fields() if hasattr(f, "column") and f.column != "tags"  # type: ignore
+        f'"{f.column}"' for f in ee_model._meta.get_fields() if hasattr(f, "column") and f.column != "tags"  # type: ignore
     }
     shared_conditions = f"WHERE team_id = %(team_id)s {conditions}"
+    ordering = (
+        "ORDER BY last_seen_at DESC NULLS LAST, query_usage_30_day DESC NULLS LAST, name ASC"
+        if is_enterprise
+        else "ORDER BY name ASC"
+    )
 
     if include_actions:
-        event_definition_fields.discard("id")
+        event_definition_fields.discard('"id"')
         action_fields = {
             f'"{f.column}"'  # type: ignore
             for f in Action._meta.get_fields()
@@ -348,8 +355,8 @@ def create_event_definitions_sql(include_actions: bool, is_enterprise: bool = Fa
         event_definition_table = (
             f"""
                 SELECT {raw_event_definition_fields}
-                    FROM ee_enterpriseeventdefinition
-                    FULL OUTER JOIN posthog_eventdefinition ON posthog_eventdefinition.id=ee_enterpriseeventdefinition.eventdefinition_ptr_id
+                FROM ee_enterpriseeventdefinition
+                FULL OUTER JOIN posthog_eventdefinition ON posthog_eventdefinition.id=ee_enterpriseeventdefinition.eventdefinition_ptr_id
             """
             if is_enterprise
             else f"""
@@ -365,6 +372,7 @@ def create_event_definitions_sql(include_actions: bool, is_enterprise: bool = Fa
             SELECT {raw_action_fields} FROM posthog_action
             {shared_conditions} AND posthog_action.deleted = false
         ) as T
+        {ordering}
         """
 
     raw_event_definition_fields = ",".join(event_definition_fields)
@@ -375,10 +383,12 @@ def create_event_definitions_sql(include_actions: bool, is_enterprise: bool = Fa
         FROM ee_enterpriseeventdefinition
         FULL OUTER JOIN posthog_eventdefinition ON posthog_eventdefinition.id=ee_enterpriseeventdefinition.eventdefinition_ptr_id
         {shared_conditions}
+        {ordering}
     """
         if is_enterprise
         else f"""
         SELECT {raw_event_definition_fields} FROM posthog_eventdefinition
         {shared_conditions}
+        {ordering}
     """
     )

@@ -35,10 +35,7 @@ import { capitalizeFirstLetter, pluralize, toParams } from 'lib/utils'
 import { combineUrl } from 'kea-router'
 import { ActionStack, CohortIcon } from 'lib/components/icons'
 import { keyMapping } from 'lib/components/PropertyKeyInfo'
-import {
-    getEventDefinitionIcon,
-    getPropertyDefinitionIcon,
-} from 'scenes/data-management/events/DefinitionHeader'
+import { getEventDefinitionIcon, getPropertyDefinitionIcon } from 'scenes/data-management/events/DefinitionHeader'
 import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 import { experimentsLogic } from 'scenes/experiments/experimentsLogic'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
@@ -140,25 +137,31 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
             (taxonomicFilterLogicKey) => taxonomicFilterLogicKey,
         ],
         eventNames: [() => [(_, props) => props.eventNames], (eventNames) => eventNames ?? []],
+        excludedProperties: [
+            () => [(_, props) => props.excludedProperties],
+            (excludedProperties) => excludedProperties ?? {},
+        ],
         taxonomicGroups: [
             (selectors) => [
                 selectors.currentTeamId,
                 selectors.groupAnalyticsTaxonomicGroups,
                 selectors.groupAnalyticsTaxonomicGroupNames,
                 selectors.eventNames,
+                selectors.excludedProperties,
             ],
             (
                 teamId,
                 groupAnalyticsTaxonomicGroups,
                 groupAnalyticsTaxonomicGroupNames,
-                eventNames
+                eventNames,
+                excludedProperties
             ): TaxonomicFilterGroup[] => {
                 const shouldSimplifyActions =
                     !!featureFlagLogic.findMounted()?.values?.featureFlags?.[FEATURE_FLAGS.SIMPLIFY_ACTIONS]
                 return [
                     {
-                        name: shouldSimplifyActions ? "Raw events" : 'Events',
-                        searchPlaceholder: shouldSimplifyActions ? "raw events" : 'events',
+                        name: shouldSimplifyActions ? 'Raw events' : 'Events',
+                        searchPlaceholder: shouldSimplifyActions ? 'raw events' : 'events',
                         type: TaxonomicFilterGroupType.Events,
                         endpoint: `api/projects/${teamId}/event_definitions`,
                         getName: (eventDefinition: EventDefinition) => eventDefinition.name,
@@ -215,6 +218,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                             )}n't been seen with ${pluralize(eventNames.length, 'this event', 'these events', false)}`,
                         getName: (propertyDefinition: PropertyDefinition) => propertyDefinition.name,
                         getValue: (propertyDefinition: PropertyDefinition) => propertyDefinition.name,
+                        excludedProperties: excludedProperties[TaxonomicFilterGroupType.EventProperties],
                         ...propertyTaxonomicGroupProps(),
                     },
                     {

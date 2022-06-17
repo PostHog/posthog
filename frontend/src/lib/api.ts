@@ -645,10 +645,16 @@ const api = {
         ): Promise<SubscriptionType> {
             return await new ApiRequest().subscription(subscriptionId).update({ data })
         },
-        async list(insightId?: number): Promise<PaginatedResponse<SubscriptionType>> {
+        async list({
+            insightId,
+            dashboardId,
+        }: {
+            insightId?: number
+            dashboardId?: number
+        }): Promise<PaginatedResponse<SubscriptionType>> {
             return await new ApiRequest()
                 .subscriptions()
-                .withQueryString(insightId ? `insight_id=${insightId}` : '')
+                .withQueryString(insightId ? `insight=${insightId}` : dashboardId ? `dashboard=${dashboardId}` : '')
                 .get()
         },
         determineDeleteEndpoint(): string {

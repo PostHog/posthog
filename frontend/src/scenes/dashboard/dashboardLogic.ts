@@ -99,6 +99,7 @@ export const dashboardLogic = kea<dashboardLogicType>({
         setRefreshError: (shortId: InsightShortId) => ({ shortId }),
         reportDashboardViewed: true, // Reports `viewed dashboard` and `dashboard analyzed` events
         setShouldReportOnAPILoad: (shouldReport: boolean) => ({ shouldReport }), // See reducer for details
+        setSubscriptionMode: (enabled: boolean, id?: number | 'new') => ({ enabled, id }),
     },
 
     loaders: ({ actions, props }) => ({
@@ -332,6 +333,20 @@ export const dashboardLogic = kea<dashboardLogicType>({
             false,
             {
                 setShouldReportOnAPILoad: (_, { shouldReport }) => shouldReport,
+            },
+        ],
+
+        showSubscriptions: [
+            false,
+            {
+                setSubscriptionMode: (_, { enabled }) => enabled,
+            },
+        ],
+
+        subscriptionId: [
+            null as number | 'new' | null,
+            {
+                setSubscriptionMode: (_, { id }) => id || null,
             },
         ],
     }),
@@ -751,6 +766,21 @@ export const dashboardLogic = kea<dashboardLogicType>({
                 // allItems has not loaded yet, report after API request is completed
                 actions.setShouldReportOnAPILoad(true)
             }
+        },
+    }),
+
+    urlToAction: ({ actions }) => ({
+        '/dashboard/:id/subscriptions(/:subscriptionId)': ({ subscriptionId }) => {
+            const id = subscriptionId
+                ? subscriptionId == 'new'
+                    ? subscriptionId
+                    : parseInt(subscriptionId, 10)
+                : undefined
+            actions.setSubscriptionMode(true, id)
+        },
+
+        '/dashboard/:id': () => {
+            actions.setSubscriptionMode(false, undefined)
         },
     }),
 })

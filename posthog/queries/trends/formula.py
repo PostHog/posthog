@@ -17,7 +17,7 @@ class TrendsFormula:
         queries = []
         params: Dict[str, Any] = {}
         for idx, entity in enumerate(filter.entities):
-            sql, entity_params, _ = self._get_sql_for_entity(filter, entity, team)  # type: ignore
+            sql, entity_params, _ = self._get_sql_for_entity(filter, team, entity)  # type: ignore
             sql = sql.replace("%(", f"%({idx}_")
             entity_params = {f"{idx}_{key}": value for key, value in entity_params.items()}
             queries.append(sql)

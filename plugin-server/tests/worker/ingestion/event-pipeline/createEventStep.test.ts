@@ -1,5 +1,5 @@
 import { PreIngestionEvent } from '../../../../src/types'
-import { createEventStep } from '../../../../src/worker/ingestion/event-pipeline/createEventStep'
+import { createEventStep } from '../../../../src/worker/ingestion/event-pipeline/4-createEventStep'
 
 jest.mock('../../../../src/worker/plugins/run')
 

@@ -894,7 +894,7 @@ def format_query_params_absolute_url(
     OFFSET_REGEX = re.compile(fr"([&?]{offset_alias}=)(\d+)")
     LIMIT_REGEX = re.compile(fr"([&?]{limit_alias}=)(\d+)")
 
-    url_to_format = request.get_raw_uri()
+    url_to_format = request.build_absolute_uri()
 
     if not url_to_format:
         return None
@@ -943,6 +943,35 @@ def encode_value_as_param(value: Union[str, list, dict, datetime.datetime]) -> s
         return value.isoformat()
     else:
         return value
+
+
+def is_json(val):
+    if isinstance(val, int):
+        return False
+
+    try:
+        int(val)
+        return False
+    except:
+        pass
+    try:
+        json.loads(val)
+    except (ValueError, TypeError):
+        return False
+    return True
+
+
+def cast_timestamp_or_now(timestamp: Optional[Union[timezone.datetime, str]]) -> str:
+    if not timestamp:
+        timestamp = timezone.now()
+
+    # clickhouse specific formatting
+    if isinstance(timestamp, str):
+        timestamp = parser.isoparse(timestamp)
+    else:
+        timestamp = timestamp.astimezone(pytz.utc)
+
+    return timestamp.strftime("%Y-%m-%d %H:%M:%S.%f")
 
 
 def get_crontab(schedule: Optional[str]) -> Optional[crontab]:

@@ -249,10 +249,10 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         )
         EnterpriseEventDefinition.objects.create(team=self.team, name="rated_app")
         EnterpriseEventDefinition.objects.create(team=self.team, name="installed_app")
-        action = Action.objects.create(team=self.team, name="action1")
+        action = Action.objects.create(team=self.team, name="action_app")
 
         response = self.client.get("/api/projects/@current/event_definitions/?search=app&include_actions=true")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["count"], 3)
-        self.assertEqual(response.json()["results"][0]["id"], str(action.id))
+        self.assertEqual(response.json()["results"][0]["action_id"], action.id)
         self.assertEqual(response.json()["results"][0]["name"], action.name)

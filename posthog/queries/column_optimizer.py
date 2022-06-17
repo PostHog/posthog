@@ -1,7 +1,6 @@
 from typing import Counter, List, Set, Union, cast
 
 from ee.clickhouse.materialized_columns.columns import ColumnName, get_materialized_columns
-from ee.clickhouse.models.property import box_value, extract_tables_and_properties
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, FunnelCorrelationType
 from posthog.models.action.util import get_action_tables_and_properties, uses_elements_chain
 from posthog.models.entity import Entity
@@ -12,6 +11,7 @@ from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.filters.utils import GroupTypeIndex
 from posthog.models.property import PropertyIdentifier, PropertyType, TableWithProperties
+from posthog.models.property.util import box_value, extract_tables_and_properties
 from posthog.queries.property_optimizer import PropertyOptimizer
 
 

@@ -1,38 +1,18 @@
 import React from 'react'
 import { useActions, useValues } from 'kea'
 import { LemonButton, LemonButtonWithSideAction } from 'lib/components/LemonButton'
-import { InsightShortId, SubscriptionType } from '~/types'
+import { SubscriptionType } from '~/types'
 import { pluralize } from 'lib/utils'
 import { IconEllipsis } from 'lib/components/icons'
 import { ProfileBubbles } from 'lib/components/ProfilePicture'
-import { insightSubscriptionsLogic } from '../insightSubscriptionsLogic'
+import { subscriptionsLogic } from '../subscriptionsLogic'
 import { Skeleton } from 'antd'
-import { bysetposOptions } from '../utils'
+import { SubscriptionBaseProps, summarizeSubscription } from '../utils'
 
 interface SubscriptionListItemProps {
     subscription: SubscriptionType
     onClick: () => void
     onDelete?: () => void
-}
-
-const humanFrequencyMap: { [key in SubscriptionType['frequency']]: string } = {
-    daily: 'day',
-    weekly: 'week',
-    monthly: 'month',
-    yearly: 'year',
-}
-
-export function summarizeSubscription(subscription: SubscriptionType): string {
-    const frequency = pluralize(subscription.interval, humanFrequencyMap[subscription.frequency], undefined, false)
-    let summary = `Sent every ${subscription.interval > 1 ? subscription.interval + ' ' : ''}${frequency}`
-
-    if (subscription.byweekday?.length) {
-        summary += ` on the ${bysetposOptions[subscription.bysetpos]?.label} ${
-            subscription.byweekday.length === 1 ? subscription.byweekday[0] : 'day'
-        }`
-    }
-
-    return summary
 }
 
 export function SubscriptionListItem({ subscription, onClick, onDelete }: SubscriptionListItemProps): JSX.Element {
@@ -76,15 +56,20 @@ export function SubscriptionListItem({ subscription, onClick, onDelete }: Subscr
     )
 }
 
-interface ManageSubscriptionsProps {
-    insightShortId: InsightShortId
+interface ManageSubscriptionsProps extends SubscriptionBaseProps {
     onCancel: () => void
     onSelect: (value: number | 'new') => void
 }
 
-export function ManageSubscriptions({ insightShortId, onCancel, onSelect }: ManageSubscriptionsProps): JSX.Element {
-    const logic = insightSubscriptionsLogic({
+export function ManageSubscriptions({
+    insightShortId,
+    dashboardId,
+    onCancel,
+    onSelect,
+}: ManageSubscriptionsProps): JSX.Element {
+    const logic = subscriptionsLogic({
         insightShortId,
+        dashboardId,
     })
 
     const { subscriptions, subscriptionsLoading } = useValues(logic)

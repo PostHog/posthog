@@ -2,7 +2,7 @@ from django.contrib.postgres.fields import ArrayField
 from django.db import models
 from django_deprecate_fields import deprecate_field
 
-from posthog.models.event_definition.event_definition import EventDefinition
+from posthog.models.event_definition import EventDefinition
 
 
 class EnterpriseEventDefinition(EventDefinition):
