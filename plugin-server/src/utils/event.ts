@@ -1,8 +1,7 @@
-import { PluginEvent, ProcessedPluginEvent } from '@posthog/plugin-scaffold'
+import { ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 
 import { ClickhouseEventKafka, IngestionEvent } from '../types'
 import { chainToElements } from './db/elements-chain'
-import { personInitialAndUTMProperties } from './db/utils'
 import { clickHouseTimestampToISO } from './utils'
 
 export function convertToProcessedPluginEvent(event: IngestionEvent): ProcessedPluginEvent {
@@ -33,21 +32,4 @@ export function convertToIngestionEvent(event: ClickhouseEventKafka): IngestionE
         timestamp: clickHouseTimestampToISO(event.timestamp),
         elementsList: event.elements_chain ? chainToElements(event.elements_chain) : [],
     }
-}
-
-export function sanitizeEvent(event: PluginEvent): PluginEvent {
-    event.distinct_id = event.distinct_id?.toString()
-
-    let properties = event.properties ?? {}
-    if (event['$set']) {
-        properties['$set'] = { ...properties['$set'], ...event['$set'] }
-    }
-    if (event['$set_once']) {
-        properties['$set_once'] = { ...properties['$set_once'], ...event['$set_once'] }
-    }
-    if (event.event !== '$snapshot') {
-        properties = personInitialAndUTMProperties(properties)
-    }
-    event.properties = properties
-    return event
 }
