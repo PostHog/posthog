@@ -23,7 +23,6 @@ import { castTimestampOrNow, UUID } from '../../utils/utils'
 import { KAFKA_BUFFER } from './../../config/kafka-topics'
 import { GroupTypeManager } from './group-type-manager'
 import { addGroupProperties } from './groups'
-import { PersonManager } from './person-manager'
 import { PersonState } from './person-state'
 import { upsertGroup } from './properties-updater'
 import { TeamManager } from './team-manager'
@@ -40,7 +39,6 @@ export class EventsProcessor {
     clickhouse: ClickHouse
     kafkaProducer: KafkaProducerWrapper
     teamManager: TeamManager
-    personManager: PersonManager
     groupTypeManager: GroupTypeManager
     clickhouseExternalSchemasDisabledTeams: Set<number>
 
@@ -50,7 +48,6 @@ export class EventsProcessor {
         this.clickhouse = pluginsServer.clickhouse
         this.kafkaProducer = pluginsServer.kafkaProducer
         this.teamManager = pluginsServer.teamManager
-        this.personManager = new PersonManager(pluginsServer)
         this.groupTypeManager = new GroupTypeManager(pluginsServer.db, this.teamManager, pluginsServer.SITE_URL)
         this.clickhouseExternalSchemasDisabledTeams = new Set(
             pluginsServer.CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS_TEAMS.split(',').filter(String).map(Number)
@@ -84,17 +81,16 @@ export class EventsProcessor {
             }
 
             const personState = new PersonState(
+                data,
                 teamId,
                 distinctId,
-                properties,
                 timestamp,
                 this.db,
                 this.pluginsServer.statsd,
-                this.personManager
+                this.pluginsServer.personManager
             )
 
-            await personState.handleIdentifyOrAlias(data['event'], data)
-            await personState.updateProperties()
+            await personState.update()
 
             if (data['event'] === '$snapshot') {
                 if (team.session_recording_opt_in) {
