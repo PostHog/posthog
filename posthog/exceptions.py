@@ -50,7 +50,7 @@ def exception_reporting(exception: Exception, context: ExceptionContext) -> None
     from posthog.settings.base_variables import DEBUG
 
     if DEBUG or get_instance_setting("CAPTURE_BACKEND_EXCEPTIONS"):
-        logger.exception(exception)
+        logger.exception(exception, path=context["request"].path)
 
     if not isinstance(exception, APIException):
         capture_exception(exception)
