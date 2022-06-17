@@ -54,6 +54,10 @@ Object {
         "id": 997,
         "ingested_event": true,
         "is_demo": false,
+        "live_events_columns": Array [
+          "event",
+          "person",
+        ],
         "name": "MockHog App + Marketing",
         "organization": "ABCD",
         "path_cleaning_filters": Array [],

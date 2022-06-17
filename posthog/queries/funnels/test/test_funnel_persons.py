@@ -4,10 +4,10 @@ from uuid import UUID, uuid4
 from django.utils import timezone
 from freezegun import freeze_time
 
-from ee.clickhouse.models.event import bulk_create_events
 from ee.clickhouse.test.test_journeys import journeys_for
 from posthog.constants import INSIGHT_FUNNELS
 from posthog.models import Cohort, Filter
+from posthog.models.event.util import bulk_create_events
 from posthog.models.person.util import bulk_create_persons
 from posthog.models.session_recording_event.util import create_session_recording_event
 from posthog.queries.funnels.funnel_persons import ClickhouseFunnelActors

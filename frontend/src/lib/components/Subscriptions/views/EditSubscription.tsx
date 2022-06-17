@@ -7,42 +7,49 @@ import { membersLogic } from 'scenes/organization/Settings/membersLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { Field } from 'lib/forms/Field'
 import { dayjs } from 'lib/dayjs'
-import { LemonSelect } from 'lib/components/LemonSelect'
-import { insightSubscriptionLogic } from '../insightSubscriptionLogic'
+import { LemonSelect, LemonSelectOptions, LemonSelectProps } from 'lib/components/LemonSelect'
+import { subscriptionLogic } from '../subscriptionLogic'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 import { IconChevronLeft, IconOpenInNew } from 'lib/components/icons'
 import { AlertMessage } from 'lib/components/AlertMessage'
-import { InsightShortId } from '~/types'
-import { insightSubscriptionsLogic } from '../insightSubscriptionsLogic'
+import { subscriptionsLogic } from '../subscriptionsLogic'
 import {
     bysetposOptions,
     frequencyOptions,
     intervalOptions,
     monthlyWeekdayOptions,
+    SubscriptionBaseProps,
     timeOptions,
     weekdayOptions,
 } from '../utils'
 import { LemonDivider, LemonInput, LemonTextArea } from '@posthog/lemon-ui'
 
-interface EditSubscriptionProps {
+interface EditSubscriptionProps extends SubscriptionBaseProps {
     id: number | 'new'
-    insightShortId: InsightShortId
     onCancel: () => void
     onDelete: () => void
 }
 
-export function EditSubscription({ id, insightShortId, onCancel, onDelete }: EditSubscriptionProps): JSX.Element {
+export function EditSubscription({
+    id,
+    insightShortId,
+    dashboardId,
+    onCancel,
+    onDelete,
+}: EditSubscriptionProps): JSX.Element {
     const logicProps = {
         id,
         insightShortId,
+        dashboardId,
     }
-    const logic = insightSubscriptionLogic(logicProps)
-    const subscriptionslogic = insightSubscriptionsLogic({
+    const logic = subscriptionLogic(logicProps)
+    const subscriptionslogic = subscriptionsLogic({
         insightShortId,
+        dashboardId,
     })
 
     const { antSelectOptions } = useValues(membersLogic)
-    const { subscription, isSubscriptionSubmitting } = useValues(logic)
+    const { subscription, isSubscriptionSubmitting, subscriptionChanged } = useValues(logic)
     const { preflight, siteUrlMisconfigured } = useValues(preflightLogic)
     const { deleteSubscription } = useActions(subscriptionslogic)
 
@@ -55,9 +62,17 @@ export function EditSubscription({ id, insightShortId, onCancel, onDelete }: Edi
         }
     }
 
+    const commonSelectProps: Partial<LemonSelectProps<LemonSelectOptions>> = {
+        dropdownPlacement: 'top-start',
+        type: 'stealth',
+        outlined: true,
+        disabled: emailDisabled,
+        dropdownMatchSelectWidth: false,
+    }
+
     return (
         <>
-            <VerticalForm logic={insightSubscriptionLogic} props={logicProps} formKey="subscription" enableFormOnSubmit>
+            <VerticalForm logic={subscriptionLogic} props={logicProps} formKey="subscription" enableFormOnSubmit>
                 <header className="flex items-center border-bottom pb-05">
                     <LemonButton type="stealth" onClick={onCancel} size="small">
                         <IconChevronLeft fontSize={'1rem'} />
@@ -154,20 +169,10 @@ export function EditSubscription({ id, insightShortId, onCancel, onDelete }: Edi
                         <div className="flex gap-05 items-center border-all pa-05 flex-wrap">
                             <span>Send every</span>
                             <Field name={'interval'} style={{ marginBottom: 0 }}>
-                                <LemonSelect
-                                    type="stealth"
-                                    outlined
-                                    options={intervalOptions}
-                                    disabled={emailDisabled}
-                                />
+                                <LemonSelect {...commonSelectProps} options={intervalOptions} />
                             </Field>
                             <Field name={'frequency'} style={{ marginBottom: 0 }}>
-                                <LemonSelect
-                                    type="stealth"
-                                    outlined
-                                    options={frequencyOptions}
-                                    disabled={emailDisabled}
-                                />
+                                <LemonSelect {...commonSelectProps} options={frequencyOptions} />
                             </Field>
 
                             {subscription.frequency === 'weekly' && (
@@ -176,12 +181,9 @@ export function EditSubscription({ id, insightShortId, onCancel, onDelete }: Edi
                                     <Field name={'byweekday'} style={{ marginBottom: 0 }}>
                                         {({ value, onChange }) => (
                                             <LemonSelect
-                                                type="stealth"
-                                                outlined
+                                                {...commonSelectProps}
                                                 options={weekdayOptions}
-                                                disabled={emailDisabled}
-                                                dropdownMatchSelectWidth={false}
-                                                value={value ? value[0] : 'monday'}
+                                                value={value ? value[0] : null}
                                                 onChange={(val) => onChange([val])}
                                             />
                                         )}
@@ -195,12 +197,9 @@ export function EditSubscription({ id, insightShortId, onCancel, onDelete }: Edi
                                     <Field name={'bysetpos'} style={{ marginBottom: 0 }}>
                                         {({ value, onChange }) => (
                                             <LemonSelect
-                                                type="stealth"
-                                                outlined
+                                                {...commonSelectProps}
                                                 options={bysetposOptions}
-                                                disabled={emailDisabled}
-                                                value={String(value || '1')}
-                                                dropdownMatchSelectWidth={false}
+                                                value={value ? String(value) : null}
                                                 onChange={(val) => {
                                                     onChange(typeof val === 'string' ? parseInt(val, 10) : null)
                                                 }}
@@ -210,11 +209,8 @@ export function EditSubscription({ id, insightShortId, onCancel, onDelete }: Edi
                                     <Field name={'byweekday'} style={{ marginBottom: 0 }}>
                                         {({ value, onChange }) => (
                                             <LemonSelect
-                                                type="stealth"
-                                                outlined
+                                                {...commonSelectProps}
                                                 options={monthlyWeekdayOptions}
-                                                disabled={emailDisabled}
-                                                dropdownMatchSelectWidth={false}
                                                 // "day" is a special case where it is a list of all available days
                                                 value={value ? (value.length === 1 ? value[0] : 'day') : null}
                                                 onChange={(val) =>
@@ -229,10 +225,8 @@ export function EditSubscription({ id, insightShortId, onCancel, onDelete }: Edi
                             <Field name={'start_date'}>
                                 {({ value, onChange }) => (
                                     <LemonSelect
-                                        type="stealth"
-                                        outlined
+                                        {...commonSelectProps}
                                         options={timeOptions}
-                                        disabled={emailDisabled}
                                         value={dayjs(value).hour().toString()}
                                         onChange={(val) => {
                                             onChange(
@@ -265,7 +259,7 @@ export function EditSubscription({ id, insightShortId, onCancel, onDelete }: Edi
                             type="primary"
                             htmlType="submit"
                             loading={isSubscriptionSubmitting}
-                            disabled={emailDisabled}
+                            disabled={emailDisabled || !subscriptionChanged}
                         >
                             {id === 'new' ? 'Create subscription' : 'Save'}
                         </LemonButton>

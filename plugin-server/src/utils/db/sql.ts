@@ -110,4 +110,5 @@ export async function disablePlugin(hub: Hub, pluginConfigId: PluginConfigId): P
         [pluginConfigId],
         'disablePlugin'
     )
+    await hub.db.redisPublish(hub.PLUGINS_RELOAD_PUBSUB_CHANNEL, 'reload!')
 }
