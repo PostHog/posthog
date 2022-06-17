@@ -115,6 +115,7 @@ class PluginManager(models.Manager):
         plugin = Plugin.objects.create(**kwargs)
         if plugin_json:
             PluginSourceFile.objects.create_from_plugin_archive(plugin, plugin_json)
+        reload_plugins_on_workers()
         return plugin
 
 
