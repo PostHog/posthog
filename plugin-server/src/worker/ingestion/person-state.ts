@@ -164,19 +164,31 @@ export class PersonState {
             )
         }
 
+        const updatedProperties = this.updatedPersonProperties(personFound.properties || {})
+        const arePersonsEqual = equal(personFound.properties, updatedProperties)
+
+        if (arePersonsEqual) {
+            return personFound
+        }
+
+        return await this.db.updatePersonDeprecated(personFound, { properties: updatedProperties })
+    }
+
+    private updatedPersonProperties(personProperties: Properties): Properties {
+        const updatedProperties = { ...personProperties }
+
         const properties: Properties = this.eventProperties['$set'] || {}
         const propertiesOnce: Properties = this.eventProperties['$set_once'] || {}
         const unsetProperties: Array<string> = this.eventProperties['$unset'] || []
 
         // Figure out which properties we are actually setting
-        const updatedProperties: Properties = { ...personFound.properties }
         Object.entries(propertiesOnce).map(([key, value]) => {
-            if (typeof personFound?.properties[key] === 'undefined') {
+            if (typeof personProperties[key] === 'undefined') {
                 updatedProperties[key] = value
             }
         })
         Object.entries(properties).map(([key, value]) => {
-            if (personFound?.properties[key] !== value) {
+            if (personProperties[key] !== value) {
                 updatedProperties[key] = value
             }
         })
@@ -185,13 +197,7 @@ export class PersonState {
             delete updatedProperties[propertyKey]
         })
 
-        const arePersonsEqual = equal(personFound.properties, updatedProperties)
-
-        if (arePersonsEqual) {
-            return personFound
-        }
-
-        return await this.db.updatePersonDeprecated(personFound, { properties: updatedProperties })
+        return updatedProperties
     }
 
     // Alias & merge
@@ -338,7 +344,6 @@ export class PersonState {
                     otherPersonDistinctId: previousDistinctId,
                     timestamp: timestamp,
                 })
-                updateAtEnd = true
             }
         } else {
             updateAtEnd = true
@@ -398,8 +403,8 @@ export class PersonState {
                     mergeInto,
                     {
                         created_at: firstSeen,
-                        properties: mergeInto.properties,
-                        is_identified: mergeInto.is_identified || otherPerson.is_identified,
+                        properties: this.updatedPersonProperties(mergeInto.properties),
+                        is_identified: mergeInto.is_identified || otherPerson.is_identified || shouldIdentifyPerson,
                     },
                     client
                 )

@@ -24,6 +24,7 @@ export interface PopupProps {
     actionable?: boolean
     /** Whether the popover's width should be synced with the children's width. */
     sameWidth?: boolean
+    maxWindowDimensions?: boolean
     maxContentWidth?: boolean
     className?: string
     modifier?: Record<string, any>
@@ -72,6 +73,7 @@ export function Popup({
     actionable = false,
     sameWidth = false,
     maxContentWidth = false,
+    maxWindowDimensions = false,
     modifier = {},
 }: PopupProps): JSX.Element {
     const [referenceElement, setReferenceElement] = useState<HTMLDivElement | null>(null)
@@ -90,7 +92,7 @@ export function Popup({
                     offset: [0, 4],
                 },
             },
-            maxSizeModifier,
+            maxWindowDimensions ? maxSizeModifier : {},
             fallbackPlacements
                 ? {
                       name: 'flip',

@@ -13,6 +13,7 @@ jest.setTimeout(60000) // 60 sec timeout
 
 const timestamp = DateTime.fromISO('2020-01-01T12:00:05.200Z').toUTC()
 const uuid = new UUIDT()
+const uuid2 = new UUIDT()
 
 describe('PersonState.update()', () => {
     let hub: Hub
@@ -118,7 +119,7 @@ describe('PersonState.update()', () => {
             distinct_id: 'new-user',
             properties: {
                 $set: { foo: 'bar' },
-                $anon_distinct_id: 'old-user-id',
+                $anon_distinct_id: 'old-user',
             },
         }).update()
 
@@ -140,6 +141,124 @@ describe('PersonState.update()', () => {
                 created_at: '2020-01-01 12:00:05.000',
                 version: 0,
             })
+        )
+    })
+
+    it('merges people on $identify event', async () => {
+        await hub.db.createPerson(timestamp, { a: 1, b: 2 }, {}, {}, 2, null, false, uuid.toString(), ['old-user'])
+        await hub.db.createPerson(timestamp, { b: 3, c: 4 }, {}, {}, 2, null, false, uuid2.toString(), ['new-user'])
+
+        await personState({
+            event: '$identify',
+            distinct_id: 'new-user',
+            properties: {
+                $anon_distinct_id: 'old-user',
+            },
+        }).update()
+        await hub.db.kafkaProducer.flush()
+
+        const persons = await hub.db.fetchPersons()
+        expect(persons.length).toEqual(1)
+        expect(persons[0]).toEqual(
+            expect.objectContaining({
+                id: expect.any(Number),
+                uuid: uuid2.toString(),
+                properties: { a: 1, b: 3, c: 4 },
+                created_at: timestamp,
+                is_identified: true,
+                version: 1,
+            })
+        )
+        const distinctIds = await hub.db.fetchDistinctIdValues(persons[0])
+        expect(distinctIds).toEqual(expect.arrayContaining(['new-user', 'old-user']))
+
+        const clickhousePersons = await delayUntilEventIngested(() => fetchPersonsRows({ final: true }), 2)
+        expect(clickhousePersons.length).toEqual(2)
+        expect(clickhousePersons).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({
+                    id: uuid2.toString(),
+                    properties: JSON.stringify({ a: 1, b: 3, c: 4 }),
+                    is_deleted: 0,
+                    created_at: '2020-01-01 12:00:05.000',
+                    version: 1,
+                }),
+                expect.objectContaining({
+                    id: uuid.toString(),
+                    is_deleted: 1,
+                    version: 100,
+                }),
+            ])
+        )
+    })
+
+    it('does not merge already identified users', async () => {
+        await hub.db.createPerson(timestamp, { a: 1, b: 2 }, {}, {}, 2, null, true, uuid.toString(), ['old-user'])
+        await hub.db.createPerson(timestamp, { b: 3, c: 4, d: 5 }, {}, {}, 2, null, false, uuid2.toString(), [
+            'new-user',
+        ])
+
+        await personState({
+            event: '$identify',
+            distinct_id: 'new-user',
+            properties: {
+                $anon_distinct_id: 'old-user',
+            },
+        }).update()
+
+        const persons = await hub.db.fetchPersons()
+        expect(persons.length).toEqual(2)
+    })
+
+    it('merges people on $identify event and updates properties with $set/$set_once', async () => {
+        await hub.db.createPerson(timestamp, { a: 1, b: 2 }, {}, {}, 2, null, false, uuid.toString(), ['old-user'])
+        await hub.db.createPerson(timestamp, { b: 3, c: 4, d: 5 }, {}, {}, 2, null, false, uuid2.toString(), [
+            'new-user',
+        ])
+
+        await personState({
+            event: '$identify',
+            distinct_id: 'new-user',
+            properties: {
+                $set: { d: 6, e: 7 },
+                $set_once: { a: 8, f: 9 },
+                $anon_distinct_id: 'old-user',
+            },
+        }).update()
+        await hub.db.kafkaProducer.flush()
+
+        const persons = await hub.db.fetchPersons()
+        expect(persons.length).toEqual(1)
+        expect(persons[0]).toEqual(
+            expect.objectContaining({
+                id: expect.any(Number),
+                uuid: uuid2.toString(),
+                properties: { a: 1, b: 3, c: 4, d: 6, e: 7, f: 9 },
+                created_at: timestamp,
+                is_identified: true,
+                version: 1,
+            })
+        )
+        const distinctIds = await hub.db.fetchDistinctIdValues(persons[0])
+        expect(distinctIds).toEqual(expect.arrayContaining(['new-user', 'old-user']))
+
+        const clickhousePersons = await delayUntilEventIngested(() => fetchPersonsRows({ final: true }), 2)
+        expect(clickhousePersons.length).toEqual(2)
+        expect(clickhousePersons).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({
+                    id: uuid2.toString(),
+                    properties: JSON.stringify({ a: 1, b: 3, c: 4, d: 6, e: 7, f: 9 }),
+                    is_deleted: 0,
+                    created_at: '2020-01-01 12:00:05.000',
+                    version: 1,
+                }),
+                expect.objectContaining({
+                    id: uuid.toString(),
+                    is_deleted: 1,
+                    version: 100,
+                }),
+            ])
         )
     })
 })
