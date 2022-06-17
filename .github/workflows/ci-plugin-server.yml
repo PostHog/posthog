@@ -129,12 +129,17 @@ jobs:
                   TEST: 'true'
               run: cd plugin-server && yarn setup:test
 
+            - name: Get yarn cache directory path
+              id: yarn-cache-dir-path
+              run: echo "::set-output name=dir::$(yarn config get cacheFolder)"
+
             - uses: actions/cache@v2
               id: yarn-cache
               with:
                   path: |
+                      ${{ steps.yarn-cache-dir-path.outputs.dir }}
                       plugin-server/node_modules
-                  key: plugin-server-yarn-${{ runner.os }}-${{ hashFiles('**/yarn.lock') }}
+                  key: plugin-server-yarn-${{ runner.os }}-${{ hashFiles('plugin-server/yarn.lock') }}
                   restore-keys: |
                       plugin-server-yarn-${{ runner.os }}
 
