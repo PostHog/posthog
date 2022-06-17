@@ -34,6 +34,7 @@ import { GroupAnalytics } from 'scenes/project/Settings/GroupAnalytics'
 import { IconInfo, IconRefresh } from 'lib/components/icons'
 import { PersonDisplayNameProperties } from './PersonDisplayNameProperties'
 import { Tooltip } from 'lib/components/Tooltip'
+import { SlackIntegration } from './SlackIntegration'
 
 export const scene: SceneExport = {
     component: ProjectSettings,
@@ -279,6 +280,11 @@ export function ProjectSettings(): JSX.Element {
                     Webhook integration
                 </h2>
                 <WebhookIntegration />
+                <Divider />
+                <h2 className="subtitle" id="slack">
+                    Slack integration
+                </h2>
+                <SlackIntegration />
                 <Divider />
                 <h2 className="subtitle" id="datacapture">
                     Data capture configuration
