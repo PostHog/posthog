@@ -4,7 +4,7 @@ import { DateTime } from 'luxon'
 import { Hub } from '../../../../src/types'
 import { createHub } from '../../../../src/utils/db/hub'
 import { UUIDT } from '../../../../src/utils/utils'
-import { prepareEventStep } from '../../../../src/worker/ingestion/event-pipeline/prepareEventStep'
+import { prepareEventStep } from '../../../../src/worker/ingestion/event-pipeline/2-prepareEventStep'
 import { resetTestDatabase } from '../../../helpers/sql'
 
 jest.mock('../../../../src/utils/status')

@@ -4,7 +4,7 @@ import { Person, PreIngestionEvent } from '../../../../src/types'
 import {
     emitToBufferStep,
     shouldSendEventToBuffer,
-} from '../../../../src/worker/ingestion/event-pipeline/emitToBufferStep'
+} from '../../../../src/worker/ingestion/event-pipeline/3-emitToBufferStep'
 
 const now = DateTime.fromISO('2020-01-01T12:00:05.200Z')
 
