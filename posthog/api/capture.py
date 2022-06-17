@@ -14,7 +14,6 @@ from sentry_sdk import configure_scope
 from sentry_sdk.api import capture_exception
 from statshog.defaults.django import statsd
 
-from ee.settings import KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC
 from posthog.api.utils import (
     EventIngestionContext,
     capture_as_common_error_to_sentry_ratelimited,
@@ -29,6 +28,7 @@ from posthog.kafka_client.client import KafkaProducer
 from posthog.kafka_client.topics import KAFKA_DEAD_LETTER_QUEUE
 from posthog.models.feature_flag import get_overridden_feature_flags
 from posthog.models.utils import UUIDT
+from posthog.settings import KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC
 from posthog.utils import cors_response, get_ip_address
 
 
