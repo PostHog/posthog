@@ -4,9 +4,8 @@ import ReactDOM from 'react-dom'
 import { useOutsideClickHandler } from 'lib/hooks/useOutsideClickHandler'
 import { offset, ReferenceType, useFloating } from '@floating-ui/react-dom'
 import clsx from 'clsx'
-import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { CSSTransition } from 'react-transition-group'
-import { flip, Middleware, Placement } from '@floating-ui/react-dom-interactions'
+import { autoUpdate, flip, Middleware, Placement, shift } from '@floating-ui/react-dom-interactions'
 
 export interface PopupProps {
     visible?: boolean
@@ -61,6 +60,15 @@ let uniqueMemoizedIndex = 1
 //         }
 //     },
 // }
+// const sameWidthModifier = {
+//     name: 'sameWidth',
+//     enabled: true,
+//     fn: ({ state }) => {
+//         state.styles.popper.width = `${state.rects.reference.width}px`
+//     },
+//     phase: 'beforeWrite',
+//     requires: ['computeStyles'],
+// }
 
 /** This is a custom popup control that uses `react-popper` to position DOM nodes.
  *
@@ -76,10 +84,10 @@ export function Popup({
     fallbackPlacements = ['bottom-end', 'top-start', 'top-end'],
     className,
     actionable = false,
-    sameWidth = false,
     middleware,
-}: // maxContentWidth = false,
+}: // sameWidth = false,
 // maxWindowDimensions = false,
+// maxContentWidth = false,
 PopupProps): JSX.Element {
     useEffect(() => console.log('visible', visible), [visible])
     useEffect(() => console.log('placement', placement), [placement])
@@ -100,37 +108,21 @@ PopupProps): JSX.Element {
         strategy: 'fixed',
         middleware: [
             offset(4),
-            ...(fallbackPlacements
-                ? [
-                      flip({
-                          fallbackPlacements: fallbackPlacements,
-                      }),
-                  ]
-                : []),
-            // maxWindowDimensions ? maxSizeModifier : {},
-            ...(sameWidth
-                ? [
-                      // {
-                      //     name: 'sameWidth',
-                      //     enabled: true,
-                      //     fn: ({ state }) => {
-                      //         state.styles.popper.width = `${state.rects.reference.width}px`
-                      //     },
-                      //     phase: 'beforeWrite',
-                      //     requires: ['computeStyles'],
-                      // },
-                  ]
-                : []),
+            shift(),
+            ...(fallbackPlacements ? [flip({ fallbackPlacements })] : []),
+            // ...(maxWindowDimensions ? [maxSizeModifier] : []),
+            // ...(sameWidth ? [sameWidthModifier] : []),
             ...(middleware ?? []),
         ],
     })
 
     useOutsideClickHandler([floatingRef, referenceRef], (event) => visible && onClickOutside?.(event), [visible])
 
-    useResizeObserver({
-        ref: floatingRef,
-        onResize: () => update?.(), // When the element is resized, schedule a popper update to reposition
-    })
+    useEffect(() => {
+        if (visible && referenceRef?.current && floatingRef?.current) {
+            return autoUpdate(referenceRef.current, floatingRef.current, update)
+        }
+    }, [visible, referenceRef?.current, floatingRef?.current])
 
     const clonedChildren =
         typeof children === 'function'
