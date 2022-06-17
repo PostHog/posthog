@@ -1,6 +1,6 @@
 # name: TestPerson.test_person_property_values
   '
-  /* request:api_person_values_?$ (LegacyPersonViewSet) */
+  /* request:api_person_values_?$ (LegacyEnterprisePersonViewSet) */
   SELECT value,
          count(value)
   FROM
@@ -19,7 +19,7 @@
 ---
 # name: TestPerson.test_person_property_values.1
   '
-  /* request:api_person_values_?$ (LegacyPersonViewSet) */
+  /* request:api_person_values_?$ (LegacyEnterprisePersonViewSet) */
   SELECT value,
          count(value)
   FROM
