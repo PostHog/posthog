@@ -1092,6 +1092,8 @@ export interface FilterType {
     funnel_advanced?: boolean // used to toggle advanced options on or off
     show_legend?: boolean // used to show/hide legend next to insights graph
     hidden_legend_keys?: Record<string, boolean | undefined> // used to toggle visibilities in table and legend
+    breakdown_attribution_type?: BreakdownAttributionType // funnels breakdown attribution type
+    breakdown_attribution_value?: number // funnels breakdown attribution specific step value
 }
 
 export interface RecordingEventsFilters {
@@ -1099,7 +1101,7 @@ export interface RecordingEventsFilters {
 }
 
 export type InsightEditorFilterGroup = {
-    title: string
+    title?: string
     editorFilters: InsightEditorFilter[]
     defaultExpanded?: boolean
     count?: number
@@ -1310,6 +1312,13 @@ export interface FlattenedFunnelStepByBreakdown {
     }
     steps?: FunnelStepWithConversionMetrics[]
     significant?: boolean
+}
+
+export enum BreakdownAttributionType {
+    FirstTouch = 'first_touch',
+    LastTouch = 'last_touch',
+    AllSteps = 'all_events',
+    Step = 'step',
 }
 
 export interface ChartParams {
