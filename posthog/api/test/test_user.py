@@ -549,7 +549,7 @@ class TestUserAPI(APIBaseTest):
 
     def test_user_cannot_update_password_with_incorrect_current_password_and_ratelimit_to_prevent_attacks(self):
 
-        for i in range(61):
+        for i in range(7):
             response = self.client.patch("/api/users/@me/", {"current_password": "wrong", "password": "12345678"})
         self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
         self.assertDictContainsSubset(

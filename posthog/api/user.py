@@ -29,7 +29,7 @@ from posthog.utils import get_js_url
 
 
 class UserAuthenticationThrottle(UserRateThrottle):
-    rate = "60/hour"
+    rate = "5/minute"
 
 
 class UserSerializer(serializers.ModelSerializer):
