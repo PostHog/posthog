@@ -1,3 +1,4 @@
+# isort: skip_file
 from posthog.settings import EE_AVAILABLE
 
 if EE_AVAILABLE:
