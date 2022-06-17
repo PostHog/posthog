@@ -1,6 +1,6 @@
 import { PreIngestionEvent } from '../../../../src/types'
 import { convertToProcessedPluginEvent } from '../../../../src/utils/event'
-import { runAsyncHandlersStep } from '../../../../src/worker/ingestion/event-pipeline/runAsyncHandlersStep'
+import { runAsyncHandlersStep } from '../../../../src/worker/ingestion/event-pipeline/5-runAsyncHandlersStep'
 import { runOnAction, runOnEvent, runOnSnapshot } from '../../../../src/worker/plugins/run'
 
 jest.mock('../../../../src/worker/plugins/run')

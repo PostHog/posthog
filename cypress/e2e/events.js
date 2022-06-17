@@ -90,6 +90,15 @@ describe('Events', () => {
         cy.get('.operator-value-option').contains('> greater than').should('be.visible')
     })
 
+    it('adds and removes an additional column', () => {
+        cy.get('[data-attr=events-table-column-selector]').click()
+        cy.get('[data-attr=taxonomic-filter-searchfield]').type('$browser_version')
+        cy.get('.taxonomic-list-row').should('have.length', 1).click()
+        cy.get('.column-display-item').should('have.length', 5)
+        cy.get('[data-attr=column-display-item-remove-icon').last().click()
+        cy.get('.column-display-item').should('have.length', 4)
+    })
+
     /**
      * Test fails because property filters act on properties.$time but not all events have that property
      *

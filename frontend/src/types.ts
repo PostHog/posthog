@@ -239,6 +239,7 @@ export interface TeamType extends TeamBasicType {
     person_display_name_properties: string[]
     has_group_types: boolean
     primary_dashboard: number // Dashboard shown on the project homepage
+    live_events_columns: string[] | null // Custom columns shown on the Live Events page
 
     // Uses to exclude person properties from correlation analysis results, for
     // example can be used to exclude properties that have trivial causation
@@ -1088,6 +1089,8 @@ export interface FilterType {
     funnel_advanced?: boolean // used to toggle advanced options on or off
     show_legend?: boolean // used to show/hide legend next to insights graph
     hidden_legend_keys?: Record<string, boolean | undefined> // used to toggle visibilities in table and legend
+    breakdown_attribution_type?: BreakdownAttributionType // funnels breakdown attribution type
+    breakdown_attribution_value?: number // funnels breakdown attribution specific step value
 }
 
 export interface RecordingEventsFilters {
@@ -1095,7 +1098,7 @@ export interface RecordingEventsFilters {
 }
 
 export type InsightEditorFilterGroup = {
-    title: string
+    title?: string
     editorFilters: InsightEditorFilter[]
     defaultExpanded?: boolean
     count?: number
@@ -1306,6 +1309,13 @@ export interface FlattenedFunnelStepByBreakdown {
     }
     steps?: FunnelStepWithConversionMetrics[]
     significant?: boolean
+}
+
+export enum BreakdownAttributionType {
+    FirstTouch = 'first_touch',
+    LastTouch = 'last_touch',
+    AllSteps = 'all_events',
+    Step = 'step',
 }
 
 export interface ChartParams {

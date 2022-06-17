@@ -8,8 +8,9 @@ import { MathAvailability } from 'scenes/insights/ActionFilter/ActionFilterRow/A
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import React from 'react'
 
-export function EFTrendsSteps({ filters, insightProps }: EditorFilterProps): JSX.Element {
+export function EFTrendsSteps({ insightProps }: EditorFilterProps): JSX.Element {
     const { setFilters } = useActions(trendsLogic(insightProps))
+    const { filters } = useValues(trendsLogic(insightProps))
     const { groupsTaxonomicTypes } = useValues(groupsModel)
 
     return (

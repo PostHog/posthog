@@ -1,7 +1,6 @@
 import { tableConfigLogic } from 'lib/components/ResizableTable/tableConfigLogic'
 import { expectLogic } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
-import { router } from 'kea-router'
 
 describe('tableConfigLogic', () => {
     let logic: ReturnType<typeof tableConfigLogic.build>
@@ -19,22 +18,6 @@ describe('tableConfigLogic', () => {
             modalVisible: false,
             selectedColumns: startingColumns,
             tableWidth: 7,
-        })
-    })
-
-    describe('column choices are stored in the URL', () => {
-        it('reads from the URL when present', async () => {
-            router.actions.push(router.values.location.pathname, { tableColumns: ['egg', 'beans', 'toast'] })
-            await expectLogic(logic).toMatchValues({
-                selectedColumns: ['egg', 'beans', 'toast'],
-            })
-        })
-
-        it('writes to the URL when column config changes', async () => {
-            await expectLogic(logic, () => {
-                logic.actions.setSelectedColumns(['soup', 'bread', 'greens'])
-            })
-            expect(router.values.searchParams).toHaveProperty('tableColumns', ['soup', 'bread', 'greens'])
         })
     })
 
@@ -59,9 +42,9 @@ describe('tableConfigLogic', () => {
         })
     })
 
-    it('sets table width to one more than column length to account for the button column', async () => {
+    it('sets table width to two more than column length to account for the Time and Actions column', async () => {
         await expectLogic(logic, () => logic.actions.setSelectedColumns(['a', 'b'])).toMatchValues({
-            tableWidth: 3,
+            tableWidth: 4,
         })
     })
 })

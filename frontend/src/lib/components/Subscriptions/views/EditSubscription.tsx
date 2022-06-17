@@ -49,7 +49,7 @@ export function EditSubscription({
     })
 
     const { antSelectOptions } = useValues(membersLogic)
-    const { subscription, isSubscriptionSubmitting } = useValues(logic)
+    const { subscription, isSubscriptionSubmitting, subscriptionChanged } = useValues(logic)
     const { preflight, siteUrlMisconfigured } = useValues(preflightLogic)
     const { deleteSubscription } = useActions(subscriptionslogic)
 
@@ -68,6 +68,7 @@ export function EditSubscription({
         outlined: true,
         disabled: emailDisabled,
         dropdownMatchSelectWidth: false,
+        dropdownMaxWindowDimensions: true,
     }
 
     return (
@@ -259,7 +260,7 @@ export function EditSubscription({
                             type="primary"
                             htmlType="submit"
                             loading={isSubscriptionSubmitting}
-                            disabled={emailDisabled}
+                            disabled={emailDisabled || !subscriptionChanged}
                         >
                             {id === 'new' ? 'Create subscription' : 'Save'}
                         </LemonButton>
