@@ -75,7 +75,7 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
                                 <EditableField
                                     name="name"
                                     value={value || ''}
-                                    placeholder={`Name this ${shouldSimplifyActions ? "event" : "action"}`}
+                                    placeholder={`Name this ${shouldSimplifyActions ? 'event' : 'action'}`}
                                     onChange={
                                         !id
                                             ? onChange
@@ -244,8 +244,8 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
                                     disabled={!slackEnabled}
                                     label={
                                         <>
-                                            Post to webhook when this{' '}
-                                            {shouldSimplifyActions ? 'event' : 'action'} is triggered.
+                                            Post to webhook when this {shouldSimplifyActions ? 'event' : 'action'} is
+                                            triggered.
                                             <Link to="/project/settings#webhook" style={{ marginLeft: 4 }}>
                                                 {slackEnabled ? 'Configure' : 'Enable'} this integration in Setup.
                                             </Link>

@@ -145,7 +145,7 @@ export function ActionHeader({
                 value: 'actions',
                 getName: (action: ActionType) => action.name || '',
                 getValue: (action: ActionType) => action.name || '',
-                getFullDetailUrl: (action: ActionType) => action.action_id ? urls.action(action.action_id) : '',
+                getFullDetailUrl: (action: ActionType) => (action.action_id ? urls.action(action.action_id) : ''),
                 getPopupHeader: () => 'event',
                 getIcon: getEventDefinitionIcon,
             }}
@@ -167,8 +167,8 @@ export function EventDefinitionHeader({
         <RawDefinitionHeader
             definition={definition}
             group={{
-                name: shouldSimplifyActions ? 'Raw events': "Events",
-                searchPlaceholder: shouldSimplifyActions ? 'raw events' : "events",
+                name: shouldSimplifyActions ? 'Raw events' : 'Events',
+                searchPlaceholder: shouldSimplifyActions ? 'raw events' : 'events',
                 type: TaxonomicFilterGroupType.Events,
                 getName: (eventDefinition: EventDefinition) => eventDefinition.name,
                 getValue: (eventDefinition: EventDefinition) => eventDefinition.name,

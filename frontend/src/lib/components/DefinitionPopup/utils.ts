@@ -52,7 +52,7 @@ export function getSingularType(type: TaxonomicFilterGroupType, shouldSimplifyAc
             return 'element'
         case TaxonomicFilterGroupType.Events:
         case TaxonomicFilterGroupType.CustomEvents:
-            return shouldSimplifyActions ? 'raw event' : "event"
+            return shouldSimplifyActions ? 'raw event' : 'event'
         case TaxonomicFilterGroupType.EventProperties:
         case TaxonomicFilterGroupType.PersonProperties:
         case TaxonomicFilterGroupType.GroupsPrefix: // Group properties
