@@ -64,3 +64,7 @@ class EnterprisePersonViewSet(PersonViewSet):
 
         # cached_function expects a dict with the key result
         return {"result": (serialized_actors, next_url, initial_url)}
+
+
+class LegacyEnterprisePersonViewSet(EnterprisePersonViewSet):
+    legacy_team_compatibility = True

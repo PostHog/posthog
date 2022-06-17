@@ -116,7 +116,6 @@ from posthog.api.session_recording import SessionRecordingViewSet
 # Legacy endpoints CH (to be removed eventually)
 router.register(r"cohort", LegacyCohortViewSet, basename="cohort")
 router.register(r"element", LegacyElementViewSet, basename="element")
-router.register(r"person", LegacyPersonViewSet, basename="person")
 router.register(r"element", LegacyElementViewSet, basename="element")
 router.register(r"event", LegacyEventViewSet, basename="event")
 
@@ -134,13 +133,15 @@ if EE_AVAILABLE:
     from ee.clickhouse.views.experiments import ClickhouseExperimentsViewSet
     from ee.clickhouse.views.groups import ClickhouseGroupsTypesView, ClickhouseGroupsView
     from ee.clickhouse.views.insights import ClickhouseInsightsViewSet
-    from ee.clickhouse.views.person import EnterprisePersonViewSet
+    from ee.clickhouse.views.person import EnterprisePersonViewSet, LegacyEnterprisePersonViewSet
 
     projects_router.register(r"experiments", ClickhouseExperimentsViewSet, "project_experiments", ["team_id"])
     projects_router.register(r"groups", ClickhouseGroupsView, "project_groups", ["team_id"])
     projects_router.register(r"groups_types", ClickhouseGroupsTypesView, "project_groups_types", ["team_id"])
     projects_router.register(r"insights", ClickhouseInsightsViewSet, "project_insights", ["team_id"])
     projects_router.register(r"persons", EnterprisePersonViewSet, "project_persons", ["team_id"])
+    router.register(r"person", LegacyEnterprisePersonViewSet, basename="person")
 else:
     projects_router.register(r"insights", InsightViewSet, "project_insights", ["team_id"])
     projects_router.register(r"persons", PersonViewSet, "project_persons", ["team_id"])
+    router.register(r"person", LegacyPersonViewSet, basename="person")
