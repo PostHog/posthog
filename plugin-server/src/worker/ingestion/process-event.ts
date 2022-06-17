@@ -24,7 +24,6 @@ import { castTimestampOrNow, UUID } from '../../utils/utils'
 import { KAFKA_BUFFER } from './../../config/kafka-topics'
 import { GroupTypeManager } from './group-type-manager'
 import { addGroupProperties } from './groups'
-import { PersonState } from './person-state'
 import { upsertGroup } from './properties-updater'
 import { TeamManager } from './team-manager'
 
@@ -61,7 +60,8 @@ export class EventsProcessor {
         data: PluginEvent,
         teamId: number,
         timestamp: DateTime,
-        eventUuid: string
+        eventUuid: string,
+        person: IngestionPersonData | undefined = undefined
     ): Promise<PreIngestionEvent | null> {
         if (!UUID.validateString(eventUuid, false)) {
             throw new Error(`Not a valid UUID: "${eventUuid}"`)
@@ -80,18 +80,6 @@ export class EventsProcessor {
             if (!team) {
                 throw new Error(`No team found with ID ${teamId}. Can't ingest event.`)
             }
-
-            const personState = new PersonState(
-                data,
-                teamId,
-                distinctId,
-                timestamp,
-                this.db,
-                this.pluginsServer.statsd,
-                this.pluginsServer.personManager
-            )
-
-            const person: IngestionPersonData | undefined = await personState.update()
 
             if (data['event'] === '$snapshot') {
                 if (team.session_recording_opt_in) {
