@@ -153,12 +153,12 @@ class TestUtils(BaseTest):
             ordered_expected_ids = list(set(expected_ids))  # type: ignore
             # Property
             query, ids = check_definition_ids_inclusion_field_sql(raw_ids, True, "named_key")
-            assert query == "(posthog_{table}.id = ANY (%(named_key)s::uuid[]))".format(table="propertydefinition",)
+            assert query == "(id = ANY (%(named_key)s::uuid[]))".format(table="propertydefinition",)
             assert ids == ordered_expected_ids
 
             # Event
             query, ids = check_definition_ids_inclusion_field_sql(raw_ids, False, "named_key")
-            assert query == "(posthog_{table}.id = ANY (%(named_key)s::uuid[]))".format(table="eventdefinition")
+            assert query == "(id = ANY (%(named_key)s::uuid[]))".format(table="eventdefinition")
             assert ids == ordered_expected_ids
 
     # keep in sync with posthog/plugin-server/tests/utils.test.ts::safeClickhouseString
