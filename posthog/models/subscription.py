@@ -46,7 +46,7 @@ class Subscription(models.Model):
 
     class SubscriptionTarget(models.TextChoices):
         EMAIL = "email"
-        # SLACK = "slack"
+        SLACK = "slack"
 
     class SubscriptionFrequency(models.TextChoices):
         DAILY = "daily"

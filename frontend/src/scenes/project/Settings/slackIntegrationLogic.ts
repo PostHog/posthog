@@ -9,7 +9,10 @@ interface IntegrationsType {
     id: string
 }
 
-export const getSlackRedirectUri = (): string => `${window.location.origin}/api/integrations/slack/complete`
+// NOTE: Slack enforces HTTPS urls so to aid local dev we change to https so the redirect works.
+// Just means we have to change it back to http once redirected.
+export const getSlackRedirectUri = (): string =>
+    `${window.location.origin.replace('http://', 'https://')}/api/integrations/slack/complete`
 
 // Modified version of https://app.slack.com/app-settings/TSS5W8YQZ/A03KWE2FJJ2/app-manifest to match current instance
 export const getSlackAppManifest = (): any => ({
