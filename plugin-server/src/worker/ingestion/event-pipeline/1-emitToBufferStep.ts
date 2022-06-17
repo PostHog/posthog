@@ -1,7 +1,7 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 
-import { Hub, IngestionPersonData, PreIngestionEvent, TeamId } from '../../../types'
+import { Hub, IngestionPersonData, TeamId } from '../../../types'
 import { EventPipelineRunner, StepResult } from './runner'
 
 export async function emitToBufferStep(
@@ -20,7 +20,7 @@ export async function emitToBufferStep(
         await runner.hub.eventsProcessor.produceEventToBuffer(event)
         return null
     } else {
-        return runner.nextStep('upsertPersonsStep', { ...event, person })
+        return runner.nextStep('upsertPersonsStep', event, person)
     }
 }
 

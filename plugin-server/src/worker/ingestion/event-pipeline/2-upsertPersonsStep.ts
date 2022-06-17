@@ -14,7 +14,11 @@ export interface ForwardedPersonData {
     }
 }
 
-export async function upsertPersonsStep(runner: EventPipelineRunner, event: PluginEvent): Promise<StepResult> {
+export async function upsertPersonsStep(
+    runner: EventPipelineRunner,
+    event: PluginEvent,
+    person: IngestionPersonData | undefined
+): Promise<StepResult> {
     const timestamp = parseEventTimestamp(event, runner.hub.statsd)
 
     const personState = new PersonState(
@@ -26,10 +30,10 @@ export async function upsertPersonsStep(runner: EventPipelineRunner, event: Plug
         runner.hub.statsd,
         runner.hub.personManager
     )
-    const person: IngestionPersonData | undefined = await personState.update()
+    const personInfo: IngestionPersonData | undefined = await personState.update(person)
 
     return runner.nextStep('pluginsProcessEventStep', event, {
-        person,
+        person: personInfo,
         // :TRICKY: We forward (and clone) properties that are updated to detect whether we need to update properties again
         //    at a later step
         personUpdateProperties: {
