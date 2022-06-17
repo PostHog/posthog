@@ -246,7 +246,7 @@ class PluginSourceFileManager(models.Manager):
     ) -> Tuple["PluginSourceFile", Optional["PluginSourceFile"], Optional["PluginSourceFile"]]:
         plugin_json_instance: "PluginSourceFile"
         index_ts_instance: Optional["PluginSourceFile"] = None
-        fronted_tsx_instance: Optional["PluginSourceFile"] = None
+        frontend_tsx_instance: Optional["PluginSourceFile"] = None
         if not plugin_json:
             plugin_json = cast(Optional[Dict[str, Any]], get_file_from_archive(plugin.archive, "plugin.json"))
             if not plugin_json:
@@ -267,10 +267,10 @@ class PluginSourceFileManager(models.Manager):
         if frontend_tsx := get_file_from_archive(
             plugin.archive, "frontend.tsx", parse_with=lambda b: b.decode("utf-8")
         ):
-            fronted_tsx_instance = PluginSourceFile.objects.create(
+            frontend_tsx_instance = PluginSourceFile.objects.create(
                 plugin=plugin, filename="frontend.tsx", source=frontend_tsx,
             )
-        return plugin_json_instance, index_ts_instance, fronted_tsx_instance
+        return plugin_json_instance, index_ts_instance, frontend_tsx_instance
 
 
 class PluginSourceFile(UUIDModel):
