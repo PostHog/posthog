@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import { useValues } from 'kea'
-import { slackIntegrationLogic } from './slackIntegrationLogic'
+import { getSlackAppManifest, slackIntegrationLogic } from './slackIntegrationLogic'
 import { CodeSnippet, Language } from 'scenes/ingestion/frameworks/CodeSnippet'
 import { LemonButton } from '@posthog/lemon-ui'
 
