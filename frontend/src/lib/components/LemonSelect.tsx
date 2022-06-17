@@ -21,6 +21,7 @@ export interface LemonSelectProps<O extends LemonSelectOptions>
     dropdownMatchSelectWidth?: boolean
     dropdownMaxContentWidth?: boolean
     dropdownPlacement?: PopupProps['placement']
+    dropdownMaxWindowDimensions?: boolean
     allowClear?: boolean
 }
 
@@ -31,6 +32,7 @@ export function LemonSelect<O extends LemonSelectOptions>({
     placeholder = 'Select a value',
     dropdownMatchSelectWidth = true,
     dropdownMaxContentWidth = false,
+    dropdownMaxWindowDimensions = false,
     dropdownPlacement,
     allowClear = false,
     ...buttonProps
@@ -81,6 +83,7 @@ export function LemonSelect<O extends LemonSelectOptions>({
                     placement: dropdownPlacement,
                     actionable: true,
                     maxContentWidth: dropdownMaxContentWidth,
+                    maxWindowDimensions: dropdownMaxWindowDimensions,
                 }}
                 icon={localValue && options[localValue]?.icon}
                 sideIcon={isClearButtonShown ? <div /> : undefined}
