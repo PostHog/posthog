@@ -275,7 +275,9 @@ export function LineGraph_({
                     datasetCopy.dotted = true
 
                     // if last date is still active show dotted line
-                    datasetCopy['borderDash'] = [10, 10]
+                    if (!dataset.compare || dataset.compare_label != 'previous') {
+                        datasetCopy['borderDash'] = [10, 10]
+                    }
 
                     // Nullify dates that don't have dotted line
                     const sliceFrom = incompletenessOffsetFromEnd - 1

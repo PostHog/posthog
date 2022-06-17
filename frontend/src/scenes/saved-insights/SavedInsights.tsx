@@ -45,10 +45,10 @@ import { insightActivityDescriber } from 'scenes/saved-insights/activityDescript
 
 const { TabPane } = Tabs
 
-interface InsightTypeMetadata {
+export interface InsightTypeMetadata {
     name: string
     description?: string
-    icon?: (props?: any) => JSX.Element
+    icon: (props?: any) => JSX.Element
     inMenu: boolean
 }
 
