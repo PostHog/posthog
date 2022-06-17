@@ -29,6 +29,11 @@ export const urlForSubscription = (
     return ''
 }
 
+export const targetTypeOptions: LemonSelectOptions = {
+    email: { label: 'Email' },
+    slack: { label: 'Slack' },
+}
+
 export const intervalOptions: LemonSelectOptions = range(1, 13).reduce(
     (acc, x) => ({
         ...acc,

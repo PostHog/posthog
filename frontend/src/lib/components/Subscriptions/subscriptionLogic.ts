@@ -62,7 +62,11 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                             : !target_value.split(',').every((email) => isEmail(email))
                             ? 'All emails must be valid'
                             : undefined
-                        : undefined,
+                        : target_type == 'email'
+                        ? !target_value
+                            ? 'A channel is required'
+                            : undefined
+                        : 'This type is not supported',
             }),
             submit: async (subscription, breakpoint) => {
                 const insightId = props.insightShortId ? await getInsightId(props.insightShortId) : undefined
@@ -112,6 +116,12 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                         byweekday: NEW_SUBSCRIPTION.byweekday,
                     })
                 }
+            }
+
+            if (key === 'target_type') {
+                actions.setSubscriptionValues({
+                    target_value: '',
+                })
             }
         },
     })),

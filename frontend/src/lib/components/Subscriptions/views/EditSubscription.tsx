@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useState } from 'react'
 import { useActions, useValues } from 'kea'
 import { LemonButton } from 'lib/components/LemonButton'
 import { VerticalForm } from 'lib/forms/VerticalForm'
@@ -19,6 +19,7 @@ import {
     intervalOptions,
     monthlyWeekdayOptions,
     SubscriptionBaseProps,
+    targetTypeOptions,
     timeOptions,
     weekdayOptions,
 } from '../utils'
@@ -55,6 +56,8 @@ export function EditSubscription({
 
     const emailDisabled = !preflight?.email_service_available
 
+    const formDisabled = subscription.target_type === 'email' && emailDisabled
+
     const _onDelete = (): void => {
         if (id !== 'new') {
             deleteSubscription(id)
@@ -66,9 +69,22 @@ export function EditSubscription({
         dropdownPlacement: 'top-start',
         type: 'stealth',
         outlined: true,
-        disabled: emailDisabled,
-        dropdownMatchSelectWidth: false,
+        disabled: formDisabled,
         dropdownMaxWindowDimensions: true,
+    }
+
+    const [slackChannelOptions, setSlackChannelOptions] = useState<any[]>([])
+
+    const onSlackChannelSearch = (searchValue: string): void => {
+        const values = [`#alerts-${searchValue}`, `#team-${searchValue}`, `#foobar-${searchValue}`]
+
+        setSlackChannelOptions(
+            values.map((x) => ({
+                key: x,
+                value: x,
+                label: x,
+            }))
+        )
     }
 
     return (
@@ -92,7 +108,7 @@ export function EditSubscription({
                             className={'mb'}
                         />
                     ) : null}
-                    {emailDisabled && (
+                    {formDisabled && emailDisabled && (
                         <AlertMessage type="error">
                             <>
                                 Email subscriptions are not currently possible as this PostHog instance isn't{' '}
@@ -109,7 +125,7 @@ export function EditSubscription({
                         </AlertMessage>
                     )}
 
-                    {siteUrlMisconfigured && (
+                    {subscription.target_type === 'email' && siteUrlMisconfigured && (
                         <AlertMessage type="warning">
                             <>
                                 Your <code>SITE_URL</code> environment variable seems misconfigured. Your{' '}
@@ -135,34 +151,67 @@ export function EditSubscription({
                     )}
 
                     <Field name={'title'} label={'Name'}>
-                        <LemonInput placeholder="e.g. Weekly team report" disabled={emailDisabled} />
+                        <LemonInput placeholder="e.g. Weekly team report" disabled={formDisabled} />
                     </Field>
-                    <Field name={'target_value'} label={'Who do you want to subscribe'}>
-                        {({ value, onChange }) => (
-                            <>
-                                <Select
-                                    disabled={emailDisabled}
-                                    bordered
-                                    mode="tags"
-                                    dropdownMatchSelectWidth={false}
-                                    data-attr="subscribed-emails"
-                                    options={antSelectOptions}
-                                    style={{ width: '100%' }}
-                                    value={value?.split(',').filter(Boolean)}
-                                    onChange={(val) => onChange(val.join(','))}
+
+                    <Field name={'target_type'} label={'Subscription Destination'}>
+                        <LemonSelect options={targetTypeOptions} {...commonSelectProps} />
+                    </Field>
+
+                    {subscription.target_type === 'email' ? (
+                        <>
+                            <Field name={'target_value'} label={'Who do you want to subscribe'}>
+                                {({ value, onChange }) => (
+                                    <>
+                                        <Select
+                                            disabled={formDisabled}
+                                            bordered
+                                            mode="tags"
+                                            dropdownMatchSelectWidth={false}
+                                            data-attr="subscribed-emails"
+                                            options={antSelectOptions}
+                                            style={{ width: '100%' }}
+                                            value={value?.split(',').filter(Boolean)}
+                                            onChange={(val) => onChange(val.join(','))}
+                                        />
+                                        <div className="text-small text-muted mt-05">
+                                            Enter the email addresses of the users you want to share with
+                                        </div>
+                                    </>
+                                )}
+                            </Field>
+                            <Field name={'invite_message'} label={'Message (optional)'}>
+                                <LemonTextArea
+                                    placeholder="Your message to new subscribers (optional)"
+                                    disabled={formDisabled}
                                 />
-                                <div className="text-small text-muted mt-05">
-                                    Enter the email addresses of the users you want to share with
-                                </div>
-                            </>
-                        )}
-                    </Field>
-                    <Field name={'invite_message'} label={'Message (optional)'}>
-                        <LemonTextArea
-                            placeholder="Your message to new subscribers (optional)"
-                            disabled={emailDisabled}
-                        />
-                    </Field>
+                            </Field>
+                        </>
+                    ) : null}
+
+                    {subscription.target_type === 'slack' ? (
+                        <>
+                            <Field name={'target_value'} label={'Which Slack channel to send reports to'}>
+                                {({ value, onChange }) => (
+                                    <>
+                                        <Select
+                                            showSearch
+                                            value={value}
+                                            placeholder={'Pick a Slack channel'}
+                                            defaultActiveFirstOption={false}
+                                            showArrow={false}
+                                            filterOption={false}
+                                            onSearch={onSlackChannelSearch}
+                                            onChange={(val) => onChange(val)}
+                                            notFoundContent={null}
+                                            style={{ width: '100%' }}
+                                            options={slackChannelOptions}
+                                        />
+                                    </>
+                                )}
+                            </Field>
+                        </>
+                    ) : null}
                     <div>
                         <div className="ant-form-item-label">
                             <label title="Recurrance">Recurrance</label>
@@ -211,6 +260,7 @@ export function EditSubscription({
                                         {({ value, onChange }) => (
                                             <LemonSelect
                                                 {...commonSelectProps}
+                                                dropdownMatchSelectWidth={false}
                                                 options={monthlyWeekdayOptions}
                                                 // "day" is a special case where it is a list of all available days
                                                 value={value ? (value.length === 1 ? value[0] : 'day') : null}
@@ -260,7 +310,7 @@ export function EditSubscription({
                             type="primary"
                             htmlType="submit"
                             loading={isSubscriptionSubmitting}
-                            disabled={emailDisabled || !subscriptionChanged}
+                            disabled={formDisabled || !subscriptionChanged}
                         >
                             {id === 'new' ? 'Create subscription' : 'Save'}
                         </LemonButton>
