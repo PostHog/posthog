@@ -253,12 +253,12 @@ export class PersonState {
         const oldPerson = await this.db.fetchPerson(teamId, previousDistinctId)
         const newPerson = await this.db.fetchPerson(teamId, distinctId)
 
-        let updateIsIdentified = false
+        let updateAtEnd = false
 
         if (oldPerson && !newPerson) {
             try {
                 await this.db.addDistinctId(oldPerson, distinctId)
-                updateIsIdentified = shouldIdentifyPerson
+                updateAtEnd = true
                 // Catch race case when somebody already added this distinct_id between .get and .addDistinctId
             } catch {
                 // integrity error
@@ -277,7 +277,7 @@ export class PersonState {
         } else if (!oldPerson && newPerson) {
             try {
                 await this.db.addDistinctId(newPerson, previousDistinctId)
-                updateIsIdentified = shouldIdentifyPerson
+                updateAtEnd = true
                 // Catch race case when somebody already added this distinct_id between .get and .addDistinctId
             } catch {
                 // integrity error
@@ -327,6 +327,7 @@ export class PersonState {
 
             if (isIdentifyCallToMergeAnIdentifiedUser) {
                 status.warn('🤔', 'refused to merge an already identified user via an $identify call')
+                updateAtEnd = true
             } else {
                 await this.mergePeople({
                     totalMergeAttempts,
@@ -337,12 +338,14 @@ export class PersonState {
                     otherPersonDistinctId: previousDistinctId,
                     timestamp: timestamp,
                 })
-                updateIsIdentified = shouldIdentifyPerson
+                updateAtEnd = true
             }
+        } else {
+            updateAtEnd = true
         }
 
         // :KLUDGE: Only update isIdentified once, avoid recursively calling it or when not needed
-        if (updateIsIdentified) {
+        if (shouldIdentifyPerson && updateAtEnd) {
             await this.setIsIdentified(teamId, distinctId)
         }
     }
