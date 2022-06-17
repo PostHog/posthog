@@ -36,10 +36,6 @@ export const plugin60: Plugin = {
         },
     },
     tag: '0.0.2',
-    ...mockSourceFileFields('test-maxmind-plugin', {
-        indexJs:
-            'function processEvent (event) { if (event.properties) { event.properties.processed = true } return event }',
-    }),
     error: undefined,
     from_json: false,
     from_web: false,
@@ -50,6 +46,14 @@ export const plugin60: Plugin = {
     updated_at: new Date().toISOString(),
     capabilities: {}, // inferred on setup
     metrics: {},
+}
+
+export const plugin60WithSource: Plugin = {
+    ...plugin60,
+    ...mockSourceFileFields('test-maxmind-plugin', {
+        indexJs:
+            'function processEvent (event) { if (event.properties) { event.properties.processed = true } return event }',
+    }),
 }
 
 export const pluginAttachment1: PluginAttachmentDB = {
