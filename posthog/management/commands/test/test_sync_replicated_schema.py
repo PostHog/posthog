@@ -2,9 +2,9 @@ import pytest
 from django.conf import settings
 
 from ee.clickhouse.materialized_columns.columns import materialize
-from ee.management.commands.sync_replicated_schema import Command
 from posthog.client import sync_execute
 from posthog.conftest import create_clickhouse_tables
+from posthog.management.commands.sync_replicated_schema import Command
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 
 

@@ -1,3 +1,8 @@
+import structlog
+
+logger = structlog.get_logger(__name__)
+
+
 def get_queries(since_hours_ago, min_query_time):
     pass
 
