@@ -2,7 +2,6 @@ import './Insight.scss'
 import React, { useEffect } from 'react'
 import { useActions, useMountedLogic, useValues, BindLogic } from 'kea'
 import { Card } from 'antd'
-import clsx from 'clsx'
 import { FunnelTab, PathTab, RetentionTab, TrendTab } from './InsightTabs'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { insightLogic } from './insightLogic'
@@ -103,11 +102,7 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
     const verticalLayout = !isSmallScreen && activeView === InsightType.FUNNELS
 
     const insightScene = (
-        <div
-            className={clsx('insights-page', {
-                'editor-panels-showing': insightMode === ItemMode.Edit,
-            })}
-        >
+        <div className={'insights-page'}>
             {insightId !== 'new' && (
                 <SubscriptionsModal
                     visible={insightMode === ItemMode.Subscriptions}
