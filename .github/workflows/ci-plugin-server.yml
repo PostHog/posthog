@@ -91,7 +91,7 @@ jobs:
                   ping -c 1 kafka
                   ping -c 1 zookeeper
             - name: Start Kafka, ClickHouse, Zookeeper, Object Storage
-              run: docker-compose -f docker-compose.dev.yml up -d zookeeper kafka clickhouse object_storage
+              run: docker-compose -f docker-compose.dev.yml up -d zookeeper kafka clickhouse object_storage &
 
             - name: Set up Python 3.8.12
               uses: actions/setup-python@v2
@@ -117,13 +117,6 @@ jobs:
               with:
                   node-version: 16
 
-            - name: Set up databases
-              env:
-                  SECRET_KEY: 'abcdef' # unsafe - for testing only
-                  DATABASE_URL: 'postgres://postgres:postgres@localhost:5432/posthog'
-                  TEST: 'true'
-              run: cd plugin-server && yarn setup:test
-
             - name: Get yarn cache directory path
               id: yarn-cache-dir-path
               run: echo "::set-output name=dir::$(yarn config get cacheFolder)"
@@ -141,6 +134,17 @@ jobs:
             - name: Install package.json dependencies with Yarn
               if: steps.yarn-cache.cache-hit != 'true'
               run: cd plugin-server && yarn
+
+            - name: Wait for Clickhouse & Kafka
+              shell: bash
+              run: bin/check_kafka_clickhouse_up
+
+            - name: Set up databases
+              env:
+                  SECRET_KEY: 'abcdef' # unsafe - for testing only
+                  DATABASE_URL: 'postgres://postgres:postgres@localhost:5432/posthog'
+                  TEST: 'true'
+              run: cd plugin-server && yarn setup:test
 
             - name: Test with Jest
               env:
