@@ -1,19 +1,28 @@
+import clsx from 'clsx'
 import React from 'react'
 import { UserBasicType } from '~/types'
 import { ProfilePicture } from '../ProfilePicture'
 import { TZLabel } from '../TimezoneAware'
+import './UserActivityIndicator.scss'
 
-export function LastModified({
-    at,
-    by,
-}: {
+export interface UserActivityIndicatorProps {
+    prefix?: string
     at: string | null | undefined
     by?: UserBasicType | null | undefined
-}): JSX.Element | null {
+    className?: string
+}
+
+export function UserActivityIndicator({
+    at,
+    by,
+    prefix = 'Last modified',
+    className,
+}: UserActivityIndicatorProps): JSX.Element | null {
     return at || by ? (
-        <div className="LastModified">
+        <div className={clsx('UserActivityIndicator', className)}>
             <div>
-                Last modified{at && ' '}
+                {prefix}
+                {at && ' '}
                 {at && <TZLabel time={at} />}
                 {by && ' by'}
             </div>

@@ -121,7 +121,7 @@ def _get_sent_at(data, request) -> Optional[datetime]:
         else:
             return None
 
-        if re.match(r"^[0-9]+$", sent_at):
+        if re.match(r"^\d+(?:\.\d+)?$", sent_at):
             return _datetime_from_seconds_or_millis(sent_at)
 
         return parser.isoparse(sent_at)

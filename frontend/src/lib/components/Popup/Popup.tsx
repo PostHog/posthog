@@ -24,6 +24,8 @@ export interface PopupProps {
     actionable?: boolean
     /** Whether the popover's width should be synced with the children's width. */
     sameWidth?: boolean
+    maxWindowDimensions?: boolean
+    maxContentWidth?: boolean
     className?: string
     middleware?: Middleware[]
 }
@@ -32,6 +34,28 @@ export interface PopupProps {
 export const PopupContext = React.createContext<number>(0)
 
 let uniqueMemoizedIndex = 1
+
+// NOTE: copied from https://github.com/atomiks/popper-max-size-modifier/blob/370d0df2567d6083728eeeebff76cbeaf095ca1d/index.js
+// const maxSizeModifier: Modifier<any, any> = {
+//     name: 'maxSize',
+//     enabled: true,
+//     phase: 'main',
+//     requiresIfExists: ['offset', 'preventOverflow', 'flip'],
+//     fn({ state, name }) {
+//         const overflow = detectOverflow(state)
+//         const { x, y } = state.modifiersData.preventOverflow || { x: 0, y: 0 }
+//         const { width, height } = state.rects.popper
+//         const [basePlacement] = state.placement.split('-')
+//
+//         const widthProp = basePlacement === 'left' ? 'left' : 'right'
+//         const heightProp = basePlacement === 'top' ? 'top' : 'bottom'
+//
+//         state.modifiersData[name] = {
+//             width: width - overflow[widthProp] - x,
+//             height: height - overflow[heightProp] - y,
+//         }
+//     },
+// }
 
 /** This is a custom popup control that uses `react-popper` to position DOM nodes.
  *
@@ -49,7 +73,9 @@ export function Popup({
     actionable = false,
     sameWidth = false,
     middleware,
-}: PopupProps): JSX.Element {
+}: // maxContentWidth = false,
+// maxWindowDimensions = false,
+PopupProps): JSX.Element {
     useEffect(() => console.log('visible', visible), [visible])
     useEffect(() => console.log('placement', placement), [placement])
 
@@ -75,6 +101,7 @@ export function Popup({
                       }),
                   ]
                 : []),
+            // maxWindowDimensions ? maxSizeModifier : {},
             ...(sameWidth
                 ? [
                       // {

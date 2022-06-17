@@ -1,0 +1,51 @@
+{% extends "email/base_transactional.html" %} {% load posthog_assets %} {% block section %}
+<p><strong>Hello,</strong></p>
+
+{% if inviter %}
+
+<p>
+    {% if self_invite %}
+        You have been subscribed
+    {% else %}
+        <strong>{{ inviter.first_name }}</strong> ({{ inviter.email }}) has subscribed you 
+    {% endif %}
+
+    to the PostHog {{ resource_noun }} <strong>{{ resource_name }}</strong>.
+</p>
+
+{% if invite_message %}
+<p>
+    <i>
+        "{{ invite_message }}"
+    </i>
+</p>
+{% endif %}
+
+{% else %}
+<p>
+    Your subscription to the {{ resource_noun }}
+    <strong>{{ resource_name }}</strong> is ready!
+</p>
+{% endif %}
+
+{% if images|length < total_asset_count  %}
+<p class="text-center muted font-bold">
+    SHOWING {{ images|length }} OF {{ total_asset_count }} DASHBOARD INSIGHTS
+</p>
+{% endif %}
+
+{% for image in images %}
+<img class="insight-image mb" src="{{ image }}" />
+{% endfor %}
+
+<p class="text-center">
+    <a target="_blank" href="{{ subscription_url }}"><b>Manage this subscription in PostHog</b></a>
+    or
+    <a target="_blank" href="{{ unsubscribe_url }}"><b>unsubscribe now.</b></a>
+</p>
+
+<div class="mb mt text-center">
+    <a class="button primary" href="{{ resource_url }}">View in PostHog</a>
+</div>
+
+{% endblock %}{% load posthog_filters %}

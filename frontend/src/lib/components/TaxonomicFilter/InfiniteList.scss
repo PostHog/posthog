@@ -6,6 +6,7 @@
         display: flex;
         align-items: center;
         justify-content: center;
+
         .no-infinite-results {
             color: #666;
         }
@@ -23,9 +24,11 @@
         .taxonomic-list-row-contents {
             display: flex;
             align-items: center;
+            user-select: none;
 
             .taxonomic-list-row-contents-icon {
                 width: 30px;
+                min-width: 30px;
 
                 svg.taxonomy-icon {
                     vertical-align: middle;
@@ -40,6 +43,7 @@
 
                     &.taxonomy-icon-verified {
                         height: 24px;
+
                         path {
                             fill: var(--success);
                         }
@@ -78,6 +82,7 @@
                 margin-bottom: 0;
             }
         }
+
         &.expand-row {
             color: var(--primary);
         }

@@ -74,7 +74,7 @@ def format_precalculated_cohort_query(
 
 
 def get_properties_cohort_subquery(cohort: Cohort, cohort_group: Dict, group_idx: int) -> Tuple[str, Dict[str, Any]]:
-    from ee.clickhouse.models.property import prop_filter_json_extract
+    from posthog.models.property.util import prop_filter_json_extract
 
     filter = Filter(data=cohort_group)
     params: Dict[str, Any] = {}
@@ -247,7 +247,7 @@ def format_cohort_subquery(cohort: Cohort, index: int, custom_match_field="perso
 
 
 def get_person_ids_by_cohort_id(team: Team, cohort_id: int, limit: Optional[int] = None, offset: Optional[int] = None):
-    from ee.clickhouse.models.property import parse_prop_grouped_clauses
+    from posthog.models.property.util import parse_prop_grouped_clauses
 
     filters = Filter(data={"properties": [{"key": "id", "value": cohort_id, "type": "cohort"}],})
     filter_query, filter_params = parse_prop_grouped_clauses(

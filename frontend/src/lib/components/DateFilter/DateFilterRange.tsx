@@ -1,11 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { Button } from 'antd'
-import dayjsGenerateConfig from 'rc-picker/lib/generate/dayjs'
-import generatePicker from 'antd/lib/date-picker/generatePicker'
 
 import { dayjs } from 'lib/dayjs'
-
-const DatePicker = generatePicker<dayjs.Dayjs>(dayjsGenerateConfig)
+import { DatePicker } from '../DatePicker'
 
 export function DateFilterRange(props: {
     onClickOutside: () => void
