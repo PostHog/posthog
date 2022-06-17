@@ -82,7 +82,7 @@ jobs:
             KAFKA_HOSTS: 'kafka:9092'
 
         steps:
-            - name: Check out Django server for database setup
+            - name: Code check out
               uses: actions/checkout@v2
 
             - name: Fix Kafka Hostname
