@@ -1,4 +1,4 @@
-import { Pool, PoolClient, QueryResult } from 'pg'
+import { Pool, PoolClient } from 'pg'
 
 import { defaultConfig } from '../../src/config/config'
 import {
@@ -47,6 +47,7 @@ TRUNCATE TABLE
     posthog_pluginstorage,
     posthog_pluginattachment,
     posthog_pluginconfig,
+    posthog_pluginsourcefile,
     posthog_plugin,
     posthog_eventdefinition,
     posthog_propertydefinition,
@@ -104,40 +105,7 @@ export async function resetTestDatabase(
             properties: [{ type: 'event', operator: PropertyOperator.Exact, key: 'foo', value: ['bar'] }],
         })
         for (const plugin of mocks.pluginRows.concat(extraRows.plugins ?? [])) {
-            const { source__plugin_json, source__index_ts, source__frontend_tsx, ...pluginRaw } = plugin
-            const {
-                rows: [pluginSaved],
-            } = await insertRow(db, 'posthog_plugin', pluginRaw)
-            if (source__plugin_json) {
-                await insertRow(db, 'posthog_pluginsourcefile', {
-                    id: new UUIDT().toString(),
-                    filename: 'plugin.json',
-                    source: source__plugin_json,
-                    plugin_id: pluginSaved.id,
-                    error: null,
-                    transpiled: null,
-                })
-            }
-            if (source__index_ts) {
-                await insertRow(db, 'posthog_pluginsourcefile', {
-                    id: new UUIDT().toString(),
-                    filename: 'index.ts',
-                    source: source__index_ts,
-                    plugin_id: pluginSaved.id,
-                    error: null,
-                    transpiled: null,
-                })
-            }
-            if (source__frontend_tsx) {
-                await insertRow(db, 'posthog_pluginsourcefile', {
-                    id: new UUIDT().toString(),
-                    filename: 'frontend.tsx',
-                    source: source__frontend_tsx,
-                    plugin_id: pluginSaved.id,
-                    error: null,
-                    transpiled: null,
-                })
-            }
+            await insertRow(db, 'posthog_plugin', plugin)
         }
         for (const pluginConfig of mocks.pluginConfigRows.concat(extraRows.pluginConfigs ?? [])) {
             await insertRow(db, 'posthog_pluginconfig', pluginConfig)
@@ -149,7 +117,10 @@ export async function resetTestDatabase(
     await db.end()
 }
 
-export async function insertRow(db: Pool, table: string, object: Record<string, any>): Promise<QueryResult<any>> {
+export async function insertRow(db: Pool, table: string, objectProvided: Record<string, any>): Promise<void> {
+    // Handling of related fields
+    const { source__plugin_json, source__index_ts, source__frontend_tsx, ...object } = objectProvided
+
     const keys = Object.keys(object)
         .map((key) => `"${key}"`)
         .join(',')
@@ -164,7 +135,39 @@ export async function insertRow(db: Pool, table: string, object: Record<string, 
     })
 
     try {
-        return await db.query(`INSERT INTO ${table} (${keys}) VALUES (${params}) RETURNING *`, values)
+        const {
+            rows: [rowSaved],
+        } = await db.query(`INSERT INTO ${table} (${keys}) VALUES (${params}) RETURNING *`, values)
+        if (source__plugin_json) {
+            await insertRow(db, 'posthog_pluginsourcefile', {
+                id: new UUIDT().toString(),
+                filename: 'plugin.json',
+                source: source__plugin_json,
+                plugin_id: rowSaved.id,
+                error: null,
+                transpiled: null,
+            })
+        }
+        if (source__index_ts) {
+            await insertRow(db, 'posthog_pluginsourcefile', {
+                id: new UUIDT().toString(),
+                filename: 'index.ts',
+                source: source__index_ts,
+                plugin_id: rowSaved.id,
+                error: null,
+                transpiled: null,
+            })
+        }
+        if (source__frontend_tsx) {
+            await insertRow(db, 'posthog_pluginsourcefile', {
+                id: new UUIDT().toString(),
+                filename: 'frontend.tsx',
+                source: source__frontend_tsx,
+                plugin_id: rowSaved.id,
+                error: null,
+                transpiled: null,
+            })
+        }
     } catch (error) {
         console.error(`Error on table ${table} when inserting object:\n`, object, '\n', error)
         throw error
