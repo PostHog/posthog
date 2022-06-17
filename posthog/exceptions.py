@@ -1,11 +1,14 @@
 from typing import Optional, TypedDict
 
+import structlog
 from django.conf import settings
 from django.http.request import HttpRequest
 from django.http.response import JsonResponse
 from rest_framework import status
 from rest_framework.exceptions import APIException
 from sentry_sdk import capture_exception
+
+logger = structlog.get_logger(__name__)
 
 
 class RequestParsingError(Exception):
@@ -43,6 +46,12 @@ def exception_reporting(exception: Exception, context: ExceptionContext) -> None
     Determines which exceptions to report and sends them to Sentry.
     Used through drf-exceptions-hog
     """
+    from posthog.api.instance_settings import get_instance_setting
+    from posthog.settings.base_variables import DEBUG
+
+    if DEBUG or get_instance_setting("CAPTURE_BACKEND_EXCEPTIONS"):
+        logger.exception(exception)
+
     if not isinstance(exception, APIException):
         capture_exception(exception)
 

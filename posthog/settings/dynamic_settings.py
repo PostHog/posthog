@@ -109,6 +109,11 @@ CONSTANCE_CONFIG = {
         bool,
     ),
     "INGESTION_SITE_URL": (None, "Used in ingestion pipeline to determine sites url", str),
+    "CAPTURE_BACKEND_EXCEPTIONS": (
+        get_from_env("CAPTURE_BACKEND_EXCEPTIONS", False, type_cast=str_to_bool),
+        "Whether backend exceptions should be captured in logs or not.",
+        bool,
+    ),
 }
 
 SETTINGS_ALLOWING_API_OVERRIDE = (
@@ -130,6 +135,7 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "ASYNC_MIGRATIONS_OPT_OUT_EMAILS",
     "ENABLE_ACTOR_ON_EVENTS_TEAMS",
     "STRICT_CACHING_TEAMS",
+    "CAPTURE_BACKEND_EXCEPTIONS",
 )
 
 # SECRET_SETTINGS can only be updated but will never be exposed through the API (we do store them plain text in the DB)
