@@ -3,7 +3,11 @@
   <head>
     <meta name="robots" content="noindex">
     <script>
-      window.__EXPORT_DATA__ = {{export_data|safe}}
+      window.POSTHOG_EXPORTED_DATA = {{exported_data|safe}}
+      if (window.POSTHOG_EXPORTED_DATA.type === 'image') {
+        var root = document.documentElement
+        root.className += ' in-posthog-image-export'
+      }
     </script>
     {% include "head.html" %}
   </head>

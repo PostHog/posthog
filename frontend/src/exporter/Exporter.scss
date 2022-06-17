@@ -1,12 +1,21 @@
-@import '../../styles/breakpoints';
+@import '../styles/breakpoints';
 
-.SharedDashboard {
+html.in-posthog-image-export {
+    // We don't want scrollbars to show in image captures
+    ::-webkit-scrollbar {
+        display: none;
+    }
+
+    body {
+        // We hard-code a font so that rendered images are the same no matter which platform it is rendered on.
+        font-family: 'Inter', 'Segoe UI', 'Roboto', Helvetica, Arial, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji',
+            'Segoe UI Symbol';
+    }
+}
+
+.Exporter {
     min-height: 100vh;
     padding: 1rem;
-
-    &.SharedDashboard--embedded {
-        padding: 0.5rem 1rem;
-    }
 
     .SharedDashboard-header {
         .SharedDashboard-header-team {
