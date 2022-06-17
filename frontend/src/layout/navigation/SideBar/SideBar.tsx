@@ -100,43 +100,39 @@ function Pages(): JSX.Element {
                             tooltip: 'Pinned dashboards',
                             onClick: () => setArePinnedDashboardsShown(!arePinnedDashboardsShown),
                             popup: {
+                                actionable: true,
                                 visible: arePinnedDashboardsShown,
-                                onClickOutside: () => {
-                                    setArePinnedDashboardsShown(false)
-                                    console.log('clicked')
-                                },
+                                onClickOutside: () => setArePinnedDashboardsShown(false),
                                 onClickInside: hideSideBarMobile,
                                 overlay: (
-                                    <LemonRow>
-                                        <div className="SideBar__pinned-dashboards">
-                                            <h5>Pinned dashboards</h5>
-                                            <LemonDivider />
-                                            {pinnedDashboards.length > 0 ? (
-                                                pinnedDashboards.map((dashboard) => (
-                                                    <PageButton
-                                                        key={dashboard.id}
-                                                        title={dashboard.name || <i>Untitled</i>}
-                                                        identifier={dashboard.id}
+                                    <div className="SideBar__pinned-dashboards">
+                                        <h5>Pinned dashboards</h5>
+                                        <LemonDivider />
+                                        {pinnedDashboards.length > 0 ? (
+                                            pinnedDashboards.map((dashboard) => (
+                                                <PageButton
+                                                    key={dashboard.id}
+                                                    title={dashboard.name || <i>Untitled</i>}
+                                                    identifier={dashboard.id}
+                                                    onClick={() => setArePinnedDashboardsShown(false)}
+                                                    to={urls.dashboard(dashboard.id)}
+                                                />
+                                            ))
+                                        ) : (
+                                            <LemonRow icon={<IconPin />} fullWidth>
+                                                <span>
+                                                    <Link
                                                         onClick={() => setArePinnedDashboardsShown(false)}
-                                                        to={urls.dashboard(dashboard.id)}
-                                                    />
-                                                ))
-                                            ) : (
-                                                <LemonRow icon={<IconPin />} fullWidth>
-                                                    <span>
-                                                        <Link
-                                                            onClick={() => setArePinnedDashboardsShown(false)}
-                                                            to={urls.dashboards()}
-                                                        >
-                                                            Pin some dashboards
-                                                        </Link>
-                                                        <br />
-                                                        for them to show up here
-                                                    </span>
-                                                </LemonRow>
-                                            )}
-                                        </div>
-                                    </LemonRow>
+                                                        to={urls.dashboards()}
+                                                    >
+                                                        Pin some dashboards
+                                                    </Link>
+                                                    <br />
+                                                    for them to show up here
+                                                </span>
+                                            </LemonRow>
+                                        )}
+                                    </div>
                                 ),
                             },
                         }}
