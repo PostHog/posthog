@@ -51,10 +51,17 @@ export const dashboardsModel = kea<dashboardsModelType>({
             {} as Record<string, DashboardType>,
             {
                 loadDashboards: async (_, breakpoint) => {
+                    // looking at a fully exported dashboard, return its contents
+                    const exportedDashboard = window.POSTHOG_EXPORTED_DATA?.dashboard
+                    if (exportedDashboard?.id && exportedDashboard?.items) {
+                        return { [exportedDashboard.id]: exportedDashboard }
+                    }
+
                     await breakpoint(50)
+
                     if (!isUserLoggedIn()) {
                         // If user is anonymous (i.e. viewing a shared dashboard logged out), don't load authenticated stuff
-                        return []
+                        return {}
                     }
                     const { results } = await api.get(
                         `api/projects/${teamLogic.values.currentTeamId}/dashboards/?limit=300`

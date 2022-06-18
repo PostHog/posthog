@@ -1,16 +1,18 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
+import { DateTime } from 'luxon'
 
-import { parseEventTimestamp } from '../timestamps'
 import { EventPipelineRunner, StepResult } from './runner'
 
 export async function prepareEventStep(runner: EventPipelineRunner, event: PluginEvent): Promise<StepResult> {
-    const { ip, site_url, team_id, uuid } = event
+    const { ip, site_url, team_id, now, sent_at, uuid } = event
+    const distinctId = String(event.distinct_id)
     const preIngestionEvent = await runner.hub.eventsProcessor.processEvent(
-        String(event.distinct_id),
+        distinctId,
         ip,
         event,
         team_id,
-        parseEventTimestamp(event, runner.hub.statsd),
+        DateTime.fromISO(now),
+        sent_at ? DateTime.fromISO(sent_at) : null,
         uuid! // it will throw if it's undefined,
     )
 

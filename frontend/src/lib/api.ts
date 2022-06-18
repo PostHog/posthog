@@ -440,11 +440,10 @@ const api = {
             teamId = getCurrentTeamId(),
             ...params
         }: {
-            order_ids_first?: string[]
-            excluded_ids?: string[]
             limit?: number
             offset?: number
             teamId?: TeamType['id']
+            include_actions?: boolean
         }): Promise<PaginatedResponse<EventDefinition>> {
             return new ApiRequest()
                 .eventDefinitions(teamId)
@@ -456,11 +455,10 @@ const api = {
             teamId = getCurrentTeamId(),
             ...params
         }: {
-            order_ids_first?: string[]
-            excluded_ids?: string[]
             limit?: number
             offset?: number
             teamId?: TeamType['id']
+            include_actions?: boolean
         }): string {
             return new ApiRequest()
                 .eventDefinitions(teamId)
@@ -494,8 +492,6 @@ const api = {
             ...params
         }: {
             event_names?: string[]
-            order_ids_first?: string[]
-            excluded_ids?: string[]
             excluded_properties?: string[]
             is_event_property?: boolean
             limit?: number
@@ -518,8 +514,6 @@ const api = {
             ...params
         }: {
             event_names?: string[]
-            order_ids_first?: string[]
-            excluded_ids?: string[]
             excluded_properties?: string[]
             is_event_property?: boolean
             limit?: number

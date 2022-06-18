@@ -5,11 +5,11 @@ import { Hub, IngestionEvent, PreIngestionEvent } from '../../../types'
 import { timeoutGuard } from '../../../utils/db/utils'
 import { status } from '../../../utils/status'
 import { generateEventDeadLetterQueueMessage } from '../utils'
-import { pluginsProcessEventStep } from './1-pluginsProcessEventStep'
-import { prepareEventStep } from './2-prepareEventStep'
-import { emitToBufferStep } from './3-emitToBufferStep'
-import { createEventStep } from './4-createEventStep'
-import { runAsyncHandlersStep } from './5-runAsyncHandlersStep'
+import { createEventStep } from './createEventStep'
+import { emitToBufferStep } from './emitToBufferStep'
+import { pluginsProcessEventStep } from './pluginsProcessEventStep'
+import { prepareEventStep } from './prepareEventStep'
+import { runAsyncHandlersStep } from './runAsyncHandlersStep'
 
 export type StepParameters<T extends (...args: any[]) => any> = T extends (
     runner: EventPipelineRunner,
