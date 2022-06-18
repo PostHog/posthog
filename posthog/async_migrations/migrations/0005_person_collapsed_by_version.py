@@ -139,10 +139,12 @@ class Migration(AsyncMigrationDefinition):
             AsyncMigrationOperationSQL(
                 database=AnalyticsDBMS.CLICKHOUSE,
                 sql=f"DROP TABLE IF EXISTS {TEMPORARY_PERSON_MV} ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'",
+                rollback=None,
             ),
             AsyncMigrationOperationSQL(
                 database=AnalyticsDBMS.CLICKHOUSE,
                 sql=f"DROP TABLE IF EXISTS person_mv ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'",
+                rollback=None,
             ),
             AsyncMigrationOperationSQL(
                 database=AnalyticsDBMS.CLICKHOUSE,
@@ -159,7 +161,7 @@ class Migration(AsyncMigrationDefinition):
                     ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'
                 """,
             ),
-            AsyncMigrationOperationSQL(database=AnalyticsDBMS.CLICKHOUSE, sql=PERSONS_TABLE_MV_SQL,),
+            AsyncMigrationOperationSQL(database=AnalyticsDBMS.CLICKHOUSE, sql=PERSONS_TABLE_MV_SQL, rollback=None),
             AsyncMigrationOperation(fn=optimize_table_fn),
         ]
 
