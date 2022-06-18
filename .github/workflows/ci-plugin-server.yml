@@ -6,6 +6,7 @@ on:
             - 'plugin-server/**'
             - 'ee/clickhouse/migrations/**'
             - 'ee/migrations/**'
+            - 'ee/management/commands/setup_test_environment.py'
             - 'posthog/migrations/**'
             - 'posthog/plugins/**'
             - 'docker*.yml'
