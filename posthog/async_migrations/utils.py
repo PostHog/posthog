@@ -38,13 +38,13 @@ def execute_op(op: AsyncMigrationOperation, uuid: str, rollback: bool = False):
     op.rollback_fn(uuid) if rollback else op.fn(uuid)
 
 
-def execute_op_clickhouse(sql: str, query_id: str, timeout_seconds: Optional[int] = None, settings=None):
+def execute_op_clickhouse(sql: str, args=None, *, query_id: str, timeout_seconds: Optional[int] = None, settings=None):
     from posthog.client import sync_execute
 
     settings = settings if settings else {"max_execution_time": timeout_seconds}
 
     try:
-        sync_execute(f"/* {query_id} */ " + sql, settings=settings)
+        sync_execute(f"/* {query_id} */ " + sql, args, settings=settings)
     except Exception as e:
         raise Exception(f"Failed to execute ClickHouse op: sql={sql},\nquery_id={query_id},\nexception={str(e)}")
 

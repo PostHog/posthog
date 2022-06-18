@@ -59,7 +59,7 @@ class AsyncMigrationOperationSQL(AsyncMigrationOperation):
         from posthog.async_migrations.utils import execute_op_clickhouse, execute_op_postgres
 
         if self.database == AnalyticsDBMS.CLICKHOUSE:
-            execute_op_clickhouse(sql, query_id, self.timeout_seconds)
+            execute_op_clickhouse(sql, query_id=query_id, timeout=self.timeout_seconds)
         else:
             execute_op_postgres(sql, query_id)
 

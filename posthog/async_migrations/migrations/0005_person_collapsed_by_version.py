@@ -1,31 +1,24 @@
 import json
-from dataclasses import dataclass
 from functools import cached_property
-from typing import Dict, List, Optional, Tuple, cast
+from typing import Dict, List, Tuple
 
 import structlog
-from clickhouse_driver.errors import ServerException
 from django.conf import settings
 from django.utils.timezone import now
-from ee.clickhouse.sql.clickhouse import STORAGE_POLICY
-from ee.clickhouse.sql.person import PERSONS_TABLE_ENGINE
 
-from posthog.async_migrations.utils import execute_op_clickhouse
-from ee.clickhouse.sql.events import EVENTS_TABLE_JSON_MV_SQL, KAFKA_EVENTS_TABLE_JSON_SQL
-from ee.clickhouse.sql.table_engines import MergeTreeEngine, ReplacingMergeTree
 from posthog.async_migrations.definition import (
     AsyncMigrationDefinition,
     AsyncMigrationOperation,
     AsyncMigrationOperationSQL,
     AsyncMigrationType,
 )
+from posthog.async_migrations.utils import execute_op_clickhouse
+from posthog.clickhouse.kafka_engine import STORAGE_POLICY
+from posthog.clickhouse.table_engines import ReplacingMergeTree
 from posthog.client import sync_execute
 from posthog.constants import AnalyticsDBMS
-from posthog.errors import lookup_error_code
-from posthog.models.instance_setting import set_instance_setting
 from posthog.models.person.person import Person
 from posthog.redis import get_client
-from posthog.utils import flatten
 
 logger = structlog.get_logger(__name__)
 
@@ -65,15 +58,15 @@ BACKUP_TABLE_NAME = f"{PERSON_TABLE_NAME}_backup_0005_person_collapsed_by_versio
 FAILED_PERSON_TABLE_NAME = f"{PERSON_TABLE_NAME}_failed_person_collapsed_by_version"
 
 PG_COPY_BATCH_SIZE = 1000
-PG_COPY_INSERT_TIMESTAMP = '2020-01-01 00:00:00.000000'
+PG_COPY_INSERT_TIMESTAMP = "2020-01-01 00:00:00.000000"
 
-
+# :TODO: Move to an util
 def optimize_table_fn(query_id):
     default_timeout = settings.ASYNC_MIGRATIONS_DEFAULT_TIMEOUT_SECONDS
     try:
         execute_op_clickhouse(
             f"OPTIMIZE TABLE {PERSON_TABLE} FINAL",
-            query_id,
+            query_id=query_id,
             settings={
                 "max_execution_time": default_timeout,
                 "send_timeout": default_timeout,
@@ -175,12 +168,12 @@ class Migration(AsyncMigrationDefinition):
         highwatermark = get_client().get(REDIS_HIGHWATERMARK_KEY)
         return highwatermark if highwatermark is not None else 0
 
-    def copy_persons_from_postgres(self):
+    def copy_persons_from_postgres(self, query_id: str):
         should_continue = False
         while should_continue:
-            should_continue = self._copy_batch_from_postgres()
+            should_continue = self._copy_batch_from_postgres(query_id)
 
-    def _copy_batch_from_postgres(self) -> bool:
+    def _copy_batch_from_postgres(self, query_id: str) -> bool:
         highwatermark = self.get_pg_copy_highwatermark()
         if highwatermark > self.pg_copy_target_person_id:
             logger.info(
@@ -193,8 +186,7 @@ class Migration(AsyncMigrationDefinition):
         persons = list(Person.objects.filter(id__gte=highwatermark)[:PG_COPY_BATCH_SIZE])
         sql, params = self._persons_insert_query(persons)
 
-        # :TODO: Properly timeout etc this query
-        sync_execute(sql, params)
+        execute_op_clickhouse(sql, params, query_id=query_id)
 
         new_highwatermark = (persons[-1].id if len(persons) > 0 else self.pg_copy_target_person_id) + 1
         get_client().set(REDIS_HIGHWATERMARK_KEY, new_highwatermark)
@@ -218,12 +210,15 @@ class Migration(AsyncMigrationDefinition):
             )
             params[f"properties_{i}"] = json.dumps(person.properties)
 
-        return f"""
+        return (
+            f"""
             INSERT INTO {TEMPORARY_TABLE_NAME} (
                 id, created_at, team_id, properties, is_identified, _timestamp, _offset, is_deleted, version
             )
-            VALUES {', '.join(self._person_ch_insert_values(person) for person in persons)}
-            """, params
+            VALUES {', '.join(values)}
+            """,
+            params,
+        )
 
     def progress(self, migration_instance: AsyncMigrationType) -> int:
         # We weigh each step before copying persons as equal, and the persons copy as ~50% of progress
