@@ -80,4 +80,4 @@ def disable_migrations() -> None:
             return super().handle(*args, **kwargs)
 
     settings.MIGRATION_MODULES = DisableMigrations()
-    migrate.Command = MigrateSilentCommand
+    migrate.Command = MigrateSilentCommand  # type: ignore

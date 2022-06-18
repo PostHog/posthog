@@ -1,3 +1,5 @@
+from typing import Any, Tuple
+
 import pytest
 from django.conf import settings
 from infi.clickhouse_orm import Database
@@ -12,7 +14,10 @@ def create_clickhouse_tables(num_tables: int):
     from posthog.clickhouse.schema import CREATE_DISTRIBUTED_TABLE_QUERIES, CREATE_MERGETREE_TABLE_QUERIES, build_query
 
     # REMEMBER TO ADD ANY NEW CLICKHOUSE TABLES TO THIS ARRAY!
-    CREATE_TABLE_QUERIES = CREATE_MERGETREE_TABLE_QUERIES + CREATE_DISTRIBUTED_TABLE_QUERIES
+    CREATE_TABLE_QUERIES: Tuple[Any, ...] = CREATE_MERGETREE_TABLE_QUERIES
+
+    if settings.CLICKHOUSE_REPLICATION:
+        CREATE_TABLE_QUERIES = CREATE_TABLE_QUERIES + CREATE_DISTRIBUTED_TABLE_QUERIES
 
     # Check if all the tables have already been created
     if num_tables == len(CREATE_TABLE_QUERIES):
