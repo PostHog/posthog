@@ -20,7 +20,6 @@ import { ActionManager } from '../../worker/ingestion/action-manager'
 import { ActionMatcher } from '../../worker/ingestion/action-matcher'
 import { HookCommander } from '../../worker/ingestion/hooks'
 import { OrganizationManager } from '../../worker/ingestion/organization-manager'
-import { PersonManager } from '../../worker/ingestion/person-manager'
 import { EventsProcessor } from '../../worker/ingestion/process-event'
 import { SiteUrlManager } from '../../worker/ingestion/site-url-manager'
 import { TeamManager } from '../../worker/ingestion/team-manager'
@@ -252,7 +251,6 @@ export async function createHub(
 
     // :TODO: This is only used on worker threads, not main
     hub.eventsProcessor = new EventsProcessor(hub as Hub)
-    hub.personManager = new PersonManager(hub as Hub)
     hub.jobQueueManager = new JobQueueManager(hub as Hub)
     hub.hookCannon = new HookCommander(db, teamManager, organizationManager, siteUrlManager, statsd)
 

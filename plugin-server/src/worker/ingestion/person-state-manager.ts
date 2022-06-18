@@ -1,4 +1,4 @@
-import { PluginEvent, Properties } from '@posthog/plugin-scaffold'
+import { Properties } from '@posthog/plugin-scaffold'
 import * as Sentry from '@sentry/node'
 import equal from 'fast-deep-equal'
 import { StatsD } from 'hot-shots'
@@ -8,7 +8,6 @@ import { DatabaseError } from 'pg'
 
 import { Person, PropertyUpdateOperation } from '../../types'
 import { DB } from '../../utils/db/db'
-import { timeoutGuard } from '../../utils/db/utils'
 import { status } from '../../utils/status'
 import { UUIDT } from '../../utils/utils'
 import { PersonManager } from './person-manager'
@@ -37,11 +36,7 @@ const isDistinctIdIllegal = (id: string): boolean => {
 }
 
 // This class is responsible for creating/updating a single person through the process-event pipeline
-export class PersonState {
-    event: PluginEvent
-    distinctId: string
-    teamId: number
-    eventProperties: Properties
+export class PersonStateManager {
     timestamp: DateTime
     newUuid: string
 
@@ -49,75 +44,45 @@ export class PersonState {
     private statsd: StatsD | undefined
     private personManager: PersonManager
 
-    constructor(
-        event: PluginEvent,
-        teamId: number,
-        distinctId: string,
-        timestamp: DateTime,
-        db: DB,
-        statsd: StatsD | undefined,
-        personManager: PersonManager,
-        uuid?: UUIDT
-    ) {
-        this.event = event
-        this.distinctId = distinctId
-        this.teamId = teamId
-        this.eventProperties = event.properties!
+    constructor(timestamp: DateTime, db: DB, statsd: StatsD | undefined, personManager: PersonManager) {
         this.timestamp = timestamp
-        this.newUuid = (uuid || new UUIDT()).toString()
+        this.newUuid = new UUIDT().toString()
 
         this.db = db
         this.statsd = statsd
         this.personManager = personManager
     }
 
-    async update(): Promise<Person | undefined> {
-        await this.handleIdentifyOrAlias()
-        return await this.updateProperties()
-    }
-
-    async updateProperties(): Promise<Person | undefined> {
-        const createdPerson = await this.createPersonIfDistinctIdIsNew()
-        if (
-            !createdPerson &&
-            (this.eventProperties['$set'] || this.eventProperties['$set_once'] || this.eventProperties['$unset'])
-        ) {
-            return await this.updatePersonProperties()
-        }
-        return createdPerson
-    }
-
-    private async createPersonIfDistinctIdIsNew(): Promise<Person | undefined> {
-        const isNewPerson = await this.personManager.isNewPerson(this.db, this.teamId, this.distinctId)
+    async createPersonIfDistinctIdIsNew(
+        teamId: number,
+        distinctId: string,
+        timestamp: DateTime,
+        personUuid: string,
+        properties?: Properties,
+        propertiesOnce?: Properties
+    ): Promise<boolean> {
+        const isNewPerson = await this.personManager.isNewPerson(this.db, teamId, distinctId)
         if (isNewPerson) {
-            const properties = this.eventProperties['$set'] || {}
-            const propertiesOnce = this.eventProperties['$set_once'] || {}
             // Catch race condition where in between getting and creating, another request already created this user
             try {
-                return await this.createPerson(
-                    this.timestamp,
+                await this.createPerson(
+                    timestamp,
                     properties || {},
                     propertiesOnce || {},
-                    this.teamId,
+                    teamId,
                     null,
                     false,
-                    this.newUuid,
-                    [this.distinctId]
+                    personUuid.toString(),
+                    [distinctId]
                 )
+                return true
             } catch (error) {
                 if (!error.message || !error.message.includes('duplicate key value violates unique constraint')) {
-                    Sentry.captureException(error, {
-                        extra: {
-                            teamId: this.teamId,
-                            distinctId: this.distinctId,
-                            timestamp: this.timestamp,
-                            personUuid: this.newUuid,
-                        },
-                    })
+                    Sentry.captureException(error, { extra: { teamId, distinctId, timestamp, personUuid } })
                 }
             }
         }
-        return undefined
+        return false
     }
 
     private async createPerson(
@@ -155,40 +120,30 @@ export class PersonState {
         )
     }
 
-    private async updatePersonProperties(): Promise<Person> {
-        const personFound = await this.db.fetchPerson(this.teamId, this.distinctId)
+    async updatePersonProperties(
+        teamId: number,
+        distinctId: string,
+        properties: Properties,
+        propertiesOnce: Properties,
+        unsetProperties: Array<string>
+    ): Promise<void> {
+        const personFound = await this.db.fetchPerson(teamId, distinctId)
         if (!personFound) {
-            this.statsd?.increment('person_not_found', { teamId: String(this.teamId), key: 'update' })
+            this.statsd?.increment('person_not_found', { teamId: String(teamId), key: 'update' })
             throw new Error(
-                `Could not find person with distinct id "${this.distinctId}" in team "${this.teamId}" to update properties`
+                `Could not find person with distinct id "${distinctId}" in team "${teamId}" to update properties`
             )
         }
 
-        const updatedProperties = this.updatedPersonProperties(personFound.properties || {})
-        const arePersonsEqual = equal(personFound.properties, updatedProperties)
-
-        if (arePersonsEqual) {
-            return personFound
-        }
-
-        return await this.db.updatePersonDeprecated(personFound, { properties: updatedProperties })
-    }
-
-    private updatedPersonProperties(personProperties: Properties): Properties {
-        const updatedProperties = { ...personProperties }
-
-        const properties: Properties = this.eventProperties['$set'] || {}
-        const propertiesOnce: Properties = this.eventProperties['$set_once'] || {}
-        const unsetProperties: Array<string> = this.eventProperties['$unset'] || []
-
         // Figure out which properties we are actually setting
+        const updatedProperties: Properties = { ...personFound.properties }
         Object.entries(propertiesOnce).map(([key, value]) => {
-            if (typeof personProperties[key] === 'undefined') {
+            if (typeof personFound?.properties[key] === 'undefined') {
                 updatedProperties[key] = value
             }
         })
         Object.entries(properties).map(([key, value]) => {
-            if (personProperties[key] !== value) {
+            if (personFound?.properties[key] !== value) {
                 updatedProperties[key] = value
             }
         })
@@ -197,34 +152,32 @@ export class PersonState {
             delete updatedProperties[propertyKey]
         })
 
-        return updatedProperties
+        const arePersonsEqual = equal(personFound.properties, updatedProperties)
+
+        if (arePersonsEqual) {
+            return
+        }
+
+        await this.db.updatePersonDeprecated(personFound, { properties: updatedProperties })
     }
 
     // Alias & merge
 
-    async handleIdentifyOrAlias(): Promise<void> {
-        if (isDistinctIdIllegal(this.distinctId)) {
-            this.statsd?.increment(`illegal_distinct_ids.total`, { distinctId: this.distinctId })
+    async handleIdentifyOrAlias(
+        event: string,
+        properties: Properties,
+        distinctId: string,
+        teamId: number,
+        timestamp: DateTime
+    ): Promise<void> {
+        if (isDistinctIdIllegal(distinctId)) {
+            this.statsd?.increment(`illegal_distinct_ids.total`, { distinctId })
             return
         }
-
-        const timeout = timeoutGuard('Still running "handleIdentifyOrAlias". Timeout warning after 30 sec!')
-        try {
-            if (this.event.event === '$create_alias') {
-                await this.merge(this.eventProperties['alias'], this.distinctId, this.teamId, this.timestamp, false)
-            } else if (this.event.event === '$identify' && this.eventProperties['$anon_distinct_id']) {
-                await this.merge(
-                    this.eventProperties['$anon_distinct_id'],
-                    this.distinctId,
-                    this.teamId,
-                    this.timestamp,
-                    true
-                )
-            }
-        } catch (e) {
-            console.error('handleIdentifyOrAlias failed', e, this.event)
-        } finally {
-            clearTimeout(timeout)
+        if (event === '$create_alias') {
+            await this.merge(properties['alias'], distinctId, teamId, timestamp, false)
+        } else if (event === '$identify' && properties['$anon_distinct_id']) {
+            await this.merge(properties['$anon_distinct_id'], distinctId, teamId, timestamp, true)
         }
     }
 
@@ -259,12 +212,9 @@ export class PersonState {
         const oldPerson = await this.db.fetchPerson(teamId, previousDistinctId)
         const newPerson = await this.db.fetchPerson(teamId, distinctId)
 
-        let updateAtEnd = false
-
         if (oldPerson && !newPerson) {
             try {
                 await this.db.addDistinctId(oldPerson, distinctId)
-                updateAtEnd = true
                 // Catch race case when somebody already added this distinct_id between .get and .addDistinctId
             } catch {
                 // integrity error
@@ -283,7 +233,6 @@ export class PersonState {
         } else if (!oldPerson && newPerson) {
             try {
                 await this.db.addDistinctId(newPerson, previousDistinctId)
-                updateAtEnd = true
                 // Catch race case when somebody already added this distinct_id between .get and .addDistinctId
             } catch {
                 // integrity error
@@ -301,16 +250,10 @@ export class PersonState {
             }
         } else if (!oldPerson && !newPerson) {
             try {
-                await this.createPerson(
-                    timestamp,
-                    this.eventProperties['$set'] || {},
-                    this.eventProperties['$set_once'] || {},
-                    teamId,
-                    null,
-                    shouldIdentifyPerson,
-                    this.newUuid,
-                    [distinctId, previousDistinctId]
-                )
+                await this.createPerson(timestamp, {}, {}, teamId, null, shouldIdentifyPerson, new UUIDT().toString(), [
+                    distinctId,
+                    previousDistinctId,
+                ])
             } catch {
                 // Catch race condition where in between getting and creating,
                 // another request already created this person
@@ -333,7 +276,6 @@ export class PersonState {
 
             if (isIdentifyCallToMergeAnIdentifiedUser) {
                 status.warn('🤔', 'refused to merge an already identified user via an $identify call')
-                updateAtEnd = true
             } else {
                 await this.mergePeople({
                     totalMergeAttempts,
@@ -345,12 +287,9 @@ export class PersonState {
                     timestamp: timestamp,
                 })
             }
-        } else {
-            updateAtEnd = true
         }
 
-        // :KLUDGE: Only update isIdentified once, avoid recursively calling it or when not needed
-        if (shouldIdentifyPerson && updateAtEnd) {
+        if (shouldIdentifyPerson) {
             await this.setIsIdentified(teamId, distinctId)
         }
     }
@@ -403,8 +342,8 @@ export class PersonState {
                     mergeInto,
                     {
                         created_at: firstSeen,
-                        properties: this.updatedPersonProperties(mergeInto.properties),
-                        is_identified: mergeInto.is_identified || otherPerson.is_identified || shouldIdentifyPerson,
+                        properties: mergeInto.properties,
+                        is_identified: mergeInto.is_identified || otherPerson.is_identified,
                     },
                     client
                 )

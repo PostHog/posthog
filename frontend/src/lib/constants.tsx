@@ -116,6 +116,7 @@ export const FEATURE_FLAGS = {
     ONBOARDING_1_5: 'onboarding-1_5', // owner: @liyiy
     BREAKDOWN_ATTRIBUTION: 'breakdown-attribution', // owner: @neilkakkar
     INSIGHT_SUBSCRIPTIONS: 'insight-subscriptions', // owner: @benjackwhite
+    SIMPLIFY_ACTIONS: 'simplify-actions', // owner: @alexkim205,
 }
 
 /** Which self-hosted plan's features are available with Cloud's "Standard" plan (aka card attached). */
