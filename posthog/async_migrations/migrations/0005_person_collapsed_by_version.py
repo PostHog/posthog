@@ -17,6 +17,7 @@ from posthog.async_migrations.definition import (
     AsyncMigrationDefinition,
     AsyncMigrationOperation,
     AsyncMigrationOperationSQL,
+    AsyncMigrationType,
 )
 from posthog.client import sync_execute
 from posthog.constants import AnalyticsDBMS
@@ -223,3 +224,14 @@ class Migration(AsyncMigrationDefinition):
             )
             VALUES {', '.join(self._person_ch_insert_values(person) for person in persons)}
             """, params
+
+    def progress(self, migration_instance: AsyncMigrationType) -> int:
+        # We weigh each step before copying persons as equal, and the persons copy as ~50% of progress
+        result = 0.5 * migration_instance.current_operation_index / len(self.operations)
+
+        if migration_instance.current_operation_index == 3:
+            result += 0.5 * (self.get_pg_copy_highwatermark() / self.pg_copy_target_person_id)
+        else:
+            result += 0.5
+
+        return int(100 * result)
