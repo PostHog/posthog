@@ -28,6 +28,7 @@ class Command(BaseCommand):
             raise ValueError("TEST environment variable needs to be set for this command to function")
 
         test_runner = TestRunner(interactive=False)
+        disable_migrations()
         test_runner.setup_databases()
         test_runner.setup_test_environment()
 
@@ -50,3 +51,33 @@ def create_clickhouse_schema_in_parallel(queries):
 
     queries = list(map(build_query, queries))
     run_clickhouse_statement_in_parallel(queries)
+
+
+def disable_migrations() -> None:
+    """
+    Disables django migrations when creating test database. Model definitions are used instead.
+
+    Speeds up setup significantly.
+    """
+    from django.conf import settings
+    from django.core.management.commands import migrate
+
+    class DisableMigrations:
+        def __contains__(self, item: str) -> bool:
+            return True
+
+        def __getitem__(self, item: str) -> None:
+            return None
+
+    class MigrateSilentCommand(migrate.Command):
+        def handle(self, *args, **kwargs):
+            from django.db import connection
+
+            # :TRICKY: Create extension depended on by models.
+            with connection.cursor() as cursor:
+                cursor.execute("CREATE EXTENSION pg_trgm")
+
+            return super().handle(*args, **kwargs)
+
+    settings.MIGRATION_MODULES = DisableMigrations()
+    migrate.Command = MigrateSilentCommand
