@@ -241,7 +241,7 @@ class Migration(AsyncMigrationDefinition):
 
         if migration_instance.current_operation_index == 3:
             result += 0.5 * (self.get_pg_copy_highwatermark() / self.pg_copy_target_person_id)
-        else:
+        elif migration_instance.current_operation_index > 3:
             result += 0.5
 
         return int(100 * result)
