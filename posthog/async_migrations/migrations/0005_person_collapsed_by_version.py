@@ -18,6 +18,7 @@ from posthog.clickhouse.table_engines import ReplacingMergeTree
 from posthog.client import sync_execute
 from posthog.constants import AnalyticsDBMS
 from posthog.models.person.person import Person
+from posthog.models.person.sql import PERSONS_TABLE_MV_SQL
 from posthog.redis import get_client
 
 logger = structlog.get_logger(__name__)
@@ -132,8 +133,17 @@ class Migration(AsyncMigrationDefinition):
                 rollback=f"TRUNCATE TABLE IF EXISTS {TEMPORARY_TABLE_NAME} ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'",
                 timeout_seconds=2 * 24 * 60 * 60,  # two days
             ),
-            AsyncMigrationOperation(fn=self.copy_persons_from_postgres),
-            # :TODO: recreate mv tables
+            AsyncMigrationOperation(
+                fn=self.copy_persons_from_postgres, rollback_fn=lambda _: self.unset_highwatermark()
+            ),
+            AsyncMigrationOperationSQL(
+                database=AnalyticsDBMS.CLICKHOUSE,
+                sql=f"DROP TABLE IF EXISTS {TEMPORARY_PERSON_MV} ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'",
+            ),
+            AsyncMigrationOperationSQL(
+                database=AnalyticsDBMS.CLICKHOUSE,
+                sql=f"DROP TABLE IF EXISTS person_mv ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'",
+            ),
             AsyncMigrationOperationSQL(
                 database=AnalyticsDBMS.CLICKHOUSE,
                 sql=f"""
@@ -149,6 +159,7 @@ class Migration(AsyncMigrationDefinition):
                     ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'
                 """,
             ),
+            AsyncMigrationOperationSQL(database=AnalyticsDBMS.CLICKHOUSE, sql=PERSONS_TABLE_MV_SQL,),
             AsyncMigrationOperation(fn=optimize_table_fn),
         ]
 
@@ -167,6 +178,9 @@ class Migration(AsyncMigrationDefinition):
     def get_pg_copy_highwatermark(self) -> int:
         highwatermark = get_client().get(REDIS_HIGHWATERMARK_KEY)
         return highwatermark if highwatermark is not None else 0
+
+    def unset_highwatermark(self) -> None:
+        get_client().delete(REDIS_HIGHWATERMARK_KEY)
 
     def copy_persons_from_postgres(self, query_id: str):
         should_continue = False
@@ -206,8 +220,9 @@ class Migration(AsyncMigrationDefinition):
             # :TRICKY: We use a custom timestamp to identify these rows
             created_at = person.created_at.strftime("%Y-%m-%d %H:%M:%S.%f")
             values.append(
-                f"('{person.uuid}', '{created_at}', {person.team_id}, %(properties_{i})s, {'1' if person.is_identified else '0'}, '{PG_COPY_INSERT_TIMESTAMP}', 0, 0, {person.version or 0})"
+                f"(%(uuid_{i})s, '{created_at}', {person.team_id}, %(properties_{i})s, {'1' if person.is_identified else '0'}, '{PG_COPY_INSERT_TIMESTAMP}', 0, 0, {person.version or 0})"
             )
+            params[f"uuid_{i}"] = person.uuid
             params[f"properties_{i}"] = json.dumps(person.properties)
 
         return (
