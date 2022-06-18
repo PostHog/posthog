@@ -82,7 +82,7 @@ function Pages(): JSX.Element {
                                   type="stealth"
                                   fullWidth
                                   key={index}
-                                  onClick={() => setArePinnedDashboardsShown(false)}
+                                  onClick={() => setIsToolbarLaunchShown(false)}
                                   href={launchUrl(appUrl)}
                                   sideIcon={
                                       <Tooltip title="Launch toolbar">
@@ -99,7 +99,7 @@ function Pages(): JSX.Element {
                               type="stealth"
                               fullWidth
                               to={urls.toolbarLaunch()}
-                              onClick={() => setArePinnedDashboardsShown(false)}
+                              onClick={() => setIsToolbarLaunchShown(false)}
                           >
                               Add toolbar URL
                           </LemonButton>
