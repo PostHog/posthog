@@ -138,8 +138,8 @@ class Migration(AsyncMigrationDefinition):
                 rollback=f"TRUNCATE TABLE IF EXISTS {TEMPORARY_TABLE_NAME} ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'",
                 timeout_seconds=2 * 24 * 60 * 60,  # two days
             ),
-            # :TODO: Copy data from postgres
-            # :TODO: "fix" mv tables
+            AsyncMigrationOperation(fn=self.copy_persons_from_postgres),
+            # :TODO: recreate mv tables
             AsyncMigrationOperationSQL(
                 database=AnalyticsDBMS.CLICKHOUSE,
                 sql=f"""
@@ -165,14 +165,19 @@ class Migration(AsyncMigrationDefinition):
         return engine
 
     @cached_property
-    def pg_copy_target_person_id(self):
+    def pg_copy_target_person_id(self) -> int:
         # :TRICKY: We calculate the last ID to copy at the start of migration once and cache it.
         #    If the migration gets e.g. restarted, this is recalculated.
         return Person.objects.latest("id").id
 
-    def get_pg_copy_highwatermark(self) -> Tuple[int, int]:
+    def get_pg_copy_highwatermark(self) -> int:
         highwatermark = get_client().get(REDIS_HIGHWATERMARK_KEY)
         return highwatermark if highwatermark is not None else 0
+
+    def copy_persons_from_postgres(self):
+        should_continue = False
+        while should_continue:
+            should_continue = self._copy_batch_from_postgres()
 
     def _copy_batch_from_postgres(self) -> bool:
         highwatermark = self.get_pg_copy_highwatermark()
@@ -185,26 +190,36 @@ class Migration(AsyncMigrationDefinition):
             return False
 
         persons = list(Person.objects.filter(id__gte=highwatermark)[:PG_COPY_BATCH_SIZE])
+        sql, params = self._persons_insert_query(persons)
 
-        # :TODO: This has a sql injection risk!
-        sync_execute(
-            f"""
-            INSERT INTO {TEMPORARY_TABLE_NAME} (id, created_at, team_id, properties, is_identified, _timestamp, _offset, is_deleted, version)
-            VALUES {', '.join(self._person_ch_insert_values(person) for person in persons)}
-            """
-        )
+        # :TODO: Properly timeout etc this query
+        sync_execute(sql, params)
 
         new_highwatermark = (persons[-1].id if len(persons) > 0 else self.pg_copy_target_person_id) + 1
         get_client().set(REDIS_HIGHWATERMARK_KEY, new_highwatermark)
         logger.debug(
             "Copied batch of people from postgres to clickhouse",
-            highwatermark=highwatermark,
+            batch_size=len(persons),
+            previous_highwatermark=highwatermark,
             new_highwatermark=new_highwatermark,
             pg_copy_target_person_id=self.pg_copy_target_person_id,
         )
         return True
 
-    def _person_ch_insert_values(self, person: Person) -> str:
-        # :TRICKY: We use a custom timestamp to identify these rows
-        created_at = person.created_at.strftime("%Y-%m-%d %H:%M:%S.%f")
-        return f"('{person.uuid}', '{created_at}', {person.team_id}, '{json.dumps(person.properties)}', {'1' if person.is_identified else '0'}, '{PG_COPY_INSERT_TIMESTAMP}', 0, 0, {person.version or 0})"
+    def _persons_insert_query(self, persons: List[Person]) -> Tuple[str, Dict]:
+        values = []
+        params = {}
+        for i, person in enumerate(persons):
+            # :TRICKY: We use a custom timestamp to identify these rows
+            created_at = person.created_at.strftime("%Y-%m-%d %H:%M:%S.%f")
+            values.append(
+                f"('{person.uuid}', '{created_at}', {person.team_id}, %(properties_{i})s, {'1' if person.is_identified else '0'}, '{PG_COPY_INSERT_TIMESTAMP}', 0, 0, {person.version or 0})"
+            )
+            params[f"properties_{i}"] = json.dumps(person.properties)
+
+        return f"""
+            INSERT INTO {TEMPORARY_TABLE_NAME} (
+                id, created_at, team_id, properties, is_identified, _timestamp, _offset, is_deleted, version
+            )
+            VALUES {', '.join(self._person_ch_insert_values(person) for person in persons)}
+            """, params
