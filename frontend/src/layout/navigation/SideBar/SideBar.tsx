@@ -76,37 +76,33 @@ function Pages(): JSX.Element {
                       <div className="SideBar__side-actions">
                           <h5>TOOLBAR URLS</h5>
                           <LemonDivider />
-                          {appUrls.length > 0 ? (
-                              appUrls.map((appUrl, index) => (
-                                  <LemonButton
-                                      className="LaunchToolbarButton"
-                                      type="stealth"
-                                      fullWidth={true}
-                                      key={index}
-                                      onClick={() => setArePinnedDashboardsShown(false)}
-                                      href={launchUrl(appUrl)}
-                                      sideIcon={
-                                          <Tooltip title="Launch toolbar">
-                                              <IconOpenInApp />
-                                          </Tooltip>
-                                      }
-                                  >
-                                      <Typography.Text ellipsis={true} title={appUrl}>
-                                          {appUrl}
-                                      </Typography.Text>
-                                  </LemonButton>
-                              ))
-                          ) : (
-                              <LemonRow sideIcon={<IconOpenInApp />} fullWidth>
-                                  <span>
-                                      <Link onClick={() => setIsToolbarLaunchShown(false)} to={urls.toolbarLaunch()}>
-                                          Add authorised URLs for the toolbar
-                                      </Link>
-                                      <br />
-                                      for them to show up here
-                                  </span>
-                              </LemonRow>
-                          )}
+                          {appUrls.map((appUrl, index) => (
+                              <LemonButton
+                                  className="LaunchToolbarButton"
+                                  type="stealth"
+                                  fullWidth
+                                  key={index}
+                                  onClick={() => setArePinnedDashboardsShown(false)}
+                                  href={launchUrl(appUrl)}
+                                  sideIcon={
+                                      <Tooltip title="Launch toolbar">
+                                          <IconOpenInApp />
+                                      </Tooltip>
+                                  }
+                              >
+                                  <Typography.Text ellipsis={true} title={appUrl}>
+                                      {appUrl}
+                                  </Typography.Text>
+                              </LemonButton>
+                          ))}
+                          <LemonButton
+                              type="stealth"
+                              fullWidth
+                              to={urls.toolbarLaunch()}
+                              onClick={() => setArePinnedDashboardsShown(false)}
+                          >
+                              Add toolbar URL
+                          </LemonButton>
                       </div>
                   ),
               },
