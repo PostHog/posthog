@@ -2,7 +2,7 @@ import uuid
 
 import pytest
 
-from ee.clickhouse.sql.schema import (
+from posthog.clickhouse.schema import (
     CREATE_KAFKA_TABLE_QUERIES,
     CREATE_MERGETREE_TABLE_QUERIES,
     CREATE_TABLE_QUERIES,
