@@ -10,7 +10,7 @@ def create_clickhouse_tables(num_tables: int):
     # Reset clickhouse tables to default before running test
     # Mostly so that test runs locally work correctly
     from ee.clickhouse.sql.groups import GROUPS_TABLE_SQL
-    from posthog.clickhouse.dead_letter_queue import DEAD_LETTER_QUEUE_TABLE_MV_SQL, DEAD_LETTER_QUEUE_TABLE_SQL
+    from posthog.clickhouse.dead_letter_queue import DEAD_LETTER_QUEUE_TABLE_SQL
     from posthog.clickhouse.plugin_log_entries import PLUGIN_LOG_ENTRIES_TABLE_SQL
     from posthog.models.cohort.sql import CREATE_COHORTPEOPLE_TABLE_SQL
     from posthog.models.event.sql import DISTRIBUTED_EVENTS_TABLE_SQL, EVENTS_TABLE_SQL, WRITABLE_EVENTS_TABLE_SQL
@@ -50,27 +50,18 @@ def create_clickhouse_tables(num_tables: int):
             ]
         )
 
-    # Because the tables are created in parallel, any tables that depend on another
-    # table should be created in a second batch - to ensure the first table already
-    # exists. Tables for this second batch of table creation are defined here:
-    SECOND_BATCH_OF_TABLES_TO_CREATE_DROP = [DEAD_LETTER_QUEUE_TABLE_MV_SQL]
-
     # Check if all the tables have already been created
-    if num_tables == len(FIRST_BATCH_OF_TABLES_TO_CREATE_DROP + SECOND_BATCH_OF_TABLES_TO_CREATE_DROP):
+    if num_tables == len(FIRST_BATCH_OF_TABLES_TO_CREATE_DROP):
         return
 
     run_clickhouse_statement_in_parallel(FIRST_BATCH_OF_TABLES_TO_CREATE_DROP)
-    run_clickhouse_statement_in_parallel(SECOND_BATCH_OF_TABLES_TO_CREATE_DROP)
 
 
 def reset_clickhouse_tables():
     # Reset clickhouse tables to default before running test
     # Mostly so that test runs locally work correctly
     from ee.clickhouse.sql.groups import TRUNCATE_GROUPS_TABLE_SQL
-    from posthog.clickhouse.dead_letter_queue import (
-        TRUNCATE_DEAD_LETTER_QUEUE_TABLE_MV_SQL,
-        TRUNCATE_DEAD_LETTER_QUEUE_TABLE_SQL,
-    )
+    from posthog.clickhouse.dead_letter_queue import TRUNCATE_DEAD_LETTER_QUEUE_TABLE_SQL
     from posthog.clickhouse.plugin_log_entries import TRUNCATE_PLUGIN_LOG_ENTRIES_TABLE_SQL
     from posthog.models.cohort.sql import TRUNCATE_COHORTPEOPLE_TABLE_SQL
     from posthog.models.event.sql import TRUNCATE_EVENTS_TABLE_SQL
@@ -93,7 +84,6 @@ def reset_clickhouse_tables():
         TRUNCATE_PLUGIN_LOG_ENTRIES_TABLE_SQL,
         TRUNCATE_COHORTPEOPLE_TABLE_SQL,
         TRUNCATE_DEAD_LETTER_QUEUE_TABLE_SQL,
-        TRUNCATE_DEAD_LETTER_QUEUE_TABLE_MV_SQL,
         TRUNCATE_GROUPS_TABLE_SQL,
     ]
 
