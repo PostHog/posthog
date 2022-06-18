@@ -2,12 +2,18 @@ from django.core.management.base import BaseCommand
 from django.test.runner import DiscoverRunner as TestRunner
 from infi.clickhouse_orm import Database
 
+from posthog.clickhouse.schema import (
+    CREATE_DISTRIBUTED_TABLE_QUERIES,
+    CREATE_KAFKA_TABLE_QUERIES,
+    CREATE_MERGETREE_TABLE_QUERIES,
+    CREATE_MV_TABLE_QUERIES,
+    build_query,
+)
 from posthog.settings import (
     CLICKHOUSE_CLUSTER,
     CLICKHOUSE_DATABASE,
     CLICKHOUSE_HTTP_URL,
     CLICKHOUSE_PASSWORD,
-    CLICKHOUSE_REPLICATION,
     CLICKHOUSE_USER,
     CLICKHOUSE_VERIFY,
     TEST,
@@ -34,4 +40,13 @@ class Command(BaseCommand):
             verify_ssl_cert=CLICKHOUSE_VERIFY,
         )
         database.create_database()
-        database.migrate("ee.clickhouse.migrations", replicated=CLICKHOUSE_REPLICATION)
+        create_clickhouse_schema_in_parallel(CREATE_MERGETREE_TABLE_QUERIES + CREATE_KAFKA_TABLE_QUERIES)
+        create_clickhouse_schema_in_parallel(CREATE_DISTRIBUTED_TABLE_QUERIES)
+        create_clickhouse_schema_in_parallel(CREATE_MV_TABLE_QUERIES)
+
+
+def create_clickhouse_schema_in_parallel(queries):
+    from posthog.test.base import run_clickhouse_statement_in_parallel
+
+    queries = list(map(build_query, queries))
+    run_clickhouse_statement_in_parallel(queries)
