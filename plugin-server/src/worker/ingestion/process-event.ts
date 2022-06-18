@@ -72,7 +72,7 @@ export class EventsProcessor {
 
         let result: PreIngestionEvent | null = null
         try {
-            // We know `sanitizeEvent` has been called here.
+            // We know `normalizeEvent` has been called here.
             const properties: Properties = data.properties!
 
             const team = await this.teamManager.fetchTeam(teamId)
