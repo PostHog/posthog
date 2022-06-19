@@ -12,6 +12,7 @@ from posthog.async_migrations.setup import (
 )
 from posthog.async_migrations.test.util import AsyncMigrationBaseTest
 from posthog.client import query_with_columns, sync_execute
+from posthog.models.async_migration import AsyncMigration, MigrationStatus
 from posthog.models.person import Person
 from posthog.models.person.sql import KAFKA_PERSONS_TABLE_SQL, PERSONS_TABLE_MV_SQL, PERSONS_TABLE_SQL
 from posthog.models.signals import mute_selected_signals
@@ -87,6 +88,7 @@ class Test0005PersonCollapsedByVersion(AsyncMigrationBaseTest, ClickhouseTestMix
             team=self.team, properties={"prop": 2}, version=2, is_identified=True, created_at="2022-02-04T12:00:00Z",
         )
 
+        # Set up some persons out of sync in clickhouse
         with mute_selected_signals():
             p3 = Person.objects.create(
                 team=self.team,
@@ -113,6 +115,16 @@ class Test0005PersonCollapsedByVersion(AsyncMigrationBaseTest, ClickhouseTestMix
         self.assertEqual(len(clickhouse_persons), 4)
         for pg_person, clickhouse_person in zip([p1, p2, p3, p4], clickhouse_persons):
             self.verify_person_matches(pg_person, clickhouse_person)
+
+    def test_rollbacks(self):
+        setup_async_migrations(ignore_posthog_version=True)
+        migration = get_async_migration_definition(MIGRATION_NAME)
+
+        migration.operations[-1].fn = lambda _: 0 / 0  # type: ignore
+
+        migration_successful = start_async_migration(MIGRATION_NAME)
+        self.assertFalse(migration_successful)
+        self.assertEqual(AsyncMigration.objects.get(name=MIGRATION_NAME).status, MigrationStatus.RolledBack)
 
     def verify_table_schema(self):
         table_results = sync_execute(
@@ -162,6 +174,3 @@ class Test0005PersonCollapsedByVersion(AsyncMigrationBaseTest, ClickhouseTestMix
             clickhouse_person["created_at"].strftime("%Y-%m-%d %H:%M:%S"),
         )
         self.assertEqual(clickhouse_person["is_deleted"], 0)
-
-    # :TODO: Test rollbacks
-    # :TODO: Test progress reporting
