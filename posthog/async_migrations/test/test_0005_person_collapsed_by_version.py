@@ -1,13 +1,21 @@
+import json
 import re
 
 import pytest
 from django.conf import settings
 
 from posthog.async_migrations.runner import start_async_migration
-from posthog.async_migrations.setup import get_async_migration_definition, setup_async_migrations
+from posthog.async_migrations.setup import (
+    get_async_migration_definition,
+    reload_migration_definitions,
+    setup_async_migrations,
+)
 from posthog.async_migrations.test.util import AsyncMigrationBaseTest
-from posthog.client import sync_execute
+from posthog.client import query_with_columns, sync_execute
+from posthog.models.person import Person
 from posthog.models.person.sql import KAFKA_PERSONS_TABLE_SQL, PERSONS_TABLE_MV_SQL, PERSONS_TABLE_SQL
+from posthog.models.signals import mute_selected_signals
+from posthog.redis import get_client
 from posthog.test.base import ClickhouseTestMixin
 
 MIGRATION_NAME = "0005_person_collapsed_by_version"
@@ -42,8 +50,12 @@ class Test0005PersonCollapsedByVersion(AsyncMigrationBaseTest, ClickhouseTestMix
         super().tearDown()
 
     def recreate_person_table(self, sql=ORIGINAL_TABLE_SQL):
+        reload_migration_definitions()
+        get_client().delete("posthog.async_migrations.0005.highwatermark")
+
         sync_execute("DROP TABLE IF EXISTS person_backup_0005_person_collapsed_by_version")
         sync_execute("DROP TABLE IF EXISTS person_failed_person_collapsed_by_version")
+        sync_execute("DROP TABLE IF EXISTS tmp_person_mv_0005_person_collapsed_by_version")
         sync_execute("DROP TABLE IF EXISTS person")
         sync_execute("DROP TABLE IF EXISTS person_mv")
         sync_execute("DROP TABLE IF EXISTS kafka_person")
@@ -65,6 +77,42 @@ class Test0005PersonCollapsedByVersion(AsyncMigrationBaseTest, ClickhouseTestMix
         self.assertTrue(migration_successful)
 
         self.verify_table_schema()
+
+    def test_migration_data_copying(self):
+        # Set up some persons both in clickhouse and postgres
+        p1 = Person.objects.create(
+            team=self.team, properties={"prop": 1}, version=1, is_identified=False, created_at="2022-01-04T12:00:00Z",
+        )
+        p2 = Person.objects.create(
+            team=self.team, properties={"prop": 2}, version=2, is_identified=True, created_at="2022-02-04T12:00:00Z",
+        )
+
+        with mute_selected_signals():
+            p3 = Person.objects.create(
+                team=self.team,
+                properties={"prop": 3},
+                version=3,
+                is_identified=False,
+                created_at="2022-03-04T12:00:00Z",
+            )
+            p4 = Person.objects.create(
+                team=self.team,
+                properties={"prop": 4},
+                version=4,
+                is_identified=True,
+                created_at="2022-04-04T12:00:00Z",
+            )
+
+        self.assertEqual(len(self.get_clickhouse_persons()), 2)
+
+        setup_async_migrations(ignore_posthog_version=True)
+        migration_successful = start_async_migration(MIGRATION_NAME, ignore_posthog_version=True)
+        self.assertTrue(migration_successful)
+
+        clickhouse_persons = self.get_clickhouse_persons()
+        self.assertEqual(len(clickhouse_persons), 4)
+        for pg_person, clickhouse_person in zip([p1, p2, p3, p4], clickhouse_persons):
+            self.verify_person_matches(pg_person, clickhouse_person)
 
     def verify_table_schema(self):
         table_results = sync_execute(
@@ -99,3 +147,21 @@ class Test0005PersonCollapsedByVersion(AsyncMigrationBaseTest, ClickhouseTestMix
             create_table_query,
         )
         return create_table_query
+
+    def get_clickhouse_persons(self):
+        return query_with_columns("SELECT * FROM person FINAL ORDER BY version")
+
+    def verify_person_matches(self, pg_person, clickhouse_person):
+        self.assertEqual(pg_person.version, clickhouse_person["version"])
+        self.assertEqual(str(pg_person.uuid), str(clickhouse_person["id"]))
+        self.assertEqual(pg_person.properties, json.loads(clickhouse_person["properties"]))
+        self.assertEqual(pg_person.is_identified, bool(clickhouse_person["is_identified"]))
+        self.assertEqual(pg_person.team_id, clickhouse_person["team_id"])
+        self.assertEqual(
+            pg_person.created_at.strftime("%Y-%m-%d %H:%M:%S"),
+            clickhouse_person["created_at"].strftime("%Y-%m-%d %H:%M:%S"),
+        )
+        self.assertEqual(clickhouse_person["is_deleted"], 0)
+
+    # :TODO: Test rollbacks
+    # :TODO: Test progress reporting

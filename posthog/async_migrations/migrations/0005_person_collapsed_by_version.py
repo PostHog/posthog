@@ -51,7 +51,7 @@ Constraints:
 
 REDIS_HIGHWATERMARK_KEY = "posthog.async_migrations.0005.highwatermark"
 
-TEMPORARY_TABLE_NAME = f"{settings.CLICKHOUSE_DATABASE}.temp_events_0005_person_collapsed_by_version"
+TEMPORARY_TABLE_NAME = f"{settings.CLICKHOUSE_DATABASE}.tmp_person_0005_person_collapsed_by_version"
 TEMPORARY_PERSON_MV = f"{settings.CLICKHOUSE_DATABASE}.tmp_person_mv_0005_person_collapsed_by_version"
 PERSON_TABLE = "person"
 PERSON_TABLE_NAME = f"{settings.CLICKHOUSE_DATABASE}.{PERSON_TABLE}"
@@ -59,7 +59,7 @@ BACKUP_TABLE_NAME = f"{PERSON_TABLE_NAME}_backup_0005_person_collapsed_by_versio
 FAILED_PERSON_TABLE_NAME = f"{PERSON_TABLE_NAME}_failed_person_collapsed_by_version"
 
 PG_COPY_BATCH_SIZE = 1000
-PG_COPY_INSERT_TIMESTAMP = "2020-01-01 00:00:00.000000"
+PG_COPY_INSERT_TIMESTAMP = "2020-01-01 00:00:00"
 
 # :TODO: Move to an util
 def optimize_table_fn(query_id):
@@ -175,17 +175,20 @@ class Migration(AsyncMigrationDefinition):
     def pg_copy_target_person_id(self) -> int:
         # :TRICKY: We calculate the last ID to copy at the start of migration once and cache it.
         #    If the migration gets e.g. restarted, this is recalculated.
-        return Person.objects.latest("id").id
+        try:
+            return Person.objects.latest("id").id
+        except Person.DoesNotExist:
+            return -1
 
     def get_pg_copy_highwatermark(self) -> int:
         highwatermark = get_client().get(REDIS_HIGHWATERMARK_KEY)
-        return highwatermark if highwatermark is not None else 0
+        return int(highwatermark) if highwatermark is not None else 0
 
     def unset_highwatermark(self) -> None:
         get_client().delete(REDIS_HIGHWATERMARK_KEY)
 
     def copy_persons_from_postgres(self, query_id: str):
-        should_continue = False
+        should_continue = True
         while should_continue:
             should_continue = self._copy_batch_from_postgres(query_id)
 
@@ -219,12 +222,12 @@ class Migration(AsyncMigrationDefinition):
         values = []
         params: Dict = {}
         for i, person in enumerate(persons):
-            # :TRICKY: We use a custom timestamp to identify these rows
             created_at = person.created_at.strftime("%Y-%m-%d %H:%M:%S.%f")
+            # :TRICKY: We use a custom _timestamp to identify rows migrated during this migration
             values.append(
                 f"(%(uuid_{i})s, '{created_at}', {person.team_id}, %(properties_{i})s, {'1' if person.is_identified else '0'}, '{PG_COPY_INSERT_TIMESTAMP}', 0, 0, {person.version or 0})"
             )
-            params[f"uuid_{i}"] = person.uuid
+            params[f"uuid_{i}"] = str(person.uuid)
             params[f"properties_{i}"] = json.dumps(person.properties)
 
         return (
