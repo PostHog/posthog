@@ -24,7 +24,7 @@ class TestUtils(AsyncMigrationBaseTest):
     @pytest.mark.ee
     @patch("posthog.client.sync_execute")
     def test_execute_op_clickhouse(self, mock_sync_execute):
-        execute_op(DEFAULT_CH_OP, query_id="some_id")
+        execute_op(DEFAULT_CH_OP, "some_id")
 
         # correctly routes to ch
         mock_sync_execute.assert_called_once_with("/* some_id */ SELECT 1", settings={"max_execution_time": 10})

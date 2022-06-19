@@ -119,7 +119,7 @@ class Migration(AsyncMigrationDefinition):
                         version,
                         _timestamp,
                         _offset
-                    FROM {settings.CLICKHOUSE_DATABASE}.kafka_persons
+                    FROM {settings.CLICKHOUSE_DATABASE}.kafka_person
                 """,
                 rollback=f"DROP TABLE IF EXISTS {TEMPORARY_PERSON_MV} ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'",
             ),
@@ -217,7 +217,7 @@ class Migration(AsyncMigrationDefinition):
 
     def _persons_insert_query(self, persons: List[Person]) -> Tuple[str, Dict]:
         values = []
-        params = {}
+        params: Dict = {}
         for i, person in enumerate(persons):
             # :TRICKY: We use a custom timestamp to identify these rows
             created_at = person.created_at.strftime("%Y-%m-%d %H:%M:%S.%f")
