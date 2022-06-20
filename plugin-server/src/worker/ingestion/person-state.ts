@@ -338,6 +338,7 @@ export class PersonState {
                     this.newUuid,
                     [distinctId, previousDistinctId]
                 )
+                // :KLUDGE: Avoid unneeded fetches in updateProperties()
                 this.person = person
             } catch {
                 // Catch race condition where in between getting and creating,
@@ -431,6 +432,8 @@ export class PersonState {
                     },
                     client
                 )
+
+                // :KLUDGE: Avoid unneeded fetches in updateProperties()
                 this.person = person
 
                 // Merge the distinct IDs
