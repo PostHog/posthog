@@ -37,8 +37,9 @@ class PostHogConfig(AppConfig):
                     {"posthog_version": VERSION, "git_rev": get_git_commit(), "git_branch": get_git_branch(),},
                 )
 
-            if SELF_CAPTURE:
-                posthoganalytics.api_key = get_self_capture_api_token(None)
+            local_api_key = get_self_capture_api_token(None)
+            if SELF_CAPTURE and local_api_key:
+                posthoganalytics.api_key = local_api_key
                 posthoganalytics.host = settings.SITE_URL
             else:
                 posthoganalytics.disabled = True

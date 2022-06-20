@@ -125,6 +125,7 @@ class OrganizationSerializer(serializers.ModelSerializer):
         output["taxonomy_set_properties_count"] = EnterprisePropertyDefinition.objects.exclude(
             description="", tagged_items__isnull=True
         ).count()
+
         return output
 
 

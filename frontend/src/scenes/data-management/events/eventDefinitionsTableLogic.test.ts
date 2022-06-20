@@ -18,7 +18,6 @@ describe('eventDefinitionsTableLogic', () => {
     const startingUrl = `api/projects/${MOCK_TEAM_ID}/event_definitions${
         combineUrl('', {
             limit: EVENT_DEFINITIONS_PER_PAGE,
-            order_ids_first: [],
         }).search
     }`
 
@@ -26,20 +25,6 @@ describe('eventDefinitionsTableLogic', () => {
         useMocks({
             get: {
                 '/api/projects/:team/event_definitions': (req) => {
-                    if (req.url.searchParams.get('order_ids_first')?.includes('uuid-5-foobar')) {
-                        return [
-                            200,
-                            {
-                                results: [
-                                    mockEventDefinitions.find(({ id }) => id === 'uuid-5-foobar'),
-                                    ...mockEventDefinitions.filter(({ id }) => id !== 'uuid-5-foobar'),
-                                ],
-                                count: 50,
-                                previous: null,
-                                next: null,
-                            },
-                        ]
-                    }
                     if (req.url.searchParams.get('limit') === '50' && !req.url.searchParams.get('offset')) {
                         return [
                             200,
