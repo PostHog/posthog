@@ -41,7 +41,7 @@ INSTALLED_APPS = [
     "axes",
     "drf_spectacular",
 ]
-
+DEFAULT_AUTO_FIELD = "django.db.models.AutoField"
 
 MIDDLEWARE = [
     "posthog.gzip_middleware.ScopedGZipMiddleware",
