@@ -3,7 +3,6 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { INSIGHT_TYPES_METADATA } from 'scenes/saved-insights/SavedInsights'
 import React from 'react'
 import { EditorFilterProps } from '~/types'
-import './EFInsightType.scss'
 import { LemonSelect, LemonSelectOptions } from '@posthog/lemon-ui'
 
 const INSIGHT_TYPE_OPTIONS: LemonSelectOptions = Object.entries(INSIGHT_TYPES_METADATA).reduce((acc, [key, meta]) => {
