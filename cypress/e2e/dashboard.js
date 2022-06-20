@@ -55,7 +55,7 @@ describe('Dashboard', () => {
         cy.get('[data-attr=sidebar-pinned-dashboards] div').should('contain', 'App Analytics')
     })
 
-    it.only('Share dashboard', (done) => {
+    it('Share dashboard', (done) => {
         createDashboardFromTemplate('to be shared')
 
         cy.get('.InsightCard').should('exist')
