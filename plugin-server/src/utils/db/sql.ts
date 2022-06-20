@@ -25,38 +25,11 @@ function pluginConfigsInForceQuery(specificField?: keyof PluginConfig): string {
 
 export async function getPluginRows(hub: Hub): Promise<Plugin[]> {
     const { rows }: { rows: Plugin[] } = await hub.db.postgresQuery(
-        // `posthog_plugin` columns have to be listed individually, as we want to exclude the blob `archive` column,
-        // and Postgres unfortunately doesn't have a feature to exclude a single column from *
         `SELECT
-            posthog_plugin.id,
-            posthog_plugin.name,
-            posthog_plugin.description,
-            posthog_plugin.url,
-            posthog_plugin.config_schema,
-            posthog_plugin.tag,
-            posthog_plugin.from_json,
-            posthog_plugin.from_web,
-            posthog_plugin.error,
-            posthog_plugin.plugin_type,
-            posthog_plugin.source,
-            posthog_plugin.organization_id,
-            posthog_plugin.latest_tag,
-            posthog_plugin.latest_tag_checked_at,
-            posthog_plugin.created_at,
-            posthog_plugin.updated_at,
-            posthog_plugin.is_global,
-            posthog_plugin.is_preinstalled,
-            posthog_plugin.capabilities,
-            posthog_plugin.metrics,
-            posthog_plugin.public_jobs,
-            posthog_plugin.is_stateless,
-            posthog_plugin.log_level,
-            psf__plugin_json.source as source__plugin_json,
+            posthog_plugin.*,
             psf__index_ts.source as source__index_ts,
             psf__frontend_tsx.source as source__frontend_tsx
         FROM posthog_plugin
-        LEFT JOIN posthog_pluginsourcefile psf__plugin_json
-            ON (psf__plugin_json.plugin_id = posthog_plugin.id AND psf__plugin_json.filename = 'plugin.json')
         LEFT JOIN posthog_pluginsourcefile psf__index_ts
             ON (psf__index_ts.plugin_id = posthog_plugin.id AND psf__index_ts.filename = 'index.ts')
         LEFT JOIN posthog_pluginsourcefile psf__frontend_tsx

@@ -11,7 +11,7 @@ import {
     commonOrganizationId,
     mockPluginSourceCode,
     mockPluginTempFolder,
-    mockPluginWithSourceFiles,
+    mockPluginWithArchive,
     plugin60,
     pluginAttachment1,
     pluginConfig39,
@@ -26,7 +26,6 @@ jest.mock('../../src/worker/plugins/loadPlugin', () => {
     const { loadPlugin } = jest.requireActual('../../src/worker/plugins/loadPlugin')
     return { loadPlugin: jest.fn().mockImplementation(loadPlugin) }
 })
-jest.setTimeout(20_000)
 
 describe('plugins', () => {
     let hub: Hub
@@ -143,7 +142,7 @@ describe('plugins', () => {
 
     test('plugin returns null', async () => {
         getPluginRows.mockReturnValueOnce([
-            mockPluginWithSourceFiles('function processEvent (event, meta) { return null }'),
+            mockPluginWithArchive('function processEvent (event, meta) { return null }'),
         ])
         getPluginConfigRows.mockReturnValueOnce([pluginConfig39])
         getPluginAttachmentRows.mockReturnValueOnce([])
@@ -158,7 +157,7 @@ describe('plugins', () => {
 
     test('plugin meta has what it should have', async () => {
         getPluginRows.mockReturnValueOnce([
-            mockPluginWithSourceFiles(`
+            mockPluginWithArchive(`
             function setupPlugin (meta) { meta.global.key = 'value' }
             function processEvent (event, meta) { event.properties=meta; return event }
         `),
@@ -195,13 +194,13 @@ describe('plugins', () => {
         expect(returnedEvent!.properties!['global']).toEqual({ key: 'value' })
     })
 
-    test('source files plugin with broken index.js does not do much', async () => {
+    test('archive plugin with broken index.js does not do much', async () => {
         // silence some spam
         console.log = jest.fn()
         console.error = jest.fn()
 
         getPluginRows.mockReturnValueOnce([
-            mockPluginWithSourceFiles(`
+            mockPluginWithArchive(`
             function setupPlugin (met
         `),
         ])
@@ -256,7 +255,7 @@ describe('plugins', () => {
 
     test('plugin changing event.team_id throws error', async () => {
         getPluginRows.mockReturnValueOnce([
-            mockPluginWithSourceFiles(`
+            mockPluginWithArchive(`
             function processEvent (event, meta) {
                 event.team_id = 400
                 return event
@@ -298,7 +297,7 @@ describe('plugins', () => {
         console.error = jest.fn()
 
         getPluginRows.mockReturnValueOnce([
-            mockPluginWithSourceFiles(`
+            mockPluginWithArchive(`
             function processEvent (event) {
                 throw new Error('I always fail!')
             }
@@ -332,7 +331,7 @@ describe('plugins', () => {
         console.error = jest.fn()
 
         getPluginRows.mockReturnValueOnce([
-            mockPluginWithSourceFiles(`
+            mockPluginWithArchive(`
             function processEvent (event) {
                 return event
             }
@@ -366,7 +365,7 @@ describe('plugins', () => {
         console.error = jest.fn()
 
         getPluginRows.mockReturnValueOnce([
-            mockPluginWithSourceFiles(`
+            mockPluginWithArchive(`
             function onEvent (event) {
                 return event
             }
@@ -394,13 +393,13 @@ describe('plugins', () => {
         expect(returnedEvent).toEqual(expectedReturnEvent)
     })
 
-    test('source files plugin with broken plugin.json does not do much', async () => {
+    test('archive plugin with broken plugin.json does not do much', async () => {
         // silence some spam
         console.log = jest.fn()
         console.error = jest.fn()
 
         getPluginRows.mockReturnValueOnce([
-            mockPluginWithSourceFiles(
+            mockPluginWithArchive(
                 `function processEvent (event, meta) { event.properties.processed = true; return event }`,
                 '{ broken: "plugin.json" -=- '
             ),
@@ -446,12 +445,12 @@ describe('plugins', () => {
         unlink()
     })
 
-    test('plugin with http urls must have source files', async () => {
+    test('plugin with http urls must have an archive', async () => {
         // silence some spam
         console.log = jest.fn()
         console.error = jest.fn()
 
-        getPluginRows.mockReturnValueOnce([{ ...plugin60, source__index_ts: undefined }])
+        getPluginRows.mockReturnValueOnce([{ ...plugin60, archive: null, is_global: true }])
         getPluginConfigRows.mockReturnValueOnce([pluginConfig39])
         getPluginAttachmentRows.mockReturnValueOnce([pluginAttachment1])
 
@@ -462,40 +461,46 @@ describe('plugins', () => {
         expect(processError).toHaveBeenCalledWith(
             hub,
             pluginConfigs.get(39)!,
-            `Could not load source code for plugin test-maxmind-plugin ID 60 (organization ID ${commonOrganizationId}). Tried: index.js`
+            `Plugin plugin test-maxmind-plugin ID ${plugin60.id} (organization ID ${commonOrganizationId} - global) is not a local, remote or source plugin. Cannot load.`
+        )
+        expect(await pluginConfigs.get(39)!.vm!.getScheduledTasks()).toEqual({})
+    })
+
+    test("plugin with broken archive doesn't load", async () => {
+        // silence some spam
+        console.log = jest.fn()
+        console.error = jest.fn()
+
+        getPluginRows.mockReturnValueOnce([{ ...plugin60, archive: Buffer.from('this is not a zip') }])
+        getPluginConfigRows.mockReturnValueOnce([pluginConfig39])
+        getPluginAttachmentRows.mockReturnValueOnce([pluginAttachment1])
+
+        await setupPlugins(hub)
+        const { pluginConfigs } = hub
+
+        expect(pluginConfigs.get(39)!.plugin!.url).toContain('https://')
+        expect(processError).toHaveBeenCalledWith(
+            hub,
+            pluginConfigs.get(39)!,
+            Error('Could not read archive as .zip or .tgz')
         )
         expect(await pluginConfigs.get(39)!.vm!.getScheduledTasks()).toEqual({})
     })
 
     test('plugin config order', async () => {
+        hub.db.getPluginSource = (pluginId, filename) =>
+            Promise.resolve(
+                filename === 'index.ts'
+                    ? `function processEvent(event) {
+                         event.properties.plugins = [...(event.properties.plugins || []), ${pluginId}]
+                         return event
+                       }`
+                    : null
+            )
         getPluginRows.mockReturnValueOnce([
-            {
-                ...plugin60,
-                id: 60,
-                plugin_type: 'source',
-                source__index_ts: `function processEvent(event) {
-                event.properties.plugins = [...(event.properties.plugins || []), 60]
-                return event
-              }`,
-            },
-            {
-                ...plugin60,
-                id: 61,
-                plugin_type: 'source',
-                source__index_ts: `function processEvent(event) {
-                event.properties.plugins = [...(event.properties.plugins || []), 61]
-                return event
-              }`,
-            },
-            {
-                ...plugin60,
-                id: 62,
-                plugin_type: 'source',
-                source__index_ts: `function processEvent(event) {
-                event.properties.plugins = [...(event.properties.plugins || []), 62]
-                return event
-              }`,
-            },
+            { ...plugin60, id: 60, plugin_type: 'source', archive: null },
+            { ...plugin60, id: 61, plugin_type: 'source', archive: null },
+            { ...plugin60, id: 62, plugin_type: 'source', archive: null },
         ])
         getPluginAttachmentRows.mockReturnValueOnce([])
         getPluginConfigRows.mockReturnValueOnce([
@@ -522,9 +527,9 @@ describe('plugins', () => {
         expect(returnedEvent2!.properties!.plugins).toEqual([61, 60, 62])
     })
 
-    test('plugin with source files loads capabilities', async () => {
+    test('plugin with archive loads capabilities', async () => {
         getPluginRows.mockReturnValueOnce([
-            mockPluginWithSourceFiles(`
+            mockPluginWithArchive(`
             function setupPlugin (meta) { meta.global.key = 'value' }
             function processEvent (event, meta) { event.properties={"x": 1}; return event }
         `),
@@ -545,9 +550,9 @@ describe('plugins', () => {
         expect(pluginConfig.plugin!.capabilities!.scheduled_tasks).toHaveLength(0)
     })
 
-    test('plugin with source files loads all capabilities, no random caps', async () => {
+    test('plugin with archive loads all capabilities, no random caps', async () => {
         getPluginRows.mockReturnValueOnce([
-            mockPluginWithSourceFiles(`
+            mockPluginWithArchive(`
             export function processEvent (event, meta) { event.properties={"x": 1}; return event }
             export function randomFunction (event, meta) { return event}
             export function onEvent (event, meta) { return event }
@@ -602,17 +607,15 @@ describe('plugins', () => {
     })
 
     test('plugin with source code loads capabilities', async () => {
-        getPluginRows.mockReturnValueOnce([
-            {
-                ...mockPluginSourceCode(),
-                source__index_ts: `
+        const source_code = `
         function processEvent (event, meta) { event.properties={"x": 1}; return event }
         function randomFunction (event, meta) { return event}
-        function onSnapshot (event, meta) { return event }`,
-            },
-        ])
+        function onSnapshot (event, meta) { return event }
+    `
+        getPluginRows.mockReturnValueOnce([mockPluginSourceCode()])
         getPluginConfigRows.mockReturnValueOnce([pluginConfig39])
         getPluginAttachmentRows.mockReturnValueOnce([pluginAttachment1])
+        hub.db.getPluginSource = (_, filename) => Promise.resolve(filename === 'index.ts' ? source_code : null)
 
         await setupPlugins(hub)
         const { pluginConfigs } = hub
@@ -628,9 +631,9 @@ describe('plugins', () => {
     })
 
     test('plugin with frontend source transpiles it', async () => {
-        getPluginRows.mockReturnValueOnce([
-            { ...mockPluginSourceCode(), source__frontend_tsx: `export const scene = {}` },
-        ])
+        const source_frontend = `export const scene = {}`
+        hub.db.getPluginSource = (_, filename) => Promise.resolve(filename === 'frontend.tsx' ? source_frontend : null)
+        getPluginRows.mockReturnValueOnce([mockPluginSourceCode()])
         getPluginConfigRows.mockReturnValueOnce([pluginConfig39])
         getPluginAttachmentRows.mockReturnValueOnce([pluginAttachment1])
         await setupPlugins(hub)
@@ -653,9 +656,9 @@ exports.scene = scene;; return exports; }`)
     })
 
     test('plugin with frontend source with error', async () => {
-        getPluginRows.mockReturnValueOnce([
-            { ...mockPluginSourceCode(), source__frontend_tsx: `export const scene = {}/` },
-        ])
+        const source_frontend = `export const scene = {}/`
+        hub.db.getPluginSource = (_, filename) => Promise.resolve(filename === 'frontend.tsx' ? source_frontend : null)
+        getPluginRows.mockReturnValueOnce([mockPluginSourceCode()])
         getPluginConfigRows.mockReturnValueOnce([pluginConfig39])
         getPluginAttachmentRows.mockReturnValueOnce([pluginAttachment1])
         await setupPlugins(hub)
@@ -673,13 +676,11 @@ exports.scene = scene;; return exports; }`)
     })
 
     test('getTranspilationLock returns just once', async () => {
-        getPluginRows.mockReturnValueOnce([
-            {
-                ...mockPluginSourceCode(),
-                source__index_ts: `function processEvent (event, meta) { event.properties={"x": 1}; return event }`,
-                source__frontend_tsx: `export const scene = {}`,
-            },
-        ])
+        const source = `function processEvent (event, meta) { event.properties={"x": 1}; return event }`
+        const source_frontend = `export const scene = {}`
+        hub.db.getPluginSource = (_, filename) =>
+            Promise.resolve(filename === 'index.ts' ? source : filename === 'frontend.tsx' ? source_frontend : null)
+        getPluginRows.mockReturnValueOnce([mockPluginSourceCode()])
         getPluginConfigRows.mockReturnValueOnce([pluginConfig39])
         getPluginAttachmentRows.mockReturnValueOnce([pluginAttachment1])
 
@@ -713,6 +714,7 @@ exports.scene = scene;; return exports; }`)
             ...plugin60,
             id,
             plugin_type: 'source',
+            archive: null,
             source: setOrderCode(60),
             updated_at,
         })
@@ -814,7 +816,7 @@ exports.scene = scene;; return exports; }`)
 
     test.skip('exportEvents automatically sets metrics', async () => {
         getPluginRows.mockReturnValueOnce([
-            mockPluginWithSourceFiles(`
+            mockPluginWithArchive(`
             export function exportEvents() {}
         `),
         ])

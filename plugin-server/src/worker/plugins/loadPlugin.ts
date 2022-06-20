@@ -1,23 +1,14 @@
 import * as fs from 'fs'
 import * as path from 'path'
 
-import { Hub, Plugin, PluginConfig, PluginJsonConfig } from '../../types'
+import { Hub, PluginConfig, PluginJsonConfig } from '../../types'
 import { processError } from '../../utils/db/error'
 import { status } from '../../utils/status'
-import { pluginDigest } from '../../utils/utils'
+import { getFileFromArchive, pluginDigest } from '../../utils/utils'
 import { transpileFrontend } from '../frontend/transpile'
-
-function readFileIfExists(baseDir: string, plugin: Plugin, file: string): string | null {
-    const fullPath = path.resolve(baseDir, plugin.url!.substring(5), file)
-    if (fs.existsSync(fullPath)) {
-        return fs.readFileSync(fullPath).toString()
-    }
-    return null
-}
 
 export async function loadPlugin(hub: Hub, pluginConfig: PluginConfig): Promise<boolean> {
     const { plugin } = pluginConfig
-    const isLocalPlugin = plugin?.plugin_type === 'local'
 
     if (!plugin) {
         pluginConfig.vm?.failInitialization!()
@@ -25,10 +16,37 @@ export async function loadPlugin(hub: Hub, pluginConfig: PluginConfig): Promise<
     }
 
     try {
+        let getFile: (file: string) => Promise<string | null> = () => Promise.resolve(null)
+        if (plugin.url?.startsWith('file:')) {
+            const pluginPath = path.resolve(hub.BASE_DIR, plugin.url.substring(5))
+            getFile = (file) => {
+                const fullPath = path.resolve(pluginPath, file)
+                return Promise.resolve(fs.existsSync(fullPath) ? fs.readFileSync(fullPath).toString() : null)
+            }
+        } else if (plugin.archive) {
+            const archive = Buffer.from(plugin.archive)
+            getFile = (file) => getFileFromArchive(archive, file)
+        } else if (plugin.plugin_type === 'source') {
+            getFile = async (file) => {
+                if (file === 'index.ts' && plugin.source__index_ts) {
+                    return plugin.source__index_ts
+                } else if (file === 'frontend.tsx' && plugin.source__frontend_tsx) {
+                    return plugin.source__frontend_tsx
+                }
+                return await hub.db.getPluginSource(plugin.id, file)
+            }
+        } else {
+            pluginConfig.vm?.failInitialization!()
+            await processError(
+                hub,
+                pluginConfig,
+                `Plugin ${pluginDigest(plugin)} is not a local, remote or source plugin. Cannot load.`
+            )
+            return false
+        }
+
         // load config json
-        const configJson = isLocalPlugin
-            ? readFileIfExists(hub.BASE_DIR, plugin, 'plugin.json')
-            : plugin.source__plugin_json
+        const configJson: string | null = await getFile('plugin.json')
         let config: PluginJsonConfig = {}
         if (configJson) {
             try {
@@ -42,9 +60,7 @@ export async function loadPlugin(hub: Hub, pluginConfig: PluginConfig): Promise<
 
         // transpile "frontend" app if needed
         const frontendFilename = 'frontend.tsx'
-        const pluginFrontend = isLocalPlugin
-            ? readFileIfExists(hub.BASE_DIR, plugin, frontendFilename)
-            : plugin.source__frontend_tsx
+        const pluginFrontend = await getFile(frontendFilename)
         if (pluginFrontend) {
             if (await hub.db.getPluginTranspilationLock(plugin.id, frontendFilename)) {
                 status.info('🔌', `Transpiling ${pluginDigest(plugin)}`)
@@ -72,12 +88,9 @@ export async function loadPlugin(hub: Hub, pluginConfig: PluginConfig): Promise<
         }
 
         // setup "backend" app
-        const pluginSource = isLocalPlugin
-            ? config['main']
-                ? readFileIfExists(hub.BASE_DIR, plugin, config['main'])
-                : readFileIfExists(hub.BASE_DIR, plugin, 'index.js') ||
-                  readFileIfExists(hub.BASE_DIR, plugin, 'index.ts')
-            : plugin.source__index_ts
+        const pluginSource = config['main']
+            ? await getFile(config['main'])
+            : (await getFile('index.ts')) || (await getFile('index.js'))
         if (pluginSource) {
             void pluginConfig.vm?.initialize!(pluginSource, pluginDigest(plugin))
             return true
