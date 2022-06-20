@@ -315,7 +315,7 @@ describe('hooks', () => {
                 properties: { foo: 'bar' },
                 team_id: 1,
                 id: 1,
-                created_at: DateTime.fromISO(now),
+                created_at: DateTime.fromISO(now).toUTC(),
             }
             await hookCommander.postRestHook(hook, { event: 'foo' } as any, person)
             expect(fetch).toHaveBeenCalledWith('foo.bar', {
