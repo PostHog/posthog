@@ -224,12 +224,10 @@ export class EventsProcessor {
 
         const groupProperties = await this.db.getGroupProperties(teamId, this.getGroupIdentifiers(properties))
 
-        let eventPersonUuid: string | null = null
         let eventPersonProperties: string | null = null
         let personInfo = preIngestionEvent.person
 
         if (personInfo) {
-            eventPersonUuid = personInfo.uuid
             eventPersonProperties = JSON.stringify(personInfo.properties)
         } else {
             personInfo = await this.db.getPersonData(teamId, distinctId)
@@ -260,7 +258,7 @@ export class EventsProcessor {
             : Buffer.from(
                   JSON.stringify({
                       ...eventPayload,
-                      person_id: eventPersonUuid,
+                      person_id: personInfo?.uuid,
                       person_properties: eventPersonProperties,
                       ...groupProperties,
                   })
