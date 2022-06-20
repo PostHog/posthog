@@ -6,6 +6,8 @@ import { useMocks } from '~/mocks/jest'
 import { urls } from 'scenes/urls'
 
 describe('the authorized urls logic', () => {
+    let logic: ReturnType<typeof authorizedUrlsLogic.build>
+
     beforeEach(() => {
         useMocks({
             get: {
@@ -18,6 +20,8 @@ describe('the authorized urls logic', () => {
             },
         })
         initKeaTests()
+        logic = authorizedUrlsLogic()
+        logic.mount()
     })
 
     it('encodes an app url correctly', () => {
@@ -28,15 +32,11 @@ describe('the authorized urls logic', () => {
 
     it('can be launched with adding a new URL focussed', async () => {
         router.actions.push(`${urls.toolbarLaunch()}?addNew=true`)
-        const logic = authorizedUrlsLogic()
-        logic.mount()
         await expectLogic(logic).toDispatchActions(['newUrl'])
     })
 
     it('can be launchd without focussing adding new URL', async () => {
         router.actions.push(urls.toolbarLaunch())
-        const logic = authorizedUrlsLogic()
-        logic.mount()
         await expectLogic(logic).toNotHaveDispatchedActions(['newUrl'])
     })
 })
