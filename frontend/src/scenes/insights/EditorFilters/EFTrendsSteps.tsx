@@ -7,11 +7,31 @@ import { alphabet } from 'lib/utils'
 import { MathAvailability } from 'scenes/insights/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import React from 'react'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 export function EFTrendsSteps({ insightProps }: EditorFilterProps): JSX.Element {
     const { setFilters } = useActions(trendsLogic(insightProps))
     const { filters } = useValues(trendsLogic(insightProps))
     const { groupsTaxonomicTypes } = useValues(groupsModel)
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    const propertiesTaxonomicGroupTypes = featureFlags[FEATURE_FLAGS.SESSION_ANALYSIS]
+        ? [
+              TaxonomicFilterGroupType.EventProperties,
+              TaxonomicFilterGroupType.PersonProperties,
+              TaxonomicFilterGroupType.Sessions,
+              ...groupsTaxonomicTypes,
+              TaxonomicFilterGroupType.Cohorts,
+              TaxonomicFilterGroupType.Elements,
+          ]
+        : [
+              TaxonomicFilterGroupType.EventProperties,
+              TaxonomicFilterGroupType.PersonProperties,
+              ...groupsTaxonomicTypes,
+              TaxonomicFilterGroupType.Cohorts,
+              TaxonomicFilterGroupType.Elements,
+          ]
 
     return (
         <>
@@ -40,13 +60,7 @@ export function EFTrendsSteps({ insightProps }: EditorFilterProps): JSX.Element 
                         ? MathAvailability.ActorsOnly
                         : MathAvailability.All
                 }
-                propertiesTaxonomicGroupTypes={[
-                    TaxonomicFilterGroupType.EventProperties,
-                    TaxonomicFilterGroupType.PersonProperties,
-                    ...groupsTaxonomicTypes,
-                    TaxonomicFilterGroupType.Cohorts,
-                    TaxonomicFilterGroupType.Elements,
-                ]}
+                propertiesTaxonomicGroupTypes={propertiesTaxonomicGroupTypes}
             />
         </>
     )
