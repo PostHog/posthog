@@ -143,7 +143,7 @@ function Pages(): JSX.Element {
                                 onClickOutside: () => setArePinnedDashboardsShown(false),
                                 onClickInside: hideSideBarMobile,
                                 overlay: (
-                                    <div className="SideBar__side-actions">
+                                    <div className="SideBar__side-actions" data-attr="sidebar-pinned-dashboards">
                                         <h5>Pinned dashboards</h5>
                                         <LemonDivider />
                                         {pinnedDashboards.length > 0 ? (
