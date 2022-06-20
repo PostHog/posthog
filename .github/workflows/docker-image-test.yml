@@ -27,6 +27,7 @@ jobs:
               uses: docker/build-push-action@v2
               with:
                   push: false
+                  load: true
                   tags: posthog/posthog:testing
 
             - name: Output image info including size
