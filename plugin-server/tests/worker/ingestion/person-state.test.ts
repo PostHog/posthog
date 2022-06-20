@@ -1,7 +1,7 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 
-import { Hub } from '../../../src/types'
+import { Hub, IngestionPersonData } from '../../../src/types'
 import { createHub } from '../../../src/utils/db/hub'
 import { UUIDT } from '../../../src/utils/utils'
 import { PersonState } from '../../../src/worker/ingestion/person-state'
@@ -25,6 +25,8 @@ describe('PersonState.update()', () => {
         ;[hub, closeHub] = await createHub({})
         // Avoid collapsing merge tree causing race conditions!
         await hub.db.clickhouseQuery('SYSTEM STOP MERGES')
+
+        jest.spyOn(hub.personManager, 'isNewPerson')
     })
 
     afterEach(async () => {
@@ -32,7 +34,7 @@ describe('PersonState.update()', () => {
         await hub.db.clickhouseQuery('SYSTEM START MERGES')
     })
 
-    function personState(event: Partial<PluginEvent>) {
+    function personState(event: Partial<PluginEvent>, person?: IngestionPersonData) {
         const fullEvent = {
             team_id: 2,
             properties: {},
@@ -46,6 +48,7 @@ describe('PersonState.update()', () => {
             hub.db,
             hub.statsd,
             hub.personManager,
+            person,
             uuid
         )
     }
@@ -55,7 +58,7 @@ describe('PersonState.update()', () => {
         return (await hub.db.clickhouseQuery(query)).data
     }
 
-    it('creates person if theyre new', async () => {
+    it('creates person if they are new', async () => {
         const createdPerson = await personState({ event: '$pageview', distinct_id: 'new-user' }).update()
 
         expect(createdPerson).toEqual(
@@ -112,6 +115,93 @@ describe('PersonState.update()', () => {
         )
     })
 
+    it('updates person properties if needed', async () => {
+        await hub.db.createPerson(timestamp, { b: 3, c: 4 }, {}, {}, 2, null, false, uuid.toString(), ['new-user'])
+
+        const updatedPerson = await personState({
+            event: '$pageview',
+            distinct_id: 'new-user',
+            properties: {
+                $set_once: { c: 3, e: 4 },
+                $set: { b: 4 },
+            },
+        }).update()
+
+        expect(updatedPerson).toEqual(
+            expect.objectContaining({
+                id: expect.any(Number),
+                uuid: uuid.toString(),
+                properties: { b: 4, c: 4, e: 4 },
+                created_at: timestamp,
+                version: 1,
+            })
+        )
+
+        const clickhousePersons = await delayUntilEventIngested(fetchPersonsRows)
+        expect(clickhousePersons.length).toEqual(1)
+        expect(clickhousePersons[0]).toEqual(
+            expect.objectContaining({
+                id: uuid.toString(),
+                properties: JSON.stringify({ b: 4, c: 4, e: 4 }),
+                created_at: '2020-01-01 12:00:05.000',
+                version: 1,
+            })
+        )
+        expect(hub.personManager.isNewPerson).toHaveBeenCalledTimes(1)
+    })
+
+    it('updating with cached person data skips checking if person is new', async () => {
+        const person = await hub.db.createPerson(timestamp, { b: 3, c: 4 }, {}, {}, 2, null, false, uuid.toString(), [
+            'new-user',
+        ])
+
+        const updatedPerson = await personState(
+            {
+                event: '$pageview',
+                distinct_id: 'new-user',
+                properties: {
+                    $set_once: { c: 3, e: 4 },
+                    $set: { b: 4 },
+                },
+            },
+            person
+        ).update()
+
+        expect(updatedPerson).toEqual(
+            expect.objectContaining({
+                id: expect.any(Number),
+                uuid: uuid.toString(),
+                properties: { b: 4, c: 4, e: 4 },
+                created_at: timestamp,
+                version: 1,
+            })
+        )
+        expect(hub.personManager.isNewPerson).toHaveBeenCalledTimes(0)
+    })
+
+    it('does not update person if not needed', async () => {
+        await hub.db.createPerson(timestamp, { b: 3, c: 4 }, {}, {}, 2, null, false, uuid.toString(), ['new-user'])
+
+        const updatedPerson = await personState({
+            event: '$pageview',
+            distinct_id: 'new-user',
+            properties: {
+                $set_once: { c: 3 },
+                $set: { b: 3 },
+            },
+        }).update()
+
+        expect(updatedPerson).toEqual(
+            expect.objectContaining({
+                id: expect.any(Number),
+                uuid: uuid.toString(),
+                properties: { b: 3, c: 4 },
+                created_at: timestamp,
+                version: 0,
+            })
+        )
+    })
+
     // This is a regression test
     it('creates person on $identify event', async () => {
         const createdPerson = await personState({
@@ -142,6 +232,7 @@ describe('PersonState.update()', () => {
                 version: 0,
             })
         )
+        expect(hub.personManager.isNewPerson).toHaveBeenCalledTimes(0)
     })
 
     it('merges people on $identify event', async () => {
@@ -190,6 +281,8 @@ describe('PersonState.update()', () => {
                 }),
             ])
         )
+
+        expect(hub.personManager.isNewPerson).toHaveBeenCalledTimes(0)
     })
 
     it('adds adds new distinct_id and updates is_identified on $identify event', async () => {
