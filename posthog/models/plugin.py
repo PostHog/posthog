@@ -245,12 +245,14 @@ class PluginSourceFileManager(models.Manager):
     def update_or_create_from_plugin_archive(
         self, plugin: Plugin, plugin_json: Optional[Dict[str, Any]] = None
     ) -> Tuple["PluginSourceFile", Optional["PluginSourceFile"], Optional["PluginSourceFile"]]:
-        """Extract plugin.json (if not provided as an arg),  and create PluginSourceFile objects."""
+        """Create PluginSourceFile objects from a plugin that has an archive.
+
+        If plugin.json has already been parsed before this is called, its value can be passed in as an optimization."""
         if plugin.archive is None:
             raise exceptions.ValidationError(
                 f"Could not extract files from plugin {plugin.name} ID {plugin.id} - it has no archive"
             )
-        # Extract plugin.json - required, can be provided to the function as an optimization
+        # Extract plugin.json - required, might be provided already
         if not plugin_json:
             plugin_json = cast(Optional[Dict[str, Any]], get_file_from_archive(plugin.archive, "plugin.json"))
             if not plugin_json:
