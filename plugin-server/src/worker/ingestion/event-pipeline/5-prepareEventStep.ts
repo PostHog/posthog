@@ -1,7 +1,6 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
 import { IngestionEvent, IngestionPersonData } from '../../../types'
-import { normalizeEvent } from '../../../utils/event'
 import { parseEventTimestamp } from '../timestamps'
 import { EventPipelineRunner, StepResult } from './runner'
 
@@ -10,8 +9,7 @@ export async function prepareEventStep(
     event: PluginEvent,
     person: IngestionPersonData | undefined
 ): Promise<StepResult> {
-    // :TRICKY: plugins might have modified the event, so re-sanitize
-    const { ip, site_url, team_id, uuid } = normalizeEvent(event)
+    const { ip, site_url, team_id, uuid } = event
     const preIngestionEvent = await runner.hub.eventsProcessor.processEvent(
         String(event.distinct_id),
         ip,

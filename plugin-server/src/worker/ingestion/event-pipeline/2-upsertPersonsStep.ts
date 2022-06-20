@@ -1,12 +1,12 @@
 import { PluginEvent, Properties } from '@posthog/plugin-scaffold'
 
-import { IngestionPersonData } from '../../../types'
+import { Person } from '../../../types'
 import { PersonState } from '../person-state'
 import { parseEventTimestamp } from '../timestamps'
 import { EventPipelineRunner, StepResult } from './runner'
 
 export interface ForwardedPersonData {
-    person: IngestionPersonData | undefined
+    person: Person | undefined
     personUpdateProperties: {
         $set?: Properties
         $set_once?: Properties
@@ -17,7 +17,7 @@ export interface ForwardedPersonData {
 export async function upsertPersonsStep(
     runner: EventPipelineRunner,
     event: PluginEvent,
-    person: IngestionPersonData | undefined
+    person: Person | undefined
 ): Promise<StepResult> {
     const timestamp = parseEventTimestamp(event, runner.hub.statsd)
 
@@ -31,7 +31,7 @@ export async function upsertPersonsStep(
         runner.hub.personManager,
         person
     )
-    const personInfo: IngestionPersonData | undefined = await personState.update()
+    const personInfo: Person | undefined = await personState.update()
 
     return runner.nextStep('pluginsProcessEventStep', event, {
         person: personInfo,

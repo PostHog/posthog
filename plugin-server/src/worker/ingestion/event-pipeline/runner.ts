@@ -78,7 +78,8 @@ export class EventPipelineRunner {
 
     async runBufferEventPipeline(event: PluginEvent): Promise<EventPipelineResult> {
         this.hub.statsd?.increment('kafka_queue.event_pipeline.start', { pipeline: 'buffer' })
-        const result = await this.runPipeline('upsertPersonsStep', event)
+        const person = await this.hub.db.fetchPerson(event.team_id, event.distinct_id)
+        const result = await this.runPipeline('upsertPersonsStep', event, person)
         this.hub.statsd?.increment('kafka_queue.buffer_event.processed_and_ingested')
         return result
     }

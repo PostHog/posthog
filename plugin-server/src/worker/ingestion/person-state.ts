@@ -6,7 +6,7 @@ import { ProducerRecord } from 'kafkajs'
 import { DateTime } from 'luxon'
 import { DatabaseError } from 'pg'
 
-import { IngestionPersonData, Person, PropertyUpdateOperation } from '../../types'
+import { Person, PropertyUpdateOperation } from '../../types'
 import { DB } from '../../utils/db/db'
 import { timeoutGuard } from '../../utils/db/utils'
 import { status } from '../../utils/status'
@@ -45,7 +45,7 @@ export class PersonState {
     timestamp: DateTime
     newUuid: string
 
-    person: IngestionPersonData | undefined
+    person: Person | undefined
 
     private db: DB
     private statsd: StatsD | undefined
@@ -60,7 +60,7 @@ export class PersonState {
         db: DB,
         statsd: StatsD | undefined,
         personManager: PersonManager,
-        person: IngestionPersonData | undefined = undefined,
+        person: Person | undefined = undefined,
         uuid: UUIDT | undefined = undefined
     ) {
         this.event = event
@@ -83,12 +83,12 @@ export class PersonState {
         this.updateIsIdentified = false
     }
 
-    async update(): Promise<IngestionPersonData | undefined> {
+    async update(): Promise<Person | undefined> {
         await this.handleIdentifyOrAlias()
         return await this.updateProperties()
     }
 
-    async updateProperties(): Promise<IngestionPersonData | undefined> {
+    async updateProperties(): Promise<Person | undefined> {
         let person = this.person
         let personCreated = false
         if (!person) {

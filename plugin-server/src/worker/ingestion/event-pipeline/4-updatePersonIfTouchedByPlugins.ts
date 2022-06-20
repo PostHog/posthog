@@ -1,7 +1,8 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import equal from 'fast-deep-equal'
 
-import { IngestionPersonData } from '../../../types'
+import { Person } from '../../../types'
+import { normalizeEvent } from '../../../utils/event'
 import { PersonState } from '../person-state'
 import { parseEventTimestamp } from '../timestamps'
 import { ForwardedPersonData } from './2-upsertPersonsStep'
@@ -9,10 +10,13 @@ import { EventPipelineRunner, StepResult } from './runner'
 
 export async function updatePersonIfTouchedByPlugins(
     runner: EventPipelineRunner,
-    event: PluginEvent,
+    pluginEvent: PluginEvent,
     forwardedPersonData: ForwardedPersonData
 ): Promise<StepResult> {
-    let person: IngestionPersonData | undefined = forwardedPersonData.person
+    // :TRICKY: plugins might have modified the event, so re-sanitize
+    const event = normalizeEvent(pluginEvent)
+
+    let person: Person | undefined = forwardedPersonData.person
     // :TRICKY: pluginsProcessEventStep might have added/removed $set or $set_once properties.
     if (
         hasPropertyChanged('$set', event, forwardedPersonData) ||
