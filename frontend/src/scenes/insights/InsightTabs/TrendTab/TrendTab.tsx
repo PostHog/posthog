@@ -126,6 +126,7 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
                                     ...groupsTaxonomicTypes,
                                     TaxonomicFilterGroupType.Cohorts,
                                     TaxonomicFilterGroupType.Elements,
+                                    TaxonomicFilterGroupType.Sessions,
                                 ]}
                                 pageKey="trends-filters"
                                 eventNames={allEventNames}
