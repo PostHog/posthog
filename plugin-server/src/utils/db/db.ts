@@ -615,7 +615,7 @@ export class DB {
             return {
                 team_id: teamId,
                 uuid: personUuid,
-                created_at: DateTime.fromISO(personCreatedAtIso),
+                created_at: DateTime.fromISO(personCreatedAtIso).toUTC(),
                 properties: personProperties,
                 id: personId,
             }
@@ -786,7 +786,7 @@ export class DB {
             const rawPerson: RawPerson = selectResult.rows[0]
             return {
                 ...rawPerson,
-                created_at: DateTime.fromISO(rawPerson.created_at),
+                created_at: DateTime.fromISO(rawPerson.created_at).toUTC(),
                 version: Number(rawPerson.version || 0),
             }
         }
