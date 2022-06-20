@@ -1,16 +1,14 @@
 from typing import Any
+
 from rest_framework import mixins, serializers, viewsets
 from rest_framework.authentication import BasicAuthentication, SessionAuthentication
+from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import IsAuthenticated
-from rest_framework.decorators import action
-from rest_framework.request import Request
-from rest_framework.response import Response
 
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.auth import PersonalAPIKeyAuthentication
-from posthog.models.instance_setting import get_instance_setting
-from posthog.models.integration import Integration
+from posthog.models.integration import Integration, SlackIntegration
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 
 
@@ -32,13 +30,14 @@ class IntegrationSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "created_at", "created_by", "errors"]
 
     def create(self, validated_data: Any) -> Any:
-        print(validated_data)
+        team_id = self.context["team_id"]
 
-        raise Exception("NOT ALLOWED")
+        if validated_data["kind"] == "slack":
+            instance = SlackIntegration.integration_from_slack_response(team_id, validated_data["config"])
 
-        instance = super().create(validated_data)
+            return instance
 
-        return instance
+        raise ValidationError("Kind not supported")
 
 
 class IntegrationViewSet(
