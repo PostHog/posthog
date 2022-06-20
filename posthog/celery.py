@@ -10,6 +10,7 @@ from django.db import connection
 from django.utils import timezone
 
 from posthog.redis import get_client
+from posthog.settings.ee import EE_AVAILABLE
 from posthog.utils import get_crontab
 
 # set the default Django settings module for the 'celery' program.
@@ -100,7 +101,9 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
         crontab(hour=0, minute=randrange(0, 40)), clickhouse_send_license_usage.s()
     )  # every day at a random minute past midnight. Randomize to avoid overloading license.posthog.com
 
-    materialize_columns_crontab = get_crontab(settings.MATERIALIZE_COLUMNS_SCHEDULE_CRON)
+    if EE_AVAILABLE:
+        materialize_columns_crontab = get_crontab(settings.MATERIALIZE_COLUMNS_SCHEDULE_CRON)
+
     if materialize_columns_crontab:
         sender.add_periodic_task(
             materialize_columns_crontab, clickhouse_materialize_columns.s(), name="clickhouse materialize columns",
