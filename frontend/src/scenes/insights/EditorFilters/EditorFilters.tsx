@@ -31,7 +31,7 @@ import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { EFPathsAdvancedPaywall } from './EFPathsAdvancedPaywall'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { EFInsightTypeHorizontal } from './EFInsightType'
+import { EFInsightType } from './EFInsightType'
 
 export interface EditorFiltersProps {
     insightProps: InsightLogicProps
@@ -75,7 +75,7 @@ export function EditorFilters({ insightProps }: EditorFiltersProps): JSX.Element
                 {
                     key: 'insight',
                     label: 'Type',
-                    component: EFInsightTypeHorizontal,
+                    component: EFInsightType,
                 },
                 isRetention && {
                     key: 'retention-summary',
