@@ -24,6 +24,8 @@ export interface PopupProps {
     actionable?: boolean
     /** Whether the popover's width should be synced with the children's width. */
     sameWidth?: boolean
+    maxWindowDimensions?: boolean
+    maxContentWidth?: boolean
     className?: string
     modifier?: Record<string, any>
 }
@@ -70,6 +72,8 @@ export function Popup({
     className,
     actionable = false,
     sameWidth = false,
+    maxContentWidth = false,
+    maxWindowDimensions = false,
     modifier = {},
 }: PopupProps): JSX.Element {
     const [referenceElement, setReferenceElement] = useState<HTMLDivElement | null>(null)
@@ -88,7 +92,7 @@ export function Popup({
                     offset: [0, 4],
                 },
             },
-            maxSizeModifier,
+            maxWindowDimensions ? maxSizeModifier : {},
             fallbackPlacements
                 ? {
                       name: 'flip',
@@ -139,7 +143,12 @@ export function Popup({
             {ReactDOM.createPortal(
                 <CSSTransition in={visible} timeout={100} classNames="Popup-" mountOnEnter unmountOnExit>
                     <div
-                        className={clsx('Popup', actionable && 'Popup--actionable', className)}
+                        className={clsx(
+                            'Popup',
+                            actionable && 'Popup--actionable',
+                            maxContentWidth && 'Popup--max-content-width',
+                            className
+                        )}
                         ref={setPopperElement}
                         style={styles.popper}
                         onClick={onClickInside}

@@ -887,7 +887,10 @@ export const renderField: Record<FilterType, (props: CohortFieldProps) => JSX.El
         )
     },
     [FilterType.PersonPropertyValues]: function _renderField(p) {
-        return (
+        return p.criteria['operator'] === PropertyOperator.IsSet ||
+            p.criteria['operator'] === PropertyOperator.IsNotSet ? (
+            <></>
+        ) : (
             <CohortPersonPropertiesValuesField
                 {...(p as CohortPersonPropertiesValuesFieldProps)}
                 propertyKey={p.criteria.key}

@@ -74,11 +74,10 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
     props({} as EventDefinitionsTableLogicProps),
     key((props) => props.key || 'scene'),
     actions({
-        loadEventDefinitions: (url: string | null = '', orderIdsFirst: string[] = []) => ({ url, orderIdsFirst }),
+        loadEventDefinitions: (url: string | null = '') => ({ url }),
         loadEventExample: (definition: EventDefinition) => ({ definition }),
         loadPropertiesForEvent: (definition: EventDefinition, url: string | null = '') => ({ definition, url }),
         setFilters: (filters: Partial<Filters>) => ({ filters }),
-        setOpenedDefinition: (id: string | null) => ({ id }),
         setLocalEventDefinition: (definition: EventDefinition) => ({ definition }),
         setLocalPropertyDefinition: (event: EventDefinition, definition: PropertyDefinition) => ({ event, definition }),
         setEventDefinitionPropertiesLoading: (ids: string[]) => ({ ids }),
@@ -92,12 +91,6 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
                     ...filters,
                     properties: convertPropertyGroupToProperties(filters.properties) ?? [],
                 }),
-            },
-        ],
-        openedDefinitionId: [
-            null as string | null,
-            {
-                setOpenedDefinition: (_, { id }) => id,
             },
         ],
         eventDefinitionPropertiesLoading: [
@@ -117,15 +110,13 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
                 results: [],
             } as EventDefinitionsPaginatedResponse,
             {
-                loadEventDefinitions: async ({ url, orderIdsFirst }, breakpoint) => {
+                loadEventDefinitions: async ({ url }, breakpoint) => {
                     if (url && url in (cache.apiCache ?? {})) {
                         return cache.apiCache[url]
                     }
 
                     if (!url) {
-                        url = api.eventDefinitions.determineListEndpoint({
-                            order_ids_first: orderIdsFirst,
-                        })
+                        url = api.eventDefinitions.determineListEndpoint({})
                     }
                     await breakpoint(200)
                     cache.eventsStartTime = performance.now()
