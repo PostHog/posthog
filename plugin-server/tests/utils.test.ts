@@ -16,7 +16,6 @@ import {
     UUID,
     UUIDT,
 } from '../src/utils/utils'
-import { parseDate } from '../src/worker/ingestion/utils'
 
 // .zip in Base64: github repo posthog/helloworldplugin
 const zip =
@@ -372,32 +371,6 @@ describe('utils', () => {
         it('transforms object values into strings', () => {
             expect(stringify({})).toStrictEqual('{}')
             expect(stringify([])).toStrictEqual('[]')
-        })
-    })
-
-    describe('parseDate', () => {
-        const timestamps = [
-            '2021-10-29',
-            '2021-10-29 00:00:00',
-            '2021-10-29 00:00:00.000000',
-            '2021-10-29T00:00:00.000Z',
-            '2021-10-29 00:00:00+00:00',
-            '2021-10-29T00:00:00.000-00:00',
-            '2021-10-29T00:00:00.000',
-            '2021-10-29T00:00:00.000+00:00',
-            '2021-W43-5',
-            '2021-302',
-        ]
-
-        test.each(timestamps)('parses %s', (timestamp) => {
-            const parsedTimestamp = parseDate(timestamp)
-            expect(parsedTimestamp.year).toBe(2021)
-            expect(parsedTimestamp.month).toBe(10)
-            expect(parsedTimestamp.day).toBe(29)
-            expect(parsedTimestamp.hour).toBe(0)
-            expect(parsedTimestamp.minute).toBe(0)
-            expect(parsedTimestamp.second).toBe(0)
-            expect(parsedTimestamp.millisecond).toBe(0)
         })
     })
 
