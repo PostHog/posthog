@@ -286,7 +286,7 @@ export class PersonState {
         }
 
         const oldPerson = await this.db.fetchPerson(teamId, previousDistinctId)
-        const newPerson = await this.db.fetchPerson(teamId, distinctId)
+        const newPerson = this.person || (await this.db.fetchPerson(teamId, distinctId))
 
         if (oldPerson && !newPerson) {
             try {
