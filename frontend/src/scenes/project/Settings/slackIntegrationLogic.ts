@@ -2,7 +2,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 import { kea, path, listeners, selectors, connect, afterMount, actions } from 'kea'
 import { loaders } from 'kea-loaders'
 import { urlToAction } from 'kea-router'
-import { toast } from 'react-toastify'
+import api from 'lib/api'
 import { systemStatusLogic } from 'scenes/instance/SystemStatus/systemStatusLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
@@ -65,12 +65,16 @@ export const slackIntegrationLogic = kea<slackIntegrationLogicType>([
         ],
     })),
     listeners(() => ({
-        handleRedirect: ({ kind, searchParams }) => {
+        handleRedirect: async ({ kind, searchParams }) => {
             switch (kind) {
                 case 'slack':
                     const { state, code } = searchParams
 
-                    console.log({ state, code })
+                    const res = await api.integrations.create({
+                        kind: 'slack',
+                        config: { state, code },
+                    })
+                    console.log(res, { state, code })
 
                     lemonToast.success(`Will redirect!`)
                     return
@@ -85,7 +89,7 @@ export const slackIntegrationLogic = kea<slackIntegrationLogicType>([
     }),
 
     urlToAction(({ actions }) => ({
-        '/integrations/:kind/redirect': ({ kind }, searchParams) => {
+        '/integrations/:kind/redirect': ({ kind = '' }, searchParams) => {
             actions.handleRedirect(kind, searchParams)
         },
     })),

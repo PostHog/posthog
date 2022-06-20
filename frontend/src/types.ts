@@ -1924,3 +1924,11 @@ export interface ChangeDescriptions {
     // e.g. should description say "did deletion _to_ Y" or "deleted Y"
     bareName: boolean
 }
+
+export interface IntegrationType {
+    id: number
+    kind: 'slack'
+    config: any
+    created_by?: UserBasicType | null
+    created_at: string
+}

@@ -10,6 +10,7 @@ import {
     EventType,
     FeatureFlagType,
     FilterType,
+    IntegrationType,
     LicenseType,
     PluginLogEntry,
     PropertyDefinition,
@@ -260,6 +261,15 @@ class ApiRequest {
 
     public subscription(id: SubscriptionType['id'], teamId?: TeamType['id']): ApiRequest {
         return this.subscriptions(teamId).addPathComponent(id)
+    }
+
+    // # Integrations
+    public integrations(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('integrations')
+    }
+
+    public integration(id: IntegrationType['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.integrations(teamId).addPathComponent(id)
     }
 
     // Request finalization
@@ -659,6 +669,21 @@ const api = {
         },
         determineDeleteEndpoint(): string {
             return new ApiRequest().subscriptions().assembleEndpointUrl()
+        },
+    },
+
+    integrations: {
+        async get(id: IntegrationType['id']): Promise<IntegrationType> {
+            return await new ApiRequest().integration(id).get()
+        },
+        async create(data: Partial<IntegrationType>): Promise<IntegrationType> {
+            return await new ApiRequest().integrations().create({ data })
+        },
+        async delete(integrationId: IntegrationType['id']): Promise<IntegrationType> {
+            return await new ApiRequest().integration(integrationId).delete()
+        },
+        async list(): Promise<PaginatedResponse<IntegrationType>> {
+            return await new ApiRequest().integrations().get()
         },
     },
 

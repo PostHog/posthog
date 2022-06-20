@@ -31,9 +31,22 @@ class IntegrationSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ["id", "created_at", "created_by", "errors"]
 
+    def create(self, validated_data: Any) -> Any:
+        print(validated_data)
+
+        raise Exception("NOT ALLOWED")
+
+        instance = super().create(validated_data)
+
+        return instance
+
 
 class IntegrationViewSet(
-    mixins.RetrieveModelMixin, mixins.ListModelMixin, StructuredViewSetMixin, viewsets.GenericViewSet
+    mixins.CreateModelMixin,
+    mixins.RetrieveModelMixin,
+    mixins.ListModelMixin,
+    StructuredViewSetMixin,
+    viewsets.GenericViewSet,
 ):
     queryset = Integration.objects.all()
     serializer_class = IntegrationSerializer
