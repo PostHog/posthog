@@ -56,8 +56,9 @@ describe('PersonState.update()', () => {
     }
 
     it('creates person if theyre new', async () => {
-        const createdPerson = await personState({ event: '$pageview', distinct_id: 'new-user' }).update()
+        await personState({ event: '$pageview', distinct_id: 'new-user' }).update()
 
+        const createdPerson = await hub.db.fetchPerson(2, 'new-user')
         expect(createdPerson).toEqual(
             expect.objectContaining({
                 id: expect.any(Number),
@@ -81,7 +82,7 @@ describe('PersonState.update()', () => {
     })
 
     it('creates person with properties', async () => {
-        const createdPerson = await personState({
+        await personState({
             event: '$pageview',
             distinct_id: 'new-user',
             properties: {
@@ -90,6 +91,7 @@ describe('PersonState.update()', () => {
             },
         }).update()
 
+        const createdPerson = await hub.db.fetchPerson(2, 'new-user')
         expect(createdPerson).toEqual(
             expect.objectContaining({
                 id: expect.any(Number),
@@ -145,7 +147,7 @@ describe('PersonState.update()', () => {
 
     // This is a regression test
     it('creates person on $identify event', async () => {
-        const createdPerson = await personState({
+        await personState({
             event: '$identify',
             distinct_id: 'new-user',
             properties: {
@@ -154,6 +156,7 @@ describe('PersonState.update()', () => {
             },
         }).update()
 
+        const createdPerson = await hub.db.fetchPerson(2, 'new-user')
         expect(createdPerson).toEqual(
             expect.objectContaining({
                 id: expect.any(Number),
