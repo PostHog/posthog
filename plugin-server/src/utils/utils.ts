@@ -1,5 +1,4 @@
 import Piscina from '@posthog/piscina'
-import { PluginEvent } from '@posthog/plugin-scaffold'
 import * as Sentry from '@sentry/node'
 import { randomBytes } from 'crypto'
 import Redis, { RedisOptions } from 'ioredis'
@@ -398,11 +397,6 @@ export function createPostgresPool(
     pgPool.on('error', handleError)
 
     return pgPool
-}
-
-export function sanitizeEvent(event: PluginEvent): PluginEvent {
-    event.distinct_id = event.distinct_id?.toString()
-    return event
 }
 
 export function getPiscinaStats(piscina: Piscina): Record<string, number> {
