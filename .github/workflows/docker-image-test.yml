@@ -31,7 +31,7 @@ jobs:
 
             - name: Output image info including size
               run: |
-                  echo ${{steps.docker_build.outputs.metadata}}
+                  echo "imageid from build is '${{steps.docker_build.outputs.imageid}}'"
                   image_size_bytes=$(docker image inspect ${{ steps.docker_build.outputs.imageid }} | jq -r '.[0].Size')
                   echo "### Build info" >> $GITHUB_STEP_SUMMARY
                   echo "Image size: $(($image_size_bytes/1000000000))GB" >> $GITHUB_STEP_SUMMARY
