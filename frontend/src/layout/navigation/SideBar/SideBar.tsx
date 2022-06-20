@@ -73,7 +73,7 @@ function Pages(): JSX.Element {
                   onClickOutside: () => setIsToolbarLaunchShown(false),
                   onClickInside: hideSideBarMobile,
                   overlay: (
-                      <div className="SideBar__side-actions">
+                      <div className="SideBar__side-actions" data-attr="sidebar-launch-toolbar">
                           <h5>TOOLBAR URLS</h5>
                           <LemonDivider />
                           {appUrls.map((appUrl, index) => (
