@@ -1,4 +1,5 @@
 import posthog from 'posthog-js'
+import { ExportedData } from '~/exporter/types'
 
 declare global {
     interface Window {
@@ -10,5 +11,6 @@ declare global {
         ESBUILD_LOAD_SCRIPT: (name) => void
         ESBUILD_LOAD_CHUNKS: (name) => void
         ESBUILD_LOADED_CHUNKS: Set<string>
+        POSTHOG_EXPORTED_DATA: ExportedData
     }
 }

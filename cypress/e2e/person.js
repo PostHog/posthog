@@ -6,6 +6,7 @@ describe('Person Visualization Check', () => {
         cy.get('[data-attr=persons-search]').type('deb').should('have.value', 'deb')
         cy.get('.ant-input-search-button').click()
         cy.contains('deborah.fernandez@gmail.com').click()
+        cy.wait(1000)
     })
 
     it('Can access person page', () => {
@@ -13,6 +14,12 @@ describe('Person Visualization Check', () => {
         cy.get('[data-row-key="email"] .copy-icon').click()
         cy.get('[role="tab"]').contains('Events').click()
         cy.get('table').contains('Event').should('exist')
+    })
+
+    it.only('Does not show the Person column', () => {
+        cy.get('[role="tab"]').contains('Events').click()
+        cy.get('table').contains('Event').click()
+        cy.get('table').should('not.contain', 'Person')
     })
 })
 

@@ -1,14 +1,14 @@
 from typing import Any, Dict, List, Optional, Tuple, Union, cast
 
 from ee.clickhouse.materialized_columns.columns import ColumnName
-from ee.clickhouse.models.cohort import format_static_cohort_query, get_count_operator, get_entity_query
-from ee.clickhouse.models.property import prop_filter_json_extract
 from posthog.constants import PropertyOperatorType
 from posthog.models import Filter, Team
 from posthog.models.action import Action
 from posthog.models.cohort import Cohort
+from posthog.models.cohort.util import format_static_cohort_query, get_count_operator, get_entity_query
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.property import BehavioralPropertyType, OperatorInterval, Property, PropertyGroup, PropertyName
+from posthog.models.property.util import prop_filter_json_extract
 from posthog.models.utils import PersonPropertiesMode
 from posthog.queries.event_query import EventQuery
 

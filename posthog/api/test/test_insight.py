@@ -5,14 +5,11 @@ from unittest.case import skip
 from unittest.mock import patch
 
 import pytz
-from django.db import DEFAULT_DB_ALIAS, connections
-from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 from freezegun import freeze_time
 from rest_framework import status
 
 from ee.api.test.base import LicensedTestMixin
-from ee.clickhouse.util import ClickhouseTestMixin
 from ee.models import DashboardPrivilege
 from ee.models.explicit_team_membership import ExplicitTeamMembership
 from posthog.models import (
@@ -28,7 +25,8 @@ from posthog.models import (
 )
 from posthog.models.organization import OrganizationMembership
 from posthog.tasks.update_cache import update_insight_cache
-from posthog.test.base import APIBaseTest, QueryMatchingTest, _create_event, _create_person
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest, _create_event, _create_person
+from posthog.test.db_context_capturing import capture_db_queries
 
 
 class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatchingTest):
@@ -288,8 +286,6 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         )
 
     def test_listing_insights_does_not_nplus1(self):
-        db_connection = connections[DEFAULT_DB_ALIAS]
-
         query_counts: List[int] = []
         queries = []
 
@@ -308,7 +304,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
 
             self.assertEqual(Insight.objects.count(), i + 1)
 
-            with CaptureQueriesContext(db_connection) as capture_query_context:
+            with capture_db_queries() as capture_query_context:
                 response = self.client.get(f"/api/projects/{self.team.id}/insights")
                 self.assertEqual(response.status_code, status.HTTP_200_OK)
                 self.assertEqual(len(response.json()["results"]), i + 1)

@@ -1,7 +1,7 @@
 from infi.clickhouse_orm import migrations
 
-from ee.clickhouse.sql.session_recording_events import SESSION_RECORDING_EVENTS_MATERIALIZED_COLUMN_COMMENTS_SQL
 from posthog.client import sync_execute
+from posthog.models.session_recording_event.sql import SESSION_RECORDING_EVENTS_MATERIALIZED_COLUMN_COMMENTS_SQL
 from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_REPLICATION
 
 

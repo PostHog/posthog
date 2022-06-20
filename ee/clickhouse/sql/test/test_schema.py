@@ -2,10 +2,14 @@ import uuid
 
 import pytest
 
-from ee.clickhouse.sql.schema import CREATE_TABLE_QUERIES, KAFKA_EVENTS_TABLE_SQL, build_query, get_table_name
-
-KAFKA_CREATE_TABLE_QUERIES = [query for query in CREATE_TABLE_QUERIES if "Kafka" in build_query(query)]
-MERGE_TREE_TABLE_QUERIES = [query for query in CREATE_TABLE_QUERIES if "MergeTree" in build_query(query)]
+from posthog.clickhouse.schema import (
+    CREATE_KAFKA_TABLE_QUERIES,
+    CREATE_MERGETREE_TABLE_QUERIES,
+    CREATE_TABLE_QUERIES,
+    KAFKA_EVENTS_TABLE_SQL,
+    build_query,
+    get_table_name,
+)
 
 
 @pytest.mark.parametrize("query", CREATE_TABLE_QUERIES, ids=get_table_name)
@@ -15,7 +19,7 @@ def test_create_table_query(query, snapshot, settings):
     assert build_query(query) == snapshot
 
 
-@pytest.mark.parametrize("query", MERGE_TREE_TABLE_QUERIES, ids=get_table_name)
+@pytest.mark.parametrize("query", CREATE_MERGETREE_TABLE_QUERIES, ids=get_table_name)
 def test_create_table_query_replicated_and_storage(query, snapshot, settings):
     settings.CLICKHOUSE_REPLICATION = True
     settings.CLICKHOUSE_ENABLE_STORAGE_POLICY = True
@@ -23,7 +27,7 @@ def test_create_table_query_replicated_and_storage(query, snapshot, settings):
     assert build_query(query) == snapshot
 
 
-@pytest.mark.parametrize("query", KAFKA_CREATE_TABLE_QUERIES, ids=get_table_name)
+@pytest.mark.parametrize("query", CREATE_KAFKA_TABLE_QUERIES, ids=get_table_name)
 def test_create_kafka_table_with_different_kafka_host(query, snapshot, settings):
     settings.KAFKA_HOSTS_FOR_CLICKHOUSE = "test.kafka.broker:9092"
 

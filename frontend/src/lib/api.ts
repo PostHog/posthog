@@ -13,6 +13,7 @@ import {
     LicenseType,
     PluginLogEntry,
     PropertyDefinition,
+    SubscriptionType,
     TeamType,
     UserType,
 } from '~/types'
@@ -252,6 +253,15 @@ class ApiRequest {
         return this.insights(teamId).addPathComponent('activity')
     }
 
+    // # Subscriptions
+    public subscriptions(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('subscriptions')
+    }
+
+    public subscription(id: SubscriptionType['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.subscriptions(teamId).addPathComponent(id)
+    }
+
     // Request finalization
 
     public async get(options?: { signal?: AbortSignal }): Promise<any> {
@@ -374,7 +384,11 @@ const api = {
 
     exports: {
         determineExportUrl(exportId: number, teamId: TeamType['id'] = getCurrentTeamId()): string {
-            return new ApiRequest().export(exportId, teamId).withAction('content').assembleFullUrl(true)
+            return new ApiRequest()
+                .export(exportId, teamId)
+                .withAction('content')
+                .withQueryString('download=true')
+                .assembleFullUrl(true)
         },
     },
 
@@ -426,11 +440,10 @@ const api = {
             teamId = getCurrentTeamId(),
             ...params
         }: {
-            order_ids_first?: string[]
-            excluded_ids?: string[]
             limit?: number
             offset?: number
             teamId?: TeamType['id']
+            include_actions?: boolean
         }): Promise<PaginatedResponse<EventDefinition>> {
             return new ApiRequest()
                 .eventDefinitions(teamId)
@@ -442,11 +455,10 @@ const api = {
             teamId = getCurrentTeamId(),
             ...params
         }: {
-            order_ids_first?: string[]
-            excluded_ids?: string[]
             limit?: number
             offset?: number
             teamId?: TeamType['id']
+            include_actions?: boolean
         }): string {
             return new ApiRequest()
                 .eventDefinitions(teamId)
@@ -480,8 +492,6 @@ const api = {
             ...params
         }: {
             event_names?: string[]
-            order_ids_first?: string[]
-            excluded_ids?: string[]
             excluded_properties?: string[]
             is_event_property?: boolean
             limit?: number
@@ -504,8 +514,6 @@ const api = {
             ...params
         }: {
             event_names?: string[]
-            order_ids_first?: string[]
-            excluded_ids?: string[]
             excluded_properties?: string[]
             is_event_property?: boolean
             limit?: number
@@ -621,6 +629,36 @@ const api = {
         },
         async delete(licenseId: LicenseType['id']): Promise<LicenseType> {
             return await new ApiRequest().license(licenseId).delete()
+        },
+    },
+
+    subscriptions: {
+        async get(subscriptionId: SubscriptionType['id']): Promise<SubscriptionType> {
+            return await new ApiRequest().subscription(subscriptionId).get()
+        },
+        async create(data: Partial<SubscriptionType>): Promise<SubscriptionType> {
+            return await new ApiRequest().subscriptions().create({ data })
+        },
+        async update(
+            subscriptionId: SubscriptionType['id'],
+            data: Partial<SubscriptionType>
+        ): Promise<SubscriptionType> {
+            return await new ApiRequest().subscription(subscriptionId).update({ data })
+        },
+        async list({
+            insightId,
+            dashboardId,
+        }: {
+            insightId?: number
+            dashboardId?: number
+        }): Promise<PaginatedResponse<SubscriptionType>> {
+            return await new ApiRequest()
+                .subscriptions()
+                .withQueryString(insightId ? `insight=${insightId}` : dashboardId ? `dashboard=${dashboardId}` : '')
+                .get()
+        },
+        determineDeleteEndpoint(): string {
+            return new ApiRequest().subscriptions().assembleEndpointUrl()
         },
     },
 

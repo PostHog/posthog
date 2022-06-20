@@ -1,14 +1,12 @@
 from uuid import UUID, uuid4
 
-from ee.clickhouse.models.cohort import insert_static_cohort
-from ee.clickhouse.models.event import create_event
 from ee.clickhouse.models.group import create_group  # move this to /ee
-from ee.clickhouse.util import ClickhouseDestroyTablesMixin, ClickhouseTestMixin
 from posthog.client import sync_execute
 from posthog.models import Team
+from posthog.models.cohort.util import insert_static_cohort
 from posthog.models.person.util import create_person, create_person_distinct_id
 from posthog.models.team.util import delete_teams_clickhouse_data
-from posthog.test.base import BaseTest
+from posthog.test.base import BaseTest, ClickhouseDestroyTablesMixin, ClickhouseTestMixin, _create_event
 
 
 class TestDeleteEvents(ClickhouseTestMixin, ClickhouseDestroyTablesMixin, BaseTest):
@@ -21,17 +19,17 @@ class TestDeleteEvents(ClickhouseTestMixin, ClickhouseDestroyTablesMixin, BaseTe
         ]
 
     def test_delete_events(self):
-        create_event(uuid4(), "event1", self.teams[0], "1")
-        create_event(uuid4(), "event2", self.teams[1], "2")
-        create_event(uuid4(), "event3", self.teams[2], "3")
+        _create_event(event_uuid=uuid4(), event="event1", team=self.teams[0], distinct_id="1")
+        _create_event(event_uuid=uuid4(), event="event2", team=self.teams[1], distinct_id="2")
+        _create_event(event_uuid=uuid4(), event="event3", team=self.teams[2], distinct_id="3")
 
         delete_teams_clickhouse_data([self.teams[0].pk, self.teams[1].pk])
         self.assertEqual(self.select_remaining("events", "event"), ["event3"])
 
     def test_delete_persons(self):
-        uuid0 = create_person(self.teams[0].pk, properties={"x": 0})
-        uuid1 = create_person(self.teams[1].pk, properties={"x": 1})
-        uuid2 = create_person(self.teams[2].pk, properties={"x": 2})
+        uuid0 = create_person(team_id=self.teams[0].pk, properties={"x": 0}, version=0)
+        uuid1 = create_person(team_id=self.teams[1].pk, properties={"x": 1}, version=0)
+        uuid2 = create_person(team_id=self.teams[2].pk, properties={"x": 2}, version=0)
         create_person_distinct_id(self.teams[0].pk, "0", uuid0)
         create_person_distinct_id(self.teams[1].pk, "1", uuid1)
         create_person_distinct_id(self.teams[2].pk, "2", uuid2)

@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-var-requires */
 /* eslint-env node */
 
 const plugins = [require('autoprefixer')] // postCSS modules here
