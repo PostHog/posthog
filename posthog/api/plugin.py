@@ -278,7 +278,7 @@ class PluginViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         plugin = self.get_plugin_with_permissions(reason="upgrading")
         serializer = PluginSerializer(plugin, context={"organization": self.organization})
         if plugin.plugin_type not in (Plugin.PluginType.SOURCE, Plugin.PluginType.LOCAL):
-            validated_data = {}
+            validated_data: Dict[str, Any] = {}
             plugin_json = update_validated_data_from_url(validated_data, plugin.url)
             serializer.update(plugin, validated_data)
             PluginSourceFile.objects.update_or_create_from_plugin_archive(plugin, plugin_json)
