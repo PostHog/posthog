@@ -3,13 +3,18 @@
 import json
 from typing import Any, Dict, Optional, cast
 
+import structlog
 from django.core import exceptions
 from django.db import migrations
 
 from posthog.plugins.utils import get_file_from_archive
 
+logger = structlog.get_logger(__name__)
+
 
 def forwards_func(apps, schema_editor):
+    logger.info("Migration 0243 - started")
+
     Plugin = apps.get_model("posthog", "Plugin")
     PluginSourceFile = apps.get_model("posthog", "PluginSourceFile")
 
@@ -57,12 +62,21 @@ def forwards_func(apps, schema_editor):
 
     # Source plugins have already been migrated in 0233_plugin_source_file, while local ones don't store code in the DB
     for plugin in Plugin.objects.exclude(plugin_type="source").exclude(plugin_type="local"):
-        update_or_create_from_plugin_archive(plugin)
+        try:
+            update_or_create_from_plugin_archive(plugin)
+        except exceptions.ValidationError as e:
+            logger.warn(f"Migration 0243 - failed to extract or save code of plugin {plugin.name} ID {plugin.id}: {e}")
+        else:
+            logger.info(f"Migration 0243 - extracted and saved code of plugin {plugin.name} ID {plugin.id}")
+
+    logger.info("Migration 0243 - finished")
 
 
 def reverse_func(apps, schema_editor):
+    logger.info("Migration 0243 - revert started")
     PluginSourceFile = apps.get_model("posthog", "PluginSourceFile")
     PluginSourceFile.objects.filter(plugin__plugin_type__in=["source", "local"]).delete()
+    logger.info("Migration 0243 - revert finished")
 
 
 class Migration(migrations.Migration):
