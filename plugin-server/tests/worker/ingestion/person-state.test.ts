@@ -138,7 +138,7 @@ describe('PersonState.update()', () => {
                 id: uuid.toString(),
                 properties: JSON.stringify({ a: 1, b: 3, c: 4 }),
                 created_at: '2020-01-01 12:00:05.000',
-                // version: 1,  // why not working
+                version: 1,
             })
         )
     })
