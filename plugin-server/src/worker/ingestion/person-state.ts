@@ -178,7 +178,7 @@ export class PersonState {
 
     private async updatePersonProperties(): Promise<Person> {
         // Note: We always fetch the person anew to avoid property-related races.
-        const personFound = await this.db.fetchPerson(this.teamId, this.distinctId)
+        const personFound = this.person || (await this.db.fetchPerson(this.teamId, this.distinctId))
         if (!personFound) {
             this.statsd?.increment('person_not_found', { teamId: String(this.teamId), key: 'update' })
             throw new Error(
