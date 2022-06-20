@@ -468,19 +468,34 @@ describe('plugins', () => {
     })
 
     test('plugin config order', async () => {
-        hub.db.getPluginSource = (pluginId, filename) =>
-            Promise.resolve(
-                filename === 'index.ts'
-                    ? `function processEvent(event) {
-                         event.properties.plugins = [...(event.properties.plugins || []), ${pluginId}]
-                         return event
-                       }`
-                    : null
-            )
         getPluginRows.mockReturnValueOnce([
-            { ...plugin60, id: 60, plugin_type: 'source' },
-            { ...plugin60, id: 61, plugin_type: 'source' },
-            { ...plugin60, id: 62, plugin_type: 'source' },
+            {
+                ...plugin60,
+                id: 60,
+                plugin_type: 'source',
+                source__index_ts: `function processEvent(event) {
+                event.properties.plugins = [...(event.properties.plugins || []), 60]
+                return event
+              }`,
+            },
+            {
+                ...plugin60,
+                id: 61,
+                plugin_type: 'source',
+                source__index_ts: `function processEvent(event) {
+                event.properties.plugins = [...(event.properties.plugins || []), 61]
+                return event
+              }`,
+            },
+            {
+                ...plugin60,
+                id: 62,
+                plugin_type: 'source',
+                source__index_ts: `function processEvent(event) {
+                event.properties.plugins = [...(event.properties.plugins || []), 62]
+                return event
+              }`,
+            },
         ])
         getPluginAttachmentRows.mockReturnValueOnce([])
         getPluginConfigRows.mockReturnValueOnce([
@@ -587,15 +602,17 @@ describe('plugins', () => {
     })
 
     test('plugin with source code loads capabilities', async () => {
-        const source_code = `
+        getPluginRows.mockReturnValueOnce([
+            {
+                ...mockPluginSourceCode(),
+                source__index_ts: `
         function processEvent (event, meta) { event.properties={"x": 1}; return event }
         function randomFunction (event, meta) { return event}
-        function onSnapshot (event, meta) { return event }
-    `
-        getPluginRows.mockReturnValueOnce([mockPluginSourceCode()])
+        function onSnapshot (event, meta) { return event }`,
+            },
+        ])
         getPluginConfigRows.mockReturnValueOnce([pluginConfig39])
         getPluginAttachmentRows.mockReturnValueOnce([pluginAttachment1])
-        hub.db.getPluginSource = (_, filename) => Promise.resolve(filename === 'index.ts' ? source_code : null)
 
         await setupPlugins(hub)
         const { pluginConfigs } = hub
@@ -611,9 +628,9 @@ describe('plugins', () => {
     })
 
     test('plugin with frontend source transpiles it', async () => {
-        const source_frontend = `export const scene = {}`
-        hub.db.getPluginSource = (_, filename) => Promise.resolve(filename === 'frontend.tsx' ? source_frontend : null)
-        getPluginRows.mockReturnValueOnce([mockPluginSourceCode()])
+        getPluginRows.mockReturnValueOnce([
+            { ...mockPluginSourceCode(), source__frontend_tsx: `export const scene = {}` },
+        ])
         getPluginConfigRows.mockReturnValueOnce([pluginConfig39])
         getPluginAttachmentRows.mockReturnValueOnce([pluginAttachment1])
         await setupPlugins(hub)
@@ -636,9 +653,9 @@ exports.scene = scene;; return exports; }`)
     })
 
     test('plugin with frontend source with error', async () => {
-        const source_frontend = `export const scene = {}/`
-        hub.db.getPluginSource = (_, filename) => Promise.resolve(filename === 'frontend.tsx' ? source_frontend : null)
-        getPluginRows.mockReturnValueOnce([mockPluginSourceCode()])
+        getPluginRows.mockReturnValueOnce([
+            { ...mockPluginSourceCode(), source__frontend_tsx: `export const scene = {}/` },
+        ])
         getPluginConfigRows.mockReturnValueOnce([pluginConfig39])
         getPluginAttachmentRows.mockReturnValueOnce([pluginAttachment1])
         await setupPlugins(hub)
@@ -656,11 +673,13 @@ exports.scene = scene;; return exports; }`)
     })
 
     test('getTranspilationLock returns just once', async () => {
-        const source = `function processEvent (event, meta) { event.properties={"x": 1}; return event }`
-        const source_frontend = `export const scene = {}`
-        hub.db.getPluginSource = (_, filename) =>
-            Promise.resolve(filename === 'index.ts' ? source : filename === 'frontend.tsx' ? source_frontend : null)
-        getPluginRows.mockReturnValueOnce([mockPluginSourceCode()])
+        getPluginRows.mockReturnValueOnce([
+            {
+                ...mockPluginSourceCode(),
+                source__index_ts: `function processEvent (event, meta) { event.properties={"x": 1}; return event }`,
+                source__frontend_tsx: `export const scene = {}`,
+            },
+        ])
         getPluginConfigRows.mockReturnValueOnce([pluginConfig39])
         getPluginAttachmentRows.mockReturnValueOnce([pluginAttachment1])
 

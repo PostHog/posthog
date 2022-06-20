@@ -130,7 +130,7 @@ export function mockPluginTempFolder(indexJs: string, pluginJson?: string): [Plu
             })
     )
     return [
-        { ...plugin60, url: `file:${folder}` },
+        { ...plugin60, plugin_type: 'local', url: `file:${folder}` },
         () => {
             fs.rmSync(folder, { recursive: true })
         },
