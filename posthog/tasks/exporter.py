@@ -16,6 +16,7 @@ from webdriver_manager.utils import ChromeType
 from posthog.celery import app
 from posthog.internal_metrics import incr, timing
 from posthog.models.exported_asset import ExportedAsset
+from posthog.tasks.update_cache import update_insight_cache
 from posthog.utils import absolute_uri
 
 logger = structlog.get_logger(__name__)
@@ -121,8 +122,11 @@ def _export_to_png(exported_asset: ExportedAsset) -> None:
 
 @app.task()
 def export_task(exported_asset_id: int) -> None:
-    # TODO: For subscriptions: Do we want to ensure that the data for the relvant Insight(s) are up-to-date before exporting
-    exported_asset = ExportedAsset.objects.get(pk=exported_asset_id)
+    exported_asset = ExportedAsset.objects.select_related("insight", "dashboard").get(pk=exported_asset_id)
+
+    if exported_asset.insight:
+        # NOTE: Dashboards are regularly updated but insights are not so we need to trigger a manual update to ensure the results are good
+        update_insight_cache(exported_asset.insight, dashboard=None)
 
     if exported_asset.export_format == "image/png":
         return _export_to_png(exported_asset)
