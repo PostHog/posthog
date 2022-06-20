@@ -101,6 +101,7 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
         crontab(hour=0, minute=randrange(0, 40)), clickhouse_send_license_usage.s()
     )  # every day at a random minute past midnight. Randomize to avoid overloading license.posthog.com
 
+    materialize_columns_crontab = None
     if EE_AVAILABLE:
         materialize_columns_crontab = get_crontab(settings.MATERIALIZE_COLUMNS_SCHEDULE_CRON)
 
