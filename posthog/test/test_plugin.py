@@ -98,7 +98,6 @@ class TestPluginSourceFile(BaseTest):
 
         self.assertEqual(plugin_json_file.source, HELLO_WORLD_PLUGIN_PLUGIN_JSON)
         assert index_ts_file is not None
-        print(index_ts_file.source)
         self.assertEqual(index_ts_file.source, HELLO_WORLD_PLUGIN_NPM_INDEX_JS)
         self.assertIsNone(frontend_tsx_file)
 
