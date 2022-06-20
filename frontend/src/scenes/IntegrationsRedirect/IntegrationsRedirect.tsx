@@ -1,11 +1,11 @@
 import React from 'react'
 import { SceneExport } from 'scenes/sceneTypes'
 import { Spinner } from 'lib/components/Spinner/Spinner'
-import { slackIntegrationLogic } from 'scenes/project/Settings/slackIntegrationLogic'
+import { integrationsLogic } from 'scenes/project/Settings/integrationsLogic'
 
 export const scene: SceneExport = {
     component: IntegrationsRedirect,
-    logic: slackIntegrationLogic,
+    logic: integrationsLogic,
 }
 
 export function IntegrationsRedirect(): JSX.Element {

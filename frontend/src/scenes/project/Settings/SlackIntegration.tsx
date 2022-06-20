@@ -1,12 +1,17 @@
 import React, { useState } from 'react'
 import { useValues } from 'kea'
-import { getSlackAppManifest, slackIntegrationLogic } from './slackIntegrationLogic'
+import { getSlackAppManifest, integrationsLogic } from './integrationsLogic'
 import { CodeSnippet, Language } from 'scenes/ingestion/frameworks/CodeSnippet'
 import { LemonButton } from '@posthog/lemon-ui'
+import { IconDelete, IconSlack } from 'lib/components/icons'
 
 export function SlackIntegration(): JSX.Element {
-    const { addToSlackButtonUrl } = useValues(slackIntegrationLogic)
+    const { slackIntegration, addToSlackButtonUrl } = useValues(integrationsLogic)
     const [showSlackInstructions, setShowSlackInstructions] = useState(false)
+
+    const onClick = () => {
+        console.log('YO!')
+    }
 
     return (
         <div>
@@ -20,7 +25,20 @@ export function SlackIntegration(): JSX.Element {
             </p>
 
             <p>
-                {addToSlackButtonUrl ? (
+                {slackIntegration ? (
+                    <div className="border-all space-between-items items-center pa-05">
+                        <div className="flex items-center gap-05 pl">
+                            <IconSlack />
+                            <span>
+                                Connected to <strong>{slackIntegration.config.team.name}</strong> workspace
+                            </span>
+                        </div>
+
+                        <LemonButton type="secondary" status="danger" onClick={onClick} icon={<IconDelete />}>
+                            Disconnect
+                        </LemonButton>
+                    </div>
+                ) : addToSlackButtonUrl ? (
                     <a href={addToSlackButtonUrl}>
                         <img
                             alt="Add to Slack"

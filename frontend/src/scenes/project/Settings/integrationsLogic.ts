@@ -8,7 +8,7 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 import { IntegrationType } from '~/types'
 
-import type { slackIntegrationLogicType } from './slackIntegrationLogicType'
+import type { integrationsLogicType } from './integrationsLogicType'
 
 // NOTE: Slack enforces HTTPS urls so to aid local dev we change to https so the redirect works.
 // Just means we have to change it back to http once redirected.
@@ -41,8 +41,8 @@ export const getSlackAppManifest = (): any => ({
     },
 })
 
-export const slackIntegrationLogic = kea<slackIntegrationLogicType>([
-    path(['scenes', 'project', 'Settings', 'slackIntegrationLogic']),
+export const integrationsLogic = kea<integrationsLogicType>([
+    path(['scenes', 'project', 'Settings', 'integrationsLogic']),
     connect({
         values: [preflightLogic, ['siteUrlMisconfigured', 'preflight'], systemStatusLogic, ['instanceSettings']],
         actions: [systemStatusLogic, ['loadInstanceSettings']],
@@ -100,6 +100,12 @@ export const slackIntegrationLogic = kea<slackIntegrationLogicType>([
         },
     })),
     selectors({
+        slackIntegration: [
+            (s) => [s.integrations],
+            (integrations) => {
+                return integrations?.find((x) => x.kind == 'slack')
+            },
+        ],
         addToSlackButtonUrl: [
             (s) => [s.instanceSettings],
             (instanceSettings) => {
