@@ -10,10 +10,11 @@ import { Person, PropertyUpdateOperation } from '../../types'
 import { DB } from '../../utils/db/db'
 import { timeoutGuard } from '../../utils/db/utils'
 import { status } from '../../utils/status'
-import { UUIDT } from '../../utils/utils'
+import { delay, UUIDT } from '../../utils/utils'
 import { PersonManager } from './person-manager'
 
 const MAX_FAILED_PERSON_MERGE_ATTEMPTS = 3
+const MAX_FAILED_PERSON_PROPERTIES_UPDATE_ATTEMPTS = 1
 
 // used to prevent identify from being used with generic IDs
 // that we can safely assume stem from a bug or mistake
@@ -76,12 +77,12 @@ export class PersonState {
         this.updateIsIdentified = false
     }
 
-    async update(): Promise<Person | undefined> {
+    async update(): Promise<void> {
         await this.handleIdentifyOrAlias()
-        return await this.updateProperties()
+        await this.updateProperties()
     }
 
-    async updateProperties(): Promise<Person | undefined> {
+    async updateProperties(): Promise<void> {
         const createdPerson = await this.createPersonIfDistinctIdIsNew()
         if (
             !createdPerson &&
@@ -90,9 +91,8 @@ export class PersonState {
                 this.eventProperties['$unset'] ||
                 this.updateIsIdentified)
         ) {
-            return await this.updatePersonProperties()
+            await this.updatePersonProperties()
         }
-        return createdPerson
     }
 
     private async createPersonIfDistinctIdIsNew(): Promise<Person | undefined> {
@@ -164,13 +164,19 @@ export class PersonState {
         )
     }
 
-    private async updatePersonProperties(): Promise<Person> {
+    private async updatePersonProperties(failedAttempts = 0): Promise<Person> {
         const personFound = await this.db.fetchPerson(this.teamId, this.distinctId)
         if (!personFound) {
-            this.statsd?.increment('person_not_found', { teamId: String(this.teamId), key: 'update' })
-            throw new Error(
-                `Could not find person with distinct id "${this.distinctId}" in team "${this.teamId}" to update properties`
-            )
+            failedAttempts++
+            if (failedAttempts > MAX_FAILED_PERSON_PROPERTIES_UPDATE_ATTEMPTS) {
+                this.statsd?.increment('person_not_found', { teamId: String(this.teamId), key: 'update' })
+                throw new Error(
+                    `Could not find person with distinct id "${this.distinctId}" in team "${this.teamId}" to update properties`
+                )
+            }
+            // Likely failed because we've seen the distinctID already, but the creation hasn't completed to postgres
+            await delay(1000) // 1s delay between retries
+            return this.updatePersonProperties(failedAttempts)
         }
         const update: Partial<Person> = {}
         const updatedProperties = this.updatedPersonProperties(personFound.properties || {})

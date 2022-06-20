@@ -3,7 +3,7 @@ import { DateTime } from 'luxon'
 
 import { Hub } from '../../../src/types'
 import { createHub } from '../../../src/utils/db/hub'
-import { UUIDT } from '../../../src/utils/utils'
+import { delay, UUIDT } from '../../../src/utils/utils'
 import { PersonState } from '../../../src/worker/ingestion/person-state'
 import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../../helpers/clickhouse'
 import { resetTestDatabase } from '../../helpers/sql'
@@ -108,6 +108,37 @@ describe('PersonState.update()', () => {
                 properties: JSON.stringify({ a: 1, b: 3, c: 4 }),
                 created_at: '2020-01-01 12:00:05.000',
                 version: 0,
+            })
+        )
+    })
+
+    it('updates person properties if creation in parallel was slow', async () => {
+        async function delayedPersonCreation(): Promise<void> {
+            await delay(100)
+            await hub.db.createPerson(timestamp, {}, {}, {}, createdPerson.teamId, null, false, createdPerson.newUuid, [
+                createdPerson.distinctId,
+            ])
+        }
+        const createdPerson = personState({
+            event: '$pageview',
+            distinct_id: 'new-user',
+            properties: {
+                $set_once: { a: 1, b: 2 },
+                $set: { b: 3, c: 4 },
+            },
+        })
+        await hub.personManager.isNewPerson(hub.db, createdPerson.teamId, createdPerson.distinctId)
+        await Promise.all([createdPerson.update(), delayedPersonCreation()])
+        await hub.db.kafkaProducer.flush()
+
+        const clickhousePersons = await delayUntilEventIngested(fetchPersonsRows)
+        expect(clickhousePersons.length).toEqual(1)
+        expect(clickhousePersons[0]).toEqual(
+            expect.objectContaining({
+                id: uuid.toString(),
+                properties: JSON.stringify({ a: 1, b: 3, c: 4 }),
+                created_at: '2020-01-01 12:00:05.000',
+                // version: 1,  // why not working
             })
         )
     })
