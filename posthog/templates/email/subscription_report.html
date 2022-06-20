@@ -29,6 +29,10 @@
 <p>
     Your subscription to the {{ resource_noun }}
     <strong>{{ resource_name }}</strong> is ready!
+
+    {% if resource_noun == "Dashboard" %}
+    Email subscriptions are limited to at most 6 insights.
+    {% endif %}
 </p>
 {% endif %}
 
