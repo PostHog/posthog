@@ -506,7 +506,7 @@ class TestPluginsUtils(BaseTest):
 
         # check that we can override files
         new_archive = put_json_into_zip_archive(archive, plugin_json, "plugin.json")
-        new_plugin_json = cast(dict, get_file_from_zip_archive(new_archive, "plugin.json"))
+        new_plugin_json = cast(dict, get_file_from_zip_archive(new_archive, "plugin.json", json_parse=True))
         self.assertEqual(new_plugin_json["posthogVersion"], "0.0.0")
 
         # check that new the file is there
