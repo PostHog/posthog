@@ -18,7 +18,7 @@
     "scripts": {
         "copy-scripts": "mkdir -p frontend/dist/ && yarn copy-scripts:array && yarn copy-scripts:recorder",
         "copy-scripts:array": "cp node_modules/posthog-js/dist/array.js* frontend/dist/",
-        "copy-scripts:recorder": "cp node_modules/rrweb/dist/record/rrweb-record.min.js frontend/dist/recorder.js && cp node_modules/rrweb/dist/record/rrweb-record.min.js.map frontend/dist/recorder.js.map && cat node_modules/rrweb/dist/plugins/console-record.min.js >> frontend/dist/recorder.js && sed -i -e s/rrweb-record.min.js.map/recorder.js.map/ frontend/dist/recorder.js && sed -i -e 's/\\/\\/\\# sourceMappingURL=recorder/window.rrweb = {record: rrwebRecord}\\n\\/\\/# sourceMappingURL=recorder/g' frontend/dist/recorder.js",
+        "copy-scripts:recorder": "./bin/copy-scripts-recorder",
         "test": "jest",
         "start": "concurrently -n ESBUILD,TYPEGEN -c yellow,green \"yarn start-http\" \"yarn run typegen:watch\"",
         "start-http": "yarn clean && yarn copy-scripts && node frontend/build.mjs --dev",
