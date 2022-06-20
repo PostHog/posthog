@@ -31,7 +31,16 @@ class BehavioralPropertyType(str, Enum):
 
 ValueT = Union[str, int, List[str]]
 PropertyType = Literal[
-    "event", "person", "cohort", "element", "static-cohort", "precalculated-cohort", "group", "recording", "behavioral",
+    "event",
+    "person",
+    "cohort",
+    "element",
+    "static-cohort",
+    "precalculated-cohort",
+    "group",
+    "recording",
+    "behavioral",
+    "session",
 ]
 
 PropertyName = str
@@ -71,6 +80,7 @@ VALIDATE_PROP_TYPES = {
     "group": ["key", "value", "group_type_index"],
     "recording": ["key", "value"],
     "behavioral": ["key", "value"],
+    "session": ["key", "value"],
 }
 
 VALIDATE_BEHAVIORAL_PROP_TYPES = {

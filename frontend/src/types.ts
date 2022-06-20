@@ -395,6 +395,12 @@ export interface ElementPropertyFilter extends BasePropertyFilter {
     operator: PropertyOperator
 }
 
+export interface SessionPropertyFilter extends BasePropertyFilter {
+    type: 'session'
+    key: '$session_duration'
+    operator: PropertyOperator
+}
+
 /** Sync with plugin-server/src/types.ts */
 export interface CohortPropertyFilter extends BasePropertyFilter {
     type: 'cohort'
@@ -1507,6 +1513,7 @@ export enum PropertyType {
     String = 'String',
     Numeric = 'Numeric',
     Boolean = 'Boolean',
+    Duration = 'Duration',
 }
 
 export interface PropertyDefinition {
@@ -1514,8 +1521,8 @@ export interface PropertyDefinition {
     name: string
     description?: string
     tags?: string[]
-    volume_30_day: number | null
-    query_usage_30_day: number | null
+    volume_30_day?: number | null
+    query_usage_30_day?: number | null
     updated_at?: string
     updated_by?: UserBasicType | null
     is_numerical?: boolean // Marked as optional to allow merge of EventDefinition & PropertyDefinition

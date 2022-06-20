@@ -1,6 +1,6 @@
 import { kea } from 'kea'
 import api from 'lib/api'
-import { PropertyDefinition, PropertyFilterValue, SelectOption } from '~/types'
+import { PropertyDefinition, PropertyFilterValue, PropertyType, SelectOption } from '~/types'
 import type { propertyDefinitionsModelType } from './propertyDefinitionsModelType'
 import { dayjs } from 'lib/dayjs'
 
@@ -13,6 +13,17 @@ export interface PropertyDefinitionStorage {
     next: null | string
     results: PropertyDefinition[]
 }
+
+const localPropertyDefinitions: PropertyDefinition[] = [
+    {
+        id: '$session_duration',
+        name: '$session_duration',
+        description: 'Duration of the session',
+        is_numerical: true,
+        is_event_property: false,
+        property_type: PropertyType.Duration,
+    },
+]
 
 const normaliseToArray = (
     valueToFormat: Exclude<PropertyFilterValue, null>
@@ -92,7 +103,8 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>({
         ],
         propertyDefinitions: [
             (s) => [s.propertyStorage],
-            (propertyStorage): PropertyDefinition[] => propertyStorage.results || [],
+            (propertyStorage): PropertyDefinition[] =>
+                propertyStorage.results ? [...localPropertyDefinitions, ...propertyStorage.results] : [],
         ],
         transformedPropertyDefinitions: [
             // Transformed propertyDefinitions to use in `Select` components
