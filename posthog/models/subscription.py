@@ -144,7 +144,7 @@ class Subscription(models.Model):
         summary = f"sent every {str(self.interval) + ' ' if self.interval > 1 else ''}{frequency}"
 
         if self.byweekday and self.bysetpos:
-            summary += f" on the {human_bysetpos_map.get(self.bysetpos, '')} {self.byweekday[0] if len(self.byweekday) == 1 else 'day'}"
+            summary += f" on the {human_bysetpos_map.get(self.bysetpos, '')} {self.byweekday[0].capitalize() if len(self.byweekday) == 1 else 'day'}"
 
         return summary
 

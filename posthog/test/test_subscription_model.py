@@ -158,7 +158,7 @@ class TestSubscription(BaseTest):
         subscription = self._create_insight_subscription(
             interval=2, frequency="monthly", byweekday=["wednesday"], bysetpos=1
         )
-        assert subscription.summary == "sent every 2 months on the first wednesday"
+        assert subscription.summary == "sent every 2 months on the first Wednesday"
         subscription = self._create_insight_subscription(
             interval=1, frequency="weekly", byweekday=["wednesday"], bysetpos=-1
         )
