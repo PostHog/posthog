@@ -174,7 +174,8 @@ class EventQuery(metaclass=ABCMeta):
                         FROM
                             events
                         WHERE
-                            team_id = {self._team_id}
+                            $session_id != ''
+                            AND team_id = {self._team_id}
                             {parsed_date_from} - INTERVAL 24 HOUR
                             {parsed_date_to} + INTERVAL 24 HOUR
                         GROUP BY $session_id

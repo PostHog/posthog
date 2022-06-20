@@ -300,7 +300,6 @@ def parse_prop_clauses(
             params.update(filter_params)
         elif prop.type == "session":
             filter_query, filter_params = get_session_property_filter_statement(prop, idx, prepend)
-            query = f"session_duration > {prop.value}"
             final.append(f"{property_operator} {filter_query}")
             params.update(filter_params)
 

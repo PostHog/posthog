@@ -1123,3 +1123,38 @@ def test_combine_group_properties():
             {"key": "d", "operator": "exact", "value": ["j", "k", "l"], "type": "event"},
         ],
     }
+
+
+def test_session_property_validation():
+    # Property key not valid for type session
+    with pytest.raises(ValidationError):
+        filter = Filter(data={"properties": [{"type": "session", "key": "some_prop", "value": 0, "operator": "gt"}],})
+        parse_prop_grouped_clauses(
+            team_id=1, property_group=filter.property_groups,
+        )
+
+    # Operator not valid for $session_duration
+    with pytest.raises(ValidationError):
+        filter = Filter(
+            data={"properties": [{"type": "session", "key": "$session_duration", "value": 0, "operator": "exact"}],}
+        )
+        parse_prop_grouped_clauses(
+            team_id=1, property_group=filter.property_groups,
+        )
+
+    # Value not valid for $session_duration
+    with pytest.raises(ValidationError):
+        filter = Filter(
+            data={"properties": [{"type": "session", "key": "$session_duration", "value": "hey", "operator": "gt"}],}
+        )
+        parse_prop_grouped_clauses(
+            team_id=1, property_group=filter.property_groups,
+        )
+
+    # Valid property values
+    filter = Filter(
+        data={"properties": [{"type": "session", "key": "$session_duration", "value": "100", "operator": "gt"}],}
+    )
+    parse_prop_grouped_clauses(
+        team_id=1, property_group=filter.property_groups,
+    )
