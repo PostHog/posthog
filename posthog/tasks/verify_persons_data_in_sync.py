@@ -42,14 +42,19 @@ HAVING argMax(is_deleted, version) = 0 AND person_id IN (%(person_ids)s)
 
 
 @app.task(max_retries=1, ignore_result=True)
-def verify_persons_data_in_sync() -> None:
+def verify_persons_data_in_sync(
+    period_start: timedelta = PERIOD_START,
+    period_end: timedelta = PERIOD_END,
+    limit: int = LIMIT,
+    emit_results: bool = True,
+) -> Counter:
     # :KLUDGE: Rather than filter on created_at directly which is unindexed, we look up the latest value in 'id' column
     #   and leverage that to narrow down filtering in an index-efficient way
-    max_pk = Person.objects.filter(created_at__lte=now() - PERIOD_START).latest("id").id
+    max_pk = Person.objects.filter(created_at__lte=now() - period_start).latest("id").id
     person_data = list(
         Person.objects.filter(
-            pk__lte=max_pk, pk__gte=max_pk - LIMIT * 5, created_at__gte=now() - PERIOD_END
-        ).values_list("id", "uuid", "team_id")[:LIMIT]
+            pk__lte=max_pk, pk__gte=max_pk - LIMIT * 5, created_at__gte=now() - period_end
+        ).values_list("id", "uuid", "team_id")[:limit]
     )
     person_data.sort(key=lambda row: row[2])  # keep persons from same team together
 
@@ -66,7 +71,11 @@ def verify_persons_data_in_sync() -> None:
     for i in range(0, len(person_data), BATCH_SIZE):
         batch = person_data[i : i + BATCH_SIZE]
         results += _team_integrity_statistics(batch)
-    _emit_metrics(results)
+
+    if emit_results:
+        _emit_metrics(results)
+
+    return results
 
 
 def _team_integrity_statistics(person_data: List[Any]) -> Counter:

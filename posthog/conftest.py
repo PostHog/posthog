@@ -1,76 +1,34 @@
+from typing import Any, Tuple
+
 import pytest
 from django.conf import settings
 from infi.clickhouse_orm import Database
 
-from posthog.clickhouse.dead_letter_queue import (
-    DEAD_LETTER_QUEUE_TABLE_MV_SQL,
-    KAFKA_DEAD_LETTER_QUEUE_TABLE_SQL,
-    TRUNCATE_DEAD_LETTER_QUEUE_TABLE_MV_SQL,
-)
 from posthog.client import sync_execute
 from posthog.test.base import TestMixin, run_clickhouse_statement_in_parallel
 
 
 def create_clickhouse_tables(num_tables: int):
-    # Reset clickhouse tables to default before running test
+    # Create clickhouse tables to default before running test
     # Mostly so that test runs locally work correctly
-    from posthog.clickhouse.dead_letter_queue import DEAD_LETTER_QUEUE_TABLE_SQL
-    from posthog.clickhouse.plugin_log_entries import PLUGIN_LOG_ENTRIES_TABLE_SQL
-    from posthog.models.cohort.sql import CREATE_COHORTPEOPLE_TABLE_SQL
-    from posthog.models.event.sql import DISTRIBUTED_EVENTS_TABLE_SQL, EVENTS_TABLE_SQL, WRITABLE_EVENTS_TABLE_SQL
-    from posthog.models.group.sql import GROUPS_TABLE_SQL
-    from posthog.models.person.sql import (
-        PERSON_DISTINCT_ID2_TABLE_SQL,
-        PERSON_STATIC_COHORT_TABLE_SQL,
-        PERSONS_DISTINCT_ID_TABLE_SQL,
-        PERSONS_TABLE_SQL,
-    )
-    from posthog.models.session_recording_event.sql import (
-        DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL,
-        SESSION_RECORDING_EVENTS_TABLE_SQL,
-        WRITABLE_SESSION_RECORDING_EVENTS_TABLE_SQL,
-    )
+    from posthog.clickhouse.schema import CREATE_DISTRIBUTED_TABLE_QUERIES, CREATE_MERGETREE_TABLE_QUERIES, build_query
 
     # REMEMBER TO ADD ANY NEW CLICKHOUSE TABLES TO THIS ARRAY!
-    FIRST_BATCH_OF_TABLES_TO_CREATE_DROP = [
-        EVENTS_TABLE_SQL(),
-        PERSONS_TABLE_SQL(),
-        PERSONS_DISTINCT_ID_TABLE_SQL(),
-        PERSON_DISTINCT_ID2_TABLE_SQL(),
-        PERSON_STATIC_COHORT_TABLE_SQL(),
-        SESSION_RECORDING_EVENTS_TABLE_SQL(),
-        PLUGIN_LOG_ENTRIES_TABLE_SQL(),
-        CREATE_COHORTPEOPLE_TABLE_SQL(),
-        KAFKA_DEAD_LETTER_QUEUE_TABLE_SQL(),
-        DEAD_LETTER_QUEUE_TABLE_SQL(),
-        GROUPS_TABLE_SQL(),
-    ]
+    CREATE_TABLE_QUERIES: Tuple[Any, ...] = CREATE_MERGETREE_TABLE_QUERIES
 
     if settings.CLICKHOUSE_REPLICATION:
-        FIRST_BATCH_OF_TABLES_TO_CREATE_DROP.extend(
-            [
-                DISTRIBUTED_EVENTS_TABLE_SQL(),
-                WRITABLE_EVENTS_TABLE_SQL(),
-                DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL(),
-                WRITABLE_SESSION_RECORDING_EVENTS_TABLE_SQL(),
-            ]
-        )
-
-    # Because the tables are created in parallel, any tables that depend on another
-    # table should be created in a second batch - to ensure the first table already
-    # exists. Tables for this second batch of table creation are defined here:
-    SECOND_BATCH_OF_TABLES_TO_CREATE_DROP = [DEAD_LETTER_QUEUE_TABLE_MV_SQL]
+        CREATE_TABLE_QUERIES = CREATE_TABLE_QUERIES + CREATE_DISTRIBUTED_TABLE_QUERIES
 
     # Check if all the tables have already been created
-    if num_tables == len(FIRST_BATCH_OF_TABLES_TO_CREATE_DROP + SECOND_BATCH_OF_TABLES_TO_CREATE_DROP):
+    if num_tables == len(CREATE_TABLE_QUERIES):
         return
 
-    run_clickhouse_statement_in_parallel(FIRST_BATCH_OF_TABLES_TO_CREATE_DROP)
-    run_clickhouse_statement_in_parallel(SECOND_BATCH_OF_TABLES_TO_CREATE_DROP)
+    queries = list(map(build_query, CREATE_TABLE_QUERIES))
+    run_clickhouse_statement_in_parallel(queries)
 
 
 def reset_clickhouse_tables():
-    # Reset clickhouse tables to default before running test
+    # Truncate clickhouse tables to default before running test
     # Mostly so that test runs locally work correctly
     from posthog.clickhouse.dead_letter_queue import TRUNCATE_DEAD_LETTER_QUEUE_TABLE_SQL
     from posthog.clickhouse.plugin_log_entries import TRUNCATE_PLUGIN_LOG_ENTRIES_TABLE_SQL
@@ -96,7 +54,6 @@ def reset_clickhouse_tables():
         TRUNCATE_PLUGIN_LOG_ENTRIES_TABLE_SQL,
         TRUNCATE_COHORTPEOPLE_TABLE_SQL,
         TRUNCATE_DEAD_LETTER_QUEUE_TABLE_SQL,
-        TRUNCATE_DEAD_LETTER_QUEUE_TABLE_MV_SQL,
         TRUNCATE_GROUPS_TABLE_SQL,
     ]
 
