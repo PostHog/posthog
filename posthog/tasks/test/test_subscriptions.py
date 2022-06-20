@@ -103,9 +103,14 @@ class TestSubscriptionsTasks(APIBaseTest):
         assert len(mocked_email_messages) == 1
         assert mocked_email_messages[0].send.call_count == 1
 
-        assert f"({self.user.email}) has subscribed you" in mocked_email_messages[0].html_body
+        assert f"has subscribed you" in mocked_email_messages[0].html_body
         assert "Someone subscribed you to a PostHog Insight" == mocked_email_messages[0].subject
         assert "My invite message" in mocked_email_messages[0].html_body
+
+        assert (
+            "This subscription is sent every day. The next subscription will be sent on Wednesday February 02, 2022"
+            in mocked_email_messages[0].html_body
+        )
         assert mock_export_task.s.call_count == 1
 
     def test_should_have_different_text_for_self(

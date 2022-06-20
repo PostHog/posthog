@@ -111,8 +111,6 @@ class Subscription(models.Model):
 
     def save(self, *args, **kwargs) -> None:
         self.set_next_delivery_date()
-        # TODO: Think about this more carefully. If we just sent a message and the subscription
-        # gets saved, the date will be overwritten...
         super(Subscription, self).save(*args, **kwargs)
 
     @property
