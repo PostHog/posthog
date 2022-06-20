@@ -593,7 +593,7 @@ export class DB {
             return {
                 team_id: teamId,
                 uuid: String(personUuid),
-                created_at: DateTime.fromISO(String(personCreatedAtIso)),
+                created_at: DateTime.fromISO(String(personCreatedAtIso)).toUTC(),
                 properties: personProperties as Properties, // redisGet does JSON.parse and we redisSet JSON.stringify(Properties)
                 id: personId,
             }
@@ -786,7 +786,7 @@ export class DB {
             const rawPerson: RawPerson = selectResult.rows[0]
             return {
                 ...rawPerson,
-                created_at: DateTime.fromISO(rawPerson.created_at).toUTC(),
+                created_at: DateTime.fromISO(rawPerson.created_at),
                 version: Number(rawPerson.version || 0),
             }
         }
