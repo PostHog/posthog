@@ -54,11 +54,3 @@ export function generateEventDeadLetterQueueMessage(
     }
     return message
 }
-
-export function parseDate(supposedIsoString: string): DateTime {
-    const jsDate = new Date(supposedIsoString)
-    if (Number.isNaN(jsDate.getTime())) {
-        return DateTime.fromISO(supposedIsoString)
-    }
-    return DateTime.fromJSDate(jsDate)
-}
