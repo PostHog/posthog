@@ -1,16 +1,28 @@
 import React, { useState } from 'react'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { getSlackAppManifest, integrationsLogic } from './integrationsLogic'
 import { CodeSnippet, Language } from 'scenes/ingestion/frameworks/CodeSnippet'
 import { LemonButton } from '@posthog/lemon-ui'
 import { IconDelete, IconSlack } from 'lib/components/icons'
+import { Modal } from 'antd'
 
 export function SlackIntegration(): JSX.Element {
     const { slackIntegration, addToSlackButtonUrl } = useValues(integrationsLogic)
+    const { deleteIntegration } = useActions(integrationsLogic)
     const [showSlackInstructions, setShowSlackInstructions] = useState(false)
 
-    const onClick = () => {
-        console.log('YO!')
+    const onDeleteClick = (): void => {
+        Modal.confirm({
+            title: `Do you want to disconnect from Slack?`,
+            okText: 'Yes, disconnect',
+            okType: 'danger',
+            onOk() {
+                if (slackIntegration?.id) {
+                    deleteIntegration(slackIntegration.id)
+                }
+            },
+            cancelText: 'No thanks',
+        })
     }
 
     return (
@@ -34,7 +46,7 @@ export function SlackIntegration(): JSX.Element {
                             </span>
                         </div>
 
-                        <LemonButton type="secondary" status="danger" onClick={onClick} icon={<IconDelete />}>
+                        <LemonButton type="secondary" status="danger" onClick={onDeleteClick} icon={<IconDelete />}>
                             Disconnect
                         </LemonButton>
                     </div>

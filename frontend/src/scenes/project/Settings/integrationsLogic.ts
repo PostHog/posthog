@@ -6,7 +6,7 @@ import api from 'lib/api'
 import { systemStatusLogic } from 'scenes/instance/SystemStatus/systemStatusLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
-import { IntegrationType } from '~/types'
+import { IntegrationType, SlackChannelType } from '~/types'
 
 import type { integrationsLogicType } from './integrationsLogicType'
 
@@ -50,15 +50,30 @@ export const integrationsLogic = kea<integrationsLogicType>([
 
     actions({
         handleRedirect: (kind: string, searchParams: any) => ({ kind, searchParams }),
+        deleteIntegration: (id: number) => ({ id }),
     }),
 
-    loaders(({}) => ({
+    loaders(({ values }) => ({
         integrations: [
             null as IntegrationType[] | null,
             {
                 loadIntegrations: async () => {
                     const res = await api.integrations.list()
                     return res.results
+                },
+            },
+        ],
+
+        slackChannels: [
+            null as SlackChannelType[] | null,
+            {
+                loadSlackChannels: async () => {
+                    if (!values.slackIntegration) {
+                        return null
+                    }
+
+                    const res = await api.integrations.slackChannels(values.slackIntegration.id)
+                    return res.channels
                 },
             },
         ],
@@ -87,6 +102,11 @@ export const integrationsLogic = kea<integrationsLogicType>([
                 default:
                     lemonToast.error(`Something went wrong.`)
             }
+        },
+
+        deleteIntegration: async ({ id }) => {
+            await api.integrations.delete(id)
+            actions.loadIntegrations()
         },
     })),
     afterMount(({ actions }) => {

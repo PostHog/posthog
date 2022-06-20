@@ -1932,3 +1932,8 @@ export interface IntegrationType {
     created_by?: UserBasicType | null
     created_at: string
 }
+
+export interface SlackChannelType {
+    id: string
+    name: string
+}

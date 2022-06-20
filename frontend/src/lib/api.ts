@@ -14,6 +14,7 @@ import {
     LicenseType,
     PluginLogEntry,
     PropertyDefinition,
+    SlackChannelType,
     SubscriptionType,
     TeamType,
     UserType,
@@ -270,6 +271,10 @@ class ApiRequest {
 
     public integration(id: IntegrationType['id'], teamId?: TeamType['id']): ApiRequest {
         return this.integrations(teamId).addPathComponent(id)
+    }
+
+    public integrationSlackChannels(id: IntegrationType['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.integrations(teamId).addPathComponent(id).addPathComponent('channels')
     }
 
     // Request finalization
@@ -684,6 +689,9 @@ const api = {
         },
         async list(): Promise<PaginatedResponse<IntegrationType>> {
             return await new ApiRequest().integrations().get()
+        },
+        async slackChannels(id: IntegrationType['id']): Promise<{ channels: SlackChannelType[] }> {
+            return await new ApiRequest().integrationSlackChannels(id).get()
         },
     },
 

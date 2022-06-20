@@ -37,7 +37,7 @@ class SlackIntegration(object):
 
     @property
     def client(self) -> WebClient:
-        return WebClient(self.integration.sensitive_config.token)
+        return WebClient(self.integration.sensitive_config["access_token"])
 
     @classmethod
     def integration_from_slack_response(cls, team_id: str, params: Dict[str, str]) -> Integration:

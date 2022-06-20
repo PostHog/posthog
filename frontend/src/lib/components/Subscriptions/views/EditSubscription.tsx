@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useEffect } from 'react'
 import { useActions, useValues } from 'kea'
 import { LemonButton } from 'lib/components/LemonButton'
 import { VerticalForm } from 'lib/forms/VerticalForm'
@@ -24,6 +24,7 @@ import {
     weekdayOptions,
 } from '../utils'
 import { LemonDivider, LemonInput, LemonTextArea } from '@posthog/lemon-ui'
+import { integrationsLogic } from 'scenes/project/Settings/integrationsLogic'
 
 interface EditSubscriptionProps extends SubscriptionBaseProps {
     id: number | 'new'
@@ -53,6 +54,8 @@ export function EditSubscription({
     const { subscription, isSubscriptionSubmitting, subscriptionChanged } = useValues(logic)
     const { preflight, siteUrlMisconfigured } = useValues(preflightLogic)
     const { deleteSubscription } = useActions(subscriptionslogic)
+    const { slackChannels, slackChannelsLoading } = useValues(integrationsLogic)
+    const { loadSlackChannels } = useActions(integrationsLogic)
 
     const emailDisabled = !preflight?.email_service_available
 
@@ -72,19 +75,11 @@ export function EditSubscription({
         dropdownMaxWindowDimensions: true,
     }
 
-    const [slackChannelOptions, setSlackChannelOptions] = useState<any[]>([])
-
-    const onSlackChannelSearch = (searchValue: string): void => {
-        const values = [`#alerts-${searchValue}`, `#team-${searchValue}`, `#foobar-${searchValue}`]
-
-        setSlackChannelOptions(
-            values.map((x) => ({
-                key: x,
-                value: x,
-                label: x,
-            }))
-        )
-    }
+    useEffect(() => {
+        if (subscription.target_type === 'slack') {
+            loadSlackChannels()
+        }
+    }, [subscription.target_type])
 
     return (
         <>
@@ -197,13 +192,16 @@ export function EditSubscription({
                                             showSearch
                                             value={value}
                                             placeholder={'Pick a Slack channel'}
-                                            // showArrow={false}
-                                            filterOption={false}
-                                            onSearch={onSlackChannelSearch}
+                                            filterOption={true}
                                             onChange={(val) => onChange(val)}
                                             notFoundContent={null}
                                             style={{ width: '100%' }}
-                                            options={slackChannelOptions}
+                                            loading={slackChannelsLoading}
+                                            options={slackChannels?.map((x) => ({
+                                                key: x.id,
+                                                value: `${x.id}|#${x.name}`,
+                                                label: `#${x.name}`,
+                                            }))}
                                         />
                                     </>
                                 )}
