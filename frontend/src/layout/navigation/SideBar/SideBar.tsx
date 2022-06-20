@@ -19,6 +19,7 @@ import {
     IconSettings,
     IconTools,
     IconLive,
+    IconOpenInApp,
 } from 'lib/components/icons'
 import { LemonDivider } from 'lib/components/LemonDivider'
 import { Lettermark } from 'lib/components/Lettermark/Lettermark'
@@ -41,6 +42,10 @@ import { SideBarApps } from '~/layout/navigation/SideBar/SideBarApps'
 import { PageButton } from '~/layout/navigation/SideBar/PageButton'
 import { frontendAppsLogic } from 'scenes/apps/frontendAppsLogic'
 import { LemonRow } from 'lib/components/LemonRow'
+import { authorizedUrlsLogic } from 'scenes/toolbar-launch/authorizedUrlsLogic'
+import { LemonButton } from 'lib/components/LemonButton'
+import { Tooltip } from 'lib/components/Tooltip'
+import Typography from 'antd/lib/typography'
 
 function Pages(): JSX.Element {
     const { currentOrganization } = useValues(organizationLogic)
@@ -53,8 +58,56 @@ function Pages(): JSX.Element {
     const { preflight } = useValues(preflightLogic)
     const { currentTeam } = useValues(teamLogic)
     const { frontendApps } = useValues(frontendAppsLogic)
+    const { appUrls, launchUrl } = useValues(authorizedUrlsLogic)
 
     const [arePinnedDashboardsShown, setArePinnedDashboardsShown] = useState(false)
+    const [isToolbarLaunchShown, setIsToolbarLaunchShown] = useState(false)
+
+    const toolbarSideAction = !!featureFlags[FEATURE_FLAGS.TOOLBAR_LAUNCH_SIDE_ACTION]
+        ? {
+              identifier: 'toolbar-launch',
+              tooltip: 'Launch toolbar',
+              onClick: () => setIsToolbarLaunchShown((state) => !state),
+              popup: {
+                  visible: isToolbarLaunchShown,
+                  onClickOutside: () => setIsToolbarLaunchShown(false),
+                  onClickInside: hideSideBarMobile,
+                  overlay: (
+                      <div className="SideBar__side-actions" data-attr="sidebar-launch-toolbar">
+                          <h5>TOOLBAR URLS</h5>
+                          <LemonDivider />
+                          {appUrls.map((appUrl, index) => (
+                              <LemonButton
+                                  className="LaunchToolbarButton"
+                                  type="stealth"
+                                  fullWidth
+                                  key={index}
+                                  onClick={() => setIsToolbarLaunchShown(false)}
+                                  href={launchUrl(appUrl)}
+                                  sideIcon={
+                                      <Tooltip title="Launch toolbar">
+                                          <IconOpenInApp />
+                                      </Tooltip>
+                                  }
+                              >
+                                  <Typography.Text ellipsis={true} title={appUrl}>
+                                      {appUrl}
+                                  </Typography.Text>
+                              </LemonButton>
+                          ))}
+                          <LemonButton
+                              type="stealth"
+                              fullWidth
+                              to={urls.toolbarLaunch()}
+                              onClick={() => setIsToolbarLaunchShown(false)}
+                          >
+                              Add toolbar URL
+                          </LemonButton>
+                      </div>
+                  ),
+              },
+          }
+        : undefined
 
     return (
         <div className="Pages">
@@ -90,7 +143,7 @@ function Pages(): JSX.Element {
                                 onClickOutside: () => setArePinnedDashboardsShown(false),
                                 onClickInside: hideSideBarMobile,
                                 overlay: (
-                                    <div className="SideBar__pinned-dashboards">
+                                    <div className="SideBar__side-actions" data-attr="sidebar-pinned-dashboards">
                                         <h5>Pinned dashboards</h5>
                                         <LemonDivider />
                                         {pinnedDashboards.length > 0 ? (
@@ -198,7 +251,12 @@ function Pages(): JSX.Element {
                         </>
                     )}
 
-                    <PageButton icon={<IconTools />} identifier={Scene.ToolbarLaunch} to={urls.toolbarLaunch()} />
+                    <PageButton
+                        icon={<IconTools />}
+                        identifier={Scene.ToolbarLaunch}
+                        to={urls.toolbarLaunch()}
+                        sideAction={toolbarSideAction}
+                    />
                     <PageButton
                         icon={<IconSettings />}
                         identifier={Scene.ProjectSettings}
