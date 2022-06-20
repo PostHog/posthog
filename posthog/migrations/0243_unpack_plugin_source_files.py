@@ -25,7 +25,7 @@ def forwards_func(apps, schema_editor):
         for main_filename in main_filenames_to_try:
             if index_ts := get_file_from_archive(plugin.archive, main_filename, parse_with=lambda b: b.decode("utf-8")):
                 PluginSourceFile.objects.create(
-                    plugin=plugin, filename=main_filename, source=index_ts,
+                    plugin=plugin, filename="index.ts", source=index_ts,
                 )
                 break
         else:

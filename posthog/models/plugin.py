@@ -245,7 +245,7 @@ class PluginSourceFileManager(models.Manager):
         self, plugin: Plugin, plugin_json: Optional[Dict[str, Any]] = None
     ) -> Tuple["PluginSourceFile", Optional["PluginSourceFile"], Optional["PluginSourceFile"]]:
         plugin_json_instance: "PluginSourceFile"
-        index_ts_instance: Optional["PluginSourceFile"] = None
+        main_instance: Optional["PluginSourceFile"] = None
         frontend_tsx_instance: Optional["PluginSourceFile"] = None
         if not plugin_json:
             plugin_json = cast(Optional[Dict[str, Any]], get_file_from_archive(plugin.archive, "plugin.json"))
@@ -257,10 +257,10 @@ class PluginSourceFileManager(models.Manager):
         main_filename_defined = plugin_json.get("main")
         main_filenames_to_try = [main_filename_defined] if main_filename_defined else ["index.js", "index.ts"]
         for main_filename in main_filenames_to_try:
-            if index_ts := get_file_from_archive(plugin.archive, main_filename, parse_with=lambda b: b.decode("utf-8")):
-                index_ts_instance = PluginSourceFile.objects.create(
-                    plugin=plugin, filename=main_filename, source=index_ts,
-                )
+            if main := get_file_from_archive(plugin.archive, main_filename, parse_with=lambda b: b.decode("utf-8")):
+                # The original name of the file is not preserved, but this greatly simplifies the rest of the code,
+                # and we don't need to model the whole filesystem (at this point)
+                main_instance = PluginSourceFile.objects.create(plugin=plugin, filename="index.ts", source=main)
                 break
         else:
             raise ValidationError(f"Could not find main file {' or '.join(main_filenames_to_try)} in the plugin")
@@ -270,7 +270,7 @@ class PluginSourceFileManager(models.Manager):
             frontend_tsx_instance = PluginSourceFile.objects.create(
                 plugin=plugin, filename="frontend.tsx", source=frontend_tsx,
             )
-        return plugin_json_instance, index_ts_instance, frontend_tsx_instance
+        return plugin_json_instance, main_instance, frontend_tsx_instance
 
 
 class PluginSourceFile(UUIDModel):
