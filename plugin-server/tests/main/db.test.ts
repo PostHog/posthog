@@ -151,7 +151,7 @@ describe('DB', () => {
             const personProvided = { ...personDbBefore, properties: { c: 'bbb' }, created_at: providedPersonTs }
             const updateTs = DateTime.fromISO('2000-04-04T11:42:06.502Z').toUTC()
             const update = { created_at: updateTs }
-            const updatedPerson = await db.updatePersonDeprecated(personProvided, update)
+            const [updatedPerson] = await db.updatePersonDeprecated(personProvided, update)
 
             // verify we have the correct update in Postgres db
             const personDbAfter = await fetchPersonByPersonId(personDbBefore.team_id, personDbBefore.id)

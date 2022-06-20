@@ -861,19 +861,13 @@ export class DB {
     public async updatePersonDeprecated(
         person: Person,
         update: Partial<Person>,
-        client: PoolClient
-    ): Promise<ProducerRecord[]>
-    public async updatePersonDeprecated(person: Person, update: Partial<Person>): Promise<Person>
-    public async updatePersonDeprecated(
-        person: Person,
-        update: Partial<Person>,
         client?: PoolClient
-    ): Promise<Person | ProducerRecord[]> {
+    ): Promise<[Person, ProducerRecord[]]> {
         const updateValues = Object.values(unparsePersonPartial(update))
 
         // short circuit if there are no updates to be made
         if (updateValues.length === 0) {
-            return client ? [] : person
+            return [person, []]
         }
 
         const values = [...updateValues, person.id]
@@ -916,7 +910,7 @@ export class DB {
         await this.updatePersonPropertiesCache(updatedPerson.team_id, updatedPerson.id, updatedPerson.properties)
         await this.updatePersonCreatedAtCache(updatedPerson.team_id, updatedPerson.id, updatedPerson.created_at)
 
-        return client ? kafkaMessages : updatedPerson
+        return [updatedPerson, kafkaMessages]
     }
 
     public async deletePerson(person: Person, client?: PoolClient): Promise<ProducerRecord[]> {

@@ -183,7 +183,8 @@ export class PersonState {
         }
 
         if (Object.keys(update).length > 0) {
-            return await this.db.updatePersonDeprecated(personFound, update)
+            const [updatedPerson] = await this.db.updatePersonDeprecated(personFound, update)
+            return updatedPerson
         } else {
             return personFound
         }
@@ -407,7 +408,7 @@ export class PersonState {
         // in which case we'll bail and rethrow the error.
         await this.db.postgresTransaction(async (client) => {
             try {
-                const updatePersonMessages = await this.db.updatePersonDeprecated(
+                const [, updatePersonMessages] = await this.db.updatePersonDeprecated(
                     mergeInto,
                     {
                         created_at: firstSeen,
