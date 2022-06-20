@@ -36,6 +36,7 @@ from posthog.settings.object_storage import *
 from posthog.settings.web import *
 
 from posthog.settings.utils import get_from_env, str_to_bool
+from posthog.kafka_client.topics import KAFKA_EVENTS_PLUGIN_INGESTION as DEFAULT_KAFKA_EVENTS_PLUGIN_INGESTION
 
 USE_PRECALCULATED_CH_COHORT_PEOPLE = not TEST
 CALCULATE_X_COHORTS_PARALLEL = get_from_env("CALCULATE_X_COHORTS_PARALLEL", 2, type_cast=int)
@@ -84,6 +85,14 @@ EVENT_PROPERTY_USAGE_INTERVAL_SECONDS = get_from_env(
 UPDATE_CACHED_DASHBOARD_ITEMS_INTERVAL_SECONDS = get_from_env(
     "UPDATE_CACHED_DASHBOARD_ITEMS_INTERVAL_SECONDS", 90, type_cast=int
 )
+
+KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC: str = os.getenv(
+    "KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC", DEFAULT_KAFKA_EVENTS_PLUGIN_INGESTION
+)
+
+# Schedule to run column materialization on. Follows crontab syntax.
+# Use empty string to prevent this
+CLEAR_CLICKHOUSE_REMOVED_DATA_SCHEDULE_CRON = get_from_env("CLEAR_CLICKHOUSE_REMOVED_DATA_SCHEDULE_CRON", optional=True)
 
 
 # Whether to capture internal metrics
