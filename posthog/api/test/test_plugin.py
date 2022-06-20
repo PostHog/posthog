@@ -202,10 +202,14 @@ class TestPluginAPI(APIBaseTest):
         )
         self.assertEqual(response.status_code, 400)
 
-    def test_update_plugin_auth(self, mock_get, mock_reload):
+    @mock.patch("posthog.models.plugin.PluginSourceFile.objects.update_or_create_from_plugin_archive")
+    def test_update_plugin_auth(self, mock_update_or_create_from_plugin_archive, mock_get, mock_reload):
+        self.assertEqual(mock_reload.call_count, 0)
+        self.assertEqual(mock_update_or_create_from_plugin_archive.call_count, 0)
         repo_url = "https://github.com/PostHog/helloworldplugin"
         response = self.client.post("/api/organizations/@current/plugins/", {"url": repo_url})
         self.assertEqual(response.status_code, 201)
+        self.assertEqual(mock_update_or_create_from_plugin_archive.call_count, 1)  # Source files are extracted
 
         plugin = Plugin.objects.get(id=response.json()["id"])
 
@@ -216,6 +220,7 @@ class TestPluginAPI(APIBaseTest):
             api_url = f"/api/organizations/@current/plugins/{response.json()['id']}/upgrade"
             response = self.client.post(api_url, {"url": repo_url})
             self.assertEqual(response.status_code, 200)
+            self.assertEqual(mock_update_or_create_from_plugin_archive.call_count, 2)  # Source files are extracted
             plugin.refresh_from_db()
             self.assertEqual(plugin.updated_at, fake_date)
 
@@ -224,6 +229,7 @@ class TestPluginAPI(APIBaseTest):
             self.organization.save()
             response = self.client.post(api_url, {"url": repo_url})
             self.assertEqual(response.status_code, 403)
+            self.assertEqual(mock_update_or_create_from_plugin_archive.call_count, 2)  # Not extracted on auth failure
 
     def test_delete_plugin_auth(self, mock_get, mock_reload):
         repo_url = "https://github.com/PostHog/helloworldplugin"
