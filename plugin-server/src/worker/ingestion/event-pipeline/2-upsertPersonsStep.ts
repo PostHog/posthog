@@ -28,9 +28,10 @@ export async function upsertPersonsStep(
         timestamp,
         runner.hub.db,
         runner.hub.statsd,
-        runner.hub.personManager
+        runner.hub.personManager,
+        person
     )
-    const personInfo: IngestionPersonData | undefined = await personState.update(person)
+    const personInfo: IngestionPersonData | undefined = await personState.update()
 
     return runner.nextStep('pluginsProcessEventStep', event, {
         person: personInfo,

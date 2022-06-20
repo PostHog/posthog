@@ -26,9 +26,9 @@ export async function updatePersonIfTouchedByPlugins(
             timestamp,
             runner.hub.db,
             runner.hub.statsd,
-            runner.hub.personManager
+            runner.hub.personManager,
+            person
         )
-        // :TODO: Inform that you can skip the createPerson step
         person = await personState.updateProperties()
     }
 
