@@ -3,7 +3,7 @@ import { TaxonomicPropertyFilterLogicProps } from 'lib/components/PropertyFilter
 import { AnyPropertyFilter, PropertyFilterValue, PropertyOperator, PropertyType } from '~/types'
 import type { taxonomicPropertyFilterLogicType } from './taxonomicPropertyFilterLogicType'
 import { cohortsModel } from '~/models/cohortsModel'
-import { TaxonomicFilterGroup } from 'lib/components/TaxonomicFilter/types'
+import { TaxonomicFilterGroup, TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
 import {
     propertyFilterTypeToTaxonomicFilterType,
     taxonomicFilterTypeToPropertyFilterType,
@@ -33,7 +33,7 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
     }),
 
     actions: {
-        selectItem: (taxonomicGroup: TaxonomicFilterGroup, propertyKey?: string) => ({
+        selectItem: (taxonomicGroup: TaxonomicFilterGroup, propertyKey?: TaxonomicFilterValue) => ({
             taxonomicGroup,
             propertyKey,
         }),
