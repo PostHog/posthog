@@ -1,5 +1,8 @@
-import { kea, path, listeners, selectors, connect, afterMount } from 'kea'
+import { lemonToast } from '@posthog/lemon-ui'
+import { kea, path, listeners, selectors, connect, afterMount, actions } from 'kea'
 import { loaders } from 'kea-loaders'
+import { urlToAction } from 'kea-router'
+import { toast } from 'react-toastify'
 import { systemStatusLogic } from 'scenes/instance/SystemStatus/systemStatusLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
@@ -12,7 +15,7 @@ interface IntegrationsType {
 // NOTE: Slack enforces HTTPS urls so to aid local dev we change to https so the redirect works.
 // Just means we have to change it back to http once redirected.
 export const getSlackRedirectUri = (): string =>
-    `${window.location.origin.replace('http://', 'https://')}/api/integrations/slack/complete`
+    `${window.location.origin.replace('http://', 'https://')}/integrations/slack/redirect`
 
 // Modified version of https://app.slack.com/app-settings/TSS5W8YQZ/A03KWE2FJJ2/app-manifest to match current instance
 export const getSlackAppManifest = (): any => ({
@@ -47,6 +50,10 @@ export const slackIntegrationLogic = kea<slackIntegrationLogicType>([
         actions: [systemStatusLogic, ['loadInstanceSettings']],
     }),
 
+    actions({
+        handleRedirect: (kind: string, searchParams: any) => ({ kind, searchParams }),
+    }),
+
     loaders(({}) => ({
         integrations: [
             null as IntegrationsType[] | null,
@@ -57,11 +64,31 @@ export const slackIntegrationLogic = kea<slackIntegrationLogicType>([
             },
         ],
     })),
-    listeners(() => ({})),
+    listeners(() => ({
+        handleRedirect: ({ kind, searchParams }) => {
+            switch (kind) {
+                case 'slack':
+                    const { state, code } = searchParams
+
+                    console.log({ state, code })
+
+                    lemonToast.success(`Will redirect!`)
+                    return
+                default:
+                    lemonToast.error(`Something went wrong.`)
+            }
+        },
+    })),
     afterMount(({ actions }) => {
         actions.loadIntegrations()
         actions.loadInstanceSettings()
     }),
+
+    urlToAction(({ actions }) => ({
+        '/integrations/:kind/redirect': ({ kind }, searchParams) => {
+            actions.handleRedirect(kind, searchParams)
+        },
+    })),
     selectors({
         addToSlackButtonUrl: [
             (s) => [s.instanceSettings],

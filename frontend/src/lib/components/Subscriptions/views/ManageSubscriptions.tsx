@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { LemonButton, LemonButtonWithSideAction } from 'lib/components/LemonButton'
 import { SubscriptionType } from '~/types'
 import { pluralize } from 'lib/utils'
-import { IconEllipsis } from 'lib/components/icons'
+import { IconEllipsis, IconSlack } from 'lib/components/icons'
 import { ProfileBubbles } from 'lib/components/ProfilePicture'
 import { subscriptionsLogic } from '../subscriptionsLogic'
 import { Skeleton } from 'antd'
@@ -50,7 +50,13 @@ export function SubscriptionListItem({ subscription, onClick, onDelete }: Subscr
                     <div>{subscription.title}</div>
                     <div className="text-default">{summarizeSubscription(subscription)}</div>
                 </div>
-                <ProfileBubbles limit={4} people={subscription.target_value.split(',').map((email) => ({ email }))} />
+                {subscription.target_type === 'email' ? (
+                    <ProfileBubbles
+                        limit={4}
+                        people={subscription.target_value.split(',').map((email) => ({ email }))}
+                    />
+                ) : null}
+                {subscription.target_type === 'slack' ? <IconSlack /> : null}
             </div>
         </LemonButtonWithSideAction>
     )

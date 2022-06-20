@@ -66,7 +66,6 @@ export function EditSubscription({
     }
 
     const commonSelectProps: Partial<LemonSelectProps<LemonSelectOptions>> = {
-        dropdownPlacement: 'top-start',
         type: 'stealth',
         outlined: true,
         disabled: formDisabled,
@@ -154,7 +153,7 @@ export function EditSubscription({
                         <LemonInput placeholder="e.g. Weekly team report" disabled={formDisabled} />
                     </Field>
 
-                    <Field name={'target_type'} label={'Subscription Destination'}>
+                    <Field name={'target_type'} label={'Subscription Type'}>
                         <LemonSelect options={targetTypeOptions} {...commonSelectProps} />
                     </Field>
 
@@ -198,8 +197,7 @@ export function EditSubscription({
                                             showSearch
                                             value={value}
                                             placeholder={'Pick a Slack channel'}
-                                            defaultActiveFirstOption={false}
-                                            showArrow={false}
+                                            // showArrow={false}
                                             filterOption={false}
                                             onSearch={onSlackChannelSearch}
                                             onChange={(val) => onChange(val)}
@@ -212,6 +210,19 @@ export function EditSubscription({
                             </Field>
                         </>
                     ) : null}
+
+                    {subscription.target_type === 'webhook' ? (
+                        <>
+                            <Field name={'target_value'} label={'Webhook URL'}>
+                                <LemonInput placeholder="https://example.com/webhooks/1234" disabled={formDisabled} />
+                            </Field>
+                            <div className="text-small text-muted mt-05">
+                                Webhooks will be called with a HTTP POST request. The webhook endpoint should respond
+                                with a healthy HTTP code (2xx).
+                            </div>
+                        </>
+                    ) : null}
+
                     <div>
                         <div className="ant-form-item-label">
                             <label title="Recurrance">Recurrance</label>

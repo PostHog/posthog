@@ -47,6 +47,7 @@ class Subscription(models.Model):
     class SubscriptionTarget(models.TextChoices):
         EMAIL = "email"
         SLACK = "slack"
+        WEBHOOK = "webhook"
 
     class SubscriptionFrequency(models.TextChoices):
         DAILY = "daily"

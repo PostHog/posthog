@@ -13,6 +13,7 @@ from . import (
     feature_flag,
     instance_settings,
     instance_status,
+    integration,
     kafka_inspector,
     organization,
     organization_domain,
@@ -63,6 +64,7 @@ project_dashboards_router = projects_router.register(
 
 projects_router.register(r"exports", exports.ExportedAssetViewSet, "exports", ["team_id"])
 projects_router.register(r"subscriptions", subscription.SubscriptionViewSet, "subscriptions", ["team_id"])
+projects_router.register(r"integrations", integration.IntegrationViewSet, "integrations", ["team_id"])
 
 # Organizations nested endpoints
 organizations_router = router.register(r"organizations", organization.OrganizationViewSet, "organizations")
