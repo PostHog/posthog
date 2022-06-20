@@ -257,16 +257,14 @@ class PluginSourceFileManager(models.Manager):
         main_filename_defined = plugin_json.get("main")
         main_filenames_to_try = [main_filename_defined] if main_filename_defined else ["index.js", "index.ts"]
         for main_filename in main_filenames_to_try:
-            if main := get_file_from_archive(plugin.archive, main_filename, parse_with=lambda b: b.decode("utf-8")):
+            if main := get_file_from_archive(plugin.archive, main_filename, json_parse=False):
                 # The original name of the file is not preserved, but this greatly simplifies the rest of the code,
                 # and we don't need to model the whole filesystem (at this point)
                 main_instance = PluginSourceFile.objects.create(plugin=plugin, filename="index.ts", source=main)
                 break
         else:
             raise ValidationError(f"Could not find main file {' or '.join(main_filenames_to_try)} in the plugin")
-        if frontend_tsx := get_file_from_archive(
-            plugin.archive, "frontend.tsx", parse_with=lambda b: b.decode("utf-8")
-        ):
+        if frontend_tsx := get_file_from_archive(plugin.archive, "frontend.tsx", json_parse=False):
             frontend_tsx_instance = PluginSourceFile.objects.create(
                 plugin=plugin, filename="frontend.tsx", source=frontend_tsx,
             )

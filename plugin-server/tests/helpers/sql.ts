@@ -138,36 +138,44 @@ export async function insertRow(db: Pool, table: string, objectProvided: Record<
         const {
             rows: [rowSaved],
         } = await db.query(`INSERT INTO ${table} (${keys}) VALUES (${params}) RETURNING *`, values)
+        const dependentQueries: Promise<void>[] = []
         if (source__plugin_json) {
-            await insertRow(db, 'posthog_pluginsourcefile', {
-                id: new UUIDT().toString(),
-                filename: 'plugin.json',
-                source: source__plugin_json,
-                plugin_id: rowSaved.id,
-                error: null,
-                transpiled: null,
-            })
+            dependentQueries.push(
+                insertRow(db, 'posthog_pluginsourcefile', {
+                    id: new UUIDT().toString(),
+                    filename: 'plugin.json',
+                    source: source__plugin_json,
+                    plugin_id: rowSaved.id,
+                    error: null,
+                    transpiled: null,
+                })
+            )
         }
         if (source__index_ts) {
-            await insertRow(db, 'posthog_pluginsourcefile', {
-                id: new UUIDT().toString(),
-                filename: 'index.ts',
-                source: source__index_ts,
-                plugin_id: rowSaved.id,
-                error: null,
-                transpiled: null,
-            })
+            dependentQueries.push(
+                insertRow(db, 'posthog_pluginsourcefile', {
+                    id: new UUIDT().toString(),
+                    filename: 'index.ts',
+                    source: source__index_ts,
+                    plugin_id: rowSaved.id,
+                    error: null,
+                    transpiled: null,
+                })
+            )
         }
         if (source__frontend_tsx) {
-            await insertRow(db, 'posthog_pluginsourcefile', {
-                id: new UUIDT().toString(),
-                filename: 'frontend.tsx',
-                source: source__frontend_tsx,
-                plugin_id: rowSaved.id,
-                error: null,
-                transpiled: null,
-            })
+            dependentQueries.push(
+                insertRow(db, 'posthog_pluginsourcefile', {
+                    id: new UUIDT().toString(),
+                    filename: 'frontend.tsx',
+                    source: source__frontend_tsx,
+                    plugin_id: rowSaved.id,
+                    error: null,
+                    transpiled: null,
+                })
+            )
         }
+        await Promise.all(dependentQueries)
     } catch (error) {
         console.error(`Error on table ${table} when inserting object:\n`, object, '\n', error)
         throw error

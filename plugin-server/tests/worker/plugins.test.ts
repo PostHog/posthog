@@ -11,7 +11,7 @@ import {
     commonOrganizationId,
     mockPluginSourceCode,
     mockPluginTempFolder,
-    mockPluginWithPluginSourceFiles,
+    mockPluginWithSourceFiles,
     plugin60,
     pluginAttachment1,
     pluginConfig39,
@@ -143,7 +143,7 @@ describe('plugins', () => {
 
     test('plugin returns null', async () => {
         getPluginRows.mockReturnValueOnce([
-            mockPluginWithPluginSourceFiles('function processEvent (event, meta) { return null }'),
+            mockPluginWithSourceFiles('function processEvent (event, meta) { return null }'),
         ])
         getPluginConfigRows.mockReturnValueOnce([pluginConfig39])
         getPluginAttachmentRows.mockReturnValueOnce([])
@@ -158,7 +158,7 @@ describe('plugins', () => {
 
     test('plugin meta has what it should have', async () => {
         getPluginRows.mockReturnValueOnce([
-            mockPluginWithPluginSourceFiles(`
+            mockPluginWithSourceFiles(`
             function setupPlugin (meta) { meta.global.key = 'value' }
             function processEvent (event, meta) { event.properties=meta; return event }
         `),
@@ -201,7 +201,7 @@ describe('plugins', () => {
         console.error = jest.fn()
 
         getPluginRows.mockReturnValueOnce([
-            mockPluginWithPluginSourceFiles(`
+            mockPluginWithSourceFiles(`
             function setupPlugin (met
         `),
         ])
@@ -256,7 +256,7 @@ describe('plugins', () => {
 
     test('plugin changing event.team_id throws error', async () => {
         getPluginRows.mockReturnValueOnce([
-            mockPluginWithPluginSourceFiles(`
+            mockPluginWithSourceFiles(`
             function processEvent (event, meta) {
                 event.team_id = 400
                 return event
@@ -298,7 +298,7 @@ describe('plugins', () => {
         console.error = jest.fn()
 
         getPluginRows.mockReturnValueOnce([
-            mockPluginWithPluginSourceFiles(`
+            mockPluginWithSourceFiles(`
             function processEvent (event) {
                 throw new Error('I always fail!')
             }
@@ -332,7 +332,7 @@ describe('plugins', () => {
         console.error = jest.fn()
 
         getPluginRows.mockReturnValueOnce([
-            mockPluginWithPluginSourceFiles(`
+            mockPluginWithSourceFiles(`
             function processEvent (event) {
                 return event
             }
@@ -366,7 +366,7 @@ describe('plugins', () => {
         console.error = jest.fn()
 
         getPluginRows.mockReturnValueOnce([
-            mockPluginWithPluginSourceFiles(`
+            mockPluginWithSourceFiles(`
             function onEvent (event) {
                 return event
             }
@@ -400,7 +400,7 @@ describe('plugins', () => {
         console.error = jest.fn()
 
         getPluginRows.mockReturnValueOnce([
-            mockPluginWithPluginSourceFiles(
+            mockPluginWithSourceFiles(
                 `function processEvent (event, meta) { event.properties.processed = true; return event }`,
                 '{ broken: "plugin.json" -=- '
             ),
@@ -524,7 +524,7 @@ describe('plugins', () => {
 
     test('plugin with source files loads capabilities', async () => {
         getPluginRows.mockReturnValueOnce([
-            mockPluginWithPluginSourceFiles(`
+            mockPluginWithSourceFiles(`
             function setupPlugin (meta) { meta.global.key = 'value' }
             function processEvent (event, meta) { event.properties={"x": 1}; return event }
         `),
@@ -547,7 +547,7 @@ describe('plugins', () => {
 
     test('plugin with source files loads all capabilities, no random caps', async () => {
         getPluginRows.mockReturnValueOnce([
-            mockPluginWithPluginSourceFiles(`
+            mockPluginWithSourceFiles(`
             export function processEvent (event, meta) { event.properties={"x": 1}; return event }
             export function randomFunction (event, meta) { return event}
             export function onEvent (event, meta) { return event }
@@ -814,7 +814,7 @@ exports.scene = scene;; return exports; }`)
 
     test.skip('exportEvents automatically sets metrics', async () => {
         getPluginRows.mockReturnValueOnce([
-            mockPluginWithPluginSourceFiles(`
+            mockPluginWithSourceFiles(`
             export function exportEvents() {}
         `),
         ])

@@ -3,7 +3,7 @@ import json
 import os
 import re
 import tarfile
-from typing import Callable, Dict, Optional, Tuple, TypeVar
+from typing import Any, Dict, Optional, Tuple
 from urllib.parse import parse_qs, quote
 from zipfile import ZIP_DEFLATED, BadZipFile, ZipFile
 
@@ -216,25 +216,19 @@ def load_json_file(filename: str):
         return None
 
 
-T = TypeVar("T")
-
-
-def get_file_from_zip_archive(
-    archive: bytes, filename: str, *, parse_with: Callable[[bytes], T] = json.loads
-) -> Optional[T]:
+def get_file_from_zip_archive(archive: bytes, filename: str, *, json_parse: bool) -> Any:
     zip_file = ZipFile(io.BytesIO(archive), "r")
     root_folder = zip_file.namelist()[0]
     file_path = os.path.join(root_folder, filename)
     try:
         with zip_file.open(file_path) as reader:
-            return parse_with(reader.read())
+            file_bytes = reader.read()
+            return json.loads(file_bytes) if json_parse else file_bytes.decode("utf-8")
     except KeyError:
         return None
 
 
-def get_file_from_tgz_archive(
-    archive: bytes, filename, *, parse_with: Callable[[bytes], T] = json.loads
-) -> Optional[T]:
+def get_file_from_tgz_archive(archive: bytes, filename, *, json_parse: bool) -> Any:
     with tarfile.open(fileobj=io.BytesIO(archive), mode="r:gz") as tar:
         if tar.getmembers()[0].isdir():
             root_folder = tar.getmembers()[0].name
@@ -244,17 +238,15 @@ def get_file_from_tgz_archive(
         extracted_file = tar.extractfile(file_path)
         if not extracted_file:
             return None
-        json_bytes = extracted_file.read()
-        return parse_with(json_bytes)
+        file_bytes = extracted_file.read()
+        return json.loads(file_bytes) if json_parse else file_bytes.decode("utf-8")
 
 
-def get_file_from_archive(
-    archive: bytes, filename: str, *, parse_with: Callable[[bytes], T] = json.loads
-) -> Optional[T]:
+def get_file_from_archive(archive: bytes, filename: str, *, json_parse: bool = True) -> Any:
     try:
-        return get_file_from_zip_archive(archive, filename, parse_with=parse_with)
+        return get_file_from_zip_archive(archive, filename, json_parse=json_parse)
     except BadZipFile:
-        return get_file_from_tgz_archive(archive, filename, parse_with=parse_with)
+        return get_file_from_tgz_archive(archive, filename, json_parse=json_parse)
 
 
 def put_json_into_zip_archive(archive: bytes, json_data: dict, filename: str):

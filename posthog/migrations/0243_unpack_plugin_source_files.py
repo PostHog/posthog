@@ -23,16 +23,14 @@ def forwards_func(apps, schema_editor):
         main_filename_defined = plugin_json.get("main")
         main_filenames_to_try = [main_filename_defined] if main_filename_defined else ["index.js", "index.ts"]
         for main_filename in main_filenames_to_try:
-            if index_ts := get_file_from_archive(plugin.archive, main_filename, parse_with=lambda b: b.decode("utf-8")):
+            if index_ts := get_file_from_archive(plugin.archive, main_filename, json_parse=False):
                 PluginSourceFile.objects.create(
                     plugin=plugin, filename="index.ts", source=index_ts,
                 )
                 break
         else:
             continue
-        if frontend_tsx := get_file_from_archive(
-            plugin.archive, "frontend.tsx", parse_with=lambda b: b.decode("utf-8")
-        ):
+        if frontend_tsx := get_file_from_archive(plugin.archive, "frontend.tsx", json_parse=False):
             PluginSourceFile.objects.create(
                 plugin=plugin, filename="frontend.tsx", source=frontend_tsx,
             )

@@ -95,7 +95,7 @@ function mockSourceFileFields(
     return fields
 }
 
-export const mockPluginWithPluginSourceFiles = (indexJs: string, pluginJson?: string): Plugin => ({
+export const mockPluginWithSourceFiles = (indexJs: string, pluginJson?: string): Plugin => ({
     ...plugin60,
     ...mockSourceFileFields('posthog-maxmind-plugin', { indexJs, pluginJson }),
 })
@@ -107,7 +107,7 @@ export const makePluginObjects = (
     pluginConfigRows: Omit<PluginConfig, 'id'>[]
     pluginAttachmentRows: Omit<PluginAttachmentDB, 'id'>[]
 } => ({
-    pluginRows: [mockPluginWithPluginSourceFiles(indexJs)],
+    pluginRows: [mockPluginWithSourceFiles(indexJs)],
     pluginConfigRows: [
         { ...pluginConfig39, created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
     ],
