@@ -1,9 +1,7 @@
 {% extends "email/base_transactional.html" %} {% load posthog_assets %} {% block section %}
-<p><strong>Hello,</strong></p>
 
 {% if inviter %}
-
-<p>
+<h1 class="invite-header">
     {% if self_invite %}
         You have been subscribed
     {% else %}
@@ -11,17 +9,19 @@
     {% endif %}
 
     to the PostHog {{ resource_noun }} <strong>{{ resource_name }}</strong>.
-</p>
+</h1>
 
 {% if invite_message %}
-<p>
-    <i>
+
+<div class="invite-message">
+    <div class="invite-message-divider"></div>
         "{{ invite_message }}"
-    </i>
-</p>
+</div>
 {% endif %}
 
 {% else %}
+
+<p><strong>Hello,</strong></p>
 <p>
     Your subscription to the {{ resource_noun }}
     <strong>{{ resource_name }}</strong> is ready!
