@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Optional, Tuple, cast
 from uuid import UUID
 
 from django.conf import settings
+from django.core import exceptions
 from django.db import models
 from django.db.models.signals import post_delete, post_save
 from django.dispatch.dispatcher import receiver
@@ -114,7 +115,7 @@ class PluginManager(models.Manager):
             raise_if_plugin_installed(kwargs["url"], kwargs["organization_id"])
         plugin = Plugin.objects.create(**kwargs)
         if plugin_json:
-            PluginSourceFile.objects.create_from_plugin_archive(plugin, plugin_json)
+            PluginSourceFile.objects.update_or_create_from_plugin_archive(plugin, plugin_json)
         reload_plugins_on_workers()
         return plugin
 
@@ -241,34 +242,52 @@ class PluginLogEntryType(str, Enum):
 
 
 class PluginSourceFileManager(models.Manager):
-    def create_from_plugin_archive(
+    def update_or_create_from_plugin_archive(
         self, plugin: Plugin, plugin_json: Optional[Dict[str, Any]] = None
     ) -> Tuple["PluginSourceFile", Optional["PluginSourceFile"], Optional["PluginSourceFile"]]:
-        plugin_json_instance: "PluginSourceFile"
-        main_instance: Optional["PluginSourceFile"] = None
-        frontend_tsx_instance: Optional["PluginSourceFile"] = None
+        """Extract plugin.json (if not provided as an arg),  and create PluginSourceFile objects."""
+        if plugin.archive is None:
+            raise exceptions.ValidationError(
+                f"Could not extract files from plugin {plugin.name} ID {plugin.id} - it has no archive"
+            )
+        # Extract plugin.json - required, can be provided to the function as an optimization
         if not plugin_json:
             plugin_json = cast(Optional[Dict[str, Any]], get_file_from_archive(plugin.archive, "plugin.json"))
             if not plugin_json:
-                raise ValidationError("Could not find plugin.json in the plugin")
-        plugin_json_instance = PluginSourceFile.objects.create(
-            plugin=plugin, filename="plugin.json", source=json.dumps(plugin_json),
-        )
+                raise exceptions.ValidationError(f"Could not find plugin.json in plugin {plugin.name} ID {plugin.id}")
+        # Extract frontend.tsx - optional
+        frontend_tsx: Optional[str] = get_file_from_archive(plugin.archive, "frontend.tsx", json_parse=False)
+        # Extract index.ts - optional if frontend.tsx is present, otherwise required
         main_filename_defined = plugin_json.get("main")
         main_filenames_to_try = [main_filename_defined] if main_filename_defined else ["index.js", "index.ts"]
+        index_ts: Optional[str] = None
         for main_filename in main_filenames_to_try:
-            if main := get_file_from_archive(plugin.archive, main_filename, json_parse=False):
-                # The original name of the file is not preserved, but this greatly simplifies the rest of the code,
-                # and we don't need to model the whole filesystem (at this point)
-                main_instance = PluginSourceFile.objects.create(plugin=plugin, filename="index.ts", source=main)
+            if index_ts := get_file_from_archive(plugin.archive, main_filename, json_parse=False):
                 break
         else:
-            raise ValidationError(f"Could not find main file {' or '.join(main_filenames_to_try)} in the plugin")
-        if frontend_tsx := get_file_from_archive(plugin.archive, "frontend.tsx", json_parse=False):
-            frontend_tsx_instance = PluginSourceFile.objects.create(
-                plugin=plugin, filename="frontend.tsx", source=frontend_tsx,
+            if frontend_tsx is None:
+                raise exceptions.ValidationError(
+                    f"Could not find main file {' or '.join(main_filenames_to_try)} in plugin {plugin.name} ID {plugin.id}"
+                )
+        # Save plugin.json
+        plugin_json_instance, _ = PluginSourceFile.objects.update_or_create(
+            plugin=plugin, filename="plugin.json", defaults={"source": json.dumps(plugin_json)}
+        )
+        # Save frontend.tsx
+        frontend_tsx_instance: Optional["PluginSourceFile"] = None
+        if frontend_tsx:
+            frontend_tsx_instance, _ = PluginSourceFile.objects.update_or_create(
+                plugin=plugin, filename="frontend.tsx", defaults={"source": frontend_tsx}
             )
-        return plugin_json_instance, main_instance, frontend_tsx_instance
+        # Save index.ts
+        index_ts_instance: Optional["PluginSourceFile"] = None
+        if index_ts:
+            # The original name of the file is not preserved, but this greatly simplifies the rest of the code,
+            # and we don't need to model the whole filesystem (at this point)
+            index_ts_instance, _ = PluginSourceFile.objects.update_or_create(
+                plugin=plugin, filename="index.ts", defaults={"source": index_ts}
+            )
+        return plugin_json_instance, index_ts_instance, frontend_tsx_instance
 
 
 class PluginSourceFile(UUIDModel):

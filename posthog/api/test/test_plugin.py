@@ -304,10 +304,13 @@ class TestPluginAPI(APIBaseTest):
             },
         )
         self.assertEqual(Plugin.objects.count(), 1)
+        self.assertEqual(PluginSourceFile.objects.filter(filename="plugin.json").count(), 1)
+        self.assertEqual(PluginSourceFile.objects.filter(filename="index.ts").count(), 1)
         self.assertEqual(mock_reload.call_count, 1)
 
         self.client.delete("/api/organizations/@current/plugins/{}".format(response.json()["id"]))
         self.assertEqual(Plugin.objects.count(), 0)
+        self.assertEqual(PluginSourceFile.objects.count(), 0)
         self.assertEqual(mock_reload.call_count, 2)
 
     def test_create_plugin_commit_url(self, mock_get, mock_reload):

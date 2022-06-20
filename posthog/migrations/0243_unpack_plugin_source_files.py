@@ -13,7 +13,7 @@ def forwards_func(apps, schema_editor):
     Plugin = apps.get_model("posthog", "Plugin")
     PluginSourceFile = apps.get_model("posthog", "PluginSourceFile")
     for plugin in Plugin.objects.exclude(plugin_type="source").exclude(plugin_type="local"):
-        # PluginSourceFile.objects.create_from_plugin_archive() inlined
+        # PluginSourceFile.objects.update_or_create_from_plugin_archive() inlined
         plugin_json = cast(Optional[Dict[str, Any]], get_file_from_archive(plugin.archive, "plugin.json"))
         if not plugin_json:
             continue

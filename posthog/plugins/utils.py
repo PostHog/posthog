@@ -220,12 +220,9 @@ def get_file_from_zip_archive(archive: bytes, filename: str, *, json_parse: bool
     zip_file = ZipFile(io.BytesIO(archive), "r")
     root_folder = zip_file.namelist()[0]
     file_path = os.path.join(root_folder, filename)
-    try:
-        with zip_file.open(file_path) as reader:
-            file_bytes = reader.read()
-            return json.loads(file_bytes) if json_parse else file_bytes.decode("utf-8")
-    except KeyError:
-        return None
+    with zip_file.open(file_path) as reader:
+        file_bytes = reader.read()
+        return json.loads(file_bytes) if json_parse else file_bytes.decode("utf-8")
 
 
 def get_file_from_tgz_archive(archive: bytes, filename, *, json_parse: bool) -> Any:
@@ -244,9 +241,12 @@ def get_file_from_tgz_archive(archive: bytes, filename, *, json_parse: bool) -> 
 
 def get_file_from_archive(archive: bytes, filename: str, *, json_parse: bool = True) -> Any:
     try:
-        return get_file_from_zip_archive(archive, filename, json_parse=json_parse)
-    except BadZipFile:
-        return get_file_from_tgz_archive(archive, filename, json_parse=json_parse)
+        try:
+            return get_file_from_zip_archive(archive, filename, json_parse=json_parse)
+        except BadZipFile:
+            return get_file_from_tgz_archive(archive, filename, json_parse=json_parse)
+    except KeyError:
+        return None
 
 
 def put_json_into_zip_archive(archive: bytes, json_data: dict, filename: str):
