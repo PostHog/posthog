@@ -1911,6 +1911,7 @@ export interface SubscriptionType {
     start_date: string
     until_date?: string
     title: string
+    summary: string
     created_by?: UserBasicType | null
     created_at: string
     updated_at: string

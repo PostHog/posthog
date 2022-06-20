@@ -123,6 +123,33 @@ class Subscription(models.Model):
             return absolute_uri(f"/dashboard/{self.dashboard.id}/subscriptions/{self.id}")
         return None
 
+    @property
+    def summary(self):
+        human_frequency_map = {
+            "daily": "day",
+            "weekly": "week",
+            "monthly": "month",
+            "yearly": "year",
+        }
+
+        human_bysetpos_map = {
+            1: "first",
+            2: "second",
+            3: "third",
+            4: "fourth",
+            -1: "last",
+        }
+
+        frequency = human_frequency_map[self.frequency]
+        if self.interval > 1:
+            frequency = f"{frequency}s"
+        summary = f"sent every {str(self.interval) + ' ' if self.interval > 1 else ''}{frequency}"
+
+        if self.byweekday and self.bysetpos:
+            summary += f" on the {human_bysetpos_map.get(self.bysetpos, '')} {self.byweekday[0] if len(self.byweekday) == 1 else 'day'}"
+
+        return summary
+
     def get_analytics_metadata(self) -> Dict[str, Any]:
         """
         Returns serialized information about the object for analytics reporting.
