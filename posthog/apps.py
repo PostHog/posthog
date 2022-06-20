@@ -21,8 +21,9 @@ class PostHogConfig(AppConfig):
             posthoganalytics.disabled = True
         elif settings.DEBUG:
             # NOTE: This has to come before any call to posthoganalytics as the first call creates a client with all set values
-            if SELF_CAPTURE:
-                posthoganalytics.api_key = get_self_capture_api_token(None)
+            local_api_key = get_self_capture_api_token(None)
+            if SELF_CAPTURE and local_api_key:
+                posthoganalytics.api_key = local_api_key
                 posthoganalytics.host = settings.SITE_URL
             else:
                 posthoganalytics.disabled = True
