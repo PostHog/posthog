@@ -78,6 +78,24 @@ export const BASE_MATH_DEFINITIONS: Record<BaseMathType, MathDefinition> = {
         actor: false,
         type: EVENT_MATH_TYPE,
     },
+    [BaseMathType.UniqueSessions]: {
+        name: 'Unique sessions',
+        shortName: 'unique sessions',
+        description: (
+            <>
+                Number of unique sessions where the event was performed in the specified period.
+                <br />
+                <br />
+                <i>
+                    Example: If a single user performs an event 3 times in two separate sessions, it counts as two
+                    sessions.
+                </i>
+            </>
+        ),
+        onProperty: false,
+        actor: false,
+        type: EVENT_MATH_TYPE,
+    },
 }
 
 export const PROPERTY_MATH_DEFINITIONS: Record<PropertyMathType, MathDefinition> = {
