@@ -34,6 +34,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         create_org_team_and_user("2022-01-03 00:00:00", "too_early_user@posthog.com")
         in_range_org = create_org_team_and_user("2022-01-02 00:00:00", "in_range_user@posthog.com")
         User.objects.create_and_join(
+            first_name="Test User",
             organization=in_range_org,
             email="in_range_user_not_admin@posthog.com",
             password=None,
@@ -64,6 +65,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         create_org_team_and_user("2022-01-03 00:00:00", "too_early_user@posthog.com")
         in_range_org = create_org_team_and_user("2022-01-02 00:00:00", "in_range_user@posthog.com")
         User.objects.create_and_join(
+            first_name="Test User",
             organization=in_range_org,
             email="in_range_user_not_admin@posthog.com",
             password=None,

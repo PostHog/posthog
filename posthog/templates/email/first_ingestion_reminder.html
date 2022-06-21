@@ -1,4 +1,4 @@
-{% extends "email/base_transactional.html" %} {% load posthog_assets %} {% block section %}
+{% extends "email/base.html" %} {% load posthog_assets %} {% block section %}
 <h3>Welcome, {{ first_name }}!</h3>
 <div>
     <p>
@@ -44,19 +44,5 @@
 </div>
 <div class="text-center">
     <a href="{{ ingest_events_url }}" target="_blank"><button class="action-btn">Send some events!</button></a>
-</div>
-<div class="mt text-center">
-    Need help?
-    <a
-        href="https://posthog.com/support?utm_source=posthog&utm_medium=email&utm_campaign=first_ingestion_reminder"
-        target="_blank"
-        ><b>Visit support</b></a
-    >
-    or
-    <a
-        href="https://posthog.com/docs?utm_source=posthog&utm_medium=email&utm_campaign=first_ingestion_reminder"
-        target="_blank"
-        ><b>read our documentation</b></a
-    >
 </div>
 {% endblock %}
