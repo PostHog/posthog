@@ -249,6 +249,46 @@ def get_file_from_archive(archive: bytes, filename: str, *, json_parse: bool = T
         return None
 
 
+def find_index_ts_in_archive(archive: bytes, main_filename: Optional[str] = None) -> str:
+    main_filenames_to_try = [main_filename] if main_filename else ["index.js", "index.ts"]
+    for main_filename in main_filenames_to_try:
+        if index_ts := get_file_from_archive(archive, main_filename, json_parse=False):
+            return index_ts
+    raise ValueError(f"Could not find main file {' or '.join(main_filenames_to_try)}")
+
+
+def extract_plugin_code(
+    archive: bytes, plugin_json_parsed: Optional[Dict[str, Any]] = None
+) -> Tuple[str, Optional[str], Optional[str]]:
+    """Extract plugin.json, index.ts (which can be aliased) and frontend.tsx out of an archive.
+
+        If plugin.json has already been parsed before this is called, its value can be passed in as an optimization."""
+    if archive is None:
+        raise ValueError(f"There is no archive to extract code from")
+    # Extract plugin.json - required, might be provided already
+    plugin_json: str
+    if not plugin_json_parsed:
+        plugin_json_original = get_file_from_archive(archive, "plugin.json", json_parse=False)
+        if not plugin_json_original:
+            raise ValueError(f"Could not find plugin.json")
+        try:
+            plugin_json_parsed = json.loads(plugin_json_original)
+        except json.JSONDecodeError as e:
+            raise ValueError(f"Could not parse plugin.json: {e}") from e
+    plugin_json = json.dumps(plugin_json_parsed)  # We serialize this even if just extracted from file, for minification
+    assert plugin_json_parsed is not None  # Just to let mypy know this must be loaded at this point
+    # Extract frontend.tsx - optional
+    frontend_tsx: Optional[str] = get_file_from_archive(archive, "frontend.tsx", json_parse=False)
+    # Extract index.ts - optional if frontend.tsx is present, otherwise required
+    index_ts: Optional[str] = None
+    try:
+        index_ts = find_index_ts_in_archive(archive, plugin_json_parsed.get("main"))
+    except ValueError as e:
+        if frontend_tsx is None:
+            raise e
+    return plugin_json, index_ts, frontend_tsx
+
+
 def put_json_into_zip_archive(archive: bytes, json_data: dict, filename: str):
     input_zip = ZipFile(io.BytesIO(archive), "r")
     root_folder = input_zip.namelist()[0]
