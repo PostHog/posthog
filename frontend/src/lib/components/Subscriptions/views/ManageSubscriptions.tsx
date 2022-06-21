@@ -2,12 +2,12 @@ import React from 'react'
 import { useActions, useValues } from 'kea'
 import { LemonButton, LemonButtonWithSideAction } from 'lib/components/LemonButton'
 import { SubscriptionType } from '~/types'
-import { pluralize } from 'lib/utils'
+import { capitalizeFirstLetter, pluralize } from 'lib/utils'
 import { IconEllipsis } from 'lib/components/icons'
 import { ProfileBubbles } from 'lib/components/ProfilePicture'
 import { subscriptionsLogic } from '../subscriptionsLogic'
 import { Skeleton } from 'antd'
-import { SubscriptionBaseProps, summarizeSubscription } from '../utils'
+import { SubscriptionBaseProps } from '../utils'
 
 interface SubscriptionListItemProps {
     subscription: SubscriptionType
@@ -48,7 +48,7 @@ export function SubscriptionListItem({ subscription, onClick, onDelete }: Subscr
             <div className="space-between-items flex-auto items-center pa-05">
                 <div>
                     <div>{subscription.title}</div>
-                    <div className="text-default">{summarizeSubscription(subscription)}</div>
+                    <div className="text-default">{capitalizeFirstLetter(subscription.summary)}</div>
                 </div>
                 <ProfileBubbles limit={4} people={subscription.target_value.split(',').map((email) => ({ email }))} />
             </div>

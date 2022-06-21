@@ -114,7 +114,11 @@ export const FEATURE_FLAGS = {
     PROPERTY_FILTER_ON_DASHBOARD: 'property-filter-on-dashboard', // owner: @edscode
     EXPORT_DASHBOARD_INSIGHTS: 'export-dashboard-insights', // owner: @benjackwhite
     ONBOARDING_1_5: 'onboarding-1_5', // owner: @liyiy
+    BREAKDOWN_ATTRIBUTION: 'breakdown-attribution', // owner: @neilkakkar
     INSIGHT_SUBSCRIPTIONS: 'insight-subscriptions', // owner: @benjackwhite
+    SIMPLIFY_ACTIONS: 'simplify-actions', // owner: @alexkim205,
+    SESSION_ANALYSIS: 'session-analysis', // owner: @rcmarron
+    TOOLBAR_LAUNCH_SIDE_ACTION: 'toolbar-launch-side-action', // owner: @pauldambra,
 }
 
 /** Which self-hosted plan's features are available with Cloud's "Standard" plan (aka card attached). */

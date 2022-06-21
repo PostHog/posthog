@@ -83,7 +83,12 @@
     letter-spacing: 0.5px;
 }
 
-.SideBar__pinned-dashboards {
+.SideBar__side-actions {
     max-height: calc(100vh - 20rem);
     max-width: calc(100vw - 14rem);
+
+    .LaunchToolbarButton {
+        padding-left: 0.5em;
+        padding-right: 0.5em;
+    }
 }

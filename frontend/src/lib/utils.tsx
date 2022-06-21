@@ -517,8 +517,8 @@ export function humanFriendlyDiff(from: dayjs.Dayjs | string, to: dayjs.Dayjs | 
 
 export function humanFriendlyDetailedTime(
     date: dayjs.Dayjs | string | null,
-    withSeconds: boolean = false,
-    formatString: string = 'MMMM DD, YYYY h:mm'
+    formatDate = 'MMMM DD, YYYY',
+    formatTime = 'h:mm:ss A'
 ): string {
     if (!date) {
         return 'Never'
@@ -529,15 +529,13 @@ export function humanFriendlyDetailedTime(
     if (parsedDate.isSame(dayjs(), 'm')) {
         return 'Just now'
     }
+    let formatString: string
     if (parsedDate.isSame(today, 'd')) {
-        formatString = '[Today] h:mm'
+        formatString = `[Today] ${formatTime}`
     } else if (parsedDate.isSame(yesterday, 'd')) {
-        formatString = '[Yesterday] h:mm'
-    }
-    if (withSeconds) {
-        formatString += ':ss A'
+        formatString = `[Yesterday] ${formatTime}`
     } else {
-        formatString += ' A'
+        formatString = `${formatDate} ${formatTime}`
     }
     return parsedDate.format(formatString)
 }
@@ -1352,7 +1350,7 @@ export function processCohort(cohort: CohortType, isNewCohortFilterEnabled: bool
                   filters: {
                       properties: {
                           ...cohort.filters.properties,
-                          values: (cohort.filters.properties.values?.map((group) =>
+                          values: (cohort.filters.properties?.values?.map((group) =>
                               'values' in group
                                   ? {
                                         ...group,

@@ -66,6 +66,7 @@ export const dashboardLogic = kea<dashboardLogicType>({
         setReceivedErrorsFromAPI: (receivedErrors: boolean) => ({
             receivedErrors,
         }),
+        loadExportedDashboard: (dashboard: DashboardType | null) => ({ dashboard }),
         loadDashboardItems: ({
             refresh,
         }: {
@@ -166,6 +167,7 @@ export const dashboardLogic = kea<dashboardLogicType>({
         allItems: [
             null as DashboardType | null,
             {
+                loadExportedDashboard: (_, { dashboard }) => dashboard,
                 updateLayouts: (state, { layouts }) => {
                     const itemLayouts: Record<string, Partial<Record<string, Layout>>> = {}
                     state?.items.forEach((item) => {
@@ -546,10 +548,15 @@ export const dashboardLogic = kea<dashboardLogicType>({
     events: ({ actions, cache, props }) => ({
         afterMount: () => {
             if (props.id) {
-                // When the scene is initially loaded, the dashboard ID is undefined
-                actions.loadDashboardItems({
-                    refresh: props.placement === DashboardPlacement.InternalMetrics,
-                })
+                const exportedDashboard = window.POSTHOG_EXPORTED_DATA?.dashboard
+                if (exportedDashboard && exportedDashboard.id === props.id && exportedDashboard.items) {
+                    actions.loadExportedDashboard(exportedDashboard as DashboardType)
+                } else {
+                    // When the scene is initially loaded, the dashboard ID is undefined
+                    actions.loadDashboardItems({
+                        refresh: props.placement === DashboardPlacement.InternalMetrics,
+                    })
+                }
             }
 
             if (props.shareToken) {

@@ -26,7 +26,7 @@ export const scene: SceneExport = {
 
 export function EventPropertyDefinitionsTable(): JSX.Element {
     const { preflight } = useValues(preflightLogic)
-    const { eventPropertyDefinitions, eventPropertyDefinitionsLoading, openedDefinitionId, filters } = useValues(
+    const { eventPropertyDefinitions, eventPropertyDefinitionsLoading, filters } = useValues(
         eventPropertyDefinitionsTableLogic
     )
     const { loadEventPropertyDefinitions, setFilters } = useActions(eventPropertyDefinitionsTableLogic)
@@ -121,9 +121,6 @@ export function EventPropertyDefinitionsTable(): JSX.Element {
                 data-attr="event-properties-definition-table"
                 loading={eventPropertyDefinitionsLoading}
                 rowKey="id"
-                rowStatus={(row) => {
-                    return row.id === openedDefinitionId ? 'highlighted' : null
-                }}
                 pagination={{
                     controlled: true,
                     currentPage: eventPropertyDefinitions?.page ?? 1,

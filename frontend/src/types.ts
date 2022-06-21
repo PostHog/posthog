@@ -264,6 +264,9 @@ export interface ActionType {
     steps?: ActionStepType[]
     created_by: UserBasicType | null
     tags?: string[]
+    verified?: boolean
+    is_action?: true
+    action_id?: number // alias of id to make it compatible with event definitions uuid
 }
 
 /** Sync with plugin-server/src/types.ts */
@@ -1089,6 +1092,8 @@ export interface FilterType {
     funnel_advanced?: boolean // used to toggle advanced options on or off
     show_legend?: boolean // used to show/hide legend next to insights graph
     hidden_legend_keys?: Record<string, boolean | undefined> // used to toggle visibilities in table and legend
+    breakdown_attribution_type?: BreakdownAttributionType // funnels breakdown attribution type
+    breakdown_attribution_value?: number // funnels breakdown attribution specific step value
 }
 
 export interface RecordingEventsFilters {
@@ -1096,7 +1101,7 @@ export interface RecordingEventsFilters {
 }
 
 export type InsightEditorFilterGroup = {
-    title: string
+    title?: string
     editorFilters: InsightEditorFilter[]
     defaultExpanded?: boolean
     count?: number
@@ -1309,6 +1314,13 @@ export interface FlattenedFunnelStepByBreakdown {
     significant?: boolean
 }
 
+export enum BreakdownAttributionType {
+    FirstTouch = 'first_touch',
+    LastTouch = 'last_touch',
+    AllSteps = 'all_events',
+    Step = 'step',
+}
+
 export interface ChartParams {
     inCardView?: boolean
     inSharedMode?: boolean
@@ -1499,6 +1511,7 @@ export interface EventDefinition {
     verified?: boolean
     verified_at?: string
     verified_by?: string
+    is_action?: boolean
 }
 
 // TODO duplicated from plugin server. Follow-up to de-duplicate
@@ -1524,6 +1537,7 @@ export interface PropertyDefinition {
     created_at?: string // TODO: Implement
     last_seen_at?: string // TODO: Implement
     example?: string
+    is_action?: boolean
 }
 
 export type Definition = EventDefinition | PropertyDefinition
@@ -1817,6 +1831,7 @@ export enum BaseMathType {
     DailyActive = 'dau',
     WeeklyActive = 'weekly_active',
     MonthlyActive = 'monthly_active',
+    UniqueSessions = 'unique_session',
 }
 
 export enum PropertyMathType {
@@ -1897,6 +1912,7 @@ export interface SubscriptionType {
     start_date: string
     until_date?: string
     title: string
+    summary: string
     created_by?: UserBasicType | null
     created_at: string
     updated_at: string

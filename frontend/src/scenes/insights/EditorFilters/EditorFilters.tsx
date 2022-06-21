@@ -7,7 +7,6 @@ import {
     InsightLogicProps,
     InsightType,
 } from '~/types'
-import { EFInsightType } from 'scenes/insights/EditorFilters/EFInsightType'
 import { EFTrendsSteps } from 'scenes/insights/EditorFilters/EFTrendsSteps'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { EFTrendsGlobalAndOrFilters } from 'scenes/insights/EditorFilters/EFTrendsGlobalAndOrFilters'
@@ -32,6 +31,7 @@ import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { EFPathsAdvancedPaywall } from './EFPathsAdvancedPaywall'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { EFInsightType } from './EFInsightType'
 
 export interface EditorFiltersProps {
     insightProps: InsightLogicProps

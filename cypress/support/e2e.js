@@ -1,5 +1,6 @@
 import 'givens/setup'
 import './commands'
+import { decideResponse } from 'cypress/fixtures/api/decide'
 
 try {
     // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -14,6 +15,14 @@ Cypress.on('window:before:load', (win) => {
 })
 
 beforeEach(() => {
+    cy.intercept('https://app.posthog.com/decide/*', (req) =>
+        req.reply(
+            decideResponse({
+                'toolbar-launch-side-action': true,
+            })
+        )
+    )
+
     if (Cypress.spec.name.includes('Premium')) {
         cy.intercept('/api/users/@me/', { fixture: 'api/user-enterprise' })
 

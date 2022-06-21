@@ -28,9 +28,8 @@ export const scene: SceneExport = {
 
 export function EventDefinitionsTable(): JSX.Element {
     const { preflight } = useValues(preflightLogic)
-    const { eventDefinitions, eventDefinitionsLoading, openedDefinitionId, filters } =
-        useValues(eventDefinitionsTableLogic)
-    const { loadEventDefinitions, setOpenedDefinition, setFilters } = useActions(eventDefinitionsTableLogic)
+    const { eventDefinitions, eventDefinitionsLoading, filters } = useValues(eventDefinitionsTableLogic)
+    const { loadEventDefinitions, setFilters } = useActions(eventDefinitionsTableLogic)
     const { hasDashboardCollaboration, hasIngestionTaxonomy } = useValues(organizationLogic)
 
     const columns: LemonTableColumns<EventDefinition> = [
@@ -135,9 +134,6 @@ export function EventDefinitionsTable(): JSX.Element {
                 data-attr="events-definition-table"
                 loading={eventDefinitionsLoading}
                 rowKey="id"
-                rowStatus={(row) => {
-                    return row.id === openedDefinitionId ? 'highlighted' : null
-                }}
                 pagination={{
                     controlled: true,
                     currentPage: eventDefinitions?.page ?? 1,
@@ -159,8 +155,6 @@ export function EventDefinitionsTable(): JSX.Element {
                         return <EventDefinitionProperties definition={definition} />
                     },
                     noIndent: true,
-                    isRowExpanded: (record) => (record.id === openedDefinitionId ? true : -1),
-                    onRowCollapse: (record) => record.id === openedDefinitionId && setOpenedDefinition(null),
                 }}
                 dataSource={eventDefinitions.results}
                 emptyState="No event definitions"
