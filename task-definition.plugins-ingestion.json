@@ -62,7 +62,7 @@
                 },
                 {
                     "name": "CAPTURE_INTERNAL_METRICS",
-                    "value": "True"
+                    "value": "False"
                 },
                 {
                     "name": "PISCINA_ATOMICS_TIMEOUT",
