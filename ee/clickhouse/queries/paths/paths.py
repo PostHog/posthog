@@ -1,6 +1,5 @@
-from ctypes import Union
 from re import escape
-from typing import Dict, Literal, Optional, Tuple, cast
+from typing import Dict, Literal, Optional, Tuple, Union, cast
 
 from jsonschema import ValidationError
 
@@ -90,12 +89,10 @@ class ClickhousePaths(Paths):
                 ]
             )
 
-            return (
-                clause,
-                params,
-            )
         else:
-            return super().get_target_clause()
+            clause, params = super().get_target_clause()
+
+        return clause, params
 
     def get_path_query_funnel_cte(self, funnel_filter: Filter):
         funnel_persons_generator = ClickhouseFunnelActors(
