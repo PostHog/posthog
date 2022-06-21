@@ -63,7 +63,8 @@ def send_member_join(invitee_uuid: str, organization_id: str) -> None:
 
 
 @app.task(max_retries=1)
-def send_password_reset(user: User) -> None:
+def send_password_reset(user_id: int) -> None:
+    user = User.objects.get(pk=user_id)
     token = default_token_generator.make_token(user)
     message = EmailMessage(
         campaign_key=f"password-reset-{user.uuid}-{timezone.now()}",
