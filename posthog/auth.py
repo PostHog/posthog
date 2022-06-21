@@ -71,7 +71,9 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
 
         now = timezone.now()
         key_last_used_at = personal_api_key_object.last_used_at
-        if key_last_used_at is None or (now.year, now.month, now.day, now.hour) != (
+        # Only updating last_used_at if the the hour's changed
+        # This is to avooid excessive UPDATE queries, while still presenting accurate (down to the hour) info in the UI
+        if key_last_used_at is None or (now.year, now.month, now.day, now.hour) > (
             key_last_used_at.year,
             key_last_used_at.month,
             key_last_used_at.day,
