@@ -48,8 +48,8 @@ describe('PersonState.update()', () => {
             hub.db,
             hub.statsd,
             hub.personManager,
-            person,
-            uuid
+            uuid,
+            person
         )
     }
 
