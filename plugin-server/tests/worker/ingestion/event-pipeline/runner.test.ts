@@ -1,11 +1,14 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
+import { DateTime } from 'luxon'
 
 import { PreIngestionEvent } from '../../../../src/types'
-import { pluginsProcessEventStep } from '../../../../src/worker/ingestion/event-pipeline/1-pluginsProcessEventStep'
-import { prepareEventStep } from '../../../../src/worker/ingestion/event-pipeline/2-prepareEventStep'
-import { emitToBufferStep } from '../../../../src/worker/ingestion/event-pipeline/3-emitToBufferStep'
-import { createEventStep } from '../../../../src/worker/ingestion/event-pipeline/4-createEventStep'
-import { runAsyncHandlersStep } from '../../../../src/worker/ingestion/event-pipeline/5-runAsyncHandlersStep'
+import { emitToBufferStep } from '../../../../src/worker/ingestion/event-pipeline/1-emitToBufferStep'
+import { processPersonsStep } from '../../../../src/worker/ingestion/event-pipeline/2-processPersonsStep'
+import { pluginsProcessEventStep } from '../../../../src/worker/ingestion/event-pipeline/3-pluginsProcessEventStep'
+import { updatePersonIfTouchedByPlugins } from '../../../../src/worker/ingestion/event-pipeline/4-updatePersonIfTouchedByPlugins'
+import { prepareEventStep } from '../../../../src/worker/ingestion/event-pipeline/5-prepareEventStep'
+import { createEventStep } from '../../../../src/worker/ingestion/event-pipeline/6-createEventStep'
+import { runAsyncHandlersStep } from '../../../../src/worker/ingestion/event-pipeline/7-runAsyncHandlersStep'
 import {
     EventPipelineRunner,
     EventPipelineStepsType,
@@ -16,11 +19,13 @@ import {
 import { generateEventDeadLetterQueueMessage } from '../../../../src/worker/ingestion/utils'
 
 jest.mock('../../../../src/utils/status')
-jest.mock('../../../../src/worker/ingestion/event-pipeline/1-pluginsProcessEventStep')
-jest.mock('../../../../src/worker/ingestion/event-pipeline/2-prepareEventStep')
-jest.mock('../../../../src/worker/ingestion/event-pipeline/3-emitToBufferStep')
-jest.mock('../../../../src/worker/ingestion/event-pipeline/4-createEventStep')
-jest.mock('../../../../src/worker/ingestion/event-pipeline/5-runAsyncHandlersStep')
+jest.mock('../../../../src/worker/ingestion/event-pipeline/1-emitToBufferStep')
+jest.mock('../../../../src/worker/ingestion/event-pipeline/2-processPersonsStep')
+jest.mock('../../../../src/worker/ingestion/event-pipeline/3-pluginsProcessEventStep')
+jest.mock('../../../../src/worker/ingestion/event-pipeline/4-updatePersonIfTouchedByPlugins')
+jest.mock('../../../../src/worker/ingestion/event-pipeline/5-prepareEventStep')
+jest.mock('../../../../src/worker/ingestion/event-pipeline/6-createEventStep')
+jest.mock('../../../../src/worker/ingestion/event-pipeline/7-runAsyncHandlersStep')
 jest.mock('../../../../src/worker/ingestion/utils')
 
 class TestEventPipelineRunner extends EventPipelineRunner {
@@ -46,6 +51,7 @@ const pluginEvent: PluginEvent = {
     timestamp: '2020-02-23T02:15:00Z',
     event: 'default event',
     properties: {},
+    uuid: 'uuid1',
 }
 
 const preIngestionEvent: PreIngestionEvent = {
@@ -57,6 +63,19 @@ const preIngestionEvent: PreIngestionEvent = {
     event: '$pageview',
     properties: {},
     elementsList: [],
+}
+
+const person: Person = {
+    id: 123,
+    team_id: 2,
+    properties: {},
+    is_user_id: 0,
+    is_identified: true,
+    uuid: 'uuid',
+    properties_last_updated_at: {},
+    properties_last_operation: {},
+    created_at: DateTime.fromISO(pluginEvent.timestamp!),
+    version: 0,
 }
 
 describe('EventPipelineRunner', () => {
@@ -76,9 +95,17 @@ describe('EventPipelineRunner', () => {
         }
         runner = new TestEventPipelineRunner(hub, pluginEvent)
 
-        jest.mocked(pluginsProcessEventStep).mockResolvedValue(['prepareEventStep', [pluginEvent]])
-        jest.mocked(prepareEventStep).mockResolvedValue(['emitToBufferStep', [preIngestionEvent]])
-        jest.mocked(emitToBufferStep).mockResolvedValue(['createEventStep', [preIngestionEvent]])
+        jest.mocked(emitToBufferStep).mockResolvedValue(['processPersonsStep', [pluginEvent, person]])
+        jest.mocked(processPersonsStep).mockResolvedValue([
+            'pluginsProcessEventStep',
+            [pluginEvent, { person, personUpdateProperties: {} }],
+        ])
+        jest.mocked(pluginsProcessEventStep).mockResolvedValue([
+            'updatePersonIfTouchedByPlugins',
+            [pluginEvent, { person, personUpdateProperties: {} }],
+        ])
+        jest.mocked(updatePersonIfTouchedByPlugins).mockResolvedValue(['prepareEventStep', [pluginEvent, person]])
+        jest.mocked(prepareEventStep).mockResolvedValue(['createEventStep', [preIngestionEvent]])
         jest.mocked(createEventStep).mockResolvedValue(['runAsyncHandlersStep', [preIngestionEvent]])
         jest.mocked(runAsyncHandlersStep).mockResolvedValue(null)
     })
@@ -88,9 +115,11 @@ describe('EventPipelineRunner', () => {
             await runner.runEventPipeline(pluginEvent)
 
             expect(runner.steps).toEqual([
-                'pluginsProcessEventStep',
-                'prepareEventStep',
                 'emitToBufferStep',
+                'processPersonsStep',
+                'pluginsProcessEventStep',
+                'updatePersonIfTouchedByPlugins',
+                'prepareEventStep',
                 'createEventStep',
                 'runAsyncHandlersStep',
             ])
@@ -100,8 +129,8 @@ describe('EventPipelineRunner', () => {
         it('emits metrics for every step', async () => {
             await runner.runEventPipeline(pluginEvent)
 
-            expect(hub.statsd.timing).toHaveBeenCalledTimes(5)
-            expect(hub.statsd.increment).toBeCalledTimes(8)
+            expect(hub.statsd.timing).toHaveBeenCalledTimes(7)
+            expect(hub.statsd.increment).toBeCalledTimes(10)
 
             expect(hub.statsd.increment).toHaveBeenCalledWith('kafka_queue.event_pipeline.step', {
                 step: 'createEventStep',
@@ -115,21 +144,21 @@ describe('EventPipelineRunner', () => {
 
         describe('early exits from pipeline', () => {
             beforeEach(() => {
-                jest.mocked(prepareEventStep).mockResolvedValue(null)
+                jest.mocked(pluginsProcessEventStep).mockResolvedValue(null)
             })
 
             it('stops processing after step', async () => {
                 await runner.runEventPipeline(pluginEvent)
 
-                expect(runner.steps).toEqual(['pluginsProcessEventStep', 'prepareEventStep'])
+                expect(runner.steps).toEqual(['emitToBufferStep', 'processPersonsStep', 'pluginsProcessEventStep'])
             })
 
             it('reports metrics and last step correctly', async () => {
                 await runner.runEventPipeline(pluginEvent)
 
-                expect(hub.statsd.timing).toHaveBeenCalledTimes(2)
+                expect(hub.statsd.timing).toHaveBeenCalledTimes(3)
                 expect(hub.statsd.increment).toHaveBeenCalledWith('kafka_queue.event_pipeline.step.last', {
-                    step: 'prepareEventStep',
+                    step: 'pluginsProcessEventStep',
                     team_id: '2',
                 })
                 expect(hub.statsd.increment).not.toHaveBeenCalledWith('kafka_queue.event_pipeline.step.error')
@@ -181,9 +210,16 @@ describe('EventPipelineRunner', () => {
         it('runs remaining steps', async () => {
             jest.mocked(hub.db.fetchPerson).mockResolvedValue('testPerson')
 
-            await runner.runBufferEventPipeline(preIngestionEvent)
+            await runner.runBufferEventPipeline(pluginEvent)
 
-            expect(runner.steps).toEqual(['createEventStep', 'runAsyncHandlersStep'])
+            expect(runner.steps).toEqual([
+                'processPersonsStep',
+                'pluginsProcessEventStep',
+                'updatePersonIfTouchedByPlugins',
+                'prepareEventStep',
+                'createEventStep',
+                'runAsyncHandlersStep',
+            ])
             expect(runner.stepsWithArgs).toMatchSnapshot()
         })
     })
