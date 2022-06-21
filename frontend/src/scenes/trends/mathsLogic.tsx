@@ -2,8 +2,9 @@ import React from 'react'
 import { kea } from 'kea'
 import { groupsModel } from '~/models/groupsModel'
 import type { mathsLogicType } from './mathsLogicType'
-import { EVENT_MATH_TYPE, PROPERTY_MATH_TYPE } from 'lib/constants'
+import { EVENT_MATH_TYPE, FEATURE_FLAGS, PROPERTY_MATH_TYPE } from 'lib/constants'
 import { BaseMathType, PropertyMathType } from '~/types'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 export interface MathDefinition {
     name: string
@@ -242,7 +243,7 @@ export function apiValueToMathType(math: string | undefined, groupTypeIndex: num
 export const mathsLogic = kea<mathsLogicType>({
     path: ['scenes', 'trends', 'mathsLogic'],
     connect: {
-        values: [groupsModel, ['groupTypes', 'aggregationLabel']],
+        values: [groupsModel, ['groupTypes', 'aggregationLabel'], featureFlagLogic, ['featureFlags']],
     },
     selectors: {
         eventMathEntries: [
@@ -254,12 +255,18 @@ export const mathsLogic = kea<mathsLogicType>({
             (mathDefinitions) => Object.entries(mathDefinitions).filter(([, item]) => item.type == PROPERTY_MATH_TYPE),
         ],
         mathDefinitions: [
-            (s) => [s.groupsMathDefinitions],
-            (groupOptions): Record<string, MathDefinition> => ({
-                ...BASE_MATH_DEFINITIONS,
-                ...groupOptions,
-                ...PROPERTY_MATH_DEFINITIONS,
-            }),
+            (s) => [s.groupsMathDefinitions, s.featureFlags],
+            (groupOptions, featureFlags): Record<string, MathDefinition> => {
+                const allMathOptions: Record<string, MathDefinition> = {
+                    ...BASE_MATH_DEFINITIONS,
+                    ...groupOptions,
+                    ...PROPERTY_MATH_DEFINITIONS,
+                }
+                if (!featureFlags[FEATURE_FLAGS.SESSION_ANALYSIS]) {
+                    delete allMathOptions[BaseMathType.UniqueSessions]
+                }
+                return allMathOptions
+            },
         ],
         groupsMathDefinitions: [
             (s) => [s.groupTypes, s.aggregationLabel],
