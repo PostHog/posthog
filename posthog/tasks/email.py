@@ -67,7 +67,7 @@ def send_password_reset(user_id: int) -> None:
     user = User.objects.get(pk=user_id)
     token = default_token_generator.make_token(user)
     message = EmailMessage(
-        campaign_key=f"password-reset-{user.uuid}-{timezone.now()}",
+        campaign_key=f"password-reset-{user.uuid}-{timezone.now().timestamp()}",
         subject=f"Reset your PostHog password",
         template_name="password_reset",
         template_context={

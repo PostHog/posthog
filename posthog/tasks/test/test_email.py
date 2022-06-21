@@ -92,7 +92,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         plugin = Plugin.objects.create(organization=org)
         plugin_config = PluginConfig.objects.create(plugin=plugin, team=user.team, enabled=True, order=1)
 
-        send_fatal_plugin_error(plugin_config.id, "20222-01-01 00:00:00", error="It exploded!", is_system_error=False)
+        send_fatal_plugin_error(plugin_config.id, "20222-01-01", error="It exploded!", is_system_error=False)
 
         assert len(mocked_email_messages) == 1
         assert mocked_email_messages[0].send.call_count == 1
