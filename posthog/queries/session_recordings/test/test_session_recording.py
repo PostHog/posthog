@@ -63,7 +63,7 @@ def factory_session_recording_test(session_recording: SessionRecording):
 
                 req, filter = create_recording_request_and_filter("1")
                 recording: DecompressedRecordingData = session_recording(  # type: ignore
-                    team=self.team, session_recording_id="1", request=req
+                    team_id=self.team.id, session_recording_id="1"
                 ).get_snapshots(filter.limit, filter.offset)
 
                 self.assertEqual(
@@ -100,7 +100,7 @@ def factory_session_recording_test(session_recording: SessionRecording):
 
                 req, filter = create_recording_request_and_filter("1")
                 recording: DecompressedRecordingData = session_recording(  # type: ignore
-                    team=self.team, session_recording_id="1", request=req
+                    team_id=self.team.id, session_recording_id="1"
                 ).get_snapshots(filter.limit, filter.offset)
 
                 self.assertEqual(
@@ -111,7 +111,7 @@ def factory_session_recording_test(session_recording: SessionRecording):
         def test_get_snapshots_with_no_such_session(self):
             req, filter = create_recording_request_and_filter("xxx")
             recording: DecompressedRecordingData = session_recording(  # type: ignore
-                team=self.team, session_recording_id="xxx", request=req
+                team_id=self.team.id, session_recording_id="xxx"
             ).get_snapshots(filter.limit, filter.offset)
             self.assertEqual(recording, DecompressedRecordingData(has_next=False, snapshot_data_by_window_id={}))
 
@@ -131,7 +131,7 @@ def factory_session_recording_test(session_recording: SessionRecording):
 
                 req, filter = create_recording_request_and_filter(chunked_session_id)
                 recording: DecompressedRecordingData = session_recording(  # type: ignore
-                    team=self.team, session_recording_id=chunked_session_id, request=req,
+                    team_id=self.team.id, session_recording_id=chunked_session_id,
                 ).get_snapshots(chunk_limit, filter.offset)
                 self.assertEqual(len(recording.snapshot_data_by_window_id[""]), chunk_limit * snapshots_per_chunk)
                 self.assertTrue(recording.has_next)
@@ -153,7 +153,7 @@ def factory_session_recording_test(session_recording: SessionRecording):
 
                 req, filter = create_recording_request_and_filter(chunked_session_id, chunk_limit, chunk_offset)
                 recording: DecompressedRecordingData = session_recording(  # type: ignore
-                    team=self.team, session_recording_id=chunked_session_id, request=req,
+                    team_id=self.team.id, session_recording_id=chunked_session_id,
                 ).get_snapshots(chunk_limit, filter.offset)
 
                 self.assertEqual(len(recording.snapshot_data_by_window_id[""]), chunk_limit * snapshots_per_chunk)
@@ -292,7 +292,7 @@ def factory_session_recording_test(session_recording: SessionRecording):
 
                 req = create_recording_request_and_filter("1")
                 recording: RecordingMetadata = session_recording(  # type: ignore
-                    team=self.team, session_recording_id="1", request=req
+                    team_id=self.team.id, session_recording_id="1"
                 ).get_metadata()
 
                 millisecond = relativedelta(microseconds=1000)
@@ -358,7 +358,7 @@ def factory_session_recording_test(session_recording: SessionRecording):
         def test_get_metadata_for_non_existant_session_id(self):
             with freeze_time("2020-09-13T12:26:40.000Z"):
                 req, _ = create_recording_request_and_filter("99")
-                recording = session_recording(team=self.team, session_recording_id="1", request=req).get_metadata()  # type: ignore
+                recording = session_recording(team_id=self.team.id, session_recording_id="1").get_metadata()  # type: ignore
                 self.assertEqual(
                     recording, None,
                 )
@@ -397,7 +397,7 @@ def factory_session_recording_test(session_recording: SessionRecording):
 
                 req, _ = create_recording_request_and_filter("1")
                 recording: RecordingMetadata = session_recording(  # type: ignore
-                    team=self.team, session_recording_id="1", request=req,
+                    team_id=self.team.id, session_recording_id="1",
                 ).get_metadata()
                 self.assertNotEqual(recording.segments[0].start_time, now())
 

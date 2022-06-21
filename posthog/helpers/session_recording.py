@@ -30,6 +30,14 @@ class RecordingSegment:
     window_id: WindowId
     is_active: bool
 
+    def to_dict(self) -> Dict:
+        return {
+            "start_time": self.start_time.isoformat(),
+            "end_time": self.end_time.isoformat(),
+            "window_id": self.window_id,
+            "is_active": self.is_active,
+        }
+
 
 @dataclasses.dataclass
 class SnapshotDataTaggedWithWindowId:

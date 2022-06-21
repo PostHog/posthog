@@ -2,8 +2,6 @@ import dataclasses
 from datetime import datetime, timezone
 from typing import Dict, List, Optional, Tuple, cast
 
-from rest_framework.request import Request
-
 from posthog.helpers.session_recording import (
     DecompressedRecordingData,
     EventActivityData,
@@ -14,7 +12,7 @@ from posthog.helpers.session_recording import (
     generate_inactive_segments_for_range,
     get_active_segments_from_event_list,
 )
-from posthog.models import SessionRecordingEvent, Team
+from posthog.models import SessionRecordingEvent
 
 
 @dataclasses.dataclass
@@ -25,14 +23,12 @@ class RecordingMetadata:
 
 
 class SessionRecording:
-    _request: Request
     _session_recording_id: str
-    _team: Team
+    _team_id: int
 
-    def __init__(self, request: Request, session_recording_id: str, team: Team) -> None:
-        self._request = request
+    def __init__(self, session_recording_id: str, team_id: int) -> None:
         self._session_recording_id = session_recording_id
-        self._team = team
+        self._team_id = team_id
 
     def _query_recording_snapshots(self) -> List[SessionRecordingEvent]:
         raise NotImplementedError()
@@ -44,7 +40,7 @@ class SessionRecording:
             )
             for recording_snapshot in self._query_recording_snapshots()
         ]
-        return decompress_chunked_snapshot_data(self._team.pk, self._session_recording_id, all_snapshots, limit, offset)
+        return decompress_chunked_snapshot_data(self._team_id, self._session_recording_id, all_snapshots, limit, offset)
 
     def get_metadata(self) -> Optional[RecordingMetadata]:
         all_snapshots: List[SnapshotDataTaggedWithWindowId] = []
@@ -97,7 +93,7 @@ class SessionRecording:
         """
 
         decompressed_recording_data = decompress_chunked_snapshot_data(
-            self._team.pk, self._session_recording_id, all_snapshots, return_only_activity_data=True
+            self._team_id, self._session_recording_id, all_snapshots, return_only_activity_data=True
         )
 
         start_and_end_times_by_window_id = {}

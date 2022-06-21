@@ -54,12 +54,12 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
 
     def _get_session_recording_snapshots(self, request, session_recording_id, limit, offset):
         return ClickhouseSessionRecording(
-            request=request, team=self.team, session_recording_id=session_recording_id
+            team_id=self.team.id, session_recording_id=session_recording_id
         ).get_snapshots(limit, offset)
 
     def _get_session_recording_meta_data(self, request, session_recording_id):
         return ClickhouseSessionRecording(
-            request=request, team=self.team, session_recording_id=session_recording_id
+            team_id=self.team.id, session_recording_id=session_recording_id
         ).get_metadata()
 
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
@@ -69,14 +69,14 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
         if not request.user.is_authenticated:  # for mypy
             raise exceptions.NotAuthenticated()
         viewed_session_recordings = set(
-            SessionRecordingViewed.objects.filter(team=self.team, user=request.user).values_list(
+            SessionRecordingViewed.objects.filter(team__id=self.team.id, user=request.user).values_list(
                 "session_id", flat=True
             )
         )
 
         distinct_ids = map(lambda x: x["distinct_id"], session_recordings)
         person_distinct_ids = PersonDistinctId.objects.filter(
-            distinct_id__in=distinct_ids, team=self.team
+            distinct_id__in=distinct_ids, team_id=self.team.id
         ).select_related("person")
         distinct_id_to_person = {}
         for person_distinct_id in person_distinct_ids:
@@ -115,7 +115,7 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
         if not request.user.is_authenticated:  # for mypy
             raise exceptions.NotAuthenticated()
         viewed_session_recording = SessionRecordingViewed.objects.filter(
-            team=self.team, user=request.user, session_id=session_recording_id
+            team_id=self.team.id, user=request.user, session_id=session_recording_id
         ).exists()
 
         session_recording_serializer = SessionRecordingMetadataSerializer(
@@ -132,14 +132,14 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
             person: Union[Person, None] = Person.objects.get(
                 persondistinctid__distinct_id=session_recording_meta_data.distinct_id,
                 persondistinctid__team_id=self.team,
-                team=self.team,
+                team_id=self.team.id,
             )
         except Person.DoesNotExist:
             person = None
 
         if request.GET.get("save_view"):
             SessionRecordingViewed.objects.get_or_create(
-                team=self.team, user=request.user, session_id=session_recording_id
+                team_id=self.team.id, user=request.user, session_id=session_recording_id
             )
 
         return response.Response(

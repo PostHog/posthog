@@ -18,7 +18,7 @@ class ClickhouseSessionRecording(SessionRecording):
 
     def _query_recording_snapshots(self) -> List[SessionRecordingEvent]:
         response = sync_execute(
-            self._recording_snapshot_query, {"team_id": self._team.id, "session_id": self._session_recording_id,},
+            self._recording_snapshot_query, {"team_id": self._team_id, "session_id": self._session_recording_id,},
         )
         return [
             SessionRecordingEvent(
