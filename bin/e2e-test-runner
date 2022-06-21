@@ -26,9 +26,6 @@ export DATABASE_URL="postgres://${PGUSER}:${PGPASSWORD}@${PGHOST}:${PGPORT}/${DA
 nc -z localhost 9092 || ( echo -e "\033[0;31mKafka isn't running. Please run\n\tdocker compose -f docker-compose.arm64.yml up zookeeper kafka clickhouse db redis\nI'll wait while you do that.\033[0m" ; bin/check_kafka_clickhouse_up )
 wget -nv -t1 --spider 'http://localhost:8123/' || ( echo -e "\033[0;31mClickhouse isn't running. Please run\n\tdocker compose -f docker-compose.arm64.yml up zookeeper kafka clickhouse db redis.\nI'll wait while you do that.\033[0m" ; bin/check_kafka_clickhouse_up )
 
-
-trap "trap - SIGTERM && yarn remove cypress cypress-terminal-report && kill -- -$$" SIGINT SIGTERM EXIT
-
 dropdb --if-exists $DATABASE
 createdb $DATABASE
 
@@ -41,7 +38,6 @@ python manage.py migrate_clickhouse
 
 ## parallel block
 python manage.py setup_dev &
-yarn add cypress@10.0.3 cypress-terminal-report@3.5.2 & wait
 
 ## parallel block
 ./bin/plugin-server &
@@ -49,6 +45,3 @@ yarn add cypress@10.0.3 cypress-terminal-report@3.5.2 & wait
 nc -vz 127.0.0.1 8234 2> /dev/null || ./bin/start-frontend &
 npx cypress open --config-file cypress.e2e.config.ts &
 python manage.py runserver 8080
-
-## Will be called once killed
-yarn remove cypress cypress-terminal-report

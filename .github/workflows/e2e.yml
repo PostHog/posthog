@@ -55,7 +55,6 @@ jobs:
               if: steps.cypress-node-modules-cache-3.outputs.cache-hit != 'true'
               run: |
                   yarn install --frozen-lockfile
-                  yarn add cypress@10.0.3 cypress-terminal-report@3.5.2
                   cd plugin-server
                   yarn install --frozen-lockfile
     cypress:
@@ -121,7 +120,6 @@ jobs:
               # should still get some cache benefits.
               run: |
                   yarn install --frozen-lockfile
-                  yarn add cypress@10.0.3 cypress-terminal-report@3.5.2 
                   cd plugin-server
                   yarn install --frozen-lockfile
             - name: Yarn build
