@@ -791,7 +791,12 @@
                          toStartOfDay(toDateTime(timestamp), 'UTC') as date
         FROM
           (SELECT e.timestamp as timestamp,
+<<<<<<< HEAD
                   e."$group_0" as "$group_0"
+=======
+                  e."$group_0" as "$group_0",
+                  e.$group_0 as $group_0
+>>>>>>> 5ec266bb632e37a79e260e1fc17dbe715bd04840
            FROM events e
            WHERE team_id = 2
              AND event = '$pageview'
@@ -809,7 +814,12 @@
   SELECT $group_0 AS actor_id
   FROM
     (SELECT e.timestamp as timestamp,
+<<<<<<< HEAD
             e."$group_0" as "$group_0"
+=======
+            e."$group_0" as "$group_0",
+            e.$group_0 as $group_0
+>>>>>>> 5ec266bb632e37a79e260e1fc17dbe715bd04840
      FROM events e
      WHERE team_id = 2
        AND event = '$pageview'
