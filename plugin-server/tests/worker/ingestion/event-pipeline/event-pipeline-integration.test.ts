@@ -87,6 +87,7 @@ describe('Event Pipeline integration test', () => {
         )
 
         expect(persons.length).toEqual(1)
+        expect(persons[0].version).toEqual(1)
         expect(persons[0].properties).toEqual({
             $initial_browser: 'Chrome',
             personProp: 'value',
