@@ -7,7 +7,8 @@ from posthog.models.action_step import ActionStep
 from posthog.models.cohort import Cohort
 from posthog.models.filters.filter import Filter
 from posthog.models.property import Property, PropertyGroup
-from posthog.queries.cohort_query import CohortQuery, check_negation_clause
+from posthog.queries.cohort_query import CohortQuery
+from posthog.queries.foss_cohort_query import check_negation_clause
 from posthog.test.base import (
     BaseTest,
     ClickhouseTestMixin,
