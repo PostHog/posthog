@@ -178,7 +178,7 @@ def pg_table_cache_hit_rate():
              sum(heap_blks_hit) / nullif(sum(heap_blks_hit) + sum(heap_blks_read),0) * 100 AS ratio
             FROM pg_statio_user_tables
             GROUP BY relname
-            order by ratio asc;
+            ORDER BY ratio ASC
         """)
         tables = cursor.fetchall()
         for row in tables:
