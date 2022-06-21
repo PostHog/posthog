@@ -70,8 +70,14 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
             raise AuthenticationFailed(detail=f"Personal API key found in request {source} is invalid.")
 
         now = timezone.now()
-        if personal_api_key_object.last_used_at is None or now.hour != personal_api_key_object.last_used_at.hour:
-            personal_api_key_object.last_used_at = now
+        key_last_used_at = personal_api_key_object.last_used_at
+        if key_last_used_at is None or (now.year, now.month, now.day, now.hour) != (
+            key_last_used_at.year,
+            key_last_used_at.month,
+            key_last_used_at.day,
+            key_last_used_at.hour,
+        ):
+            key_last_used_at = now
             personal_api_key_object.save()
         assert personal_api_key_object.user is not None
         return personal_api_key_object.user, None
