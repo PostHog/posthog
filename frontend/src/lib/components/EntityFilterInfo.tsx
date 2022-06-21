@@ -30,7 +30,11 @@ export function EntityFilterInfo({
 
     // No filter
     if (filter.type === EntityTypes.NEW_ENTITY || !title) {
-        return <TextWrapper title="Select filter">Select filter</TextWrapper>
+        return (
+            <TextWrapper title="Select event" style={{ color: 'var(--muted-alt)' }}>
+                Select event
+            </TextWrapper>
+        )
     }
 
     const titleToDisplay = getKeyMapping(title, 'event')?.label?.trim() ?? title ?? undefined
