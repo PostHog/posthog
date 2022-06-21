@@ -5,7 +5,7 @@ import { Person } from '../../../types'
 import { normalizeEvent } from '../../../utils/event'
 import { PersonState } from '../person-state'
 import { parseEventTimestamp } from '../timestamps'
-import { ForwardedPersonData } from './2-upsertPersonsStep'
+import { ForwardedPersonData } from './2-processPersonsStep'
 import { EventPipelineRunner, StepResult } from './runner'
 
 export async function updatePersonIfTouchedByPlugins(

@@ -2,7 +2,7 @@ import { PluginEvent } from '@posthog/plugin-scaffold'
 
 import { runInstrumentedFunction } from '../../../main/utils'
 import { runProcessEvent } from '../../plugins/run'
-import { ForwardedPersonData } from './2-upsertPersonsStep'
+import { ForwardedPersonData } from './2-processPersonsStep'
 import { EventPipelineRunner, StepResult } from './runner'
 
 export async function pluginsProcessEventStep(

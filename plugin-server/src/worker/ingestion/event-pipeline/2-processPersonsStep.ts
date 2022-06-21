@@ -14,7 +14,7 @@ export interface ForwardedPersonData {
     }
 }
 
-export async function upsertPersonsStep(
+export async function processPersonsStep(
     runner: EventPipelineRunner,
     event: PluginEvent,
     person: Person | undefined

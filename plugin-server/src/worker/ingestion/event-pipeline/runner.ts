@@ -6,7 +6,7 @@ import { timeoutGuard } from '../../../utils/db/utils'
 import { status } from '../../../utils/status'
 import { generateEventDeadLetterQueueMessage } from '../utils'
 import { emitToBufferStep } from './1-emitToBufferStep'
-import { upsertPersonsStep } from './2-upsertPersonsStep'
+import { processPersonsStep } from './2-processPersonsStep'
 import { pluginsProcessEventStep } from './3-pluginsProcessEventStep'
 import { updatePersonIfTouchedByPlugins } from './4-updatePersonIfTouchedByPlugins'
 import { prepareEventStep } from './5-prepareEventStep'
@@ -22,7 +22,7 @@ export type StepParameters<T extends (...args: any[]) => any> = T extends (
 
 const EVENT_PIPELINE_STEPS = {
     emitToBufferStep,
-    upsertPersonsStep,
+    processPersonsStep,
     pluginsProcessEventStep,
     updatePersonIfTouchedByPlugins,
     prepareEventStep,
@@ -37,7 +37,7 @@ export type NextStep<Step extends StepType> = [StepType, StepParameters<EventPip
 export type StepResult =
     | null
     | NextStep<'emitToBufferStep'>
-    | NextStep<'upsertPersonsStep'>
+    | NextStep<'processPersonsStep'>
     | NextStep<'pluginsProcessEventStep'>
     | NextStep<'updatePersonIfTouchedByPlugins'>
     | NextStep<'prepareEventStep'>
@@ -53,7 +53,7 @@ export type EventPipelineResult = {
 
 const STEPS_TO_EMIT_TO_DLQ_ON_FAILURE: Array<StepType> = [
     'emitToBufferStep',
-    'upsertPersonsStep',
+    'processPersonsStep',
     'pluginsProcessEventStep',
     'updatePersonIfTouchedByPlugins',
     'prepareEventStep',
@@ -79,7 +79,7 @@ export class EventPipelineRunner {
     async runBufferEventPipeline(event: PluginEvent): Promise<EventPipelineResult> {
         this.hub.statsd?.increment('kafka_queue.event_pipeline.start', { pipeline: 'buffer' })
         const person = await this.hub.db.fetchPerson(event.team_id, event.distinct_id)
-        const result = await this.runPipeline('upsertPersonsStep', event, person)
+        const result = await this.runPipeline('processPersonsStep', event, person)
         this.hub.statsd?.increment('kafka_queue.buffer_event.processed_and_ingested')
         return result
     }
