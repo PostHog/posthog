@@ -1,30 +1,38 @@
 {% extends "email/base_transactional.html" %} {% load posthog_assets %} {% block section %}
-<p><strong>Hello,</strong></p>
 
 {% if inviter %}
-
-<p>
+<h1 class="invite-header">
     {% if self_invite %}
         You have been subscribed
     {% else %}
-        <strong>{{ inviter.first_name }}</strong> ({{ inviter.email }}) has subscribed you 
+        <strong>{{ inviter.first_name }}</strong> has subscribed you 
     {% endif %}
 
-    to the PostHog {{ resource_noun }} <strong>{{ resource_name }}</strong>.
+    to the {{ resource_noun }} <strong>{{ resource_name }}</strong> on PostHog.
+</h1>
+
+<p>
+{{ invite_summary }}
 </p>
 
 {% if invite_message %}
-<p>
-    <i>
+
+<div class="invite-message">
+    <div class="invite-message-divider"></div>
         "{{ invite_message }}"
-    </i>
-</p>
+</div>
 {% endif %}
 
 {% else %}
+
+<p><strong>Hello,</strong></p>
 <p>
     Your subscription to the {{ resource_noun }}
     <strong>{{ resource_name }}</strong> is ready!
+
+    {% if resource_noun == "Dashboard" %}
+    Email subscriptions are limited to at most 6 insights.
+    {% endif %}
 </p>
 {% endif %}
 
