@@ -75,6 +75,7 @@ def send_password_reset(user_id: int) -> None:
             "link": f"/reset/{user.uuid}/{token}",
             "cloud": settings.MULTI_TENANCY,
             "site_url": settings.SITE_URL,
+            "social_providers": list(user.social_auth.values_list("provider", flat=True)),
         },
     )
     message.add_recipient(user.email)
