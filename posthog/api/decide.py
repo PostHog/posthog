@@ -94,6 +94,8 @@ def get_decide(request: HttpRequest):
     response["featureFlags"] = []
     response["sessionRecording"] = False
 
+    timer = statsd.timer("posthog_decide_endpoint_timing").start()
+
     if request.method == "POST":
         try:
             data = load_data_from_request(request)
@@ -158,4 +160,5 @@ def get_decide(request: HttpRequest):
     statsd.incr(
         f"posthog_cloud_raw_endpoint_success", tags={"endpoint": "decide",},
     )
+    timer.stop()
     return cors_response(request, JsonResponse(response))
