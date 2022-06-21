@@ -97,8 +97,9 @@ function Pages(): JSX.Element {
                           ))}
                           <LemonButton
                               type="stealth"
+                              data-attr="sidebar-launch-toolbar-add-new-url"
                               fullWidth
-                              to={urls.toolbarLaunch()}
+                              to={`${urls.toolbarLaunch()}?addNew=true`}
                               onClick={() => setIsToolbarLaunchShown(false)}
                           >
                               Add toolbar URL
