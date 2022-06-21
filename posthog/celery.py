@@ -182,7 +182,7 @@ def pg_table_cache_hit_rate():
         """)
         tables = cursor.fetchall()
         for row in tables:
-            gauge("pg_Table_cache_hit_rate", row[1], tags={"table": row[0]})
+            gauge("pg_table_cache_hit_rate", row[1], tags={"table": row[0]})
 
 
 CLICKHOUSE_TABLES = [
