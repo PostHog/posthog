@@ -84,9 +84,6 @@ organizations_router.register(
 projects_router = router.register(r"projects", team.TeamViewSet, "projects")
 
 projects_router.register(
-    r"event_definitions", event_definition.EventDefinitionViewSet, "project_event_definitions", ["team_id"],
-)
-projects_router.register(
     r"property_definitions", property_definition.PropertyDefinitionViewSet, "project_property_definitions", ["team_id"],
 )
 
@@ -130,6 +127,7 @@ projects_router.register(
 )
 
 if EE_AVAILABLE:
+    from ee.api.ee_event_definition import EnterpriseEventDefinitionViewSet
     from ee.clickhouse.views.experiments import ClickhouseExperimentsViewSet
     from ee.clickhouse.views.groups import ClickhouseGroupsTypesView, ClickhouseGroupsView
     from ee.clickhouse.views.insights import ClickhouseInsightsViewSet
@@ -141,7 +139,13 @@ if EE_AVAILABLE:
     projects_router.register(r"insights", ClickhouseInsightsViewSet, "project_insights", ["team_id"])
     projects_router.register(r"persons", EnterprisePersonViewSet, "project_persons", ["team_id"])
     router.register(r"person", LegacyEnterprisePersonViewSet, basename="person")
+    projects_router.register(
+        r"event_definitions", EnterpriseEventDefinitionViewSet, "project_event_definitions", ["team_id"],
+    )
 else:
     projects_router.register(r"insights", InsightViewSet, "project_insights", ["team_id"])
     projects_router.register(r"persons", PersonViewSet, "project_persons", ["team_id"])
     router.register(r"person", LegacyPersonViewSet, basename="person")
+    projects_router.register(
+        r"event_definitions", event_definition.EventDefinitionViewSet, "project_event_definitions", ["team_id"],
+    )
