@@ -252,7 +252,8 @@ def get_file_from_archive(archive: bytes, filename: str, *, json_parse: bool = T
 def find_index_ts_in_archive(archive: bytes, main_filename: Optional[str] = None) -> str:
     main_filenames_to_try = [main_filename] if main_filename else ["index.js", "index.ts"]
     for main_filename in main_filenames_to_try:
-        if index_ts := get_file_from_archive(archive, main_filename, json_parse=False):
+        index_ts = get_file_from_archive(archive, main_filename, json_parse=False)
+        if index_ts is not None:
             return index_ts
     raise ValueError(f"Could not find main file {' or '.join(main_filenames_to_try)}")
 

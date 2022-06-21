@@ -263,13 +263,13 @@ class PluginSourceFileManager(models.Manager):
         )
         # Save frontend.tsx
         frontend_tsx_instance: Optional["PluginSourceFile"] = None
-        if frontend_tsx:
+        if frontend_tsx is not None:
             frontend_tsx_instance, _ = PluginSourceFile.objects.update_or_create(
                 plugin=plugin, filename="frontend.tsx", defaults={"source": frontend_tsx}
             )
         # Save index.ts
         index_ts_instance: Optional["PluginSourceFile"] = None
-        if index_ts:
+        if index_ts is not None:
             # The original name of the file is not preserved, but this greatly simplifies the rest of the code,
             # and we don't need to model the whole filesystem (at this point)
             index_ts_instance, _ = PluginSourceFile.objects.update_or_create(
