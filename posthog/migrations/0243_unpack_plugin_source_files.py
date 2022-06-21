@@ -30,24 +30,15 @@ def forwards_func(apps, schema_editor):
         except ValueError as e:
             raise exceptions.ValidationError(f"{e} in plugin {plugin}")
         # Save plugin.json
-        plugin_json_instance, _ = PluginSourceFile.objects.create(
-            plugin=plugin, filename="plugin.json", defaults={"source": plugin_json}
-        )
+        PluginSourceFile.objects.create(plugin=plugin, filename="plugin.json", source=plugin_json)
         # Save frontend.tsx
-        frontend_tsx_instance = None
         if frontend_tsx is not None:
-            frontend_tsx_instance, _ = PluginSourceFile.objects.create(
-                plugin=plugin, filename="frontend.tsx", defaults={"source": frontend_tsx}
-            )
+            PluginSourceFile.objects.create(plugin=plugin, filename="frontend.tsx", source=frontend_tsx)
         # Save index.ts
-        index_ts_instance = None
         if index_ts is not None:
             # The original name of the file is not preserved, but this greatly simplifies the rest of the code,
             # and we don't need to model the whole filesystem (at this point)
-            index_ts_instance, _ = PluginSourceFile.objects.create(
-                plugin=plugin, filename="index.ts", defaults={"source": index_ts}
-            )
-        return plugin_json_instance, index_ts_instance, frontend_tsx_instance
+            PluginSourceFile.objects.create(plugin=plugin, filename="index.ts", source=index_ts)
 
     # Source plugins have already been migrated in 0233_plugin_source_file, while local ones don't store code in the DB
     for plugin in Plugin.objects.exclude(plugin_type__in=("source", "local")):
