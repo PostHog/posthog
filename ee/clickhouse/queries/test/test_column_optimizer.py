@@ -118,6 +118,8 @@ class TestColumnOptimizer(ClickhouseTestMixin, APIBaseTest):
             },
         )
 
+    def test_event_columns_used_in_filter(self):
+        event_columns_to_query = lambda filter: EnterpriseColumnOptimizer(filter, self.team.id).event_columns_to_query
         filter = Filter(
             data={
                 "events": [
@@ -132,12 +134,12 @@ class TestColumnOptimizer(ClickhouseTestMixin, APIBaseTest):
             }
         )
         self.assertEqual(
-            properties_used_in_filter(filter), {("$group_1", "event", None): 1,},
+            event_columns_to_query(filter), {'"$group_1"'},
         )
 
         filter = Filter(data={"events": [{"id": "$pageview", "type": "events", "order": 0, "math": "unique_session",}]})
         self.assertEqual(
-            properties_used_in_filter(filter), {("$session_id", "event", None): 1,},
+            event_columns_to_query(filter), {'"$session_id"'},
         )
 
     def test_properties_used_in_filter_with_actions(self):
