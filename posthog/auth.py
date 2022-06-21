@@ -1,6 +1,5 @@
 import functools
 import re
-from datetime import timedelta
 from typing import Any, Dict, Optional, Tuple, Union
 from urllib.parse import urlsplit
 
@@ -71,9 +70,7 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
             raise AuthenticationFailed(detail=f"Personal API key found in request {source} is invalid.")
 
         now = timezone.now()
-        if personal_api_key_object.last_used_at is None or now - personal_api_key_object.last_used_at > timedelta(
-            hours=1
-        ):
+        if personal_api_key_object.last_used_at is None or now.hour != personal_api_key_object.last_used_at.hour:
             personal_api_key_object.last_used_at = now
             personal_api_key_object.save()
         assert personal_api_key_object.user is not None
