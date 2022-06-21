@@ -117,6 +117,7 @@ export const FEATURE_FLAGS = {
     BREAKDOWN_ATTRIBUTION: 'breakdown-attribution', // owner: @neilkakkar
     INSIGHT_SUBSCRIPTIONS: 'insight-subscriptions', // owner: @benjackwhite
     SIMPLIFY_ACTIONS: 'simplify-actions', // owner: @alexkim205,
+    SESSION_ANALYSIS: 'session-analysis', // owner: @rcmarron
     TOOLBAR_LAUNCH_SIDE_ACTION: 'toolbar-launch-side-action', // owner: @pauldambra,
 }
 

@@ -1831,6 +1831,7 @@ export enum BaseMathType {
     DailyActive = 'dau',
     WeeklyActive = 'weekly_active',
     MonthlyActive = 'monthly_active',
+    UniqueSessions = 'unique_session',
 }
 
 export enum PropertyMathType {
