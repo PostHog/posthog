@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, Tuple
 from unittest.mock import MagicMock, patch
 
 from freezegun import freeze_time
@@ -23,7 +23,7 @@ from posthog.tasks.test.utils_email_tests import mock_email_messages
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
 
-def create_org_team_and_user(creation_date: str, email: str, ingested_event: bool = False) -> Organization:
+def create_org_team_and_user(creation_date: str, email: str, ingested_event: bool = False) -> Tuple[Organization, User]:
     with freeze_time(creation_date):
         org = Organization.objects.create(name="too_late_org")
         Team.objects.create(organization=org, name="Default Project", ingested_event=ingested_event)
@@ -37,8 +37,8 @@ def create_org_team_and_user(creation_date: str, email: str, ingested_event: boo
 class TestEmail(APIBaseTest, ClickhouseTestMixin):
     """
         NOTE: Every task in the "email" tasks should have at least one test.
-        using the `mock_email_messages` helper writes the email output to `tasks/test/__emails__` so you can check 
-        out what it is rendered 🙌
+        using the `mock_email_messages` helper writes the email output to `tasks/test/__emails__`
+        so you can check out what it is rendered 🙌
     """
 
     @classmethod
@@ -111,26 +111,6 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
 
         User.objects.create(email="staff-user@posthog.com", password="password", is_staff=True)
         send_async_migration_complete_email("migration_1", "20:00")
-
-        assert len(mocked_email_messages) == 1
-        assert mocked_email_messages[0].send.call_count == 1
-        assert mocked_email_messages[0].html_body
-
-    def test_send_async_migration_complete_email(self, MockEmailMessage: MagicMock) -> None:
-        mocked_email_messages = mock_email_messages(MockEmailMessage)
-
-        User.objects.create(email="staff-user@posthog.com", password="password", is_staff=True)
-        send_async_migration_complete_email("migration_1", "20:00")
-
-        assert len(mocked_email_messages) == 1
-        assert mocked_email_messages[0].send.call_count == 1
-        assert mocked_email_messages[0].html_body
-
-    def test_send_async_migration_errored_email(self, MockEmailMessage: MagicMock) -> None:
-        mocked_email_messages = mock_email_messages(MockEmailMessage)
-
-        User.objects.create(email="staff-user@posthog.com", password="password", is_staff=True)
-        send_async_migration_errored_email("migration_1", "20:00", "It exploded!")
 
         assert len(mocked_email_messages) == 1
         assert mocked_email_messages[0].send.call_count == 1
