@@ -27,6 +27,7 @@ describe('PersonState.update()', () => {
         await hub.db.clickhouseQuery('SYSTEM STOP MERGES')
 
         jest.spyOn(hub.personManager, 'isNewPerson')
+        jest.spyOn(hub.db, 'fetchPerson')
     })
 
     afterEach(async () => {
@@ -81,6 +82,8 @@ describe('PersonState.update()', () => {
                 version: 0,
             })
         )
+        expect(hub.personManager.isNewPerson).toHaveBeenCalledTimes(1)
+        expect(hub.db.fetchPerson).toHaveBeenCalledTimes(0)
     })
 
     it('creates person with properties', async () => {
@@ -113,6 +116,8 @@ describe('PersonState.update()', () => {
                 version: 0,
             })
         )
+        expect(hub.personManager.isNewPerson).toHaveBeenCalledTimes(1)
+        expect(hub.db.fetchPerson).toHaveBeenCalledTimes(0)
     })
 
     it('updates person properties if needed', async () => {
@@ -148,6 +153,7 @@ describe('PersonState.update()', () => {
             })
         )
         expect(hub.personManager.isNewPerson).toHaveBeenCalledTimes(1)
+        expect(hub.db.fetchPerson).toHaveBeenCalledTimes(1)
     })
 
     it('updating with cached person data skips checking if person is new', async () => {
@@ -177,6 +183,7 @@ describe('PersonState.update()', () => {
             })
         )
         expect(hub.personManager.isNewPerson).toHaveBeenCalledTimes(0)
+        expect(hub.db.fetchPerson).toHaveBeenCalledTimes(0)
     })
 
     it('does not update person if not needed', async () => {
@@ -200,6 +207,8 @@ describe('PersonState.update()', () => {
                 version: 0,
             })
         )
+
+        expect(hub.db.fetchPerson).toHaveBeenCalledTimes(1)
     })
 
     // This is a regression test
@@ -232,6 +241,7 @@ describe('PersonState.update()', () => {
                 version: 0,
             })
         )
+        expect(hub.db.fetchPerson).toHaveBeenCalledTimes(2)
         expect(hub.personManager.isNewPerson).toHaveBeenCalledTimes(0)
     })
 
@@ -282,6 +292,7 @@ describe('PersonState.update()', () => {
             ])
         )
 
+        expect(hub.db.fetchPerson).toHaveBeenCalledTimes(2)
         expect(hub.personManager.isNewPerson).toHaveBeenCalledTimes(0)
     })
 
@@ -312,6 +323,9 @@ describe('PersonState.update()', () => {
         )
         const distinctIds = await hub.db.fetchDistinctIdValues(persons[0])
         expect(distinctIds).toEqual(expect.arrayContaining(['new-user', 'old-user']))
+
+        expect(hub.personManager.isNewPerson).toHaveBeenCalledTimes(0)
+        expect(hub.db.fetchPerson).toHaveBeenCalledTimes(2)
     })
 
     it('marks user as is_identified on $identify event', async () => {
@@ -339,6 +353,9 @@ describe('PersonState.update()', () => {
                 version: 1,
             })
         )
+
+        expect(hub.personManager.isNewPerson).toHaveBeenCalledTimes(0)
+        expect(hub.db.fetchPerson).toHaveBeenCalledTimes(2)
     })
 
     it('does not update person if user already identified and no properties change on $identify event', async () => {
@@ -435,5 +452,8 @@ describe('PersonState.update()', () => {
                 }),
             ])
         )
+
+        expect(hub.personManager.isNewPerson).toHaveBeenCalledTimes(0)
+        expect(hub.db.fetchPerson).toHaveBeenCalledTimes(2)
     })
 })
