@@ -171,16 +171,19 @@ def enqueue_clickhouse_execute_with_progress(
 @app.task(ignore_result=True)
 def pg_table_cache_hit_rate():
     from posthog.internal_metrics import gauge
+
     with connection.cursor() as cursor:
         try:
-            cursor.execute("""
+            cursor.execute(
+                """
                 SELECT
                  relname as table_name,
                  sum(heap_blks_hit) / nullif(sum(heap_blks_hit) + sum(heap_blks_read),0) * 100 AS ratio
                 FROM pg_statio_user_tables
                 GROUP BY relname
                 ORDER BY ratio ASC
-            """)
+            """
+            )
             tables = cursor.fetchall()
             for row in tables:
                 gauge("pg_table_cache_hit_rate", row[1], tags={"table": row[0]})
