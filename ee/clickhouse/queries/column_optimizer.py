@@ -46,6 +46,8 @@ class EnterpriseColumnOptimizer(ColumnOptimizer):
 
         # Both entities and funnel exclusions can contain nested property filters
         for entity in self.filter.entities + cast(List[Entity], self.filter.exclusions):
+            counter += extract_tables_and_properties(entity.property_groups.flat)
+
             # Math properties are also implicitly used.
             #
             # See ee/clickhouse/queries/trends/util.py#process_math
