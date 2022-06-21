@@ -3,7 +3,7 @@ import { DateTime } from 'luxon'
 
 import { Person } from '../../../../src/types'
 import { UUIDT } from '../../../../src/utils/utils'
-import { processPersonsStep } from '../../../../src/worker/ingestion/event-pipeline/2-processPersonsStep'
+import { processPersonsStep } from '../../../../src/worker/ingestion/event-pipeline/3-processPersonsStep'
 import { updatePersonState } from '../../../../src/worker/ingestion/person-state'
 
 jest.mock('../../../../src/utils/status')
@@ -50,49 +50,46 @@ describe('processPersonsStep()', () => {
         jest.mocked(updatePersonState).mockResolvedValue(person)
     })
 
-    it('forwards event to `pluginsProcessEventStep`', async () => {
+    it('forwards event to `prepareEventStep`', async () => {
         const response = await processPersonsStep(runner, pluginEvent, person)
 
-        expect(response).toEqual([
-            'pluginsProcessEventStep',
-            pluginEvent,
-            {
-                person,
-                personUpdateProperties: {
-                    $set: {},
-                    $set_once: {},
-                    $unset: {},
-                },
-            },
-        ])
+        expect(response).toEqual(['prepareEventStep', pluginEvent, person])
     })
 
-    it('makes a copy of $set/$set_once/$unset for forwardedPersonData', async () => {
+    it('re-normalizes the event with properties set by plugins', async () => {
+        const updatedPerson = {
+            ...person,
+            properties: { personProp: 'value ' },
+        }
         const event = {
             ...pluginEvent,
             properties: {
-                $set: { foo: 'bar' },
+                $browser: 'Chrome',
+            },
+            $set: {
+                someProp: 'value',
             },
         }
+        jest.mocked(updatePersonState).mockResolvedValue(updatedPerson)
 
         const response = await processPersonsStep(runner, event, person)
 
         expect(response).toEqual([
-            'pluginsProcessEventStep',
-            event,
+            'prepareEventStep',
             {
-                person,
-                personUpdateProperties: {
-                    $set: { foo: 'bar' },
-                    $set_once: {},
-                    $unset: {},
+                ...event,
+                properties: {
+                    $browser: 'Chrome',
+                    $set: {
+                        someProp: 'value',
+                    },
+                    $set_once: {
+                        $initial_browser: 'Chrome',
+                    },
                 },
             },
+            updatedPerson,
         ])
-
-        event.properties.$set.foo = 'another'
-
-        expect((response as any)[2].personUpdateProperties.$set).toEqual({ foo: 'bar' })
     })
 
     it('updates person', async () => {
@@ -114,17 +111,6 @@ describe('processPersonsStep()', () => {
             'hub.personManager',
             person
         )
-        expect(response).toEqual([
-            'pluginsProcessEventStep',
-            pluginEvent,
-            {
-                person: updatedPerson,
-                personUpdateProperties: {
-                    $set: {},
-                    $set_once: {},
-                    $unset: {},
-                },
-            },
-        ])
+        expect(response).toEqual(['prepareEventStep', pluginEvent, updatedPerson])
     })
 })

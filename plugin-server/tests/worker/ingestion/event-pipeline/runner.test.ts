@@ -3,12 +3,11 @@ import { DateTime } from 'luxon'
 
 import { Person, PreIngestionEvent } from '../../../../src/types'
 import { emitToBufferStep } from '../../../../src/worker/ingestion/event-pipeline/1-emitToBufferStep'
-import { processPersonsStep } from '../../../../src/worker/ingestion/event-pipeline/2-processPersonsStep'
-import { pluginsProcessEventStep } from '../../../../src/worker/ingestion/event-pipeline/3-pluginsProcessEventStep'
-import { updatePersonIfTouchedByPlugins } from '../../../../src/worker/ingestion/event-pipeline/4-updatePersonIfTouchedByPlugins'
-import { prepareEventStep } from '../../../../src/worker/ingestion/event-pipeline/5-prepareEventStep'
-import { createEventStep } from '../../../../src/worker/ingestion/event-pipeline/6-createEventStep'
-import { runAsyncHandlersStep } from '../../../../src/worker/ingestion/event-pipeline/7-runAsyncHandlersStep'
+import { pluginsProcessEventStep } from '../../../../src/worker/ingestion/event-pipeline/2-pluginsProcessEventStep'
+import { processPersonsStep } from '../../../../src/worker/ingestion/event-pipeline/3-processPersonsStep'
+import { prepareEventStep } from '../../../../src/worker/ingestion/event-pipeline/4-prepareEventStep'
+import { createEventStep } from '../../../../src/worker/ingestion/event-pipeline/5-createEventStep'
+import { runAsyncHandlersStep } from '../../../../src/worker/ingestion/event-pipeline/6-runAsyncHandlersStep'
 import {
     EventPipelineRunner,
     EventPipelineStepsType,
@@ -20,12 +19,11 @@ import { generateEventDeadLetterQueueMessage } from '../../../../src/worker/inge
 
 jest.mock('../../../../src/utils/status')
 jest.mock('../../../../src/worker/ingestion/event-pipeline/1-emitToBufferStep')
-jest.mock('../../../../src/worker/ingestion/event-pipeline/2-processPersonsStep')
-jest.mock('../../../../src/worker/ingestion/event-pipeline/3-pluginsProcessEventStep')
-jest.mock('../../../../src/worker/ingestion/event-pipeline/4-updatePersonIfTouchedByPlugins')
-jest.mock('../../../../src/worker/ingestion/event-pipeline/5-prepareEventStep')
-jest.mock('../../../../src/worker/ingestion/event-pipeline/6-createEventStep')
-jest.mock('../../../../src/worker/ingestion/event-pipeline/7-runAsyncHandlersStep')
+jest.mock('../../../../src/worker/ingestion/event-pipeline/2-pluginsProcessEventStep')
+jest.mock('../../../../src/worker/ingestion/event-pipeline/3-processPersonsStep')
+jest.mock('../../../../src/worker/ingestion/event-pipeline/4-prepareEventStep')
+jest.mock('../../../../src/worker/ingestion/event-pipeline/5-createEventStep')
+jest.mock('../../../../src/worker/ingestion/event-pipeline/6-runAsyncHandlersStep')
 jest.mock('../../../../src/worker/ingestion/utils')
 
 class TestEventPipelineRunner extends EventPipelineRunner {
@@ -95,16 +93,15 @@ describe('EventPipelineRunner', () => {
         }
         runner = new TestEventPipelineRunner(hub, pluginEvent)
 
-        jest.mocked(emitToBufferStep).mockResolvedValue(['processPersonsStep', [pluginEvent, person]])
-        jest.mocked(processPersonsStep).mockResolvedValue([
-            'pluginsProcessEventStep',
-            [pluginEvent, { person, personUpdateProperties: {} }],
-        ])
+        jest.mocked(emitToBufferStep).mockResolvedValue(['pluginsProcessEventStep', [pluginEvent, person]])
         jest.mocked(pluginsProcessEventStep).mockResolvedValue([
-            'updatePersonIfTouchedByPlugins',
+            'processPersonsStep',
             [pluginEvent, { person, personUpdateProperties: {} }],
         ])
-        jest.mocked(updatePersonIfTouchedByPlugins).mockResolvedValue(['prepareEventStep', [pluginEvent, person]])
+        jest.mocked(processPersonsStep).mockResolvedValue([
+            'prepareEventStep',
+            [pluginEvent, { person, personUpdateProperties: {} }],
+        ])
         jest.mocked(prepareEventStep).mockResolvedValue(['createEventStep', [preIngestionEvent]])
         jest.mocked(createEventStep).mockResolvedValue(['runAsyncHandlersStep', [preIngestionEvent]])
         jest.mocked(runAsyncHandlersStep).mockResolvedValue(null)
@@ -116,9 +113,8 @@ describe('EventPipelineRunner', () => {
 
             expect(runner.steps).toEqual([
                 'emitToBufferStep',
-                'processPersonsStep',
                 'pluginsProcessEventStep',
-                'updatePersonIfTouchedByPlugins',
+                'processPersonsStep',
                 'prepareEventStep',
                 'createEventStep',
                 'runAsyncHandlersStep',
@@ -129,8 +125,8 @@ describe('EventPipelineRunner', () => {
         it('emits metrics for every step', async () => {
             await runner.runEventPipeline(pluginEvent)
 
-            expect(hub.statsd.timing).toHaveBeenCalledTimes(7)
-            expect(hub.statsd.increment).toBeCalledTimes(10)
+            expect(hub.statsd.timing).toHaveBeenCalledTimes(6)
+            expect(hub.statsd.increment).toBeCalledTimes(9)
 
             expect(hub.statsd.increment).toHaveBeenCalledWith('kafka_queue.event_pipeline.step', {
                 step: 'createEventStep',
@@ -150,13 +146,13 @@ describe('EventPipelineRunner', () => {
             it('stops processing after step', async () => {
                 await runner.runEventPipeline(pluginEvent)
 
-                expect(runner.steps).toEqual(['emitToBufferStep', 'processPersonsStep', 'pluginsProcessEventStep'])
+                expect(runner.steps).toEqual(['emitToBufferStep', 'pluginsProcessEventStep'])
             })
 
             it('reports metrics and last step correctly', async () => {
                 await runner.runEventPipeline(pluginEvent)
 
-                expect(hub.statsd.timing).toHaveBeenCalledTimes(3)
+                expect(hub.statsd.timing).toHaveBeenCalledTimes(2)
                 expect(hub.statsd.increment).toHaveBeenCalledWith('kafka_queue.event_pipeline.step.last', {
                     step: 'pluginsProcessEventStep',
                     team_id: '2',
@@ -213,9 +209,8 @@ describe('EventPipelineRunner', () => {
             await runner.runBufferEventPipeline(pluginEvent)
 
             expect(runner.steps).toEqual([
-                'processPersonsStep',
                 'pluginsProcessEventStep',
-                'updatePersonIfTouchedByPlugins',
+                'processPersonsStep',
                 'prepareEventStep',
                 'createEventStep',
                 'runAsyncHandlersStep',

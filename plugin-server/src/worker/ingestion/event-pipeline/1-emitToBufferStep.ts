@@ -20,7 +20,7 @@ export async function emitToBufferStep(
         await runner.hub.eventsProcessor.produceEventToBuffer(event)
         return null
     } else {
-        return runner.nextStep('processPersonsStep', event, person)
+        return runner.nextStep('pluginsProcessEventStep', event, person)
     }
 }
 

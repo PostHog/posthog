@@ -24,7 +24,7 @@ Array [
 exports[`EventPipelineRunner runBufferEventPipeline() runs remaining steps 1`] = `
 Array [
   Array [
-    "processPersonsStep",
+    "pluginsProcessEventStep",
     Array [
       Object {
         "distinct_id": "my_id",
@@ -41,38 +41,7 @@ Array [
     ],
   ],
   Array [
-    "pluginsProcessEventStep",
-    Array [
-      Object {
-        "distinct_id": "my_id",
-        "event": "default event",
-        "ip": "127.0.0.1",
-        "now": "2020-02-23T02:15:00Z",
-        "properties": Object {},
-        "site_url": "http://localhost",
-        "team_id": 2,
-        "timestamp": "2020-02-23T02:15:00Z",
-        "uuid": "uuid1",
-      },
-      Object {
-        "person": Object {
-          "created_at": "2020-02-23T02:15:00.000Z",
-          "id": 123,
-          "is_identified": true,
-          "is_user_id": 0,
-          "properties": Object {},
-          "properties_last_operation": Object {},
-          "properties_last_updated_at": Object {},
-          "team_id": 2,
-          "uuid": "uuid",
-          "version": 0,
-        },
-        "personUpdateProperties": Object {},
-      },
-    ],
-  ],
-  Array [
-    "updatePersonIfTouchedByPlugins",
+    "processPersonsStep",
     Array [
       Object {
         "distinct_id": "my_id",
@@ -117,16 +86,19 @@ Array [
         "uuid": "uuid1",
       },
       Object {
-        "created_at": "2020-02-23T02:15:00.000Z",
-        "id": 123,
-        "is_identified": true,
-        "is_user_id": 0,
-        "properties": Object {},
-        "properties_last_operation": Object {},
-        "properties_last_updated_at": Object {},
-        "team_id": 2,
-        "uuid": "uuid",
-        "version": 0,
+        "person": Object {
+          "created_at": "2020-02-23T02:15:00.000Z",
+          "id": 123,
+          "is_identified": true,
+          "is_user_id": 0,
+          "properties": Object {},
+          "properties_last_operation": Object {},
+          "properties_last_updated_at": Object {},
+          "team_id": 2,
+          "uuid": "uuid",
+          "version": 0,
+        },
+        "personUpdateProperties": Object {},
       },
     ],
   ],
@@ -182,7 +154,7 @@ Array [
     ],
   ],
   Array [
-    "processPersonsStep",
+    "pluginsProcessEventStep",
     Array [
       Object {
         "distinct_id": "my_id",
@@ -210,38 +182,7 @@ Array [
     ],
   ],
   Array [
-    "pluginsProcessEventStep",
-    Array [
-      Object {
-        "distinct_id": "my_id",
-        "event": "default event",
-        "ip": "127.0.0.1",
-        "now": "2020-02-23T02:15:00Z",
-        "properties": Object {},
-        "site_url": "http://localhost",
-        "team_id": 2,
-        "timestamp": "2020-02-23T02:15:00Z",
-        "uuid": "uuid1",
-      },
-      Object {
-        "person": Object {
-          "created_at": "2020-02-23T02:15:00.000Z",
-          "id": 123,
-          "is_identified": true,
-          "is_user_id": 0,
-          "properties": Object {},
-          "properties_last_operation": Object {},
-          "properties_last_updated_at": Object {},
-          "team_id": 2,
-          "uuid": "uuid",
-          "version": 0,
-        },
-        "personUpdateProperties": Object {},
-      },
-    ],
-  ],
-  Array [
-    "updatePersonIfTouchedByPlugins",
+    "processPersonsStep",
     Array [
       Object {
         "distinct_id": "my_id",
@@ -286,16 +227,19 @@ Array [
         "uuid": "uuid1",
       },
       Object {
-        "created_at": "2020-02-23T02:15:00.000Z",
-        "id": 123,
-        "is_identified": true,
-        "is_user_id": 0,
-        "properties": Object {},
-        "properties_last_operation": Object {},
-        "properties_last_updated_at": Object {},
-        "team_id": 2,
-        "uuid": "uuid",
-        "version": 0,
+        "person": Object {
+          "created_at": "2020-02-23T02:15:00.000Z",
+          "id": 123,
+          "is_identified": true,
+          "is_user_id": 0,
+          "properties": Object {},
+          "properties_last_operation": Object {},
+          "properties_last_updated_at": Object {},
+          "team_id": 2,
+          "uuid": "uuid",
+          "version": 0,
+        },
+        "personUpdateProperties": Object {},
       },
     ],
   ],
