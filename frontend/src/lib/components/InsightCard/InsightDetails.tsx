@@ -8,7 +8,14 @@ import { BreakdownFilter } from 'scenes/insights/BreakdownFilter'
 import { humanizePathsEventTypes } from 'scenes/insights/utils'
 import { apiValueToMathType, MathDefinition, mathsLogic } from 'scenes/trends/mathsLogic'
 import { urls } from 'scenes/urls'
-import { FilterType, InsightModel, InsightType, PropertyFilter, PropertyGroupFilter } from '~/types'
+import {
+    FilterLogicalOperator,
+    FilterType,
+    InsightModel,
+    InsightType,
+    PropertyFilter,
+    PropertyGroupFilter,
+} from '~/types'
 import { IconCalculate, IconSubdirectoryArrowRight } from '../icons'
 import { LemonRow } from '../LemonRow'
 import { LemonDivider } from '../LemonDivider'
@@ -18,6 +25,7 @@ import { ProfilePicture } from '../ProfilePicture'
 import { PropertyFilterText } from '../PropertyFilters/components/PropertyFilterButton'
 import { PropertyKeyInfo } from '../PropertyKeyInfo'
 import { TZLabel } from '../TimezoneAware'
+import { DefinitionPopup } from '../DefinitionPopup/DefinitionPopup'
 
 function CompactPropertyFiltersDisplay({
     properties,
@@ -30,11 +38,20 @@ function CompactPropertyFiltersDisplay({
         <>
             {isPropertyGroup(properties) ? (
                 <>
-                    {properties.values.map((pg, idx) =>
-                        pg.values.map((subFilter, subIndex) => (
-                            <div key={subIndex} className="SeriesDisplay__condition">
-                                {embedded && <IconSubdirectoryArrowRight className="SeriesDisplay__arrow" />}
-                                <span>
+                    {properties.values.map((pg, idx) => (
+                        <>
+                            <DefinitionPopup.Section>
+                                <DefinitionPopup.Card
+                                    title={`Match events against ${
+                                        pg.type === FilterLogicalOperator.Or ? 'any' : 'all'
+                                    } criteria`}
+                                    value={<ul />}
+                                />
+                            </DefinitionPopup.Section>
+                            {pg.values.map((subFilter, subIndex) => (
+                                <div key={subIndex} className="SeriesDisplay__condition">
+                                    {embedded && <IconSubdirectoryArrowRight className="SeriesDisplay__arrow" />}
+                                    {/* <span>
                                     {idx !== 0 && subIndex === 0 && <div>{properties.type} </div>}
                                     {subIndex === 0 ? (embedded ? 'where ' : 'Where ') : `${pg.type} `}
                                     {subFilter.type === 'cohort' ? (
@@ -54,10 +71,16 @@ function CompactPropertyFiltersDisplay({
                                             <b>{subFilter.value}</b>
                                         </>
                                     )}
-                                </span>
-                            </div>
-                        ))
-                    )}
+                                </span> */}
+                                </div>
+                            ))}
+                            {idx < Math.min(properties.values.length, 2) - 1 && (
+                                <DefinitionPopup.HorizontalLine style={{ marginTop: 4, marginBottom: 12 }}>
+                                    {properties.type}
+                                </DefinitionPopup.HorizontalLine>
+                            )}
+                        </>
+                    ))}
                 </>
             ) : (
                 <>
