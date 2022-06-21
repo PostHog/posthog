@@ -120,7 +120,7 @@ class PluginManager(models.Manager):
             raise_if_plugin_installed(kwargs["url"], kwargs["organization_id"])
         plugin = Plugin.objects.create(**kwargs)
         if plugin_json:
-            PluginSourceFile.objects.update_or_create_from_plugin_archive(plugin, plugin_json)
+            PluginSourceFile.objects.sync_from_plugin_archive(plugin, plugin_json)
         reload_plugins_on_workers()
         return plugin
 
@@ -247,7 +247,7 @@ class PluginLogEntryType(str, Enum):
 
 
 class PluginSourceFileManager(models.Manager):
-    def update_or_create_from_plugin_archive(
+    def sync_from_plugin_archive(
         self, plugin: Plugin, plugin_json_parsed: Optional[Dict[str, Any]] = None
     ) -> Tuple["PluginSourceFile", Optional["PluginSourceFile"], Optional["PluginSourceFile"]]:
         """Create PluginSourceFile objects from a plugin that has an archive.
@@ -257,24 +257,32 @@ class PluginSourceFileManager(models.Manager):
             plugin_json, index_ts, frontend_tsx = extract_plugin_code(plugin.archive, plugin_json_parsed)
         except ValueError as e:
             raise exceptions.ValidationError(f"{e} in plugin {plugin}")
+        # If frontend.tsx or index.ts are not present in the archive, make sure they aren't found in the DB either
+        filenames_to_delete = []
         # Save plugin.json
         plugin_json_instance, _ = PluginSourceFile.objects.update_or_create(
             plugin=plugin, filename="plugin.json", defaults={"source": plugin_json}
         )
         # Save frontend.tsx
         frontend_tsx_instance: Optional["PluginSourceFile"] = None
-        if frontend_tsx:
+        if frontend_tsx is not None:
             frontend_tsx_instance, _ = PluginSourceFile.objects.update_or_create(
                 plugin=plugin, filename="frontend.tsx", defaults={"source": frontend_tsx}
             )
+        else:
+            filenames_to_delete.append("frontend.tsx")
         # Save index.ts
         index_ts_instance: Optional["PluginSourceFile"] = None
-        if index_ts:
+        if index_ts is not None:
             # The original name of the file is not preserved, but this greatly simplifies the rest of the code,
             # and we don't need to model the whole filesystem (at this point)
             index_ts_instance, _ = PluginSourceFile.objects.update_or_create(
                 plugin=plugin, filename="index.ts", defaults={"source": index_ts}
             )
+        else:
+            filenames_to_delete.append("index.ts")
+        # Make sure files are gone
+        PluginSourceFile.objects.filter(plugin=plugin, filename__in=filenames_to_delete).delete()
         return plugin_json_instance, index_ts_instance, frontend_tsx_instance
 
 
