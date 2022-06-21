@@ -1,5 +1,6 @@
 from typing import Counter, List, Set, cast
 
+from ee.clickhouse.materialized_columns.columns import ColumnName
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, FunnelCorrelationType
 from posthog.models.action.util import get_action_tables_and_properties
 from posthog.models.entity import Entity
@@ -16,6 +17,17 @@ class EnterpriseColumnOptimizer(ColumnOptimizer):
     def group_types_to_query(self) -> Set[GroupTypeIndex]:
         used_properties = self._used_properties_with_type("group")
         return set(cast(GroupTypeIndex, group_type_index) for _, _, group_type_index in used_properties)
+
+    @cached_property
+    def event_columns_to_query(self) -> Set[ColumnName]:
+        "Returns a list of event table columns containing materialized properties that this query needs"
+        event_columns = super().event_columns_to_query
+
+        for entity in self.filter.entities:
+            if entity.math == "unique_group":
+                event_columns.add(f'"$group_{entity.math_group_type_index}"')
+
+        return event_columns
 
     @cached_property
     def properties_used_in_filter(self) -> Counter[PropertyIdentifier]:
@@ -53,15 +65,6 @@ class EnterpriseColumnOptimizer(ColumnOptimizer):
             # See ee/clickhouse/queries/trends/util.py#process_math
             if entity.math_property:
                 counter[(entity.math_property, "event", None)] += 1
-
-            # If groups are involved, they're also used
-            #
-            # See ee/clickhouse/queries/trends/util.py#process_math
-            if entity.math == "unique_group":
-                counter[(f"$group_{entity.math_group_type_index}", "event", None)] += 1
-
-            if entity.math == "unique_session":
-                counter[("$session_id", "event", None)] += 1
 
             # :TRICKY: If action contains property filters, these need to be included
             #

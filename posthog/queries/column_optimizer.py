@@ -30,8 +30,12 @@ class ColumnOptimizer:
     @cached_property
     def event_columns_to_query(self) -> Set[ColumnName]:
         "Returns a list of event table columns containing materialized properties that this query needs"
+        event_columns = self.columns_to_query("events", set(self._used_properties_with_type("event")))
+        for entity in self.filter.entities:
+            if entity.math == "unique_session":
+                event_columns.add('"$session_id"')
 
-        return self.columns_to_query("events", set(self._used_properties_with_type("event")))
+        return event_columns
 
     @cached_property
     def person_columns_to_query(self) -> Set[ColumnName]:
