@@ -1,7 +1,7 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 
-import { PreIngestionEvent } from '../../../../src/types'
+import { Person, PreIngestionEvent } from '../../../../src/types'
 import { emitToBufferStep } from '../../../../src/worker/ingestion/event-pipeline/1-emitToBufferStep'
 import { processPersonsStep } from '../../../../src/worker/ingestion/event-pipeline/2-processPersonsStep'
 import { pluginsProcessEventStep } from '../../../../src/worker/ingestion/event-pipeline/3-pluginsProcessEventStep'
@@ -74,7 +74,7 @@ const person: Person = {
     uuid: 'uuid',
     properties_last_updated_at: {},
     properties_last_operation: {},
-    created_at: DateTime.fromISO(pluginEvent.timestamp!),
+    created_at: DateTime.fromISO(pluginEvent.timestamp!).toUTC(),
     version: 0,
 }
 
