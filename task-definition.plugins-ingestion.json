@@ -90,7 +90,7 @@
                 },
                 {
                     "name": "KAFKA_PARTITIONS_CONSUMED_CONCURRENTLY",
-                    "value": "1"
+                    "value": "5"
                 },
                 {
                     "name": "CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS",
