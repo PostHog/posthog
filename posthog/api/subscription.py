@@ -43,10 +43,17 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             "created_by",
             "deleted",
             "title",
+            "summary",
             "next_delivery_date",
             "invite_message",
         ]
-        read_only_fields = ["id", "created_at", "created_by", "next_delivery_date"]
+        read_only_fields = [
+            "id",
+            "created_at",
+            "created_by",
+            "next_delivery_date",
+            "summary",
+        ]
 
     def validate(self, attrs):
         if not self.initial_data:

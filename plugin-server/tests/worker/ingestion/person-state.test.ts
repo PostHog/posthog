@@ -192,6 +192,88 @@ describe('PersonState.update()', () => {
         )
     })
 
+    it('adds adds new distinct_id and updates is_identified on $identify event', async () => {
+        await hub.db.createPerson(timestamp, {}, {}, {}, 2, null, false, uuid2.toString(), ['new-user'])
+
+        await personState({
+            event: '$identify',
+            distinct_id: 'new-user',
+            properties: {
+                $anon_distinct_id: 'old-user',
+                $set: { foo: 'bar' },
+            },
+        }).update()
+        await hub.db.kafkaProducer.flush()
+
+        const persons = await hub.db.fetchPersons()
+        expect(persons.length).toEqual(1)
+        expect(persons[0]).toEqual(
+            expect.objectContaining({
+                id: expect.any(Number),
+                uuid: uuid2.toString(),
+                properties: { foo: 'bar' },
+                created_at: timestamp,
+                is_identified: true,
+                version: 1,
+            })
+        )
+        const distinctIds = await hub.db.fetchDistinctIdValues(persons[0])
+        expect(distinctIds).toEqual(expect.arrayContaining(['new-user', 'old-user']))
+    })
+
+    it('marks user as is_identified on $identify event', async () => {
+        await hub.db.createPerson(timestamp, {}, {}, {}, 2, null, false, uuid2.toString(), ['new-user', 'old-user'])
+
+        await personState({
+            event: '$identify',
+            distinct_id: 'new-user',
+            properties: {
+                $anon_distinct_id: 'old-user',
+                $set: { foo: 'bar' },
+            },
+        }).update()
+        await hub.db.kafkaProducer.flush()
+
+        const persons = await hub.db.fetchPersons()
+        expect(persons.length).toEqual(1)
+        expect(persons[0]).toEqual(
+            expect.objectContaining({
+                id: expect.any(Number),
+                uuid: uuid2.toString(),
+                properties: { foo: 'bar' },
+                created_at: timestamp,
+                is_identified: true,
+                version: 1,
+            })
+        )
+    })
+
+    it('does not update person if user already identified and no properties change on $identify event', async () => {
+        await hub.db.createPerson(timestamp, {}, {}, {}, 2, null, true, uuid2.toString(), ['new-user', 'old-user'])
+
+        await personState({
+            event: '$identify',
+            distinct_id: 'new-user',
+            properties: {
+                $anon_distinct_id: 'old-user',
+            },
+        }).update()
+        await hub.db.kafkaProducer.flush()
+
+        const persons = await hub.db.fetchPersons()
+        expect(persons.length).toEqual(1)
+        expect(persons[0]).toEqual(
+            expect.objectContaining({
+                id: expect.any(Number),
+                uuid: uuid2.toString(),
+                properties: {},
+                created_at: timestamp,
+                is_identified: true,
+                version: 0,
+            })
+        )
+    })
+
     it('does not merge already identified users', async () => {
         await hub.db.createPerson(timestamp, { a: 1, b: 2 }, {}, {}, 2, null, true, uuid.toString(), ['old-user'])
         await hub.db.createPerson(timestamp, { b: 3, c: 4, d: 5 }, {}, {}, 2, null, false, uuid2.toString(), [

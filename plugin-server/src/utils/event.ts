@@ -35,7 +35,7 @@ export function convertToIngestionEvent(event: ClickhouseEventKafka): IngestionE
     }
 }
 
-export function sanitizeEvent(event: PluginEvent): PluginEvent {
+export function normalizeEvent(event: PluginEvent): PluginEvent {
     event.distinct_id = event.distinct_id?.toString()
 
     let properties = event.properties ?? {}

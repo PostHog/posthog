@@ -23,7 +23,7 @@ from posthog.test.base import BaseTest
 @freeze_time("2022-01-01")
 class TestSubscription(BaseTest):
     def _create_insight_subscription(self, **kwargs):
-        insight = Insight.objects.create(team=self.team, short_id="123456")
+        insight = Insight.objects.create(team=self.team)
 
         params = dict(
             team=self.team,
@@ -151,3 +151,30 @@ class TestSubscription(BaseTest):
         subscription = self._create_insight_subscription(interval=1, frequency="monthly", bysetpos=3)
         subscription.save()
         assert subscription.next_delivery_date == datetime(2022, 2, 1, 0, 0).replace(tzinfo=pytz.UTC)
+
+    def test_subscription_summary(self):
+        subscription = self._create_insight_subscription(interval=1, frequency="monthly", bysetpos=None)
+        assert subscription.summary == "sent every month"
+        subscription = self._create_insight_subscription(
+            interval=2, frequency="monthly", byweekday=["wednesday"], bysetpos=1
+        )
+        assert subscription.summary == "sent every 2 months on the first Wednesday"
+        subscription = self._create_insight_subscription(
+            interval=1, frequency="weekly", byweekday=["wednesday"], bysetpos=-1
+        )
+        assert subscription.summary == "sent every week on the last Wednesday"
+        subscription = self._create_insight_subscription(interval=1, frequency="weekly", byweekday=["wednesday"])
+        assert subscription.summary == "sent every week"
+        subscription = self._create_insight_subscription(
+            interval=1,
+            frequency="monthly",
+            byweekday=["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"],
+            bysetpos=3,
+        )
+        assert subscription.summary == "sent every month on the third day"
+
+    def test_subscription_summary_with_unexpected_values(self):
+        subscription = self._create_insight_subscription(
+            interval=1, frequency="monthly", byweekday=["monday"], bysetpos=10,
+        )
+        assert subscription.summary == "sent on a schedule"

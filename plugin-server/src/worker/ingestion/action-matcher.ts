@@ -14,13 +14,13 @@ import {
     ElementPropertyFilter,
     EventPropertyFilter,
     IngestionEvent,
-    Person,
+    IngestionPersonData,
     PersonPropertyFilter,
     PropertyFilter,
     PropertyFilterWithOperator,
     PropertyOperator,
 } from '../../types'
-import { CachedPersonData, DB } from '../../utils/db/db'
+import { DB } from '../../utils/db/db'
 import { extractElements } from '../../utils/db/elements-chain'
 import { stringToBoolean } from '../../utils/env-utils'
 import { stringify } from '../../utils/utils'
@@ -108,11 +108,7 @@ export class ActionMatcher {
     }
 
     /** Get all actions matched to the event. */
-    public async match(
-        event: IngestionEvent,
-        person?: CachedPersonData | Person,
-        elements?: Element[]
-    ): Promise<Action[]> {
+    public async match(event: IngestionEvent, person?: IngestionPersonData, elements?: Element[]): Promise<Action[]> {
         const matchingStart = new Date()
         const teamActions: Action[] = Object.values(this.actionManager.getTeamActions(event.teamId))
         if (!elements) {
@@ -149,7 +145,7 @@ export class ActionMatcher {
     public async checkAction(
         event: IngestionEvent,
         elements: Element[] | undefined,
-        person: CachedPersonData | Person | undefined,
+        person: IngestionPersonData | undefined,
         action: Action
     ): Promise<boolean> {
         for (const step of action.steps) {
@@ -176,7 +172,7 @@ export class ActionMatcher {
     private async checkStep(
         event: IngestionEvent,
         elements: Element[] | undefined,
-        person: CachedPersonData | Person | undefined,
+        person: IngestionPersonData | undefined,
         step: ActionStep
     ): Promise<boolean> {
         if (!elements) {
@@ -287,7 +283,7 @@ export class ActionMatcher {
     private async checkStepFilters(
         event: IngestionEvent,
         elements: Element[],
-        person: CachedPersonData | Person | undefined,
+        person: IngestionPersonData | undefined,
         step: ActionStep
     ): Promise<boolean> {
         // CHECK CONDITIONS, OTHERWISE SKIPPED, OTHERWISE SKIPPED
@@ -308,7 +304,7 @@ export class ActionMatcher {
     private async checkEventAgainstFilter(
         event: IngestionEvent,
         elements: Element[],
-        person: CachedPersonData | Person | undefined,
+        person: IngestionPersonData | undefined,
         filter: PropertyFilter
     ): Promise<boolean> {
         switch (filter.type) {
@@ -336,7 +332,7 @@ export class ActionMatcher {
      * Sublevel 4 of action matching.
      */
     private checkEventAgainstPersonFilter(
-        person: CachedPersonData | Person | undefined,
+        person: IngestionPersonData | undefined,
         filter: PersonPropertyFilter
     ): boolean {
         if (!person?.properties) {
@@ -363,7 +359,7 @@ export class ActionMatcher {
      * Sublevel 4 of action matching.
      */
     private async checkEventAgainstCohortFilter(
-        person: CachedPersonData | Person | undefined,
+        person: IngestionPersonData | undefined,
         filter: CohortPropertyFilter
     ): Promise<boolean> {
         let cohortId = filter.value
