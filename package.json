@@ -160,6 +160,8 @@
         "cors": "^2.8.5",
         "css-loader": "^3.4.2",
         "cssnano": "^4.1.10",
+        "cypress": "10.0.3",
+        "cypress-terminal-report": "3.5.2",
         "esbuild": "^0.14.42",
         "esbuild-plugin-less": "^1.1.7",
         "esbuild-sass-plugin": "^1.8.2",
