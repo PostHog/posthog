@@ -102,8 +102,6 @@ describe('sql', () => {
                 is_preinstalled: false,
                 is_stateless: false,
                 organization_id: commonOrganizationId,
-                latest_tag: null,
-                latest_tag_checked_at: null,
                 log_level: null,
                 name: 'test-maxmind-plugin',
                 plugin_type: 'custom',

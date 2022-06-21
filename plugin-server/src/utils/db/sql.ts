@@ -25,8 +25,11 @@ function pluginConfigsInForceQuery(specificField?: keyof PluginConfig): string {
 
 export async function getPluginRows(hub: Hub): Promise<Plugin[]> {
     const { rows }: { rows: Plugin[] } = await hub.db.postgresQuery(
-        // `posthog_plugin` columns have to be listed individually, as we want to exclude the blob `archive` column,
-        // and Postgres unfortunately doesn't have a feature to exclude a single column from *
+        // `posthog_plugin` columns have to be listed individually, as we want to exclude a few columns
+        // and Postgres syntax unfortunately doesn't have a column exclusion feature. The excluded columns are:
+        // - archive - this is a potentially large blob, only extracted in Django as a plugin server optimization
+        // - latest_tag - not used in this service
+        // - latest_tag_checked_at - not used in this service
         `SELECT
             posthog_plugin.id,
             posthog_plugin.name,
@@ -40,8 +43,6 @@ export async function getPluginRows(hub: Hub): Promise<Plugin[]> {
             posthog_plugin.plugin_type,
             posthog_plugin.source,
             posthog_plugin.organization_id,
-            posthog_plugin.latest_tag,
-            posthog_plugin.latest_tag_checked_at,
             posthog_plugin.created_at,
             posthog_plugin.updated_at,
             posthog_plugin.is_global,

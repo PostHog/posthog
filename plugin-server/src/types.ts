@@ -289,8 +289,6 @@ export interface Plugin {
     is_stateless?: boolean
     public_jobs?: Record<string, PluginPublicJobPayload>
     log_level?: PluginLogLevel
-    latest_tag?: string
-    latest_tag_checked_at?: string
 }
 
 export interface PluginCapabilities {
