@@ -15,6 +15,8 @@ export function SlackIntegration(): JSX.Element {
     const onDeleteClick = (): void => {
         Modal.confirm({
             title: `Do you want to disconnect from Slack?`,
+            content:
+                'This cannot be undone. PostHog resources configured to use Slack will remain but will stop working.',
             okText: 'Yes, disconnect',
             okType: 'danger',
             onOk() {
@@ -31,9 +33,7 @@ export function SlackIntegration(): JSX.Element {
             <p>
                 Integrate with Slack directly to get more advanced options such as sending webhook events to{' '}
                 <b>different channels</b> and <b>subscribing to an Insight or Dashboard</b> for regular reports to Slack
-                channels of your choice
-                <br />
-                Guidance on integrating with Slack available{' '}
+                channels of your choice. Guidance on integrating with Slack available{' '}
                 <a href="https://posthog.com/docs/integrations/slack">in our docs</a>.
             </p>
 
