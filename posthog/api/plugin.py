@@ -281,7 +281,7 @@ class PluginViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             validated_data: Dict[str, Any] = {}
             plugin_json = update_validated_data_from_url(validated_data, plugin.url)
             serializer.update(plugin, validated_data)
-            PluginSourceFile.objects.update_or_create_from_plugin_archive(plugin, plugin_json)
+            PluginSourceFile.objects.sync_from_plugin_archive(plugin, plugin_json)
         return Response(serializer.data)
 
     def destroy(self, request: request.Request, *args, **kwargs) -> Response:

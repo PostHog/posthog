@@ -18,14 +18,14 @@ def forwards_func(apps, schema_editor):
     Plugin = apps.get_model("posthog", "Plugin")
     PluginSourceFile = apps.get_model("posthog", "PluginSourceFile")
 
-    # PluginSourceFile.objects.update_or_create_from_plugin_archive() inlined
+    # PluginSourceFile.objects.sync_from_plugin_archive() inlined
     # Only 4 changes:
     # - Plugin and PluginSourceFiles have been stripped from types
     #   (they have to be vars in this scope, but vars cannot be used as types)
     # - plugin_json cannot be provided as an arg
     # - records are `create()`d instead of `update_or_create()`d
     # - there's no return value
-    def update_or_create_from_plugin_archive(plugin):
+    def sync_from_plugin_archive(plugin):
         """Create PluginSourceFile objects from a plugin that has an archive."""
         if plugin.archive is None:
             raise exceptions.ValidationError(
@@ -63,7 +63,7 @@ def forwards_func(apps, schema_editor):
     # Source plugins have already been migrated in 0233_plugin_source_file, while local ones don't store code in the DB
     for plugin in Plugin.objects.exclude(plugin_type__in=("source", "local")):
         try:
-            update_or_create_from_plugin_archive(plugin)
+            sync_from_plugin_archive(plugin)
         except exceptions.ValidationError as e:
             logger.warn(
                 f"Migration 0243 - skipping plugin, failed to extract or save its code.",
