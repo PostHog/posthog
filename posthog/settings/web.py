@@ -42,7 +42,6 @@ INSTALLED_APPS = [
     "drf_spectacular",
 ]
 
-
 MIDDLEWARE = [
     "posthog.gzip_middleware.ScopedGZipMiddleware",
     "django_structlog.middlewares.RequestMiddleware",
