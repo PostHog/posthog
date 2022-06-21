@@ -215,6 +215,7 @@ export function ActionFilterRow({
                         alignItems: 'center',
                         justifyContent: 'space-between',
                         borderColor: selectedFilter && selectedFilter.index === index ? 'var(--primary-hover)' : '',
+                        borderWidth: selectedFilter && selectedFilter.index === index ? '1.5px' : '1px',
                     }}
                 >
                     <span className="text-overflow" style={{ maxWidth: '100%' }}>
