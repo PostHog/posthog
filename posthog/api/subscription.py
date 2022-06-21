@@ -54,11 +54,11 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             if not attrs.get("dashboard") and not attrs.get("insight"):
                 raise ValidationError("Either dashboard or insight is required for an export.")
 
-            if attrs.get("dashboard") and attrs["dashboard"].team.id != self.context["team_id"]:
-                raise ValidationError({"dashboard": ["This dashboard does not belong to your team."]})
+        if attrs.get("dashboard") and attrs["dashboard"].team.id != self.context["team_id"]:
+            raise ValidationError({"dashboard": ["This dashboard does not belong to your team."]})
 
-            if attrs.get("insight") and attrs["insight"].team.id != self.context["team_id"]:
-                raise ValidationError({"insight": ["This insight does not belong to your team."]})
+        if attrs.get("insight") and attrs["insight"].team.id != self.context["team_id"]:
+            raise ValidationError({"insight": ["This insight does not belong to your team."]})
 
         return attrs
 
@@ -66,24 +66,29 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         request = self.context["request"]
         validated_data["team_id"] = self.context["team_id"]
         validated_data["created_by"] = request.user
+
         invite_message = validated_data.pop("invite_message", "")
         instance: Subscription = super().create(validated_data)
 
-        if instance.target_type == "email":
-            subscriptions.deliver_new_subscription.delay(instance.id, instance.target_value.split(","), invite_message)
+        self._handle_email_invites(instance, invite_message, previous_value="")
 
         return instance
 
     def update(self, instance: Subscription, validated_data: dict, *args: Any, **kwargs: Any) -> Subscription:
-        old_emails = instance.target_value.split(",")
+        previous_value = instance.target_value
         invite_message = validated_data.pop("invite_message", "")
         instance = super().update(instance, validated_data)
 
-        if instance.target_type == "email" and "target_value" in validated_data:
-            new_emails = list(set(validated_data["target_value"].split(",")) - set(old_emails))
-            subscriptions.deliver_new_subscription.delay(instance.id, new_emails, invite_message)
+        self._handle_email_invites(instance, invite_message, previous_value=previous_value)
 
         return instance
+
+    def _handle_email_invites(self, instance: Subscription, invite_message, previous_value=None):
+        if instance.target_type == "email":
+            emails = instance.target_value.split(",")
+            previous_emails = previous_value.split(",") if previous_value else []
+            new_emails = list(set(emails) - set(previous_emails))
+            subscriptions.deliver_new_subscription.delay(instance.id, new_emails, invite_message)
 
 
 class SubscriptionViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):

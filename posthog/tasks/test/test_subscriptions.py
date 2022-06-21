@@ -11,10 +11,9 @@ from posthog.models.insight import Insight
 from posthog.models.instance_setting import set_instance_setting
 from posthog.models.subscription import Subscription
 from posthog.tasks.subscriptions import (
-    MAX_ASSET_COUNT,
+    _get_tiles_ordered_by_position,
     deliver_new_subscription,
     deliver_subscription_report,
-    get_tiles_ordered_by_position,
     schedule_all_subscriptions,
 )
 from posthog.tasks.test.utils_email_tests import mock_email_messages
@@ -138,13 +137,13 @@ class TestSubscriptionsTasks(APIBaseTest):
         assert "You have been subscribed" in mocked_email_messages[0].html_body
         assert "You have been subscribed to a PostHog Dashboard" == mocked_email_messages[0].subject
         assert f"SHOWING 6 OF {len(self.tiles)} DASHBOARD INSIGHTS" in mocked_email_messages[0].html_body
-        assert mock_export_task.s.call_count == MAX_ASSET_COUNT
+        assert mock_export_task.s.call_count == 6
 
     def test_loads_dashboard_tiles_efficiently(
         self, MockEmailMessage: MagicMock, mock_export_task: MagicMock, mock_group: MagicMock
     ) -> None:
         with capture_db_queries() as capture_query_context:
-            tiles = get_tiles_ordered_by_position(dashboard=self.dashboard)
+            tiles = _get_tiles_ordered_by_position(dashboard=self.dashboard)
 
             for tile in tiles:
                 assert tile.insight.id
