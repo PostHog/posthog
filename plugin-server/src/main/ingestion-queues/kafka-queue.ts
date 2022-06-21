@@ -19,9 +19,9 @@ type EachBatchFunction = (payload: EachBatchPayload, queue: KafkaQueue) => Promi
 export class KafkaQueue {
     public pluginsServer: Hub
     public workerMethods: WorkerMethods
+    public consumerGroupMemberId: string | null
     private kafka: Kafka
     private consumer: Consumer
-    private consumerGroupMemberId: string | null
     private wasConsumerRan: boolean
     private sleepTimeout: NodeJS.Timeout | null
     private ingestionTopic: string

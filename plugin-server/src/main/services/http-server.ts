@@ -29,6 +29,12 @@ export function createHttpServer(hub: Hub, serverInstance: ServerInstance, serve
                 }
             }
 
+            // Unlike the above healthcheck, this is more of a "readiness" check that verifies that the consumer
+            // connected to the group successfully (thus being assigned a member id)
+            const mainConsumerHealthy = !serverInstance.queue || !!serverInstance.queue.consumerGroupMemberId
+
+            serverHealthy = serverHealthy && mainConsumerHealthy
+
             if (serverHealthy) {
                 status.info('💚', 'Server healthcheck succeeded')
                 const responseBody = {

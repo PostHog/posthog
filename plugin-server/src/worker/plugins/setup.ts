@@ -48,8 +48,6 @@ export async function setupPlugins(server: Hub): Promise<void> {
     for (const teamId of server.pluginConfigsPerTeam.keys()) {
         server.pluginConfigsPerTeam.get(teamId)?.sort((a, b) => a.order - b.order)
     }
-
-    await loadSchedule(server)
 }
 
 async function loadPluginsFromDB(hub: Hub): Promise<Pick<Hub, 'plugins' | 'pluginConfigs' | 'pluginConfigsPerTeam'>> {
