@@ -172,3 +172,9 @@ class TestSubscription(BaseTest):
             bysetpos=3,
         )
         assert subscription.summary == "sent every month on the third day"
+
+    def test_subscription_summary_with_unexpected_values(self):
+        subscription = self._create_insight_subscription(
+            interval=1, frequency="monthly", byweekday=["monday"], bysetpos=10,
+        )
+        assert subscription.summary == "sent on a schedule"
