@@ -1,9 +1,10 @@
-from typing import Dict
+from typing import Dict, List
 
 from django.db import models
 from slack_sdk import WebClient
 
 from posthog.models.instance_setting import get_instance_settings
+from posthog.models.user import User
 
 
 class Integration(models.Model):
@@ -39,8 +40,27 @@ class SlackIntegration(object):
     def client(self) -> WebClient:
         return WebClient(self.integration.sensitive_config["access_token"])
 
+    def list_channels(self) -> List[Dict]:
+        # NOTE: Annoyingly the Slack API has no search so we have to load all channels...
+        max_page = 10
+        channels = []
+        cursor = None
+
+        while max_page > 0:
+            max_page -= 1
+            res = self.client.conversations_list(
+                exclude_archived=True, types="public_channel, private_channel", limit=200, cursor=cursor
+            )
+
+            channels.extend(res["channels"])
+            cursor = res["response_metadata"]["next_cursor"]
+            if not cursor:
+                break
+
+        return channels
+
     @classmethod
-    def integration_from_slack_response(cls, team_id: str, params: Dict[str, str]) -> Integration:
+    def integration_from_slack_response(cls, team_id: str, created_by: User, params: Dict[str, str]) -> Integration:
         client = WebClient()
         slack_config = cls.slack_config()
 
@@ -69,9 +89,10 @@ class SlackIntegration(object):
             "access_token": res.get("access_token"),
         }
 
-        # NOTE: Missing creator...
         integration, created = Integration.objects.update_or_create(
-            team_id=team_id, kind="slack", defaults={"config": config, "sensitive_config": sensitive_config}
+            team_id=team_id,
+            kind="slack",
+            defaults={"config": config, "sensitive_config": sensitive_config, "created_by": created_by,},
         )
 
         return integration

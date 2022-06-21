@@ -5,6 +5,7 @@ import { CodeSnippet, Language } from 'scenes/ingestion/frameworks/CodeSnippet'
 import { LemonButton } from '@posthog/lemon-ui'
 import { IconDelete, IconSlack } from 'lib/components/icons'
 import { Modal } from 'antd'
+import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 
 export function SlackIntegration(): JSX.Element {
     const { slackIntegration, addToSlackButtonUrl } = useValues(integrationsLogic)
@@ -39,11 +40,21 @@ export function SlackIntegration(): JSX.Element {
             <p>
                 {slackIntegration ? (
                     <div className="border-all space-between-items items-center pa-05">
-                        <div className="flex items-center gap-05 pl">
+                        <div className="flex items-center gap ml-05">
                             <IconSlack />
-                            <span>
-                                Connected to <strong>{slackIntegration.config.team.name}</strong> workspace
-                            </span>
+                            <div>
+                                <div>
+                                    Connected to <strong>{slackIntegration.config.team.name}</strong> workspace
+                                </div>
+                                {slackIntegration.created_by ? (
+                                    <UserActivityIndicator
+                                        at={slackIntegration.created_at}
+                                        by={slackIntegration.created_by}
+                                        prefix={'Updated'}
+                                        className={'text-muted'}
+                                    />
+                                ) : null}
+                            </div>
                         </div>
 
                         <LemonButton type="secondary" status="danger" onClick={onDeleteClick} icon={<IconDelete />}>

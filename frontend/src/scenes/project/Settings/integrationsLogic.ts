@@ -23,6 +23,11 @@ export const getSlackAppManifest = (): any => ({
         background_color: '#f54e00',
     },
     features: {
+        app_home: {
+            home_tab_enabled: true,
+            messages_tab_enabled: false,
+            messages_tab_read_only_enabled: true,
+        },
         bot_user: {
             display_name: 'PostHog',
             always_online: false,
@@ -31,7 +36,7 @@ export const getSlackAppManifest = (): any => ({
     oauth_config: {
         redirect_urls: [getSlackRedirectUri()],
         scopes: {
-            bot: ['channels:read', 'chat:write'],
+            bot: ['channels:read', 'chat:write', 'groups:read'],
         },
     },
     settings: {
@@ -132,7 +137,7 @@ export const integrationsLogic = kea<integrationsLogicType>([
                 const clientId = instanceSettings.find((item) => item.key === 'SLACK_APP_CLIENT_ID')?.value
 
                 return clientId
-                    ? `https://slack.com/oauth/v2/authorize?client_id=${clientId}&scope=channels:read,chat:write&redirect_uri=${encodeURIComponent(
+                    ? `https://slack.com/oauth/v2/authorize?client_id=${clientId}&scope=channels:read,groups:read,chat:write&redirect_uri=${encodeURIComponent(
                           getSlackRedirectUri()
                       )}`
                     : null

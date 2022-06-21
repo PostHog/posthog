@@ -1936,4 +1936,5 @@ export interface IntegrationType {
 export interface SlackChannelType {
     id: string
     name: string
+    is_private: boolean
 }

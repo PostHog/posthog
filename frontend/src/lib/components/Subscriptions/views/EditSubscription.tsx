@@ -200,12 +200,26 @@ export function EditSubscription({
                                             options={slackChannels?.map((x) => ({
                                                 key: x.id,
                                                 value: `${x.id}|#${x.name}`,
-                                                label: `#${x.name}`,
+                                                label: x.is_private ? `🔒${x.name}` : `#${x.name}`,
                                             }))}
                                         />
                                     </>
                                 )}
                             </Field>
+                            <AlertMessage type="info">
+                                <>
+                                    Don't forget to add the <strong>PostHog app</strong> to the channel otherwise
+                                    Subscriptions will fail to be delivered.{' '}
+                                    <a
+                                        href="https://posthog.com/docs/integrations/slack"
+                                        target="_blank"
+                                        rel="noopener"
+                                    >
+                                        See the Docs for more information.
+                                    </a>
+                                    .
+                                </>
+                            </AlertMessage>
                         </>
                     ) : null}
 
