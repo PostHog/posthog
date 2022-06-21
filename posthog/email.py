@@ -122,7 +122,7 @@ class EmailMessage:
         campaign_key: str,
         subject: str,
         template_name: str,
-        template_context: Optional[Dict] = {},
+        template_context: Dict = {},
         headers: Optional[Dict] = None,
         reply_to: Optional[str] = None,
     ):

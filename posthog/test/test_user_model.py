@@ -34,8 +34,6 @@ class TestUser(BaseTest):
                     "project_setup_complete": False,
                     "has_password_set": True,
                     "joined_at": user.date_joined,
-                    "has_social_auth": False,
-                    "social_providers": [],
                 },
             )
 
@@ -66,7 +64,5 @@ class TestUser(BaseTest):
                     "project_setup_complete": True,
                     "has_password_set": True,
                     "joined_at": user_2.date_joined,
-                    "has_social_auth": False,
-                    "social_providers": [],
                 },
             )

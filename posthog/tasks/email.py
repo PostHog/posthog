@@ -5,8 +5,8 @@ from typing import List, Optional
 import posthoganalytics
 import structlog
 from django.conf import settings
-from django.utils import timezone
 from django.contrib.auth.tokens import default_token_generator
+from django.utils import timezone
 
 from posthog.celery import app
 from posthog.email import EmailMessage, is_email_available
@@ -63,7 +63,7 @@ def send_member_join(invitee_uuid: str, organization_id: str) -> None:
 
 
 @app.task(max_retries=1)
-def send_password_reset(user: User, token: str) -> None:
+def send_password_reset(user: User) -> None:
     token = default_token_generator.make_token(user)
     message = EmailMessage(
         campaign_key=f"password-reset-{user.uuid}-{timezone.now()}",
@@ -74,7 +74,6 @@ def send_password_reset(user: User, token: str) -> None:
             "link": f"/reset/{user.uuid}/{token}",
             "cloud": settings.MULTI_TENANCY,
             "site_url": settings.SITE_URL,
-            "social_providers": list(user.social_auth.values_list("provider", flat=True)),
         },
     )
     message.add_recipient(user.email)

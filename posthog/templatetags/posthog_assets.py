@@ -1,5 +1,4 @@
 import re
-from typing import List
 
 from django.conf import settings
 from django.template import Library
@@ -23,27 +22,6 @@ def absolute_asset_url(path: str) -> str:
       =>  "http://posthog.example.com/_static/74d127b78dc7daf2c51f/dist/posthog.css"
     """
     return absolute_uri(f"{settings.STATIC_URL.rstrip('/')}/{path.lstrip('/')}")
-
-
-@register.simple_tag
-def human_social_providers(providers: List[str]) -> str:
-    """
-    Returns a human-friendly name for a social login provider.
-    Example:
-      {% human_social_providers ["google-oauth2", "github"] %}
-      =>  "Google, GitHub"
-    """
-
-    def friendly_provider(prov: str) -> str:
-        if prov == "google-oauth2":
-            return "Google"
-        elif prov == "github":
-            return "GitHub"
-        elif prov == "gitlab":
-            return "GitLab"
-        return "single sign-on (SAML)"
-
-    return ", ".join(map(friendly_provider, providers))
 
 
 @register.simple_tag

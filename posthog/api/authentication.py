@@ -155,7 +155,7 @@ class PasswordResetSerializer(serializers.Serializer):
             user = None
 
         if user:
-            send_password_reset()
+            send_password_reset(user)
 
         # TODO: Limit number of requests for password reset emails
 
