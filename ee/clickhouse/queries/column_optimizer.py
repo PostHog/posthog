@@ -61,7 +61,7 @@ class EnterpriseColumnOptimizer(ColumnOptimizer):
                 counter[(f"$group_{entity.math_group_type_index}", "event", None)] += 1
 
             if entity.math == "unique_session":
-                counter[(f"$session_id", "event", None)] += 1
+                counter[("$session_id", "event", None)] += 1
 
             # :TRICKY: If action contains property filters, these need to be included
             #

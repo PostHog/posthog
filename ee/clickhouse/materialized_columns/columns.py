@@ -33,7 +33,7 @@ def get_materialized_columns(table: TablesWithMaterializedColumns) -> Dict[Prope
         {"database": CLICKHOUSE_DATABASE, "table": table},
     )
     if rows and get_instance_setting("MATERIALIZED_COLUMNS_ENABLED"):
-        return {extract_property(comment): column_name for comment, column_name in rows}
+        return {extract_property(comment): f'"{column_name}"' for comment, column_name in rows}
     else:
         return {}
 
