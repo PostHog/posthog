@@ -267,7 +267,7 @@ def extract_plugin_code(
         raise ValueError(f"There is no archive to extract code from")
     # Extract plugin.json - required, might be provided already
     plugin_json: str
-    if not plugin_json_parsed:
+    if plugin_json_parsed is None:
         plugin_json_original = get_file_from_archive(archive, "plugin.json", json_parse=False)
         if not plugin_json_original:
             raise ValueError(f"Could not find plugin.json")
