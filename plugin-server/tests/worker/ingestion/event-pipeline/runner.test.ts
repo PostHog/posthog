@@ -1,11 +1,11 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
 import { PreIngestionEvent } from '../../../../src/types'
-import { createEventStep } from '../../../../src/worker/ingestion/event-pipeline/createEventStep'
-import { emitToBufferStep } from '../../../../src/worker/ingestion/event-pipeline/emitToBufferStep'
-import { pluginsProcessEventStep } from '../../../../src/worker/ingestion/event-pipeline/pluginsProcessEventStep'
-import { prepareEventStep } from '../../../../src/worker/ingestion/event-pipeline/prepareEventStep'
-import { runAsyncHandlersStep } from '../../../../src/worker/ingestion/event-pipeline/runAsyncHandlersStep'
+import { pluginsProcessEventStep } from '../../../../src/worker/ingestion/event-pipeline/1-pluginsProcessEventStep'
+import { prepareEventStep } from '../../../../src/worker/ingestion/event-pipeline/2-prepareEventStep'
+import { emitToBufferStep } from '../../../../src/worker/ingestion/event-pipeline/3-emitToBufferStep'
+import { createEventStep } from '../../../../src/worker/ingestion/event-pipeline/4-createEventStep'
+import { runAsyncHandlersStep } from '../../../../src/worker/ingestion/event-pipeline/5-runAsyncHandlersStep'
 import {
     EventPipelineRunner,
     EventPipelineStepsType,
@@ -16,11 +16,11 @@ import {
 import { generateEventDeadLetterQueueMessage } from '../../../../src/worker/ingestion/utils'
 
 jest.mock('../../../../src/utils/status')
-jest.mock('../../../../src/worker/ingestion/event-pipeline/createEventStep')
-jest.mock('../../../../src/worker/ingestion/event-pipeline/emitToBufferStep')
-jest.mock('../../../../src/worker/ingestion/event-pipeline/pluginsProcessEventStep')
-jest.mock('../../../../src/worker/ingestion/event-pipeline/prepareEventStep')
-jest.mock('../../../../src/worker/ingestion/event-pipeline/runAsyncHandlersStep')
+jest.mock('../../../../src/worker/ingestion/event-pipeline/1-pluginsProcessEventStep')
+jest.mock('../../../../src/worker/ingestion/event-pipeline/2-prepareEventStep')
+jest.mock('../../../../src/worker/ingestion/event-pipeline/3-emitToBufferStep')
+jest.mock('../../../../src/worker/ingestion/event-pipeline/4-createEventStep')
+jest.mock('../../../../src/worker/ingestion/event-pipeline/5-runAsyncHandlersStep')
 jest.mock('../../../../src/worker/ingestion/utils')
 
 class TestEventPipelineRunner extends EventPipelineRunner {

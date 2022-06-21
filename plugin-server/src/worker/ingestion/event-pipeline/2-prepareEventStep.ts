@@ -1,18 +1,18 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
-import { DateTime } from 'luxon'
 
+import { normalizeEvent } from '../../../utils/event'
+import { parseEventTimestamp } from '../timestamps'
 import { EventPipelineRunner, StepResult } from './runner'
 
 export async function prepareEventStep(runner: EventPipelineRunner, event: PluginEvent): Promise<StepResult> {
-    const { ip, site_url, team_id, now, sent_at, uuid } = event
-    const distinctId = String(event.distinct_id)
+    // :TRICKY: plugins might have modified the event, so re-sanitize
+    const { ip, site_url, team_id, uuid } = normalizeEvent(event)
     const preIngestionEvent = await runner.hub.eventsProcessor.processEvent(
-        distinctId,
+        String(event.distinct_id),
         ip,
         event,
         team_id,
-        DateTime.fromISO(now),
-        sent_at ? DateTime.fromISO(sent_at) : null,
+        parseEventTimestamp(event, runner.hub.statsd),
         uuid! // it will throw if it's undefined,
     )
 
@@ -21,7 +21,7 @@ export async function prepareEventStep(runner: EventPipelineRunner, event: Plugi
     if (preIngestionEvent && preIngestionEvent.event !== '$snapshot') {
         return runner.nextStep('emitToBufferStep', preIngestionEvent)
     } else if (preIngestionEvent && preIngestionEvent.event === '$snapshot') {
-        return runner.nextStep('runAsyncHandlersStep', preIngestionEvent, undefined)
+        return runner.nextStep('runAsyncHandlersStep', preIngestionEvent)
     } else {
         return null
     }
