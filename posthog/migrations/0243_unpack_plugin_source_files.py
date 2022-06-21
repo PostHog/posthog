@@ -66,10 +66,15 @@ def forwards_func(apps, schema_editor):
             update_or_create_from_plugin_archive(plugin)
         except exceptions.ValidationError as e:
             logger.warn(
-                f"Migration 0243 - skipping plugin, failed to extract or save its code.", plugin=plugin.name, plugin_id=plugin.id, error=e
+                f"Migration 0243 - skipping plugin, failed to extract or save its code.",
+                plugin=plugin.name,
+                plugin_id=plugin.id,
+                error=e,
             )
         else:
-            logger.debug("Migration 0243 - extracted and saved code of plugin." plugin=plugin.name, plugin_id=plugin.id)
+            logger.debug(
+                "Migration 0243 - extracted and saved code of plugin.", plugin=plugin.name, plugin_id=plugin.id
+            )
 
     logger.info("Migration 0243 - finished")
 
