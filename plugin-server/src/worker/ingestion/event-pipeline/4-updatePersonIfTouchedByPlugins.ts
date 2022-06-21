@@ -3,7 +3,7 @@ import equal from 'fast-deep-equal'
 
 import { Person } from '../../../types'
 import { normalizeEvent } from '../../../utils/event'
-import { PersonState } from '../person-state'
+import { updatePropertiesPersonState } from '../person-state'
 import { parseEventTimestamp } from '../timestamps'
 import { ForwardedPersonData } from './2-processPersonsStep'
 import { EventPipelineRunner, StepResult } from './runner'
@@ -20,10 +20,11 @@ export async function updatePersonIfTouchedByPlugins(
     // :TRICKY: pluginsProcessEventStep might have added/removed $set or $set_once properties.
     if (
         hasPropertyChanged('$set', event, forwardedPersonData) ||
-        hasPropertyChanged('$set_once', event, forwardedPersonData)
+        hasPropertyChanged('$set_once', event, forwardedPersonData) ||
+        hasPropertyChanged('$unset', event, forwardedPersonData)
     ) {
         const timestamp = parseEventTimestamp(event, runner.hub.statsd)
-        const personState = new PersonState(
+        person = await updatePropertiesPersonState(
             event,
             event.team_id,
             String(event.distinct_id),
@@ -33,20 +34,17 @@ export async function updatePersonIfTouchedByPlugins(
             runner.hub.personManager,
             person
         )
-        person = await personState.updateProperties()
     }
 
     return runner.nextStep('prepareEventStep', event, person)
 }
 
 function hasPropertyChanged(
-    property: '$set' | '$set_once',
+    property: '$set' | '$set_once' | '$unset',
     event: PluginEvent,
     forwardedPersonData: ForwardedPersonData
 ): boolean {
     return (
-        event.properties &&
-        event.properties[property] &&
-        !equal(event.properties[property], forwardedPersonData.personUpdateProperties[property])
+        !!event.properties && !equal(event.properties[property], forwardedPersonData.personUpdateProperties[property])
     )
 }

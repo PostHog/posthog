@@ -10,7 +10,7 @@ export interface ForwardedPersonData {
     personUpdateProperties: {
         $set?: Properties
         $set_once?: Properties
-        $unset: string[]
+        $unset?: string[]
     }
 }
 
