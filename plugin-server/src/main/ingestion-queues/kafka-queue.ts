@@ -19,9 +19,10 @@ type EachBatchFunction = (payload: EachBatchPayload, queue: KafkaQueue) => Promi
 export class KafkaQueue {
     public pluginsServer: Hub
     public workerMethods: WorkerMethods
-    public consumerGroupMemberId: string | null
+    public consumerReady: boolean
     private kafka: Kafka
     private consumer: Consumer
+    private consumerGroupMemberId: string | null
     private wasConsumerRan: boolean
     private sleepTimeout: NodeJS.Timeout | null
     private ingestionTopic: string
@@ -37,6 +38,7 @@ export class KafkaQueue {
         this.workerMethods = workerMethods
         this.sleepTimeout = null
         this.consumerGroupMemberId = null
+        this.consumerReady = false
 
         this.ingestionTopic = this.pluginsServer.KAFKA_CONSUMPTION_TOPIC!
         this.bufferTopic = KAFKA_BUFFER
@@ -85,6 +87,7 @@ export class KafkaQueue {
 
             this.consumer.on(this.consumer.events.GROUP_JOIN, ({ payload }) => {
                 status.info('ℹ️', 'Kafka joined consumer group', JSON.stringify(payload))
+                this.consumerReady = true
                 this.consumerGroupMemberId = payload.memberId
                 clearTimeout(timeout)
                 resolve()
@@ -193,6 +196,8 @@ export class KafkaQueue {
         try {
             await this.consumer.disconnect()
         } catch {}
+
+        this.consumerReady = false
     }
 
     emitConsumerGroupMetrics(): Promise<void> {
