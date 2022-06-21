@@ -98,6 +98,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         OBJECT_STORAGE_SESSION_RECORDING_FOLDER: 'session_recordings',
         OBJECT_STORAGE_BUCKET: 'posthog',
         PLUGIN_SERVER_MODE: null,
+        INGESTION_BATCH_BREAKUP_BY_DISTINCT_ID_TEAMS: '',
         KAFKAJS_LOG_LEVEL: 'WARN',
     }
 }
