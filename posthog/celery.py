@@ -2,7 +2,7 @@ import os
 import time
 from random import randrange
 
-from celery import Celery
+from celery import Celery, group
 from celery.schedules import crontab
 from celery.signals import task_postrun, task_prerun
 from django.conf import settings
@@ -144,6 +144,26 @@ def teardown_instrumentation(task_id, task, **kwargs):
     from posthog import client
 
     client._request_information = None
+
+
+@app.task()
+def post_process_snapshot_recordings():
+    from posthog.session_recordings.process_finished_sessions import get_sessions_for_oldest_partition
+
+    sessions_to_process = get_sessions_for_oldest_partition()
+    res = group(
+        post_process_session.s(session_id, team_id, partition)
+        for (session_id, team_id, partition) in sessions_to_process
+    )()  # run tasks in parallel (Scatter)
+    res.get()  # wait for all results (Gather)
+    return res
+
+
+@app.task()
+def post_process_session(session_id: str, team_id: int, partition: str):
+    from posthog.session_recordings.process_finished_sessions import process_finished_session
+
+    return process_finished_session(session_id=session_id, team_id=team_id, partition=partition)
 
 
 @app.task(ignore_result=True)
