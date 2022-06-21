@@ -5,7 +5,7 @@
     <p>
         If you're having trouble getting started, you can
         <a
-            href="https://posthog.com/signup/self-host/get-in-touch?utm_source=posthog&utm_medium=email&utm_campaign=second_ingestion_reminder#demo"
+            href="https://posthog.com/signup/self-host/get-in-touch?{{ utm_tags }}#demo"
             target="_blank"
         >
             <strong>book a demo with our customer success team</strong>
@@ -26,6 +26,6 @@
     </p>
 </div>
 <div class="text-center">
-    <a href="{{ ingest_events_url }}" target="_blank"><button class="action-btn">Send some events!</button></a>
+    <a href="{% absolute_uri '/ingestion' %}?{{ utm_tags }}" target="_blank"><button class="action-btn">Send some events!</button></a>
 </div>
 {% endblock %}

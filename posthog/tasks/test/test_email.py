@@ -24,14 +24,18 @@ def create_org_team_and_user(creation_date: str, email: str, ingested_event: boo
 
 @patch("posthog.tasks.email.EmailMessage")
 class TestEmail(APIBaseTest, ClickhouseTestMixin):
-    @patch("posthoganalytics.feature_enabled", return_value=True)
-    def test_first_email_sent_to_correct_users_only_once(self, __: Any, MockEmailMessage: MagicMock) -> None:
-        mocked_email_messages = mock_email_messages(MockEmailMessage)
+    @classmethod
+    def setUpTestData(cls) -> None:
+        super().setUpTestData()
         set_instance_setting("EMAIL_HOST", "fake_host")
         set_instance_setting("EMAIL_ENABLED", True)
         create_org_team_and_user("2022-01-01 00:00:00", "too_late_user@posthog.com")
         create_org_team_and_user("2022-01-02 00:00:00", "ingested_event_in_range_user@posthog.com", ingested_event=True)
         create_org_team_and_user("2022-01-03 00:00:00", "too_early_user@posthog.com")
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_first_email_sent_to_correct_users_only_once(self, __: Any, MockEmailMessage: MagicMock) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
         in_range_org = create_org_team_and_user("2022-01-02 00:00:00", "in_range_user@posthog.com")
         User.objects.create_and_join(
             first_name="Test User",
@@ -58,11 +62,6 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
     def test_second_first_email_sent_to_correct_users_only_once(self, _: Any, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
 
-        set_instance_setting("EMAIL_HOST", "fake_host")
-        set_instance_setting("EMAIL_ENABLED", True)
-        create_org_team_and_user("2022-01-01 00:00:00", "too_late_user@posthog.com")
-        create_org_team_and_user("2022-01-02 00:00:00", "ingested_event_in_range_user@posthog.com", ingested_event=True)
-        create_org_team_and_user("2022-01-03 00:00:00", "too_early_user@posthog.com")
         in_range_org = create_org_team_and_user("2022-01-02 00:00:00", "in_range_user@posthog.com")
         User.objects.create_and_join(
             first_name="Test User",
