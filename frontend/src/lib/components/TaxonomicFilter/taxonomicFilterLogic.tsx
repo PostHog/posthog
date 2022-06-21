@@ -79,6 +79,8 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
             ['groupTypes', 'aggregationLabel'],
             groupPropertiesModel,
             ['allGroupProperties'],
+            featureFlagLogic,
+            ['featureFlags'],
         ],
     },
     actions: () => ({
@@ -148,16 +150,17 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                 selectors.groupAnalyticsTaxonomicGroupNames,
                 selectors.eventNames,
                 selectors.excludedProperties,
+                selectors.featureFlags,
             ],
             (
                 teamId,
                 groupAnalyticsTaxonomicGroups,
                 groupAnalyticsTaxonomicGroupNames,
                 eventNames,
-                excludedProperties
+                excludedProperties,
+                featureFlags
             ): TaxonomicFilterGroup[] => {
-                const shouldSimplifyActions =
-                    !!featureFlagLogic.findMounted()?.values?.featureFlags?.[FEATURE_FLAGS.SIMPLIFY_ACTIONS]
+                const shouldSimplifyActions = !!featureFlags?.[FEATURE_FLAGS.SIMPLIFY_ACTIONS]
                 return [
                     {
                         name: shouldSimplifyActions ? 'Raw events' : 'Events',
