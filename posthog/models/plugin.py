@@ -1,5 +1,4 @@
 import datetime
-import json
 import os
 from dataclasses import dataclass
 from enum import Enum
@@ -20,7 +19,13 @@ from posthog.models.signals import mutable_receiver
 from posthog.models.team import Team
 from posthog.plugins.access import can_configure_plugins, can_install_plugins
 from posthog.plugins.reload import reload_plugins_on_workers
-from posthog.plugins.utils import download_plugin_archive, get_file_from_archive, load_json_file, parse_url
+from posthog.plugins.utils import (
+    download_plugin_archive,
+    extract_plugin_code,
+    get_file_from_archive,
+    load_json_file,
+    parse_url,
+)
 from posthog.version import VERSION
 
 from .utils import UUIDModel, sane_repr
@@ -243,37 +248,18 @@ class PluginLogEntryType(str, Enum):
 
 class PluginSourceFileManager(models.Manager):
     def update_or_create_from_plugin_archive(
-        self, plugin: Plugin, plugin_json: Optional[Dict[str, Any]] = None
+        self, plugin: Plugin, plugin_json_parsed: Optional[Dict[str, Any]] = None
     ) -> Tuple["PluginSourceFile", Optional["PluginSourceFile"], Optional["PluginSourceFile"]]:
         """Create PluginSourceFile objects from a plugin that has an archive.
 
         If plugin.json has already been parsed before this is called, its value can be passed in as an optimization."""
-        if plugin.archive is None:
-            raise exceptions.ValidationError(
-                f"Could not extract files from plugin {plugin.name} ID {plugin.id} - it has no archive"
-            )
-        # Extract plugin.json - required, might be provided already
-        if not plugin_json:
-            plugin_json = cast(Optional[Dict[str, Any]], get_file_from_archive(plugin.archive, "plugin.json"))
-            if not plugin_json:
-                raise exceptions.ValidationError(f"Could not find plugin.json in plugin {plugin.name} ID {plugin.id}")
-        # Extract frontend.tsx - optional
-        frontend_tsx: Optional[str] = get_file_from_archive(plugin.archive, "frontend.tsx", json_parse=False)
-        # Extract index.ts - optional if frontend.tsx is present, otherwise required
-        main_filename_defined = plugin_json.get("main")
-        main_filenames_to_try = [main_filename_defined] if main_filename_defined else ["index.js", "index.ts"]
-        index_ts: Optional[str] = None
-        for main_filename in main_filenames_to_try:
-            if index_ts := get_file_from_archive(plugin.archive, main_filename, json_parse=False):
-                break
-        else:
-            if frontend_tsx is None:
-                raise exceptions.ValidationError(
-                    f"Could not find main file {' or '.join(main_filenames_to_try)} in plugin {plugin.name} ID {plugin.id}"
-                )
+        try:
+            plugin_json, index_ts, frontend_tsx = extract_plugin_code(plugin.archive, plugin_json_parsed)
+        except ValueError as e:
+            raise exceptions.ValidationError(f"{e} in plugin {plugin}")
         # Save plugin.json
         plugin_json_instance, _ = PluginSourceFile.objects.update_or_create(
-            plugin=plugin, filename="plugin.json", defaults={"source": json.dumps(plugin_json)}
+            plugin=plugin, filename="plugin.json", defaults={"source": plugin_json}
         )
         # Save frontend.tsx
         frontend_tsx_instance: Optional["PluginSourceFile"] = None

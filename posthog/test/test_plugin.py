@@ -49,9 +49,7 @@ class TestPluginSourceFile(BaseTest):
             with self.assertRaises(ValidationError) as cm:
                 PluginSourceFile.objects.update_or_create_from_plugin_archive(test_plugin)
 
-        self.assertEqual(
-            cm.exception.message, f"Could not extract files from plugin Contoso ID {test_plugin.id} - it has no archive"
-        )
+        self.assertEqual(cm.exception.message, f"There is no archive to extract code from in plugin Contoso")
 
     def test_update_or_create_from_plugin_archive_from_zip_without_plugin_js_fails(self):
         test_plugin: Plugin = Plugin.objects.create(
@@ -64,7 +62,7 @@ class TestPluginSourceFile(BaseTest):
             with self.assertRaises(ValidationError) as cm:
                 PluginSourceFile.objects.update_or_create_from_plugin_archive(test_plugin)
 
-        self.assertEqual(cm.exception.message, f"Could not find plugin.json in plugin Contoso ID {test_plugin.id}")
+        self.assertEqual(cm.exception.message, f"Could not find plugin.json in plugin Contoso")
 
     def test_update_or_create_from_plugin_archive_twice_from_zip_with_explicit_index_js_works(self):
         test_plugin: Plugin = Plugin.objects.create(
@@ -163,6 +161,4 @@ class TestPluginSourceFile(BaseTest):
             with self.assertRaises(ValidationError) as cm:
                 PluginSourceFile.objects.update_or_create_from_plugin_archive(test_plugin)
 
-        self.assertEqual(
-            cm.exception.message, f"Could not find main file index.js or index.ts in plugin Contoso ID {test_plugin.pk}"
-        )
+        self.assertEqual(cm.exception.message, f"Could not find main file index.js or index.ts in plugin Contoso")
