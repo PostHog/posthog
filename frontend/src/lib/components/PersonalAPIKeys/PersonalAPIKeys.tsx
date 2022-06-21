@@ -114,7 +114,7 @@ function PersonalAPIKeysTable(): JSX.Element {
             title: 'Last Used',
             dataIndex: 'last_used_at',
             key: 'lastUsedAt',
-            render: (lastUsedAt: string | null) => humanFriendlyDetailedTime(lastUsedAt),
+            render: (lastUsedAt: string | null) => humanFriendlyDetailedTime(lastUsedAt, false, 'MMMM DD, YYYY h'),
         },
         {
             title: 'Created',

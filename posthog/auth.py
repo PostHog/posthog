@@ -72,7 +72,7 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
 
         now = timezone.now()
         if personal_api_key_object.last_used_at is None or now - personal_api_key_object.last_used_at > timedelta(
-            hours=12
+            hours=1
         ):
             personal_api_key_object.last_used_at = now
             personal_api_key_object.save()
