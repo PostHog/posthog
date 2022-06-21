@@ -116,8 +116,7 @@
         UNION ALL SELECT count(*) as data,
                          toStartOfDay(toDateTime(timestamp), 'UTC') as date
         FROM
-          (SELECT e.timestamp as timestamp,
-                  e.properties as properties
+          (SELECT e.timestamp as timestamp
            FROM events e
            WHERE team_id = 2
              AND event = '$pageview'
@@ -135,7 +134,6 @@
   SELECT person_id AS actor_id
   FROM
     (SELECT e.timestamp as timestamp,
-            e.properties as properties,
             pdi.person_id as person_id,
             e.distinct_id as distinct_id,
             e.team_id as team_id
@@ -793,7 +791,6 @@
                          toStartOfDay(toDateTime(timestamp), 'UTC') as date
         FROM
           (SELECT e.timestamp as timestamp,
-                  e.$group_0 as $group_0,
                   e."$group_0" as "$group_0"
            FROM events e
            WHERE team_id = 2
@@ -812,7 +809,6 @@
   SELECT $group_0 AS actor_id
   FROM
     (SELECT e.timestamp as timestamp,
-            e.$group_0 as $group_0,
             e."$group_0" as "$group_0"
      FROM events e
      WHERE team_id = 2
