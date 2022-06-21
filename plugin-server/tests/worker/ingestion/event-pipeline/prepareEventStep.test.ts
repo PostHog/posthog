@@ -1,10 +1,10 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 
-import { Hub } from '../../../../src/types'
+import { Hub, Person } from '../../../../src/types'
 import { createHub } from '../../../../src/utils/db/hub'
 import { UUIDT } from '../../../../src/utils/utils'
-import { prepareEventStep } from '../../../../src/worker/ingestion/event-pipeline/2-prepareEventStep'
+import { prepareEventStep } from '../../../../src/worker/ingestion/event-pipeline/5-prepareEventStep'
 import { resetTestDatabase } from '../../../helpers/sql'
 
 jest.mock('../../../../src/utils/status')
@@ -21,6 +21,19 @@ const pluginEvent: PluginEvent = {
     uuid: '017ef865-19da-0000-3b60-1506093bf40f',
 }
 
+const person: Person = {
+    id: 123,
+    team_id: 2,
+    properties: {},
+    is_user_id: 0,
+    is_identified: true,
+    uuid: new UUIDT().toString(),
+    properties_last_updated_at: {},
+    properties_last_operation: {},
+    created_at: DateTime.now(),
+    version: 0,
+}
+
 describe('prepareEventStep()', () => {
     let runner: any
     let hub: Hub
@@ -31,17 +44,9 @@ describe('prepareEventStep()', () => {
         ;[hub, closeHub] = await createHub()
 
         // :KLUDGE: We test below whether kafka messages are produced, so make sure the person exists beforehand.
-        await hub.db.createPerson(
-            DateTime.utc(),
-            {},
-            {},
-            {},
-            pluginEvent.team_id,
-            null,
-            false,
-            new UUIDT().toString(),
-            ['my_id']
-        )
+        await hub.db.createPerson(person.created_at, {}, {}, {}, pluginEvent.team_id, null, false, person.uuid, [
+            'my_id',
+        ])
         hub.db.kafkaProducer!.queueMessage = jest.fn()
 
         runner = {
@@ -54,11 +59,11 @@ describe('prepareEventStep()', () => {
         await closeHub()
     })
 
-    it('goes to `emitToBufferStep` for normal events', async () => {
-        const response = await prepareEventStep(runner, pluginEvent)
+    it('goes to `createEventStep` for normal events', async () => {
+        const response = await prepareEventStep(runner, pluginEvent, person)
 
         expect(response).toEqual([
-            'emitToBufferStep',
+            'createEventStep',
             {
                 distinctId: 'my_id',
                 elementsList: [],
@@ -70,14 +75,14 @@ describe('prepareEventStep()', () => {
                 },
                 teamId: 2,
                 timestamp: expect.any(DateTime),
-                person: undefined,
+                person: person,
             },
         ])
         expect(hub.db.kafkaProducer!.queueMessage).not.toHaveBeenCalled()
     })
 
     it('produces to kafka and to `runAsyncHandlersStep` for $snapshot events', async () => {
-        const response = await prepareEventStep(runner, { ...pluginEvent, event: '$snapshot' })
+        const response = await prepareEventStep(runner, { ...pluginEvent, event: '$snapshot' }, person)
 
         expect(response).toEqual([
             'runAsyncHandlersStep',
@@ -100,54 +105,9 @@ describe('prepareEventStep()', () => {
     it('does not continue if event is ignored', async () => {
         await hub.db.postgresQuery('UPDATE posthog_team SET session_recording_opt_in = $1', [false], 'testRecordings')
 
-        const response = await prepareEventStep(runner, { ...pluginEvent, event: '$snapshot' })
+        const response = await prepareEventStep(runner, { ...pluginEvent, event: '$snapshot' }, person)
 
         expect(response).toEqual(null)
         expect(hub.db.kafkaProducer!.queueMessage).not.toHaveBeenCalled()
-    })
-
-    it('re-normalizes event after plugins have been run', async () => {
-        const response = await prepareEventStep(runner, {
-            ...pluginEvent,
-            properties: {
-                $browser: 'Chrome',
-            },
-            $set: {
-                someProp: 'value',
-            },
-        })
-
-        expect(response).toEqual([
-            'emitToBufferStep',
-            {
-                distinctId: 'my_id',
-                elementsList: [],
-                event: 'default event',
-                eventUuid: '017ef865-19da-0000-3b60-1506093bf40f',
-                ip: '127.0.0.1',
-                properties: {
-                    $ip: '127.0.0.1',
-                    $browser: 'Chrome',
-                    $set: {
-                        someProp: 'value',
-                    },
-                    $set_once: {
-                        $initial_browser: 'Chrome',
-                    },
-                },
-                teamId: 2,
-                timestamp: expect.any(DateTime),
-                person: expect.objectContaining({
-                    id: expect.any(Number),
-                    uuid: expect.any(String),
-                    properties: {
-                        someProp: 'value',
-                        $initial_browser: 'Chrome',
-                    },
-                    team_id: 2,
-                }),
-            },
-        ])
-        expect(hub.db.kafkaProducer!.queueMessage).toHaveBeenCalled()
     })
 })
