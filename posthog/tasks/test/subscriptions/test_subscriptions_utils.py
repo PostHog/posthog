@@ -19,7 +19,7 @@ from posthog.test.db_context_capturing import capture_db_queries
 
 @patch("posthog.tasks.subscriptions.subscription_utils.group")
 @patch("posthog.tasks.subscriptions.subscription_utils.export_task")
-class TestEmailSubscriptionsTasks(APIBaseTest):
+class TestSubscriptionsTasksUtils(APIBaseTest):
     dashboard: Dashboard
     insight: Insight
     asset: ExportedAsset
