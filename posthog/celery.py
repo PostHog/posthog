@@ -94,6 +94,8 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
     sender.add_periodic_task(120, clickhouse_part_count.s(), name="clickhouse table parts count")
     sender.add_periodic_task(120, clickhouse_mutation_count.s(), name="clickhouse table mutations count")
 
+    sender.add_periodic_task(120, pg_table_cache_hit_rate.s(), name="PG table cache hit rate")
+
     sender.add_periodic_task(crontab(minute=0, hour="*"), calculate_cohort_ids_in_feature_flags_task.s())
 
     sender.add_periodic_task(
@@ -164,6 +166,23 @@ def enqueue_clickhouse_execute_with_progress(
     from posthog.client import execute_with_progress
 
     execute_with_progress(team_id, query_id, query, args, settings, with_column_types, task_id=self.request.id)
+
+
+@app.task(ignore_result=True)
+def pg_table_cache_hit_rate():
+    from posthog.internal_metrics import gauge
+    with connection.cursor() as cursor:
+        cursor.execute("""
+            SELECT
+             relname as table_name,
+             sum(heap_blks_hit) / nullif(sum(heap_blks_hit) + sum(heap_blks_read),0) * 100 AS ratio
+            FROM pg_statio_user_tables
+            GROUP BY relname
+            order by ratio asc;
+        """)
+        tables = cursor.fetchall()
+        for row in tables:
+            gauge("pg_Table_cache_hit_rate", row[1], tags={"table": row[0]})
 
 
 CLICKHOUSE_TABLES = [
