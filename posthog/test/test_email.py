@@ -69,3 +69,13 @@ class TestEmail(BaseTest):
 
             record.refresh_from_db()
             self.assertEqual(record.sent_at, sent_at)
+
+    def test_applies_default_utm_tags(self) -> None:
+        with override_instance_config("EMAIL_HOST", "localhost"):
+            template = "async_migration_error"
+            message = EmailMessage("test_campaign", "Subject", template)
+
+            assert (
+                f"https://posthog.com/questions?utm_source=posthog&amp;utm_medium=email&amp;utm_campaign={template}"
+                in message.html_body
+            )

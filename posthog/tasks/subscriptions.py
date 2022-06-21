@@ -62,7 +62,7 @@ def send_email_subscription_report(
         raise NotImplementedError()
 
     subject = f"PostHog {resource_noun} report - {resource_name}"
-    campaign_key = f"{resource_noun.lower()}_subscription_report_{subscription.next_delivery_date.isoformat()}"
+    campaign_key = f"{resource_noun.lower()}_subscription_report_{subscription.next_delivery_date.timestamp()}"
 
     if is_invite:
         invite_summary = f"This subscription is { subscription.summary }. The next subscription will be sent on { subscription.next_delivery_date.strftime('%A %B %d, %Y')}"
