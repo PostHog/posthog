@@ -30,12 +30,8 @@ class ColumnOptimizer:
     @cached_property
     def event_columns_to_query(self) -> Set[ColumnName]:
         "Returns a list of event table columns containing materialized properties that this query needs"
-        event_columns = self.columns_to_query("events", set(self._used_properties_with_type("event")))
-        for entity in self.filter.entities:
-            if entity.math == "unique_session":
-                event_columns.add('"$session_id"')
 
-        return event_columns
+        return self.columns_to_query("events", set(self._used_properties_with_type("event")))
 
     @cached_property
     def person_columns_to_query(self) -> Set[ColumnName]:
@@ -106,11 +102,16 @@ class ColumnOptimizer:
 
         # Both entities and funnel exclusions can contain nested property filters
         for entity in self.filter.entities + cast(List[Entity], self.filter.exclusions):
+            counter += extract_tables_and_properties(entity.property_groups.flat)
+
             # Math properties are also implicitly used.
             #
             # See ee/clickhouse/queries/trends/util.py#process_math
             if entity.math_property:
                 counter[(entity.math_property, "event", None)] += 1
+
+            if entity.math == "unique_session":
+                counter[(f"$session_id", "event", None)] += 1
 
             # :TRICKY: If action contains property filters, these need to be included
             #
