@@ -474,3 +474,14 @@ export class PersonState {
         await this.db.kafkaProducer.queueMessages(kafkaMessages)
     }
 }
+
+// Helper functions to ease mocking in tests
+export function updatePersonState(...params: ConstructorParameters<typeof PersonState>): Promise<Person | undefined> {
+    return new PersonState(...params).update()
+}
+
+export function updatePropertiesPersonState(
+    ...params: ConstructorParameters<typeof PersonState>
+): Promise<Person | undefined> {
+    return new PersonState(...params).updateProperties()
+}

@@ -1,7 +1,7 @@
 import { PluginEvent, Properties } from '@posthog/plugin-scaffold'
 
 import { Person } from '../../../types'
-import { PersonState } from '../person-state'
+import { updatePersonState } from '../person-state'
 import { parseEventTimestamp } from '../timestamps'
 import { EventPipelineRunner, StepResult } from './runner'
 
@@ -21,7 +21,7 @@ export async function processPersonsStep(
 ): Promise<StepResult> {
     const timestamp = parseEventTimestamp(event, runner.hub.statsd)
 
-    const personState = new PersonState(
+    const personInfo: Person | undefined = await updatePersonState(
         event,
         event.team_id,
         String(event.distinct_id),
@@ -31,12 +31,12 @@ export async function processPersonsStep(
         runner.hub.personManager,
         person
     )
-    const personInfo: Person | undefined = await personState.update()
 
     return runner.nextStep('pluginsProcessEventStep', event, {
         person: personInfo,
         // :TRICKY: We forward (and clone) properties that are updated to detect whether we need to update properties again
         //    at a later step
+        // Note: We assume normalizeEvent has been called here.
         personUpdateProperties: {
             $set: { ...event.properties!.$set },
             $set_once: { ...event.properties!.$set_once },
