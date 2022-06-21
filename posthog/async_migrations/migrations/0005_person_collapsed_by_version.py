@@ -42,7 +42,7 @@ The migration strategy:
 Constraints:
 - Existing table will have a lot of rows with version = 0 - we need to re-copy them from postgres.
 - Existing table will have rows with version out of sync with postgres - we need to re-copy them from postgres.
-- We want to avoid data races. Hence we're turning on w.
+- We want to avoid data races. Hence we're turning on writes before copying data from old table or postgres.
 - We can't use a second kafka consumer for the new table due to data integrity concerns, so we're leveraging
     multiple materialized views.
 - Copying `persons` from postgres will be the slow part here and should be resumable. We leverage the fact
@@ -61,7 +61,7 @@ FAILED_PERSON_TABLE_NAME = f"{PERSON_TABLE_NAME}_failed_person_collapsed_by_vers
 PG_COPY_BATCH_SIZE = 1000
 PG_COPY_INSERT_TIMESTAMP = "2020-01-01 00:00:00"
 
-# :TODO: Move to an util
+
 def optimize_table_fn(query_id):
     default_timeout = settings.ASYNC_MIGRATIONS_DEFAULT_TIMEOUT_SECONDS
     try:
@@ -133,9 +133,6 @@ class Migration(AsyncMigrationDefinition):
                 rollback=f"TRUNCATE TABLE IF EXISTS {TEMPORARY_TABLE_NAME} ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'",
                 timeout_seconds=2 * 24 * 60 * 60,  # two days
             ),
-            AsyncMigrationOperation(
-                fn=self.copy_persons_from_postgres, rollback_fn=lambda _: self.unset_highwatermark()
-            ),
             AsyncMigrationOperationSQL(
                 database=AnalyticsDBMS.CLICKHOUSE,
                 sql=f"DROP TABLE IF EXISTS {TEMPORARY_PERSON_MV} ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'",
@@ -162,7 +159,9 @@ class Migration(AsyncMigrationDefinition):
                 """,
             ),
             AsyncMigrationOperationSQL(database=AnalyticsDBMS.CLICKHOUSE, sql=PERSONS_TABLE_MV_SQL, rollback=None),
-            AsyncMigrationOperation(fn=optimize_table_fn),
+            AsyncMigrationOperation(
+                fn=self.copy_persons_from_postgres, rollback_fn=lambda _: self.unset_highwatermark()
+            ),
         ]
 
     def new_table_engine(self):
@@ -191,6 +190,7 @@ class Migration(AsyncMigrationDefinition):
         should_continue = True
         while should_continue:
             should_continue = self._copy_batch_from_postgres(query_id)
+        optimize_table_fn(query_id)
 
     def _copy_batch_from_postgres(self, query_id: str) -> bool:
         highwatermark = self.get_pg_copy_highwatermark()
@@ -244,9 +244,7 @@ class Migration(AsyncMigrationDefinition):
         # We weigh each step before copying persons as equal, and the persons copy as ~50% of progress
         result = 0.5 * migration_instance.current_operation_index / len(self.operations)
 
-        if migration_instance.current_operation_index == 3:
+        if migration_instance.current_operation_index == len(self.operations) - 1:
             result += 0.5 * (self.get_pg_copy_highwatermark() / self.pg_copy_target_person_id)
-        elif migration_instance.current_operation_index > 3:
-            result += 0.5
 
         return int(100 * result)
