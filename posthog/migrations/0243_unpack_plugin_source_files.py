@@ -61,7 +61,7 @@ def forwards_func(apps, schema_editor):
             PluginSourceFile.objects.create(plugin=plugin, filename="index.ts", source=index_ts)
 
     # Source plugins have already been migrated in 0233_plugin_source_file, while local ones don't store code in the DB
-    for plugin in Plugin.objects.exclude(plugin_type="source").exclude(plugin_type="local"):
+    for plugin in Plugin.objects.exclude(plugin_type__in=("source", "local")):
         try:
             update_or_create_from_plugin_archive(plugin)
         except exceptions.ValidationError as e:
@@ -82,7 +82,7 @@ def forwards_func(apps, schema_editor):
 def reverse_func(apps, schema_editor):
     logger.info("Migration 0243 - revert started")
     PluginSourceFile = apps.get_model("posthog", "PluginSourceFile")
-    PluginSourceFile.objects.filter(plugin__plugin_type__in=["source", "local"]).delete()
+    PluginSourceFile.objects.exclude(plugin__plugin_type__in=("source", "local")).delete()
     logger.info("Migration 0243 - revert finished")
 
 
