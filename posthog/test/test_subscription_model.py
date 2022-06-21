@@ -162,7 +162,7 @@ class TestSubscription(BaseTest):
         subscription = self._create_insight_subscription(
             interval=1, frequency="weekly", byweekday=["wednesday"], bysetpos=-1
         )
-        assert subscription.summary == "sent every week on the last wednesday"
+        assert subscription.summary == "sent every week on the last Wednesday"
         subscription = self._create_insight_subscription(interval=1, frequency="weekly", byweekday=["wednesday"])
         assert subscription.summary == "sent every week"
         subscription = self._create_insight_subscription(

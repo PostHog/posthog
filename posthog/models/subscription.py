@@ -123,28 +123,19 @@ class Subscription(models.Model):
 
     @property
     def summary(self):
-        human_frequency_map = {
-            "daily": "day",
-            "weekly": "week",
-            "monthly": "month",
-            "yearly": "year",
-        }
-
-        human_bysetpos_map = {
-            1: "first",
-            2: "second",
-            3: "third",
-            4: "fourth",
-            -1: "last",
-        }
-
-        frequency = human_frequency_map[self.frequency]
+        human_frequency = {"daily": "day", "weekly": "week", "monthly": "month", "yearly": "year"}.get(
+            self.frequency, ""
+        )
         if self.interval > 1:
-            frequency = f"{frequency}s"
-        summary = f"sent every {str(self.interval) + ' ' if self.interval > 1 else ''}{frequency}"
+            human_frequency = f"{human_frequency}s"
+
+        summary = f"sent every {str(self.interval) + ' ' if self.interval > 1 else ''}{human_frequency}"
 
         if self.byweekday and self.bysetpos:
-            summary += f" on the {human_bysetpos_map.get(self.bysetpos, '')} {self.byweekday[0].capitalize() if len(self.byweekday) == 1 else 'day'}"
+            human_bysetpos = {1: "first", 2: "second", 3: "third", 4: "fourth", -1: "last",}.get(self.bysetpos, "")
+            summary += (
+                f" on the {human_bysetpos} {self.byweekday[0].capitalize() if len(self.byweekday) == 1 else 'day'}"
+            )
 
         return summary
 
