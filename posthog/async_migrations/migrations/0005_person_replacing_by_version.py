@@ -51,12 +51,12 @@ Constraints:
 
 REDIS_HIGHWATERMARK_KEY = "posthog.async_migrations.0005.highwatermark"
 
-TEMPORARY_TABLE_NAME = f"{settings.CLICKHOUSE_DATABASE}.tmp_person_0005_person_collapsed_by_version"
-TEMPORARY_PERSON_MV = f"{settings.CLICKHOUSE_DATABASE}.tmp_person_mv_0005_person_collapsed_by_version"
+TEMPORARY_TABLE_NAME = f"{settings.CLICKHOUSE_DATABASE}.tmp_person_0005_person_replacing_by_version"
+TEMPORARY_PERSON_MV = f"{settings.CLICKHOUSE_DATABASE}.tmp_person_mv_0005_person_replacing_by_version"
 PERSON_TABLE = "person"
 PERSON_TABLE_NAME = f"{settings.CLICKHOUSE_DATABASE}.{PERSON_TABLE}"
-BACKUP_TABLE_NAME = f"{PERSON_TABLE_NAME}_backup_0005_person_collapsed_by_version"
-FAILED_PERSON_TABLE_NAME = f"{PERSON_TABLE_NAME}_failed_person_collapsed_by_version"
+BACKUP_TABLE_NAME = f"{PERSON_TABLE_NAME}_backup_0005_person_replacing_by_version"
+FAILED_PERSON_TABLE_NAME = f"{PERSON_TABLE_NAME}_failed_0005_person_replacing_by_version"
 
 PG_COPY_BATCH_SIZE = 1000
 PG_COPY_INSERT_TIMESTAMP = "2020-01-01 00:00:00"
@@ -232,7 +232,7 @@ class Migration(AsyncMigrationDefinition):
 
         return (
             f"""
-            INSERT INTO {TEMPORARY_TABLE_NAME} (
+            INSERT INTO {PERSON_TABLE_NAME} (
                 id, created_at, team_id, properties, is_identified, _timestamp, _offset, is_deleted, version
             )
             VALUES {', '.join(values)}

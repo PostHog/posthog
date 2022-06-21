@@ -19,7 +19,7 @@ from posthog.models.signals import mute_selected_signals
 from posthog.redis import get_client
 from posthog.test.base import ClickhouseTestMixin
 
-MIGRATION_NAME = "0005_person_collapsed_by_version"
+MIGRATION_NAME = "0005_person_replacing_by_version"
 
 ORIGINAL_TABLE_SQL = f"""
 CREATE TABLE posthog_test.person ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'
@@ -54,9 +54,9 @@ class Test0005PersonCollapsedByVersion(AsyncMigrationBaseTest, ClickhouseTestMix
         reload_migration_definitions()
         get_client().delete("posthog.async_migrations.0005.highwatermark")
 
-        sync_execute("DROP TABLE IF EXISTS person_backup_0005_person_collapsed_by_version")
-        sync_execute("DROP TABLE IF EXISTS person_failed_person_collapsed_by_version")
-        sync_execute("DROP TABLE IF EXISTS tmp_person_mv_0005_person_collapsed_by_version")
+        sync_execute("DROP TABLE IF EXISTS person_backup_0005_person_replacing_by_version")
+        sync_execute("DROP TABLE IF EXISTS person_failed_0005_person_replacing_by_version")
+        sync_execute("DROP TABLE IF EXISTS tmp_person_mv_0005_person_replacing_by_version")
         sync_execute("DROP TABLE IF EXISTS person")
         sync_execute("DROP TABLE IF EXISTS person_mv")
         sync_execute("DROP TABLE IF EXISTS kafka_person")
@@ -143,7 +143,7 @@ class Test0005PersonCollapsedByVersion(AsyncMigrationBaseTest, ClickhouseTestMix
         table_results = [row[0] for row in table_results]
 
         self.assertEqual(
-            table_results, ["kafka_person", "person", "person_backup_0005_person_collapsed_by_version", "person_mv"],
+            table_results, ["kafka_person", "person", "person_backup_0005_person_replacing_by_version", "person_mv"],
         )
         for name in table_results:
             create_table_query = sync_execute(f"SHOW CREATE TABLE {name}")[0][0]
