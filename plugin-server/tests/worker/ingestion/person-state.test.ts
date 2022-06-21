@@ -1,7 +1,7 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 
-import { Hub, IngestionPersonData } from '../../../src/types'
+import { Hub, Person } from '../../../src/types'
 import { createHub } from '../../../src/utils/db/hub'
 import { UUIDT } from '../../../src/utils/utils'
 import { PersonState } from '../../../src/worker/ingestion/person-state'
@@ -34,7 +34,7 @@ describe('PersonState.update()', () => {
         await hub.db.clickhouseQuery('SYSTEM START MERGES')
     })
 
-    function personState(event: Partial<PluginEvent>, person?: IngestionPersonData) {
+    function personState(event: Partial<PluginEvent>, person?: Person) {
         const fullEvent = {
             team_id: 2,
             properties: {},
@@ -48,8 +48,8 @@ describe('PersonState.update()', () => {
             hub.db,
             hub.statsd,
             hub.personManager,
-            uuid,
-            person
+            person,
+            uuid
         )
     }
 
