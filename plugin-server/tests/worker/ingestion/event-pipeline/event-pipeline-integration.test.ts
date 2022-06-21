@@ -70,7 +70,6 @@ describe('Event Pipeline integration test', () => {
                 event: 'xyz',
                 team_id: 2,
                 timestamp: event.timestamp,
-                version: 1,
                 // :KLUDGE: Ignore properties like $plugins_succeeded, etc
                 properties: expect.objectContaining({
                     foo: 'bar',
