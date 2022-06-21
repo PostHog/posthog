@@ -89,11 +89,11 @@ export class PersonState {
     }
 
     async updateProperties(): Promise<Person | undefined> {
-        let person = this.person
+        let result: Person | undefined = this.person
         let personCreated = false
-        if (!person) {
-            person = await this.createPersonIfDistinctIdIsNew()
-            personCreated = !!person
+        if (!result) {
+            result = await this.createPersonIfDistinctIdIsNew()
+            personCreated = !!result
         }
         if (
             !personCreated &&
@@ -102,9 +102,9 @@ export class PersonState {
                 this.eventProperties['$unset'] ||
                 this.updateIsIdentified)
         ) {
-            return await this.updatePersonProperties()
+            result = await this.updatePersonProperties()
         }
-        return person
+        return result
     }
 
     private async createPersonIfDistinctIdIsNew(): Promise<Person | undefined> {
@@ -177,7 +177,7 @@ export class PersonState {
     }
 
     private async updatePersonProperties(): Promise<Person> {
-        // Note: We always fetch the person anew to avoid property-related races.
+        // Note: In majority of cases person has been found already here!
         const personFound = this.person || (await this.db.fetchPerson(this.teamId, this.distinctId))
         if (!personFound) {
             this.statsd?.increment('person_not_found', { teamId: String(this.teamId), key: 'update' })
