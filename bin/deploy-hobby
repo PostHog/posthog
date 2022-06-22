@@ -2,7 +2,7 @@
 
 set -e
 
-export POSTHOG_APP_TAG="${POSTHOG_APP_TAG:-latest-release}" # TODO: move this back to `latest-release` after `1.36.0`
+export POSTHOG_APP_TAG="${POSTHOG_APP_TAG:-latest-release}"
 
 POSTHOG_SECRET=$(head -c 28 /dev/urandom | sha224sum -b | head -c 56)
 export POSTHOG_SECRET
