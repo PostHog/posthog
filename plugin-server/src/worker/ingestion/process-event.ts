@@ -7,8 +7,9 @@ import { Event as EventProto, IEvent } from '../../config/idl/protos'
 import { KAFKA_EVENTS, KAFKA_SESSION_RECORDING_EVENTS } from '../../config/kafka-topics'
 import {
     Element,
-    Event,
     Hub,
+    IngestionEvent,
+    IngestionPersonData,
     PostgresSessionRecordingEvent,
     PreIngestionEvent,
     SessionRecordingEvent,
@@ -90,7 +91,7 @@ export class EventsProcessor {
                 this.pluginsServer.personManager
             )
 
-            await personState.update()
+            const person: IngestionPersonData | undefined = await personState.update()
 
             if (data['event'] === '$snapshot') {
                 if (team.session_recording_opt_in) {
@@ -121,7 +122,16 @@ export class EventsProcessor {
             } else {
                 const timeout3 = timeoutGuard('Still running "capture". Timeout warning after 30 sec!', { eventUuid })
                 try {
-                    result = await this.capture(eventUuid, ip, team, data['event'], distinctId, properties, timestamp)
+                    result = await this.capture(
+                        eventUuid,
+                        ip,
+                        team,
+                        data['event'],
+                        distinctId,
+                        properties,
+                        timestamp,
+                        person
+                    )
                     this.pluginsServer.statsd?.timing('kafka_queue.single_save.standard', singleSaveTimer, {
                         team_id: teamId.toString(),
                     })
@@ -149,7 +159,8 @@ export class EventsProcessor {
         event: string,
         distinctId: string,
         properties: Properties,
-        timestamp: DateTime
+        timestamp: DateTime,
+        person: IngestionPersonData | undefined
     ): Promise<PreIngestionEvent> {
         event = sanitizeEventName(event)
         const elements: Record<string, any>[] | undefined = properties['$elements']
@@ -180,6 +191,7 @@ export class EventsProcessor {
             timestamp,
             elementsList,
             teamId: team.id,
+            person,
         }
     }
 
@@ -194,9 +206,7 @@ export class EventsProcessor {
         return res
     }
 
-    async createEvent(
-        preIngestionEvent: PreIngestionEvent
-    ): Promise<[IEvent, Event['id'] | undefined, Element[] | undefined]> {
+    async createEvent(preIngestionEvent: PreIngestionEvent): Promise<IngestionEvent> {
         const {
             eventUuid: uuid,
             event,
@@ -212,16 +222,22 @@ export class EventsProcessor {
 
         const elementsChain = elements && elements.length ? elementsToString(elements) : ''
 
-        const personInfo = await this.db.getPersonData(teamId, distinctId)
         const groupProperties = await this.db.getGroupProperties(teamId, this.getGroupIdentifiers(properties))
 
         let eventPersonProperties: string | null = null
+        let personInfo = preIngestionEvent.person
+
         if (personInfo) {
-            // For consistency, we'd like events to contain the properties that they set, even if those were changed
-            // before the event is ingested. Thus we fetch the updated properties but override the values with the event's
-            // $set properties if they exist.
-            const latestPersonProperties = personInfo ? personInfo?.properties : {}
-            eventPersonProperties = JSON.stringify({ ...latestPersonProperties, ...(properties.$set || {}) })
+            eventPersonProperties = JSON.stringify(personInfo.properties)
+        } else {
+            personInfo = await this.db.getPersonData(teamId, distinctId)
+            if (personInfo) {
+                // For consistency, we'd like events to contain the properties that they set, even if those were changed
+                // before the event is ingested. Thus we fetch the updated properties but override the values with the event's
+                // $set properties if they exist.
+                const latestPersonProperties = personInfo ? personInfo?.properties : {}
+                eventPersonProperties = JSON.stringify({ ...latestPersonProperties, ...(properties.$set || {}) })
+            }
         }
 
         const eventPayload: IEvent = {
@@ -234,8 +250,6 @@ export class EventsProcessor {
             elements_chain: safeClickhouseString(elementsChain),
             created_at: castTimestampOrNow(null, timestampFormat),
         }
-
-        let eventId: Event['id'] | undefined
 
         const useExternalSchemas = this.clickhouseExternalSchemasEnabled(teamId)
         // proto ingestion is deprecated and we won't support new additions to the schema
@@ -260,7 +274,7 @@ export class EventsProcessor {
             ],
         })
 
-        return [eventPayload, eventId, elements]
+        return { ...preIngestionEvent, person: personInfo }
     }
 
     async produceEventToBuffer(bufferEvent: PreIngestionEvent): Promise<void> {

@@ -70,6 +70,7 @@ describe('prepareEventStep()', () => {
                 },
                 teamId: 2,
                 timestamp: expect.any(DateTime),
+                person: undefined,
             },
         ])
         expect(hub.db.kafkaProducer!.queueMessage).not.toHaveBeenCalled()
@@ -92,7 +93,6 @@ describe('prepareEventStep()', () => {
                 teamId: 2,
                 timestamp: '2020-02-23 02:15:00.000',
             },
-            undefined,
         ])
         expect(hub.db.kafkaProducer!.queueMessage).toHaveBeenCalled()
     })
@@ -137,6 +137,15 @@ describe('prepareEventStep()', () => {
                 },
                 teamId: 2,
                 timestamp: expect.any(DateTime),
+                person: expect.objectContaining({
+                    id: expect.any(Number),
+                    uuid: expect.any(String),
+                    properties: {
+                        someProp: 'value',
+                        $initial_browser: 'Chrome',
+                    },
+                    team_id: 2,
+                }),
             },
         ])
         expect(hub.db.kafkaProducer!.queueMessage).toHaveBeenCalled()

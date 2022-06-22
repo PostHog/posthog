@@ -276,6 +276,12 @@ jobs:
                   # The message for the commit.
                   # Default: 'Commit from GitHub Actions (name of the workflow)'
                   message: 'Update snapshots'
+            - name: Archive email renders
+              uses: actions/upload-artifact@v3
+              if: ${{ matrix.foss }}
+              with:
+                  name: email_renders
+                  path: posthog/tasks/test/__emails__
 
     cloud:
         needs: changes
