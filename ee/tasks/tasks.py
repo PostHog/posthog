@@ -8,6 +8,7 @@ from ee.clickhouse.materialized_columns.analyze import materialize_properties_ta
 from ee.tasks.materialized_columns import mark_all_materialized
 from ee.tasks.org_usage_report import send_all_org_usage_reports
 from ee.tasks.send_license_usage import send_license_usage
+from ee.tasks.subscriptions import schedule_all_subscriptions as _schedule_all_subscriptions
 from posthog.celery import app
 from posthog.utils import get_crontab
 
@@ -79,4 +80,4 @@ def send_org_usage_report():
 
 @app.task(ignore_result=True)
 def schedule_all_subscriptions():
-    schedule_all_subscriptions()
+    _schedule_all_subscriptions()
