@@ -17,12 +17,6 @@ from posthog.utils import absolute_uri, mask_email_address
 if TYPE_CHECKING:
     from posthog.models import Team, User
 
-try:
-    from ee.models.license import License
-except ImportError:
-    License = None  # type: ignore
-
-
 INVITE_DAYS_VALIDITY = 3  # number of days for which team invites are valid
 
 
@@ -111,6 +105,15 @@ class Organization(UUIDModel):
         Obtains details on the billing plan for the organization.
         Returns a tuple with (billing_plan_key, billing_realm)
         """
+
+        try:
+            from ee.models.license import License
+        except ImportError:
+            License = None  # type: ignore
+
+        if License is None:
+            return (None, None)
+
         # Demo gets all features
         if settings.DEMO:
             return (License.ENTERPRISE_PLAN, "demo")
@@ -132,6 +135,16 @@ class Organization(UUIDModel):
 
     def update_available_features(self) -> List[Union[AvailableFeature, str]]:
         """Updates field `available_features`. Does not `save()`."""
+
+        try:
+            from ee.models.license import License
+        except ImportError:
+            License = None  # type: ignore
+
+        if License is None:
+            self.available_features = []
+            return
+
         plan, realm = self._billing_plan_details
         if not plan:
             self.available_features = []
