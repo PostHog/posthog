@@ -56,7 +56,7 @@ def process_finished_session(session_id: str, team_id: int, partition: str) -> b
         snapshot_data = recording.get_snapshots(limit=None, offset=0)
 
         if not metadata or not snapshot_data:
-            # todo log/statsd something
+            statsd.incr("session_recordings.process_finished_sessions.skipping_empty", tags={"team_id": team_id,})
             return False
 
         # todo how are we asserting it is safe to call it finished!
@@ -64,10 +64,6 @@ def process_finished_session(session_id: str, team_id: int, partition: str) -> b
             [cast(datetime, x["start_time"]) for x in metadata.start_and_end_times_by_window_id.values()]
         )
         last_end_time = max([cast(datetime, x["end_time"]) for x in metadata.start_and_end_times_by_window_id.values()])
-
-        if not first_start_time or not last_end_time:
-            # todo there must be something better than this :)
-            return False
 
         # must be more than 48 hours since last event to be considered finished
         if (datetime.now(timezone.utc) - last_end_time).total_seconds() // 3600 < 48:
