@@ -40,7 +40,6 @@ class TestProcessFinishedSessionRecordings(BaseTest):
         create_clickhouse_tables(0)
 
     def test_loads_recordings_from_oldest_partition(self) -> None:
-
         with freeze_time(fixed_now):
             # session A crosses two partitions and is old enough to process
             _create_snapshot(session_id="a", timestamp=five_days_ago, team_id=self.team.id)
@@ -64,14 +63,13 @@ class TestProcessFinishedSessionRecordings(BaseTest):
             [("a", self.team.id, partition), ("b", self.team.id, partition)],
         )
 
-    # if session was active too recent then ignore it with statsd
     # write to object storage
     # write to kafka - mocked
     # write to table through kafka - integrated
     @patch("statshog.defaults.django.statsd.incr")
     def test_ignores_empty_session(self, statsd_incr) -> None:
         assert not process_finished_session("a", self.team.id, "20220401")
-        self._assert_statsd_incr(statsd_incr, "session_recordings.process_finished_sessions.skipping_empty")
+        self._assert_statsd_incr(statsd_incr, "session_recordings.process_finished_session_recordings.skipping_empty")
 
     @patch("statshog.defaults.django.statsd.incr")
     def test_ignores_recordings_active_in_last_forty_eight_hours(self, statsd_incr) -> None:
@@ -84,7 +82,22 @@ class TestProcessFinishedSessionRecordings(BaseTest):
             processing_result = process_finished_session("a", self.team.id, "20220401")
 
         assert not processing_result
-        self._assert_statsd_incr(statsd_incr, "session_recordings.process_finished_sessions.skipping_recently_active")
+        self._assert_statsd_incr(
+            statsd_incr, "session_recordings.process_finished_session_recordings.skipping_recently_active"
+        )
+
+    @patch("posthog.session_recordings.process_finished_session_recordings.object_storage.write")
+    @patch("statshog.defaults.django.statsd.incr")
+    def test_finished_recording_is_written_to_object_storage(self, statsd_incr, storage_write) -> None:
+        with freeze_time(fixed_now):
+            _create_snapshot(session_id="a", timestamp=five_days_ago, team_id=self.team.id)
+            _create_snapshot(session_id="a", timestamp=five_days_ago + timedelta(minutes=1), team_id=self.team.id)
+            _create_snapshot(session_id="a", timestamp=four_days_ago + timedelta(minutes=2), team_id=self.team.id)
+
+            processing_result = process_finished_session("a", self.team.id, "20220401")
+
+        assert processing_result is True
+        self._assert_statsd_incr(statsd_incr, "session_recordings.process_finished_session_recordings.succeeded")
 
     def _assert_statsd_incr(self, statsd_incr, identifier: str) -> None:
         self.assertEqual(statsd_incr.call_count, 1)

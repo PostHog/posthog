@@ -18,8 +18,6 @@ logger = structlog.get_logger(__name__)
 
 
 def get_sessions_for_oldest_partition() -> List[Tuple[str, int, str]]:
-    # todo don't just template variables into sql
-
     query_result = sync_execute(
         f"""
         with (SELECT toYYYYMMDD(min(timestamp)) FROM session_recording_events) as partition
@@ -46,8 +44,8 @@ def process_finished_session(session_id: str, team_id: int, partition: str) -> b
     when all of those sessions have a record in the metadata table the partition can be dropped
 
     """
-    logger.debug("session_recordings.process_finished_session.starting")
-    timer = statsd.timer("session_recordings.process_finished_session").start()
+    logger.debug("session_recordings.process_finished_session_recordings.starting")
+    timer = statsd.timer("session_recordings.process_finished_session_recordings").start()
 
     try:
         recording = ClickhouseSessionRecording(team_id=team_id, session_recording_id=session_id)
@@ -56,10 +54,11 @@ def process_finished_session(session_id: str, team_id: int, partition: str) -> b
         snapshot_data = recording.get_snapshots(limit=None, offset=0)
 
         if not metadata or not snapshot_data:
-            statsd.incr("session_recordings.process_finished_sessions.skipping_empty", tags={"team_id": team_id,})
+            statsd.incr(
+                "session_recordings.process_finished_session_recordings.skipping_empty", tags={"team_id": team_id,}
+            )
             return False
 
-        # todo how are we asserting it is safe to call it finished!
         first_start_time = min(
             [cast(datetime, x["start_time"]) for x in metadata.start_and_end_times_by_window_id.values()]
         )
@@ -68,7 +67,8 @@ def process_finished_session(session_id: str, team_id: int, partition: str) -> b
         # must be more than 48 hours since last event to be considered finished
         if (datetime.now(timezone.utc) - last_end_time).total_seconds() // 3600 < 48:
             statsd.incr(
-                "session_recordings.process_finished_sessions.skipping_recently_active", tags={"team_id": team_id,}
+                "session_recordings.process_finished_session_recordings.skipping_recently_active",
+                tags={"team_id": team_id,},
             )
             return False
 
@@ -100,12 +100,12 @@ def process_finished_session(session_id: str, team_id: int, partition: str) -> b
             data=kafka_payload,
             key=partition_key,
         )
-        statsd.incr("session_recordings.process_finished_session.succeeded", tags={"team_id": team_id,})
+        statsd.incr("session_recordings.process_finished_session_recordings.succeeded", tags={"team_id": team_id,})
 
     except Exception as e:
-        statsd.incr("session_recordings.process_finished_session.failed", tags={"team_id": team_id,})
+        statsd.incr("session_recordings.process_finished_session_recordings.failed", tags={"team_id": team_id,})
         logger.error(
-            "session_recordings.process_finished_session.failed_writing_to_kafka",
+            "session_recordings.process_finished_session_recordings.failed_writing_to_kafka",
             topic=KAFKA_SESSION_RECORDINGS,
             error=e,
             session_id=session_id,
