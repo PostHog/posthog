@@ -1,5 +1,6 @@
 import React from 'react'
 import { router } from 'kea-router'
+import { isExternalLink } from 'lib/utils'
 
 type RoutePart = string | Record<string, any>
 
@@ -16,9 +17,7 @@ export function Link({ to, preventClick = false, tag = 'a', ...props }: LinkProp
             return
         }
 
-        const isExternalLink = typeof to === 'string' && to.startsWith('http')
-
-        if (!props.target && !isExternalLink) {
+        if (!props.target && !isExternalLink(to)) {
             event.preventDefault()
             if (to && to !== '#' && !preventClick) {
                 if (Array.isArray(to)) {
