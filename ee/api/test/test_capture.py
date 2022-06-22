@@ -8,7 +8,7 @@ from kafka.errors import NoBrokersAvailable
 from rest_framework import status
 
 from posthog.api.utils import get_event_ingestion_context
-from posthog.kafka_client.topics import KAFKA_EVENTS_PLUGIN_INGESTION
+from posthog.settings.data_stores import KAFKA_EVENTS_PLUGIN_INGESTION
 from posthog.test.base import APIBaseTest
 
 

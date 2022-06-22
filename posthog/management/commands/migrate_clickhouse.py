@@ -15,7 +15,7 @@ from posthog.settings import (
 )
 from posthog.settings.data_stores import CLICKHOUSE_CLUSTER
 
-MIGRATIONS_PACKAGE_NAME = "ee.clickhouse.migrations"
+MIGRATIONS_PACKAGE_NAME = "posthog.clickhouse.migrations"
 
 
 class Command(BaseCommand):
