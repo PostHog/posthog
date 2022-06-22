@@ -5,7 +5,7 @@ on: pull_request
 jobs:
     storybook-chromatic:
         runs-on: ubuntu-latest
-        if: github.event.pull_request.head.repo.full_name == github.repository
+        if: github.repository_owner == 'PostHog'
         steps:
             - uses: actions/checkout@v2
               with:

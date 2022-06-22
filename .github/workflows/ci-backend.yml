@@ -249,6 +249,7 @@ jobs:
             - uses: actions/checkout@v2
               with:
                   fetch-depth: 1
+                  ref: ${{ github.event.pull_request.head.ref }}
 
             - uses: ./.github/actions/run-backend-tests
               with:
