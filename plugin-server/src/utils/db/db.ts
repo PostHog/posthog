@@ -1479,22 +1479,6 @@ export class DB {
 
     // Hook (EE)
 
-    public async fetchRelevantRestHooks(
-        teamId: Hook['team_id'],
-        event: Hook['event'],
-        resourceId: Hook['resource_id']
-    ): Promise<Hook[]> {
-        const filterByResource = resourceId !== null
-        const { rows } = await this.postgresQuery<Hook>(
-            `
-            SELECT * FROM ee_hook
-            WHERE team_id = $1 AND event = $2 ${filterByResource ? 'AND resource_id = $3' : ''}`,
-            filterByResource ? [teamId, event, resourceId] : [teamId, event],
-            'fetchRelevantRestHooks'
-        )
-        return rows
-    }
-
     private async fetchActionRestHooks(): Promise<Hook[]> {
         try {
             const { rows } = await this.postgresQuery<Hook>(
