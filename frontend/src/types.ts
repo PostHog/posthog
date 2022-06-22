@@ -45,6 +45,7 @@ export enum AvailableFeature {
     TAGGING = 'tagging',
     BEHAVIORAL_COHORT_FILTERING = 'behavioral_cohort_filtering',
     WHITE_LABELLING = 'white_labelling',
+    SUBSCRIPTIONS = 'subscriptions',
 }
 
 export enum LicensePlan {

@@ -1,6 +1,7 @@
 import React from 'react'
 import { GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
 import { PayGatePage } from 'lib/components/PayGatePage/PayGatePage'
+import { AvailableFeature } from '~/types'
 
 interface Props {
     access: GroupsAccessStatus.NoAccess | GroupsAccessStatus.HasAccess | GroupsAccessStatus.HasGroupTypes
@@ -33,7 +34,7 @@ export function GroupsIntroduction({ access }: Props): JSX.Element {
     return (
         <PayGatePage
             header={header}
-            featureKey="group-analytics"
+            featureKey={AvailableFeature.GROUP_ANALYTICS}
             caption={subtext}
             docsLink="https://posthog.com/docs/user-guides/group-analytics"
             hideUpgradeButton={access === GroupsAccessStatus.HasAccess}

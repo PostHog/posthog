@@ -22,7 +22,6 @@ from . import (
     plugin,
     plugin_log_entry,
     property_definition,
-    subscription,
     team,
     user,
 )
@@ -62,7 +61,6 @@ project_dashboards_router = projects_router.register(
 )
 
 projects_router.register(r"exports", exports.ExportedAssetViewSet, "exports", ["team_id"])
-projects_router.register(r"subscriptions", subscription.SubscriptionViewSet, "subscriptions", ["team_id"])
 
 # Organizations nested endpoints
 organizations_router = router.register(r"organizations", organization.OrganizationViewSet, "organizations")
