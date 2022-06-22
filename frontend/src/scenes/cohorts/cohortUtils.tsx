@@ -92,42 +92,35 @@ export function createCohortFormData(cohort: CohortType): FormData {
         ...(cohort.description ? { description: cohort.description } : {}),
         ...(cohort.csv ? { csv: cohort.csv } : {}),
         ...(cohort.is_static ? { is_static: cohort.is_static } : {}),
-        ...{
-            filters: JSON.stringify(
-                cohort.is_static
-                    ? {
-                          properties: {},
-                      }
-                    : /* Overwrite value with value_property for cases where value is not a behavior enum (i.e., cohort and person filters) */
-                      {
-                          properties: {
-                              ...applyAllCriteriaGroup(
-                                  applyAllNestedCriteria(cohort, (criteriaList) =>
-                                      criteriaList.map(
-                                          (c) =>
-                                              ({
-                                                  ...c,
-                                                  ...('value_property' in c ? { value: c.value_property } : {}),
-                                                  value_property: undefined,
-                                              } as AnyCohortCriteriaType)
-                                      )
-                                  ),
-                                  (groupList) =>
-                                      groupList.map((g) => ({
-                                          ...g,
-                                          id: undefined,
-                                      }))
-                              ).filters.properties,
-                              id: undefined,
-                          },
-                      }
-            ),
-            groups: JSON.stringify([]),
-        },
-    }
-
-    if (!isNewCohortFilterEnabled) {
-        delete rawCohort['filters']
+        filters: JSON.stringify(
+            cohort.is_static
+                ? {
+                      properties: {},
+                  }
+                : /* Overwrite value with value_property for cases where value is not a behavior enum (i.e., cohort and person filters) */
+                  {
+                      properties: {
+                          ...applyAllCriteriaGroup(
+                              applyAllNestedCriteria(cohort, (criteriaList) =>
+                                  criteriaList.map(
+                                      (c) =>
+                                          ({
+                                              ...c,
+                                              ...('value_property' in c ? { value: c.value_property } : {}),
+                                              value_property: undefined,
+                                          } as AnyCohortCriteriaType)
+                                  )
+                              ),
+                              (groupList) =>
+                                  groupList.map((g) => ({
+                                      ...g,
+                                      id: undefined,
+                                  }))
+                          ).filters.properties,
+                          id: undefined,
+                      },
+                  }
+        ),
     }
 
     // Must use FormData to encode file binary in request
@@ -463,4 +456,11 @@ export function criteriaToHumanSentence(
         }
     })
     return <>{words}</>
+}
+
+export const COHORT_MATCHING_DAYS = {
+    '1': 'day',
+    '7': 'week',
+    '14': '2 weeks',
+    '30': 'month',
 }
