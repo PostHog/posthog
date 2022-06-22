@@ -10,10 +10,19 @@ import {
     SlackChannelType,
     SubscriptionType,
     TimeUnitType,
+    UserBasicType,
 } from '~/types'
 import { PROPERTY_MATCH_TYPE } from 'lib/constants'
 import { BehavioralFilterKey } from 'scenes/cohorts/CohortFilters/types'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+
+export const mockBasicUser: UserBasicType = {
+    id: 0,
+    uuid: '1234',
+    distinct_id: '1234',
+    first_name: 'Tim',
+    email: 'tim@posthog.com',
+}
 
 export const mockEvent: EventType = {
     id: 'my_id',
@@ -198,6 +207,7 @@ export const mockIntegration: IntegrationType = {
         },
     },
     created_at: '2022-01-01T00:09:00',
+    created_by: mockBasicUser,
 }
 
 export const mockSlackChannel: SlackChannelType = {
