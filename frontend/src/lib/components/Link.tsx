@@ -16,7 +16,9 @@ export function Link({ to, preventClick = false, tag = 'a', ...props }: LinkProp
             return
         }
 
-        if (!props.target) {
+        const isExternalLink = typeof to === 'string' && to.startsWith('http')
+
+        if (!props.target && !isExternalLink) {
             event.preventDefault()
             if (to && to !== '#' && !preventClick) {
                 if (Array.isArray(to)) {
