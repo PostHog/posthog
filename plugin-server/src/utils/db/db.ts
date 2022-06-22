@@ -896,6 +896,13 @@ export class DB {
             version: Number(updatedPersonRaw.version || 0),
         } as Person
 
+        // Track the disparity between the version on the database and the version of the person we have in memory
+        // Without races, the returned person (updatedPerson) should have a version that's only +1 the person in memory
+        const versionDisparity = updatedPerson.version - person.version - 1
+        if (versionDisparity > 0) {
+            this.statsd?.increment('person_update_version_mismatch', { versionDisparity: String(versionDisparity) })
+        }
+
         const kafkaMessages = []
         const message = generateKafkaPersonUpdateMessage(
             updatedPerson.created_at,
