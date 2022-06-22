@@ -2,10 +2,11 @@ import React, { useState } from 'react'
 import { useActions, useValues } from 'kea'
 import { getSlackAppManifest, integrationsLogic } from './integrationsLogic'
 import { CodeSnippet, Language } from 'scenes/ingestion/frameworks/CodeSnippet'
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, Link } from '@posthog/lemon-ui'
 import { IconDelete, IconSlack } from 'lib/components/icons'
 import { Modal } from 'antd'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
+import { urls } from 'scenes/urls'
 
 export function SlackIntegration(): JSX.Element {
     const { slackIntegration, addToSlackButtonUrl } = useValues(integrationsLogic)
@@ -90,7 +91,11 @@ export function SlackIntegration(): JSX.Element {
                                     </a>
                                 </li>
                                 <li>Create an App using the provided template</li>
-                                <li>Return here and enter the values from the created Slack App</li>
+                                <li>
+                                    <Link to={urls.instanceSettings()}>Go to Instance Settings</Link> and update the{' '}
+                                    <code>"SLACK_"</code> properties using the values from the <b>App Credentials</b>{' '}
+                                    section of your Slack Apps
+                                </li>
                             </ol>
 
                             <CodeSnippet language={Language.JSON}>
