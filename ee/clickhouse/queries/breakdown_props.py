@@ -1,10 +1,5 @@
 from typing import Any, Dict, List, Optional, Tuple, Union, cast
 
-from ee.clickhouse.models.property import (
-    get_property_string_expr,
-    get_single_or_multi_property_string_expr,
-    parse_prop_grouped_clauses,
-)
 from ee.clickhouse.queries.column_optimizer import EnterpriseColumnOptimizer
 from ee.clickhouse.queries.groups_join_query import GroupsJoinQuery
 from posthog.client import sync_execute
@@ -16,6 +11,11 @@ from posthog.models.entity.util import get_entity_filtering_params
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.utils import GroupTypeIndex
 from posthog.models.property import PropertyGroup
+from posthog.models.property.util import (
+    get_property_string_expr,
+    get_single_or_multi_property_string_expr,
+    parse_prop_grouped_clauses,
+)
 from posthog.models.team import Team
 from posthog.models.utils import PersonPropertiesMode
 from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query

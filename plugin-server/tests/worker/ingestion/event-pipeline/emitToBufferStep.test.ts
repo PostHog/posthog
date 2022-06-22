@@ -4,7 +4,7 @@ import { Person, PreIngestionEvent } from '../../../../src/types'
 import {
     emitToBufferStep,
     shouldSendEventToBuffer,
-} from '../../../../src/worker/ingestion/event-pipeline/emitToBufferStep'
+} from '../../../../src/worker/ingestion/event-pipeline/3-emitToBufferStep'
 
 const now = DateTime.fromISO('2020-01-01T12:00:05.200Z')
 
@@ -40,7 +40,7 @@ beforeEach(() => {
         hub: {
             CONVERSION_BUFFER_ENABLED: true,
             BUFFER_CONVERSION_SECONDS: 60,
-            db: { fetchPerson: () => Promise.resolve(existingPerson) },
+            db: { fetchPerson: jest.fn().mockResolvedValue(existingPerson) },
             eventsProcessor: {
                 produceEventToBuffer: jest.fn(),
             },
@@ -53,13 +53,25 @@ describe('emitToBufferStep()', () => {
         const response = await emitToBufferStep(runner, preIngestionEvent, () => true)
 
         expect(runner.hub.eventsProcessor.produceEventToBuffer).toHaveBeenCalledWith(preIngestionEvent)
+        expect(runner.hub.db.fetchPerson).toHaveBeenCalledWith(2, 'my_id')
         expect(response).toEqual(null)
     })
 
     it('calls `createEventStep` next if not buffering', async () => {
         const response = await emitToBufferStep(runner, preIngestionEvent, () => false)
 
-        expect(response).toEqual(['createEventStep', preIngestionEvent, existingPerson])
+        expect(response).toEqual(['createEventStep', { ...preIngestionEvent, person: existingPerson }])
+        expect(runner.hub.db.fetchPerson).toHaveBeenCalledWith(2, 'my_id')
+        expect(runner.hub.eventsProcessor.produceEventToBuffer).not.toHaveBeenCalled()
+    })
+
+    it('does not call `db.fetchPerson` if person not passed in', async () => {
+        const event = { ...preIngestionEvent, person: existingPerson }
+
+        const response = await emitToBufferStep(runner, event, () => false)
+
+        expect(response).toEqual(['createEventStep', event])
+        expect(runner.hub.db.fetchPerson).not.toHaveBeenCalled()
         expect(runner.hub.eventsProcessor.produceEventToBuffer).not.toHaveBeenCalled()
     })
 })

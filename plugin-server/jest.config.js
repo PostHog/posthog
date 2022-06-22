@@ -7,4 +7,5 @@ module.exports = {
     coverageProvider: 'v8',
     setupFilesAfterEnv: ['./jest.setup.fetch-mock.js'],
     testMatch: ['<rootDir>/tests/**/*.test.ts'],
+    testTimeout: 60000,
 }

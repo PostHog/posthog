@@ -103,7 +103,11 @@ export function EventsTable({
         highlightEvents,
         months,
     } = useValues(logic)
-    const { tableWidth, selectedColumns } = useValues(tableConfigLogic({ startingColumns }))
+    const { tableWidth, selectedColumns } = useValues(
+        tableConfigLogic({
+            startingColumns: (currentTeam && currentTeam.live_events_columns) ?? startingColumns,
+        })
+    )
 
     const {
         fetchNextEvents,
@@ -159,7 +163,7 @@ export function EventsTable({
             }
             return showLinkToPerson && event.person?.distinct_ids?.length ? (
                 <Link to={urls.person(event.person.distinct_ids[0])}>
-                    <PersonHeader withIcon person={event.person} />
+                    <PersonHeader noLink withIcon person={event.person} />
                 </Link>
             ) : (
                 <PersonHeader withIcon person={event.person} />
@@ -234,37 +238,64 @@ export function EventsTable({
     }, [tableWidth])
 
     const columns = useMemo(() => {
-        const columnsSoFar =
-            selectedColumns === 'DEFAULT'
-                ? [...defaultColumns]
-                : selectedColumns.map(
-                      (e, index): LemonTableColumn<EventsTableRowItem, keyof EventsTableRowItem | undefined> =>
-                          defaultColumns.find((d) => d.key === e) || {
-                              title: keyMapping['event'][e] ? keyMapping['event'][e].label : e,
-                              key: e,
-                              render: function render(_, item: EventsTableRowItem) {
-                                  const { event } = item
-                                  if (!event) {
-                                      if (index === 0) {
-                                          return newEventsRender(item, tableWidth)
-                                      } else {
-                                          return { props: { colSpan: 0 } }
-                                      }
-                                  }
-                                  if (linkPropertiesToFilters) {
-                                      return (
-                                          <FilterPropertyLink
-                                              className="ph-no-capture "
-                                              property={e}
-                                              value={event.properties[e] as string}
-                                              filters={{ properties }}
-                                          />
-                                      )
-                                  }
-                                  return <Property value={event.properties[e]} />
-                              },
-                          }
-                  )
+        let columnsSoFar: LemonTableColumn<EventsTableRowItem, keyof EventsTableRowItem | undefined>[] = []
+        if (selectedColumns === 'DEFAULT') {
+            columnsSoFar = [...defaultColumns]
+        } else {
+            const columnsToBeMapped = !showPersonColumn
+                ? selectedColumns.filter((column) => column !== 'person')
+                : selectedColumns
+            columnsSoFar = columnsToBeMapped.map(
+                (e, index): LemonTableColumn<EventsTableRowItem, keyof EventsTableRowItem | undefined> => {
+                    const defaultColumn = defaultColumns.find((d) => d.key === e)
+                    if (defaultColumn) {
+                        return {
+                            ...defaultColumn,
+                            render: function render(_, item: EventsTableRowItem) {
+                                const { event } = item
+                                if (!event) {
+                                    if (index === 0) {
+                                        return newEventsRender(item, tableWidth)
+                                    } else {
+                                        return { props: { colSpan: 0 } }
+                                    }
+                                }
+                                if (defaultColumn.render) {
+                                    return defaultColumn.render(_, item, index)
+                                }
+                                return { props: { colSpan: 0 } }
+                            },
+                        }
+                    } else {
+                        return {
+                            title: keyMapping['event'][e] ? keyMapping['event'][e].label : e,
+                            key: e,
+                            render: function render(_, item: EventsTableRowItem) {
+                                const { event } = item
+                                if (!event) {
+                                    if (index === 0) {
+                                        return newEventsRender(item, tableWidth)
+                                    } else {
+                                        return { props: { colSpan: 0 } }
+                                    }
+                                }
+                                if (linkPropertiesToFilters) {
+                                    return (
+                                        <FilterPropertyLink
+                                            className="ph-no-capture "
+                                            property={e}
+                                            value={event.properties[e] as string}
+                                            filters={{ properties }}
+                                        />
+                                    )
+                                }
+                                return <Property value={event.properties[e]} />
+                            },
+                        }
+                    }
+                }
+            )
+        }
         columnsSoFar.push({
             title: 'Time',
             key: 'time',
@@ -364,7 +395,7 @@ export function EventsTable({
             })
         }
         return fixedColumns ? columnsSoFar.concat(fixedColumns) : columnsSoFar
-    }, [selectedColumns])
+    }, [selectedColumns, tableWidth])
 
     return (
         <div data-attr="manage-events-table">

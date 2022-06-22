@@ -133,7 +133,7 @@ class ExportedViewerPageViewSet(mixins.RetrieveModelMixin, StructuredViewSetMixi
     def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Any:
         asset = self.get_object()
         context = {"view": self, "request": request}
-        export_data = {}
+        exported_data: Dict[str, Any] = {"type": "image"}
 
         if request.path.endswith(f".{asset.file_ext}"):
             if not asset.content:
@@ -145,12 +145,14 @@ class ExportedViewerPageViewSet(mixins.RetrieveModelMixin, StructuredViewSetMixi
             dashboard_data = DashboardSerializer(asset.dashboard, context=context).data
             # We don't want the dashboard to be accidentally loaded via the shared endpoint
             dashboard_data["share_token"] = None
-            export_data.update({"dashboard": dashboard_data})
+            exported_data.update({"dashboard": dashboard_data})
 
         if asset.insight:
             insight_data = InsightSerializer(asset.insight, many=False, context=context).data
-            export_data.update({"insight": insight_data})
+            exported_data.update({"insight": insight_data})
 
         return render_template(
-            "exporter.html", request=request, context={"export_data": json.dumps(export_data, cls=DjangoJSONEncoder)},
+            "exporter.html",
+            request=request,
+            context={"exported_data": json.dumps(exported_data, cls=DjangoJSONEncoder)},
         )

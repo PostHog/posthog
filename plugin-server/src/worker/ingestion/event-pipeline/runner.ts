@@ -5,11 +5,11 @@ import { Hub, IngestionEvent, PreIngestionEvent } from '../../../types'
 import { timeoutGuard } from '../../../utils/db/utils'
 import { status } from '../../../utils/status'
 import { generateEventDeadLetterQueueMessage } from '../utils'
-import { createEventStep } from './createEventStep'
-import { emitToBufferStep } from './emitToBufferStep'
-import { pluginsProcessEventStep } from './pluginsProcessEventStep'
-import { prepareEventStep } from './prepareEventStep'
-import { runAsyncHandlersStep } from './runAsyncHandlersStep'
+import { pluginsProcessEventStep } from './1-pluginsProcessEventStep'
+import { prepareEventStep } from './2-prepareEventStep'
+import { emitToBufferStep } from './3-emitToBufferStep'
+import { createEventStep } from './4-createEventStep'
+import { runAsyncHandlersStep } from './5-runAsyncHandlersStep'
 
 export type StepParameters<T extends (...args: any[]) => any> = T extends (
     runner: EventPipelineRunner,
@@ -71,7 +71,7 @@ export class EventPipelineRunner {
     async runBufferEventPipeline(event: PreIngestionEvent): Promise<EventPipelineResult> {
         this.hub.statsd?.increment('kafka_queue.event_pipeline.start', { pipeline: 'buffer' })
         const person = await this.hub.db.fetchPerson(event.teamId, event.distinctId)
-        const result = await this.runPipeline('createEventStep', event, person)
+        const result = await this.runPipeline('createEventStep', { ...event, person })
         this.hub.statsd?.increment('kafka_queue.buffer_event.processed_and_ingested')
         return result
     }
@@ -79,7 +79,7 @@ export class EventPipelineRunner {
     async runAsyncHandlersEventPipeline(event: IngestionEvent): Promise<EventPipelineResult> {
         this.hub.statsd?.increment('kafka_queue.event_pipeline.start', { pipeline: 'asyncHandlers' })
         const person = await this.hub.db.fetchPerson(event.teamId, event.distinctId)
-        const result = await this.runPipeline('runAsyncHandlersStep', event, person)
+        const result = await this.runPipeline('runAsyncHandlersStep', { ...event, person })
         this.hub.statsd?.increment('kafka_queue.async_handlers.processed')
         return result
     }

@@ -61,6 +61,7 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
     access_control: true,
     has_group_types: true,
     primary_dashboard: 1,
+    live_events_columns: ['event', 'person'],
 }
 
 export const MOCK_DEFAULT_ORGANIZATION: OrganizationType = {

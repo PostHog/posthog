@@ -7,6 +7,7 @@ import { dayjs } from 'lib/dayjs'
 import Fuse from 'fuse.js'
 import type { authorizedUrlsLogicType } from './authorizedUrlsLogicType'
 import { encodeParams } from 'kea-router'
+import { urls } from 'scenes/urls'
 
 /** defaultIntent: whether to launch with empty intent (i.e. toolbar mode is default) */
 export function appEditorUrl(appUrl?: string, actionId?: number, defaultIntent?: boolean): string {
@@ -192,5 +193,12 @@ export const authorizedUrlsLogic = kea<authorizedUrlsLogicType>({
             },
         ],
         launchUrl: [() => [], () => (url: string) => appEditorUrl(url, props.actionId, !props.actionId)],
+    }),
+    urlToAction: ({ actions }) => ({
+        [urls.toolbarLaunch()]: (_, searchParams) => {
+            if (searchParams.addNew) {
+                actions.newUrl()
+            }
+        },
     }),
 })
