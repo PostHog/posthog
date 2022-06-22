@@ -38,44 +38,49 @@ function CompactPropertyFiltersDisplay({
         <>
             {isPropertyGroup(properties) ? (
                 <>
-                    {properties.values.map((pg, idx) => (
+                    {properties.values.map((propertyGroup, idx) => (
                         <>
                             <DefinitionPopup.Section>
                                 <DefinitionPopup.Card
-                                    title={`Match events against ${
-                                        pg.type === FilterLogicalOperator.Or ? 'any' : 'all'
-                                    } criteria`}
-                                    value={<ul />}
+                                    title={
+                                        <span className="card-secondary">
+                                            Match against{' '}
+                                            {propertyGroup.type === FilterLogicalOperator.Or ? 'any' : 'all'} criteria
+                                        </span>
+                                    }
+                                    value={
+                                        <ul>
+                                            {propertyGroup.values.slice(0).map((subFilter, subIndex) => (
+                                                <li key={subIndex}>
+                                                    {subFilter.type === 'cohort' ? (
+                                                        <>
+                                                            person belongs to cohort
+                                                            <span className="SeriesDisplay__raw-name">
+                                                                <PropertyFilterText item={subFilter} />
+                                                            </span>
+                                                        </>
+                                                    ) : (
+                                                        <>
+                                                            {subFilter.type || 'event'}'s
+                                                            <span className="SeriesDisplay__raw-name">
+                                                                {subFilter.key && (
+                                                                    <PropertyKeyInfo value={subFilter.key} />
+                                                                )}
+                                                            </span>
+                                                            {allOperatorsMapping[subFilter.operator || 'exact']}{' '}
+                                                            <b>{subFilter.value}</b>
+                                                        </>
+                                                    )}
+                                                </li>
+                                            ))}
+                                        </ul>
+                                    }
                                 />
                             </DefinitionPopup.Section>
-                            {pg.values.map((subFilter, subIndex) => (
-                                <div key={subIndex} className="SeriesDisplay__condition">
-                                    {embedded && <IconSubdirectoryArrowRight className="SeriesDisplay__arrow" />}
-                                    {/* <span>
-                                    {idx !== 0 && subIndex === 0 && <div>{properties.type} </div>}
-                                    {subIndex === 0 ? (embedded ? 'where ' : 'Where ') : `${pg.type} `}
-                                    {subFilter.type === 'cohort' ? (
-                                        <>
-                                            person belongs to cohort
-                                            <span className="SeriesDisplay__raw-name">
-                                                <PropertyFilterText item={subFilter} />
-                                            </span>
-                                        </>
-                                    ) : (
-                                        <>
-                                            {subFilter.type || 'event'}'s
-                                            <span className="SeriesDisplay__raw-name">
-                                                {subFilter.key && <PropertyKeyInfo value={subFilter.key} />}
-                                            </span>
-                                            {allOperatorsMapping[subFilter.operator || 'exact']}{' '}
-                                            <b>{subFilter.value}</b>
-                                        </>
-                                    )}
-                                </span> */}
-                                </div>
-                            ))}
                             {idx < Math.min(properties.values.length, 2) - 1 && (
-                                <DefinitionPopup.HorizontalLine style={{ marginTop: 4, marginBottom: 12 }}>
+                                <DefinitionPopup.HorizontalLine
+                                    style={{ marginTop: 4, marginBottom: 12, fontSize: 11 }}
+                                >
                                     {properties.type}
                                 </DefinitionPopup.HorizontalLine>
                             )}
