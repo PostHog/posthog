@@ -8,7 +8,7 @@ export async function runAsyncHandlersStep(runner: EventPipelineRunner, event: I
     if (runner.hub.capabilities.processAsyncHandlers) {
         await Promise.all([
             processOnEvent(runner, event),
-            processOnActionAndWebhooks(runner, event, event.person, event.elementsList),
+            processWebhooks(runner, event, event.person, event.elementsList),
         ])
     }
 
@@ -29,7 +29,7 @@ async function processOnEvent(runner: EventPipelineRunner, event: IngestionEvent
     })
 }
 
-async function processOnActionAndWebhooks(
+async function processWebhooks(
     runner: EventPipelineRunner,
     event: IngestionEvent,
     person: IngestionPersonData | undefined,
