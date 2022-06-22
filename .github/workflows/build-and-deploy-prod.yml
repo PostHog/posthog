@@ -162,17 +162,17 @@ jobs:
                   service: posthog-production-plugins-async
                   cluster: posthog-production-cluster
 
-            - name: Notify Platform team on slack
-              uses: rtCamp/action-slack-notify@v2
-              continue-on-error: true
-              env:
-                  SLACK_CHANNEL: platform-bots
-                  SLACK_COLOR: ${{ job.status }} # or a specific color like 'good' or '#ff00ff'
-                  SLACK_ICON: https://github.com/posthog.png?size=48
-                  SLACK_MESSAGE: 'Production Cloud Deploy Github Action Complete :rocket: - ${{ github.event.head_commit.message }}'
-                  SLACK_TITLE: Message
-                  SLACK_USERNAME: Max Hedgehog
-                  SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
+            # TODO: Bring back once https://github.com/rtCamp/action-slack-notify/issues/126 is resolved
+            # - name: Notify Platform team on slack
+            #   uses: rtCamp/action-slack-notify@v2
+            #   env:
+            #       SLACK_CHANNEL: platform-bots
+            #       SLACK_COLOR: ${{ job.status }} # or a specific color like 'good' or '#ff00ff'
+            #       SLACK_ICON: https://github.com/posthog.png?size=48
+            #       SLACK_MESSAGE: 'Production Cloud Deploy Github Action Complete :rocket: - ${{ github.event.head_commit.message }}'
+            #       SLACK_TITLE: Message
+            #       SLACK_USERNAME: Max Hedgehog
+            #       SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
 
             - name: Notify Grafana of deploy for annotations
               uses: frankie567/grafana-annotation-action@v1.0.2
@@ -197,22 +197,22 @@ jobs:
                         "image_tag": "${{ github.sha }}"
                       }
 
-    slack:
-        name: Notify Slack of start of deploy
-        runs-on: ubuntu-20.04
-        if: github.repository == 'posthog/posthog'
-        steps:
-            - name: Notify Platform team on slack
-              uses: rtCamp/action-slack-notify@v2
-              continue-on-error: true
-              env:
-                  SLACK_CHANNEL: platform-bots
-                  SLACK_COLOR: ${{ job.status }} # or a specific color like 'good' or '#ff00ff'
-                  SLACK_ICON: https://github.com/posthog.png?size=48
-                  SLACK_MESSAGE: 'Production Cloud Deploy Beginning :rocket: - ${{ github.event.head_commit.message }}'
-                  SLACK_TITLE: Message
-                  SLACK_USERNAME: Max Hedgehog
-                  SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
+    # TODO: Bring back once https://github.com/rtCamp/action-slack-notify/issues/126 is resolved
+    # slack:
+    #     name: Notify Slack of start of deploy
+    #     runs-on: ubuntu-20.04
+    #     if: github.repository == 'posthog/posthog'
+    #     steps:
+    #         - name: Notify Platform team on slack
+    #           uses: rtCamp/action-slack-notify@v2
+    #           env:
+    #               SLACK_CHANNEL: platform-bots
+    #               SLACK_COLOR: ${{ job.status }} # or a specific color like 'good' or '#ff00ff'
+    #               SLACK_ICON: https://github.com/posthog.png?size=48
+    #               SLACK_MESSAGE: 'Production Cloud Deploy Beginning :rocket: - ${{ github.event.head_commit.message }}'
+    #               SLACK_TITLE: Message
+    #               SLACK_USERNAME: Max Hedgehog
+    #               SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
 
     sentry:
         name: Notify Sentry of a production release
