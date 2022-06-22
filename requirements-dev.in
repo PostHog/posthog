@@ -44,5 +44,5 @@ pytest-cov==2.12.1
 pytest-split==0.6.0
 pytest-watch==4.2.0
 syrupy==1.4.6
-numpy==1.21.4
+numpy==1.22.0
 flaky==3.7.0

@@ -43,7 +43,7 @@ kafka-python==2.0.2
 kafka-helper==0.2
 kombu==4.6.8
 lzstring==1.0.4
-numpy==1.21.4
+numpy==1.22.0
 parso==0.8.1
 pexpect==4.7.0
 pickleshare==0.7.5

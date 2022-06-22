@@ -194,7 +194,7 @@ monotonic==1.5
     # via posthoganalytics
 mypy-extensions==0.4.3
     # via typing-inspect
-numpy==1.21.4
+numpy==1.22.0
     # via -r requirements.in
 oauthlib==3.1.0
     # via

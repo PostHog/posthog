@@ -118,7 +118,7 @@ mypy-extensions==0.4.3
     #   -c requirements.txt
     #   -r requirements-dev.in
     #   mypy
-numpy==1.21.4
+numpy==1.22.0
     # via
     #   -c requirements.txt
     #   -r requirements-dev.in
