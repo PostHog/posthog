@@ -10,6 +10,7 @@ import { SlackIntegration } from './SlackIntegration'
 export default {
     title: 'Components/Integrations/Slack',
     component: SlackIntegration,
+    parameters: { layout: 'fullscreen', options: { showPanel: false }, viewMode: 'canvas' },
 } as ComponentMeta<typeof SlackIntegration>
 
 const Template = (args: { instanceConfigured?: boolean; integrated?: boolean }): JSX.Element => {
@@ -21,10 +22,32 @@ const Template = (args: { instanceConfigured?: boolean; integrated?: boolean }):
     useStorybookMocks({
         get: {
             '/api/projects/:id/integrations': { results: integrated ? [mockIntegration] : [] },
+            '/api/instance_settings': {
+                results: instanceConfigured
+                    ? [
+                          {
+                              key: 'SLACK_APP_CLIENT_ID',
+                              value: '910200304849.3676478528614',
+                          },
+                          {
+                              key: 'SLACK_APP_CLIENT_SECRET',
+                              value: '*****',
+                          },
+                          {
+                              key: 'SLACK_APP_SIGNING_SECRET',
+                              value: '*****',
+                          },
+                      ]
+                    : [],
+            },
         },
     })
 
-    return <SlackIntegration />
+    return (
+        <div className="border-all pa ma">
+            <SlackIntegration />
+        </div>
+    )
 }
 
 export const SlackIntegration_ = (): JSX.Element => {

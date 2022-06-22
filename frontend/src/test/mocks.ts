@@ -191,7 +191,12 @@ export const createMockSubscription = (args: Partial<SubscriptionType> = {}): Su
 export const mockIntegration: IntegrationType = {
     id: 1,
     kind: 'slack',
-    config: {},
+    config: {
+        team: {
+            id: '123',
+            name: 'PostHog',
+        },
+    },
     created_at: '2022-01-01T00:09:00',
 }
 
