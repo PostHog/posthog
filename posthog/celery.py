@@ -220,7 +220,7 @@ def pg_plugin_server_query_timing():
             )
 
             for row in cursor.fetchall():
-                row_dictionary = {description.name: value for description, value in zip(cursor.description, row)}
+                row_dictionary = {column.name: value for column, value in zip(cursor.description, row)}
 
                 for key, value in row_dictionary.items():
                     if key == "query_type":
