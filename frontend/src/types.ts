@@ -1931,3 +1931,10 @@ export interface ChangeDescriptions {
     // e.g. should description say "did deletion _to_ Y" or "deleted Y"
     bareName: boolean
 }
+
+export type TimeUnit = 'hours' | 'minutes' | 'seconds'
+
+export type Duration = {
+    timeValue: number
+    unit: TimeUnit
+}
