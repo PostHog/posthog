@@ -1373,11 +1373,12 @@ export class DB {
             actions[rawAction.team_id][rawAction.id] = {
                 ...rawAction,
                 steps: [],
+                hooks: [],
             }
         }
         for (const hook of restHooks) {
             if (hook.resource_id !== null && actions[hook.team_id]?.[hook.resource_id]) {
-                actions[hook.team_id][hook.resource_id].hook = hook
+                actions[hook.team_id][hook.resource_id].hooks.push(hook)
             }
         }
         for (const actionStep of actionSteps) {

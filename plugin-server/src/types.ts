@@ -806,7 +806,7 @@ export interface RawAction {
 /** Usable Action model. */
 export interface Action extends RawAction {
     steps: ActionStep[]
-    hook?: Hook
+    hooks: Hook[]
 }
 
 export interface SessionRecordingEvent {

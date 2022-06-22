@@ -63,6 +63,7 @@ describe('DB', () => {
                         slack_message_format: '',
                         is_calculating: false,
                         steps: [],
+                        hooks: [],
                     },
                 },
             })
@@ -112,6 +113,7 @@ describe('DB', () => {
                                 ],
                             },
                         ],
+                        hooks: [],
                     },
                 },
             })
@@ -142,13 +144,15 @@ describe('DB', () => {
                         slack_message_format: '',
                         is_calculating: false,
                         steps: [],
-                        hook: {
-                            id: 'abc',
-                            team_id: 2,
-                            resource_id: 69,
-                            event: 'action_performed',
-                            target: 'https://rest-hooks.example.com/',
-                        },
+                        hooks: [
+                            {
+                                id: 'abc',
+                                team_id: 2,
+                                resource_id: 69,
+                                event: 'action_performed',
+                                target: 'https://rest-hooks.example.com/',
+                            },
+                        ],
                     },
                 },
             })
