@@ -31,7 +31,7 @@ export function EntityFilterInfo({
     // No filter
     if (filter.type === EntityTypes.NEW_ENTITY || !title) {
         return (
-            <TextWrapper title="Select event" style={{ color: 'var(--muted-alt)' }}>
+            <TextWrapper title="Select filter" style={{ color: 'var(--muted-alt)' }}>
                 Select event
             </TextWrapper>
         )
