@@ -249,9 +249,6 @@ jobs:
             - uses: actions/checkout@v2
               with:
                   fetch-depth: 1
-                  repository: ${{ github.event.pull_request.head.repo.full_name }}
-                  ref: ${{ github.event.pull_request.head.ref }}
-                  token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
 
             - uses: ./.github/actions/run-backend-tests
               with:
@@ -264,21 +261,14 @@ jobs:
                   group: ${{ matrix.group }}
                   person-on-events: ${{ matrix.person-on-events }}
 
-            - uses: EndBug/add-and-commit@v9 # You can change this to use a specific version.
-              if: ${{ matrix.clickhouse-server-image == 'clickhouse/clickhouse-server:22.3' && !matrix.person-on-events }}
+            - uses: EndBug/add-and-commit@v9
+              if: matrix.group == 1
               with:
-                  # The arguments for the `git add` command (see the paragraph below for more info)
-                  # Default: '.'
-                  add: '["ee/clickhouse", "posthog/api/test/__snapshots__", "posthog/test/__snapshots__"]'
-
-                  default_author: github_actions
-
-                  # The message for the commit.
-                  # Default: 'Commit from GitHub Actions (name of the workflow)'
                   message: 'Update snapshots'
+
             - name: Archive email renders
               uses: actions/upload-artifact@v3
-              if: ${{ matrix.foss }}
+              if: matrix.foss
               with:
                   name: email_renders
                   path: posthog/tasks/test/__emails__
