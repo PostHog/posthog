@@ -17,7 +17,6 @@ import {
 } from '../../config/kafka-topics'
 import {
     Action,
-    ActionEventPair,
     ActionStep,
     ClickHouseEvent,
     ClickhouseGroup,
@@ -1368,15 +1367,6 @@ export class DB {
         ).rows
         const action: Action = { ...rawActions[0], steps }
         return action
-    }
-
-    public async fetchActionMatches(): Promise<ActionEventPair[]> {
-        const result = await this.postgresQuery<ActionEventPair>(
-            'SELECT * FROM posthog_action_events',
-            undefined,
-            'fetchActionMatches'
-        )
-        return result.rows
     }
 
     // Organization

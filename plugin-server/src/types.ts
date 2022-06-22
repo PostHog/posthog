@@ -811,13 +811,6 @@ export interface Action extends RawAction {
     steps: ActionStep[]
 }
 
-/** Action<>Event mapping row. */
-export interface ActionEventPair {
-    id: number
-    action_id: Action['id']
-    event_id: Event['id']
-}
-
 export interface SessionRecordingEvent {
     uuid: string
     timestamp: string
