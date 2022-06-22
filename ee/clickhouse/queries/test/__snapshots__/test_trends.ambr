@@ -15,7 +15,7 @@
         HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
      INNER JOIN
        (SELECT id,
-               argMax(properties, _timestamp) as person_props
+               argMax(properties, version) as person_props
         FROM person
         WHERE team_id = 2
         GROUP BY id
@@ -93,7 +93,7 @@
                     HAVING argMax(is_deleted, version) = 0) as pdi ON events.distinct_id = pdi.distinct_id
                  INNER JOIN
                    (SELECT id,
-                           argMax(properties, _timestamp) as person_props
+                           argMax(properties, version) as person_props
                     FROM person
                     WHERE team_id = 2
                     GROUP BY id
