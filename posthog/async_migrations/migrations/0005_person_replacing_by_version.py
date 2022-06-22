@@ -37,8 +37,8 @@ The migration strategy:
     1. We create a new table with the appropriate schema
     2. Ingest both in there and into old table
     3. Copy data over from original `persons` table.
-    4. Backfill person rows from postgres
-    5. Swap the tables
+    4. Swap the tables
+    5. Try backfill person rows from postgres
 
 Constraints:
 - Existing table will have a lot of rows with version = 0 - we need to re-copy them from postgres.
@@ -48,6 +48,8 @@ Constraints:
     multiple materialized views.
 - Copying `persons` from postgres will be the slow part here and should be resumable. We leverage the fact
     person ids are monotonically increasing for this reason.
+- If backfilling from postgres fails, we only log the error - it's not operationally catastrophic and no reason to
+    roll everything back.
 """
 
 REDIS_HIGHWATERMARK_KEY = "posthog.async_migrations.0005.highwatermark"
