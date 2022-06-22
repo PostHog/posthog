@@ -4,8 +4,11 @@ import {
     EventDefinition,
     EventType,
     FilterLogicalOperator,
+    IntegrationType,
     PropertyDefinition,
     PropertyOperator,
+    SlackChannelType,
+    SubscriptionType,
     TimeUnitType,
 } from '~/types'
 import { PROPERTY_MATCH_TYPE } from 'lib/constants'
@@ -164,3 +167,54 @@ export const mockCohort: CohortType = {
         },
     },
 }
+
+export const mockSubscription: SubscriptionType = {
+    id: 1,
+    title: 'My example subscription',
+    target_type: 'email',
+    target_value: 'ben@posthog.com,geoff@other-company.com',
+    frequency: 'monthly',
+    interval: 2,
+    start_date: '2022-01-01T00:09:00',
+    byweekday: ['wednesday'],
+    bysetpos: 1,
+    summary: 'sent every month on the first wednesday',
+    created_at: '2022-01-01T00:09:00',
+    updated_at: '2022-01-01T00:09:00',
+}
+
+export const createMockSubscription = (args: Partial<SubscriptionType> = {}): SubscriptionType => ({
+    ...mockSubscription,
+    ...args,
+})
+
+export const mockIntegration: IntegrationType = {
+    id: 1,
+    kind: 'slack',
+    config: {},
+    created_at: '2022-01-01T00:09:00',
+}
+
+export const mockSlackChannel: SlackChannelType = {
+    id: 'C1234',
+    name: '#general',
+    is_private: false,
+}
+
+export const mockSlackChannels: SlackChannelType[] = [
+    {
+        id: 'C1234',
+        name: 'general',
+        is_private: false,
+    },
+    {
+        id: 'C1234',
+        name: 'dev',
+        is_private: false,
+    },
+    {
+        id: 'C1234',
+        name: 'pineapple-conspiracies',
+        is_private: true,
+    },
+]

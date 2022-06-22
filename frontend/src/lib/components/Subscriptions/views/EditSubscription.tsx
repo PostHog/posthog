@@ -23,10 +23,11 @@ import {
     timeOptions,
     weekdayOptions,
 } from '../utils'
-import { LemonDivider, LemonInput, LemonTextArea } from '@posthog/lemon-ui'
+import { LemonDivider, LemonInput, LemonTextArea, Link } from '@posthog/lemon-ui'
 import { integrationsLogic } from 'scenes/project/Settings/integrationsLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { urls } from 'scenes/urls'
 
 interface EditSubscriptionProps extends SubscriptionBaseProps {
     id: number | 'new'
@@ -56,13 +57,12 @@ export function EditSubscription({
     const { subscription, isSubscriptionSubmitting, subscriptionChanged } = useValues(logic)
     const { preflight, siteUrlMisconfigured } = useValues(preflightLogic)
     const { deleteSubscription } = useActions(subscriptionslogic)
-    const { slackChannels, slackChannelsLoading } = useValues(integrationsLogic)
+    const { slackChannels, slackChannelsLoading, slackIntegration } = useValues(integrationsLogic)
     const { loadSlackChannels } = useActions(integrationsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
     const emailDisabled = !preflight?.email_service_available
-
-    const formDisabled = subscription.target_type === 'email' && emailDisabled
+    const slackDisabled = !slackIntegration
 
     const _onDelete = (): void => {
         if (id !== 'new') {
@@ -74,7 +74,6 @@ export function EditSubscription({
     const commonSelectProps: Partial<LemonSelectProps<LemonSelectOptions>> = {
         type: 'stealth',
         outlined: true,
-        disabled: formDisabled,
         dropdownMaxWindowDimensions: true,
     }
 
@@ -105,24 +104,8 @@ export function EditSubscription({
                             className={'mb'}
                         />
                     ) : null}
-                    {formDisabled && emailDisabled && (
-                        <AlertMessage type="error">
-                            <>
-                                Email subscriptions are not currently possible as this PostHog instance isn't{' '}
-                                <a
-                                    href="https://posthog.com/docs/self-host/configure/email"
-                                    target="_blank"
-                                    rel="noopener"
-                                >
-                                    configured&nbsp;to&nbsp;send&nbsp;emails&nbsp;
-                                    <IconOpenInNew />
-                                </a>
-                                .
-                            </>
-                        </AlertMessage>
-                    )}
 
-                    {subscription.target_type === 'email' && siteUrlMisconfigured && (
+                    {siteUrlMisconfigured && (
                         <AlertMessage type="warning">
                             <>
                                 Your <code>SITE_URL</code> environment variable seems misconfigured. Your{' '}
@@ -134,12 +117,13 @@ export function EditSubscription({
                                 <b>
                                     <code>{window.location.origin}</code>
                                 </b>
-                                . In order for PostHog to work properly, please set this to the origin where your
-                                instance is hosted.{' '}
+                                . <br />
+                                If this value is not configured correctly PostHog may be unable to correctly send
+                                Subscriptions.{' '}
                                 <a
                                     target="_blank"
                                     rel="noopener"
-                                    href="https://posthog.com/docs/configuring-posthog/environment-variables?utm_medium=in-product&utm_campaign=system-status-site-url-misconfig"
+                                    href="https://posthog.com/docs/configuring-posthog/environment-variables?utm_medium=in-product&utm_campaign=subcriptions-system-status-site-url-misconfig"
                                 >
                                     Learn more <IconOpenInNew />
                                 </a>
@@ -148,7 +132,7 @@ export function EditSubscription({
                     )}
 
                     <Field name={'title'} label={'Name'}>
-                        <LemonInput placeholder="e.g. Weekly team report" disabled={formDisabled} />
+                        <LemonInput placeholder="e.g. Weekly team report" />
                     </Field>
 
                     {featureFlags[FEATURE_FLAGS.SUBSCRIPTIONS_SLACK] && (
@@ -159,11 +143,27 @@ export function EditSubscription({
 
                     {subscription.target_type === 'email' ? (
                         <>
+                            {emailDisabled && (
+                                <AlertMessage type="error">
+                                    <>
+                                        Email subscriptions are not currently possible as this PostHog instance isn't{' '}
+                                        <a
+                                            href="https://posthog.com/docs/self-host/configure/email"
+                                            target="_blank"
+                                            rel="noopener"
+                                        >
+                                            configured&nbsp;to&nbsp;send&nbsp;emails&nbsp;
+                                            <IconOpenInNew />
+                                        </a>
+                                        .
+                                    </>
+                                </AlertMessage>
+                            )}
                             <Field name={'target_value'} label={'Who do you want to subscribe'}>
                                 {({ value, onChange }) => (
                                     <>
                                         <Select
-                                            disabled={formDisabled}
+                                            disabled={emailDisabled}
                                             bordered
                                             mode="tags"
                                             dropdownMatchSelectWidth={false}
@@ -180,16 +180,27 @@ export function EditSubscription({
                                 )}
                             </Field>
                             <Field name={'invite_message'} label={'Message (optional)'}>
-                                <LemonTextArea
-                                    placeholder="Your message to new subscribers (optional)"
-                                    disabled={formDisabled}
-                                />
+                                <LemonTextArea placeholder="Your message to new subscribers (optional)" />
                             </Field>
                         </>
                     ) : null}
 
                     {subscription.target_type === 'slack' ? (
                         <>
+                            {slackDisabled && (
+                                <>
+                                    <AlertMessage type="error">
+                                        <>
+                                            Slack is not yet configured for this project. You can configure it at{' '}
+                                            <Link to={`${urls.projectSettings()}#slack`}>
+                                                {' '}
+                                                Slack Integration settings
+                                            </Link>
+                                            .
+                                        </>
+                                    </AlertMessage>
+                                </>
+                            )}
                             <Field name={'target_value'} label={'Which Slack channel to send reports to'}>
                                 {({ value, onChange }) => (
                                     <>
@@ -197,6 +208,7 @@ export function EditSubscription({
                                             showSearch
                                             value={value}
                                             placeholder={'Pick a Slack channel'}
+                                            disabled={slackDisabled}
                                             filterOption={true}
                                             onChange={(val) => onChange(val)}
                                             notFoundContent={null}
@@ -220,9 +232,8 @@ export function EditSubscription({
                                         target="_blank"
                                         rel="noopener"
                                     >
-                                        See the Docs for more information.
+                                        See the Docs for more information
                                     </a>
-                                    .
                                 </>
                             </AlertMessage>
                         </>
@@ -231,7 +242,7 @@ export function EditSubscription({
                     {subscription.target_type === 'webhook' ? (
                         <>
                             <Field name={'target_value'} label={'Webhook URL'}>
-                                <LemonInput placeholder="https://example.com/webhooks/1234" disabled={formDisabled} />
+                                <LemonInput placeholder="https://example.com/webhooks/1234" />
                             </Field>
                             <div className="text-small text-muted mt-05">
                                 Webhooks will be called with a HTTP POST request. The webhook endpoint should respond
@@ -338,7 +349,7 @@ export function EditSubscription({
                             type="primary"
                             htmlType="submit"
                             loading={isSubscriptionSubmitting}
-                            disabled={formDisabled || !subscriptionChanged}
+                            disabled={!subscriptionChanged}
                         >
                             {id === 'new' ? 'Create subscription' : 'Save'}
                         </LemonButton>

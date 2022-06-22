@@ -1,11 +1,14 @@
-import React, { useRef } from 'react'
+import React, { useRef, useState } from 'react'
 import { ComponentMeta } from '@storybook/react'
-import { Subscriptions, SubscriptionsModalProps } from './SubscriptionsModal'
-import { AvailableFeature, InsightShortId, Realm, SubscriptionType } from '~/types'
+import { Subscriptions, SubscriptionsModal, SubscriptionsModalProps } from './SubscriptionsModal'
+import { AvailableFeature, InsightShortId, Realm } from '~/types'
 import preflightJson from '~/mocks/fixtures/_preflight.json'
 import { useAvailableFeatures } from '~/mocks/features'
 import { uuid } from 'lib/utils'
-import { useStorybookMocks } from '~/mocks/browser'
+import { useFeatureFlags, useStorybookMocks } from '~/mocks/browser'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { LemonButton } from '../LemonButton'
+import { createMockSubscription, mockIntegration, mockSlackChannels } from '~/test/mocks'
 
 export default {
     title: 'Components/Subscriptions',
@@ -13,28 +16,15 @@ export default {
     parameters: { layout: 'fullscreen', options: { showPanel: false }, viewMode: 'canvas' },
 } as ComponentMeta<typeof Subscriptions>
 
-const createSubscription = (args: Partial<SubscriptionType> = {}): SubscriptionType =>
-    ({
-        id: 1,
-        title: 'My example subscription',
-        target_type: 'email',
-        target_value: 'ben@posthog.com,geoff@other-company.com',
-        frequency: 'monthly',
-        interval: 2,
-        start_date: '2022-01-01T00:09:00',
-        byweekday: ['wednesday'],
-        bysetpos: 1,
-        summary: 'sent every month on the first wednesday',
-        ...args,
-    } as SubscriptionType)
-
 const Template = (
     args: Partial<SubscriptionsModalProps> & { preflightIssues?: boolean; featureAvailable?: boolean }
 ): JSX.Element => {
     const { preflightIssues = false, featureAvailable = true, ...props } = args
     const insightShortIdRef = useRef(props.insightShortId || (uuid() as InsightShortId))
+    const [modalOpen, setModalOpen] = useState(false)
 
     useAvailableFeatures(featureAvailable ? [AvailableFeature.SUBSCRIPTIONS] : [])
+    useFeatureFlags([FEATURE_FLAGS.SUBSCRIPTIONS_SLACK])
 
     useStorybookMocks({
         get: {
@@ -49,29 +39,53 @@ const Template = (
                     insightShortIdRef.current === 'empty'
                         ? []
                         : [
-                              createSubscription(),
-                              createSubscription({
+                              createMockSubscription(),
+                              createMockSubscription({
                                   title: 'Weekly C-level report',
                                   target_value: 'james@posthog.com',
                                   frequency: 'weekly',
                                   interval: 1,
                               }),
+                              createMockSubscription({
+                                  title: 'Daily Slack report',
+                                  target_type: 'slack',
+                                  target_value: 'C123|#general',
+                                  frequency: 'weekly',
+                                  interval: 1,
+                              }),
                           ],
             },
-            '/api/projects/:id/subscriptions/:subId': createSubscription(),
+            '/api/projects/:id/subscriptions/:subId': createMockSubscription(),
+            '/api/projects/:id/integrations': { results: [mockIntegration] },
+            '/api/projects/:id/integrations/:intId/channels': { channels: mockSlackChannels },
         },
     })
 
     return (
-        <div className="LemonModal">
-            <div className="border-all ant-modal-body" style={{ width: 650, margin: '20px auto' }}>
-                <Subscriptions
-                    {...(props as SubscriptionsModalProps)}
-                    closeModal={() => console.log('close')}
-                    insightShortId={insightShortIdRef.current}
-                    visible={true}
-                />
+        <div>
+            <div className="LemonModal">
+                <div className="border-all ant-modal-body" style={{ width: 650, margin: '20px auto' }}>
+                    <Subscriptions
+                        {...(props as SubscriptionsModalProps)}
+                        closeModal={() => console.log('close')}
+                        insightShortId={insightShortIdRef.current}
+                        visible={true}
+                    />
+                </div>
             </div>
+
+            <div className="flex justify-center mt">
+                <LemonButton onClick={() => setModalOpen(true)} type="primary">
+                    Open as Modal
+                </LemonButton>
+            </div>
+
+            <SubscriptionsModal
+                {...(props as SubscriptionsModalProps)}
+                closeModal={() => setModalOpen(false)}
+                insightShortId={insightShortIdRef.current}
+                visible={modalOpen}
+            />
         </div>
     )
 }
