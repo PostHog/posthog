@@ -1,5 +1,6 @@
 import os
 import time
+from datetime import datetime
 from random import randrange
 
 from celery import Celery, group
@@ -156,7 +157,7 @@ def post_process_snapshot_recordings():
     if not get_instance_setting("RECORDINGS_POST_PROCESSING_ACTIVE"):
         return
 
-    sessions_to_process = get_session_recordings_for_oldest_partition()
+    sessions_to_process = get_session_recordings_for_oldest_partition(datetime.now)
     res = group(
         post_process_session.s(session_id, team_id, partition)
         for (session_id, team_id, partition) in sessions_to_process

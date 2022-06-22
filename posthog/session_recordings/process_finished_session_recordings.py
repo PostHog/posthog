@@ -18,15 +18,17 @@ from posthog.storage import object_storage
 logger = structlog.get_logger(__name__)
 
 
-def get_session_recordings_for_oldest_partition() -> List[Tuple[str, int, str]]:
+def get_session_recordings_for_oldest_partition(now: datetime) -> List[Tuple[str, int, str]]:
     query_result = sync_execute(
         f"""
-        with (SELECT toYYYYMMDD(min(timestamp)) FROM session_recording_events) as partition
-            SELECT session_id, team_id, partition
+        with (SELECT min(timestamp) FROM session_recording_events) as partition
+            SELECT session_id, team_id, toYYYYMMDD(partition)
             FROM session_recording_events
-            WHERE toYYYYMMDD(timestamp) = partition
+            WHERE toYYYYMMDD(timestamp) = toYYYYMMDD(partition)
+            and dateDiff('day', partition, parseDateTimeBestEffort(%(now_yyyymmdd)s)) > 3
             GROUP BY session_id, team_id
         """,
+        {"now_yyyymmdd": now.strftime("%Y-%m-%d")},
     )
 
     return [(session_id, team_id, str(partition)) for session_id, team_id, partition in query_result]

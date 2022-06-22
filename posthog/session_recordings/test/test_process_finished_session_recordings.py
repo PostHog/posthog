@@ -52,7 +52,6 @@ class TestProcessFinishedSessionRecordings(BaseTest):
         sync_execute(f"CREATE DATABASE {CLICKHOUSE_DATABASE}")
         create_clickhouse_tables(0)
 
-    # need to test that the last three days are not touched
     # need to test that previously migrated recordings are not re-processed
     # need to test that it processes the oldest unprocessed partition
 
@@ -71,13 +70,24 @@ class TestProcessFinishedSessionRecordings(BaseTest):
             _create_snapshot(session_id="c", timestamp=three_days_ago, team_id=self.team.id)
             _create_snapshot(session_id="c", timestamp=two_days_ago, team_id=self.team.id)
 
-        # don't run within the fixed now... object storage won't write when clock appears skewed
-        processed_sessions = get_session_recordings_for_oldest_partition()
+        processed_sessions = get_session_recordings_for_oldest_partition(fixed_now)
 
         partition = seven_days_ago.strftime("%Y%m%d")
         self.assertEqual(
             sorted(processed_sessions, key=lambda x: x[0]),
             [("a", self.team.id, partition), ("b", self.team.id, partition)],
+        )
+
+    def test_loads_recordings_from_oldest_partition_does_not_touch_the_last_three_days(self) -> None:
+        with freeze_time(fixed_now):
+            # session C is the oldest partition and is too recent to process
+            _create_snapshot(session_id="c", timestamp=three_days_ago, team_id=self.team.id)
+            _create_snapshot(session_id="c", timestamp=two_days_ago, team_id=self.team.id)
+
+        processed_sessions = get_session_recordings_for_oldest_partition(fixed_now)
+
+        self.assertEqual(
+            sorted(processed_sessions, key=lambda x: x[0]), [],
         )
 
     @patch("statshog.defaults.django.statsd.incr")
