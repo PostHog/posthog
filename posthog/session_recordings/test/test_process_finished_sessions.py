@@ -47,3 +47,6 @@ class TestProcessFinishedSessions(BaseTest):
             sorted(processed_sessions, key=lambda x: x[0]),
             [("a", self.team.id, partition), ("b", self.team.id, partition)],
         )
+
+    def test_writes_a_session_to_storage(self):
+        assert 1 == 2
