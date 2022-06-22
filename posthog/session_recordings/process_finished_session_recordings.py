@@ -67,7 +67,9 @@ def process_finished_session(session_id: str, team_id: int, partition: str) -> b
 
         # must be more than 48 hours since last event to be considered finished
         if (datetime.now(timezone.utc) - last_end_time).total_seconds() // 3600 < 48:
-            # todo log/statsd something
+            statsd.incr(
+                "session_recordings.process_finished_sessions.skipping_recently_active", tags={"team_id": team_id,}
+            )
             return False
 
         # YOLO write the whole thing as a single file

@@ -27,7 +27,9 @@ COUNT_COLUMN = 1
 PERSON_ID_COLUMN = 2
 
 
-def _create_session_recording_event(team_id, distinct_id, session_id, timestamp, window_id="", has_full_snapshot=True):
+def _create_session_recording_event(
+    team_id, distinct_id, session_id, timestamp, window_id="", has_full_snapshot=True
+) -> None:
     create_session_recording_event(
         uuid=uuid4(),
         team_id=team_id,

@@ -26,7 +26,7 @@ def create_snapshot(
 
     snapshot_data = {
         "data": {**data},
-        "timestamp": timestamp.timestamp(),
+        "timestamp": timestamp.timestamp() * 1000,
         "has_full_snapshot": has_full_snapshot,
         "type": type,
     }

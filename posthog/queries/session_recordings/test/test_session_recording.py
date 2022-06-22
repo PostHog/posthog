@@ -70,9 +70,24 @@ def factory_session_recording_test(session_recording: SessionRecording):
                     recording.snapshot_data_by_window_id,
                     {
                         "": [
-                            {"timestamp": 1600000000.0, "type": 2, "data": {"source": 0}, "has_full_snapshot": False,},
-                            {"timestamp": 1600000010.0, "type": 2, "data": {"source": 0}, "has_full_snapshot": False,},
-                            {"timestamp": 1600000030.0, "type": 2, "data": {"source": 0}, "has_full_snapshot": False,},
+                            {
+                                "timestamp": 1600000000000.0,
+                                "type": 2,
+                                "data": {"source": 0},
+                                "has_full_snapshot": False,
+                            },
+                            {
+                                "timestamp": 1600000010000.0,
+                                "type": 2,
+                                "data": {"source": 0},
+                                "has_full_snapshot": False,
+                            },
+                            {
+                                "timestamp": 1600000030000.0,
+                                "type": 2,
+                                "data": {"source": 0},
+                                "has_full_snapshot": False,
+                            },
                         ]
                     },
                 )
@@ -105,7 +120,16 @@ def factory_session_recording_test(session_recording: SessionRecording):
 
                 self.assertEqual(
                     recording.snapshot_data_by_window_id,
-                    {"": [{"data": {"source": 0}, "timestamp": 1600000000.0, "has_full_snapshot": False, "type": 2,}]},
+                    {
+                        "": [
+                            {
+                                "data": {"source": 0},
+                                "timestamp": 1600000000000.0,
+                                "has_full_snapshot": False,
+                                "type": 2,
+                            }
+                        ]
+                    },
                 )
 
         def test_get_snapshots_with_no_such_session(self):
