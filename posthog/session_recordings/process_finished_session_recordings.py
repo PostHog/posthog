@@ -21,13 +21,16 @@ logger = structlog.get_logger(__name__)
 def get_session_recordings_for_oldest_partition(now: datetime) -> List[Tuple[str, int, str]]:
     query_result = sync_execute(
         f"""
-        with (SELECT min(timestamp) FROM session_recording_events) as partition
+        with (
+            SELECT min(timestamp) FROM session_recording_events
+            where session_id NOT IN (SELECT session_id FROM session_recordings)
+            ) as partition
             SELECT session_id, team_id, toYYYYMMDD(partition)
-            FROM session_recording_events
-            WHERE toYYYYMMDD(timestamp) = toYYYYMMDD(partition)
-            and dateDiff('day', partition, parseDateTimeBestEffort(%(now_yyyymmdd)s)) > 3
-            and session_id not in (select session_id from session_recordings)
-            GROUP BY session_id, team_id
+                FROM session_recording_events
+                WHERE toYYYYMMDD(timestamp) = toYYYYMMDD(partition)
+                AND dateDiff('day', partition, parseDateTimeBestEffort(%(now_yyyymmdd)s)) > 3
+                AND session_id NOT IN (SELECT session_id FROM session_recordings)
+                GROUP BY session_id, team_id
         """,
         {"now_yyyymmdd": now.strftime("%Y-%m-%d")},
     )

@@ -15,6 +15,8 @@ from posthog.session_recordings.test.test_factory import create_snapshot
 from posthog.test.base import BaseTest
 
 fixed_now = isoparse("2021-08-25T22:09:14.252Z")
+nine_days_ago = fixed_now - timedelta(days=9)
+eight_days_ago = fixed_now - timedelta(days=8)
 seven_days_ago = fixed_now - timedelta(days=7)
 four_days_ago = fixed_now - timedelta(days=4)
 three_days_ago = fixed_now - timedelta(days=3)
@@ -23,6 +25,19 @@ two_days_ago = fixed_now - timedelta(days=2)
 
 def _create_snapshot(session_id: str, timestamp: datetime, team_id: int):
     return create_snapshot(session_id=session_id, window_id="1", team_id=team_id, timestamp=timestamp)
+
+
+def _write_to_recordings(session_id: str, timestamp: datetime) -> None:
+    date_string = timestamp.strftime("%Y-%m-%d")
+    sync_execute(
+        f"""
+        insert into session_recordings (
+        team_id, distinct_id, session_id, session_start, session_end, duration, metadata, snapshot_data_location, _timestamp, _offset
+        ) values (
+        1, 1, '{session_id}', '{date_string}', '{date_string}', 24, 'hello', 'hello', '{date_string}', 0
+        )
+        """
+    )
 
 
 class TestProcessFinishedSessionRecordings(BaseTest):
@@ -79,7 +94,7 @@ class TestProcessFinishedSessionRecordings(BaseTest):
             sorted(processed_sessions, key=lambda x: x[0]), [],
         )
 
-    def test_loads_recordings_from_oldest_partition_that_are_not_already_processed(self) -> None:
+    def test_loads_recordings_from_oldest_partition_if_they_are_not_already_processed(self) -> None:
         with freeze_time(fixed_now):
             # session D is on the oldest partition and should be processed
             _create_snapshot(session_id="d", timestamp=seven_days_ago, team_id=self.team.id)
@@ -89,19 +104,33 @@ class TestProcessFinishedSessionRecordings(BaseTest):
             _create_snapshot(session_id="e", timestamp=seven_days_ago, team_id=self.team.id)
             _create_snapshot(session_id="e", timestamp=four_days_ago, team_id=self.team.id)
 
-            sync_execute(
-                """
-                insert into session_recordings (
-                team_id, distinct_id, session_id, session_start, session_end, duration, metadata, snapshot_data_location, _timestamp, _offset
-                ) values (
-                1, 1, 'e', '2021-08-01', '2021-08-02', 24, 'hello', 'hello', '2021-08-01', 0
-                )
-                """
-            )
+            _write_to_recordings("e", seven_days_ago)
 
         processed_sessions = get_session_recordings_for_oldest_partition(fixed_now)
 
         self.assertEqual(sorted(processed_sessions, key=lambda x: x[0]), [("d", self.team.id, "20210818")])
+
+    def test_loads_recordings_from_oldest_unprocessed_partition(self) -> None:
+        with freeze_time(fixed_now):
+            # session D is on the oldest partition but has already been processed
+            _create_snapshot(session_id="d", timestamp=nine_days_ago, team_id=self.team.id)
+            _create_snapshot(session_id="d", timestamp=nine_days_ago + timedelta(minutes=30), team_id=self.team.id)
+            _write_to_recordings("d", nine_days_ago)
+
+            # session E is on both partitions but has already been processed
+            _create_snapshot(session_id="e", timestamp=nine_days_ago + timedelta(minutes=40), team_id=self.team.id)
+            _create_snapshot(session_id="e", timestamp=seven_days_ago, team_id=self.team.id)
+            _write_to_recordings("e", nine_days_ago)
+
+            # session F is not on the oldest partition but is on the oldest unprocessed partition
+            _create_snapshot(session_id="f", timestamp=seven_days_ago, team_id=self.team.id)
+            _create_snapshot(session_id="f", timestamp=four_days_ago, team_id=self.team.id)
+
+        processed_sessions = get_session_recordings_for_oldest_partition(fixed_now)
+
+        self.assertEqual(
+            sorted(processed_sessions, key=lambda x: x[0]), [("f", self.team.id, seven_days_ago.strftime("%Y%m%d"))]
+        )
 
     @patch("statshog.defaults.django.statsd.incr")
     def test_ignores_empty_session(self, statsd_incr) -> None:
