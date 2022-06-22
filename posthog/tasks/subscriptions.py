@@ -48,6 +48,7 @@ def send_email_subscription_report(
     subject = "Posthog Report"
     resource_noun = None
     resource_url = None
+    invite_summary = None
 
     if subscription.insight:
         resource_name = f"{subscription.insight.name or subscription.insight.derived_name}"
@@ -61,9 +62,10 @@ def send_email_subscription_report(
         raise NotImplementedError()
 
     subject = f"PostHog {resource_noun} report - {resource_name}"
-    campaign_key = f"{resource_noun.lower()}_subscription_report_{subscription.next_delivery_date.isoformat()}"
+    campaign_key = f"{resource_noun.lower()}_subscription_report_{subscription.next_delivery_date.timestamp()}"
 
     if is_invite:
+        invite_summary = f"This subscription is { subscription.summary }. The next subscription will be sent on { subscription.next_delivery_date.strftime('%A %B %d, %Y')}"
         if self_invite:
             subject = f"You have been subscribed to a PostHog {resource_noun}"
         else:
@@ -84,6 +86,7 @@ def send_email_subscription_report(
             "inviter": inviter if is_invite else None,
             "self_invite": self_invite,
             "invite_message": invite_message,
+            "invite_summary": invite_summary,
             "total_asset_count": total_asset_count,
         },
     )

@@ -18,6 +18,7 @@ MATH_TYPE = Literal[
     "weekly_active",
     "monthly_active",
     "unique_group",
+    "unique_session",
     "sum",
     "min",
     "max",
