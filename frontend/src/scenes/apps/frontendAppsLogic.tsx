@@ -48,7 +48,7 @@ export const frontendAppsLogic = kea<frontendAppsLogicType>([
                                 pluginConfigId: id,
                                 pluginId: pluginId,
                                 pluginType: plugin?.plugin_type ?? null,
-                                name: plugin?.name ?? `App #${id}`,
+                                name: plugin?.name ?? `App ID ${id}`,
                             },
                         })
                     }
