@@ -110,6 +110,9 @@ class ColumnOptimizer:
             if entity.math_property:
                 counter[(entity.math_property, "event", None)] += 1
 
+            if entity.math == "unique_session":
+                counter[(f"$session_id", "event", None)] += 1
+
             # :TRICKY: If action contains property filters, these need to be included
             #
             # See ee/clickhouse/models/action.py#format_action_filter for an example

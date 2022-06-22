@@ -514,6 +514,9 @@ def verify_persons_data_in_sync():
 
 @app.task(ignore_result=True)
 def schedule_all_subscriptions():
-    from ee.tasks.subscriptions import schedule_all_subscriptions
-
-    schedule_all_subscriptions()
+    try:
+        from ee.tasks.subscriptions import schedule_all_subscriptions
+    except ImportError:
+        pass
+    else:
+        schedule_all_subscriptions()
