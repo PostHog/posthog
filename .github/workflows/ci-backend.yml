@@ -264,8 +264,9 @@ jobs:
                   person-on-events: ${{ matrix.person-on-events }}
 
             - uses: EndBug/add-and-commit@v9
-              # Don't run on forks
-              if: ${{ !matrix.person-on-events && github.event.pull_request.head.repo.full_name == github.repository }}
+              # Skip on forks
+              # Also skip in extra variant runs (FOSS or persons-on-events), as we want to ignore snapshots diverging there
+              if: ${{ !matrix.person-on-events && !matrix.foss && github.event.pull_request.head.repo.full_name == github.repository }}
               with:
                   message: 'Update snapshots'
 
