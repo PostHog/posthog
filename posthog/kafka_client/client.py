@@ -7,8 +7,8 @@ from kafka import KafkaConsumer as KC
 from kafka import KafkaProducer as KP
 from structlog import get_logger
 
-from ee.kafka_client import helper
 from posthog.client import async_execute, sync_execute
+from posthog.kafka_client import helper
 from posthog.settings import (
     KAFKA_BASE64_KEYS,
     KAFKA_HOSTS,

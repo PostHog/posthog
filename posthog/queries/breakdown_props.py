@@ -1,7 +1,5 @@
 from typing import Any, Dict, List, Optional, Tuple, Union, cast
 
-from ee.clickhouse.queries.column_optimizer import EnterpriseColumnOptimizer
-from ee.clickhouse.queries.groups_join_query import GroupsJoinQuery
 from posthog.client import sync_execute
 from posthog.constants import BREAKDOWN_TYPES, PropertyOperatorType
 from posthog.models.cohort import Cohort
@@ -18,6 +16,8 @@ from posthog.models.property.util import (
 )
 from posthog.models.team import Team
 from posthog.models.utils import PersonPropertiesMode
+from posthog.queries.column_optimizer.column_optimizer import ColumnOptimizer
+from posthog.queries.groups_join_query import GroupsJoinQuery
 from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
 from posthog.queries.person_query import PersonQuery
 from posthog.queries.trends.sql import TOP_ELEMENTS_ARRAY_OF_KEY_SQL
@@ -32,7 +32,7 @@ def get_breakdown_prop_values(
     aggregate_operation: str,
     team: Team,
     extra_params={},
-    column_optimizer: Optional[EnterpriseColumnOptimizer] = None,
+    column_optimizer: Optional[ColumnOptimizer] = None,
     person_properties_mode: PersonPropertiesMode = PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
     use_all_funnel_entities: bool = False,
 ):
@@ -41,7 +41,7 @@ def get_breakdown_prop_values(
 
     e.g. for Browser with limit 3 might return ['Chrome', 'Safari', 'Firefox', 'Other']
     """
-    column_optimizer = column_optimizer or EnterpriseColumnOptimizer(filter, team.id)
+    column_optimizer = column_optimizer or ColumnOptimizer(filter, team.id)
     parsed_date_from, parsed_date_to, date_params = parse_timestamps(filter=filter, team=team)
 
     if not use_all_funnel_entities:

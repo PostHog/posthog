@@ -4,7 +4,6 @@ from uuid import UUID, uuid4
 from django.utils import timezone
 from freezegun import freeze_time
 
-from ee.clickhouse.test.test_journeys import journeys_for
 from posthog.constants import INSIGHT_FUNNELS
 from posthog.models.filters import Filter
 from posthog.models.session_recording_event.util import create_session_recording_event
@@ -16,6 +15,7 @@ from posthog.test.base import (
     _create_person,
     snapshot_clickhouse_queries,
 )
+from posthog.test.test_journeys import journeys_for
 
 FORMAT_TIME = "%Y-%m-%d 00:00:00"
 
