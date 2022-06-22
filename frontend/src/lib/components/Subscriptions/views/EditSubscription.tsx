@@ -25,6 +25,8 @@ import {
 } from '../utils'
 import { LemonDivider, LemonInput, LemonTextArea } from '@posthog/lemon-ui'
 import { integrationsLogic } from 'scenes/project/Settings/integrationsLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 interface EditSubscriptionProps extends SubscriptionBaseProps {
     id: number | 'new'
@@ -56,6 +58,7 @@ export function EditSubscription({
     const { deleteSubscription } = useActions(subscriptionslogic)
     const { slackChannels, slackChannelsLoading } = useValues(integrationsLogic)
     const { loadSlackChannels } = useActions(integrationsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const emailDisabled = !preflight?.email_service_available
 
@@ -148,9 +151,11 @@ export function EditSubscription({
                         <LemonInput placeholder="e.g. Weekly team report" disabled={formDisabled} />
                     </Field>
 
-                    <Field name={'target_type'} label={'Subscription Type'}>
-                        <LemonSelect options={targetTypeOptions} {...commonSelectProps} />
-                    </Field>
+                    {featureFlags[FEATURE_FLAGS.SUBSCRIPTIONS_SLACK] && (
+                        <Field name={'target_type'} label={'Subscription Type'}>
+                            <LemonSelect options={targetTypeOptions} {...commonSelectProps} />
+                        </Field>
+                    )}
 
                     {subscription.target_type === 'email' ? (
                         <>
