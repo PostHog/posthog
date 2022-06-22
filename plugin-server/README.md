@@ -40,7 +40,7 @@ By default, plugin-server is responsible for and executes all of the following:
 1. Ingestion (calling plugins and writing event and person data to ClickHouse and Postgres, buffering events)
 2. Scheduled tasks (runEveryX type plugin tasks)
 3. Processing plugin jobs
-4. Async plugin tasks (onEvent, onSnapshot, onAction plugin tasks)
+4. Async plugin tasks (onEvent, onSnapshot plugin tasks)
 
 Ingestion can be split into its own process at higher scales. To do so, you need to run two different instances of
 plugin-server, with the following environment variables set:
