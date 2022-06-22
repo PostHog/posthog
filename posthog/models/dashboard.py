@@ -5,6 +5,7 @@ from django.db import models
 from django_deprecate_fields import deprecate_field
 
 from posthog.constants import AvailableFeature
+from posthog.utils import absolute_uri
 
 
 class Dashboard(models.Model):
@@ -51,6 +52,10 @@ class Dashboard(models.Model):
     )
 
     @property
+    def url(self):
+        return absolute_uri(f"/dashboard/{self.id}")
+
+    @property
     def effective_restriction_level(self) -> RestrictionLevel:
         return (
             self.restriction_level
@@ -67,13 +72,19 @@ class Dashboard(models.Model):
         ):
             # Returning the highest access level if no checks needed
             return self.PrivilegeLevel.CAN_EDIT
-        from ee.models import DashboardPrivilege
 
         try:
-            return cast(Dashboard.PrivilegeLevel, self.privileges.values_list("level", flat=True).get(user_id=user_id))
-        except DashboardPrivilege.DoesNotExist:
-            # Returning the lowest access level if there's no explicit privilege for this user
+            from ee.models import DashboardPrivilege
+        except ImportError:
             return self.PrivilegeLevel.CAN_VIEW
+        else:
+            try:
+                return cast(
+                    Dashboard.PrivilegeLevel, self.privileges.values_list("level", flat=True).get(user_id=user_id)
+                )
+            except DashboardPrivilege.DoesNotExist:
+                # Returning the lowest access level if there's no explicit privilege for this user
+                return self.PrivilegeLevel.CAN_VIEW
 
     def can_user_edit(self, user_id: int) -> bool:
         if self.effective_restriction_level < self.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT:

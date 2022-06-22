@@ -1,8 +1,7 @@
 from abc import ABCMeta, abstractmethod
 from typing import Any, Dict, List, Optional, Tuple, Union
 
-from ee.clickhouse.materialized_columns.columns import ColumnName
-from ee.clickhouse.models.property import parse_prop_grouped_clauses
+from posthog.clickhouse.materialized_columns import ColumnName
 from posthog.models import Cohort, Filter, Property
 from posthog.models.cohort.util import is_precalculated_query
 from posthog.models.filters.mixins.utils import cached_property
@@ -11,9 +10,10 @@ from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.property import PropertyGroup, PropertyName
+from posthog.models.property.util import parse_prop_grouped_clauses
 from posthog.models.team import Team
 from posthog.models.utils import PersonPropertiesMode
-from posthog.queries.column_optimizer import ColumnOptimizer
+from posthog.queries.column_optimizer.column_optimizer import ColumnOptimizer
 from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
 from posthog.queries.person_query import PersonQuery
 from posthog.queries.util import parse_timestamps

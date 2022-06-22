@@ -1,6 +1,6 @@
 import React from 'react'
 import { useActions, useValues } from 'kea'
-import { Select, Tag } from 'antd'
+import { Select } from 'antd'
 import { chartFilterLogic } from './chartFilterLogic'
 import {
     AreaChartOutlined,
@@ -16,6 +16,7 @@ import { ANTD_TOOLTIP_PLACEMENTS } from 'lib/utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { toLocalFilters } from 'scenes/insights/ActionFilter/entityFilterLogic'
 import { Tooltip } from '../Tooltip'
+import { LemonTag } from '../LemonTag/LemonTag'
 
 interface ChartFilterProps {
     filters: FilterType
@@ -65,14 +66,6 @@ export function ChartFilter({ filters, onChange, disabled }: ChartFilterProps): 
         )
     }
 
-    function WarningTag({ children = null }: { children: React.ReactNode }): JSX.Element {
-        return (
-            <Tag color="orange" style={{ marginLeft: 8, fontSize: 10 }}>
-                {children}
-            </Tag>
-        )
-    }
-
     const options =
         filters.insight === InsightType.FUNNELS
             ? [
@@ -85,7 +78,9 @@ export function ChartFilter({ filters, onChange, disabled }: ChartFilterProps): 
                       label: (
                           <Label icon={<LineChartOutlined />}>
                               Trends
-                              <WarningTag>BETA</WarningTag>
+                              <LemonTag type="warning" style={{ marginLeft: 6, lineHeight: '1.4em' }}>
+                                  BETA
+                              </LemonTag>
                           </Label>
                       ),
                   },

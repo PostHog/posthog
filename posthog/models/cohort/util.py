@@ -8,7 +8,12 @@ from django.conf import settings
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 
-from ee.clickhouse.sql.cohort import (
+from posthog.client import sync_execute
+from posthog.constants import PropertyOperatorType
+from posthog.models import Action, Filter, Team
+from posthog.models.action.util import format_action_filter
+from posthog.models.cohort.cohort import Cohort
+from posthog.models.cohort.sql import (
     CALCULATE_COHORT_PEOPLE_SQL,
     GET_COHORT_SIZE_SQL,
     GET_COHORTS_BY_PERSON_UUID,
@@ -18,12 +23,7 @@ from ee.clickhouse.sql.cohort import (
     GET_STATIC_COHORTPEOPLE_BY_PERSON_UUID,
     RECALCULATE_COHORT_BY_ID,
 )
-from ee.clickhouse.sql.person import GET_PERSON_IDS_BY_FILTER, INSERT_PERSON_STATIC_COHORT, PERSON_STATIC_COHORT_TABLE
-from posthog.client import sync_execute
-from posthog.constants import PropertyOperatorType
-from posthog.models import Action, Filter, Team
-from posthog.models.action.util import format_action_filter
-from posthog.models.cohort.cohort import Cohort
+from posthog.models.person.sql import GET_PERSON_IDS_BY_FILTER, INSERT_PERSON_STATIC_COHORT, PERSON_STATIC_COHORT_TABLE
 from posthog.models.property import Property, PropertyGroup
 from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
 
@@ -43,7 +43,7 @@ def format_person_query(
         # No person can match an empty cohort
         return "0 = 19", {}
 
-    from ee.clickhouse.queries.cohort_query import CohortQuery
+    from posthog.queries.cohort_query import CohortQuery
 
     query, params = CohortQuery(
         Filter(data={"properties": cohort.properties}, team=cohort.team), cohort.team, cohort_pk=cohort.pk,
@@ -74,7 +74,7 @@ def format_precalculated_cohort_query(
 
 
 def get_properties_cohort_subquery(cohort: Cohort, cohort_group: Dict, group_idx: int) -> Tuple[str, Dict[str, Any]]:
-    from ee.clickhouse.models.property import prop_filter_json_extract
+    from posthog.models.property.util import prop_filter_json_extract
 
     filter = Filter(data=cohort_group)
     params: Dict[str, Any] = {}
@@ -247,7 +247,7 @@ def format_cohort_subquery(cohort: Cohort, index: int, custom_match_field="perso
 
 
 def get_person_ids_by_cohort_id(team: Team, cohort_id: int, limit: Optional[int] = None, offset: Optional[int] = None):
-    from ee.clickhouse.models.property import parse_prop_grouped_clauses
+    from posthog.models.property.util import parse_prop_grouped_clauses
 
     filters = Filter(data={"properties": [{"key": "id", "value": cohort_id, "type": "cohort"}],})
     filter_query, filter_params = parse_prop_grouped_clauses(

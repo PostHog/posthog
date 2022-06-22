@@ -114,6 +114,10 @@ export const FEATURE_FLAGS = {
     PROPERTY_FILTER_ON_DASHBOARD: 'property-filter-on-dashboard', // owner: @edscode
     EXPORT_DASHBOARD_INSIGHTS: 'export-dashboard-insights', // owner: @benjackwhite
     ONBOARDING_1_5: 'onboarding-1_5', // owner: @liyiy
+    BREAKDOWN_ATTRIBUTION: 'breakdown-attribution', // owner: @neilkakkar
+    INSIGHT_SUBSCRIPTIONS: 'insight-subscriptions', // owner: @benjackwhite
+    SIMPLIFY_ACTIONS: 'simplify-actions', // owner: @alexkim205,
+    SESSION_ANALYSIS: 'session-analysis', // owner: @rcmarron
 }
 
 /** Which self-hosted plan's features are available with Cloud's "Standard" plan (aka card attached). */
@@ -136,6 +140,7 @@ export const FEATURE_MINIMUM_PLAN: Record<AvailableFeature, LicensePlan> = {
     [AvailableFeature.PROJECT_BASED_PERMISSIONING]: LicensePlan.Enterprise,
     [AvailableFeature.SAML]: LicensePlan.Enterprise,
     [AvailableFeature.SSO_ENFORCEMENT]: LicensePlan.Enterprise,
+    [AvailableFeature.SUBSCRIPTIONS]: LicensePlan.Scale,
 }
 
 export const ENTITY_MATCH_TYPE = 'entities'

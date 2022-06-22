@@ -9,7 +9,13 @@ import { funnelCommandLogic } from './funnelCommandLogic'
 import { InfoCircleOutlined } from '@ant-design/icons'
 import { ToggleButtonChartFilter } from './ToggleButtonChartFilter'
 import { Tooltip } from 'lib/components/Tooltip'
-import { FunnelStepReference, FunnelVizType, StepOrderValue, PropertyGroupFilter } from '~/types'
+import {
+    FunnelStepReference,
+    FunnelVizType,
+    StepOrderValue,
+    PropertyGroupFilter,
+    BreakdownAttributionType,
+} from '~/types'
 import { BreakdownFilter } from 'scenes/insights/BreakdownFilter'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -25,15 +31,21 @@ import { FunnelStepReferencePicker } from './FunnelStepReferencePicker'
 import { convertPropertiesToPropertyGroup } from 'lib/utils'
 import { PropertyGroupFilters } from 'lib/components/PropertyGroupFilters/PropertyGroupFilters'
 import { MathAvailability } from 'scenes/insights/ActionFilter/ActionFilterRow/ActionFilterRow'
+import { LemonSelect } from '@posthog/lemon-ui'
 
 const FUNNEL_STEP_COUNT_LIMIT = 20
 
 export function FunnelTab(): JSX.Element {
     const { insightProps, allEventNames } = useValues(insightLogic)
     const { loadResults } = useActions(insightLogic)
-    const { isStepsEmpty, filters, aggregationTargetLabel, filterSteps, advancedOptionsUsedCount } = useValues(
-        funnelLogic(insightProps)
-    )
+    const {
+        isStepsEmpty,
+        filters,
+        aggregationTargetLabel,
+        filterSteps,
+        advancedOptionsUsedCount,
+        breakdownAttributionStepOptions,
+    } = useValues(funnelLogic(insightProps))
     const { setFilters, toggleAdvancedMode, setStepReference } = useActions(funnelLogic(insightProps))
     const { featureFlags } = useValues(featureFlagLogic)
     const { groupsTaxonomicTypes, showGroupsOptions } = useValues(groupsModel)
@@ -139,7 +151,7 @@ export function FunnelTab(): JSX.Element {
                     <>
                         <hr />
                         <h4 className="secondary">
-                            Breakdown
+                            Breakdown by
                             <Tooltip
                                 placement="right"
                                 title="Use breakdown to see the aggregation (total volume, active users, etc.) for each value of that property. For example, breaking down by Current URL with total volume will give you the event volume for each URL your users have visited."
@@ -155,6 +167,70 @@ export function FunnelTab(): JSX.Element {
                                 useMultiBreakdown={!!featureFlags[FEATURE_FLAGS.BREAKDOWN_BY_MULTIPLE_PROPERTIES]}
                             />
                         </Row>
+                        {featureFlags[FEATURE_FLAGS.BREAKDOWN_ATTRIBUTION] && (
+                            <>
+                                <h4 className="secondary mt">
+                                    Attribution Type
+                                    <Tooltip placement="right" title="filler">
+                                        <InfoCircleOutlined className="info-indicator" />
+                                    </Tooltip>
+                                </h4>
+                                <Row>
+                                    <LemonSelect
+                                        value={
+                                            filters.breakdown_attribution_type || BreakdownAttributionType.FirstTouch
+                                        }
+                                        placeholder="Attribution"
+                                        options={{
+                                            [BreakdownAttributionType.FirstTouch]: { label: 'First touchpoint' },
+                                            [BreakdownAttributionType.LastTouch]: { label: 'Last touchpoint' },
+                                            [BreakdownAttributionType.AllSteps]: { label: 'All Steps' },
+                                            ...(filters.funnel_order_type === StepOrderValue.UNORDERED
+                                                ? { [BreakdownAttributionType.Step]: { label: 'Any step' } }
+                                                : {
+                                                      [BreakdownAttributionType.Step]: {
+                                                          label: 'Specific step',
+                                                          element: (
+                                                              <LemonSelect
+                                                                  outlined
+                                                                  className="ml-05"
+                                                                  onChange={(value) => {
+                                                                      if (value) {
+                                                                          setFilters({
+                                                                              breakdown_attribution_type:
+                                                                                  BreakdownAttributionType.Step,
+                                                                              breakdown_attribution_value:
+                                                                                  parseInt(value),
+                                                                          })
+                                                                      }
+                                                                  }}
+                                                                  placeholder={`Step ${
+                                                                      filters.breakdown_attribution_value
+                                                                          ? filters.breakdown_attribution_value + 1
+                                                                          : 1
+                                                                  }`}
+                                                                  options={breakdownAttributionStepOptions}
+                                                              />
+                                                          ),
+                                                      },
+                                                  }),
+                                        }}
+                                        onChange={(value) => {
+                                            if (value) {
+                                                setFilters({
+                                                    breakdown_attribution_type: value,
+                                                    breakdown_attribution_value:
+                                                        filters.breakdown_attribution_value || 0,
+                                                })
+                                            }
+                                        }}
+                                        dropdownMaxContentWidth={true}
+                                        outlined
+                                        data-attr="breakdown-attributions"
+                                    />
+                                </Row>
+                            </>
+                        )}
                     </>
                 )}
 

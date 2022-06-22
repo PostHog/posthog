@@ -1,13 +1,11 @@
 from uuid import UUID, uuid4
 
-from ee.clickhouse.models.event import create_event
-from ee.clickhouse.models.group import create_group  # move this to /ee
 from posthog.client import sync_execute
 from posthog.models import Team
 from posthog.models.cohort.util import insert_static_cohort
 from posthog.models.person.util import create_person, create_person_distinct_id
 from posthog.models.team.util import delete_teams_clickhouse_data
-from posthog.test.base import BaseTest, ClickhouseDestroyTablesMixin, ClickhouseTestMixin
+from posthog.test.base import BaseTest, ClickhouseDestroyTablesMixin, ClickhouseTestMixin, _create_event
 
 
 class TestDeleteEvents(ClickhouseTestMixin, ClickhouseDestroyTablesMixin, BaseTest):
@@ -20,9 +18,9 @@ class TestDeleteEvents(ClickhouseTestMixin, ClickhouseDestroyTablesMixin, BaseTe
         ]
 
     def test_delete_events(self):
-        create_event(uuid4(), "event1", self.teams[0], "1")
-        create_event(uuid4(), "event2", self.teams[1], "2")
-        create_event(uuid4(), "event3", self.teams[2], "3")
+        _create_event(event_uuid=uuid4(), event="event1", team=self.teams[0], distinct_id="1")
+        _create_event(event_uuid=uuid4(), event="event2", team=self.teams[1], distinct_id="2")
+        _create_event(event_uuid=uuid4(), event="event3", team=self.teams[2], distinct_id="3")
 
         delete_teams_clickhouse_data([self.teams[0].pk, self.teams[1].pk])
         self.assertEqual(self.select_remaining("events", "event"), ["event3"])
@@ -39,15 +37,6 @@ class TestDeleteEvents(ClickhouseTestMixin, ClickhouseDestroyTablesMixin, BaseTe
 
         self.assertEqual(self.select_remaining("person", "properties"), ['{"x": 2}'])
         self.assertEqual(self.select_remaining("person_distinct_id", "distinct_id"), ["2"])
-
-    def test_delete_groups(self):
-        create_group(self.teams[0].pk, 0, "g0")
-        create_group(self.teams[1].pk, 1, "g1")
-        create_group(self.teams[2].pk, 2, "g2")
-
-        delete_teams_clickhouse_data([self.teams[0].pk, self.teams[1].pk])
-
-        self.assertEqual(self.select_remaining("groups", "group_key"), ["g2"])
 
     def test_delete_cohorts(self):
         insert_static_cohort([uuid4()], 0, self.teams[0])

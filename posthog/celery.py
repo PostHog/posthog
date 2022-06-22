@@ -8,9 +8,9 @@ from celery.signals import task_postrun, task_prerun
 from django.conf import settings
 from django.db import connection
 from django.utils import timezone
-from sentry_sdk.api import capture_exception
 
 from posthog.redis import get_client
+from posthog.utils import get_crontab
 
 # set the default Django settings module for the 'celery' program.
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "posthog.settings")
@@ -94,26 +94,22 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
     sender.add_periodic_task(120, clickhouse_part_count.s(), name="clickhouse table parts count")
     sender.add_periodic_task(120, clickhouse_mutation_count.s(), name="clickhouse table mutations count")
 
+    sender.add_periodic_task(120, pg_table_cache_hit_rate.s(), name="PG table cache hit rate")
+    sender.add_periodic_task(
+        crontab(minute=0, hour="*"), pg_plugin_server_query_timing.s(), name="PG plugin server query timing"
+    )
+
     sender.add_periodic_task(crontab(minute=0, hour="*"), calculate_cohort_ids_in_feature_flags_task.s())
 
     sender.add_periodic_task(
         crontab(hour=0, minute=randrange(0, 40)), clickhouse_send_license_usage.s()
     )  # every day at a random minute past midnight. Randomize to avoid overloading license.posthog.com
-    try:
-        from ee.settings import MATERIALIZE_COLUMNS_SCHEDULE_CRON
 
-        minute, hour, day_of_month, month_of_year, day_of_week = MATERIALIZE_COLUMNS_SCHEDULE_CRON.strip().split(" ")
+    materialize_columns_crontab = get_crontab(settings.MATERIALIZE_COLUMNS_SCHEDULE_CRON)
 
+    if materialize_columns_crontab:
         sender.add_periodic_task(
-            crontab(
-                minute=minute,
-                hour=hour,
-                day_of_month=day_of_month,
-                month_of_year=month_of_year,
-                day_of_week=day_of_week,
-            ),
-            clickhouse_materialize_columns.s(),
-            name="clickhouse materialize columns",
+            materialize_columns_crontab, clickhouse_materialize_columns.s(), name="clickhouse materialize columns",
         )
 
         sender.add_periodic_task(
@@ -121,17 +117,23 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
             clickhouse_mark_all_materialized.s(),
             name="clickhouse mark all columns as materialized",
         )
-    except Exception as err:
-        capture_exception(err)
-        print(f"Scheduling materialized column task failed: {err}")
 
     sender.add_periodic_task(120, calculate_cohort.s(), name="recalculate cohorts")
+
+    # Hourly check for email subscriptions
+    sender.add_periodic_task(crontab(hour="*", minute=55), schedule_all_subscriptions.s())
 
     if settings.ASYNC_EVENT_PROPERTY_USAGE:
         sender.add_periodic_task(
             EVENT_PROPERTY_USAGE_INTERVAL_SECONDS,
             calculate_event_property_usage.s(),
             name="calculate event property usage",
+        )
+
+    clear_clickhouse_crontab = get_crontab(settings.CLEAR_CLICKHOUSE_REMOVED_DATA_SCHEDULE_CRON)
+    if clear_clickhouse_crontab:
+        sender.add_periodic_task(
+            clear_clickhouse_crontab, clickhouse_clear_removed_data.s(), name="clickhouse clear removed data"
         )
 
 
@@ -168,6 +170,66 @@ def enqueue_clickhouse_execute_with_progress(
     from posthog.client import execute_with_progress
 
     execute_with_progress(team_id, query_id, query, args, settings, with_column_types, task_id=self.request.id)
+
+
+@app.task(ignore_result=True)
+def pg_table_cache_hit_rate():
+    from posthog.internal_metrics import gauge
+
+    with connection.cursor() as cursor:
+        try:
+            cursor.execute(
+                """
+                SELECT
+                 relname as table_name,
+                 sum(heap_blks_hit) / nullif(sum(heap_blks_hit) + sum(heap_blks_read),0) * 100 AS ratio
+                FROM pg_statio_user_tables
+                GROUP BY relname
+                ORDER BY ratio ASC
+            """
+            )
+            tables = cursor.fetchall()
+            for row in tables:
+                gauge("pg_table_cache_hit_rate", row[1], tags={"table": row[0]})
+        except:
+            # if this doesn't work keep going
+            pass
+
+
+@app.task(ignore_result=True)
+def pg_plugin_server_query_timing():
+    from posthog.internal_metrics import gauge
+
+    with connection.cursor() as cursor:
+        try:
+            cursor.execute(
+                """
+                SELECT
+                    substring(query from 'plugin-server:(\\w+)') AS query_type,
+                    total_time as total_time,
+                    (total_time / calls) as avg_time,
+                    min_time,
+                    max_time,
+                    stddev_time,
+                    calls,
+                    rows as rows_read_or_affected
+                FROM pg_stat_statements
+                WHERE query LIKE '%%plugin-server%%'
+                ORDER BY total_time DESC
+                LIMIT 50
+                """
+            )
+
+            for row in cursor.fetchall():
+                row_dictionary = {column.name: value for column, value in zip(cursor.description, row)}
+
+                for key, value in row_dictionary.items():
+                    if key == "query_type":
+                        continue
+                    gauge(f"pg_plugin_server_query_{key}", value, tags={"query_type": row_dictionary["query_type"]})
+        except:
+            # if this doesn't work keep going
+            pass
 
 
 CLICKHOUSE_TABLES = [
@@ -278,7 +340,7 @@ def recompute_materialized_columns_enabled() -> bool:
 @app.task(ignore_result=True)
 def clickhouse_materialize_columns():
     if recompute_materialized_columns_enabled():
-        from ee.clickhouse.materialized_columns.analyze import materialize_properties_task
+        from posthog.clickhouse.materialized_columns import materialize_properties_task
 
         materialize_properties_task()
 
@@ -286,24 +348,40 @@ def clickhouse_materialize_columns():
 @app.task(ignore_result=True)
 def clickhouse_mark_all_materialized():
     if recompute_materialized_columns_enabled():
-        from ee.tasks.materialized_columns import mark_all_materialized
+        try:
+            from ee.tasks.materialized_columns import mark_all_materialized
+        except ImportError:
+            pass
+        else:
+            mark_all_materialized()
 
-        mark_all_materialized()
+
+@app.task(ignore_result=True)
+def clickhouse_clear_removed_data():
+    from posthog.models.team.util import delete_clickhouse_data_for_deleted_teams
+
+    delete_clickhouse_data_for_deleted_teams()
 
 
 @app.task(ignore_result=True)
 def clickhouse_send_license_usage():
     if not settings.MULTI_TENANCY:
-        from ee.tasks.send_license_usage import send_license_usage
-
-        send_license_usage()
+        try:
+            from ee.tasks.send_license_usage import send_license_usage
+        except ImportError:
+            pass
+        else:
+            send_license_usage()
 
 
 @app.task(ignore_result=True)
 def send_org_usage_report():
-    from ee.tasks.org_usage_report import send_all_org_usage_reports as send_reports_clickhouse
-
-    send_reports_clickhouse()
+    try:
+        from ee.tasks.org_usage_report import send_all_org_usage_reports as send_reports_clickhouse
+    except ImportError:
+        pass
+    else:
+        send_reports_clickhouse()
 
 
 @app.task(ignore_result=True)
@@ -432,3 +510,13 @@ def verify_persons_data_in_sync():
     from posthog.tasks.verify_persons_data_in_sync import verify_persons_data_in_sync as verify
 
     verify()
+
+
+@app.task(ignore_result=True)
+def schedule_all_subscriptions():
+    try:
+        from ee.tasks.subscriptions import schedule_all_subscriptions
+    except ImportError:
+        pass
+    else:
+        schedule_all_subscriptions()

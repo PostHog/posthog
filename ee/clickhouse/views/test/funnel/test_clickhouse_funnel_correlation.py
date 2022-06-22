@@ -6,7 +6,6 @@ import pytest
 from django.core.cache import cache
 from freezegun import freeze_time
 
-from ee.clickhouse.test.test_journeys import journeys_for, update_or_create_person
 from ee.clickhouse.views.test.funnel.util import (
     EventPattern,
     FunnelCorrelationRequest,
@@ -18,6 +17,7 @@ from posthog.constants import FunnelCorrelationType
 from posthog.models.element import Element
 from posthog.models.team import Team
 from posthog.test.base import BaseTest, _create_event, _create_person
+from posthog.test.test_journeys import journeys_for, update_or_create_person
 
 
 @pytest.mark.clickhouse_only

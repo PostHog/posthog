@@ -23,6 +23,7 @@ import { cohortsModelType } from '~/models/cohortsModelType'
 import { mathsLogicType } from 'scenes/trends/mathsLogicType'
 import { apiValueToMathType, MathDefinition } from 'scenes/trends/mathsLogic'
 import { dashboardsModel } from '~/models/dashboardsModel'
+import { insightLogic } from './insightLogic'
 
 export const getDisplayNameFromEntityFilter = (
     filter: EntityFilter | ActionFilter | null,
@@ -114,8 +115,12 @@ export function findInsightFromMountedLogic(
 }
 
 export async function getInsightId(shortId: InsightShortId): Promise<number | undefined> {
-    return (await api.get(`api/projects/${getCurrentTeamId()}/insights/?short_id=${encodeURIComponent(shortId)}`))
-        .results[0]?.id
+    const insightId = insightLogic.findMounted({ dashboardItemId: shortId })?.values?.insight?.id
+
+    return insightId
+        ? insightId
+        : (await api.get(`api/projects/${getCurrentTeamId()}/insights/?short_id=${encodeURIComponent(shortId)}`))
+              .results[0]?.id
 }
 
 export function humanizePathsEventTypes(filters: Partial<FilterType>): string[] {

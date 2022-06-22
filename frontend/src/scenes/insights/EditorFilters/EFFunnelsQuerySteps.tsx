@@ -14,8 +14,8 @@ import { FunnelConversionWindowFilter } from '../InsightTabs/FunnelTab/FunnelCon
 
 const FUNNEL_STEP_COUNT_LIMIT = 20
 
-export function EFFunnelsQuerySteps({ filters, insightProps }: EditorFilterProps): JSX.Element {
-    const { isStepsEmpty, filterSteps } = useValues(funnelLogic(insightProps))
+export function EFFunnelsQuerySteps({ insightProps }: EditorFilterProps): JSX.Element {
+    const { isStepsEmpty, filterSteps, filters } = useValues(funnelLogic(insightProps))
     const { setFilters } = useActions(funnelLogic(insightProps))
     const { groupsTaxonomicTypes, showGroupsOptions } = useValues(groupsModel)
     useMountedLogic(funnelCommandLogic)

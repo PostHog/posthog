@@ -19,9 +19,10 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
     actions({
         setInsightId: (insightId: InsightShortId) => ({ insightId }),
         setInsightMode: (insightMode: ItemMode, source: InsightEventSource | null) => ({ insightMode, source }),
-        setSceneState: (insightId: InsightShortId, insightMode: ItemMode) => ({
+        setSceneState: (insightId: InsightShortId, insightMode: ItemMode, subscriptionId: string | undefined) => ({
             insightId,
             insightMode,
+            subscriptionId,
         }),
         setInsightLogic: (logic: BuiltLogic<insightLogicType> | null, unmount: null | (() => void)) => ({
             logic,
@@ -41,10 +42,15 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                 setSceneState: (_, { insightMode }) => insightMode,
             },
         ],
-        lastInsightModeSource: [
-            null as InsightEventSource | null,
+        subscriptionId: [
+            null as null | number | 'new',
             {
-                setInsightMode: (_, { source }) => source,
+                setSceneState: (_, { subscriptionId }) =>
+                    subscriptionId !== undefined
+                        ? subscriptionId === 'new'
+                            ? 'new'
+                            : parseInt(subscriptionId, 10)
+                        : null,
             },
         ],
         insightCache: [
@@ -98,13 +104,18 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
         setSceneState: sharedListeners.reloadInsightLogic,
     })),
     urlToAction(({ actions, values }) => ({
-        '/insights/:shortId(/:mode)': (
-            { shortId, mode }, // url params
+        '/insights/:shortId(/:mode)(/:subscriptionId)': (
+            { shortId, mode, subscriptionId }, // url params
             { dashboard, ...searchParams }, // search params
             { filters: _filters }, // hash params
             { method, initial } // "location changed" event payload
         ) => {
-            const insightMode = mode === 'edit' || shortId === 'new' ? ItemMode.Edit : ItemMode.View
+            const insightMode =
+                mode === 'subscriptions'
+                    ? ItemMode.Subscriptions
+                    : mode === 'edit' || shortId === 'new'
+                    ? ItemMode.Edit
+                    : ItemMode.View
             const insightId = String(shortId) as InsightShortId
 
             const currentScene = sceneLogic.findMounted()?.values
@@ -119,8 +130,12 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             }
 
             // this makes sure we have "values.insightCache?.logic" below
-            if (insightId !== values.insightId || insightMode !== values.insightMode) {
-                actions.setSceneState(insightId, insightMode)
+            if (
+                insightId !== values.insightId ||
+                insightMode !== values.insightMode ||
+                subscriptionId !== values.subscriptionId
+            ) {
+                actions.setSceneState(insightId, insightMode, subscriptionId)
             }
 
             // capture any filters from the URL, either #filters={} or ?insight=X&bla=foo&bar=baz

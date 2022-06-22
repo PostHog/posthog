@@ -4,7 +4,7 @@ import { DateTime } from 'luxon'
 import { Hub } from '../../../../src/types'
 import { createHub } from '../../../../src/utils/db/hub'
 import { UUIDT } from '../../../../src/utils/utils'
-import { prepareEventStep } from '../../../../src/worker/ingestion/event-pipeline/prepareEventStep'
+import { prepareEventStep } from '../../../../src/worker/ingestion/event-pipeline/2-prepareEventStep'
 import { resetTestDatabase } from '../../../helpers/sql'
 
 jest.mock('../../../../src/utils/status')
@@ -70,6 +70,7 @@ describe('prepareEventStep()', () => {
                 },
                 teamId: 2,
                 timestamp: expect.any(DateTime),
+                person: undefined,
             },
         ])
         expect(hub.db.kafkaProducer!.queueMessage).not.toHaveBeenCalled()
@@ -92,7 +93,6 @@ describe('prepareEventStep()', () => {
                 teamId: 2,
                 timestamp: '2020-02-23 02:15:00.000',
             },
-            undefined,
         ])
         expect(hub.db.kafkaProducer!.queueMessage).toHaveBeenCalled()
     })
@@ -104,5 +104,50 @@ describe('prepareEventStep()', () => {
 
         expect(response).toEqual(null)
         expect(hub.db.kafkaProducer!.queueMessage).not.toHaveBeenCalled()
+    })
+
+    it('re-normalizes event after plugins have been run', async () => {
+        const response = await prepareEventStep(runner, {
+            ...pluginEvent,
+            properties: {
+                $browser: 'Chrome',
+            },
+            $set: {
+                someProp: 'value',
+            },
+        })
+
+        expect(response).toEqual([
+            'emitToBufferStep',
+            {
+                distinctId: 'my_id',
+                elementsList: [],
+                event: 'default event',
+                eventUuid: '017ef865-19da-0000-3b60-1506093bf40f',
+                ip: '127.0.0.1',
+                properties: {
+                    $ip: '127.0.0.1',
+                    $browser: 'Chrome',
+                    $set: {
+                        someProp: 'value',
+                    },
+                    $set_once: {
+                        $initial_browser: 'Chrome',
+                    },
+                },
+                teamId: 2,
+                timestamp: expect.any(DateTime),
+                person: expect.objectContaining({
+                    id: expect.any(Number),
+                    uuid: expect.any(String),
+                    properties: {
+                        someProp: 'value',
+                        $initial_browser: 'Chrome',
+                    },
+                    team_id: 2,
+                }),
+            },
+        ])
+        expect(hub.db.kafkaProducer!.queueMessage).toHaveBeenCalled()
     })
 })

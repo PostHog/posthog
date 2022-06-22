@@ -4,16 +4,16 @@ from unittest.mock import patch
 from django.utils import timezone
 from freezegun import freeze_time
 
-from ee.clickhouse.models.property import parse_prop_grouped_clauses
-from ee.clickhouse.sql.cohort import GET_COHORTPEOPLE_BY_COHORT_ID
 from posthog.client import sync_execute
 from posthog.models.action import Action
 from posthog.models.action_step import ActionStep
 from posthog.models.cohort import Cohort
+from posthog.models.cohort.sql import GET_COHORTPEOPLE_BY_COHORT_ID
 from posthog.models.cohort.util import format_filter_query, get_person_ids_by_cohort_id
 from posthog.models.filters import Filter
 from posthog.models.organization import Organization
 from posthog.models.person import Person
+from posthog.models.property.util import parse_prop_grouped_clauses
 from posthog.models.team import Team
 from posthog.models.utils import PersonPropertiesMode
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, _create_person

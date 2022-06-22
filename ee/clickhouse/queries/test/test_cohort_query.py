@@ -1,6 +1,5 @@
 from datetime import datetime, timedelta
 
-from ee.clickhouse.queries.cohort_query import CohortQuery, check_negation_clause
 from posthog.client import sync_execute
 from posthog.constants import PropertyOperatorType
 from posthog.models.action import Action
@@ -8,6 +7,7 @@ from posthog.models.action_step import ActionStep
 from posthog.models.cohort import Cohort
 from posthog.models.filters.filter import Filter
 from posthog.models.property import Property, PropertyGroup
+from posthog.queries.cohort_query import CohortQuery, check_negation_clause
 from posthog.test.base import (
     BaseTest,
     ClickhouseTestMixin,
@@ -1352,6 +1352,56 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
                         "type": "AND",
                         "values": [{"key": "email", "value": ["fake@test.com"], "operator": "exact", "type": "person"}],
                     }
+                ],
+            },
+        )
+
+    def test_missing_type(self):
+        cohort = _create_cohort(
+            team=self.team,
+            name="cohort1",
+            groups=[{"properties": [{"key": "email", "value": ["fake@test.com"], "operator": "exact"}]}],
+        )
+
+        self.assertEqual(
+            cohort.properties.to_dict(),
+            {
+                "type": "OR",
+                "values": [
+                    {
+                        "type": "AND",
+                        "values": [{"key": "email", "value": ["fake@test.com"], "operator": "exact", "type": "person"}],
+                    }
+                ],
+            },
+        )
+
+    def test_old_old_style_properties(self):
+        cohort = _create_cohort(
+            team=self.team,
+            name="cohort1",
+            groups=[
+                {"properties": [{"key": "email", "value": ["fake@test.com"], "operator": "exact"}]},
+                {"properties": {"abra": "cadabra", "name": "alakazam"}},
+            ],
+        )
+
+        self.assertEqual(
+            cohort.properties.to_dict(),
+            {
+                "type": "OR",
+                "values": [
+                    {
+                        "type": "AND",
+                        "values": [{"key": "email", "value": ["fake@test.com"], "operator": "exact", "type": "person"}],
+                    },
+                    {
+                        "type": "AND",
+                        "values": [
+                            {"key": "abra", "value": "cadabra", "type": "person"},
+                            {"key": "name", "value": "alakazam", "type": "person"},
+                        ],
+                    },
                 ],
             },
         )

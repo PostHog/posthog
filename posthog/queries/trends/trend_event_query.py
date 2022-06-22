@@ -1,11 +1,11 @@
 from typing import Any, Dict, Tuple
 
-from ee.clickhouse.models.property import get_property_string_expr
 from posthog.constants import MONTHLY_ACTIVE, WEEKLY_ACTIVE, PropertyOperatorType
 from posthog.models import Entity
 from posthog.models.entity.util import get_entity_filtering_params
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.mixins.utils import cached_property
+from posthog.models.property.util import get_property_string_expr
 from posthog.models.utils import PersonPropertiesMode
 from posthog.queries.event_query import EventQuery
 from posthog.queries.person_query import PersonQuery
@@ -26,7 +26,7 @@ class TrendsEventQuery(EventQuery):
             f"{self.EVENT_TABLE_ALIAS}.timestamp as timestamp"
             + (
                 " ".join(
-                    f", {self.EVENT_TABLE_ALIAS}.{column_name} as {column_name}"
+                    f', {self.EVENT_TABLE_ALIAS}."{column_name}" as "{column_name}"'
                     for column_name in self._column_optimizer.event_columns_to_query
                 )
             )

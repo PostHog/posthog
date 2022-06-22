@@ -1,99 +1,68 @@
 import { PluginEvent, ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 
-import { Hub, PluginConfig, PluginTaskType } from '../../types'
+import { Hub, PluginConfig, PluginTaskType, VMMethods } from '../../types'
 import { processError } from '../../utils/db/error'
 import { IllegalOperationError } from '../../utils/utils'
+import { runRetriableFunction } from '../retries'
 import { Action } from './../../types'
 
-export async function runOnEvent(server: Hub, event: ProcessedPluginEvent): Promise<void> {
-    const pluginsToRun = getPluginsForTeam(server, event.team_id)
+export async function runOnEvent(hub: Hub, event: ProcessedPluginEvent): Promise<void> {
+    const pluginMethodsToRun = await getPluginMethodsForTeam(hub, event.team_id, 'onEvent')
 
     await Promise.all(
-        pluginsToRun.map(async (pluginConfig) => {
-            const onEvent = await pluginConfig.vm?.getOnEvent()
-            if (onEvent) {
-                const timer = new Date()
-                try {
-                    await onEvent(event)
-                } catch (error) {
-                    await processError(server, pluginConfig, error, event)
-                    server.statsd?.increment(`plugin.on_event.ERROR`, {
-                        plugin: pluginConfig.plugin?.name ?? '?',
-                        teamId: event.team_id.toString(),
+        pluginMethodsToRun
+            .filter(([, method]) => !!method)
+            .map(
+                async ([pluginConfig, onEvent]) =>
+                    await runRetriableFunction('on_event', hub, pluginConfig, {
+                        tryFn: async () => await onEvent!(event),
+                        event,
                     })
-                }
-                server.statsd?.timing(`plugin.on_event`, timer, {
-                    plugin: pluginConfig.plugin?.name ?? '?',
-                    teamId: event.team_id.toString(),
-                })
-            }
-        })
+            )
     )
 }
 
-export async function runOnAction(server: Hub, action: Action, event: ProcessedPluginEvent): Promise<void> {
-    const pluginsToRun = getPluginsForTeam(server, event.team_id)
+export async function runOnSnapshot(hub: Hub, event: ProcessedPluginEvent): Promise<void> {
+    const pluginMethodsToRun = await getPluginMethodsForTeam(hub, event.team_id, 'onSnapshot')
 
     await Promise.all(
-        pluginsToRun.map(async (pluginConfig) => {
-            const onAction = await pluginConfig.vm?.getOnAction()
-            if (onAction) {
-                const timer = new Date()
-                try {
-                    await onAction(action, event)
-                } catch (error) {
-                    await processError(server, pluginConfig, error, event)
-                    server.statsd?.increment(`plugin.on_action.ERROR`, {
-                        plugin: pluginConfig.plugin?.name ?? '?',
-                        teamId: event.team_id.toString(),
+        pluginMethodsToRun
+            .filter(([, method]) => !!method)
+            .map(
+                async ([pluginConfig, onSnapshot]) =>
+                    await runRetriableFunction('on_snapshot', hub, pluginConfig, {
+                        tryFn: async () => await onSnapshot!(event),
+                        event,
                     })
-                }
-                server.statsd?.timing(`plugin.on_action`, timer, {
-                    plugin: pluginConfig.plugin?.name ?? '?',
-                    teamId: event.team_id.toString(),
-                })
-            }
-        })
+            )
     )
 }
 
-export async function runOnSnapshot(server: Hub, event: ProcessedPluginEvent): Promise<void> {
-    const pluginsToRun = getPluginsForTeam(server, event.team_id)
+export async function runOnAction(hub: Hub, action: Action, event: ProcessedPluginEvent): Promise<void> {
+    const pluginMethodsToRun = await getPluginMethodsForTeam(hub, event.team_id, 'onAction')
 
     await Promise.all(
-        pluginsToRun.map(async (pluginConfig) => {
-            const onSnapshot = await pluginConfig.vm?.getOnSnapshot()
-            if (onSnapshot) {
-                const timer = new Date()
-                try {
-                    await onSnapshot(event)
-                } catch (error) {
-                    await processError(server, pluginConfig, error, event)
-                    server.statsd?.increment(`plugin.on_snapshot.ERROR`, {
-                        plugin: pluginConfig.plugin?.name ?? '?',
-                        teamId: event.team_id.toString(),
+        pluginMethodsToRun
+            .filter(([, method]) => !!method)
+            .map(
+                async ([pluginConfig, onAction]) =>
+                    await runRetriableFunction('on_action', hub, pluginConfig, {
+                        tryFn: async () => await onAction!(action, event),
+                        event,
                     })
-                }
-                server.statsd?.timing(`plugin.on_snapshot`, timer, {
-                    plugin: pluginConfig.plugin?.name ?? '?',
-                    teamId: event.team_id.toString(),
-                })
-            }
-        })
+            )
     )
 }
 
-export async function runProcessEvent(server: Hub, event: PluginEvent): Promise<PluginEvent | null> {
+export async function runProcessEvent(hub: Hub, event: PluginEvent): Promise<PluginEvent | null> {
     const teamId = event.team_id
-    const pluginsToRun = getPluginsForTeam(server, teamId)
+    const pluginMethodsToRun = await getPluginMethodsForTeam(hub, teamId, 'processEvent')
     let returnedEvent: PluginEvent | null = event
 
     const pluginsSucceeded = []
     const pluginsFailed = []
     const pluginsDeferred = []
-    for (const pluginConfig of pluginsToRun) {
-        const processEvent = await pluginConfig.vm?.getProcessEvent()
-
+    for (const [pluginConfig, processEvent] of pluginMethodsToRun) {
         if (processEvent) {
             const timer = new Date()
 
@@ -105,14 +74,14 @@ export async function runProcessEvent(server: Hub, event: PluginEvent): Promise<
                 }
                 pluginsSucceeded.push(`${pluginConfig.plugin?.name} (${pluginConfig.id})`)
             } catch (error) {
-                await processError(server, pluginConfig, error, returnedEvent)
-                server.statsd?.increment(`plugin.process_event.ERROR`, {
+                await processError(hub, pluginConfig, error, returnedEvent)
+                hub.statsd?.increment(`plugin.process_event.ERROR`, {
                     plugin: pluginConfig.plugin?.name ?? '?',
                     teamId: String(event.team_id),
                 })
                 pluginsFailed.push(`${pluginConfig.plugin?.name} (${pluginConfig.id})`)
             }
-            server.statsd?.timing(`plugin.process_event`, timer, {
+            hub.statsd?.timing(`plugin.process_event`, timer, {
                 plugin: pluginConfig.plugin?.name ?? '?',
                 teamId: teamId.toString(),
             })
@@ -142,7 +111,7 @@ export async function runProcessEvent(server: Hub, event: PluginEvent): Promise<
 }
 
 export async function runPluginTask(
-    server: Hub,
+    hub: Hub,
     taskName: string,
     taskType: PluginTaskType,
     pluginConfigId: number,
@@ -150,7 +119,7 @@ export async function runPluginTask(
 ): Promise<any> {
     const timer = new Date()
     let response
-    const pluginConfig = server.pluginConfigs.get(pluginConfigId)
+    const pluginConfig = hub.pluginConfigs.get(pluginConfigId)
     const teamIdStr = pluginConfig?.team_id.toString() || '?'
     try {
         const task = await pluginConfig?.vm?.getTask(taskName, taskType)
@@ -161,22 +130,33 @@ export async function runPluginTask(
         }
         response = await (payload ? task?.exec(payload) : task?.exec())
     } catch (error) {
-        await processError(server, pluginConfig || null, error)
+        await processError(hub, pluginConfig || null, error)
 
-        server.statsd?.increment(`plugin.task.ERROR`, {
+        hub.statsd?.increment(`plugin.task.ERROR`, {
             taskType: taskType,
             taskName: taskName,
             pluginConfigId: pluginConfigId.toString(),
             teamId: teamIdStr,
         })
     }
-    server.statsd?.timing(`plugin.task`, timer, {
+    hub.statsd?.timing(`plugin.task`, timer, {
         plugin: pluginConfig?.plugin?.name ?? '?',
         teamId: teamIdStr,
     })
     return response
 }
 
-function getPluginsForTeam(server: Hub, teamId: number): PluginConfig[] {
-    return server.pluginConfigsPerTeam.get(teamId) || []
+async function getPluginMethodsForTeam<M extends keyof VMMethods>(
+    hub: Hub,
+    teamId: number,
+    method: M
+): Promise<[PluginConfig, VMMethods[M]][]> {
+    const pluginConfigs = hub.pluginConfigsPerTeam.get(teamId) || []
+    if (pluginConfigs.length === 0) {
+        return []
+    }
+    const methodsObtained = await Promise.all(
+        pluginConfigs.map(async (pluginConfig) => [pluginConfig, await pluginConfig?.vm?.getVmMethod(method)])
+    )
+    return methodsObtained as [PluginConfig, VMMethods[M]][]
 }

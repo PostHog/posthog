@@ -42,7 +42,6 @@ INSTALLED_APPS = [
     "drf_spectacular",
 ]
 
-
 MIDDLEWARE = [
     "posthog.gzip_middleware.ScopedGZipMiddleware",
     "django_structlog.middlewares.RequestMiddleware",
@@ -64,6 +63,7 @@ MIDDLEWARE = [
     "whitenoise.middleware.WhiteNoiseMiddleware",
     "axes.middleware.AxesMiddleware",
     "posthog.middleware.AutoProjectMiddleware",
+    "posthog.middleware.CHQueries",
 ]
 
 if STATSD_HOST is not None:
@@ -71,9 +71,13 @@ if STATSD_HOST is not None:
     MIDDLEWARE.append("django_statsd.middleware.StatsdMiddlewareTimer")
 
 # Append Enterprise Edition as an app if available
-INSTALLED_APPS.append("rest_hooks")
-INSTALLED_APPS.append("ee.apps.EnterpriseConfig")
-MIDDLEWARE.append("posthog.middleware.CHQueries")
+try:
+    from ee.apps import EnterpriseConfig  # noqa: F401
+except ImportError:
+    pass
+else:
+    INSTALLED_APPS.append("rest_hooks")
+    INSTALLED_APPS.append("ee.apps.EnterpriseConfig")
 
 # Use django-extensions if it exists
 try:
@@ -220,7 +224,7 @@ EXCEPTIONS_HOG = {
 
 
 def add_recorder_js_headers(headers, path, url):
-    if url.endswith("/recorder.js"):
+    if url.endswith("/recorder.js") and not DEBUG:
         headers["Cache-Control"] = "max-age=31536000, public"
 
 

@@ -20,6 +20,7 @@ from posthog.api import (
     projects_router,
     router,
     signup,
+    unsubscribe,
     user,
 )
 from posthog.api.decide import hostname_in_app_urls
@@ -105,6 +106,7 @@ urlpatterns = [
     # ee
     *ee_urlpatterns,
     # api
+    path("api/unsubscribe", unsubscribe.unsubscribe),
     path("api/", include(router.urls)),
     opt_slash_path("api/user/redirect_to_site", user.redirect_to_site),
     opt_slash_path("api/user/test_slack_webhook", user.test_slack_webhook),
@@ -143,8 +145,8 @@ if settings.TEST:
     # Used in posthog-js e2e tests
     @csrf_exempt
     def delete_events(request):
-        from ee.clickhouse.sql.events import TRUNCATE_EVENTS_TABLE_SQL
         from posthog.client import sync_execute
+        from posthog.models.event.sql import TRUNCATE_EVENTS_TABLE_SQL
 
         sync_execute(TRUNCATE_EVENTS_TABLE_SQL())
         return HttpResponse()
@@ -161,6 +163,7 @@ frontend_unauthenticated_routes = [
     "organization/billing/subscribed",
     "organization/confirm-creation",
     "login",
+    "unsubscribe",
 ]
 for route in frontend_unauthenticated_routes:
     urlpatterns.append(re_path(route, home))

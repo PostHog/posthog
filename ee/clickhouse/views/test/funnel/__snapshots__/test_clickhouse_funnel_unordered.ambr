@@ -97,7 +97,7 @@
 ---
 # name: ClickhouseTestUnorderedFunnelGroups.test_unordered_funnel_with_groups.1
   '
-  /* request:api_person_funnel_?$ (LegacyPersonViewSet) */
+  /* request:api_person_funnel_?$ (LegacyEnterprisePersonViewSet) */
   SELECT aggregation_target AS actor_id
   FROM
     (SELECT aggregation_target,

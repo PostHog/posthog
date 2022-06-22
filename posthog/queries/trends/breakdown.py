@@ -4,16 +4,6 @@ from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 import pytz
 
-from ee.clickhouse.models.property import get_property_string_expr, parse_prop_grouped_clauses
-from ee.clickhouse.queries.breakdown_props import (
-    ALL_USERS_COHORT_ID,
-    format_breakdown_cohort_join_query,
-    get_breakdown_cohort_name,
-    get_breakdown_prop_values,
-)
-from ee.clickhouse.queries.column_optimizer import EnterpriseColumnOptimizer
-from ee.clickhouse.queries.groups_join_query import GroupsJoinQuery
-from ee.clickhouse.sql.events import EVENT_JOIN_PERSON_SQL
 from posthog.constants import (
     MONTHLY_ACTIVE,
     NON_TIME_SERIES_DISPLAY_TYPES,
@@ -24,11 +14,21 @@ from posthog.constants import (
 )
 from posthog.models.action.util import format_action_filter
 from posthog.models.entity import Entity
+from posthog.models.event.sql import EVENT_JOIN_PERSON_SQL
 from posthog.models.filters import Filter
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.property import PropertyGroup
+from posthog.models.property.util import get_property_string_expr, parse_prop_grouped_clauses
 from posthog.models.team import Team
 from posthog.models.utils import PersonPropertiesMode
+from posthog.queries.breakdown_props import (
+    ALL_USERS_COHORT_ID,
+    format_breakdown_cohort_join_query,
+    get_breakdown_cohort_name,
+    get_breakdown_prop_values,
+)
+from posthog.queries.column_optimizer.column_optimizer import ColumnOptimizer
+from posthog.queries.groups_join_query import GroupsJoinQuery
 from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
 from posthog.queries.person_query import PersonQuery
 from posthog.queries.trends.sql import (
@@ -54,7 +54,7 @@ class TrendsBreakdown:
         entity: Entity,
         filter: Filter,
         team: Team,
-        column_optimizer: Optional[EnterpriseColumnOptimizer] = None,
+        column_optimizer: Optional[ColumnOptimizer] = None,
         using_person_on_events: bool = False,
     ):
         self.entity = entity
@@ -62,7 +62,7 @@ class TrendsBreakdown:
         self.team = team
         self.team_id = team.pk
         self.params: Dict[str, Any] = {"team_id": team.pk}
-        self.column_optimizer = column_optimizer or EnterpriseColumnOptimizer(self.filter, self.team_id)
+        self.column_optimizer = column_optimizer or ColumnOptimizer(self.filter, self.team_id)
         self.using_person_on_events = using_person_on_events
 
     @cached_property

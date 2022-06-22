@@ -18,20 +18,6 @@ describe('eventPropertyDefinitionsTableLogic', () => {
         useMocks({
             get: {
                 '/api/projects/:team/property_definitions/': (req) => {
-                    if (req.url.searchParams.get('order_ids_first')?.includes('uuid-5-foobar')) {
-                        return [
-                            200,
-                            {
-                                results: [
-                                    mockEventPropertyDefinitions.find(({ id }) => id === 'uuid-5-foobar'),
-                                    ...mockEventPropertyDefinitions.filter(({ id }) => id !== 'uuid-5-foobar'),
-                                ],
-                                count: 50,
-                                previous: null,
-                                next: null,
-                            },
-                        ]
-                    }
                     if (req.url.searchParams.get('limit') === '50' && !req.url.searchParams.get('offset')) {
                         return [
                             200,
@@ -86,7 +72,6 @@ describe('eventPropertyDefinitionsTableLogic', () => {
         const startingUrl = `api/projects/${MOCK_TEAM_ID}/property_definitions${
             combineUrl('', {
                 limit: EVENT_PROPERTY_DEFINITIONS_PER_PAGE,
-                order_ids_first: [],
             }).search
         }`
 

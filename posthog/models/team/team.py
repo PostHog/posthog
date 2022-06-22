@@ -111,6 +111,7 @@ class Team(UUIDClassicModel):
     timezone: models.CharField = models.CharField(max_length=240, choices=TIMEZONES, default="UTC")
     data_attributes: models.JSONField = models.JSONField(default=get_default_data_attributes)
     person_display_name_properties: ArrayField = ArrayField(models.CharField(max_length=400), null=True, blank=True)
+    live_events_columns: ArrayField = ArrayField(models.TextField(), null=True, blank=True)
 
     primary_dashboard: models.ForeignKey = models.ForeignKey(
         "posthog.Dashboard", on_delete=models.SET_NULL, null=True, related_name="primary_dashboard_teams"
@@ -157,20 +158,27 @@ class Team(UUIDClassicModel):
             or not self.access_control
         ):
             return requesting_parent_membership.level
-        from ee.models import ExplicitTeamMembership
         from posthog.models.organization import OrganizationMembership
 
         try:
-            return (
-                requesting_parent_membership.explicit_team_memberships.only("parent_membership", "level")
-                .get(team=self)
-                .effective_level
-            )
-        except ExplicitTeamMembership.DoesNotExist:
+            from ee.models import ExplicitTeamMembership
+        except ImportError:
             # Only organizations admins and above get implicit project membership
             if requesting_parent_membership.level < OrganizationMembership.Level.ADMIN:
                 return None
             return requesting_parent_membership.level
+        else:
+            try:
+                return (
+                    requesting_parent_membership.explicit_team_memberships.only("parent_membership", "level")
+                    .get(team=self)
+                    .effective_level
+                )
+            except ExplicitTeamMembership.DoesNotExist:
+                # Only organizations admins and above get implicit project membership
+                if requesting_parent_membership.level < OrganizationMembership.Level.ADMIN:
+                    return None
+                return requesting_parent_membership.level
 
     def get_effective_membership_level(self, user_id: int) -> Optional["OrganizationMembership.Level"]:
         """Return an effective membership level.
@@ -189,6 +197,11 @@ class Team(UUIDClassicModel):
     @property
     def actor_on_events_querying_enabled(self) -> bool:
         enabled_teams = get_list(get_instance_setting("ENABLE_ACTOR_ON_EVENTS_TEAMS"))
+        return str(self.pk) in enabled_teams or "all" in enabled_teams
+
+    @property
+    def strict_caching_enabled(self) -> bool:
+        enabled_teams = get_list(get_instance_setting("STRICT_CACHING_TEAMS"))
         return str(self.pk) in enabled_teams or "all" in enabled_teams
 
     def __str__(self):
