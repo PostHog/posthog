@@ -86,6 +86,12 @@ class Migration(AsyncMigrationDefinition):
 
     depends_on = "0004_replicated_schema"
 
+    def precheck(self):
+        if not settings.MULTI_TENANCY:
+            return False, "This async migration is not yet ready for self-hosted users"
+
+        return True, None
+
     def is_required(self) -> bool:
         person_table_engine = sync_execute(
             "SELECT engine_full FROM system.tables WHERE database = %(database)s AND name = %(name)s",

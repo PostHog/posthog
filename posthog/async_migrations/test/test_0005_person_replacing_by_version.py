@@ -3,6 +3,7 @@ import re
 
 import pytest
 from django.conf import settings
+from django.test import override_settings
 
 from posthog.async_migrations.runner import start_async_migration
 from posthog.async_migrations.setup import (
@@ -41,6 +42,7 @@ SETTINGS index_granularity = 819
 
 
 @pytest.mark.async_migrations
+@override_settings(MULTI_TENANCY=True)
 class Test0005PersonCollapsedByVersion(AsyncMigrationBaseTest, ClickhouseTestMixin):
     def setUp(self):
         self.recreate_person_table()
