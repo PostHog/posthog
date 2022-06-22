@@ -11,7 +11,7 @@ CONSTANCE_CONFIG = {
         "Number of weeks recordings will be kept before removing them (for all projects). Storing recordings for a shorter timeframe can help reduce Clickhouse disk usage.",
         int,
     ),
-    "RECORDINGS_POST_PROCESSING_ACTIVE": (
+    "RECORDINGS_POST_PROCESSING_ENABLED": (
         True,
         "Whether recordings in the session_recording_events table are processed to object_storage and the session_recording_metadata table",
         bool,
@@ -128,7 +128,7 @@ CONSTANCE_CONFIG = {
 
 SETTINGS_ALLOWING_API_OVERRIDE = (
     "RECORDINGS_TTL_WEEKS",
-    "RECORDINGS_POST_PROCESSING_ACTIVE",
+    "RECORDINGS_POST_PROCESSING_ENABLED",
     "RECORDINGS_POST_PROCESSING_RECENCY_LAG",
     "RECORDINGS_POST_PROCESSING_CRON",
     "AUTO_START_ASYNC_MIGRATIONS",

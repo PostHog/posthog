@@ -50,7 +50,9 @@ def process_finished_session_recording(session_id: str, team_id: int, partition:
 
     when all of those sessions have a record in the metadata table the partition can be dropped
     """
-    logger.debug("session_recordings.process_finished_session_recordings.starting")
+    logger.debug(
+        "session_recordings.process_finished_session_recordings.starting", session_id=session_id, team_id=team_id
+    )
     timer = statsd.timer("session_recordings.process_finished_session_recordings").start()
 
     try:
@@ -70,6 +72,7 @@ def process_finished_session_recording(session_id: str, team_id: int, partition:
         )
         last_end_time = max([cast(datetime, x["end_time"]) for x in metadata.start_and_end_times_by_window_id.values()])
 
+        duration_partial_seconds = (last_end_time - first_start_time).total_seconds()
         # must be more than RECORDINGS_POST_PROCESSING_RECENCY_LAG seconds since last event to be considered finished
         # defaults to 48 hours
         if (datetime.now(timezone.utc) - last_end_time).total_seconds() < get_instance_setting(
@@ -93,9 +96,9 @@ def process_finished_session_recording(session_id: str, team_id: int, partition:
             "session_id": session_id,
             "team_id": team_id,
             "distinct_id": metadata.distinct_id,
-            "session_start": first_start_time.isoformat(),
-            "session_end": last_end_time.isoformat(),
-            "duration": (last_end_time - first_start_time).total_seconds(),
+            "session_start": first_start_time.strftime("%Y-%m-%d %H:%M:%S"),
+            "session_end": last_end_time.strftime("%Y-%m-%d %H:%M:%S"),
+            "duration": round(duration_partial_seconds),
             "segments": [segment.to_dict() for segment in metadata.segments],
             "start_and_end_times_by_window_id": {
                 window_id: {time_key: time.isoformat() for (time_key, time) in time_dict.items()}

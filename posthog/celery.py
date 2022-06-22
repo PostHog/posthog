@@ -133,8 +133,9 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
 
     from posthog.models.instance_setting import get_instance_setting
 
+    recordings_post_processing_enabled = get_instance_setting("RECORDINGS_POST_PROCESSING_ENABLED")
     recordings_post_processing_crontab = get_crontab(get_instance_setting("RECORDINGS_POST_PROCESSING_CRON"))
-    if recordings_post_processing_crontab:
+    if recordings_post_processing_enabled and recordings_post_processing_crontab:
         sender.add_periodic_task(
             recordings_post_processing_crontab,
             post_process_snapshot_recordings.s(),
@@ -164,10 +165,11 @@ def post_process_snapshot_recordings():
         get_session_recordings_for_oldest_partition,
     )
 
-    if not get_instance_setting("RECORDINGS_POST_PROCESSING_ACTIVE"):
+    if not get_instance_setting("RECORDINGS_POST_PROCESSING_ENABLED"):
         return
 
-    sessions_to_process = get_session_recordings_for_oldest_partition(datetime.now)
+    sessions_to_process = get_session_recordings_for_oldest_partition(datetime.now())
+
     res = group(
         post_process_session.s(session_id, team_id, partition)
         for (session_id, team_id, partition) in sessions_to_process
@@ -181,7 +183,7 @@ def post_process_session(session_id: str, team_id: int, partition: str):
     from posthog.models.instance_setting import get_instance_setting
     from posthog.session_recordings.process_finished_session_recordings import process_finished_session_recording
 
-    if not get_instance_setting("RECORDINGS_POST_PROCESSING_ACTIVE"):
+    if not get_instance_setting("RECORDINGS_POST_PROCESSING_ENABLED"):
         return
 
     return process_finished_session_recording(session_id=session_id, team_id=team_id, partition=partition)
