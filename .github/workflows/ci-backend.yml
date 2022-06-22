@@ -264,10 +264,9 @@ jobs:
                   person-on-events: ${{ matrix.person-on-events }}
 
             - uses: EndBug/add-and-commit@v9
-              if: matrix.group == 1 && matrix.name == ''
+              if: matrix.group == 1 && matrix.name == '' && github.event.pull_request.head.repo.full_name == github.repository # Don't run on forks
               with:
                   message: 'Update snapshots'
-                  default_author: github_actor
 
             - name: Archive email renders
               uses: actions/upload-artifact@v3

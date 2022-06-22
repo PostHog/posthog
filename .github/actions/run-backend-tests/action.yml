@@ -82,12 +82,22 @@ runs:
           shell: bash
           run: bin/check_kafka_clickhouse_up
 
+        - name: Determine Pytest args
+          id: prep
+          run: | # Include --snapshot-update if we're not in a fork
+            if [ "${{ github.event.pull_request.head.repo.full_name }}" == "${{ github.repository }}" ]; then
+                PYTEST_ARGS="--snapshot-update"
+            else
+                PYTEST_ARGS=""
+            fi
+            echo '::set-output name=PYTEST_ARGS::${PYTEST_ARGS}'
+  
         - name: Run FOSS tests
           if: ${{ inputs.foss == 'true' }}
           shell: bash
           run: |
               pytest -m "not ee and not async_migrations" posthog/ --cov  --cov-report=xml:coverage-postgres.xml \
-                --snapshot-update --durations=150 --durations-min=1.0
+                --durations=150 --durations-min=1.0 ${{ steps.prep.outputs.PYTEST_ARGS }}
 
         - name: Run ee/ tests
           if: ${{ inputs.ee == 'true' && inputs.person-on-events != 'true'}}
@@ -99,8 +109,8 @@ runs:
                   --store-durations \
                   --cov \
                   --cov-report=xml:coverage-clickhouse.xml \
-                  --snapshot-update\
-                  --durations=100 --durations-min=1.0
+                  --durations=100 --durations-min=1.0 \
+                  ${{ steps.prep.outputs.PYTEST_ARGS }}
 
         - name: Run ee/ tests with person-on-events, no snapshot commits
           if: ${{ inputs.ee == 'true' && inputs.person-on-events == 'true' }}
@@ -109,7 +119,7 @@ runs:
               ENABLE_ACTOR_ON_EVENTS_TEAMS=all pytest ee \
                   --splits ${{ inputs.concurrency }} \
                   --group ${{ inputs.group }} \
-                  --snapshot-update
+                  ${{ steps.prep.outputs.PYTEST_ARGS }}
 
         - name: Run pytest.mark.ee tests
           if: ${{ inputs.ee == 'true' && inputs.group == '1' }}
