@@ -3,7 +3,7 @@ import json
 import os
 import re
 import tarfile
-from typing import Any, Dict, Optional, Tuple
+from typing import Dict, Optional, Tuple
 from urllib.parse import parse_qs, quote
 from zipfile import ZIP_DEFLATED, BadZipFile, ZipFile
 
@@ -216,16 +216,18 @@ def load_json_file(filename: str):
         return None
 
 
-def get_file_from_zip_archive(archive: bytes, filename: str, *, json_parse: bool) -> Any:
+def get_json_from_zip_archive(archive: bytes, filename: str):
     zip_file = ZipFile(io.BytesIO(archive), "r")
     root_folder = zip_file.namelist()[0]
     file_path = os.path.join(root_folder, filename)
-    with zip_file.open(file_path) as reader:
-        file_bytes = reader.read()
-        return json.loads(file_bytes) if json_parse else file_bytes.decode("utf-8")
+    try:
+        with zip_file.open(file_path) as reader:
+            return json.loads(reader.read())
+    except KeyError:
+        return None
 
 
-def get_file_from_tgz_archive(archive: bytes, filename, *, json_parse: bool) -> Any:
+def get_json_from_tgz_archive(archive: bytes, filename: str):
     with tarfile.open(fileobj=io.BytesIO(archive), mode="r:gz") as tar:
         if tar.getmembers()[0].isdir():
             root_folder = tar.getmembers()[0].name
@@ -235,59 +237,15 @@ def get_file_from_tgz_archive(archive: bytes, filename, *, json_parse: bool) -> 
         extracted_file = tar.extractfile(file_path)
         if not extracted_file:
             return None
-        file_bytes = extracted_file.read()
-        return json.loads(file_bytes) if json_parse else file_bytes.decode("utf-8")
+        json_bytes = extracted_file.read()
+        return json.loads(json_bytes)
 
 
-def get_file_from_archive(archive: bytes, filename: str, *, json_parse: bool = True) -> Any:
+def get_json_from_archive(archive: bytes, filename: str):
     try:
-        try:
-            return get_file_from_zip_archive(archive, filename, json_parse=json_parse)
-        except BadZipFile:
-            return get_file_from_tgz_archive(archive, filename, json_parse=json_parse)
-    except KeyError:
-        return None
-
-
-def find_index_ts_in_archive(archive: bytes, main_filename: Optional[str] = None) -> str:
-    main_filenames_to_try = [main_filename] if main_filename else ["index.js", "index.ts"]
-    for main_filename in main_filenames_to_try:
-        index_ts = get_file_from_archive(archive, main_filename, json_parse=False)
-        if index_ts is not None:
-            return index_ts
-    raise ValueError(f"Could not find main file {' or '.join(main_filenames_to_try)}")
-
-
-def extract_plugin_code(
-    archive: bytes, plugin_json_parsed: Optional[Dict[str, Any]] = None
-) -> Tuple[str, Optional[str], Optional[str]]:
-    """Extract plugin.json, index.ts (which can be aliased) and frontend.tsx out of an archive.
-
-        If plugin.json has already been parsed before this is called, its value can be passed in as an optimization."""
-    if archive is None:
-        raise ValueError(f"There is no archive to extract code from")
-    # Extract plugin.json - required, might be provided already
-    plugin_json: str
-    if plugin_json_parsed is None:
-        plugin_json_original = get_file_from_archive(archive, "plugin.json", json_parse=False)
-        if not plugin_json_original:
-            raise ValueError(f"Could not find plugin.json")
-        try:
-            plugin_json_parsed = json.loads(plugin_json_original)
-        except json.JSONDecodeError as e:
-            raise ValueError(f"Could not parse plugin.json: {e}") from e
-    plugin_json = json.dumps(plugin_json_parsed)  # We serialize this even if just extracted from file, for minification
-    assert plugin_json_parsed is not None  # Just to let mypy know this must be loaded at this point
-    # Extract frontend.tsx - optional
-    frontend_tsx: Optional[str] = get_file_from_archive(archive, "frontend.tsx", json_parse=False)
-    # Extract index.ts - optional if frontend.tsx is present, otherwise required
-    index_ts: Optional[str] = None
-    try:
-        index_ts = find_index_ts_in_archive(archive, plugin_json_parsed.get("main"))
-    except ValueError as e:
-        if frontend_tsx is None:
-            raise e
-    return plugin_json, index_ts, frontend_tsx
+        return get_json_from_zip_archive(archive, filename)
+    except BadZipFile:
+        return get_json_from_tgz_archive(archive, filename)
 
 
 def put_json_into_zip_archive(archive: bytes, json_data: dict, filename: str):
