@@ -175,6 +175,7 @@ class ClickhouseFunnelBase(ABC):
         total_people = 0
 
         num_entities = len(self._filter.entities)
+        breakdown_value = results[-1]
 
         for step in reversed(self._filter.entities):
 
@@ -185,7 +186,7 @@ class ClickhouseFunnelBase(ABC):
             if cast(int, step.index) > 0:
                 serialized_result.update(
                     {
-                        "average_conversion_time": results[cast(int, step.index) + num_entities * 1 - 1],
+                        "average_conversion_time": results[cast(int, step.index) + num_entities - 1],
                         "median_conversion_time": results[cast(int, step.index) + num_entities * 2 - 2],
                     }
                 )
@@ -202,18 +203,18 @@ class ClickhouseFunnelBase(ABC):
                 # breakdown_value will return the underlying id if different from display ready value (ex: cohort id)
                 serialized_result.update(
                     {
-                        "breakdown": get_breakdown_cohort_name(results[-1])
+                        "breakdown": get_breakdown_cohort_name(breakdown_value)
                         if self._filter.breakdown_type == "cohort"
-                        else results[-1],
-                        "breakdown_value": results[-1],
+                        else breakdown_value,
+                        "breakdown_value": breakdown_value,
                     }
                 )
                 # important to not try and modify this value any how - as these
                 # are keys for fetching persons
 
                 # Add in the breakdown to people urls as well
-                converted_people_filter = converted_people_filter.with_data({"funnel_step_breakdown": results[-1]})
-                dropped_people_filter = dropped_people_filter.with_data({"funnel_step_breakdown": results[-1]})
+                converted_people_filter = converted_people_filter.with_data({"funnel_step_breakdown": breakdown_value})
+                dropped_people_filter = dropped_people_filter.with_data({"funnel_step_breakdown": breakdown_value})
 
             serialized_result.update(
                 {
