@@ -5,6 +5,7 @@ from typing import Dict, List, Tuple
 import structlog
 from django.conf import settings
 from django.utils.timezone import now
+from sentry_sdk import capture_exception
 
 from posthog.async_migrations.definition import (
     AsyncMigrationDefinition,
@@ -187,10 +188,14 @@ class Migration(AsyncMigrationDefinition):
         get_client().delete(REDIS_HIGHWATERMARK_KEY)
 
     def copy_persons_from_postgres(self, query_id: str):
-        should_continue = True
-        while should_continue:
-            should_continue = self._copy_batch_from_postgres(query_id)
-        optimize_table_fn(query_id)
+        try:
+            should_continue = True
+            while should_continue:
+                should_continue = self._copy_batch_from_postgres(query_id)
+            optimize_table_fn(query_id)
+        except Exception as err:
+            logger.warn("Re-copying persons from postgres failed. Marking async migration as complete.", error=err)
+            capture_exception(err)
 
     def _copy_batch_from_postgres(self, query_id: str) -> bool:
         highwatermark = self.get_pg_copy_highwatermark()
