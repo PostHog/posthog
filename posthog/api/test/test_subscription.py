@@ -48,29 +48,27 @@ class TestSubscription(APIBaseTest):
         response = self._create_subscription()
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         data = response.json()
-        self.assertEqual(
-            data,
-            {
-                "id": data["id"],
-                "dashboard": None,
-                "insight": self.insight.id,
-                "target_type": "email",
-                "target_value": "test@posthog.com",
-                "frequency": "weekly",
-                "interval": 1,
-                "byweekday": None,
-                "bysetpos": None,
-                "count": None,
-                "start_date": "2022-01-01T00:00:00Z",
-                "until_date": None,
-                "created_at": data["created_at"],
-                "created_by": data["created_by"],
-                "deleted": False,
-                "title": "My Subscription",
-                "next_delivery_date": data["next_delivery_date"],
-                "invite_message": None,
-            },
-        )
+        assert data == {
+            "id": data["id"],
+            "dashboard": None,
+            "insight": self.insight.id,
+            "target_type": "email",
+            "target_value": "test@posthog.com",
+            "frequency": "weekly",
+            "interval": 1,
+            "byweekday": None,
+            "bysetpos": None,
+            "count": None,
+            "start_date": "2022-01-01T00:00:00Z",
+            "until_date": None,
+            "created_at": data["created_at"],
+            "created_by": data["created_by"],
+            "deleted": False,
+            "title": "My Subscription",
+            "next_delivery_date": data["next_delivery_date"],
+            "invite_message": None,
+            "summary": "sent every week",
+        }
 
         mock_subscription_tasks.deliver_new_subscription.delay.assert_called_once_with(
             data["id"], ["test@posthog.com"], "hey there!"

@@ -31,7 +31,7 @@ def mock_email_messages(MockEmailMessage: MagicMock) -> List[Any]:
 
         def _send_side_effect(send_async: bool = True) -> Any:
             output_file = get_absolute_path(
-                f"test/__emails__/{kwargs['template_name']}/{email_message.campaign_key}.html"
+                f"tasks/test/__emails__/{kwargs['template_name']}/{email_message.campaign_key}.html"
             )
             os.makedirs(os.path.dirname(output_file), exist_ok=True)
 
