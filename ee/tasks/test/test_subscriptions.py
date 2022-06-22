@@ -5,18 +5,18 @@ from unittest.mock import MagicMock, call, patch
 import pytz
 from freezegun import freeze_time
 
-from posthog.models.dashboard import Dashboard
-from posthog.models.dashboard_tile import DashboardTile
-from posthog.models.insight import Insight
-from posthog.models.instance_setting import set_instance_setting
-from posthog.models.subscription import Subscription
-from posthog.tasks.subscriptions import (
+from ee.tasks.subscriptions import (
     MAX_ASSET_COUNT,
     deliver_new_subscription,
     deliver_subscription_report,
     get_tiles_ordered_by_position,
     schedule_all_subscriptions,
 )
+from posthog.models.dashboard import Dashboard
+from posthog.models.dashboard_tile import DashboardTile
+from posthog.models.insight import Insight
+from posthog.models.instance_setting import set_instance_setting
+from posthog.models.subscription import Subscription
 from posthog.tasks.test.utils_email_tests import mock_email_messages
 from posthog.test.base import APIBaseTest
 from posthog.test.db_context_capturing import capture_db_queries
@@ -33,9 +33,9 @@ def _create_subscription(**kwargs: Any) -> Subscription:
     )
 
 
-@patch("posthog.tasks.subscriptions.group")
-@patch("posthog.tasks.subscriptions.export_task")
-@patch("posthog.tasks.subscriptions.EmailMessage")
+@patch("ee.tasks.subscriptions.group")
+@patch("ee.tasks.subscriptions.export_task")
+@patch("ee.tasks.subscriptions.EmailMessage")
 @freeze_time("2022-02-02T08:55:00.000Z")
 class TestSubscriptionsTasks(APIBaseTest):
     subscriptions: List[Subscription] = None  # type: ignore
@@ -60,7 +60,7 @@ class TestSubscriptionsTasks(APIBaseTest):
             _create_subscription(team=self.team, dashboard=self.dashboard, created_by=self.user, deleted=True),
         ]
 
-    @patch("posthog.tasks.subscriptions.deliver_subscription_report")
+    @patch("ee.tasks.subscriptions.deliver_subscription_report")
     def test_subscription_delivery_scheduling(
         self,
         mock_deliver_task: MagicMock,
