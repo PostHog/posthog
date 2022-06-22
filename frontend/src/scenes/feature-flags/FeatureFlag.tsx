@@ -540,7 +540,12 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                         </LemonButton>
                     </Card>
                     <div className="text-right">
-                        <LemonButton htmlType="submit" type="primary" data-attr="feature-flag-submit-bottom">
+                        <LemonButton
+                            htmlType="submit"
+                            loading={featureFlagLoading}
+                            type="primary"
+                            data-attr="feature-flag-submit-bottom"
+                        >
                             Save changes
                         </LemonButton>
                     </div>
