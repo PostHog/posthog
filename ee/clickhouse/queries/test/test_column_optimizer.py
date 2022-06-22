@@ -135,6 +135,11 @@ class TestColumnOptimizer(ClickhouseTestMixin, APIBaseTest):
             properties_used_in_filter(filter), {("$group_1", "event", None): 1,},
         )
 
+        filter = Filter(data={"events": [{"id": "$pageview", "type": "events", "order": 0, "math": "unique_session",}]})
+        self.assertEqual(
+            properties_used_in_filter(filter), {("$session_id", "event", None): 1,},
+        )
+
     def test_properties_used_in_filter_with_actions(self):
         action = Action.objects.create(team=self.team)
         ActionStep.objects.create(

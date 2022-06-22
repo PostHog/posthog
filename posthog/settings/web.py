@@ -42,7 +42,6 @@ INSTALLED_APPS = [
     "drf_spectacular",
 ]
 
-
 MIDDLEWARE = [
     "posthog.gzip_middleware.ScopedGZipMiddleware",
     "django_structlog.middlewares.RequestMiddleware",
@@ -225,7 +224,7 @@ EXCEPTIONS_HOG = {
 
 
 def add_recorder_js_headers(headers, path, url):
-    if url.endswith("/recorder.js"):
+    if url.endswith("/recorder.js") and not DEBUG:
         headers["Cache-Control"] = "max-age=31536000, public"
 
 

@@ -5,13 +5,14 @@ import { userLogic } from 'scenes/userLogic'
 import { identifierToHuman } from 'lib/utils'
 import { IconOpenInNew } from '../icons'
 import './PayGatePage.scss'
+import { AvailableFeature } from '~/types'
 
 interface PayGatePageInterface {
     header: string | JSX.Element
     caption: string | JSX.Element
     hideUpgradeButton?: boolean
     docsLink?: string // Link to the docs of the feature, if no link is sent, it will be hidden
-    featureKey: 'group-analytics' | 'experimentation'
+    featureKey: AvailableFeature
 }
 
 export function PayGatePage({

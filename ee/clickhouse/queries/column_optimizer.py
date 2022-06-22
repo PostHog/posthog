@@ -60,6 +60,9 @@ class EnterpriseColumnOptimizer(FOSSColumnOptimizer):
             if entity.math == "unique_group":
                 counter[(f"$group_{entity.math_group_type_index}", "event", None)] += 1
 
+            if entity.math == "unique_session":
+                counter[(f"$session_id", "event", None)] += 1
+
             # :TRICKY: If action contains property filters, these need to be included
             #
             # See ee/clickhouse/models/action.py#format_action_filter for an example
