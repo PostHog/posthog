@@ -1,5 +1,6 @@
+import json
 from datetime import datetime, timedelta
-from unittest.mock import patch
+from unittest.mock import ANY, patch
 
 from dateutil.parser import isoparse
 from freezegun import freeze_time
@@ -86,9 +87,10 @@ class TestProcessFinishedSessionRecordings(BaseTest):
             statsd_incr, "session_recordings.process_finished_session_recordings.skipping_recently_active"
         )
 
+    @patch("ee.kafka_client.client._KafkaProducer.produce")
     @patch("posthog.session_recordings.process_finished_session_recordings.object_storage.write")
     @patch("statshog.defaults.django.statsd.incr")
-    def test_finished_recording_is_written_to_object_storage(self, statsd_incr, storage_write) -> None:
+    def test_finished_recording_is_written_to_sinks(self, statsd_incr, storage_write, kafka_producer) -> None:
         with freeze_time(fixed_now):
             _create_snapshot(session_id="a", timestamp=five_days_ago, team_id=self.team.id)
             _create_snapshot(session_id="a", timestamp=five_days_ago + timedelta(minutes=1), team_id=self.team.id)
@@ -98,6 +100,42 @@ class TestProcessFinishedSessionRecordings(BaseTest):
 
         assert processing_result is True
         self._assert_statsd_incr(statsd_incr, "session_recordings.process_finished_session_recordings.succeeded")
+
+        expected_storage_location = f"session_recordings/20220401/{self.team.id}/a/1"
+        expected_snapshot_data = [
+            {"data": {"source": 0}, "timestamp": ts, "has_full_snapshot": True, "type": 2}
+            for ts in [1629497354252.0, 1629497414252.0, 1629583874252.0]
+        ]
+        expected_contents = json.dumps({"1": expected_snapshot_data})
+        storage_write.assert_called_with(expected_storage_location, expected_contents)
+
+        kafka_producer.assert_called_with(
+            topic="clickhouse_session_recordings_test",
+            data={
+                "session_id": "a",
+                "team_id": self.team.id,
+                "distinct_id": ANY,
+                "session_start": "2021-08-20T22:09:14.252000+00:00",
+                "session_end": "2021-08-21T22:11:14.252000+00:00",
+                "duration": -86520.0,
+                "segments": [
+                    {
+                        "start_time": "2021-08-20T22:09:14.252000+00:00",
+                        "end_time": "2021-08-21T22:11:14.252000+00:00",
+                        "window_id": "1",
+                        "is_active": False,
+                    }
+                ],
+                "start_and_end_times_by_window_id": {
+                    "1": {
+                        "start_time": "2021-08-20T22:09:14.252000+00:00",
+                        "end_time": "2021-08-21T22:11:14.252000+00:00",
+                    }
+                },
+                "snapshot_data_location": {1: f"session_recordings/20220401/{self.team.id}/a/1"},
+            },
+            key=ANY,
+        )
 
     def _assert_statsd_incr(self, statsd_incr, identifier: str) -> None:
         self.assertEqual(statsd_incr.call_count, 1)

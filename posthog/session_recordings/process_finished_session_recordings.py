@@ -94,7 +94,7 @@ def process_finished_session(session_id: str, team_id: int, partition: str) -> b
             },
             "snapshot_data_location": {1: object_storage_path},
         }
-        KafkaProducer(test=False).produce(
+        KafkaProducer().produce(
             # don't allow test mode to affect topic used
             topic=KAFKA_SESSION_RECORDINGS,
             data=kafka_payload,
