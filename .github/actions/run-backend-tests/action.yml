@@ -83,7 +83,8 @@ runs:
           run: bin/check_kafka_clickhouse_up
 
         - name: Determine Pytest args
-          if: github.event.pull_request.head.repo.full_name == github.repository # Don't run on forks
+          # Don't run on forks
+          if: inputs.person-on-events != 'true' && github.event.pull_request.head.repo.full_name == github.repository
           shell: bash
           run: echo "PYTEST_ARGS=--snapshot-update" >> $GITHUB_ENV # We can only update snapshots within the PostHog org
 
@@ -95,7 +96,7 @@ runs:
                 --durations=150 --durations-min=1.0 $PYTEST_ARGS
 
         - name: Run ee/ tests
-          if: ${{ inputs.ee == 'true' && inputs.person-on-events != 'true'}}
+          if: ${{ inputs.ee == 'true' && inputs.person-on-events != 'true' }}
           shell: bash
           run: |
               pytest ee \

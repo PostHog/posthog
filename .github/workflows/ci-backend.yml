@@ -264,7 +264,8 @@ jobs:
                   person-on-events: ${{ matrix.person-on-events }}
 
             - uses: EndBug/add-and-commit@v9
-              if: matrix.group == 1 && matrix.name == '' && github.event.pull_request.head.repo.full_name == github.repository # Don't run on forks
+              # Don't run on forks
+              if: ${{ !matrix.person-on-events && github.event.pull_request.head.repo.full_name == github.repository }}
               with:
                   message: 'Update snapshots'
 
