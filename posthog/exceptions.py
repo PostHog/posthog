@@ -46,11 +46,7 @@ def exception_reporting(exception: Exception, context: ExceptionContext) -> None
     Determines which exceptions to report and sends them to Sentry.
     Used through drf-exceptions-hog
     """
-    from posthog.api.instance_settings import get_instance_setting
-    from posthog.settings.base_variables import DEBUG
-
-    if DEBUG or get_instance_setting("CAPTURE_BACKEND_EXCEPTIONS"):
-        logger.exception(exception, path=context["request"].path)
+    logger.exception(exception, path=context["request"].path)
 
     if not isinstance(exception, APIException):
         capture_exception(exception)

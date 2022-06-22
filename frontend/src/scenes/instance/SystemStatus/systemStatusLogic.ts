@@ -50,7 +50,6 @@ const EDITABLE_INSTANCE_SETTINGS = [
     'AGGREGATE_BY_DISTINCT_IDS_TEAMS',
     'ENABLE_ACTOR_ON_EVENTS_TEAMS',
     'STRICT_CACHING_TEAMS',
-    'CAPTURE_BACKEND_EXCEPTIONS',
 ]
 
 export const systemStatusLogic = kea<systemStatusLogicType>({
