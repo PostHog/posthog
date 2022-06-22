@@ -267,6 +267,7 @@ jobs:
               if: matrix.group == 1 && matrix.name == ''
               with:
                   message: 'Update snapshots'
+                  default_author: github_actor
 
             - name: Archive email renders
               uses: actions/upload-artifact@v3
