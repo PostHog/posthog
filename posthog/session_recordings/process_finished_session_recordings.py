@@ -10,6 +10,7 @@ from ee.clickhouse.queries.session_recordings.clickhouse_session_recording impor
 from ee.kafka_client.client import KafkaProducer
 from ee.kafka_client.topics import KAFKA_SESSION_RECORDINGS
 from posthog.client import sync_execute
+from posthog.models.instance_setting import get_instance_setting
 from posthog.queries.session_recordings.session_recording import RecordingMetadata
 from posthog.settings import OBJECT_STORAGE_SESSION_RECORDING_FOLDER
 from posthog.storage import object_storage
@@ -17,7 +18,7 @@ from posthog.storage import object_storage
 logger = structlog.get_logger(__name__)
 
 
-def get_sessions_for_oldest_partition() -> List[Tuple[str, int, str]]:
+def get_session_recordings_for_oldest_partition() -> List[Tuple[str, int, str]]:
     query_result = sync_execute(
         f"""
         with (SELECT toYYYYMMDD(min(timestamp)) FROM session_recording_events) as partition
@@ -31,7 +32,7 @@ def get_sessions_for_oldest_partition() -> List[Tuple[str, int, str]]:
     return [(session_id, team_id, str(partition)) for session_id, team_id, partition in query_result]
 
 
-def process_finished_session(session_id: str, team_id: int, partition: str) -> bool:
+def process_finished_session_recording(session_id: str, team_id: int, partition: str) -> bool:
     """
     for each session
         * calculate session metadata and load/decompress the snapshot data
@@ -42,7 +43,6 @@ def process_finished_session(session_id: str, team_id: int, partition: str) -> b
         * if that succeeds write that session to metadata table
 
     when all of those sessions have a record in the metadata table the partition can be dropped
-
     """
     logger.debug("session_recordings.process_finished_session_recordings.starting")
     timer = statsd.timer("session_recordings.process_finished_session_recordings").start()
@@ -64,8 +64,11 @@ def process_finished_session(session_id: str, team_id: int, partition: str) -> b
         )
         last_end_time = max([cast(datetime, x["end_time"]) for x in metadata.start_and_end_times_by_window_id.values()])
 
-        # must be more than 48 hours since last event to be considered finished
-        if (datetime.now(timezone.utc) - last_end_time).total_seconds() // 3600 < 48:
+        # must be more than RECORDINGS_POST_PROCESSING_RECENCY_LAG seconds since last event to be considered finished
+        # defaults to 48 hours
+        if (datetime.now(timezone.utc) - last_end_time).total_seconds() < get_instance_setting(
+            "RECORDINGS_POST_PROCESSING_RECENCY_LAG"
+        ):
             statsd.incr(
                 "session_recordings.process_finished_session_recordings.skipping_recently_active",
                 tags={"team_id": team_id,},
@@ -86,7 +89,7 @@ def process_finished_session(session_id: str, team_id: int, partition: str) -> b
             "distinct_id": metadata.distinct_id,
             "session_start": first_start_time.isoformat(),
             "session_end": last_end_time.isoformat(),
-            "duration": (first_start_time - last_end_time).total_seconds(),
+            "duration": (last_end_time - first_start_time).total_seconds(),
             "segments": [segment.to_dict() for segment in metadata.segments],
             "start_and_end_times_by_window_id": {
                 window_id: {time_key: time.isoformat() for (time_key, time) in time_dict.items()}

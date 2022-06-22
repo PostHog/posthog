@@ -148,9 +148,15 @@ def teardown_instrumentation(task_id, task, **kwargs):
 
 @app.task()
 def post_process_snapshot_recordings():
-    from posthog.session_recordings.process_finished_sessions import get_sessions_for_oldest_partition
+    from posthog.models.instance_setting import get_instance_setting
+    from posthog.session_recordings.process_finished_session_recordings import (
+        get_session_recordings_for_oldest_partition,
+    )
 
-    sessions_to_process = get_sessions_for_oldest_partition()
+    if not get_instance_setting("RECORDINGS_POST_PROCESSING_ACTIVE"):
+        return
+
+    sessions_to_process = get_session_recordings_for_oldest_partition()
     res = group(
         post_process_session.s(session_id, team_id, partition)
         for (session_id, team_id, partition) in sessions_to_process
@@ -161,9 +167,13 @@ def post_process_snapshot_recordings():
 
 @app.task()
 def post_process_session(session_id: str, team_id: int, partition: str):
-    from posthog.session_recordings.process_finished_sessions import process_finished_session
+    from posthog.models.instance_setting import get_instance_setting
+    from posthog.session_recordings.process_finished_session_recordings import process_finished_session_recording
 
-    return process_finished_session(session_id=session_id, team_id=team_id, partition=partition)
+    if not get_instance_setting("RECORDINGS_POST_PROCESSING_ACTIVE"):
+        return
+
+    return process_finished_session_recording(session_id=session_id, team_id=team_id, partition=partition)
 
 
 @app.task(ignore_result=True)
