@@ -517,8 +517,8 @@ export function humanFriendlyDiff(from: dayjs.Dayjs | string, to: dayjs.Dayjs | 
 
 export function humanFriendlyDetailedTime(
     date: dayjs.Dayjs | string | null,
-    withSeconds: boolean = false,
-    formatString: string = 'MMMM DD, YYYY h:mm'
+    formatDate = 'MMMM DD, YYYY',
+    formatTime = 'h:mm:ss A'
 ): string {
     if (!date) {
         return 'Never'
@@ -529,15 +529,13 @@ export function humanFriendlyDetailedTime(
     if (parsedDate.isSame(dayjs(), 'm')) {
         return 'Just now'
     }
+    let formatString: string
     if (parsedDate.isSame(today, 'd')) {
-        formatString = '[Today] h:mm'
+        formatString = `[Today] ${formatTime}`
     } else if (parsedDate.isSame(yesterday, 'd')) {
-        formatString = '[Yesterday] h:mm'
-    }
-    if (withSeconds) {
-        formatString += ':ss A'
+        formatString = `[Yesterday] ${formatTime}`
     } else {
-        formatString += ' A'
+        formatString = `${formatDate} ${formatTime}`
     }
     return parsedDate.format(formatString)
 }
@@ -600,6 +598,14 @@ export function isURL(input: any): boolean {
     }
     // Regex by regextester.com/115236
     const regexp = /^(?:http(s)?:\/\/)([\w.-])+(?:[\w\.-]+)+([\w\-\._~:/?#[\]@%!\$&'\(\)\*\+,;=.])+$/
+    return !!input.trim().match(regexp)
+}
+
+export function isExternalLink(input: any): boolean {
+    if (!input || typeof input !== 'string') {
+        return false
+    }
+    const regexp = /^(https?:|mailto:)/
     return !!input.trim().match(regexp)
 }
 
