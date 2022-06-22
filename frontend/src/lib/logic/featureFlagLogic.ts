@@ -27,7 +27,7 @@ function spyOnFeatureFlags(featureFlags: FeatureFlagsSet): FeatureFlagsSet {
     const appContext = getAppContext()
     const persistedFlags = getPersistedFeatureFlags(appContext)
     const availableFlags =
-        appContext?.preflight?.cloud || appContext?.preflight?.is_debug || process?.env.NODE_ENV === 'test'
+        appContext?.preflight?.cloud || appContext?.preflight?.is_debug || process.env.NODE_ENV === 'test'
             ? { ...persistedFlags, ...featureFlags }
             : persistedFlags
 

@@ -4,12 +4,14 @@ from dataclasses import dataclass
 from enum import Enum, auto
 from typing import Any, List, Optional, Tuple, Union, cast
 
+from ratelimit import limits
 from rest_framework import request, status
 from sentry_sdk import capture_exception
 from statshog.defaults.django import statsd
 
+from ee.models import EnterpriseEventDefinition
 from posthog.exceptions import RequestParsingError, generate_exception_response
-from posthog.models import Entity
+from posthog.models import Action, Entity, EventDefinition
 from posthog.models.entity import MATH_TYPE
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.stickiness_filter import StickinessFilter
@@ -126,12 +128,22 @@ def get_project_id(data, request) -> Optional[int]:
     return None
 
 
+@limits(calls=10, period=1)
+def capture_as_common_error_to_sentry_ratelimited(common_message, error):
+    try:
+        raise Exception(common_message) from error
+    except Exception as error_for_sentry:
+        capture_exception(error_for_sentry)
+
+
 def get_data(request):
     data = None
     try:
         data = load_data_from_request(request)
     except RequestParsingError as error:
-        capture_exception(error)  # We still capture this on Sentry to identify actual potential bugs
+        capture_as_common_error_to_sentry_ratelimited(
+            "Invalid payload", error
+        )  # We still capture this on Sentry to identify actual potential bugs
         return (
             None,
             cors_response(
@@ -288,12 +300,11 @@ def get_event_ingestion_context_for_personal_api_key(
 def check_definition_ids_inclusion_field_sql(
     raw_included_definition_ids: Optional[str], is_property: bool, named_key: str
 ):
-
     # Create conditional field based on whether id exists in included_properties
     if is_property:
-        included_definitions_sql = f"(posthog_propertydefinition.id = ANY (%({named_key})s::uuid[]))"
+        included_definitions_sql = f"(id = ANY (%({named_key})s::uuid[]))"
     else:
-        included_definitions_sql = f"(posthog_eventdefinition.id = ANY (%({named_key})s::uuid[]))"
+        included_definitions_sql = f"(id = ANY (%({named_key})s::uuid[]))"
 
     if not raw_included_definition_ids:
         return included_definitions_sql, []
@@ -308,3 +319,78 @@ def safe_clickhouse_string(s: str) -> str:
     for match in matches:
         s = s.replace(match, match.encode("unicode_escape").decode("utf8"))
     return s
+
+
+def create_event_definitions_sql(include_actions: bool, is_enterprise: bool = False, conditions: str = "") -> str:
+    # Prevent fetching deprecated `tags` field. Tags are separately fetched in TaggedItemSerializerMixin
+    ee_model = EnterpriseEventDefinition if is_enterprise else EventDefinition
+    event_definition_fields = {
+        f'"{f.column}"'
+        for f in ee_model._meta.get_fields()
+        if hasattr(f, "column") and f.column not in ["deprecated_tags", "tags"]  # type: ignore
+    }
+    shared_conditions = f"WHERE team_id = %(team_id)s {conditions}"
+    ordering = (
+        "ORDER BY last_seen_at DESC NULLS LAST, query_usage_30_day DESC NULLS LAST, name ASC"
+        if is_enterprise
+        else "ORDER BY name ASC"
+    )
+
+    if include_actions:
+        event_definition_fields.discard('"id"')
+        action_fields = {
+            f'"{f.column}"'  # type: ignore
+            for f in Action._meta.get_fields()
+            if hasattr(f, "column") and f.column not in ["events", "id"]  # type: ignore
+        }
+        combined_fields = event_definition_fields.union(action_fields)
+
+        raw_event_definition_fields = ",".join(
+            [f"NULL AS {col}" if col in action_fields - event_definition_fields else col for col in combined_fields]
+            + ["id", "NULL AS action_id"]
+        )
+        raw_action_fields = ",".join(
+            [f"NULL AS {col}" if col in event_definition_fields - action_fields else col for col in combined_fields]
+            + ["NULL AS id", "id AS action_id"]
+        )
+
+        event_definition_table = (
+            f"""
+                SELECT {raw_event_definition_fields}
+                FROM ee_enterpriseeventdefinition
+                FULL OUTER JOIN posthog_eventdefinition ON posthog_eventdefinition.id=ee_enterpriseeventdefinition.eventdefinition_ptr_id
+            """
+            if is_enterprise
+            else f"""
+                SELECT {raw_event_definition_fields} FROM posthog_eventdefinition
+            """
+        )
+
+        return f"""
+        SELECT * FROM (
+            {event_definition_table}
+            {shared_conditions}
+            UNION
+            SELECT {raw_action_fields} FROM posthog_action
+            {shared_conditions} AND posthog_action.deleted = false
+        ) as T
+        {ordering}
+        """
+
+    raw_event_definition_fields = ",".join(event_definition_fields)
+
+    return (
+        f"""
+        SELECT {raw_event_definition_fields}
+        FROM ee_enterpriseeventdefinition
+        FULL OUTER JOIN posthog_eventdefinition ON posthog_eventdefinition.id=ee_enterpriseeventdefinition.eventdefinition_ptr_id
+        {shared_conditions}
+        {ordering}
+    """
+        if is_enterprise
+        else f"""
+        SELECT {raw_event_definition_fields} FROM posthog_eventdefinition
+        {shared_conditions}
+        {ordering}
+    """
+    )

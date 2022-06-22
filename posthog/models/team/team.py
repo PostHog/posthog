@@ -111,6 +111,7 @@ class Team(UUIDClassicModel):
     timezone: models.CharField = models.CharField(max_length=240, choices=TIMEZONES, default="UTC")
     data_attributes: models.JSONField = models.JSONField(default=get_default_data_attributes)
     person_display_name_properties: ArrayField = ArrayField(models.CharField(max_length=400), null=True, blank=True)
+    live_events_columns: ArrayField = ArrayField(models.TextField(), null=True, blank=True)
 
     primary_dashboard: models.ForeignKey = models.ForeignKey(
         "posthog.Dashboard", on_delete=models.SET_NULL, null=True, related_name="primary_dashboard_teams"
@@ -189,6 +190,11 @@ class Team(UUIDClassicModel):
     @property
     def actor_on_events_querying_enabled(self) -> bool:
         enabled_teams = get_list(get_instance_setting("ENABLE_ACTOR_ON_EVENTS_TEAMS"))
+        return str(self.pk) in enabled_teams or "all" in enabled_teams
+
+    @property
+    def strict_caching_enabled(self) -> bool:
+        enabled_teams = get_list(get_instance_setting("STRICT_CACHING_TEAMS"))
         return str(self.pk) in enabled_teams or "all" in enabled_teams
 
     def __str__(self):

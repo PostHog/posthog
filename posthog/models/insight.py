@@ -12,7 +12,7 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.models.dashboard import Dashboard
 from posthog.models.filters.utils import get_filter
-from posthog.utils import generate_cache_key
+from posthog.utils import absolute_uri, generate_cache_key
 
 
 def generate_short_id():
@@ -138,6 +138,10 @@ class Insight(models.Model):
             return Dashboard.PrivilegeLevel.CAN_EDIT
         else:
             return Dashboard.PrivilegeLevel.CAN_VIEW
+
+    @property
+    def url(self):
+        return absolute_uri(f"/insights/{self.short_id}")
 
 
 class InsightViewed(models.Model):

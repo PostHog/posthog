@@ -1,15 +1,17 @@
 .insights-filter-group {
-    border-radius: var(--radius);
     overflow: hidden;
     background-color: #fff;
     border: 1px solid var(--bg-mid);
+    border-radius: var(--radius);
 
     .insights-filter-group-title {
         padding: 0.5em;
+        margin: 0;
         background: var(--bg-mid);
         font-weight: 600;
         display: flex;
         justify-content: space-between;
+        border-radius: var(--radius);
     }
 
     .insights-filter-group-content {

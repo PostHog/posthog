@@ -7,24 +7,23 @@ from freezegun.api import freeze_time
 from rest_framework.exceptions import ValidationError
 
 from ee.clickhouse.materialized_columns.columns import materialize
-from ee.clickhouse.models.property import (
+from posthog.client import sync_execute
+from posthog.constants import PropertyOperatorType
+from posthog.models.element import Element
+from posthog.models.filters import Filter
+from posthog.models.property import Property, TableWithProperties
+from posthog.models.property.util import (
     PropertyGroup,
     get_property_string_expr,
     get_single_or_multi_property_string_expr,
     parse_prop_grouped_clauses,
     prop_filter_json_extract,
 )
-from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
-from posthog.client import sync_execute
-from posthog.constants import PropertyOperatorType
-from posthog.models.element import Element
-from posthog.models.filters import Filter
-from posthog.models.property import Property, TableWithProperties
 from posthog.models.utils import PersonPropertiesMode
 from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
 from posthog.queries.person_query import PersonQuery
 from posthog.queries.property_optimizer import PropertyOptimizer
-from posthog.test.base import BaseTest, _create_event, _create_person
+from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, _create_person, snapshot_clickhouse_queries
 
 
 class TestPropFormat(ClickhouseTestMixin, BaseTest):

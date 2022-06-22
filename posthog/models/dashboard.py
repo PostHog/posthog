@@ -4,6 +4,7 @@ from django.contrib.postgres.fields import ArrayField
 from django.db import models
 
 from posthog.constants import AvailableFeature
+from posthog.utils import absolute_uri
 
 
 class Dashboard(models.Model):
@@ -46,6 +47,10 @@ class Dashboard(models.Model):
     deprecated_tags_v2: ArrayField = ArrayField(
         models.CharField(max_length=32), null=True, blank=True, default=None, db_column="tags"
     )
+
+    @property
+    def url(self):
+        return absolute_uri(f"/dashboard/{self.id}")
 
     @property
     def effective_restriction_level(self) -> RestrictionLevel:

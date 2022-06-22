@@ -32,7 +32,7 @@ def format_action_filter(
         conditions: List[str] = []
         # filter element
         if step.event == AUTOCAPTURE_EVENT:
-            from ee.clickhouse.models.property import filter_element  # prevent circular import
+            from posthog.models.property.util import filter_element  # prevent circular import
 
             el_condition, element_params = filter_element(model_to_dict(step), prepend=f"{action.pk}_{index}{prepend}")
             params = {**params, **element_params}
@@ -45,7 +45,7 @@ def format_action_filter(
         conditions += event_conditions
 
         if step.properties:
-            from ee.clickhouse.models.property import parse_prop_grouped_clauses
+            from posthog.models.property.util import parse_prop_grouped_clauses
 
             prop_query, prop_params = parse_prop_grouped_clauses(
                 team_id=team_id,
@@ -72,7 +72,7 @@ def format_action_filter(
 def filter_event(
     step: ActionStep, prepend: str = "event", index: int = 0, table_name: str = ""
 ) -> Tuple[List[str], Dict]:
-    from ee.clickhouse.models.property import get_property_string_expr
+    from posthog.models.property.util import get_property_string_expr
 
     params = {"{}_{}".format(prepend, index): step.event}
     conditions = []
@@ -119,7 +119,7 @@ def format_entity_filter(
 
 
 def get_action_tables_and_properties(action: Action) -> Counter[PropertyIdentifier]:
-    from ee.clickhouse.models.property import extract_tables_and_properties
+    from posthog.models.property.util import extract_tables_and_properties
 
     result: Counter[PropertyIdentifier] = Counter()
 

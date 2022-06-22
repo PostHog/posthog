@@ -1,6 +1,5 @@
 from typing import Any, Dict, Literal, Optional, Tuple, Union, cast
 
-from ee.clickhouse.models.property import get_single_or_multi_property_string_expr
 from posthog.constants import (
     PAGEVIEW_EVENT,
     TREND_FILTER_TYPE_ACTIONS,
@@ -11,6 +10,7 @@ from posthog.constants import (
 from posthog.models import Entity
 from posthog.models.action.util import Action, format_action_filter
 from posthog.models.filters.retention_filter import RetentionFilter
+from posthog.models.property.util import get_single_or_multi_property_string_expr
 from posthog.models.team import Team
 from posthog.models.utils import PersonPropertiesMode
 from posthog.queries.event_query import EventQuery

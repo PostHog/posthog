@@ -8,15 +8,15 @@ from clickhouse_driver.errors import ServerException
 from django.conf import settings
 from django.utils.timezone import now
 
-from ee.clickhouse.sql.events import EVENTS_TABLE_JSON_MV_SQL, KAFKA_EVENTS_TABLE_JSON_SQL
-from ee.clickhouse.sql.table_engines import MergeTreeEngine
 from posthog.async_migrations.definition import (
     AsyncMigrationDefinition,
     AsyncMigrationOperation,
     AsyncMigrationOperationSQL,
 )
+from posthog.clickhouse.table_engines import MergeTreeEngine
 from posthog.client import sync_execute
 from posthog.errors import lookup_error_code
+from posthog.models.event.sql import EVENTS_TABLE_JSON_MV_SQL, KAFKA_EVENTS_TABLE_JSON_SQL
 from posthog.models.instance_setting import set_instance_setting
 from posthog.utils import flatten
 
@@ -99,6 +99,8 @@ class Migration(AsyncMigrationDefinition):
     description = "Replace tables with replicated counterparts"
 
     depends_on = "0003_fill_person_distinct_id2"
+
+    posthog_max_version = "1.36.99"
 
     MOVE_PARTS_RETRIES = 3
 
@@ -285,31 +287,31 @@ class Migration(AsyncMigrationDefinition):
         )[0][0]
 
     def tables_to_migrate(self):
-        from ee.clickhouse.sql.cohort import COHORTPEOPLE_TABLE_ENGINE
-        from ee.clickhouse.sql.dead_letter_queue import (
+        from ee.clickhouse.sql.groups import GROUPS_TABLE_ENGINE, KAFKA_GROUPS_TABLE_SQL
+        from posthog.clickhouse.dead_letter_queue import (
             DEAD_LETTER_QUEUE_TABLE_ENGINE,
             KAFKA_DEAD_LETTER_QUEUE_TABLE_SQL,
         )
-        from ee.clickhouse.sql.events import (
+        from posthog.clickhouse.plugin_log_entries import (
+            KAFKA_PLUGIN_LOG_ENTRIES_TABLE_SQL,
+            PLUGIN_LOG_ENTRIES_TABLE_ENGINE,
+        )
+        from posthog.models.cohort.sql import COHORTPEOPLE_TABLE_ENGINE
+        from posthog.models.event.sql import (
             DISTRIBUTED_EVENTS_TABLE_SQL,
             EVENTS_DATA_TABLE_ENGINE,
             EVENTS_TABLE_MV_SQL,
             KAFKA_EVENTS_TABLE_SQL,
             WRITABLE_EVENTS_TABLE_SQL,
         )
-        from ee.clickhouse.sql.groups import GROUPS_TABLE_ENGINE, KAFKA_GROUPS_TABLE_SQL
-        from ee.clickhouse.sql.person import (
+        from posthog.models.person.sql import (
             KAFKA_PERSON_DISTINCT_ID2_TABLE_SQL,
             KAFKA_PERSONS_TABLE_SQL,
             PERSON_DISTINCT_ID2_TABLE_ENGINE,
             PERSON_STATIC_COHORT_TABLE_ENGINE,
             PERSONS_TABLE_ENGINE,
         )
-        from ee.clickhouse.sql.plugin_log_entries import (
-            KAFKA_PLUGIN_LOG_ENTRIES_TABLE_SQL,
-            PLUGIN_LOG_ENTRIES_TABLE_ENGINE,
-        )
-        from ee.clickhouse.sql.session_recording_events import (
+        from posthog.models.session_recording_event.sql import (
             DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL,
             KAFKA_SESSION_RECORDING_EVENTS_TABLE_SQL,
             SESSION_RECORDING_EVENTS_DATA_TABLE_ENGINE,

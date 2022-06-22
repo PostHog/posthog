@@ -22,6 +22,7 @@ export function TaxonomicFilter({
     eventNames,
     height,
     width,
+    excludedProperties,
     popoverEnabled = true,
     selectFirstItem = true,
 }: TaxonomicFilterProps): JSX.Element {
@@ -44,6 +45,7 @@ export function TaxonomicFilter({
         eventNames,
         popoverEnabled,
         selectFirstItem,
+        excludedProperties,
     }
 
     const logic = taxonomicFilterLogic(taxonomicFilterLogicProps)

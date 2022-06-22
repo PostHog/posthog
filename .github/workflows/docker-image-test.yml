@@ -3,6 +3,10 @@ name: Test Docker image build
 on:
     - pull_request
 
+concurrency:
+    group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+    cancel-in-progress: true
+
 jobs:
     build:
         name: Test image build
@@ -23,10 +27,11 @@ jobs:
               uses: docker/build-push-action@v2
               with:
                   push: false
+                  load: true
                   tags: posthog/posthog:testing
 
             - name: Output image info including size
               run: |
                   image_size_bytes=$(docker image inspect ${{ steps.docker_build.outputs.imageid }} | jq -r '.[0].Size')
                   echo "### Build info" >> $GITHUB_STEP_SUMMARY
-                  echo "Image size: $(jq -n $image_size_bytes/1000000000)GB" >> $GITHUB_STEP_SUMMARY
+                  echo "Image size: $(numfmt --to=iec --suffix=B --format="%.2f" $image_size_bytes)" >> $GITHUB_STEP_SUMMARY

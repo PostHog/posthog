@@ -26,6 +26,7 @@ import { ActionManager } from './worker/ingestion/action-manager'
 import { ActionMatcher } from './worker/ingestion/action-matcher'
 import { HookCommander } from './worker/ingestion/hooks'
 import { OrganizationManager } from './worker/ingestion/organization-manager'
+import { PersonManager } from './worker/ingestion/person-manager'
 import { EventsProcessor } from './worker/ingestion/process-event'
 import { SiteUrlManager } from './worker/ingestion/site-url-manager'
 import { TeamManager } from './worker/ingestion/team-manager'
@@ -148,7 +149,6 @@ export interface PluginsServerConfig extends Record<string, any> {
     OBJECT_STORAGE_SESSION_RECORDING_FOLDER: string
     OBJECT_STORAGE_BUCKET: string
     PLUGIN_SERVER_MODE: 'ingestion' | 'async' | null
-    INGESTION_BATCH_BREAKUP_BY_DISTINCT_ID_TEAMS: string
     KAFKAJS_LOG_LEVEL: 'NOTHING' | 'DEBUG' | 'INFO' | 'WARN' | 'ERROR'
 }
 
@@ -187,6 +187,7 @@ export interface Hub extends PluginsServerConfig {
     actionMatcher: ActionMatcher
     hookCannon: HookCommander
     eventsProcessor: EventsProcessor
+    personManager: PersonManager
     jobQueueManager: JobQueueManager
     siteUrlManager: SiteUrlManager
     // diagnostics
@@ -194,7 +195,6 @@ export interface Hub extends PluginsServerConfig {
     lastActivityType: string
     statelessVms: StatelessVmMap
     conversionBufferEnabledTeams: Set<number>
-    ingestionBatchBreakupByDistinctIdTeams: Set<number>
 }
 
 export interface PluginServerCapabilities {
@@ -269,9 +269,10 @@ export interface Plugin {
     url?: string
     config_schema: Record<string, PluginConfigSchema> | PluginConfigSchema[]
     tag?: string
-    archive: Buffer | null
     /** @deprecated Replaced with source__index_ts */
     source?: string
+    /** Cached source for plugin.json from a joined PluginSourceFile query */
+    source__plugin_json?: string
     /** Cached source for index.ts from a joined PluginSourceFile query */
     source__index_ts?: string
     /** Cached source for frontend.tsx from a joined PluginSourceFile query */
@@ -604,6 +605,8 @@ export interface Person extends BasePerson {
     version: number
 }
 
+export type IngestionPersonData = Pick<Person, 'id' | 'uuid' | 'team_id' | 'properties' | 'created_at'>
+
 /** Clickhouse Person model. */
 export interface ClickHousePerson {
     id: string
@@ -808,13 +811,6 @@ export interface Action extends RawAction {
     steps: ActionStep[]
 }
 
-/** Action<>Event mapping row. */
-export interface ActionEventPair {
-    id: number
-    action_id: Action['id']
-    event_id: Event['id']
-}
-
 export interface SessionRecordingEvent {
     uuid: string
     timestamp: string
@@ -937,6 +933,7 @@ export interface PreIngestionEvent {
     properties: Properties
     timestamp: DateTime | string
     elementsList: Element[]
+    person?: IngestionPersonData | undefined
 }
 
 export type IngestionEvent = PreIngestionEvent
