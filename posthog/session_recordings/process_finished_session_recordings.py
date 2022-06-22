@@ -107,10 +107,7 @@ def process_finished_session_recording(session_id: str, team_id: int, partition:
             "snapshot_data_location": {1: object_storage_path},
         }
         KafkaProducer().produce(
-            # don't allow test mode to affect topic used
-            topic=KAFKA_SESSION_RECORDINGS,
-            data=kafka_payload,
-            key=partition_key,
+            topic=KAFKA_SESSION_RECORDINGS, data=kafka_payload, key=partition_key,
         )
         statsd.incr("session_recordings.process_finished_session_recordings.succeeded", tags={"team_id": team_id,})
 
