@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react'
+import React, { useEffect, useMemo } from 'react'
 import { useActions, useValues } from 'kea'
 import { LemonButton } from 'lib/components/LemonButton'
 import { VerticalForm } from 'lib/forms/VerticalForm'
@@ -82,6 +82,25 @@ export function EditSubscription({
             loadSlackChannels()
         }
     }, [subscription.target_type])
+
+    // If slackChannels aren't loaded, make sure we display only the channel name and not the actual underlying value
+    const slackChannelOptions = useMemo(
+        () =>
+            slackChannels
+                ? slackChannels.map((x) => ({
+                      key: x.id,
+                      value: `${x.id}|#${x.name}`,
+                      label: x.is_private ? `🔒${x.name}` : `#${x.name}`,
+                  }))
+                : [
+                      {
+                          key: subscription.target_value,
+                          value: subscription.target_value,
+                          label: subscription.target_value?.split('|')?.pop(),
+                      },
+                  ],
+        [slackChannels, subscription.target_value]
+    )
 
     return (
         <>
@@ -214,11 +233,7 @@ export function EditSubscription({
                                             notFoundContent={null}
                                             style={{ width: '100%' }}
                                             loading={slackChannelsLoading}
-                                            options={slackChannels?.map((x) => ({
-                                                key: x.id,
-                                                value: `${x.id}|#${x.name}`,
-                                                label: x.is_private ? `🔒${x.name}` : `#${x.name}`,
-                                            }))}
+                                            options={slackChannelOptions}
                                         />
                                     </>
                                 )}
