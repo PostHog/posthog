@@ -52,7 +52,7 @@ export function Subscriptions(props: SubscriptionsModalProps): JSX.Element {
                             Introducing <span className="highlight">Subscriptions</span>!
                         </>
                     }
-                    caption="Get regular Insight or Dashboard reports directly to your inbox!"
+                    caption="Get Insight or Dashboard reports directly to your inbox!"
                     docsLink="https://posthog.com/docs/user-guides/subscriptions"
                 />
             )}
