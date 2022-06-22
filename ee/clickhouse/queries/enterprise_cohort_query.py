@@ -1,8 +1,9 @@
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Tuple, cast
 
+from posthog.constants import PropertyOperatorType
 from posthog.models.cohort.util import get_count_operator
 from posthog.models.filters.mixins.utils import cached_property
-from posthog.models.property.property import Property
+from posthog.models.property.property import Property, PropertyGroup
 from posthog.models.utils import PersonPropertiesMode
 from posthog.queries.foss_cohort_query import (
     FOSSCohortQuery,
@@ -11,6 +12,32 @@ from posthog.queries.foss_cohort_query import (
     validate_interval,
     validate_seq_date_more_recent_than_date,
 )
+
+
+def check_negation_clause(prop: PropertyGroup) -> Tuple[bool, bool]:
+    has_negation_clause = False
+    has_primary_clase = False
+    if len(prop.values):
+        if isinstance(prop.values[0], PropertyGroup):
+            for p in cast(List[PropertyGroup], prop.values):
+                has_neg, has_primary = check_negation_clause(p)
+                has_negation_clause = has_negation_clause or has_neg
+                has_primary_clase = has_primary_clase or has_primary
+
+        else:
+            for property in cast(List[Property], prop.values):
+                if property.negation:
+                    has_negation_clause = True
+                else:
+                    has_primary_clase = True
+
+        if prop.type == PropertyOperatorType.AND and has_negation_clause and has_primary_clase:
+            # this negation is valid, since all conditions are met.
+            # So, we don't need to pair this with anything in the rest of the tree
+            # return no negations, and yes to primary clauses
+            return False, True
+
+    return has_negation_clause, has_primary_clase
 
 
 class EnterpriseCohortQuery(FOSSCohortQuery):
@@ -337,3 +364,10 @@ class EnterpriseCohortQuery(FOSSCohortQuery):
 
     def get_performed_event_sequence(self, prop: Property, prepend: str, idx: int) -> Tuple[str, Dict[str, Any]]:
         return f"{self.SEQUENCE_FIELD_ALIAS}_{self.sequence_filters_lookup[str(prop.to_dict())]}", {}
+
+    # Check if negations are always paired with a positive filter
+    # raise a value error warning that this is an invalid cohort
+    def _validate_negations(self) -> None:
+        has_pending_negation, has_primary_clause = check_negation_clause(self._filter.property_groups)
+        if has_pending_negation:
+            raise ValueError("Negations must be paired with a positive filter.")
