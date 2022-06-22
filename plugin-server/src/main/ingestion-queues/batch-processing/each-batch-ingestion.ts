@@ -4,7 +4,6 @@ import { EachBatchPayload, KafkaMessage } from 'kafkajs'
 import { Hub, WorkerMethods } from '../../../types'
 import { normalizeEvent } from '../../../utils/event'
 import { status } from '../../../utils/status'
-import { groupIntoBatches } from '../../../utils/utils'
 import { KafkaQueue } from '../kafka-queue'
 import { eachBatch } from './each-batch'
 
@@ -25,9 +24,6 @@ export async function eachMessageIngestion(message: KafkaMessage, queue: KafkaQu
 }
 
 export async function eachBatchIngestion(payload: EachBatchPayload, queue: KafkaQueue): Promise<void> {
-    const enabledTeams = queue.pluginsServer.ingestionBatchBreakupByDistinctIdTeams
-    const countingMode = enabledTeams.size === 0
-
     function groupIntoBatchesIngestion(kafkaMessages: KafkaMessage[], batchSize: number): KafkaMessage[][] {
         // Once we see a distinct ID we've already seen break up the batch
         const batches = []
@@ -35,27 +31,17 @@ export async function eachBatchIngestion(payload: EachBatchPayload, queue: Kafka
         let currentBatch: KafkaMessage[] = []
         for (const message of kafkaMessages) {
             const pluginEvent = formPluginEvent(message)
-            const enabledBreakupById = countingMode || enabledTeams.has(pluginEvent.team_id)
             const seenKey = `${pluginEvent.team_id}:${pluginEvent.distinct_id}`
-            if (currentBatch.length === batchSize || (enabledBreakupById && seenIds.has(seenKey))) {
+            if (currentBatch.length === batchSize || seenIds.has(seenKey)) {
                 seenIds.clear()
                 batches.push(currentBatch)
                 currentBatch = []
             }
-            if (enabledBreakupById) {
-                seenIds.add(seenKey)
-            }
+            seenIds.add(seenKey)
             currentBatch.push(message)
         }
         if (currentBatch) {
             batches.push(currentBatch)
-        }
-        if (countingMode) {
-            queue.pluginsServer.statsd?.histogram(
-                'ingest_event_batching.batch_count_if_enabled_for_all',
-                batches.length
-            )
-            return groupIntoBatches(kafkaMessages, batchSize)
         }
         return batches
     }

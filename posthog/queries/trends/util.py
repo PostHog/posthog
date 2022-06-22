@@ -41,6 +41,8 @@ def process_math(
         validate_group_type_index("math_group_type_index", entity.math_group_type_index, required=True)
 
         aggregate_operation = f"count(DISTINCT $group_{entity.math_group_type_index})"
+    elif entity.math == "unique_session":
+        aggregate_operation = f"count(DISTINCT $session_id)"
     elif entity.math in MATH_FUNCTIONS:
         if entity.math_property is None:
             raise ValidationError({"math_property": "This field is required when `math` is set."}, code="required")

@@ -1831,6 +1831,7 @@ export enum BaseMathType {
     DailyActive = 'dau',
     WeeklyActive = 'weekly_active',
     MonthlyActive = 'monthly_active',
+    UniqueSessions = 'unique_session',
 }
 
 export enum PropertyMathType {
@@ -1911,6 +1912,7 @@ export interface SubscriptionType {
     start_date: string
     until_date?: string
     title: string
+    summary: string
     created_by?: UserBasicType | null
     created_at: string
     updated_at: string

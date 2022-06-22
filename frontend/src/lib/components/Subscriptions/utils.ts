@@ -1,7 +1,7 @@
 import { LemonSelectOptions } from '@posthog/lemon-ui'
-import { pluralize, range } from 'lib/utils'
+import { range } from 'lib/utils'
 import { urls } from 'scenes/urls'
-import { InsightShortId, SubscriptionType } from '~/types'
+import { InsightShortId } from '~/types'
 
 export interface SubscriptionBaseProps {
     dashboardId?: number
@@ -73,23 +73,3 @@ export const timeOptions: LemonSelectOptions = range(0, 24).reduce(
     }),
     {}
 )
-
-const humanFrequencyMap: { [key in SubscriptionType['frequency']]: string } = {
-    daily: 'day',
-    weekly: 'week',
-    monthly: 'month',
-    yearly: 'year',
-}
-
-export function summarizeSubscription(subscription: SubscriptionType): string {
-    const frequency = pluralize(subscription.interval, humanFrequencyMap[subscription.frequency], undefined, false)
-    let summary = `Sent every ${subscription.interval > 1 ? subscription.interval + ' ' : ''}${frequency}`
-
-    if (subscription.byweekday?.length && subscription.bysetpos) {
-        summary += ` on the ${bysetposOptions[subscription.bysetpos]?.label} ${
-            subscription.byweekday.length === 1 ? subscription.byweekday[0] : 'day'
-        }`
-    }
-
-    return summary
-}
