@@ -560,6 +560,12 @@ class TestUserAPI(APIBaseTest):
         self.user.refresh_from_db()
         self.assertTrue(self.user.check_password(self.CONFIG_PASSWORD))
 
+    def test_no_ratelimit_for_get_requests_for_users(self):
+
+        for i in range(10):
+            response = self.client.get("/api/users/@me/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
     # DELETING USER
 
     def test_deleting_current_user_is_not_supported(self):

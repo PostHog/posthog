@@ -31,6 +31,12 @@ from posthog.utils import get_js_url
 class UserAuthenticationThrottle(UserRateThrottle):
     rate = "5/minute"
 
+    def allow_request(self, request, view):
+        # only throttle non-GET requests
+        if request.method == "GET":
+            return True
+        return super().allow_request(request, view)
+
 
 class UserSerializer(serializers.ModelSerializer):
 
