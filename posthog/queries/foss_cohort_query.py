@@ -110,32 +110,6 @@ def if_condition(condition: str, true_res: str, false_res: str) -> str:
     return f"if({condition}, {true_res}, {false_res})"
 
 
-def check_negation_clause(prop: PropertyGroup) -> Tuple[bool, bool]:
-    has_negation_clause = False
-    has_primary_clase = False
-    if len(prop.values):
-        if isinstance(prop.values[0], PropertyGroup):
-            for p in cast(List[PropertyGroup], prop.values):
-                has_neg, has_primary = check_negation_clause(p)
-                has_negation_clause = has_negation_clause or has_neg
-                has_primary_clase = has_primary_clase or has_primary
-
-        else:
-            for property in cast(List[Property], prop.values):
-                if property.negation:
-                    has_negation_clause = True
-                else:
-                    has_primary_clase = True
-
-        if prop.type == PropertyOperatorType.AND and has_negation_clause and has_primary_clase:
-            # this negation is valid, since all conditions are met.
-            # So, we don't need to pair this with anything in the rest of the tree
-            # return no negations, and yes to primary clauses
-            return False, True
-
-    return has_negation_clause, has_primary_clase
-
-
 class FOSSCohortQuery(EventQuery):
 
     BEHAVIOR_QUERY_ALIAS = "behavior_query"
@@ -526,10 +500,9 @@ class FOSSCohortQuery(EventQuery):
 
     # Check if negations are always paired with a positive filter
     # raise a value error warning that this is an invalid cohort
+    # implemented in /ee
     def _validate_negations(self) -> None:
-        has_pending_negation, has_primary_clause = check_negation_clause(self._filter.property_groups)
-        if has_pending_negation:
-            raise ValueError("Negations must be paired with a positive filter.")
+        pass
 
     def _get_entity(
         self, event: Tuple[Optional[str], Optional[Union[int, str]]], prepend: str, idx: int
