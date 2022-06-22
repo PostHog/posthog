@@ -26,9 +26,6 @@ describe('DB', () => {
         await closeServer()
     })
 
-    // const TEAM_ID = 2
-    // const ACTION_ID = 69
-    // const ACTION_STEP_ID = 913
     const TIMESTAMP = DateTime.fromISO('2000-10-14T11:42:06.502Z').toUTC()
 
     describe('fetchAllActionsGroupedByTeam() and fetchAction()', () => {
