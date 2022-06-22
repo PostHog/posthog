@@ -635,4 +635,139 @@ describe('DB', () => {
             expect(await db.fetchInstanceSetting('BOOLEAN_SETTING')).toEqual(true)
         })
     })
+
+    describe('feature flag hash key overrides', () => {
+        let team: Team
+        let sourcePersonID: Person['id']
+        let targetPersonID: Person['id']
+
+        async function getAllHashKeyOverrides(teamID: number, personID: Person['id']): Promise<any> {
+            const result = await db.postgresQuery(
+                'SELECT feature_flag_key, hash_key FROM posthog_featureflaghashkeyoverride WHERE team_id=$1 AND person_id=$2',
+                [teamID, personID],
+                ''
+            )
+            return result.rows
+        }
+
+        beforeEach(async () => {
+            team = await getFirstTeam(hub)
+            const sourcePerson = await db.createPerson(
+                TIMESTAMP,
+                {},
+                {},
+                {},
+                team.id,
+                null,
+                false,
+                new UUIDT().toString(),
+                ['source_person']
+            )
+            const targetPerson = await db.createPerson(
+                TIMESTAMP,
+                {},
+                {},
+                {},
+                team.id,
+                null,
+                false,
+                new UUIDT().toString(),
+                ['target_person']
+            )
+            sourcePersonID = sourcePerson.id
+            targetPersonID = targetPerson.id
+        })
+
+        it("doesn't fail on empty data", async () => {
+            await db.addFeatureFlagHashKeysForMergedPerson(team.id, sourcePersonID, targetPersonID)
+        })
+
+        it('updates all valid keys when target person had no overrides', async () => {
+            await db.postgresQuery(
+                `INSERT INTO posthog_featureflaghashkeyoverride (team_id, person_id, feature_flag_key, hash_key) VALUES
+                ($1, $2, 'aloha', 'override_value_for_aloha'),
+                ($1, $2, 'beta-feature', 'override_value_for_beta_feature')
+                `,
+                [team.id, sourcePersonID],
+                ''
+            )
+
+            await db.addFeatureFlagHashKeysForMergedPerson(team.id, sourcePersonID, targetPersonID)
+
+            let result = await getAllHashKeyOverrides(team.id, sourcePersonID)
+            expect(result.length).toEqual(0)
+
+            result = await getAllHashKeyOverrides(team.id, targetPersonID)
+            expect(result.length).toEqual(2)
+            expect(result.sort()).toEqual([
+                {
+                    feature_flag_key: 'aloha',
+                    hash_key: 'override_value_for_aloha',
+                },
+                {
+                    feature_flag_key: 'beta-feature',
+                    hash_key: 'override_value_for_beta_feature',
+                },
+            ])
+        })
+
+        it('updates all valid keys when conflicts with target person', async () => {
+            await db.postgresQuery(
+                `INSERT INTO posthog_featureflaghashkeyoverride (team_id, person_id, feature_flag_key, hash_key) VALUES
+                ($1, $2, 'aloha', 'override_value_for_aloha'),
+                ($1, $2, 'beta-feature', 'override_value_for_beta_feature'),
+                ($1, $3, 'beta-feature', 'existing_override_value_for_beta_feature')  -- targetPerson override already exists
+                `,
+                [team.id, sourcePersonID, targetPersonID],
+                ''
+            )
+
+            await db.addFeatureFlagHashKeysForMergedPerson(team.id, sourcePersonID, targetPersonID)
+
+            let result = await getAllHashKeyOverrides(team.id, sourcePersonID)
+            expect(result.length).toEqual(0)
+
+            result = await getAllHashKeyOverrides(team.id, targetPersonID)
+            expect(result.length).toEqual(2)
+            expect(result.sort()).toEqual([
+                {
+                    feature_flag_key: 'beta-feature',
+                    hash_key: 'existing_override_value_for_beta_feature',
+                },
+                {
+                    feature_flag_key: 'aloha',
+                    hash_key: 'override_value_for_aloha',
+                },
+            ])
+        })
+
+        it('updates nothing when target person overrides exist', async () => {
+            await db.postgresQuery(
+                `INSERT INTO posthog_featureflaghashkeyoverride (team_id, person_id, feature_flag_key, hash_key) VALUES
+                ($1, $2, 'aloha', 'override_value_for_aloha'),
+                ($1, $2, 'beta-feature', 'override_value_for_beta_feature')
+                `,
+                [team.id, targetPersonID],
+                ''
+            )
+
+            await db.addFeatureFlagHashKeysForMergedPerson(team.id, sourcePersonID, targetPersonID)
+
+            let result = await getAllHashKeyOverrides(team.id, sourcePersonID)
+            expect(result.length).toEqual(0)
+
+            result = await getAllHashKeyOverrides(team.id, targetPersonID)
+            expect(result.length).toEqual(2)
+            expect(result.sort()).toEqual([
+                {
+                    feature_flag_key: 'aloha',
+                    hash_key: 'override_value_for_aloha',
+                },
+                {
+                    feature_flag_key: 'beta-feature',
+                    hash_key: 'override_value_for_beta_feature',
+                },
+            ])
+        })
+    })
 })

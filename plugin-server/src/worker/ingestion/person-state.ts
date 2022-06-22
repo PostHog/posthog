@@ -4,7 +4,7 @@ import equal from 'fast-deep-equal'
 import { StatsD } from 'hot-shots'
 import { ProducerRecord } from 'kafkajs'
 import { DateTime } from 'luxon'
-import { DatabaseError } from 'pg'
+import { DatabaseError, PoolClient } from 'pg'
 
 import { Person, PropertyUpdateOperation } from '../../types'
 import { DB } from '../../utils/db/db'
@@ -418,12 +418,7 @@ export class PersonState {
                 )
 
                 // Merge the distinct IDs
-                await this.db.postgresQuery(
-                    'UPDATE posthog_cohortpeople SET person_id = $1 WHERE person_id = $2',
-                    [mergeInto.id, otherPerson.id],
-                    'updateCohortPeople',
-                    client
-                )
+                await this.handleTablesDependingOnPersonID(otherPerson, mergeInto, client)
 
                 const distinctIdMessages = await this.db.moveDistinctIds(otherPerson, mergeInto, client)
 
@@ -453,5 +448,24 @@ export class PersonState {
         })
 
         await this.db.kafkaProducer.queueMessages(kafkaMessages)
+    }
+
+    private async handleTablesDependingOnPersonID(
+        sourcePerson: Person,
+        targetPerson: Person,
+        client?: PoolClient
+    ): Promise<void> {
+        // When personIDs change, update places depending on a person_id foreign key
+
+        // For Cohorts
+        await this.db.postgresQuery(
+            'UPDATE posthog_cohortpeople SET person_id = $1 WHERE person_id = $2',
+            [targetPerson.id, sourcePerson.id],
+            'updateCohortPeople',
+            client
+        )
+
+        // For FeatureFlagHashKeyOverrides
+        await this.db.addFeatureFlagHashKeysForMergedPerson(sourcePerson.team_id, sourcePerson.id, targetPerson.id)
     }
 }

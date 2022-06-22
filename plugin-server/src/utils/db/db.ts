@@ -1188,6 +1188,28 @@ export class DB {
         return insertResult.rows[0]
     }
 
+    // Featue Flag Hash Key overrides
+    public async addFeatureFlagHashKeysForMergedPerson(
+        teamID: Team['id'],
+        sourcePersonID: Person['id'],
+        targetPersonID: Person['id']
+    ): Promise<void> {
+        await this.postgresQuery(
+            `
+            WITH deletions AS (
+                DELETE FROM posthog_featureflaghashkeyoverride WHERE team_id = $1 AND person_id = $2
+                RETURNING team_id, person_id, feature_flag_key, hash_key
+            )
+            INSERT INTO posthog_featureflaghashkeyoverride (team_id, person_id, feature_flag_key, hash_key)
+                SELECT team_id, $3, feature_flag_key, hash_key
+                FROM deletions
+                ON CONFLICT DO NOTHING
+            `,
+            [teamID, sourcePersonID, targetPersonID],
+            'upsertFeatureFlagHashKeyOverride'
+        )
+    }
+
     // Event
 
     public async fetchEvents(): Promise<Event[] | ClickHouseEvent[]> {
