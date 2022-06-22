@@ -16,6 +16,7 @@ from django.db import models
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 from django.utils import timezone
+from sentry_sdk import capture_exception
 
 from posthog.jwt import PosthogJwtAudience, decode_jwt, encode_jwt
 from posthog.utils import absolute_uri
@@ -112,8 +113,6 @@ class Subscription(models.Model):
 
     def save(self, *args, **kwargs) -> None:
         self.set_next_delivery_date()
-        # TODO: Think about this more carefully. If we just sent a message and the subscription
-        # gets saved, the date will be overwritten...
         super(Subscription, self).save(*args, **kwargs)
 
     @property
@@ -123,6 +122,25 @@ class Subscription(models.Model):
         elif self.dashboard:
             return absolute_uri(f"/dashboard/{self.dashboard.id}/subscriptions/{self.id}")
         return None
+
+    @property
+    def summary(self):
+        try:
+            human_frequency = {"daily": "day", "weekly": "week", "monthly": "month", "yearly": "year"}[self.frequency]
+            if self.interval > 1:
+                human_frequency = f"{human_frequency}s"
+
+            summary = f"sent every {str(self.interval) + ' ' if self.interval > 1 else ''}{human_frequency}"
+
+            if self.byweekday and self.bysetpos:
+                human_bysetpos = {1: "first", 2: "second", 3: "third", 4: "fourth", -1: "last",}[self.bysetpos]
+                summary += (
+                    f" on the {human_bysetpos} {self.byweekday[0].capitalize() if len(self.byweekday) == 1 else 'day'}"
+                )
+            return summary
+        except KeyError as e:
+            capture_exception(e)
+            return "sent on a schedule"
 
     def get_analytics_metadata(self) -> Dict[str, Any]:
         """

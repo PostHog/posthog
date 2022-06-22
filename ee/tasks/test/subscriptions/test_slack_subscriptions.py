@@ -2,17 +2,17 @@ from unittest.mock import MagicMock, patch
 
 from freezegun import freeze_time
 
+from ee.tasks.subscriptions.slack_subscriptions import send_slack_subscription_report
+from ee.tasks.test.subscriptions.utils_subscription_tests import create_subscription
 from posthog.models.dashboard import Dashboard
 from posthog.models.exported_asset import ExportedAsset
 from posthog.models.insight import Insight
 from posthog.models.integration import Integration
 from posthog.models.subscription import Subscription
-from posthog.tasks.subscriptions.slack_subscriptions import send_slack_subscription_report
-from posthog.tasks.test.subscriptions.utils_subscription_tests import create_subscription
 from posthog.test.base import APIBaseTest
 
 
-@patch("posthog.tasks.subscriptions.slack_subscriptions.SlackIntegration")
+@patch("ee.tasks.subscriptions.slack_subscriptions.SlackIntegration")
 @freeze_time("2022-02-02T08:55:00.000Z")
 class TestSlackSubscriptionsTasks(APIBaseTest):
     subscription: Subscription

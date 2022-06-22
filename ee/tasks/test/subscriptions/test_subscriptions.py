@@ -5,24 +5,20 @@ from unittest.mock import MagicMock, call, patch
 import pytz
 from freezegun import freeze_time
 
+from ee.tasks.subscriptions import deliver_new_subscription, deliver_subscription_report, schedule_all_subscriptions
+from ee.tasks.test.subscriptions.utils_subscription_tests import create_subscription
 from posthog.models.dashboard import Dashboard
 from posthog.models.dashboard_tile import DashboardTile
 from posthog.models.exported_asset import ExportedAsset
 from posthog.models.insight import Insight
 from posthog.models.instance_setting import set_instance_setting
 from posthog.models.subscription import Subscription
-from posthog.tasks.subscriptions import (
-    deliver_new_subscription,
-    deliver_subscription_report,
-    schedule_all_subscriptions,
-)
-from posthog.tasks.test.subscriptions.utils_subscription_tests import create_subscription
 from posthog.test.base import APIBaseTest
 
 
-@patch("posthog.tasks.subscriptions.send_slack_subscription_report")
-@patch("posthog.tasks.subscriptions.send_email_subscription_report")
-@patch("posthog.tasks.subscriptions.generate_assets")
+@patch("ee.tasks.subscriptions.send_slack_subscription_report")
+@patch("ee.tasks.subscriptions.send_email_subscription_report")
+@patch("ee.tasks.subscriptions.generate_assets")
 @freeze_time("2022-02-02T08:55:00.000Z")
 class TestSubscriptionsTasks(APIBaseTest):
     subscriptions: List[Subscription] = None  # type: ignore
@@ -42,7 +38,7 @@ class TestSubscriptionsTasks(APIBaseTest):
         set_instance_setting("EMAIL_HOST", "fake_host")
         set_instance_setting("EMAIL_ENABLED", True)
 
-    @patch("posthog.tasks.subscriptions.deliver_subscription_report")
+    @patch("ee.tasks.subscriptions.deliver_subscription_report")
     def test_subscription_delivery_scheduling(
         self,
         mock_deliver_task: MagicMock,

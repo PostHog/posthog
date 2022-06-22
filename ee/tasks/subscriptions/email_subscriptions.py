@@ -3,10 +3,10 @@ from typing import List, Optional
 
 import structlog
 
+from ee.tasks.subscriptions.subscription_utils import UTM_TAGS_BASE
 from posthog.email import EmailMessage
 from posthog.models.exported_asset import ExportedAsset
 from posthog.models.subscription import Subscription, get_unsubscribe_token
-from posthog.tasks.subscriptions.subscription_utils import UTM_TAGS_BASE
 from posthog.utils import absolute_uri
 
 logger = structlog.get_logger(__name__)

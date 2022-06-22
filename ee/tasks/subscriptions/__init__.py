@@ -4,12 +4,12 @@ from typing import List, Optional
 import structlog
 from sentry_sdk import capture_exception
 
+from ee.tasks.subscriptions.email_subscriptions import send_email_subscription_report
+from ee.tasks.subscriptions.slack_subscriptions import send_slack_subscription_report
+from ee.tasks.subscriptions.subscription_utils import generate_assets
 from posthog.celery import app
 from posthog.internal_metrics import incr
 from posthog.models.subscription import Subscription
-from posthog.tasks.subscriptions.email_subscriptions import send_email_subscription_report
-from posthog.tasks.subscriptions.slack_subscriptions import send_slack_subscription_report
-from posthog.tasks.subscriptions.subscription_utils import generate_assets
 
 logger = structlog.get_logger(__name__)
 

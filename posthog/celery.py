@@ -94,6 +94,11 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
     sender.add_periodic_task(120, clickhouse_part_count.s(), name="clickhouse table parts count")
     sender.add_periodic_task(120, clickhouse_mutation_count.s(), name="clickhouse table mutations count")
 
+    sender.add_periodic_task(120, pg_table_cache_hit_rate.s(), name="PG table cache hit rate")
+    sender.add_periodic_task(
+        crontab(minute=0, hour="*"), pg_plugin_server_query_timing.s(), name="PG plugin server query timing"
+    )
+
     sender.add_periodic_task(crontab(minute=0, hour="*"), calculate_cohort_ids_in_feature_flags_task.s())
 
     sender.add_periodic_task(
@@ -164,6 +169,66 @@ def enqueue_clickhouse_execute_with_progress(
     from posthog.client import execute_with_progress
 
     execute_with_progress(team_id, query_id, query, args, settings, with_column_types, task_id=self.request.id)
+
+
+@app.task(ignore_result=True)
+def pg_table_cache_hit_rate():
+    from posthog.internal_metrics import gauge
+
+    with connection.cursor() as cursor:
+        try:
+            cursor.execute(
+                """
+                SELECT
+                 relname as table_name,
+                 sum(heap_blks_hit) / nullif(sum(heap_blks_hit) + sum(heap_blks_read),0) * 100 AS ratio
+                FROM pg_statio_user_tables
+                GROUP BY relname
+                ORDER BY ratio ASC
+            """
+            )
+            tables = cursor.fetchall()
+            for row in tables:
+                gauge("pg_table_cache_hit_rate", row[1], tags={"table": row[0]})
+        except:
+            # if this doesn't work keep going
+            pass
+
+
+@app.task(ignore_result=True)
+def pg_plugin_server_query_timing():
+    from posthog.internal_metrics import gauge
+
+    with connection.cursor() as cursor:
+        try:
+            cursor.execute(
+                """
+                SELECT
+                    substring(query from 'plugin-server:(\\w+)') AS query_type,
+                    total_time as total_time,
+                    (total_time / calls) as avg_time,
+                    min_time,
+                    max_time,
+                    stddev_time,
+                    calls,
+                    rows as rows_read_or_affected
+                FROM pg_stat_statements
+                WHERE query LIKE '%%plugin-server%%'
+                ORDER BY total_time DESC
+                LIMIT 50
+                """
+            )
+
+            for row in cursor.fetchall():
+                row_dictionary = {column.name: value for column, value in zip(cursor.description, row)}
+
+                for key, value in row_dictionary.items():
+                    if key == "query_type":
+                        continue
+                    gauge(f"pg_plugin_server_query_{key}", value, tags={"query_type": row_dictionary["query_type"]})
+        except:
+            # if this doesn't work keep going
+            pass
 
 
 CLICKHOUSE_TABLES = [
@@ -439,6 +504,6 @@ def verify_persons_data_in_sync():
 
 @app.task(ignore_result=True)
 def schedule_all_subscriptions():
-    from posthog.tasks.subscriptions import schedule_all_subscriptions
+    from ee.tasks.subscriptions import schedule_all_subscriptions
 
     schedule_all_subscriptions()

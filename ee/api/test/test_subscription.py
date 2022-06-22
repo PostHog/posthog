@@ -1,16 +1,17 @@
 from unittest.mock import patch
 
+import pytest
 from rest_framework import status
 
+from ee.api.test.base import APILicensedTest
 from posthog.models.dashboard import Dashboard
 from posthog.models.filters.filter import Filter
 from posthog.models.insight import Insight
 from posthog.models.subscription import Subscription
-from posthog.test.base import APIBaseTest
 
 
-@patch("posthog.api.subscription.subscriptions")
-class TestSubscription(APIBaseTest):
+@patch("ee.api.subscription.subscriptions")
+class TestSubscription(APILicensedTest):
     subscription: Subscription = None  # type: ignore
     dashboard: Dashboard = None  # type: ignore
     insight: Insight = None  # type: ignore
@@ -44,33 +45,39 @@ class TestSubscription(APIBaseTest):
         payload.update(kwargs)
         return self.client.post(f"/api/projects/{self.team.id}/subscriptions", payload)
 
+    @pytest.mark.skip_on_multitenancy
+    def test_cannot_list_subscriptions_without_proper_license(self, mock_subscription_tasks):
+        self.organization.available_features = []
+        self.organization.save()
+        response = self.client.get(f"/api/projects/{self.team.id}/subscriptions/")
+        assert response.status_code == status.HTTP_402_PAYMENT_REQUIRED
+        assert response.json() == self.license_required_response()
+
     def test_can_create_new_subscription(self, mock_subscription_tasks):
         response = self._create_subscription()
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         data = response.json()
-        self.assertEqual(
-            data,
-            {
-                "id": data["id"],
-                "dashboard": None,
-                "insight": self.insight.id,
-                "target_type": "email",
-                "target_value": "test@posthog.com",
-                "frequency": "weekly",
-                "interval": 1,
-                "byweekday": None,
-                "bysetpos": None,
-                "count": None,
-                "start_date": "2022-01-01T00:00:00Z",
-                "until_date": None,
-                "created_at": data["created_at"],
-                "created_by": data["created_by"],
-                "deleted": False,
-                "title": "My Subscription",
-                "next_delivery_date": data["next_delivery_date"],
-                "invite_message": None,
-            },
-        )
+        assert data == {
+            "id": data["id"],
+            "dashboard": None,
+            "insight": self.insight.id,
+            "target_type": "email",
+            "target_value": "test@posthog.com",
+            "frequency": "weekly",
+            "interval": 1,
+            "byweekday": None,
+            "bysetpos": None,
+            "count": None,
+            "start_date": "2022-01-01T00:00:00Z",
+            "until_date": None,
+            "created_at": data["created_at"],
+            "created_by": data["created_by"],
+            "deleted": False,
+            "title": "My Subscription",
+            "next_delivery_date": data["next_delivery_date"],
+            "invite_message": None,
+            "summary": "sent every week",
+        }
 
         mock_subscription_tasks.deliver_new_subscription.delay.assert_called_once_with(
             data["id"], ["test@posthog.com"], "hey there!"

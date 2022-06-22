@@ -30,11 +30,13 @@ function TZConversionHeader(): JSX.Element {
 function TZLabelRaw({
     time,
     showSeconds,
-    formatString,
+    formatDate,
+    formatTime,
 }: {
     time: string | dayjs.Dayjs
     showSeconds?: boolean
-    formatString?: string
+    formatDate?: string
+    formatTime?: string
 }): JSX.Element {
     usePeriodicRerender(1000)
 
@@ -95,7 +97,9 @@ function TZLabelRaw({
     return (
         <Popover content={PopoverContent} onVisibleChange={handleVisibleChange}>
             <span className="tz-label">
-                {formatString ? humanFriendlyDetailedTime(parsedTime, undefined, formatString) : parsedTime.fromNow()}
+                {formatDate || formatTime
+                    ? humanFriendlyDetailedTime(parsedTime, formatDate, formatTime)
+                    : parsedTime.fromNow()}
             </span>
         </Popover>
     )

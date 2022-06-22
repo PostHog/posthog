@@ -3,22 +3,22 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from posthog.models.dashboard import Dashboard
-from posthog.models.dashboard_tile import DashboardTile
-from posthog.models.exported_asset import ExportedAsset
-from posthog.models.insight import Insight
-from posthog.tasks.subscriptions.subscription_utils import (
+from ee.tasks.subscriptions.subscription_utils import (
     DEFAULT_MAX_ASSET_COUNT,
     generate_assets,
     get_tiles_ordered_by_position,
 )
-from posthog.tasks.test.subscriptions.utils_subscription_tests import create_subscription
+from ee.tasks.test.subscriptions.utils_subscription_tests import create_subscription
+from posthog.models.dashboard import Dashboard
+from posthog.models.dashboard_tile import DashboardTile
+from posthog.models.exported_asset import ExportedAsset
+from posthog.models.insight import Insight
 from posthog.test.base import APIBaseTest
 from posthog.test.db_context_capturing import capture_db_queries
 
 
-@patch("posthog.tasks.subscriptions.subscription_utils.group")
-@patch("posthog.tasks.subscriptions.subscription_utils.export_task")
+@patch("ee.tasks.subscriptions.subscription_utils.group")
+@patch("ee.tasks.subscriptions.subscription_utils.export_task")
 class TestSubscriptionsTasksUtils(APIBaseTest):
     dashboard: Dashboard
     insight: Insight

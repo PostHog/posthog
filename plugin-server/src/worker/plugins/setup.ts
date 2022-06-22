@@ -52,17 +52,18 @@ export async function setupPlugins(server: Hub): Promise<void> {
     await loadSchedule(server)
 }
 
-async function loadPluginsFromDB(
-    server: Hub
-): Promise<Pick<Hub, 'plugins' | 'pluginConfigs' | 'pluginConfigsPerTeam'>> {
-    const pluginRows = await getPluginRows(server)
+async function loadPluginsFromDB(hub: Hub): Promise<Pick<Hub, 'plugins' | 'pluginConfigs' | 'pluginConfigsPerTeam'>> {
+    const startTimer = new Date()
+    const pluginRows = await getPluginRows(hub)
     const plugins = new Map<PluginId, Plugin>()
 
     for (const row of pluginRows) {
         plugins.set(row.id, row)
     }
+    hub.statsd?.timing('load_plugins.plugins', startTimer)
 
-    const pluginAttachmentRows = await getPluginAttachmentRows(server)
+    const pluginAttachmentTimer = new Date()
+    const pluginAttachmentRows = await getPluginAttachmentRows(hub)
     const attachmentsPerConfig = new Map<TeamId, Record<string, PluginAttachment>>()
     for (const row of pluginAttachmentRows) {
         let attachments = attachmentsPerConfig.get(row.plugin_config_id!)
@@ -76,8 +77,10 @@ async function loadPluginsFromDB(
             contents: row.contents,
         }
     }
+    hub.statsd?.timing('load_plugins.plugin_attachments', pluginAttachmentTimer)
 
-    const pluginConfigRows = await getPluginConfigRows(server)
+    const pluginConfigTimer = new Date()
+    const pluginConfigRows = await getPluginConfigRows(hub)
 
     const pluginConfigs = new Map<PluginConfigId, PluginConfig>()
     const pluginConfigsPerTeam = new Map<TeamId, PluginConfig[]>()
@@ -107,6 +110,9 @@ async function loadPluginsFromDB(
         }
         teamConfigs.push(pluginConfig)
     }
+    hub.statsd?.timing('load_plugins.plugin_configs', pluginConfigTimer)
+
+    hub.statsd?.timing('load_plugins.total', startTimer)
 
     return { plugins, pluginConfigs, pluginConfigsPerTeam }
 }

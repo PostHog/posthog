@@ -8,4 +8,6 @@ PERSISTED_FEATURE_FLAGS = get_list(os.getenv("PERSISTED_FEATURE_FLAGS", "")) + [
     "invite-teammates-prompt",
     "insight-legends",
     "multi-dashboard-insights",
+    "export-dashboard-insights",
+    "insight-subscriptions",
 ]

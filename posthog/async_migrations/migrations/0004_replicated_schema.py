@@ -100,6 +100,8 @@ class Migration(AsyncMigrationDefinition):
 
     depends_on = "0003_fill_person_distinct_id2"
 
+    posthog_max_version = "1.36.99"
+
     MOVE_PARTS_RETRIES = 3
 
     def is_required(self):
