@@ -1,6 +1,7 @@
 import base64
 import json
 
+from django.db import connection
 from django.test.client import Client
 from rest_framework import status
 
@@ -241,6 +242,305 @@ class TestDecide(BaseTest):
             self.assertEqual(
                 "third-variant", response.json()["featureFlags"]["multivariate-flag"]
             )  # different hash, different variant assigned
+
+    def test_feature_flags_v2_consistent_flags(self):
+        self.team.app_urls = ["https://example.com"]
+        self.team.save()
+        self.client.logout()
+        person = Person.objects.create(
+            team=self.team, distinct_ids=["example_id"], properties={"email": "tim@posthog.com"}
+        )
+        FeatureFlag.objects.create(
+            team=self.team,
+            rollout_percentage=30,
+            name="Beta feature",
+            key="beta-feature",
+            created_by=self.user,
+            ensure_experience_continuity=True,
+        )
+        FeatureFlag.objects.create(
+            team=self.team,
+            filters={"groups": [{"properties": [], "rollout_percentage": None}]},
+            name="This is a feature flag with default params, no filters.",
+            key="default-flag",
+            created_by=self.user,
+        )  # Should be enabled for everyone
+        FeatureFlag.objects.create(
+            team=self.team,
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": None}],
+                "multivariate": {
+                    "variants": [
+                        {"key": "first-variant", "name": "First Variant", "rollout_percentage": 50},
+                        {"key": "second-variant", "name": "Second Variant", "rollout_percentage": 25},
+                        {"key": "third-variant", "name": "Third Variant", "rollout_percentage": 25},
+                    ],
+                },
+            },
+            name="This is a feature flag with multiple variants.",
+            key="multivariate-flag",
+            created_by=self.user,
+            ensure_experience_continuity=True,
+        )
+
+        with self.assertNumQueries(5):
+            response = self._post_decide(api_version=2)
+            self.assertTrue(response.json()["featureFlags"]["beta-feature"])
+            self.assertTrue(response.json()["featureFlags"]["default-flag"])
+            self.assertEqual(
+                "first-variant", response.json()["featureFlags"]["multivariate-flag"]
+            )  # assigned by distinct_id hash
+
+        # new person, merged from old distinct ID
+        # person.delete()
+        # person2 = Person.objects.create(team=self.team, distinct_ids=["example_id", "other_id"], properties={"email": "tim@posthog.com"})
+        person.add_distinct_id("other_id")
+
+        with self.assertNumQueries(7):
+            response = self._post_decide(
+                api_version=2,
+                data={"token": self.team.api_token, "distinct_id": "other_id", "$anon_distinct_id": "example_id"},
+            )
+            self.assertTrue(response.json()["featureFlags"]["beta-feature"])
+            self.assertTrue(response.json()["featureFlags"]["default-flag"])
+            self.assertEqual(
+                "first-variant", response.json()["featureFlags"]["multivariate-flag"]
+            )  # different hash, overridden by distinct_id, same variant assigned
+
+    def test_feature_flags_v2_consistent_flags_with_ingestion_delays(self):
+        self.team.app_urls = ["https://example.com"]
+        self.team.save()
+        self.client.logout()
+        # ingesiton delay so person isn't created yet
+        # person = Person.objects.create(team=self.team, distinct_ids=["example_id"], properties={"email": "tim@posthog.com"})
+
+        FeatureFlag.objects.create(
+            team=self.team,
+            rollout_percentage=30,
+            name="Beta feature",
+            key="beta-feature",
+            created_by=self.user,
+            ensure_experience_continuity=True,
+        )
+        FeatureFlag.objects.create(
+            team=self.team,
+            filters={"groups": [{"properties": [], "rollout_percentage": None}]},
+            name="This is a feature flag with default params, no filters.",
+            key="default-flag",
+            created_by=self.user,
+        )  # Should be enabled for everyone
+        FeatureFlag.objects.create(
+            team=self.team,
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": None}],
+                "multivariate": {
+                    "variants": [
+                        {"key": "first-variant", "name": "First Variant", "rollout_percentage": 50},
+                        {"key": "second-variant", "name": "Second Variant", "rollout_percentage": 25},
+                        {"key": "third-variant", "name": "Third Variant", "rollout_percentage": 25},
+                    ],
+                },
+            },
+            name="This is a feature flag with multiple variants.",
+            key="multivariate-flag",
+            created_by=self.user,
+            ensure_experience_continuity=True,
+        )
+
+        with self.assertNumQueries(4):
+            response = self._post_decide(api_version=2)
+            self.assertTrue(response.json()["featureFlags"]["beta-feature"])
+            self.assertTrue(response.json()["featureFlags"]["default-flag"])
+            self.assertEqual(
+                "first-variant", response.json()["featureFlags"]["multivariate-flag"]
+            )  # assigned by distinct_id hash
+
+        # identify event is sent, but again, ingestion delays, so no entry in personDistinctID table
+        # person.add_distinct_id("other_id")
+        # in which case, we're pretty much trashed
+        with self.assertNumQueries(5):
+            response = self._post_decide(
+                api_version=2,
+                data={"token": self.team.api_token, "distinct_id": "other_id", "$anon_distinct_id": "example_id"},
+            )
+            # self.assertTrue(response.json()["featureFlags"]["beta-feature"])
+            self.assertTrue(response.json()["featureFlags"]["default-flag"])
+            self.assertEqual(
+                "third-variant", response.json()["featureFlags"]["multivariate-flag"]
+            )  # different hash, should've been overridden by distinct_id, but ingestion delays mean different variant assigned
+
+    def test_feature_flags_v2_consistent_flags_with_merged_persons(self):
+        self.team.app_urls = ["https://example.com"]
+        self.team.save()
+        self.client.logout()
+        person = Person.objects.create(
+            team=self.team, distinct_ids=["example_id"], properties={"email": "tim@posthog.com"}
+        )
+        FeatureFlag.objects.create(
+            team=self.team,
+            rollout_percentage=30,
+            name="Beta feature",
+            key="beta-feature",
+            created_by=self.user,
+            ensure_experience_continuity=True,
+        )
+        FeatureFlag.objects.create(
+            team=self.team,
+            filters={"groups": [{"properties": [], "rollout_percentage": None}]},
+            name="This is a feature flag with default params, no filters.",
+            key="default-flag",
+            created_by=self.user,
+        )  # Should be enabled for everyone
+        FeatureFlag.objects.create(
+            team=self.team,
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": None}],
+                "multivariate": {
+                    "variants": [
+                        {"key": "first-variant", "name": "First Variant", "rollout_percentage": 50},
+                        {"key": "second-variant", "name": "Second Variant", "rollout_percentage": 25},
+                        {"key": "third-variant", "name": "Third Variant", "rollout_percentage": 25},
+                    ],
+                },
+            },
+            name="This is a feature flag with multiple variants.",
+            key="multivariate-flag",
+            created_by=self.user,
+            ensure_experience_continuity=True,
+        )
+
+        with self.assertNumQueries(5):
+            response = self._post_decide(api_version=2)
+            self.assertTrue(response.json()["featureFlags"]["beta-feature"])
+            self.assertTrue(response.json()["featureFlags"]["default-flag"])
+            self.assertEqual(
+                "first-variant", response.json()["featureFlags"]["multivariate-flag"]
+            )  # assigned by distinct_id hash
+
+        # new person, created separately before "example_id" came into the picture.
+        # on identify, this will trigger a merge with person.id being deleted, and
+        # `example_id` becoming a part of person2.
+        person2 = Person.objects.create(
+            team=self.team, distinct_ids=["other_id"], properties={"email": "tim@posthog.com"}
+        )
+
+        with self.assertNumQueries(7):
+            response = self._post_decide(
+                api_version=2,
+                data={"token": self.team.api_token, "distinct_id": "other_id", "$anon_distinct_id": "example_id"},
+            )
+            self.assertTrue(response.json()["featureFlags"]["beta-feature"])
+            self.assertTrue(response.json()["featureFlags"]["default-flag"])
+            self.assertEqual(
+                "first-variant", response.json()["featureFlags"]["multivariate-flag"]
+            )  # different hash, overridden by distinct_id, same variant assigned
+
+        # now let's say a merge happens with a call like: identify(distinct_id='example_id', anon_distinct_id='other_id')
+        # that is, person2 is going to get merged into person!
+        new_person_id = person.id
+        old_person_id = person2.id
+        # this happens in the plugin server
+        # https://github.com/PostHog/posthog/blob/master/plugin-server/src/worker/ingestion/person-state.ts#L421
+        # at which point we run the query
+        query = f"""
+            UPDATE posthog_featureflaghashkeyoverride SET person_id = {new_person_id} WHERE person_id = {old_person_id}
+        """
+        with connection.cursor() as cursor:
+            cursor.execute(query)
+
+        person2.delete()
+        person.add_distinct_id("other_id")
+
+        with self.assertNumQueries(5):
+            response = self._post_decide(api_version=2, data={"token": self.team.api_token, "distinct_id": "other_id"},)
+            self.assertTrue(response.json()["featureFlags"]["beta-feature"])
+            self.assertTrue(response.json()["featureFlags"]["default-flag"])
+            self.assertEqual(
+                "first-variant", response.json()["featureFlags"]["multivariate-flag"]
+            )  # different hash, overridden by distinct_id, same variant assigned
+
+    def test_feature_flags_v2_consistent_flags_with_delayed_new_identified_person(self):
+        self.team.app_urls = ["https://example.com"]
+        self.team.save()
+        self.client.logout()
+        person = Person.objects.create(
+            team=self.team, distinct_ids=["example_id"], properties={"email": "tim@posthog.com"}
+        )
+        FeatureFlag.objects.create(
+            team=self.team,
+            rollout_percentage=30,
+            name="Beta feature",
+            key="beta-feature",
+            created_by=self.user,
+            ensure_experience_continuity=True,
+        )
+        FeatureFlag.objects.create(
+            team=self.team,
+            filters={"groups": [{"properties": [], "rollout_percentage": None}]},
+            name="This is a feature flag with default params, no filters.",
+            key="default-flag",
+            created_by=self.user,
+        )  # Should be enabled for everyone
+        FeatureFlag.objects.create(
+            team=self.team,
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": None}],
+                "multivariate": {
+                    "variants": [
+                        {"key": "first-variant", "name": "First Variant", "rollout_percentage": 50},
+                        {"key": "second-variant", "name": "Second Variant", "rollout_percentage": 25},
+                        {"key": "third-variant", "name": "Third Variant", "rollout_percentage": 25},
+                    ],
+                },
+            },
+            name="This is a feature flag with multiple variants.",
+            key="multivariate-flag",
+            created_by=self.user,
+            ensure_experience_continuity=True,
+        )
+
+        with self.assertNumQueries(5):
+            response = self._post_decide(api_version=2)
+            self.assertTrue(response.json()["featureFlags"]["beta-feature"])
+            self.assertTrue(response.json()["featureFlags"]["default-flag"])
+            self.assertEqual(
+                "first-variant", response.json()["featureFlags"]["multivariate-flag"]
+            )  # assigned by distinct_id hash
+
+        # new person with "other_id" is yet to be created
+
+        with self.assertNumQueries(8):
+            # one extra query to find person_id for $anon_distinct_id
+            response = self._post_decide(
+                api_version=2,
+                data={"token": self.team.api_token, "distinct_id": "other_id", "$anon_distinct_id": "example_id"},
+            )
+            self.assertTrue(response.json()["featureFlags"]["beta-feature"])
+            self.assertTrue(response.json()["featureFlags"]["default-flag"])
+            self.assertEqual(
+                "first-variant", response.json()["featureFlags"]["multivariate-flag"]
+            )  # different hash, overridden by distinct_id, same variant assigned
+
+        # calling a simple decide call, while 'other_id' is still missing a person creation.
+        # In this case, we are over our grace period for ingestion, and there's
+        # no quick decent way to find how 'other_id' is to be treated.
+        # So, things appear like a completely new person with distinct-id = other_id.
+        with self.assertNumQueries(4):
+            response = self._post_decide(api_version=2, data={"token": self.team.api_token, "distinct_id": "other_id"},)
+            # self.assertTrue(response.json()["featureFlags"]["beta-feature"])
+            self.assertTrue(response.json()["featureFlags"]["default-flag"])
+            self.assertEqual("third-variant", response.json()["featureFlags"]["multivariate-flag"])  # variant changed
+
+        person.add_distinct_id("other_id")
+        # Finally, 'other_id' is merged. The result goes back to its overridden values
+
+        with self.assertNumQueries(5):
+            response = self._post_decide(api_version=2, data={"token": self.team.api_token, "distinct_id": "other_id"},)
+            self.assertTrue(response.json()["featureFlags"]["beta-feature"])
+            self.assertTrue(response.json()["featureFlags"]["default-flag"])
+            self.assertEqual(
+                "first-variant", response.json()["featureFlags"]["multivariate-flag"]
+            )  # different hash, overridden by distinct_id, same variant assigned
 
     def test_feature_flags_v2_complex(self):
         self.team.app_urls = ["https://example.com"]

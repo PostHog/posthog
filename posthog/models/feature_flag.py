@@ -188,11 +188,13 @@ class FeatureFlagMatcher:
         distinct_id: str,
         groups: Dict[GroupTypeName, str] = {},
         cache: Optional[FlagsMatcherCache] = None,
+        hash_key_overrides: Dict[str, str] = {},
     ):
         self.feature_flag = feature_flag
         self.distinct_id = distinct_id
         self.groups = groups
         self.cache = cache or FlagsMatcherCache(self.feature_flag.team_id)
+        self.hash_key_overrides = hash_key_overrides
 
     def get_match(self) -> Optional[FeatureFlagMatch]:
         # If aggregating flag by groups and relevant group type is not passed - flag is off!
@@ -275,7 +277,7 @@ class FeatureFlagMatcher:
 
         return list(query.values_list(*fields))
 
-    @property
+    @cached_property
     def hashed_identifier(self) -> Optional[str]:
         """
         If aggregating by people, returns distinct_id.
@@ -285,6 +287,10 @@ class FeatureFlagMatcher:
         If relevant group is not passed to the flag, None is returned and handled in get_match.
         """
         if self.feature_flag.aggregation_group_type_index is None:
+            if self.feature_flag.ensure_experience_continuity:
+                # TODO: Try a global cache
+                if self.feature_flag.key in self.hash_key_overrides:
+                    return self.hash_key_overrides[self.feature_flag.key]
             return self.distinct_id
         else:
             # :TRICKY: If aggregating by groups
@@ -310,19 +316,35 @@ class FeatureFlagMatcher:
         return self.get_hash(salt="variant")
 
 
+def hash_key_overrides(team_id: int, person_id: int) -> Dict[str, str]:
+    feature_flag_to_key_overrides = {}
+    for feature_flag, override in FeatureFlagHashKeyOverride.objects.filter(
+        person_id=person_id, team=team_id
+    ).values_list("feature_flag_key", "hash_key"):
+        feature_flag_to_key_overrides[feature_flag] = override
+
+    return feature_flag_to_key_overrides
+
+
 # Return a Dict with all active flags and their values
-def get_active_feature_flags(
-    team_id: int, distinct_id: str, groups: Dict[GroupTypeName, str] = {},
+def _get_active_feature_flags(
+    feature_flags: QuerySet,
+    team_id: int,
+    distinct_id: str,
+    person_id: Optional[int] = None,
+    groups: Dict[GroupTypeName, str] = {},
 ) -> Dict[str, Union[bool, str, None]]:
     cache = FlagsMatcherCache(team_id)
     flags_enabled: Dict[str, Union[bool, str, None]] = {}
-    feature_flags = FeatureFlag.objects.filter(team_id=team_id, active=True, deleted=False).only(
-        "id", "team_id", "filters", "key", "rollout_percentage",
-    )
+
+    if person_id is not None:
+        overrides = hash_key_overrides(team_id, person_id)
+    else:
+        overrides = {}
 
     for feature_flag in feature_flags:
         try:
-            match = feature_flag.matches(distinct_id, groups, cache)
+            match = feature_flag.matches(distinct_id, groups, cache, overrides)
             if match:
                 flags_enabled[feature_flag.key] = match.variant or True
         except Exception as err:
@@ -332,12 +354,58 @@ def get_active_feature_flags(
 
 # Return feature flags with per-user overrides
 def get_overridden_feature_flags(
-    team_id: int, distinct_id: str, groups: Dict[GroupTypeName, str] = {},
+    team_id: int, distinct_id: str, groups: Dict[GroupTypeName, str] = {}, hash_key_override: Optional[str] = None
 ) -> Dict[str, Union[bool, str, None]]:
-    feature_flags = get_active_feature_flags(team_id, distinct_id, groups)
 
-    # Get a user's feature flag overrides from any distinct_id (not just the canonical one)
+    all_feature_flags = FeatureFlag.objects.filter(team_id=team_id, active=True, deleted=False).only(
+        "id", "team_id", "filters", "key", "rollout_percentage", "ensure_experience_continuity"
+    )
+
+    flags_have_experience_continuity_enabled = any(
+        feature_flag.ensure_experience_continuity for feature_flag in all_feature_flags
+    )
+
     person = PersonDistinctId.objects.filter(distinct_id=distinct_id, team_id=team_id).values_list("person_id")[:1]
+
+    if flags_have_experience_continuity_enabled:
+        try:
+            person_id = person[0][0]
+        except IndexError:
+            person_id = None
+
+        if hash_key_override is not None:
+            # setting overrides only when we get an override
+            if person_id is None:
+                # :TRICKY: Some ingestion delays may mean that `$identify` hasn't yet created
+                # the new person on which decide was called.
+                # In this case, we can try finding the person_id for the old distinct id.
+                # This is safe, since once `$identify` is processed, it would only add the distinct_id to this
+                # existing person. If, because of race conditions, a person merge is called for later,
+                # then https://github.com/PostHog/posthog/blob/master/plugin-server/src/worker/ingestion/person-state.ts#L421
+                # will take care of it^.
+                person_id = (
+                    PersonDistinctId.objects.filter(distinct_id=hash_key_override, team_id=team_id)
+                    .values_list("person_id", flat=True)
+                    .first()
+                )
+                # If even this old person doesn't exist yet, we're facing severe ingestion delays
+                # and there's not much we can do, since all person properties based feature flags
+                # would fail server side anyway.
+
+            if person_id is not None:
+                set_feature_flag_hash_key_overrides(all_feature_flags, team_id, person_id, hash_key_override)
+
+        # :TRICKY: Consistency matters only when personIDs exist
+        # as overrides are stored on personIDs.
+        # We can optimise by not going down this path when person_id doesn't exist, or
+        # no flags have experience continuity enabled
+        feature_flags = _get_active_feature_flags(all_feature_flags, team_id, distinct_id, person_id, groups=groups)
+
+    else:
+        feature_flags = _get_active_feature_flags(all_feature_flags, team_id, distinct_id, groups=groups)
+
+    # TODO: Go down the override code path only when /decide requests for overrides
+    # Get a user's feature flag overrides from any distinct_id (not just the canonical one)
     distinct_ids = PersonDistinctId.objects.filter(person_id__in=Subquery(person)).values_list("distinct_id")
     user_id = User.objects.filter(distinct_id__in=Subquery(distinct_ids))[:1].values_list("id")
     feature_flag_overrides = FeatureFlagOverride.objects.filter(
@@ -354,3 +422,25 @@ def get_overridden_feature_flags(
             feature_flags[key] = value
 
     return feature_flags
+
+
+def set_feature_flag_hash_key_overrides(
+    feature_flags: QuerySet, team_id: int, person_id: int, hash_key_override: str
+) -> None:
+
+    existing_flag_overrides = set(
+        FeatureFlagHashKeyOverride.objects.filter(team_id=team_id, person_id=person_id).values_list(
+            "feature_flag_key", flat=True
+        )
+    )
+    new_overrides = []
+    for feature_flag in feature_flags:
+        if feature_flag.ensure_experience_continuity and feature_flag.key not in existing_flag_overrides:
+            new_overrides.append(
+                FeatureFlagHashKeyOverride(
+                    team_id=team_id, person_id=person_id, feature_flag_key=feature_flag.key, hash_key=hash_key_override
+                )
+            )
+
+    if new_overrides:
+        FeatureFlagHashKeyOverride.objects.bulk_create(new_overrides)
