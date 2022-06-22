@@ -26,6 +26,7 @@ def get_session_recordings_for_oldest_partition(now: datetime) -> List[Tuple[str
             FROM session_recording_events
             WHERE toYYYYMMDD(timestamp) = toYYYYMMDD(partition)
             and dateDiff('day', partition, parseDateTimeBestEffort(%(now_yyyymmdd)s)) > 3
+            and session_id not in (select session_id from session_recordings)
             GROUP BY session_id, team_id
         """,
         {"now_yyyymmdd": now.strftime("%Y-%m-%d")},

@@ -5,6 +5,7 @@ from django.conf import settings
 from infi.clickhouse_orm import Database
 
 from posthog.client import sync_execute
+from posthog.models.session_recordings.sql import TRUNCATE_SESSION_RECORDINGS_TABLE_SQL
 from posthog.test.base import TestMixin, run_clickhouse_statement_in_parallel
 
 
@@ -55,6 +56,7 @@ def reset_clickhouse_tables():
         TRUNCATE_COHORTPEOPLE_TABLE_SQL,
         TRUNCATE_DEAD_LETTER_QUEUE_TABLE_SQL,
         TRUNCATE_GROUPS_TABLE_SQL,
+        TRUNCATE_SESSION_RECORDINGS_TABLE_SQL,
     ]
 
     run_clickhouse_statement_in_parallel(TABLES_TO_CREATE_DROP)

@@ -6,13 +6,12 @@ from dateutil.parser import isoparse
 from freezegun import freeze_time
 
 from posthog.client import sync_execute
-from posthog.conftest import create_clickhouse_tables
+from posthog.conftest import reset_clickhouse_tables
 from posthog.session_recordings.process_finished_session_recordings import (
     get_session_recordings_for_oldest_partition,
     process_finished_session_recording,
 )
 from posthog.session_recordings.test.test_factory import create_snapshot
-from posthog.settings import CLICKHOUSE_DATABASE
 from posthog.test.base import BaseTest
 
 fixed_now = isoparse("2021-08-25T22:09:14.252Z")
@@ -40,19 +39,9 @@ class TestProcessFinishedSessionRecordings(BaseTest):
     """
 
     def setUp(self):
-        self.recreate_database()
+        reset_clickhouse_tables()
         return super().setUp()
 
-    def tearDown(self):
-        self.recreate_database()
-        super().tearDown()
-
-    def recreate_database(self):
-        sync_execute(f"DROP DATABASE {CLICKHOUSE_DATABASE} SYNC")
-        sync_execute(f"CREATE DATABASE {CLICKHOUSE_DATABASE}")
-        create_clickhouse_tables(0)
-
-    # need to test that previously migrated recordings are not re-processed
     # need to test that it processes the oldest unprocessed partition
 
     def test_loads_recordings_from_oldest_partition(self) -> None:
@@ -89,6 +78,30 @@ class TestProcessFinishedSessionRecordings(BaseTest):
         self.assertEqual(
             sorted(processed_sessions, key=lambda x: x[0]), [],
         )
+
+    def test_loads_recordings_from_oldest_partition_that_are_not_already_processed(self) -> None:
+        with freeze_time(fixed_now):
+            # session D is on the oldest partition and should be processed
+            _create_snapshot(session_id="d", timestamp=seven_days_ago, team_id=self.team.id)
+            _create_snapshot(session_id="d", timestamp=four_days_ago, team_id=self.team.id)
+
+            # session E is on the oldest partition but has already been processed
+            _create_snapshot(session_id="e", timestamp=seven_days_ago, team_id=self.team.id)
+            _create_snapshot(session_id="e", timestamp=four_days_ago, team_id=self.team.id)
+
+            sync_execute(
+                """
+                insert into session_recordings (
+                team_id, distinct_id, session_id, session_start, session_end, duration, metadata, snapshot_data_location, _timestamp, _offset
+                ) values (
+                1, 1, 'e', '2021-08-01', '2021-08-02', 24, 'hello', 'hello', '2021-08-01', 0
+                )
+                """
+            )
+
+        processed_sessions = get_session_recordings_for_oldest_partition(fixed_now)
+
+        self.assertEqual(sorted(processed_sessions, key=lambda x: x[0]), [("d", self.team.id, "20210818")])
 
     @patch("statshog.defaults.django.statsd.incr")
     def test_ignores_empty_session(self, statsd_incr) -> None:
