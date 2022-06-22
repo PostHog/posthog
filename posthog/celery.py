@@ -131,6 +131,16 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
             clear_clickhouse_crontab, clickhouse_clear_removed_data.s(), name="clickhouse clear removed data"
         )
 
+    from posthog.models.instance_setting import get_instance_setting
+
+    recordings_post_processing_crontab = get_crontab(get_instance_setting("RECORDINGS_POST_PROCESSING_CRON"))
+    if recordings_post_processing_crontab:
+        sender.add_periodic_task(
+            recordings_post_processing_crontab,
+            post_process_snapshot_recordings.s(),
+            name="recordings post-processing parent",
+        )
+
 
 # Set up clickhouse query instrumentation
 @task_prerun.connect
