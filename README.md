@@ -96,7 +96,7 @@ This repo is entirely [MIT licensed](/LICENSE), with the exception of the `ee` d
 
 Premium features (contained in the `ee` directory) require a PostHog license. Contact us at sales@posthog.com for more information, or see our [pricing page](https://posthog.com/pricing).
 
-## Contributors 👾
+## Contributors 🦸
 
 [//]: contributor-faces
 
