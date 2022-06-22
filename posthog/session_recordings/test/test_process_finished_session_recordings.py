@@ -184,9 +184,9 @@ class TestProcessFinishedSessionRecordings(BaseTest):
                 "session_id": "a",
                 "team_id": self.team.id,
                 "distinct_id": ANY,
-                "session_start": "2021-08-18T22:09:14.252000+00:00",
-                "session_end": "2021-08-21T22:11:14.252000+00:00",
-                "duration": 259320.0,
+                "session_start": "2021-08-18 22:09:14",
+                "session_end": "2021-08-21 22:11:14",
+                "duration": 259320,
                 "segments": [
                     {
                         "start_time": "2021-08-18T22:09:14.252000+00:00",
