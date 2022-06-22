@@ -2,8 +2,6 @@ from typing import Any, Dict
 
 import jwt
 from django.db.models import QuerySet
-from django.db.models.signals import post_save
-from django.dispatch import receiver
 from django.http import HttpRequest, JsonResponse
 from rest_framework import serializers, viewsets
 from rest_framework.authentication import BasicAuthentication, SessionAuthentication
@@ -146,12 +144,3 @@ def unsubscribe(request: HttpRequest):
         return JsonResponse({"success": False})
 
     return JsonResponse({"success": True})
-
-
-@receiver(post_save, sender=Subscription, dispatch_uid="hook-subscription-saved")
-def subscription_saved(sender, instance, created, raw, using, **kwargs):
-    from posthog.event_usage import report_user_action
-
-    if instance.created_by:
-        event_name: str = "subscription created" if created else "subscription updated"
-        report_user_action(instance.created_by, event_name, instance.get_analytics_metadata())
