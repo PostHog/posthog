@@ -566,6 +566,10 @@ class TestUserAPI(APIBaseTest):
             response = self.client.get("/api/users/@me/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
+        for i in range(4):
+            response = self.client.patch("/api/users/@me/", {"current_password": "wrong", "password": "12345678"})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
     # DELETING USER
 
     def test_deleting_current_user_is_not_supported(self):
