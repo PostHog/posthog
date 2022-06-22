@@ -1,5 +1,5 @@
 import abc
-from typing import Optional
+from typing import Optional, Union
 
 import structlog
 from boto3 import client
@@ -25,7 +25,7 @@ class ObjectStorageClient(metaclass=abc.ABCMeta):
         pass
 
     @abc.abstractmethod
-    def write(self, bucket: str, key: str, content: str) -> None:
+    def write(self, bucket: str, key: str, content: Union[str, bytes]) -> None:
         pass
 
 
@@ -33,7 +33,7 @@ class UnavailableStorage(ObjectStorageClient):
     def read(self, bucket: str, key: str) -> Optional[str]:
         pass
 
-    def write(self, bucket: str, key: str, content: str) -> None:
+    def write(self, bucket: str, key: str, content: Union[str, bytes]) -> None:
         pass
 
     def head_bucket(self, bucket: str):
@@ -61,7 +61,7 @@ class ObjectStorage(ObjectStorageClient):
             logger.error("object_storage.read_failed", bucket=bucket, file_name=key, error=e, s3_response=s3_response)
             raise ObjectStorageError("read failed") from e
 
-    def write(self, bucket: str, key: str, content: str) -> None:
+    def write(self, bucket: str, key: str, content: Union[str, bytes]) -> None:
         s3_response = {}
         try:
             s3_response = self.aws_client.put_object(Bucket=bucket, Body=content, Key=key)
@@ -93,7 +93,7 @@ def object_storage_client() -> ObjectStorageClient:
     return _client
 
 
-def write(file_name: str, content: str) -> None:
+def write(file_name: str, content: Union[str, bytes]) -> None:
     return object_storage_client().write(bucket=settings.OBJECT_STORAGE_BUCKET, key=file_name, content=content)
 
 

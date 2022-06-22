@@ -1,3 +1,4 @@
+import gzip
 import hashlib
 import json
 from datetime import datetime, timezone
@@ -88,7 +89,9 @@ def process_finished_session_recording(session_id: str, team_id: int, partition:
         object_storage_path = "/".join(
             [OBJECT_STORAGE_SESSION_RECORDING_FOLDER, str(partition), str(team_id), session_id, "1"]
         )
-        object_storage.write(object_storage_path, json.dumps(snapshot_data.snapshot_data_by_window_id))
+        object_storage.write(
+            object_storage_path, gzip.compress(json.dumps(snapshot_data.snapshot_data_by_window_id).encode("utf-8"))
+        )
 
         # fling it at kafka
         partition_key = hashlib.sha256(f"{team_id}:{session_id}".encode()).hexdigest()

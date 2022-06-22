@@ -1,3 +1,4 @@
+import gzip
 import json
 from datetime import datetime, timedelta
 from unittest.mock import ANY, patch
@@ -175,8 +176,10 @@ class TestProcessFinishedSessionRecordings(BaseTest):
             {"data": {"source": 0}, "timestamp": ts, "has_full_snapshot": True, "type": 2}
             for ts in [first.timestamp() * 1000, second.timestamp() * 1000, third.timestamp() * 1000]
         ]
-        expected_contents = json.dumps({"1": expected_snapshot_data})
-        storage_write.assert_called_with(expected_storage_location, expected_contents)
+        snapshot_data_by_window_id = {"1": expected_snapshot_data}
+        expected_contents = json.dumps(snapshot_data_by_window_id).encode("utf-8")
+        self.assertEqual(storage_write.call_args[0][0], expected_storage_location)
+        self.assertEqual(gzip.decompress(storage_write.call_args[0][1]), expected_contents)
 
         kafka_producer.assert_called_with(
             topic="clickhouse_session_recordings_test",

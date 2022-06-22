@@ -43,3 +43,12 @@ class TestStorage(APIBaseTest):
             file_name = f"{TEST_BUCKET}/test_write_and_read_works_with_known_content/{name}"
             write(file_name, "my content")
             self.assertEqual(read(file_name), "my content")
+
+    def test_write_and_read_works_with_known_byte_content(self) -> None:
+        with self.settings(OBJECT_STORAGE_ENABLED=True):
+            session_id = str(uuid.uuid4())
+            chunk_id = uuid.uuid4()
+            name = f"{session_id}/{0}-{chunk_id}"
+            file_name = f"{TEST_BUCKET}/test_write_and_read_works_with_known_content/{name}"
+            write(file_name, "my content".encode("utf-8"))
+            self.assertEqual(read(file_name), "my content")
