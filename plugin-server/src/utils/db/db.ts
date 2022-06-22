@@ -900,7 +900,10 @@ export class DB {
         // Without races, the returned person (updatedPerson) should have a version that's only +1 the person in memory
         const versionDisparity = updatedPerson.version - person.version - 1
         if (versionDisparity > 0) {
-            this.statsd?.increment('person_update_version_mismatch', { versionDisparity: String(versionDisparity) })
+            this.statsd?.increment('person_update_version_mismatch', {
+                versionDisparity: String(versionDisparity),
+                personUuid: String(person.uuid),
+            })
         }
 
         const kafkaMessages = []
