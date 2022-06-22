@@ -164,6 +164,7 @@ jobs:
 
             - name: Notify Platform team on slack
               uses: rtCamp/action-slack-notify@v2
+              continue-on-error: true
               env:
                   SLACK_CHANNEL: platform-bots
                   SLACK_COLOR: ${{ job.status }} # or a specific color like 'good' or '#ff00ff'
@@ -203,6 +204,7 @@ jobs:
         steps:
             - name: Notify Platform team on slack
               uses: rtCamp/action-slack-notify@v2
+              continue-on-error: true
               env:
                   SLACK_CHANNEL: platform-bots
                   SLACK_COLOR: ${{ job.status }} # or a specific color like 'good' or '#ff00ff'
