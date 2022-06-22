@@ -6,7 +6,11 @@ from typing import Any, Dict, List, Optional, Tuple, Union, cast
 from rest_framework.exceptions import ValidationError
 
 from ee.clickhouse.materialized_columns.columns import ColumnName
-from ee.clickhouse.queries.breakdown_props import format_breakdown_cohort_join_query, get_breakdown_prop_values
+from ee.clickhouse.queries.breakdown_props import (
+    format_breakdown_cohort_join_query,
+    get_breakdown_cohort_name,
+    get_breakdown_prop_values,
+)
 from posthog.client import sync_execute
 from posthog.constants import (
     FUNNEL_WINDOW_INTERVAL,
@@ -107,7 +111,7 @@ class ClickhouseFunnelBase(ABC):
             "action_id": step.id,
             "name": name,
             "custom_name": step.custom_name,
-            "order": step.order,
+            "order": step.index,
             "people": people if people else [],
             "count": count,
             "type": step.type,
@@ -170,17 +174,20 @@ class ClickhouseFunnelBase(ABC):
         steps = []
         total_people = 0
 
+        num_entities = len(self._filter.entities)
+        breakdown_value = results[-1]
+
         for step in reversed(self._filter.entities):
 
             if results and len(results) > 0:
-                total_people += results[step.order]
+                total_people += results[step.index]
 
             serialized_result = self._serialize_step(step, total_people, [])  # persons not needed on initial return
-            if cast(int, step.order) > 0:
+            if cast(int, step.index) > 0:
                 serialized_result.update(
                     {
-                        "average_conversion_time": results[cast(int, step.order) + len(self._filter.entities) - 1],
-                        "median_conversion_time": results[cast(int, step.order) + len(self._filter.entities) * 2 - 2],
+                        "average_conversion_time": results[cast(int, step.index) + num_entities - 1],
+                        "median_conversion_time": results[cast(int, step.index) + num_entities * 2 - 2],
                     }
                 )
             else:
@@ -192,14 +199,22 @@ class ClickhouseFunnelBase(ABC):
             dropped_people_filter = self._filter.with_data({"funnel_step": -funnel_step})
 
             if with_breakdown:
-                breakdown = results[-1]
-                serialized_result.update({"breakdown": breakdown, "breakdown_value": breakdown})
+                # breakdown will return a display ready value
+                # breakdown_value will return the underlying id if different from display ready value (ex: cohort id)
+                serialized_result.update(
+                    {
+                        "breakdown": get_breakdown_cohort_name(breakdown_value)
+                        if self._filter.breakdown_type == "cohort"
+                        else breakdown_value,
+                        "breakdown_value": breakdown_value,
+                    }
+                )
                 # important to not try and modify this value any how - as these
                 # are keys for fetching persons
 
                 # Add in the breakdown to people urls as well
-                converted_people_filter = converted_people_filter.with_data({"funnel_step_breakdown": breakdown})
-                dropped_people_filter = dropped_people_filter.with_data({"funnel_step_breakdown": breakdown})
+                converted_people_filter = converted_people_filter.with_data({"funnel_step_breakdown": breakdown_value})
+                dropped_people_filter = dropped_people_filter.with_data({"funnel_step_breakdown": breakdown_value})
 
             serialized_result.update(
                 {
