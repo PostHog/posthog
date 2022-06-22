@@ -249,6 +249,7 @@ jobs:
             - uses: actions/checkout@v2
               with:
                   fetch-depth: 1
+                  repository: ${{ github.event.pull_request.head.repo.full_name }}
                   ref: ${{ github.event.pull_request.head.ref }}
 
             - uses: ./.github/actions/run-backend-tests
@@ -263,7 +264,7 @@ jobs:
                   person-on-events: ${{ matrix.person-on-events }}
 
             - uses: EndBug/add-and-commit@v9
-              if: matrix.group == 1
+              if: matrix.group == 1 && matrix.name == ''
               with:
                   message: 'Update snapshots'
 
