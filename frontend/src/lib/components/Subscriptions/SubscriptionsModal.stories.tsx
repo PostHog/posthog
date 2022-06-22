@@ -17,9 +17,9 @@ export default {
 } as ComponentMeta<typeof Subscriptions>
 
 const Template = (
-    args: Partial<SubscriptionsModalProps> & { preflightIssues?: boolean; featureAvailable?: boolean }
+    args: Partial<SubscriptionsModalProps> & { noIntegrations?: boolean; featureAvailable?: boolean }
 ): JSX.Element => {
-    const { preflightIssues = false, featureAvailable = true, ...props } = args
+    const { noIntegrations = false, featureAvailable = true, ...props } = args
     const insightShortIdRef = useRef(props.insightShortId || (uuid() as InsightShortId))
     const [modalOpen, setModalOpen] = useState(false)
 
@@ -31,8 +31,8 @@ const Template = (
             '/_preflight': {
                 ...preflightJson,
                 realm: Realm.Cloud,
-                email_service_available: preflightIssues ? false : true,
-                site_url: preflightIssues ? 'bad-value' : window.location.origin,
+                email_service_available: noIntegrations ? false : true,
+                site_url: noIntegrations ? 'bad-value' : window.location.origin,
             },
             '/api/projects/:id/subscriptions': {
                 results:
@@ -56,7 +56,7 @@ const Template = (
                           ],
             },
             '/api/projects/:id/subscriptions/:subId': createMockSubscription(),
-            '/api/projects/:id/integrations': { results: [mockIntegration] },
+            '/api/projects/:id/integrations': { results: !noIntegrations ? [mockIntegration] : [] },
             '/api/projects/:id/integrations/:intId/channels': { channels: mockSlackChannels },
         },
     })
@@ -102,8 +102,8 @@ export const SubscriptionsNew = (): JSX.Element => {
     return <Template subscriptionId={'new'} />
 }
 
-export const SubscriptionsNewEmailDisabled = (): JSX.Element => {
-    return <Template subscriptionId={'new'} preflightIssues={true} />
+export const SubscriptionNoIntegrations = (): JSX.Element => {
+    return <Template subscriptionId={'new'} noIntegrations={true} />
 }
 
 export const SubscriptionsEdit = (): JSX.Element => {
