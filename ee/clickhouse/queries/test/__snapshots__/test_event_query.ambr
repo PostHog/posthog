@@ -103,7 +103,7 @@
   '
   
   SELECT e.timestamp as timestamp,
-         e."mat_test_prop" as mat_test_prop
+         e."mat_test_prop" as "mat_test_prop"
   FROM events e
   WHERE team_id = 2
     AND event = 'user signed up'
@@ -173,7 +173,7 @@
   '
   
   SELECT e.timestamp as timestamp,
-         e."properties" as properties
+         e."properties" as "properties"
   FROM events e
   WHERE team_id = 2
     AND event = 'viewed'
