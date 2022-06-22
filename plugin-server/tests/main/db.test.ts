@@ -31,7 +31,7 @@ describe('DB', () => {
     // const ACTION_STEP_ID = 913
     const TIMESTAMP = DateTime.fromISO('2000-10-14T11:42:06.502Z').toUTC()
 
-    describe('fetchAllActionsGroupedByTeam()', () => {
+    describe('fetchAllActionsGroupedByTeam() and fetchAction()', () => {
         beforeEach(async () => {
             await insertRow(hub.db.postgres, 'posthog_action', {
                 id: 69,
@@ -117,6 +117,23 @@ describe('DB', () => {
                     },
                 },
             })
+
+            const action = await db.fetchAction(69)
+            expect(action!.steps).toEqual([
+                {
+                    id: 913,
+                    action_id: 69,
+                    tag_name: null,
+                    text: null,
+                    href: null,
+                    selector: null,
+                    url: null,
+                    url_matching: null,
+                    name: null,
+                    event: null,
+                    properties: [{ type: 'event', operator: PropertyOperator.Exact, key: 'foo', value: ['bar'] }],
+                },
+            ])
         })
 
         it('returns actions with correct `ee_hook`', async () => {
@@ -156,6 +173,8 @@ describe('DB', () => {
                     },
                 },
             })
+
+            expect(await db.fetchAction(69)).toEqual(result[2][69])
         })
 
         it('does not return actions that dont match conditions', async () => {
@@ -163,6 +182,8 @@ describe('DB', () => {
 
             const result = await db.fetchAllActionsGroupedByTeam()
             expect(result).toEqual({})
+
+            expect(await db.fetchAction(69)).toEqual(null)
         })
 
         it('does not return actions which are deleted', async () => {
@@ -170,6 +191,8 @@ describe('DB', () => {
 
             const result = await db.fetchAllActionsGroupedByTeam()
             expect(result).toEqual({})
+
+            expect(await db.fetchAction(69)).toEqual(null)
         })
 
         it('does not return actions with incorrect ee_hook', async () => {
@@ -197,6 +220,8 @@ describe('DB', () => {
 
             const result = await db.fetchAllActionsGroupedByTeam()
             expect(result).toEqual({})
+
+            expect(await db.fetchAction(69)).toEqual(null)
         })
 
         describe('FOSS', () => {
@@ -213,6 +238,7 @@ describe('DB', () => {
 
                 const result = await db.fetchAllActionsGroupedByTeam()
                 expect(result).toEqual({})
+                expect(await db.fetchAction(69)).toEqual(null)
             })
         })
     })

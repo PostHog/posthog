@@ -1400,11 +1400,18 @@ export class DB {
         if (!rawActions.length) {
             return null
         }
-        const steps: ActionStep[] = (
-            await this.postgresQuery(`SELECT * FROM posthog_actionstep WHERE action_id = $1`, [id], 'fetchActionSteps')
-        ).rows
-        const action: Action = { ...rawActions[0], steps }
-        return action
+
+        const [steps, hooks] = await Promise.all([
+            this.postgresQuery<ActionStep>(
+                `SELECT * FROM posthog_actionstep WHERE action_id = $1`,
+                [id],
+                'fetchActionSteps'
+            ),
+            this.fetchActionRestHooks(id),
+        ])
+
+        const action: Action = { ...rawActions[0], steps: steps.rows, hooks }
+        return action.post_to_slack || action.hooks.length > 0 ? action : null
     }
 
     // Organization
@@ -1479,15 +1486,16 @@ export class DB {
 
     // Hook (EE)
 
-    private async fetchActionRestHooks(): Promise<Hook[]> {
+    private async fetchActionRestHooks(resource_id?: Hook['resource_id']): Promise<Hook[]> {
         try {
             const { rows } = await this.postgresQuery<Hook>(
                 `
                 SELECT *
                 FROM ee_hook
-                WHERE ee_hook.event = 'action_performed'
+                WHERE event = 'action_performed'
+                ${resource_id !== undefined ? 'AND resource_id = $1' : ''}
                 `,
-                undefined,
+                resource_id !== undefined ? [resource_id] : [],
                 'fetchActionRestHooks'
             )
             return rows
