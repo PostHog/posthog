@@ -1932,9 +1932,9 @@ export interface ChangeDescriptions {
     bareName: boolean
 }
 
-export type TimeUnit = 'hours' | 'minutes' | 'seconds'
+export type SmallTimeUnit = 'hours' | 'minutes' | 'seconds'
 
 export type Duration = {
     timeValue: number
-    unit: TimeUnit
+    unit: SmallTimeUnit
 }

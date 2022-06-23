@@ -1,5 +1,5 @@
 import { kea } from 'kea'
-import { Duration, TimeUnit } from '~/types'
+import { Duration, SmallTimeUnit } from '~/types'
 
 import type { durationPickerLogicType } from './durationPickerLogicType'
 
@@ -9,10 +9,10 @@ export interface DurationPickerProps {
     initialValue: number
 }
 
-const TIME_MULTIPLIERS: Record<TimeUnit, number> = { seconds: 1, minutes: 60, hours: 3600 }
+const TIME_MULTIPLIERS: Record<SmallTimeUnit, number> = { seconds: 1, minutes: 60, hours: 3600 }
 
 export const convertSecondsToDuration = (seconds: number): Duration => {
-    const orderOfUnitsToTest: TimeUnit[] = ['hours', 'minutes']
+    const orderOfUnitsToTest: SmallTimeUnit[] = ['hours', 'minutes']
     for (const unit of orderOfUnitsToTest) {
         if (seconds / TIME_MULTIPLIERS[unit] >= 1 && seconds % TIME_MULTIPLIERS[unit] === 0) {
             return {
@@ -33,7 +33,7 @@ export const durationPickerLogic = kea<durationPickerLogicType>({
     props: {} as DurationPickerProps,
     actions: {
         setTimeValue: (timeValue: number | undefined) => ({ timeValue }),
-        setUnit: (unit: TimeUnit) => ({ unit }),
+        setUnit: (unit: SmallTimeUnit) => ({ unit }),
     },
 
     reducers: ({ props }) => ({
@@ -52,7 +52,7 @@ export const durationPickerLogic = kea<durationPickerLogicType>({
     }),
 
     listeners: ({ props, values }) => {
-        const handleChange = ({ timeValue, unit }: { timeValue?: number | undefined; unit?: TimeUnit }): void => {
+        const handleChange = ({ timeValue, unit }: { timeValue?: number | undefined; unit?: SmallTimeUnit }): void => {
             const timeValueToUse = timeValue || values.timeValue || 0
             const unitToUse = unit || values.unit
 

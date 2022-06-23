@@ -1,6 +1,6 @@
 import React from 'react'
 import './DurationPicker.scss'
-import { TimeUnit } from '~/types'
+import { SmallTimeUnit } from '~/types'
 import { durationPickerLogic } from './durationPickerLogic'
 import { useActions, useValues } from 'kea'
 import { Input, Select } from 'antd'
@@ -14,7 +14,7 @@ interface Props {
     style?: Partial<React.CSSProperties>
 }
 
-export const durationOptions: TimeUnit[] = ['seconds', 'minutes', 'hours']
+export const durationOptions: SmallTimeUnit[] = ['seconds', 'minutes', 'hours']
 
 export function DurationPicker({ initialValue, onChange, key, autoFocus, style }: Props): JSX.Element {
     const durationFilterLogicInstance = durationPickerLogic({ initialValue, onChange, key })
@@ -40,7 +40,7 @@ export function DurationPicker({ initialValue, onChange, key, autoFocus, style }
                 className="DurationPicker__unit-picker"
                 value={unit}
                 onChange={(newValue) => {
-                    setUnit(newValue as TimeUnit)
+                    setUnit(newValue as SmallTimeUnit)
                 }}
             >
                 {durationOptions.map((value) => (
