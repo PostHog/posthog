@@ -29,7 +29,7 @@ def send_email_subscription_report(
 
     resource_info = subscription.resource_info
     if not resource_info:
-        return NotImplementedError("This type of subscription resource is not supported")
+        raise NotImplementedError("This type of subscription resource is not supported")
 
     subject = f"PostHog {resource_info.kind} report - {resource_info.name}"
     campaign_key = f"{resource_info.kind.lower()}_subscription_report_{subscription.next_delivery_date.isoformat()}"

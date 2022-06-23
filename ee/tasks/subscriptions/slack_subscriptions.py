@@ -31,7 +31,7 @@ def send_slack_subscription_report(
 
     resource_info = subscription.resource_info
     if not resource_info:
-        return NotImplementedError("This type of subscription resource is not supported")
+        raise NotImplementedError("This type of subscription resource is not supported")
 
     integration = Integration.objects.filter(team=subscription.team, kind="slack").first()
 

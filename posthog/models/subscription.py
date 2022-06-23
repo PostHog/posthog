@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from datetime import timedelta
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from dateutil.rrule import (
     FR,
@@ -40,9 +40,9 @@ RRULE_WEEKDAY_MAP = {
 
 @dataclass
 class SubscriptionResourceInfo:
-    kind: str = None
-    name: str = None
-    url: str = None
+    kind: str
+    name: str
+    url: str
 
 
 class Subscription(models.Model):
@@ -132,7 +132,7 @@ class Subscription(models.Model):
         return None
 
     @property
-    def resource_info(self) -> SubscriptionResourceInfo:
+    def resource_info(self) -> Optional[SubscriptionResourceInfo]:
         if self.insight:
             return SubscriptionResourceInfo(
                 "Insight", f"{self.insight.name or self.insight.derived_name}", self.insight.url
