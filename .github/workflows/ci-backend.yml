@@ -277,12 +277,15 @@ jobs:
                   # Default: 'Commit from GitHub Actions (name of the workflow)'
                   message: 'Update snapshots'
             - name: Check if any snapshot changes were left uncomitted
-              id: check-changes
-              uses: mskri/check-uncommitted-changes-action@v1.0.1
-            - name: Fail CI if some snapshots have been updated but not committed
-              if: steps.check-changes.outputs.outcome == failure()
+              id: changed-files
+              uses: tj-actions/changed-files@v23
+
+            - name: List all changed files
+              if: steps.changed-files.outputs.all_changed_files != ''
               run: |
-                  echo "${{ steps.check-changes.outputs.changes }}"
+                  for file in ${{ steps.changed-files.outputs.all_changed_files }}; do
+                    echo "$file was changed"
+                  done
                   exit 1
             - name: Archive email renders
               uses: actions/upload-artifact@v3
