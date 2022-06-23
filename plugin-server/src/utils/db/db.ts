@@ -136,6 +136,11 @@ type GroupProperties = {
     properties: Properties | null
 }
 
+type GroupCreatedAt = {
+    identifier: GroupIdentifier
+    createdAt: DateTime | null // ISO timestamp
+}
+
 /** The recommended way of accessing the database. */
 export class DB {
     /** Postgres connection pool for primary database access. */
@@ -477,6 +482,7 @@ export class DB {
     REDIS_PERSON_CREATED_AT_PREFIX = 'person_created_at'
     REDIS_PERSON_PROPERTIES_PREFIX = 'person_props'
     REDIS_GROUP_PROPERTIES_PREFIX = 'group_props'
+    REDIS_GROUP_CREATED_AT_PREFIX = 'group_created_at'
 
     private getPersonIdCacheKey(teamId: number, distinctId: string): string {
         return `${this.REDIS_PERSON_ID_PREFIX}:${teamId}:${distinctId}`
@@ -492,6 +498,10 @@ export class DB {
 
     private getPersonPropertiesCacheKey(teamId: number, personId: number): string {
         return `${this.REDIS_PERSON_PROPERTIES_PREFIX}:${teamId}:${personId}`
+    }
+
+    private getGroupCreatedAtCacheKey(teamId: number, groupTypeIndex: number, groupKey: string): string {
+        return `${this.REDIS_GROUP_CREATED_AT_PREFIX}:${teamId}:${groupTypeIndex}:${groupKey}`
     }
 
     private getGroupPropertiesCacheKey(teamId: number, groupTypeIndex: number, groupKey: string): string {
@@ -536,6 +546,30 @@ export class DB {
                 this.PERSONS_AND_GROUPS_CACHE_TTL
             )
         }
+    }
+
+    private async updateGroupCreatedAtIsoCache(
+        teamId: number,
+        groupTypeIndex: number,
+        groupKey: string,
+        createdAtIso: string
+    ): Promise<void> {
+        if (this.personAndGroupsCachingEnabledTeams.has(teamId)) {
+            await this.redisSet(
+                this.getGroupCreatedAtCacheKey(teamId, groupTypeIndex, groupKey),
+                createdAtIso,
+                this.PERSONS_AND_GROUPS_CACHE_TTL
+            )
+        }
+    }
+
+    private async updateGroupCreatedAtCache(
+        teamId: number,
+        groupTypeIndex: number,
+        groupKey: string,
+        createdAt: DateTime
+    ): Promise<void> {
+        await this.updateGroupCreatedAtIsoCache(teamId, groupTypeIndex, groupKey, createdAt.toISO())
     }
 
     private async updateGroupPropertiesCache(
@@ -630,7 +664,15 @@ export class DB {
         return undefined
     }
 
-    private async getGroupProperty(teamId: number, groupIdentifier: GroupIdentifier): Promise<GroupProperties> {
+    private async getGroupCreatedAt(teamId: number, groupIdentifier: GroupIdentifier): Promise<GroupCreatedAt> {
+        const createdAt = await this.redisGet(
+            this.getGroupCreatedAtCacheKey(teamId, groupIdentifier.index, groupIdentifier.key),
+            null
+        )
+        return { identifier: groupIdentifier, createdAt: createdAt ? DateTime.fromISO(createdAt as string) : null }
+    }
+
+    private async getGroupProperties(teamId: number, groupIdentifier: GroupIdentifier): Promise<GroupProperties> {
         const props = await this.redisGet(
             this.getGroupPropertiesCacheKey(teamId, groupIdentifier.index, groupIdentifier.key),
             null
@@ -685,12 +727,83 @@ export class DB {
         return res
     }
 
-    public async getGroupProperties(teamId: number, groups: GroupIdentifier[]): Promise<Record<string, string>> {
+    private async getGroupsCreatedAtFromDbAndUpdateCache(
+        teamId: number,
+        groupIdentifiers: GroupIdentifier[]
+    ): Promise<Record<string, string>> {
+        if (groupIdentifiers.length === 0) {
+            return {}
+        }
+        const queryOptions: string[] = []
+        const args: any[] = [teamId]
+        let index = args.length + 1
+        for (const gi of groupIdentifiers) {
+            this.statsd?.increment(`group_created_at_cache.miss`, {
+                team_id: teamId.toString(),
+                group_type_index: gi.index.toString(),
+            })
+            queryOptions.push(`(group_type_index = $${index} AND group_key = $${index + 1})`)
+            index += 2
+            args.push(gi.index, gi.key)
+        }
+        const result = await this.postgresQuery(
+            'SELECT group_type_index, group_key, created_at FROM posthog_group WHERE team_id=$1 AND '.concat(
+                queryOptions.join(' OR ')
+            ),
+            args,
+            'fetchGroupProperties'
+        )
+
+        const res: Record<string, string> = {}
+        for (const row of result.rows) {
+            const index = Number(row.group_type_index)
+            const key = String(row.group_key)
+            const createdAt = DateTime.fromISO(row.created_at)
+            void this.updateGroupCreatedAtCache(teamId, index, key, createdAt)
+            res[`group${index}_created_at`] = castTimestampOrNow(createdAt, TimestampFormat.ClickHouse)
+        }
+
+        return res
+    }
+
+    public async getCreatedAtForGroups(teamId: number, groups: GroupIdentifier[]): Promise<Record<string, string>> {
         if (!this.personAndGroupsCachingEnabledTeams.has(teamId) || !groups) {
             return {}
         }
         const promises = groups.map((groupIdentifier) => {
-            return this.getGroupProperty(teamId, groupIdentifier)
+            return this.getGroupCreatedAt(teamId, groupIdentifier)
+        })
+        const cachedRes = await Promise.all(promises)
+        let res: Record<string, string> = {}
+        const groupsToLookupFromDb = []
+        for (const group of cachedRes) {
+            if (group.createdAt) {
+                res[`group${group.identifier.index}_created_at`] = castTimestampOrNow(
+                    group.createdAt,
+                    TimestampFormat.ClickHouse
+                )
+                this.statsd?.increment(`group_created_at_cache.hit`, {
+                    team_id: teamId.toString(),
+                    group_type_index: group.identifier.index.toString(),
+                })
+            } else {
+                groupsToLookupFromDb.push(group.identifier)
+            }
+        }
+
+        if (groupsToLookupFromDb.length > 0) {
+            const fromDb = await this.getGroupsCreatedAtFromDbAndUpdateCache(teamId, groupsToLookupFromDb)
+            res = { ...res, ...fromDb }
+        }
+        return res
+    }
+
+    public async getPropertiesForGroups(teamId: number, groups: GroupIdentifier[]): Promise<Record<string, string>> {
+        if (!this.personAndGroupsCachingEnabledTeams.has(teamId) || !groups) {
+            return {}
+        }
+        const promises = groups.map((groupIdentifier) => {
+            return this.getGroupProperties(teamId, groupIdentifier)
         })
         const cachedRes = await Promise.all(promises)
         let res: Record<string, string> = {}
@@ -1663,6 +1776,7 @@ export class DB {
         }
         // group identify event doesn't need groups properties attached so we don't need to await
         void this.updateGroupPropertiesCache(teamId, groupTypeIndex, groupKey, groupProperties)
+        void this.updateGroupCreatedAtCache(teamId, groupTypeIndex, groupKey, createdAt)
     }
 
     public async updateGroup(

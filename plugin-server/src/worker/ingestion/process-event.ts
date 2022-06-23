@@ -210,7 +210,9 @@ export class EventsProcessor {
 
         const elementsChain = elements && elements.length ? elementsToString(elements) : ''
 
-        const groupProperties = await this.db.getGroupProperties(teamId, this.getGroupIdentifiers(properties))
+        const groupIds = this.getGroupIdentifiers(properties)
+        const groupsProperties = await this.db.getPropertiesForGroups(teamId, groupIds)
+        const groupsCreatedAt = await this.db.getCreatedAtForGroups(teamId, groupIds)
 
         let eventPersonProperties: string | null = null
         let personInfo = preIngestionEvent.person
@@ -248,7 +250,11 @@ export class EventsProcessor {
                       ...eventPayload,
                       person_id: personInfo?.uuid,
                       person_properties: eventPersonProperties,
-                      ...groupProperties,
+                      person_created_at: personInfo
+                          ? castTimestampOrNow(personInfo?.created_at, TimestampFormat.ClickHouseSecondPrecision)
+                          : null,
+                      ...groupsProperties,
+                      ...groupsCreatedAt,
                   })
               )
 
