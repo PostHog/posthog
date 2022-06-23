@@ -33,10 +33,6 @@ const Template = (args: { instanceConfigured?: boolean; integrated?: boolean }):
                               key: 'SLACK_APP_CLIENT_SECRET',
                               value: '*****',
                           },
-                          {
-                              key: 'SLACK_APP_SIGNING_SECRET',
-                              value: '*****',
-                          },
                       ]
                     : [],
             },

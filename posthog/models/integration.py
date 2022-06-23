@@ -99,6 +99,6 @@ class SlackIntegration(object):
 
     @classmethod
     def slack_config(cls):
-        config = get_instance_settings(["SLACK_APP_CLIENT_ID", "SLACK_APP_CLIENT_SECRET", "SLACK_APP_SIGNING_SECRET"])
+        config = get_instance_settings(["SLACK_APP_CLIENT_ID", "SLACK_APP_CLIENT_SECRET"])
 
         return config
