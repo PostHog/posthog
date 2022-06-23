@@ -3,38 +3,29 @@ import { ComponentMeta, ComponentStory } from '@storybook/react'
 import { LemonMultiSelect, LemonMultiSelectProps } from './LemonMultiSelect'
 import { LemonSelect } from '../LemonSelect'
 import { ProfilePicture } from '../ProfilePicture'
+import { capitalizeFirstLetter } from 'lib/utils'
 
 export default {
     title: 'Lemon UI/Lemon MultiSelect',
     component: LemonMultiSelect,
     argTypes: {
         options: {
-            defaultValue: {
-                'ben@posthog.com': {
-                    label: (
-                        <span>
-                            Ben <b>{'<ben@posthog.com>'}</b>
-                        </span>
-                    ),
-                    icon: <ProfilePicture name={'ben'} email={'ben@posthog.com'} size="sm" />,
-                },
-                'paul@posthog.com': {
-                    label: (
-                        <span>
-                            Paul <b>{'<paul@posthog.com>'}</b>
-                        </span>
-                    ),
-                    icon: <ProfilePicture name={'paul'} email={'paul@posthog.com'} size="sm" />,
-                },
-                'marius@posthog.com': {
-                    label: (
-                        <span>
-                            Marius <b>{'<marius@posthog.com>'}</b>
-                        </span>
-                    ),
-                    icon: <ProfilePicture name={'marius'} email={'marius@posthog.com'} size="sm" />,
-                },
-            },
+            defaultValue: ['ben', 'marius', 'paul', 'tiina', 'li'].reduce(
+                (acc, x) => ({
+                    ...acc,
+                    [`${x}@posthog.com`]: {
+                        label: (
+                            <span className="flex gap-05 items-center">
+                                <ProfilePicture name={x} email={`${x}@posthog.com`} size="sm" />
+                                <span>
+                                    {capitalizeFirstLetter(x)} <b>{`<${x}@posthog.com>`}</b>
+                                </span>
+                            </span>
+                        ),
+                    },
+                }),
+                {}
+            ),
         },
     },
 } as ComponentMeta<typeof LemonMultiSelect>
@@ -52,12 +43,7 @@ const Template: ComponentStory<typeof LemonMultiSelect> = (
 }
 
 export const Default = Template.bind({})
-Default.args = {
-    type: 'secondary',
-}
+Default.args = {}
 
-export const Stealth = Template.bind({})
-Stealth.args = { type: 'stealth', outlined: true }
-
-export const Clearable = Template.bind({})
-Clearable.args = { allowClear: true, value: ['poodle'] }
+export const Disabled = Template.bind({})
+Disabled.args = { disabled: true }

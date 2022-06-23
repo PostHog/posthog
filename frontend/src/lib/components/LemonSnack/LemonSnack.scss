@@ -3,10 +3,13 @@
     flex-direction: row;
     align-items: center;
     padding: 0.25rem;
-    gap: 0.25rem;
 
-    background: var(--primary-bg-alt);
+    background: var(--primary-bg-hover);
     border-radius: var(--radius);
 
     color: var(--primary-alt);
+
+    .LemonSnack__close {
+        margin-left: 0.25rem;
+    }
 }

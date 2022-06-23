@@ -5,7 +5,7 @@ import { IconClose } from '../icons'
 import './LemonSnack.scss'
 
 export interface LemonSnackProps {
-    children?: JSX.Element | string
+    children?: React.ReactNode
     icon?: React.ReactElement
     disabled?: boolean
     onClose?: () => void
@@ -22,7 +22,11 @@ export function LemonSnack({ icon, children, disabled, onClose }: LemonSnackProp
             {icon}
             {children}
 
-            {onClose ? <LemonButton type="stealth" size="small" icon={<IconClose />} onClick={onClose} /> : undefined}
+            {onClose ? (
+                <span className="LemonSnack__close">
+                    <LemonButton type="stealth" size="small" icon={<IconClose />} onClick={onClose} />
+                </span>
+            ) : undefined}
         </span>
     )
 }

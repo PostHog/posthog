@@ -1,8 +1,4 @@
 .LemonMultiSelect {
-    .ant-select {
-        width: 100%;
-    }
-
     .ant-select-selector {
         padding: 0.25rem;
         border-radius: var(--radius);
@@ -24,8 +20,23 @@
         }
 
         .ant-select-selection-overflow {
-            & > * + * {
-                margin-left: 0.25rem;
+            gap: 0.25rem;
+        }
+    }
+
+    .ant-select {
+        width: 100%;
+
+        &.ant-select-focused:not(.ant-select-disabled).ant-select:not(.ant-select-customize-input) {
+            .ant-select-selector {
+                background: var(--bg-light);
+                border-color: var(--primary);
+            }
+        }
+
+        &.ant-select-multiple.ant-select-disabled.ant-select:not(.ant-select-customize-input) {
+            .ant-select-selector {
+                background: var(--bg-light);
             }
         }
     }
@@ -38,18 +49,29 @@
     border: 1px solid var(--border);
 
     .ant-select-item {
-        padding: 0px;
-        background-color: transparent;
-        color: inherit;
+        font-weight: 500;
+        color: var(--primary);
+        cursor: pointer;
+        border-radius: var(--radius);
+        padding: 0.25rem 0.5rem;
+        &.ant-select-item-option-active {
+            background: var(--primary-bg-hover);
+        }
 
+        &.ant-select-item-option-selected {
+            background: var(--primary-bg-active);
+        }
         .ant-select-item-option-state {
             display: none;
         }
     }
 
     .rc-virtual-list-holder-inner {
-        & > * + * {
-            margin-top: 0.25rem;
-        }
+        gap: 0.25rem;
+    }
+
+    .ant-select-item-option-content {
+        display: flex;
+        align-items: center;
     }
 }

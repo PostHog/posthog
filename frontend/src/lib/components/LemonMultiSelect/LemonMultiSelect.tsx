@@ -1,76 +1,57 @@
-import { LemonButton, LemonButtonWithPopupProps, LemonButtonWithSideAction } from '@posthog/lemon-ui'
 import { Select } from 'antd'
 import React, { useState } from 'react'
-import { IconClose } from '../icons'
 import { LemonSnack } from '../LemonSnack/LemonSnack'
-import { PopupProps } from '../Popup/Popup'
 import './LemonMultiSelect.scss'
 
 export interface LemonMultiSelectOption {
-    label: string
-    icon?: React.ReactElement
+    label: string | React.ReactElement
     disabled?: boolean
     'data-attr'?: string
-    element?: React.ReactElement
 }
 
 export type LemonMultiSelectOptions = Record<string | number, LemonMultiSelectOption>
 
-export interface LemonMultiSelectProps<O extends LemonMultiSelectOptions>
-    extends Omit<LemonButtonWithPopupProps, 'popup' | 'icon' | 'value' | 'defaultValue' | 'onChange'> {
+export interface LemonMultiSelectProps<O extends LemonMultiSelectOptions> {
     options?: O
     value?: (string | number)[] | null
+    disabled?: boolean
+    placeholder?: string
     onChange?: (newValue: (string | number)[] | null) => void
-    dropdownMatchSelectWidth?: boolean
-    dropdownMaxContentWidth?: boolean
-    dropdownPlacement?: PopupProps['placement']
-    dropdownMaxWindowDimensions?: boolean
-    allowClear?: boolean
 }
+
+// showSearch
+// disabled={slackDisabled}
+// filterOption={true}
+// notFoundContent={null}
+// loading={slackChannelsLoading}
+// options={slackChannelOptions}
 
 export function LemonMultiSelect<O extends LemonMultiSelectOptions>({
     value,
     onChange,
     options,
+    disabled,
+    placeholder,
 }: LemonMultiSelectProps<O>): JSX.Element {
-    const [hover, setHover] = useState(false)
+    const antOptions = Object.entries(options || {}).map(([key, option]) => ({
+        key: key,
+        value: key,
+        label: option.label,
+    }))
 
     return (
-        <div className="LemonMultiSelect" onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}>
+        <div className="LemonMultiSelect">
             <Select
                 mode="tags"
+                disabled={disabled}
                 onChange={(v) => onChange?.(v)}
                 tokenSeparators={[',']}
                 value={value ? value : []}
                 dropdownRender={(menu) => <div className="LemonMultiSelectDropdown">{menu}</div>}
-                tagRender={({ value, onClose }) => {
-                    const option = options?.[value as any]
-
-                    return (
-                        <LemonSnack icon={option?.icon} onClose={onClose}>
-                            <>
-                                {option?.label || value}
-                                {option?.element}
-                            </>
-                        </LemonSnack>
-                    )
-                }}
-            >
-                {Object.entries(options || {}).map(([key, option]) => (
-                    <Select.Option key={key} value={key}>
-                        <LemonButton
-                            icon={option.icon}
-                            type={value?.includes(key) ? 'highlighted' : 'stealth'}
-                            disabled={option.disabled}
-                            fullWidth
-                            data-attr={option['data-attr']}
-                        >
-                            {option.label || key}
-                            {option.element}
-                        </LemonButton>
-                    </Select.Option>
-                ))}
-            </Select>
+                options={antOptions}
+                placeholder={placeholder}
+                tagRender={({ label, value, onClose }) => <LemonSnack onClose={onClose}>{label}</LemonSnack>}
+            />
         </div>
     )
 }
