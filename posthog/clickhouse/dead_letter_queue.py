@@ -1,6 +1,6 @@
-from ee.kafka_client.topics import KAFKA_DEAD_LETTER_QUEUE
 from posthog.clickhouse.kafka_engine import KAFKA_COLUMNS, kafka_engine, ttl_period
 from posthog.clickhouse.table_engines import ReplacingMergeTree
+from posthog.kafka_client.topics import KAFKA_DEAD_LETTER_QUEUE
 from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
 
 # We pipe our Kafka dead letter queue into CH for easier analysis and longer retention
@@ -114,7 +114,4 @@ TRUNCATE_DEAD_LETTER_QUEUE_TABLE_SQL = (
 )
 DROP_KAFKA_DEAD_LETTER_QUEUE_TABLE_SQL = (
     f"DROP TABLE IF EXISTS kafka_{DEAD_LETTER_QUEUE_TABLE} ON CLUSTER '{CLICKHOUSE_CLUSTER}'"
-)
-TRUNCATE_DEAD_LETTER_QUEUE_TABLE_MV_SQL = (
-    f"TRUNCATE TABLE IF EXISTS {DEAD_LETTER_QUEUE_TABLE}_mv ON CLUSTER '{CLICKHOUSE_CLUSTER}'"
 )

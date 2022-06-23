@@ -11,10 +11,9 @@ from django.test import Client
 from freezegun import freeze_time
 
 from ee.api.test.base import LicensedTestMixin
-from ee.clickhouse.models.group import create_group
-from ee.clickhouse.test.test_journeys import journeys_for, update_or_create_person
 from posthog.api.test.test_cohort import create_cohort_ok
 from posthog.api.test.test_event_definition import create_organization, create_team, create_user
+from posthog.models.group.util import create_group
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.instance_setting import set_instance_setting
 from posthog.models.team import Team
@@ -25,6 +24,7 @@ from posthog.test.base import (
     snapshot_clickhouse_queries,
     test_with_materialized_columns,
 )
+from posthog.test.test_journeys import journeys_for, update_or_create_person
 
 
 @pytest.mark.django_db
@@ -932,6 +932,34 @@ class ClickhouseTestTrendsGroups(ClickhouseTestMixin, LicensedTestMixin, APIBase
         curr_people = get_people_from_url_ok(self.client, data_response["$pageview"]["2020-01-02"].person_url)
 
         assert sorted([p["group_key"] for p in curr_people]) == sorted(["org:5", "org:6"])
+
+    @snapshot_clickhouse_queries
+    def test_aggregating_by_session(self):
+        events_by_person = {
+            "person1": [
+                {"event": "$pageview", "timestamp": datetime(2020, 1, 1, 12), "properties": {"$session_id": "1"}},
+                {"event": "$pageview", "timestamp": datetime(2020, 1, 1, 12), "properties": {"$session_id": "1"}},
+                {"event": "$pageview", "timestamp": datetime(2020, 1, 2, 12), "properties": {"$session_id": "2"}},
+            ],
+            "person2": [
+                {"event": "$pageview", "timestamp": datetime(2020, 1, 2, 12), "properties": {"$session_id": "3"}},
+            ],
+        }
+        journeys_for(events_by_person, self.team)
+
+        request = TrendsRequest(
+            date_from="2020-01-01 00:00:00",
+            date_to="2020-01-12 00:00:00",
+            events=[{"id": "$pageview", "type": "events", "order": 0, "math": "unique_session"}],
+        )
+        data_response = get_trends_time_series_ok(self.client, request, self.team)
+
+        assert data_response["$pageview"]["2020-01-01"].value == 1
+        assert data_response["$pageview"]["2020-01-02"].value == 2
+
+        curr_people = get_people_from_url_ok(self.client, data_response["$pageview"]["2020-01-02"].person_url)
+
+        assert sorted([p["distinct_ids"][0] for p in curr_people]) == sorted(["person1", "person2"])
 
 
 class ClickhouseTestTrendsCaching(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest):

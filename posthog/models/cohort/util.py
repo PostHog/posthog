@@ -43,7 +43,7 @@ def format_person_query(
         # No person can match an empty cohort
         return "0 = 19", {}
 
-    from ee.clickhouse.queries.cohort_query import CohortQuery
+    from posthog.queries.cohort_query import CohortQuery
 
     query, params = CohortQuery(
         Filter(data={"properties": cohort.properties}, team=cohort.team), cohort.team, cohort_pk=cohort.pk,

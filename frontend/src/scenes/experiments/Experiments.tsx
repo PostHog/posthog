@@ -169,7 +169,7 @@ export function Experiments(): JSX.Element {
                 </>
             ) : (
                 <PayGatePage
-                    featureKey="experimentation"
+                    featureKey={AvailableFeature.EXPERIMENTATION}
                     header={
                         <>
                             Introducing <span className="highlight">Experimentation</span>!

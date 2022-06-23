@@ -1,9 +1,9 @@
 from datetime import datetime
 
-from ee.clickhouse.test.test_journeys import journeys_for
 from posthog.constants import INSIGHT_FUNNELS
 from posthog.models.filters import Filter
 from posthog.test.base import APIBaseTest
+from posthog.test.test_journeys import journeys_for
 
 
 def funnel_conversion_time_test_factory(Funnel, FunnelPerson, _create_event, _create_person):

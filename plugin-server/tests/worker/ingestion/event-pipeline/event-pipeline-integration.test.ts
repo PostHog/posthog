@@ -1,10 +1,12 @@
-import { PluginEvent } from '@posthog/plugin-scaffold/src/types'
+import { PluginEvent } from '@posthog/plugin-scaffold'
 import fetch from 'node-fetch'
 
 import { Hook, Hub } from '../../../../src/types'
 import { createHub } from '../../../../src/utils/db/hub'
 import { UUIDT } from '../../../../src/utils/utils'
 import { EventPipelineRunner } from '../../../../src/worker/ingestion/event-pipeline/runner'
+import { setupPlugins } from '../../../../src/worker/plugins/setup'
+import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../../../helpers/clickhouse'
 import { commonUserId } from '../../../helpers/plugins'
 import { insertRow, resetTestDatabase } from '../../../helpers/sql'
 
@@ -18,11 +20,79 @@ describe('Event Pipeline integration test', () => {
 
     beforeEach(async () => {
         await resetTestDatabase()
+        await resetTestDatabaseClickhouse()
         ;[hub, closeServer] = await createHub()
     })
 
     afterEach(async () => {
         await closeServer()
+    })
+
+    it('handles plugins setting properties', async () => {
+        await resetTestDatabase(`
+            function processEvent (event) {
+                event.properties = {
+                    ...event.properties,
+                    $browser: 'Chrome',
+                    processed: 'hell yes'
+                }
+                event.$set = {
+                    ...event.$set,
+                    personProp: 'value'
+                }
+                return event
+            }
+        `)
+        await setupPlugins(hub)
+
+        const event: PluginEvent = {
+            event: 'xyz',
+            properties: { foo: 'bar' },
+            $set: { personProp: 1, anotherValue: 2 },
+            timestamp: new Date().toISOString(),
+            now: new Date().toISOString(),
+            team_id: 2,
+            distinct_id: 'abc',
+            ip: null,
+            site_url: 'https://example.com',
+            uuid: new UUIDT().toString(),
+        }
+
+        await ingestEvent(event)
+
+        const events = await delayUntilEventIngested(() => hub.db.fetchEvents())
+        const persons = await delayUntilEventIngested(() => hub.db.fetchPersons())
+
+        expect(events.length).toEqual(1)
+        expect(events[0]).toEqual(
+            expect.objectContaining({
+                uuid: event.uuid,
+                event: 'xyz',
+                team_id: 2,
+                timestamp: event.timestamp,
+                // :KLUDGE: Ignore properties like $plugins_succeeded, etc
+                properties: expect.objectContaining({
+                    foo: 'bar',
+                    $browser: 'Chrome',
+                    processed: 'hell yes',
+                    $set: {
+                        personProp: 'value',
+                        anotherValue: 2,
+                    },
+                    $set_once: {
+                        $initial_browser: 'Chrome',
+                    },
+                }),
+            })
+        )
+
+        expect(persons.length).toEqual(1)
+        expect(persons[0].version).toEqual(0)
+        expect(persons[0].properties).toEqual({
+            $initial_browser: 'Chrome',
+            personProp: 'value',
+            anotherValue: 2,
+        })
     })
 
     it('fires a webhook', async () => {

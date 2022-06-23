@@ -45,9 +45,12 @@ export class PersonState {
     timestamp: DateTime
     newUuid: string
 
+    person: Person | undefined
+
     private db: DB
     private statsd: StatsD | undefined
     private personManager: PersonManager
+    private updateIsIdentified: boolean
 
     constructor(
         event: PluginEvent,
@@ -57,7 +60,8 @@ export class PersonState {
         db: DB,
         statsd: StatsD | undefined,
         personManager: PersonManager,
-        uuid?: UUIDT
+        person: Person | undefined = undefined,
+        uuid: UUIDT | undefined = undefined
     ) {
         this.event = event
         this.distinctId = distinctId
@@ -69,6 +73,14 @@ export class PersonState {
         this.db = db
         this.statsd = statsd
         this.personManager = personManager
+
+        // Used to avoid unneeded person fetches.
+        // :KLUDGE: May change through `handleIdentifyOrAlias` flow on merges/create person
+        this.person = person
+
+        // If set to true, we'll update `is_identified` at the end of `updateProperties`
+        // :KLUDGE: This is an indirect communication channel between `handleIdentifyOrAlias` and `updateProperties`
+        this.updateIsIdentified = false
     }
 
     async update(): Promise<Person | undefined> {
@@ -77,14 +89,22 @@ export class PersonState {
     }
 
     async updateProperties(): Promise<Person | undefined> {
-        const createdPerson = await this.createPersonIfDistinctIdIsNew()
-        if (
-            !createdPerson &&
-            (this.eventProperties['$set'] || this.eventProperties['$set_once'] || this.eventProperties['$unset'])
-        ) {
-            return await this.updatePersonProperties()
+        let result: Person | undefined = this.person
+        let personCreated = false
+        if (!result) {
+            result = await this.createPersonIfDistinctIdIsNew()
+            personCreated = !!result
         }
-        return createdPerson
+        if (
+            !personCreated &&
+            (this.eventProperties['$set'] ||
+                this.eventProperties['$set_once'] ||
+                this.eventProperties['$unset'] ||
+                this.updateIsIdentified)
+        ) {
+            result = await this.updatePersonProperties()
+        }
+        return result
     }
 
     private async createPersonIfDistinctIdIsNew(): Promise<Person | undefined> {
@@ -100,7 +120,8 @@ export class PersonState {
                     propertiesOnce || {},
                     this.teamId,
                     null,
-                    false,
+                    // :NOTE: This should never be set in this branch, but adding this for logical consistency
+                    this.updateIsIdentified,
                     this.newUuid,
                     [this.distinctId]
                 )
@@ -156,22 +177,30 @@ export class PersonState {
     }
 
     private async updatePersonProperties(): Promise<Person> {
-        const personFound = await this.db.fetchPerson(this.teamId, this.distinctId)
+        // Note: In majority of cases person has been found already here!
+        const personFound = this.person || (await this.db.fetchPerson(this.teamId, this.distinctId))
         if (!personFound) {
             this.statsd?.increment('person_not_found', { teamId: String(this.teamId), key: 'update' })
             throw new Error(
                 `Could not find person with distinct id "${this.distinctId}" in team "${this.teamId}" to update properties`
             )
         }
-
+        const update: Partial<Person> = {}
         const updatedProperties = this.updatedPersonProperties(personFound.properties || {})
-        const arePersonsEqual = equal(personFound.properties, updatedProperties)
 
-        if (arePersonsEqual) {
-            return personFound
+        if (!equal(personFound.properties, updatedProperties)) {
+            update.properties = updatedProperties
+        }
+        if (this.updateIsIdentified && !personFound.is_identified) {
+            update.is_identified = true
         }
 
-        return await this.db.updatePersonDeprecated(personFound, { properties: updatedProperties })
+        if (Object.keys(update).length > 0) {
+            const [updatedPerson] = await this.db.updatePersonDeprecated(personFound, update)
+            return updatedPerson
+        } else {
+            return personFound
+        }
     }
 
     private updatedPersonProperties(personProperties: Properties): Properties {
@@ -257,14 +286,14 @@ export class PersonState {
         }
 
         const oldPerson = await this.db.fetchPerson(teamId, previousDistinctId)
-        const newPerson = await this.db.fetchPerson(teamId, distinctId)
-
-        let updateAtEnd = false
+        // :TRICKY: Reduce needless lookups for person
+        this.person = this.person || (await this.db.fetchPerson(teamId, distinctId))
+        const newPerson = this.person
 
         if (oldPerson && !newPerson) {
             try {
                 await this.db.addDistinctId(oldPerson, distinctId)
-                updateAtEnd = true
+                this.updateIsIdentified = shouldIdentifyPerson
                 // Catch race case when somebody already added this distinct_id between .get and .addDistinctId
             } catch {
                 // integrity error
@@ -283,7 +312,7 @@ export class PersonState {
         } else if (!oldPerson && newPerson) {
             try {
                 await this.db.addDistinctId(newPerson, previousDistinctId)
-                updateAtEnd = true
+                this.updateIsIdentified = shouldIdentifyPerson
                 // Catch race case when somebody already added this distinct_id between .get and .addDistinctId
             } catch {
                 // integrity error
@@ -301,7 +330,7 @@ export class PersonState {
             }
         } else if (!oldPerson && !newPerson) {
             try {
-                await this.createPerson(
+                const person = await this.createPerson(
                     timestamp,
                     this.eventProperties['$set'] || {},
                     this.eventProperties['$set_once'] || {},
@@ -311,6 +340,8 @@ export class PersonState {
                     this.newUuid,
                     [distinctId, previousDistinctId]
                 )
+                // :KLUDGE: Avoid unneeded fetches in updateProperties()
+                this.person = person
             } catch {
                 // Catch race condition where in between getting and creating,
                 // another request already created this person
@@ -333,7 +364,7 @@ export class PersonState {
 
             if (isIdentifyCallToMergeAnIdentifiedUser) {
                 status.warn('🤔', 'refused to merge an already identified user via an $identify call')
-                updateAtEnd = true
+                this.updateIsIdentified = shouldIdentifyPerson
             } else {
                 await this.mergePeople({
                     totalMergeAttempts,
@@ -346,12 +377,7 @@ export class PersonState {
                 })
             }
         } else {
-            updateAtEnd = true
-        }
-
-        // :KLUDGE: Only update isIdentified once, avoid recursively calling it or when not needed
-        if (shouldIdentifyPerson && updateAtEnd) {
-            await this.setIsIdentified(teamId, distinctId)
+            this.updateIsIdentified = shouldIdentifyPerson
         }
     }
 
@@ -399,7 +425,7 @@ export class PersonState {
         // in which case we'll bail and rethrow the error.
         await this.db.postgresTransaction(async (client) => {
             try {
-                const updatePersonMessages = await this.db.updatePersonDeprecated(
+                const [person, updatePersonMessages] = await this.db.updatePersonDeprecated(
                     mergeInto,
                     {
                         created_at: firstSeen,
@@ -408,6 +434,9 @@ export class PersonState {
                     },
                     client
                 )
+
+                // :KLUDGE: Avoid unneeded fetches in updateProperties()
+                this.person = person
 
                 // Merge the distinct IDs
                 await this.db.postgresQuery(
@@ -446,15 +475,15 @@ export class PersonState {
 
         await this.db.kafkaProducer.queueMessages(kafkaMessages)
     }
+}
 
-    private async setIsIdentified(teamId: number, distinctId: string, isIdentified = true): Promise<void> {
-        const personFound = await this.db.fetchPerson(teamId, distinctId)
-        if (!personFound) {
-            this.statsd?.increment('person_not_found', { teamId: String(teamId), key: 'identify' })
-            throw new Error(`Could not find person with distinct id "${distinctId}" in team "${teamId}" to identify`)
-        }
-        if (personFound && !personFound.is_identified) {
-            await this.db.updatePersonDeprecated(personFound, { is_identified: isIdentified })
-        }
-    }
+// Helper functions to ease mocking in tests
+export function updatePersonState(...params: ConstructorParameters<typeof PersonState>): Promise<Person | undefined> {
+    return new PersonState(...params).update()
+}
+
+export function updatePropertiesPersonState(
+    ...params: ConstructorParameters<typeof PersonState>
+): Promise<Person | undefined> {
+    return new PersonState(...params).updateProperties()
 }

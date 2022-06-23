@@ -7,8 +7,9 @@ import { Event as EventProto, IEvent } from '../../config/idl/protos'
 import { KAFKA_EVENTS, KAFKA_SESSION_RECORDING_EVENTS } from '../../config/kafka-topics'
 import {
     Element,
-    Event,
     Hub,
+    IngestionEvent,
+    IngestionPersonData,
     PostgresSessionRecordingEvent,
     PreIngestionEvent,
     SessionRecordingEvent,
@@ -23,7 +24,6 @@ import { castTimestampOrNow, UUID } from '../../utils/utils'
 import { KAFKA_BUFFER } from './../../config/kafka-topics'
 import { GroupTypeManager } from './group-type-manager'
 import { addGroupProperties } from './groups'
-import { PersonState } from './person-state'
 import { upsertGroup } from './properties-updater'
 import { TeamManager } from './team-manager'
 
@@ -60,7 +60,8 @@ export class EventsProcessor {
         data: PluginEvent,
         teamId: number,
         timestamp: DateTime,
-        eventUuid: string
+        eventUuid: string,
+        person: IngestionPersonData | undefined = undefined
     ): Promise<PreIngestionEvent | null> {
         if (!UUID.validateString(eventUuid, false)) {
             throw new Error(`Not a valid UUID: "${eventUuid}"`)
@@ -72,25 +73,13 @@ export class EventsProcessor {
 
         let result: PreIngestionEvent | null = null
         try {
-            // We know `sanitizeEvent` has been called here.
+            // We know `normalizeEvent` has been called here.
             const properties: Properties = data.properties!
 
             const team = await this.teamManager.fetchTeam(teamId)
             if (!team) {
                 throw new Error(`No team found with ID ${teamId}. Can't ingest event.`)
             }
-
-            const personState = new PersonState(
-                data,
-                teamId,
-                distinctId,
-                timestamp,
-                this.db,
-                this.pluginsServer.statsd,
-                this.pluginsServer.personManager
-            )
-
-            await personState.update()
 
             if (data['event'] === '$snapshot') {
                 if (team.session_recording_opt_in) {
@@ -121,7 +110,16 @@ export class EventsProcessor {
             } else {
                 const timeout3 = timeoutGuard('Still running "capture". Timeout warning after 30 sec!', { eventUuid })
                 try {
-                    result = await this.capture(eventUuid, ip, team, data['event'], distinctId, properties, timestamp)
+                    result = await this.capture(
+                        eventUuid,
+                        ip,
+                        team,
+                        data['event'],
+                        distinctId,
+                        properties,
+                        timestamp,
+                        person
+                    )
                     this.pluginsServer.statsd?.timing('kafka_queue.single_save.standard', singleSaveTimer, {
                         team_id: teamId.toString(),
                     })
@@ -149,7 +147,8 @@ export class EventsProcessor {
         event: string,
         distinctId: string,
         properties: Properties,
-        timestamp: DateTime
+        timestamp: DateTime,
+        person: IngestionPersonData | undefined
     ): Promise<PreIngestionEvent> {
         event = sanitizeEventName(event)
         const elements: Record<string, any>[] | undefined = properties['$elements']
@@ -180,6 +179,7 @@ export class EventsProcessor {
             timestamp,
             elementsList,
             teamId: team.id,
+            person,
         }
     }
 
@@ -194,9 +194,7 @@ export class EventsProcessor {
         return res
     }
 
-    async createEvent(
-        preIngestionEvent: PreIngestionEvent
-    ): Promise<[IEvent, Event['id'] | undefined, Element[] | undefined]> {
+    async createEvent(preIngestionEvent: PreIngestionEvent): Promise<IngestionEvent> {
         const {
             eventUuid: uuid,
             event,
@@ -212,16 +210,22 @@ export class EventsProcessor {
 
         const elementsChain = elements && elements.length ? elementsToString(elements) : ''
 
-        const personInfo = await this.db.getPersonData(teamId, distinctId)
         const groupProperties = await this.db.getGroupProperties(teamId, this.getGroupIdentifiers(properties))
 
         let eventPersonProperties: string | null = null
+        let personInfo = preIngestionEvent.person
+
         if (personInfo) {
-            // For consistency, we'd like events to contain the properties that they set, even if those were changed
-            // before the event is ingested. Thus we fetch the updated properties but override the values with the event's
-            // $set properties if they exist.
-            const latestPersonProperties = personInfo ? personInfo?.properties : {}
-            eventPersonProperties = JSON.stringify({ ...latestPersonProperties, ...(properties.$set || {}) })
+            eventPersonProperties = JSON.stringify(personInfo.properties)
+        } else {
+            personInfo = await this.db.getPersonData(teamId, distinctId)
+            if (personInfo) {
+                // For consistency, we'd like events to contain the properties that they set, even if those were changed
+                // before the event is ingested. Thus we fetch the updated properties but override the values with the event's
+                // $set properties if they exist.
+                const latestPersonProperties = personInfo ? personInfo?.properties : {}
+                eventPersonProperties = JSON.stringify({ ...latestPersonProperties, ...(properties.$set || {}) })
+            }
         }
 
         const eventPayload: IEvent = {
@@ -234,8 +238,6 @@ export class EventsProcessor {
             elements_chain: safeClickhouseString(elementsChain),
             created_at: castTimestampOrNow(null, timestampFormat),
         }
-
-        let eventId: Event['id'] | undefined
 
         const useExternalSchemas = this.clickhouseExternalSchemasEnabled(teamId)
         // proto ingestion is deprecated and we won't support new additions to the schema
@@ -260,12 +262,12 @@ export class EventsProcessor {
             ],
         })
 
-        return [eventPayload, eventId, elements]
+        return { ...preIngestionEvent, person: personInfo }
     }
 
-    async produceEventToBuffer(bufferEvent: PreIngestionEvent): Promise<void> {
+    async produceEventToBuffer(bufferEvent: PluginEvent): Promise<void> {
         const partitionKeyHash = crypto.createHash('sha256')
-        partitionKeyHash.update(`${bufferEvent.teamId}:${bufferEvent.distinctId}`)
+        partitionKeyHash.update(`${bufferEvent.team_id}:${bufferEvent.distinct_id}`)
         const partitionKey = partitionKeyHash.digest('hex')
 
         await this.kafkaProducer.queueSingleJsonMessage(KAFKA_BUFFER, partitionKey, bufferEvent)

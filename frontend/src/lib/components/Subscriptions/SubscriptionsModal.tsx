@@ -2,10 +2,14 @@ import React from 'react'
 import { LemonModal } from 'lib/components/LemonModal'
 import { ManageSubscriptions } from './views/ManageSubscriptions'
 import { EditSubscription } from './views/EditSubscription'
-import { useActions } from 'kea'
+import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { LemonButton, LemonButtonWithPopup } from '@posthog/lemon-ui'
 import { SubscriptionBaseProps, urlForSubscription, urlForSubscriptions } from './utils'
+import { PayGatePage } from '../PayGatePage/PayGatePage'
+import { AvailableFeature } from '~/types'
+import { userLogic } from 'scenes/userLogic'
+import { Spinner } from '../Spinner/Spinner'
 
 export interface SubscriptionsModalProps extends SubscriptionBaseProps {
     visible: boolean
@@ -13,14 +17,18 @@ export interface SubscriptionsModalProps extends SubscriptionBaseProps {
     subscriptionId: number | 'new' | null
 }
 
-export function SubscriptionsModal(props: SubscriptionsModalProps): JSX.Element {
-    const { visible, closeModal, dashboardId, insightShortId, subscriptionId } = props
+export function Subscriptions(props: SubscriptionsModalProps): JSX.Element {
+    const { closeModal, dashboardId, insightShortId, subscriptionId } = props
     const { push } = useActions(router)
+    const { hasAvailableFeature, userLoading } = useValues(userLogic)
 
+    if (userLoading) {
+        return <Spinner />
+    }
     return (
         <>
-            <LemonModal onCancel={closeModal} afterClose={closeModal} visible={visible} width={650}>
-                {!subscriptionId ? (
+            {hasAvailableFeature(AvailableFeature.SUBSCRIPTIONS) ? (
+                !subscriptionId ? (
                     <ManageSubscriptions
                         insightShortId={insightShortId}
                         dashboardId={dashboardId}
@@ -35,7 +43,30 @@ export function SubscriptionsModal(props: SubscriptionsModalProps): JSX.Element 
                         onCancel={() => push(urlForSubscriptions(props))}
                         onDelete={() => push(urlForSubscriptions(props))}
                     />
-                )}
+                )
+            ) : (
+                <PayGatePage
+                    featureKey={AvailableFeature.SUBSCRIPTIONS}
+                    header={
+                        <>
+                            Introducing <span className="highlight">Subscriptions</span>!
+                        </>
+                    }
+                    caption="Get Insight or Dashboard reports directly to your inbox!"
+                    docsLink="https://posthog.com/docs/user-guides/subscriptions"
+                />
+            )}
+        </>
+    )
+}
+
+export function SubscriptionsModal(props: SubscriptionsModalProps): JSX.Element {
+    const { visible, closeModal } = props
+
+    return (
+        <>
+            <LemonModal onCancel={closeModal} afterClose={closeModal} visible={visible} width={650}>
+                <Subscriptions {...props} />
             </LemonModal>
         </>
     )

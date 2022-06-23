@@ -26,7 +26,6 @@ describe('Trends', () => {
     it('Add a pageview action filter', () => {
         // when
         cy.contains('Add graph series').click()
-        cy.get('[data-attr=trend-element-subject-1]').click()
         cy.get('[data-attr=taxonomic-tab-actions]').click()
         cy.contains('Hogflix homepage view').click()
 
