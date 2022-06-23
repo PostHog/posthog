@@ -282,14 +282,14 @@ jobs:
               run: |
                   if [[ -z $(git status -s | grep -v ".test_durations" | tr -d "\n") ]]
                   then
-                    echo '::set-output name=diff::$(git status --porcelain)'
-                    echo '::set-output name=outcome::success'
+                    echo '::set-output name=files_found::false'
                   else
-                    echo '::set-output name=outcome::failure'
+                    echo '::set-output name=diff::$(git status --porcelain)'
+                    echo '::set-output name=files_found::true'
                   fi
 
             - name: Fail CI if some snapshots have been updated but not committed
-              if: steps.changed-files.outputs.outcome == 'success' && steps.add-and-commit.outcome == 'success'
+              if: steps.changed-files.outputs.files_found == 'true' && steps.add-and-commit.outcome == 'success'
               run: |
                   echo "${{ steps.changed-files.outputs.diff }}"
                   exit 1
