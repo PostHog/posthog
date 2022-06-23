@@ -100,8 +100,6 @@ PopupProps): JSX.Element {
     const {
         x,
         y,
-        // reference: setReferenceRef,
-        floating: setFloatingRef,
         refs: { reference: referenceRef, floating: floatingRef },
         strategy,
         update,
@@ -141,7 +139,7 @@ PopupProps): JSX.Element {
                     <PopupContext.Provider value={popupId}>
                         <div
                             className={clsx('Popup', actionable && 'Popup--actionable', className)}
-                            ref={setFloatingRef}
+                            ref={floatingRef as MutableRefObject<HTMLDivElement>}
                             style={{ position: strategy, top: y ?? 0, left: x ?? 0 }}
                             onClick={onClickInside}
                         >
