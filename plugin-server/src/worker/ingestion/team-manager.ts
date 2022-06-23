@@ -3,7 +3,7 @@ import { StatsD } from 'hot-shots'
 import LRU from 'lru-cache'
 import { DateTime } from 'luxon'
 
-import { ONE_HOUR } from '../../config/constants'
+import { ONE_HOUR, ONE_MINUTE } from '../../config/constants'
 import { PluginsServerConfig, PropertyType, Team, TeamId } from '../../types'
 import { DB } from '../../utils/db/db'
 import { timeoutGuard } from '../../utils/db/utils'
@@ -69,7 +69,7 @@ export class TeamManager {
     }
 
     public async fetchTeam(teamId: number): Promise<Team | null> {
-        const cachedTeam = getByAge(this.teamCache, teamId)
+        const cachedTeam = getByAge(this.teamCache, teamId, 2 * ONE_MINUTE)
         if (cachedTeam) {
             return cachedTeam
         }
