@@ -14,7 +14,6 @@ export default {
 } as ComponentMeta<typeof LemonSnack>
 
 const BasicTemplate: ComponentStory<typeof LemonSnack> = (props: LemonSnackProps) => {
-    console.log({ props })
     return <LemonSnack {...props} />
 }
 
