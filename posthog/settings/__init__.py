@@ -32,7 +32,7 @@ from posthog.settings.shell_plus import *
 from posthog.settings.service_requirements import *
 from posthog.settings.statsd import *
 from posthog.settings.object_storage import *
-
+from posthog.settings.session_recordings import *
 from posthog.settings.web import *
 
 from posthog.settings.utils import get_from_env, str_to_bool

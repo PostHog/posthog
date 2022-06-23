@@ -131,15 +131,13 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
             clear_clickhouse_crontab, clickhouse_clear_removed_data.s(), name="clickhouse clear removed data"
         )
 
-    from posthog.models.instance_setting import get_instance_setting
-
-    recordings_post_processing_enabled = get_instance_setting("RECORDINGS_POST_PROCESSING_ENABLED")
-    recordings_post_processing_crontab = get_crontab(get_instance_setting("RECORDINGS_POST_PROCESSING_CRON"))
-    if recordings_post_processing_enabled and recordings_post_processing_crontab:
+    recordings_post_processing_crontab = get_crontab(settings.RECORDINGS_POST_PROCESSING_CRON)
+    if recordings_post_processing_crontab:
         sender.add_periodic_task(
             recordings_post_processing_crontab,
             post_process_snapshot_recordings.s(),
             name="recordings post-processing parent",
+            queue="post-process",
         )
 
 
@@ -158,18 +156,20 @@ def teardown_instrumentation(task_id, task, **kwargs):
     client._request_information = None
 
 
-@app.task(queue="post-process", ignore_result=True)
+@app.task(ignore_result=True)
 def post_process_snapshot_recordings():
     from posthog.models.instance_setting import get_instance_setting
-    from posthog.session_recordings.process_finished_session_recordings import (
-        get_session_recordings_for_oldest_partition,
-    )
 
     if not get_instance_setting("RECORDINGS_POST_PROCESSING_ENABLED"):
         return
 
+    from posthog.session_recordings.process_finished_session_recordings import (
+        get_session_recordings_for_oldest_partition,
+    )
+
     sessions_to_process = get_session_recordings_for_oldest_partition(datetime.now())
 
+    # todo does this schedule on the same queue as the parent?
     res = group(
         post_process_session.s(session_id, team_id, partition)
         for (session_id, team_id, partition) in sessions_to_process

@@ -17,14 +17,9 @@ CONSTANCE_CONFIG = {
         bool,
     ),
     "RECORDINGS_POST_PROCESSING_RECENCY_LAG": (
-        10,  # 48 hours in seconds
+        172_800,  # 48 hours in seconds
         "Number of seconds recordings from most recent event in a recording. This is the delay after which we consider the recording finished",
         int,
-    ),
-    "RECORDINGS_POST_PROCESSING_CRON": (
-        "* * * * *",
-        "The cron schedule to launch session recording post processing",
-        str,
     ),
     "MATERIALIZED_COLUMNS_ENABLED": (
         get_from_env("MATERIALIZED_COLUMNS_ENABLED", True, type_cast=str_to_bool),
@@ -130,7 +125,6 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "RECORDINGS_TTL_WEEKS",
     "RECORDINGS_POST_PROCESSING_ENABLED",
     "RECORDINGS_POST_PROCESSING_RECENCY_LAG",
-    "RECORDINGS_POST_PROCESSING_CRON",
     "AUTO_START_ASYNC_MIGRATIONS",
     "AGGREGATE_BY_DISTINCT_IDS_TEAMS",
     "ASYNC_MIGRATIONS_ROLLBACK_TIMEOUT",
