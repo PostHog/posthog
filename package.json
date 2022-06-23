@@ -13,7 +13,7 @@
     "homepage": "https://github.com/posthog/posthog#readme",
     "license": "MIT",
     "engines": {
-        "node": ">=16 <17"
+        "node": ">=16 <19"
     },
     "scripts": {
         "copy-scripts": "mkdir -p frontend/dist/ && yarn copy-scripts:array && yarn copy-scripts:recorder",
