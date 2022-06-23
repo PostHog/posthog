@@ -7,6 +7,7 @@ from posthog.api.event_definition import EventDefinitionViewSet
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin
 from posthog.api.utils import create_event_definitions_sql
+from posthog.constants import AvailableFeature
 from posthog.filters import term_search_filter_sql
 from posthog.models import TaggedItem
 from posthog.models.event_definition import EventDefinition
@@ -100,37 +101,46 @@ class EnterpriseEventDefinitionViewSet(EventDefinitionViewSet):
     serializer_class = EnterpriseEventDefinitionSerializer
 
     def get_queryset(self):
-        # `include_actions`
-        #   If true, return both list of event definitions and actions together.
-        include_actions = self.request.GET.get("include_actions", None) == "true"
 
-        search = self.request.GET.get("search", None)
-        search_query, search_kwargs = term_search_filter_sql(self.search_fields, search)
+        if self.request.user.organization.is_feature_available(AvailableFeature.INGESTION_TAXONOMY):  # type: ignore
+            # `include_actions`
+            #   If true, return both list of event definitions and actions together.
+            include_actions = self.request.GET.get("include_actions", None) == "true"
 
-        params = {
-            "team_id": self.team_id,
-            **search_kwargs,
-        }
+            search = self.request.GET.get("search", None)
+            search_query, search_kwargs = term_search_filter_sql(self.search_fields, search)
 
-        # Prevent fetching deprecated `tags` field. Tags are separately fetched in TaggedItemSerializerMixin
-        sql = create_event_definitions_sql(include_actions, is_enterprise=True, conditions=search_query)
+            params = {
+                "team_id": self.team_id,
+                **search_kwargs,
+            }
 
-        ee_event_definitions = EnterpriseEventDefinition.objects.raw(sql, params=params)
-        ee_event_definitions_list = ee_event_definitions.prefetch_related(
-            Prefetch("tagged_items", queryset=TaggedItem.objects.select_related("tag"), to_attr="prefetched_tags")
-        )
+            # Prevent fetching deprecated `tags` field. Tags are separately fetched in TaggedItemSerializerMixin
+            sql = create_event_definitions_sql(include_actions, is_enterprise=True, conditions=search_query)
 
-        return ee_event_definitions_list
+            ee_event_definitions = EnterpriseEventDefinition.objects.raw(sql, params=params)
+            ee_event_definitions_list = ee_event_definitions.prefetch_related(
+                Prefetch("tagged_items", queryset=TaggedItem.objects.select_related("tag"), to_attr="prefetched_tags")
+            )
+
+            return ee_event_definitions_list
+        else:
+            return super().get_queryset()
 
     def get_object(self):
-        id = self.kwargs["id"]
+        if self.request.user.organization.is_feature_available(AvailableFeature.INGESTION_TAXONOMY):  # type: ignore
+            id = self.kwargs["id"]
 
-        enterprise_event = EnterpriseEventDefinition.objects.filter(id=id).first()
-        if enterprise_event:
-            return enterprise_event
+            enterprise_event = EnterpriseEventDefinition.objects.filter(id=id).first()
+            if enterprise_event:
+                return enterprise_event
 
-        non_enterprise_event = EventDefinition.objects.get(id=id)
-        new_enterprise_event = EnterpriseEventDefinition(eventdefinition_ptr_id=non_enterprise_event.id, description="")
-        new_enterprise_event.__dict__.update(non_enterprise_event.__dict__)
-        new_enterprise_event.save()
-        return new_enterprise_event
+            non_enterprise_event = EventDefinition.objects.get(id=id)
+            new_enterprise_event = EnterpriseEventDefinition(
+                eventdefinition_ptr_id=non_enterprise_event.id, description=""
+            )
+            new_enterprise_event.__dict__.update(non_enterprise_event.__dict__)
+            new_enterprise_event.save()
+            return new_enterprise_event
+        else:
+            return super().get_object()
