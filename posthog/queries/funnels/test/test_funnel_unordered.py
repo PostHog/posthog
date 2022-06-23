@@ -520,7 +520,7 @@ class TestFunnelUnorderedStepsBreakdown(ClickhouseTestMixin, funnel_breakdown_te
                 {"event": "buy", "timestamp": datetime(2020, 1, 2, 16),},
             ],
         }
-        people = journeys_for(events_by_person, self.team)
+        journeys_for(events_by_person, self.team)
 
         result = funnel.run()
         result = sorted(result, key=lambda res: res[0]["breakdown"])
@@ -880,14 +880,12 @@ class TestFunnelUnorderedSteps(ClickhouseTestMixin, APIBaseTest):
 
         funnel = ClickhouseFunnelUnordered(filter, self.team)
 
-        person1_stopped_after_signup = _create_person(distinct_ids=["stopped_after_signup1"], team_id=self.team.pk)
+        _create_person(distinct_ids=["stopped_after_signup1"], team_id=self.team.pk)
         _create_event(
             team=self.team, event="user signed up", distinct_id="stopped_after_signup1", timestamp="2021-05-02 00:00:00"
         )
 
-        person2_stopped_after_one_pageview = _create_person(
-            distinct_ids=["stopped_after_pageview1"], team_id=self.team.pk
-        )
+        _create_person(distinct_ids=["stopped_after_pageview1"], team_id=self.team.pk)
         _create_event(
             team=self.team, event="$pageview", distinct_id="stopped_after_pageview1", timestamp="2021-05-02 00:00:00"
         )
