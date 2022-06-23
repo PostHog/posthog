@@ -281,7 +281,7 @@ jobs:
               run: echo '::set-output name=diff::$(git status --porcelain)'
 
             - name: Fail CI if some snapshots have been updated but not committed
-              if: steps.changed-files.outputs.diff != ''
+              if: steps.changed-files.outputs.diff != '' && ${{ matrix.clickhouse-server-image == 'clickhouse/clickhouse-server:22.3' && !matrix.person-on-events }}
               run: |
                   echo "${{ steps.changed-files.outputs.diff }}"
                   exit 1
