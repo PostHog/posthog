@@ -2439,10 +2439,10 @@
   dependencies:
     "@floating-ui/core" "^0.7.3"
 
-"@floating-ui/react-dom-interactions@^0.6.4":
-  version "0.6.4"
-  resolved "https://registry.yarnpkg.com/@floating-ui/react-dom-interactions/-/react-dom-interactions-0.6.4.tgz#9dd0139dc45763a72dc0c5ff789462ce0fadbe7b"
-  integrity sha512-6wLWaGeSvw5z/oyW5Ii+PdA2CxfrWz5RdFrTTpXgLsg4ROjvzxtJZmxbe8wA20AQ5X3nbDBrTk24XmHk2ssT7w==
+"@floating-ui/react-dom-interactions@^0.6.6":
+  version "0.6.6"
+  resolved "https://registry.yarnpkg.com/@floating-ui/react-dom-interactions/-/react-dom-interactions-0.6.6.tgz#8542e8c4bcbee2cd0d512de676c6a493e0a2d168"
+  integrity sha512-qnao6UPjSZNHnXrF+u4/n92qVroQkx0Umlhy3Avk1oIebm/5ee6yvDm4xbHob0OjY7ya8WmUnV3rQlPwX3Atwg==
   dependencies:
     "@floating-ui/react-dom" "^0.7.2"
     aria-hidden "^1.1.3"
