@@ -280,7 +280,7 @@ jobs:
             - name: Check if any snapshot changes were left uncomitted
               id: changed-files
               run: |
-                  if [[ -z $(git status -s | grep -v ".test_durations") ]]
+                  if [[ -z $(git status -s | grep -v ".test_durations" | tr -d "\n") ]]
                   then
                     echo '::set-output name=diff::$(git status --porcelain)'
                     echo '::set-output name=outcome::success'
