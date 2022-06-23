@@ -11,7 +11,7 @@ on:
     pull_request:
     workflow_dispatch:
         inputs:
-            clickhouseServerVersion:
+            clickhouseServerVersion:{ s
                 description: ClickHouse server version. Leave blank for default
                 type: string
 
@@ -284,7 +284,7 @@ jobs:
                   fi
 
             - name: Fail CI if some snapshots have been updated but not committed
-              if: ${{ steps.changed-files.outputs.files_found == 'true' && steps.add-and-commit.outcome == 'success' }}
+              if: steps.changed-files.outputs.files_found == 'true' && steps.add-and-commit.outcome == 'success'
               run: |
                   echo "${{ steps.changed-files.outputs.diff }}"
                   exit 1
