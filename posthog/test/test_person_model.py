@@ -27,7 +27,7 @@ class TestPerson(BaseTest):
         )
         person3 = Person.objects.create(distinct_ids=["person_3"], team=self.team, properties={"$os": "PlayStation"})
 
-        self.assertEqual(len(Person.objects.all()), 4)
+        self.assertEqual(Person.objects.count(), 4)
 
         person0.merge_people([person1, person2, person3])
 
