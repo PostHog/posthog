@@ -8,10 +8,11 @@ import {
     offset,
     useFloating,
     autoUpdate,
-    flip,
     Middleware,
     Placement,
     shift,
+    flip,
+    size,
 } from '@floating-ui/react-dom-interactions'
 
 export interface PopupProps {
@@ -35,7 +36,6 @@ export interface PopupProps {
     actionable?: boolean
     /** Whether the popover's width should be synced with the children's width. */
     sameWidth?: boolean
-    maxWindowDimensions?: boolean
     maxContentWidth?: boolean
     className?: string
     middleware?: Middleware[]
@@ -45,37 +45,6 @@ export interface PopupProps {
 export const PopupContext = React.createContext<number>(0)
 
 let uniqueMemoizedIndex = 1
-
-// NOTE: copied from https://github.com/atomiks/popper-max-size-modifier/blob/370d0df2567d6083728eeeebff76cbeaf095ca1d/index.js
-// const maxSizeModifier: Modifier<any, any> = {
-//     name: 'maxSize',
-//     enabled: true,
-//     phase: 'main',
-//     requiresIfExists: ['offset', 'preventOverflow', 'flip'],
-//     fn({ state, name }) {
-//         const overflow = detectOverflow(state)
-//         const { x, y } = state.modifiersData.preventOverflow || { x: 0, y: 0 }
-//         const { width, height } = state.rects.popper
-//         const [basePlacement] = state.placement.split('-')
-//
-//         const widthProp = basePlacement === 'left' ? 'left' : 'right'
-//         const heightProp = basePlacement === 'top' ? 'top' : 'bottom'
-//
-//         state.modifiersData[name] = {
-//             width: width - overflow[widthProp] - x,
-//             height: height - overflow[heightProp] - y,
-//         }
-//     },
-// }
-// const sameWidthModifier = {
-//     name: 'sameWidth',
-//     enabled: true,
-//     fn: ({ state }) => {
-//         state.styles.popper.width = `${state.rects.reference.width}px`
-//     },
-//     phase: 'beforeWrite',
-//     requires: ['computeStyles'],
-// }
 
 /** This is a custom popup control that uses `floating-ui` to position DOM nodes.
  *
@@ -92,10 +61,9 @@ export function Popup({
     className,
     actionable = false,
     middleware,
-}: // sameWidth = false,
-// maxWindowDimensions = false,
-// maxContentWidth = false,
-PopupProps): JSX.Element {
+    sameWidth = false,
+    maxContentWidth = false,
+}: PopupProps): JSX.Element {
     const popupId = useMemo(() => uniqueMemoizedIndex++, [])
     const {
         x,
@@ -110,8 +78,19 @@ PopupProps): JSX.Element {
             offset(4),
             shift(),
             ...(fallbackPlacements ? [flip({ fallbackPlacements })] : []),
-            // ...(maxWindowDimensions ? [maxSizeModifier] : []),
-            // ...(sameWidth ? [sameWidthModifier] : []),
+            size({
+                padding: 5,
+                apply({ rects, availableHeight, elements: { floating } }) {
+                    if (sameWidth) {
+                        Object.assign(floating.style, {
+                            width: `${rects.reference.width}px`,
+                        })
+                    }
+                    Object.assign(floating.style, {
+                        maxHeight: `${Math.max(50, availableHeight)}px`,
+                    })
+                },
+            }),
             ...(middleware ?? []),
         ],
     })
@@ -138,7 +117,12 @@ PopupProps): JSX.Element {
                 <CSSTransition in={visible} timeout={100} classNames="Popup-" mountOnEnter unmountOnExit>
                     <PopupContext.Provider value={popupId}>
                         <div
-                            className={clsx('Popup', actionable && 'Popup--actionable', className)}
+                            className={clsx(
+                                'Popup',
+                                actionable && 'Popup--actionable',
+                                maxContentWidth && 'Popup--max-content-width',
+                                className
+                            )}
                             ref={floatingRef as MutableRefObject<HTMLDivElement>}
                             style={{ position: strategy, top: y ?? 0, left: x ?? 0 }}
                             onClick={onClickInside}

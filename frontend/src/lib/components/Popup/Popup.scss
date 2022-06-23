@@ -22,7 +22,7 @@
     border-radius: var(--radius);
     border: 1px solid var(--border);
     max-width: calc(100vw - 1rem);
-    max-height: calc(100vh - 6rem);
+    max-height: inherit;
     overflow: auto;
 
     [data-popper-placement^='top'] & {

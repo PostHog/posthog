@@ -68,7 +68,6 @@ export function EditSubscription({
         outlined: true,
         disabled: emailDisabled,
         dropdownMatchSelectWidth: false,
-        dropdownMaxWindowDimensions: true,
     }
 
     return (
