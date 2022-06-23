@@ -550,4 +550,4 @@ def post_process_session_recordings():
     if not recordings_post_processing_enabled:
         return
 
-    logger.debug("running post_process_session_recordings")
+    logger.info("running post_process_session_recordings")
