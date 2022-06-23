@@ -23,6 +23,7 @@ class AvailableFeature(str, Enum):
     TAGGING = "tagging"
     BEHAVIORAL_COHORT_FILTERING = "behavioral_cohort_filtering"
     WHITE_LABELLING = "white_labelling"
+    SUBSCRIPTIONS = "subscriptions"
 
 
 TREND_FILTER_TYPE_ACTIONS = "actions"

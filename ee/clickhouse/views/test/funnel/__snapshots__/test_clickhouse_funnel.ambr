@@ -59,7 +59,7 @@
 ---
 # name: ClickhouseTestFunnelGroups.test_funnel_aggregation_with_groups.1
   '
-  /* request:api_person_funnel_?$ (LegacyPersonViewSet) */
+  /* request:api_person_funnel_?$ (LegacyEnterprisePersonViewSet) */
   SELECT aggregation_target AS actor_id
   FROM
     (SELECT aggregation_target,
@@ -180,7 +180,7 @@
 ---
 # name: ClickhouseTestFunnelGroups.test_funnel_group_aggregation_with_groups_entity_filtering.1
   '
-  /* request:api_person_funnel_?$ (LegacyPersonViewSet) */
+  /* request:api_person_funnel_?$ (LegacyEnterprisePersonViewSet) */
   SELECT aggregation_target AS actor_id
   FROM
     (SELECT aggregation_target,
@@ -309,7 +309,7 @@
 ---
 # name: ClickhouseTestFunnelGroups.test_funnel_with_groups_entity_filtering.1
   '
-  /* request:api_person_funnel_?$ (LegacyPersonViewSet) */
+  /* request:api_person_funnel_?$ (LegacyEnterprisePersonViewSet) */
   SELECT aggregation_target AS actor_id
   FROM
     (SELECT aggregation_target,
@@ -451,7 +451,7 @@
 ---
 # name: ClickhouseTestFunnelGroups.test_funnel_with_groups_global_filtering.1
   '
-  /* request:api_person_funnel_?$ (LegacyPersonViewSet) */
+  /* request:api_person_funnel_?$ (LegacyEnterprisePersonViewSet) */
   SELECT aggregation_target AS actor_id
   FROM
     (SELECT aggregation_target,

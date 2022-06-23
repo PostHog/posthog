@@ -1,0 +1,65 @@
+# name: TestFormula.test_formula_with_unique_sessions
+  '
+  SELECT sub_A.date,
+         arrayMap((A, B) -> A / B, arrayResize(sub_A.data, max_length, 0), arrayResize(sub_B.data, max_length, 0)) ,
+         arrayMax([length(sub_A.data), length(sub_B.data)]) as max_length
+  FROM
+    (SELECT groupArray(day_start) as date,
+            groupArray(count) as data
+     FROM
+       (SELECT SUM(total) AS count,
+               day_start
+        from
+          (SELECT toUInt16(0) AS total,
+                  toStartOfDay(toDateTime('2020-01-04 23:59:59') - toIntervalDay(number), 'UTC') AS day_start
+           FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2019-12-28 00:00:00'), 'UTC'), toDateTime('2020-01-04 23:59:59'), 'UTC'))
+           UNION ALL SELECT toUInt16(0) AS total,
+                            toStartOfDay(toDateTime('2019-12-28 00:00:00'), 'UTC')
+           UNION ALL SELECT count(DISTINCT $session_id) as data,
+                            toStartOfDay(toDateTime(timestamp), 'UTC') as date
+           FROM
+             (SELECT e.timestamp as timestamp,
+                     e."$session_id" as "$session_id"
+              FROM events e
+              WHERE team_id = 2
+                AND event = 'session start'
+                AND timestamp >= toStartOfDay(toDateTime('2019-12-28 00:00:00'), 'UTC')
+                AND timestamp <= toDateTime('2020-01-04 23:59:59') )
+           GROUP BY date)
+        group by day_start
+        order by day_start SETTINGS allow_experimental_window_functions = 1) SETTINGS timeout_before_checking_execution_speed = 60) as sub_A
+  CROSS JOIN
+    (SELECT groupArray(day_start) as date,
+            groupArray(count) as data
+     FROM
+       (SELECT SUM(total) AS count,
+               day_start
+        from
+          (SELECT toUInt16(0) AS total,
+                  toStartOfDay(toDateTime('2020-01-04 23:59:59') - toIntervalDay(number), 'UTC') AS day_start
+           FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2019-12-28 00:00:00'), 'UTC'), toDateTime('2020-01-04 23:59:59'), 'UTC'))
+           UNION ALL SELECT toUInt16(0) AS total,
+                            toStartOfDay(toDateTime('2019-12-28 00:00:00'), 'UTC')
+           UNION ALL SELECT count(DISTINCT person_id) as data,
+                            toStartOfDay(toDateTime(timestamp), 'UTC') as date
+           FROM
+             (SELECT e.timestamp as timestamp,
+                     e."$session_id" as "$session_id",
+                     pdi.person_id as person_id
+              FROM events e
+              INNER JOIN
+                (SELECT distinct_id,
+                        argMax(person_id, version) as person_id
+                 FROM person_distinct_id2
+                 WHERE team_id = 2
+                 GROUP BY distinct_id
+                 HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+              WHERE team_id = 2
+                AND event = 'session start'
+                AND timestamp >= toStartOfDay(toDateTime('2019-12-28 00:00:00'), 'UTC')
+                AND timestamp <= toDateTime('2020-01-04 23:59:59') )
+           GROUP BY date)
+        group by day_start
+        order by day_start SETTINGS allow_experimental_window_functions = 1) SETTINGS timeout_before_checking_execution_speed = 60) as sub_B
+  '
+---

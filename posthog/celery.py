@@ -106,6 +106,7 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
     )  # every day at a random minute past midnight. Randomize to avoid overloading license.posthog.com
 
     materialize_columns_crontab = get_crontab(settings.MATERIALIZE_COLUMNS_SCHEDULE_CRON)
+
     if materialize_columns_crontab:
         sender.add_periodic_task(
             materialize_columns_crontab, clickhouse_materialize_columns.s(), name="clickhouse materialize columns",
@@ -339,7 +340,7 @@ def recompute_materialized_columns_enabled() -> bool:
 @app.task(ignore_result=True)
 def clickhouse_materialize_columns():
     if recompute_materialized_columns_enabled():
-        from ee.clickhouse.materialized_columns.analyze import materialize_properties_task
+        from posthog.clickhouse.materialized_columns import materialize_properties_task
 
         materialize_properties_task()
 
@@ -347,9 +348,12 @@ def clickhouse_materialize_columns():
 @app.task(ignore_result=True)
 def clickhouse_mark_all_materialized():
     if recompute_materialized_columns_enabled():
-        from ee.tasks.materialized_columns import mark_all_materialized
-
-        mark_all_materialized()
+        try:
+            from ee.tasks.materialized_columns import mark_all_materialized
+        except ImportError:
+            pass
+        else:
+            mark_all_materialized()
 
 
 @app.task(ignore_result=True)
@@ -362,16 +366,22 @@ def clickhouse_clear_removed_data():
 @app.task(ignore_result=True)
 def clickhouse_send_license_usage():
     if not settings.MULTI_TENANCY:
-        from ee.tasks.send_license_usage import send_license_usage
-
-        send_license_usage()
+        try:
+            from ee.tasks.send_license_usage import send_license_usage
+        except ImportError:
+            pass
+        else:
+            send_license_usage()
 
 
 @app.task(ignore_result=True)
 def send_org_usage_report():
-    from ee.tasks.org_usage_report import send_all_org_usage_reports as send_reports_clickhouse
-
-    send_reports_clickhouse()
+    try:
+        from ee.tasks.org_usage_report import send_all_org_usage_reports as send_reports_clickhouse
+    except ImportError:
+        pass
+    else:
+        send_reports_clickhouse()
 
 
 @app.task(ignore_result=True)
@@ -504,6 +514,9 @@ def verify_persons_data_in_sync():
 
 @app.task(ignore_result=True)
 def schedule_all_subscriptions():
-    from posthog.tasks.subscriptions import schedule_all_subscriptions
-
-    schedule_all_subscriptions()
+    try:
+        from ee.tasks.subscriptions import schedule_all_subscriptions
+    except ImportError:
+        pass
+    else:
+        schedule_all_subscriptions()

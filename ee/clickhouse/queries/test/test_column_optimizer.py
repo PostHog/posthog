@@ -1,4 +1,4 @@
-from ee.clickhouse.materialized_columns import materialize
+from ee.clickhouse.materialized_columns.columns import materialize
 from ee.clickhouse.queries.column_optimizer import EnterpriseColumnOptimizer
 from posthog.models import Action, ActionStep
 from posthog.models.filters import Filter

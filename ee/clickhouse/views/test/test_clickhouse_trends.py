@@ -11,10 +11,9 @@ from django.test import Client
 from freezegun import freeze_time
 
 from ee.api.test.base import LicensedTestMixin
-from ee.clickhouse.models.group import create_group
-from ee.clickhouse.test.test_journeys import journeys_for, update_or_create_person
 from posthog.api.test.test_cohort import create_cohort_ok
 from posthog.api.test.test_event_definition import create_organization, create_team, create_user
+from posthog.models.group.util import create_group
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.instance_setting import set_instance_setting
 from posthog.models.team import Team
@@ -25,6 +24,7 @@ from posthog.test.base import (
     snapshot_clickhouse_queries,
     test_with_materialized_columns,
 )
+from posthog.test.test_journeys import journeys_for, update_or_create_person
 
 
 @pytest.mark.django_db

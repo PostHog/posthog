@@ -52,6 +52,7 @@ MIDDLEWARE = [
     # using dependencies that the healthcheck should be checking. It should be
     # ok below the above middlewares however.
     "posthog.health.healthcheck_middleware",
+    "google.cloud.sqlcommenter.django.middleware.SqlCommenter",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "corsheaders.middleware.CorsMiddleware",
     "django.middleware.common.CommonMiddleware",
@@ -63,6 +64,7 @@ MIDDLEWARE = [
     "whitenoise.middleware.WhiteNoiseMiddleware",
     "axes.middleware.AxesMiddleware",
     "posthog.middleware.AutoProjectMiddleware",
+    "posthog.middleware.CHQueries",
 ]
 
 if STATSD_HOST is not None:
@@ -70,9 +72,13 @@ if STATSD_HOST is not None:
     MIDDLEWARE.append("django_statsd.middleware.StatsdMiddlewareTimer")
 
 # Append Enterprise Edition as an app if available
-INSTALLED_APPS.append("rest_hooks")
-INSTALLED_APPS.append("ee.apps.EnterpriseConfig")
-MIDDLEWARE.append("posthog.middleware.CHQueries")
+try:
+    from ee.apps import EnterpriseConfig  # noqa: F401
+except ImportError:
+    pass
+else:
+    INSTALLED_APPS.append("rest_hooks")
+    INSTALLED_APPS.append("ee.apps.EnterpriseConfig")
 
 # Use django-extensions if it exists
 try:

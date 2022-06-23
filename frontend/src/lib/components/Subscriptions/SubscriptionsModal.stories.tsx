@@ -1,17 +1,17 @@
-import React, { useEffect, useState } from 'react'
-import { ComponentStory, ComponentMeta } from '@storybook/react'
-import { SubscriptionsModal } from './SubscriptionsModal'
-import { LemonButton } from '../LemonButton'
-import { InsightShortId, Realm, SubscriptionType } from '~/types'
+import React, { useRef } from 'react'
+import { ComponentMeta } from '@storybook/react'
+import { Subscriptions, SubscriptionsModalProps } from './SubscriptionsModal'
+import { AvailableFeature, InsightShortId, Realm, SubscriptionType } from '~/types'
 import preflightJson from '~/mocks/fixtures/_preflight.json'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { subscriptionLogic } from './subscriptionLogic'
-import { subscriptionsLogic } from './subscriptionsLogic'
+import { useAvailableFeatures } from '~/mocks/features'
+import { uuid } from 'lib/utils'
+import { useStorybookMocks } from '~/mocks/browser'
 
 export default {
-    title: 'Components/Subscription Modal',
-    component: SubscriptionsModal,
-} as ComponentMeta<typeof SubscriptionsModal>
+    title: 'Components/Subscriptions',
+    component: Subscriptions,
+    parameters: { layout: 'fullscreen', options: { showPanel: false }, viewMode: 'canvas' },
+} as ComponentMeta<typeof Subscriptions>
 
 const createSubscription = (args: Partial<SubscriptionType> = {}): SubscriptionType =>
     ({
@@ -24,95 +24,78 @@ const createSubscription = (args: Partial<SubscriptionType> = {}): SubscriptionT
         start_date: '2022-01-01T00:09:00',
         byweekday: ['wednesday'],
         bysetpos: 1,
+        summary: 'sent every month on the first wednesday',
         ...args,
     } as SubscriptionType)
 
-const Template: ComponentStory<any> = (args) => {
-    const [isOpen, setIsOpen] = useState(false)
+const Template = (
+    args: Partial<SubscriptionsModalProps> & { preflightIssues?: boolean; featureAvailable?: boolean }
+): JSX.Element => {
+    const { preflightIssues = false, featureAvailable = true, ...props } = args
+    const insightShortIdRef = useRef(props.insightShortId || (uuid() as InsightShortId))
 
-    const { preflightIssues = false, ...props } = args
+    useAvailableFeatures(featureAvailable ? [AvailableFeature.SUBSCRIPTIONS] : [])
 
-    useEffect(() => {
-        const subsLogic = subscriptionsLogic({
-            insightShortId: props.insightShortId || ('123' as InsightShortId),
-        })
-        subsLogic.unmount()
-        subsLogic.mount()
-
-        setTimeout(() => {
-            console.log({ props })
-            if (props.insightShortId === 'empty') {
-                console.log('HERE', subsLogic)
-                subsLogic.actions.loadSubscriptionsSuccess([])
-            } else {
-                subsLogic.actions.loadSubscriptionsSuccess([
-                    createSubscription(),
-                    createSubscription({
-                        title: 'Weekly C-level report',
-                        target_value: 'james@posthog.com',
-                        frequency: 'weekly',
-                        interval: 1,
-                    }),
-                ])
-            }
-
-            if (typeof args.subscriptionId === 'number') {
-                const subLogic = subscriptionLogic({
-                    insightShortId: '123' as InsightShortId,
-                    id: args.subscriptionId,
-                })
-
-                subLogic.mount()
-                subLogic.actions.loadSubscriptionSuccess(createSubscription())
-            }
-            preflightLogic().actions.loadPreflightSuccess({
+    useStorybookMocks({
+        get: {
+            '/_preflight': {
                 ...preflightJson,
                 realm: Realm.Cloud,
                 email_service_available: preflightIssues ? false : true,
                 site_url: preflightIssues ? 'bad-value' : window.location.origin,
-            })
-        }, 1)
-    }, [args])
-
-    const _setIsOpen = (open: boolean): void => {
-        setIsOpen(open)
-    }
+            },
+            '/api/projects/:id/subscriptions': {
+                results:
+                    insightShortIdRef.current === 'empty'
+                        ? []
+                        : [
+                              createSubscription(),
+                              createSubscription({
+                                  title: 'Weekly C-level report',
+                                  target_value: 'james@posthog.com',
+                                  frequency: 'weekly',
+                                  interval: 1,
+                              }),
+                          ],
+            },
+            '/api/projects/:id/subscriptions/:subId': createSubscription(),
+        },
+    })
 
     return (
-        <>
-            <LemonButton type="primary" onClick={() => _setIsOpen(true)}>
-                Show Subscriptions
-            </LemonButton>
-            <SubscriptionsModal
-                {...props}
-                insightShortId={'123' as InsightShortId}
-                visible={isOpen}
-                closeModal={() => _setIsOpen(false)}
-            />
-        </>
+        <div className="LemonModal">
+            <div className="border-all ant-modal-body" style={{ width: 650, margin: '20px auto' }}>
+                <Subscriptions
+                    {...(props as SubscriptionsModalProps)}
+                    closeModal={() => console.log('close')}
+                    insightShortId={insightShortIdRef.current}
+                    visible={true}
+                />
+            </div>
+        </div>
     )
 }
 
-export const SubscriptionsModal_ = Template.bind({})
-SubscriptionsModal_.args = {}
-
-export const SubscriptionsModalEmpty = Template.bind({})
-SubscriptionsModalEmpty.args = {
-    insightShortId: 'empty' as InsightShortId,
+export const Subscriptions_ = (): JSX.Element => {
+    return <Template />
 }
 
-export const SubscriptionsModalNew_ = Template.bind({})
-SubscriptionsModalNew_.args = {
-    subscriptionId: 'new',
+export const SubscriptionsEmpty = (): JSX.Element => {
+    return <Template insightShortId={'empty' as InsightShortId} />
 }
 
-export const SubscriptionsModalNewEmailDisabled = Template.bind({})
-SubscriptionsModalNewEmailDisabled.args = {
-    subscriptionId: 'new',
-    preflightIssues: true,
+export const SubscriptionsNew = (): JSX.Element => {
+    return <Template subscriptionId={'new'} />
 }
 
-export const SubscriptionsModalEdit = Template.bind({})
-SubscriptionsModalEdit.args = {
-    subscriptionId: 1,
+export const SubscriptionsNewEmailDisabled = (): JSX.Element => {
+    return <Template subscriptionId={'new'} preflightIssues={true} />
+}
+
+export const SubscriptionsEdit = (): JSX.Element => {
+    return <Template subscriptionId={1} />
+}
+
+export const SubscriptionsUnavailable = (): JSX.Element => {
+    return <Template featureAvailable={false} />
 }

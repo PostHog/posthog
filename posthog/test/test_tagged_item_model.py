@@ -1,7 +1,6 @@
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError
 
-from ee.models import EnterpriseEventDefinition, EnterprisePropertyDefinition
 from posthog.models import Action, Dashboard, DashboardTile, Insight, Tag, TaggedItem
 
 from .base import BaseTest
@@ -44,22 +43,34 @@ class TestTaggedItem(BaseTest):
             TaggedItem.objects.create(insight_id=insight.id, tag_id=tag.id)
 
     def test_uniqueness_constraint_event_definition(self):
-        event_definition = EnterpriseEventDefinition.objects.create(
-            team=self.team, name="enterprise event", owner=self.user
-        )
-        tag = Tag.objects.create(name="tag", team_id=self.team.id)
+        try:
+            from ee.models import EnterpriseEventDefinition
+        except ImportError:
+            pass
+        else:
+            event_definition = EnterpriseEventDefinition.objects.create(
+                team=self.team, name="enterprise event", owner=self.user
+            )
+            tag = Tag.objects.create(name="tag", team_id=self.team.id)
 
-        TaggedItem.objects.create(event_definition_id=event_definition.id, tag_id=tag.id)
-        with self.assertRaises(IntegrityError):
             TaggedItem.objects.create(event_definition_id=event_definition.id, tag_id=tag.id)
+            with self.assertRaises(IntegrityError):
+                TaggedItem.objects.create(event_definition_id=event_definition.id, tag_id=tag.id)
 
     def test_uniqueness_constraint_property_definition(self):
-        property_definition = EnterprisePropertyDefinition.objects.create(team=self.team, name="enterprise property")
-        tag = Tag.objects.create(name="tag", team_id=self.team.id)
+        try:
+            from ee.models import EnterprisePropertyDefinition
+        except ImportError:
+            pass
+        else:
+            property_definition = EnterprisePropertyDefinition.objects.create(
+                team=self.team, name="enterprise property"
+            )
+            tag = Tag.objects.create(name="tag", team_id=self.team.id)
 
-        TaggedItem.objects.create(property_definition_id=property_definition.id, tag_id=tag.id)
-        with self.assertRaises(IntegrityError):
             TaggedItem.objects.create(property_definition_id=property_definition.id, tag_id=tag.id)
+            with self.assertRaises(IntegrityError):
+                TaggedItem.objects.create(property_definition_id=property_definition.id, tag_id=tag.id)
 
     def test_uniqueness_constraint_action(self):
         action = Action.objects.create(team=self.team, name="enterprise property")

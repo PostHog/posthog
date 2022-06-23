@@ -20,7 +20,7 @@
          "posthog_user"."events_column_config"
   FROM "posthog_user"
   WHERE "posthog_user"."id" = 2
-  LIMIT 21
+  LIMIT 21 /**/
   '
 ---
 # name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.1
@@ -59,7 +59,7 @@
          "posthog_team"."event_properties_numerical"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 2
-  LIMIT 21
+  LIMIT 21 /*controller='project_insights-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/insights/%3F%24'*/
   '
 ---
 # name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.10
@@ -80,7 +80,7 @@
          "posthog_dashboard"."restriction_level"
   FROM "posthog_dashboard"
   INNER JOIN "posthog_dashboardtile" ON ("posthog_dashboard"."id" = "posthog_dashboardtile"."dashboard_id")
-  WHERE "posthog_dashboardtile"."insight_id" = 2
+  WHERE "posthog_dashboardtile"."insight_id" = 2 /*controller='project_insights-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/insights/%3F%24'*/
   '
 ---
 # name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.11
@@ -119,7 +119,7 @@
          "posthog_team"."event_properties_numerical"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 2
-  LIMIT 21
+  LIMIT 21 /*controller='project_insights-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/insights/%3F%24'*/
   '
 ---
 # name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.12
@@ -138,7 +138,7 @@
          "posthog_organization"."domain_whitelist"
   FROM "posthog_organization"
   WHERE "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid
-  LIMIT 21
+  LIMIT 21 /*controller='project_insights-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/insights/%3F%24'*/
   '
 ---
 # name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.13
@@ -146,7 +146,7 @@
   SELECT COUNT(*) AS "__count"
   FROM "posthog_dashboard"
   INNER JOIN "posthog_dashboardtile" ON ("posthog_dashboard"."id" = "posthog_dashboardtile"."dashboard_id")
-  WHERE "posthog_dashboardtile"."insight_id" = 2
+  WHERE "posthog_dashboardtile"."insight_id" = 2 /*controller='project_insights-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/insights/%3F%24'*/
   '
 ---
 # name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.14
@@ -167,7 +167,7 @@
          "posthog_dashboard"."restriction_level"
   FROM "posthog_dashboard"
   INNER JOIN "posthog_dashboardtile" ON ("posthog_dashboard"."id" = "posthog_dashboardtile"."dashboard_id")
-  WHERE "posthog_dashboardtile"."insight_id" = 2
+  WHERE "posthog_dashboardtile"."insight_id" = 2 /*controller='project_insights-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/insights/%3F%24'*/
   '
 ---
 # name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.15
@@ -206,7 +206,7 @@
          "posthog_team"."event_properties_numerical"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 2
-  LIMIT 21
+  LIMIT 21 /*controller='project_insights-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/insights/%3F%24'*/
   '
 ---
 # name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.16
@@ -225,7 +225,7 @@
          "posthog_organization"."domain_whitelist"
   FROM "posthog_organization"
   WHERE "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid
-  LIMIT 21
+  LIMIT 21 /*controller='project_insights-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/insights/%3F%24'*/
   '
 ---
 # name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.17
@@ -250,7 +250,7 @@
          "posthog_user"."events_column_config"
   FROM "posthog_user"
   WHERE "posthog_user"."id" = 2
-  LIMIT 21
+  LIMIT 21 /**/
   '
 ---
 # name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.18
@@ -289,7 +289,7 @@
          "posthog_team"."event_properties_numerical"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 2
-  LIMIT 21
+  LIMIT 21 /*controller='project_dashboards-detail',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%28%3FP%3Cpk%3E%5B%5E/.%5D%2B%29/%3F%24'*/
   '
 ---
 # name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.19
@@ -316,7 +316,7 @@
   INNER JOIN "posthog_organization" ON ("posthog_organizationmembership"."organization_id" = "posthog_organization"."id")
   WHERE ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
          AND "posthog_organizationmembership"."user_id" = 2)
-  LIMIT 21
+  LIMIT 21 /*controller='project_dashboards-detail',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%28%3FP%3Cpk%3E%5B%5E/.%5D%2B%29/%3F%24'*/
   '
 ---
 # name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.2
@@ -343,7 +343,7 @@
   INNER JOIN "posthog_organization" ON ("posthog_organizationmembership"."organization_id" = "posthog_organization"."id")
   WHERE ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
          AND "posthog_organizationmembership"."user_id" = 2)
-  LIMIT 21
+  LIMIT 21 /*controller='project_insights-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/insights/%3F%24'*/
   '
 ---
 # name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.20
@@ -362,7 +362,7 @@
          "posthog_organization"."domain_whitelist"
   FROM "posthog_organization"
   WHERE "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid
-  LIMIT 21
+  LIMIT 21 /*controller='project_dashboards-detail',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%28%3FP%3Cpk%3E%5B%5E/.%5D%2B%29/%3F%24'*/
   '
 ---
 # name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.21
@@ -450,7 +450,7 @@
   WHERE ("posthog_dashboard"."team_id" = 2
          AND NOT "posthog_dashboard"."deleted"
          AND "posthog_dashboard"."id" = 2)
-  LIMIT 21
+  LIMIT 21 /*controller='project_dashboards-detail',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%28%3FP%3Cpk%3E%5B%5E/.%5D%2B%29/%3F%24'*/
   '
 ---
 # name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.22
@@ -489,7 +489,7 @@
                                                         3,
                                                         4,
                                                         5 /* ... */))
-  ORDER BY "posthog_dashboarditem"."order" ASC
+  ORDER BY "posthog_dashboarditem"."order" ASC /*controller='project_dashboards-detail',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%28%3FP%3Cpk%3E%5B%5E/.%5D%2B%29/%3F%24'*/
   '
 ---
 # name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.23
@@ -545,7 +545,7 @@
   FROM "posthog_dashboardtile"
   INNER JOIN "posthog_dashboard" ON ("posthog_dashboardtile"."dashboard_id" = "posthog_dashboard"."id")
   INNER JOIN "posthog_dashboarditem" ON ("posthog_dashboardtile"."insight_id" = "posthog_dashboarditem"."id")
-  WHERE "posthog_dashboardtile"."dashboard_id" = 2
+  WHERE "posthog_dashboardtile"."dashboard_id" = 2 /*controller='project_dashboards-detail',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%28%3FP%3Cpk%3E%5B%5E/.%5D%2B%29/%3F%24'*/
   '
 ---
 # name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.24
@@ -584,7 +584,7 @@
          "posthog_team"."event_properties_numerical"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 2
-  LIMIT 21
+  LIMIT 21 /*controller='project_dashboards-detail',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%28%3FP%3Cpk%3E%5B%5E/.%5D%2B%29/%3F%24'*/
   '
 ---
 # name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.25
@@ -623,7 +623,7 @@
          "posthog_team"."event_properties_numerical"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 2
-  LIMIT 21
+  LIMIT 21 /*controller='project_dashboards-detail',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%28%3FP%3Cpk%3E%5B%5E/.%5D%2B%29/%3F%24'*/
   '
 ---
 # name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.26
@@ -662,7 +662,7 @@
          "posthog_team"."event_properties_numerical"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 2
-  LIMIT 21
+  LIMIT 21 /*controller='project_dashboards-detail',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%28%3FP%3Cpk%3E%5B%5E/.%5D%2B%29/%3F%24'*/
   '
 ---
 # name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.27
@@ -701,7 +701,7 @@
          "posthog_team"."event_properties_numerical"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 2
-  LIMIT 21
+  LIMIT 21 /*controller='project_dashboards-detail',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%28%3FP%3Cpk%3E%5B%5E/.%5D%2B%29/%3F%24'*/
   '
 ---
 # name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.28
@@ -740,7 +740,7 @@
          "posthog_team"."event_properties_numerical"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 2
-  LIMIT 21
+  LIMIT 21 /*controller='project_dashboards-detail',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%28%3FP%3Cpk%3E%5B%5E/.%5D%2B%29/%3F%24'*/
   '
 ---
 # name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.29
@@ -866,7 +866,7 @@
   LEFT OUTER JOIN "posthog_user" ON ("posthog_dashboarditem"."created_by_id" = "posthog_user"."id")
   LEFT OUTER JOIN "posthog_user" T7 ON ("posthog_dashboarditem"."last_modified_by_id" = T7."id")
   WHERE "posthog_dashboardtile"."dashboard_id" = 2
-  ORDER BY "posthog_dashboarditem"."order" ASC
+  ORDER BY "posthog_dashboarditem"."order" ASC /*controller='project_dashboards-detail',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%28%3FP%3Cpk%3E%5B%5E/.%5D%2B%29/%3F%24'*/
   '
 ---
 # name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.3
@@ -888,7 +888,7 @@
   FROM "posthog_dashboard"
   WHERE (NOT "posthog_dashboard"."deleted"
          AND "posthog_dashboard"."id" = 2)
-  LIMIT 21
+  LIMIT 21 /*controller='project_insights-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/insights/%3F%24'*/
   '
 ---
 # name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.30
@@ -914,7 +914,7 @@
                                                  2,
                                                  3,
                                                  4,
-                                                 5 /* ... */)
+                                                 5 /* ... */) /*controller='project_dashboards-detail',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%28%3FP%3Cpk%3E%5B%5E/.%5D%2B%29/%3F%24'*/
   '
 ---
 # name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.31
@@ -956,7 +956,7 @@
                                 2,
                                 3,
                                 4,
-                                5 /* ... */)
+                                5 /* ... */) /*controller='project_dashboards-detail',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%28%3FP%3Cpk%3E%5B%5E/.%5D%2B%29/%3F%24'*/
   '
 ---
 # name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.32
@@ -974,7 +974,7 @@
          "posthog_organization"."personalization",
          "posthog_organization"."domain_whitelist"
   FROM "posthog_organization"
-  WHERE "posthog_organization"."id" IN ('00000000-0000-0000-0000-000000000000'::uuid)
+  WHERE "posthog_organization"."id" IN ('00000000-0000-0000-0000-000000000000'::uuid) /*controller='project_dashboards-detail',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%28%3FP%3Cpk%3E%5B%5E/.%5D%2B%29/%3F%24'*/
   '
 ---
 # name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.33
@@ -992,7 +992,7 @@
   WHERE ("posthog_dashboardtile"."dashboard_id" = 2
          AND "posthog_dashboardtile"."insight_id" = 2)
   ORDER BY "posthog_dashboardtile"."id" ASC
-  LIMIT 1
+  LIMIT 1 /*controller='project_dashboards-detail',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%28%3FP%3Cpk%3E%5B%5E/.%5D%2B%29/%3F%24'*/
   '
 ---
 # name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.34
@@ -1010,7 +1010,7 @@
   WHERE ("posthog_dashboardtile"."dashboard_id" = 2
          AND "posthog_dashboardtile"."insight_id" = 2)
   ORDER BY "posthog_dashboardtile"."id" ASC
-  LIMIT 1
+  LIMIT 1 /*controller='project_dashboards-detail',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%28%3FP%3Cpk%3E%5B%5E/.%5D%2B%29/%3F%24'*/
   '
 ---
 # name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.35
@@ -1028,7 +1028,7 @@
   WHERE ("posthog_dashboardtile"."dashboard_id" = 2
          AND "posthog_dashboardtile"."insight_id" = 2)
   ORDER BY "posthog_dashboardtile"."id" ASC
-  LIMIT 1
+  LIMIT 1 /*controller='project_dashboards-detail',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%28%3FP%3Cpk%3E%5B%5E/.%5D%2B%29/%3F%24'*/
   '
 ---
 # name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.36
@@ -1046,7 +1046,7 @@
   WHERE ("posthog_dashboardtile"."dashboard_id" = 2
          AND "posthog_dashboardtile"."insight_id" = 2)
   ORDER BY "posthog_dashboardtile"."id" ASC
-  LIMIT 1
+  LIMIT 1 /*controller='project_dashboards-detail',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%28%3FP%3Cpk%3E%5B%5E/.%5D%2B%29/%3F%24'*/
   '
 ---
 # name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.37
@@ -1064,7 +1064,7 @@
   WHERE ("posthog_dashboardtile"."dashboard_id" = 2
          AND "posthog_dashboardtile"."insight_id" = 2)
   ORDER BY "posthog_dashboardtile"."id" ASC
-  LIMIT 1
+  LIMIT 1 /*controller='project_dashboards-detail',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%28%3FP%3Cpk%3E%5B%5E/.%5D%2B%29/%3F%24'*/
   '
 ---
 # name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.4
@@ -1103,7 +1103,7 @@
          "posthog_team"."event_properties_numerical"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 2
-  LIMIT 21
+  LIMIT 21 /*controller='project_insights-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/insights/%3F%24'*/
   '
 ---
 # name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.5
@@ -1159,7 +1159,7 @@
   FROM "posthog_dashboardtile"
   INNER JOIN "posthog_dashboarditem" ON ("posthog_dashboardtile"."insight_id" = "posthog_dashboarditem"."id")
   INNER JOIN "posthog_dashboard" ON ("posthog_dashboardtile"."dashboard_id" = "posthog_dashboard"."id")
-  WHERE "posthog_dashboardtile"."insight_id" = 2
+  WHERE "posthog_dashboardtile"."insight_id" = 2 /*controller='project_insights-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/insights/%3F%24'*/
   '
 ---
 # name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.6
@@ -1183,7 +1183,7 @@
                                      2,
                                      3,
                                      4,
-                                     5 /* ... */)
+                                     5 /* ... */) /*controller='project_insights-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/insights/%3F%24'*/
   '
 ---
 # name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.7
@@ -1222,7 +1222,7 @@
          "posthog_team"."event_properties_numerical"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 2
-  LIMIT 21
+  LIMIT 21 /*controller='project_insights-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/insights/%3F%24'*/
   '
 ---
 # name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.8
@@ -1241,7 +1241,7 @@
          "posthog_organization"."domain_whitelist"
   FROM "posthog_organization"
   WHERE "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid
-  LIMIT 21
+  LIMIT 21 /*controller='project_insights-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/insights/%3F%24'*/
   '
 ---
 # name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.9
@@ -1262,7 +1262,7 @@
          "posthog_dashboard"."restriction_level"
   FROM "posthog_dashboard"
   INNER JOIN "posthog_dashboardtile" ON ("posthog_dashboard"."id" = "posthog_dashboardtile"."dashboard_id")
-  WHERE "posthog_dashboardtile"."insight_id" = 2
+  WHERE "posthog_dashboardtile"."insight_id" = 2 /*controller='project_insights-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/insights/%3F%24'*/
   '
 ---
 # name: TestDashboard.test_retrieve_dashboard
@@ -1343,7 +1343,7 @@
          "posthog_user"."events_column_config"
   FROM "posthog_user"
   WHERE "posthog_user"."id" = 2
-  LIMIT 21
+  LIMIT 21 /**/
   '
 ---
 # name: TestDashboard.test_retrieve_dashboard.2
@@ -1382,7 +1382,7 @@
          "posthog_team"."event_properties_numerical"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 2
-  LIMIT 21
+  LIMIT 21 /*controller='project_dashboards-detail',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%28%3FP%3Cpk%3E%5B%5E/.%5D%2B%29/%3F%24'*/
   '
 ---
 # name: TestDashboard.test_retrieve_dashboard.3
@@ -1409,7 +1409,7 @@
   INNER JOIN "posthog_organization" ON ("posthog_organizationmembership"."organization_id" = "posthog_organization"."id")
   WHERE ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
          AND "posthog_organizationmembership"."user_id" = 2)
-  LIMIT 21
+  LIMIT 21 /*controller='project_dashboards-detail',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%28%3FP%3Cpk%3E%5B%5E/.%5D%2B%29/%3F%24'*/
   '
 ---
 # name: TestDashboard.test_retrieve_dashboard.4
@@ -1428,7 +1428,7 @@
          "posthog_organization"."domain_whitelist"
   FROM "posthog_organization"
   WHERE "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid
-  LIMIT 21
+  LIMIT 21 /*controller='project_dashboards-detail',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%28%3FP%3Cpk%3E%5B%5E/.%5D%2B%29/%3F%24'*/
   '
 ---
 # name: TestDashboard.test_retrieve_dashboard.5
@@ -1516,7 +1516,7 @@
   WHERE ("posthog_dashboard"."team_id" = 2
          AND NOT "posthog_dashboard"."deleted"
          AND "posthog_dashboard"."id" = 2)
-  LIMIT 21
+  LIMIT 21 /*controller='project_dashboards-detail',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%28%3FP%3Cpk%3E%5B%5E/.%5D%2B%29/%3F%24'*/
   '
 ---
 # name: TestDashboard.test_retrieve_dashboard.6
@@ -1555,7 +1555,7 @@
                                                         3,
                                                         4,
                                                         5 /* ... */))
-  ORDER BY "posthog_dashboarditem"."order" ASC
+  ORDER BY "posthog_dashboarditem"."order" ASC /*controller='project_dashboards-detail',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%28%3FP%3Cpk%3E%5B%5E/.%5D%2B%29/%3F%24'*/
   '
 ---
 # name: TestDashboard.test_retrieve_dashboard.7
@@ -1611,7 +1611,7 @@
   FROM "posthog_dashboardtile"
   INNER JOIN "posthog_dashboard" ON ("posthog_dashboardtile"."dashboard_id" = "posthog_dashboard"."id")
   INNER JOIN "posthog_dashboarditem" ON ("posthog_dashboardtile"."insight_id" = "posthog_dashboarditem"."id")
-  WHERE "posthog_dashboardtile"."dashboard_id" = 2
+  WHERE "posthog_dashboardtile"."dashboard_id" = 2 /*controller='project_dashboards-detail',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%28%3FP%3Cpk%3E%5B%5E/.%5D%2B%29/%3F%24'*/
   '
 ---
 # name: TestDashboard.test_retrieve_dashboard.8
@@ -1737,7 +1737,7 @@
   LEFT OUTER JOIN "posthog_user" ON ("posthog_dashboarditem"."created_by_id" = "posthog_user"."id")
   LEFT OUTER JOIN "posthog_user" T7 ON ("posthog_dashboarditem"."last_modified_by_id" = T7."id")
   WHERE "posthog_dashboardtile"."dashboard_id" = 2
-  ORDER BY "posthog_dashboarditem"."order" ASC
+  ORDER BY "posthog_dashboarditem"."order" ASC /*controller='project_dashboards-detail',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%28%3FP%3Cpk%3E%5B%5E/.%5D%2B%29/%3F%24'*/
   '
 ---
 # name: TestDashboard.test_retrieve_dashboard_list
@@ -1762,7 +1762,7 @@
          "posthog_user"."events_column_config"
   FROM "posthog_user"
   WHERE "posthog_user"."id" = 2
-  LIMIT 21
+  LIMIT 21 /**/
   '
 ---
 # name: TestDashboard.test_retrieve_dashboard_list.1
@@ -1801,7 +1801,7 @@
          "posthog_team"."event_properties_numerical"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 2
-  LIMIT 21
+  LIMIT 21 /*controller='project_dashboards-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%3F%24'*/
   '
 ---
 # name: TestDashboard.test_retrieve_dashboard_list.10
@@ -1820,7 +1820,7 @@
          "posthog_organization"."domain_whitelist"
   FROM "posthog_organization"
   WHERE "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid
-  LIMIT 21
+  LIMIT 21 /*controller='project_dashboards-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%3F%24'*/
   '
 ---
 # name: TestDashboard.test_retrieve_dashboard_list.11
@@ -1845,7 +1845,7 @@
          "posthog_user"."events_column_config"
   FROM "posthog_user"
   WHERE "posthog_user"."id" = 2
-  LIMIT 21
+  LIMIT 21 /**/
   '
 ---
 # name: TestDashboard.test_retrieve_dashboard_list.12
@@ -1884,7 +1884,7 @@
          "posthog_team"."event_properties_numerical"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 2
-  LIMIT 21
+  LIMIT 21 /*controller='project_dashboards-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%3F%24'*/
   '
 ---
 # name: TestDashboard.test_retrieve_dashboard_list.13
@@ -1911,7 +1911,7 @@
   INNER JOIN "posthog_organization" ON ("posthog_organizationmembership"."organization_id" = "posthog_organization"."id")
   WHERE ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
          AND "posthog_organizationmembership"."user_id" = 2)
-  LIMIT 21
+  LIMIT 21 /*controller='project_dashboards-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%3F%24'*/
   '
 ---
 # name: TestDashboard.test_retrieve_dashboard_list.14
@@ -1950,7 +1950,7 @@
          "posthog_team"."event_properties_numerical"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 2
-  LIMIT 21
+  LIMIT 21 /*controller='project_dashboards-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%3F%24'*/
   '
 ---
 # name: TestDashboard.test_retrieve_dashboard_list.15
@@ -2006,7 +2006,7 @@
   FROM "posthog_dashboardtile"
   INNER JOIN "posthog_dashboard" ON ("posthog_dashboardtile"."dashboard_id" = "posthog_dashboard"."id")
   INNER JOIN "posthog_dashboarditem" ON ("posthog_dashboardtile"."insight_id" = "posthog_dashboarditem"."id")
-  WHERE "posthog_dashboardtile"."dashboard_id" = 2
+  WHERE "posthog_dashboardtile"."dashboard_id" = 2 /*controller='project_dashboards-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%3F%24'*/
   '
 ---
 # name: TestDashboard.test_retrieve_dashboard_list.16
@@ -2025,7 +2025,7 @@
          "posthog_organization"."domain_whitelist"
   FROM "posthog_organization"
   WHERE "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid
-  LIMIT 21
+  LIMIT 21 /*controller='project_dashboards-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%3F%24'*/
   '
 ---
 # name: TestDashboard.test_retrieve_dashboard_list.17
@@ -2033,14 +2033,14 @@
   SELECT COUNT(*) AS "__count"
   FROM "posthog_dashboarditem"
   INNER JOIN "posthog_dashboardtile" ON ("posthog_dashboarditem"."id" = "posthog_dashboardtile"."insight_id")
-  WHERE "posthog_dashboardtile"."dashboard_id" = 2
+  WHERE "posthog_dashboardtile"."dashboard_id" = 2 /*controller='project_dashboards-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%3F%24'*/
   '
 ---
 # name: TestDashboard.test_retrieve_dashboard_list.18
   '
   SELECT COUNT(*) AS "__count"
   FROM "posthog_taggeditem"
-  WHERE "posthog_taggeditem"."dashboard_id" = 2
+  WHERE "posthog_taggeditem"."dashboard_id" = 2 /*controller='project_dashboards-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%3F%24'*/
   '
 ---
 # name: TestDashboard.test_retrieve_dashboard_list.19
@@ -2079,7 +2079,7 @@
          "posthog_team"."event_properties_numerical"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 2
-  LIMIT 21
+  LIMIT 21 /*controller='project_dashboards-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%3F%24'*/
   '
 ---
 # name: TestDashboard.test_retrieve_dashboard_list.2
@@ -2106,7 +2106,7 @@
   INNER JOIN "posthog_organization" ON ("posthog_organizationmembership"."organization_id" = "posthog_organization"."id")
   WHERE ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
          AND "posthog_organizationmembership"."user_id" = 2)
-  LIMIT 21
+  LIMIT 21 /*controller='project_dashboards-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%3F%24'*/
   '
 ---
 # name: TestDashboard.test_retrieve_dashboard_list.20
@@ -2232,7 +2232,7 @@
   LEFT OUTER JOIN "posthog_user" ON ("posthog_dashboarditem"."created_by_id" = "posthog_user"."id")
   LEFT OUTER JOIN "posthog_user" T7 ON ("posthog_dashboarditem"."last_modified_by_id" = T7."id")
   WHERE "posthog_dashboardtile"."dashboard_id" = 2
-  ORDER BY "posthog_dashboarditem"."order" ASC
+  ORDER BY "posthog_dashboarditem"."order" ASC /*controller='project_dashboards-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%3F%24'*/
   '
 ---
 # name: TestDashboard.test_retrieve_dashboard_list.21
@@ -2251,7 +2251,7 @@
          "posthog_organization"."domain_whitelist"
   FROM "posthog_organization"
   WHERE "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid
-  LIMIT 21
+  LIMIT 21 /*controller='project_dashboards-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%3F%24'*/
   '
 ---
 # name: TestDashboard.test_retrieve_dashboard_list.22
@@ -2276,7 +2276,7 @@
          "posthog_user"."events_column_config"
   FROM "posthog_user"
   WHERE "posthog_user"."id" = 2
-  LIMIT 21
+  LIMIT 21 /**/
   '
 ---
 # name: TestDashboard.test_retrieve_dashboard_list.23
@@ -2315,7 +2315,7 @@
          "posthog_team"."event_properties_numerical"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 2
-  LIMIT 21
+  LIMIT 21 /*controller='project_dashboards-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%3F%24'*/
   '
 ---
 # name: TestDashboard.test_retrieve_dashboard_list.24
@@ -2342,7 +2342,7 @@
   INNER JOIN "posthog_organization" ON ("posthog_organizationmembership"."organization_id" = "posthog_organization"."id")
   WHERE ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
          AND "posthog_organizationmembership"."user_id" = 2)
-  LIMIT 21
+  LIMIT 21 /*controller='project_dashboards-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%3F%24'*/
   '
 ---
 # name: TestDashboard.test_retrieve_dashboard_list.25
@@ -2361,7 +2361,7 @@
          "posthog_organization"."domain_whitelist"
   FROM "posthog_organization"
   WHERE "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid
-  LIMIT 21
+  LIMIT 21 /*controller='project_dashboards-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%3F%24'*/
   '
 ---
 # name: TestDashboard.test_retrieve_dashboard_list.26
@@ -2369,7 +2369,7 @@
   SELECT COUNT(*) AS "__count"
   FROM "posthog_dashboard"
   WHERE ("posthog_dashboard"."team_id" = 2
-         AND NOT "posthog_dashboard"."deleted")
+         AND NOT "posthog_dashboard"."deleted") /*controller='project_dashboards-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%3F%24'*/
   '
 ---
 # name: TestDashboard.test_retrieve_dashboard_list.27
@@ -2457,7 +2457,7 @@
   WHERE ("posthog_dashboard"."team_id" = 2
          AND NOT "posthog_dashboard"."deleted")
   ORDER BY "posthog_dashboard"."name" ASC
-  LIMIT 100
+  LIMIT 100 /*controller='project_dashboards-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%3F%24'*/
   '
 ---
 # name: TestDashboard.test_retrieve_dashboard_list.28
@@ -2496,7 +2496,7 @@
                                                         3,
                                                         4,
                                                         5 /* ... */))
-  ORDER BY "posthog_dashboarditem"."order" ASC
+  ORDER BY "posthog_dashboarditem"."order" ASC /*controller='project_dashboards-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%3F%24'*/
   '
 ---
 # name: TestDashboard.test_retrieve_dashboard_list.3
@@ -2535,7 +2535,7 @@
          "posthog_team"."event_properties_numerical"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 2
-  LIMIT 21
+  LIMIT 21 /*controller='project_dashboards-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%3F%24'*/
   '
 ---
 # name: TestDashboard.test_retrieve_dashboard_list.4
@@ -2591,7 +2591,7 @@
   FROM "posthog_dashboardtile"
   INNER JOIN "posthog_dashboard" ON ("posthog_dashboardtile"."dashboard_id" = "posthog_dashboard"."id")
   INNER JOIN "posthog_dashboarditem" ON ("posthog_dashboardtile"."insight_id" = "posthog_dashboarditem"."id")
-  WHERE "posthog_dashboardtile"."dashboard_id" = 2
+  WHERE "posthog_dashboardtile"."dashboard_id" = 2 /*controller='project_dashboards-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%3F%24'*/
   '
 ---
 # name: TestDashboard.test_retrieve_dashboard_list.5
@@ -2610,7 +2610,7 @@
          "posthog_organization"."domain_whitelist"
   FROM "posthog_organization"
   WHERE "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid
-  LIMIT 21
+  LIMIT 21 /*controller='project_dashboards-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%3F%24'*/
   '
 ---
 # name: TestDashboard.test_retrieve_dashboard_list.6
@@ -2618,14 +2618,14 @@
   SELECT COUNT(*) AS "__count"
   FROM "posthog_dashboarditem"
   INNER JOIN "posthog_dashboardtile" ON ("posthog_dashboarditem"."id" = "posthog_dashboardtile"."insight_id")
-  WHERE "posthog_dashboardtile"."dashboard_id" = 2
+  WHERE "posthog_dashboardtile"."dashboard_id" = 2 /*controller='project_dashboards-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%3F%24'*/
   '
 ---
 # name: TestDashboard.test_retrieve_dashboard_list.7
   '
   SELECT COUNT(*) AS "__count"
   FROM "posthog_taggeditem"
-  WHERE "posthog_taggeditem"."dashboard_id" = 2
+  WHERE "posthog_taggeditem"."dashboard_id" = 2 /*controller='project_dashboards-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%3F%24'*/
   '
 ---
 # name: TestDashboard.test_retrieve_dashboard_list.8
@@ -2664,7 +2664,7 @@
          "posthog_team"."event_properties_numerical"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 2
-  LIMIT 21
+  LIMIT 21 /*controller='project_dashboards-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%3F%24'*/
   '
 ---
 # name: TestDashboard.test_retrieve_dashboard_list.9
@@ -2790,7 +2790,7 @@
   LEFT OUTER JOIN "posthog_user" ON ("posthog_dashboarditem"."created_by_id" = "posthog_user"."id")
   LEFT OUTER JOIN "posthog_user" T7 ON ("posthog_dashboarditem"."last_modified_by_id" = T7."id")
   WHERE "posthog_dashboardtile"."dashboard_id" = 2
-  ORDER BY "posthog_dashboarditem"."order" ASC
+  ORDER BY "posthog_dashboarditem"."order" ASC /*controller='project_dashboards-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%3F%24'*/
   '
 ---
 # name: TestDashboard.test_retrieve_dashboard_list_query_count_does_not_increase_with_the_dashboard_count
@@ -2815,7 +2815,7 @@
          "posthog_user"."events_column_config"
   FROM "posthog_user"
   WHERE "posthog_user"."id" = 2
-  LIMIT 21
+  LIMIT 21 /**/
   '
 ---
 # name: TestDashboard.test_retrieve_dashboard_list_query_count_does_not_increase_with_the_dashboard_count.1
@@ -2854,7 +2854,7 @@
          "posthog_team"."event_properties_numerical"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 2
-  LIMIT 21
+  LIMIT 21 /*controller='project_dashboards-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%3F%24'*/
   '
 ---
 # name: TestDashboard.test_retrieve_dashboard_list_query_count_does_not_increase_with_the_dashboard_count.10
@@ -2873,7 +2873,7 @@
          "posthog_organization"."domain_whitelist"
   FROM "posthog_organization"
   WHERE "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid
-  LIMIT 21
+  LIMIT 21 /*controller='project_dashboards-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%3F%24'*/
   '
 ---
 # name: TestDashboard.test_retrieve_dashboard_list_query_count_does_not_increase_with_the_dashboard_count.11
@@ -2898,7 +2898,7 @@
          "posthog_user"."events_column_config"
   FROM "posthog_user"
   WHERE "posthog_user"."id" = 2
-  LIMIT 21
+  LIMIT 21 /**/
   '
 ---
 # name: TestDashboard.test_retrieve_dashboard_list_query_count_does_not_increase_with_the_dashboard_count.12
@@ -2937,7 +2937,7 @@
          "posthog_team"."event_properties_numerical"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 2
-  LIMIT 21
+  LIMIT 21 /*controller='project_dashboards-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%3F%24'*/
   '
 ---
 # name: TestDashboard.test_retrieve_dashboard_list_query_count_does_not_increase_with_the_dashboard_count.13
@@ -2964,7 +2964,7 @@
   INNER JOIN "posthog_organization" ON ("posthog_organizationmembership"."organization_id" = "posthog_organization"."id")
   WHERE ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
          AND "posthog_organizationmembership"."user_id" = 2)
-  LIMIT 21
+  LIMIT 21 /*controller='project_dashboards-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%3F%24'*/
   '
 ---
 # name: TestDashboard.test_retrieve_dashboard_list_query_count_does_not_increase_with_the_dashboard_count.14
@@ -2983,7 +2983,7 @@
          "posthog_organization"."domain_whitelist"
   FROM "posthog_organization"
   WHERE "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid
-  LIMIT 21
+  LIMIT 21 /*controller='project_dashboards-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%3F%24'*/
   '
 ---
 # name: TestDashboard.test_retrieve_dashboard_list_query_count_does_not_increase_with_the_dashboard_count.15
@@ -2991,7 +2991,7 @@
   SELECT COUNT(*) AS "__count"
   FROM "posthog_dashboard"
   WHERE ("posthog_dashboard"."team_id" = 2
-         AND NOT "posthog_dashboard"."deleted")
+         AND NOT "posthog_dashboard"."deleted") /*controller='project_dashboards-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%3F%24'*/
   '
 ---
 # name: TestDashboard.test_retrieve_dashboard_list_query_count_does_not_increase_with_the_dashboard_count.16
@@ -3079,7 +3079,7 @@
   WHERE ("posthog_dashboard"."team_id" = 2
          AND NOT "posthog_dashboard"."deleted")
   ORDER BY "posthog_dashboard"."name" ASC
-  LIMIT 100
+  LIMIT 100 /*controller='project_dashboards-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%3F%24'*/
   '
 ---
 # name: TestDashboard.test_retrieve_dashboard_list_query_count_does_not_increase_with_the_dashboard_count.17
@@ -3118,7 +3118,7 @@
                                                         3,
                                                         4,
                                                         5 /* ... */))
-  ORDER BY "posthog_dashboarditem"."order" ASC
+  ORDER BY "posthog_dashboarditem"."order" ASC /*controller='project_dashboards-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%3F%24'*/
   '
 ---
 # name: TestDashboard.test_retrieve_dashboard_list_query_count_does_not_increase_with_the_dashboard_count.18
@@ -3143,7 +3143,7 @@
          "posthog_user"."events_column_config"
   FROM "posthog_user"
   WHERE "posthog_user"."id" = 2
-  LIMIT 21
+  LIMIT 21 /**/
   '
 ---
 # name: TestDashboard.test_retrieve_dashboard_list_query_count_does_not_increase_with_the_dashboard_count.19
@@ -3182,7 +3182,7 @@
          "posthog_team"."event_properties_numerical"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 2
-  LIMIT 21
+  LIMIT 21 /*controller='project_dashboards-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%3F%24'*/
   '
 ---
 # name: TestDashboard.test_retrieve_dashboard_list_query_count_does_not_increase_with_the_dashboard_count.2
@@ -3209,7 +3209,7 @@
   INNER JOIN "posthog_organization" ON ("posthog_organizationmembership"."organization_id" = "posthog_organization"."id")
   WHERE ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
          AND "posthog_organizationmembership"."user_id" = 2)
-  LIMIT 21
+  LIMIT 21 /*controller='project_dashboards-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%3F%24'*/
   '
 ---
 # name: TestDashboard.test_retrieve_dashboard_list_query_count_does_not_increase_with_the_dashboard_count.20
@@ -3236,7 +3236,7 @@
   INNER JOIN "posthog_organization" ON ("posthog_organizationmembership"."organization_id" = "posthog_organization"."id")
   WHERE ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
          AND "posthog_organizationmembership"."user_id" = 2)
-  LIMIT 21
+  LIMIT 21 /*controller='project_dashboards-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%3F%24'*/
   '
 ---
 # name: TestDashboard.test_retrieve_dashboard_list_query_count_does_not_increase_with_the_dashboard_count.21
@@ -3275,7 +3275,7 @@
          "posthog_team"."event_properties_numerical"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 2
-  LIMIT 21
+  LIMIT 21 /*controller='project_dashboards-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%3F%24'*/
   '
 ---
 # name: TestDashboard.test_retrieve_dashboard_list_query_count_does_not_increase_with_the_dashboard_count.22
@@ -3331,7 +3331,7 @@
   FROM "posthog_dashboardtile"
   INNER JOIN "posthog_dashboard" ON ("posthog_dashboardtile"."dashboard_id" = "posthog_dashboard"."id")
   INNER JOIN "posthog_dashboarditem" ON ("posthog_dashboardtile"."insight_id" = "posthog_dashboarditem"."id")
-  WHERE "posthog_dashboardtile"."dashboard_id" = 2
+  WHERE "posthog_dashboardtile"."dashboard_id" = 2 /*controller='project_dashboards-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%3F%24'*/
   '
 ---
 # name: TestDashboard.test_retrieve_dashboard_list_query_count_does_not_increase_with_the_dashboard_count.23
@@ -3350,7 +3350,7 @@
          "posthog_organization"."domain_whitelist"
   FROM "posthog_organization"
   WHERE "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid
-  LIMIT 21
+  LIMIT 21 /*controller='project_dashboards-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%3F%24'*/
   '
 ---
 # name: TestDashboard.test_retrieve_dashboard_list_query_count_does_not_increase_with_the_dashboard_count.24
@@ -3358,14 +3358,14 @@
   SELECT COUNT(*) AS "__count"
   FROM "posthog_dashboarditem"
   INNER JOIN "posthog_dashboardtile" ON ("posthog_dashboarditem"."id" = "posthog_dashboardtile"."insight_id")
-  WHERE "posthog_dashboardtile"."dashboard_id" = 2
+  WHERE "posthog_dashboardtile"."dashboard_id" = 2 /*controller='project_dashboards-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%3F%24'*/
   '
 ---
 # name: TestDashboard.test_retrieve_dashboard_list_query_count_does_not_increase_with_the_dashboard_count.25
   '
   SELECT COUNT(*) AS "__count"
   FROM "posthog_taggeditem"
-  WHERE "posthog_taggeditem"."dashboard_id" = 2
+  WHERE "posthog_taggeditem"."dashboard_id" = 2 /*controller='project_dashboards-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%3F%24'*/
   '
 ---
 # name: TestDashboard.test_retrieve_dashboard_list_query_count_does_not_increase_with_the_dashboard_count.26
@@ -3404,7 +3404,7 @@
          "posthog_team"."event_properties_numerical"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 2
-  LIMIT 21
+  LIMIT 21 /*controller='project_dashboards-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%3F%24'*/
   '
 ---
 # name: TestDashboard.test_retrieve_dashboard_list_query_count_does_not_increase_with_the_dashboard_count.27
@@ -3530,7 +3530,7 @@
   LEFT OUTER JOIN "posthog_user" ON ("posthog_dashboarditem"."created_by_id" = "posthog_user"."id")
   LEFT OUTER JOIN "posthog_user" T7 ON ("posthog_dashboarditem"."last_modified_by_id" = T7."id")
   WHERE "posthog_dashboardtile"."dashboard_id" = 2
-  ORDER BY "posthog_dashboarditem"."order" ASC
+  ORDER BY "posthog_dashboarditem"."order" ASC /*controller='project_dashboards-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%3F%24'*/
   '
 ---
 # name: TestDashboard.test_retrieve_dashboard_list_query_count_does_not_increase_with_the_dashboard_count.28
@@ -3549,7 +3549,7 @@
          "posthog_organization"."domain_whitelist"
   FROM "posthog_organization"
   WHERE "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid
-  LIMIT 21
+  LIMIT 21 /*controller='project_dashboards-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%3F%24'*/
   '
 ---
 # name: TestDashboard.test_retrieve_dashboard_list_query_count_does_not_increase_with_the_dashboard_count.29
@@ -3574,7 +3574,7 @@
          "posthog_user"."events_column_config"
   FROM "posthog_user"
   WHERE "posthog_user"."id" = 2
-  LIMIT 21
+  LIMIT 21 /**/
   '
 ---
 # name: TestDashboard.test_retrieve_dashboard_list_query_count_does_not_increase_with_the_dashboard_count.3
@@ -3613,7 +3613,7 @@
          "posthog_team"."event_properties_numerical"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 2
-  LIMIT 21
+  LIMIT 21 /*controller='project_dashboards-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%3F%24'*/
   '
 ---
 # name: TestDashboard.test_retrieve_dashboard_list_query_count_does_not_increase_with_the_dashboard_count.30
@@ -3652,7 +3652,7 @@
          "posthog_team"."event_properties_numerical"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 2
-  LIMIT 21
+  LIMIT 21 /*controller='project_dashboards-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%3F%24'*/
   '
 ---
 # name: TestDashboard.test_retrieve_dashboard_list_query_count_does_not_increase_with_the_dashboard_count.31
@@ -3679,7 +3679,7 @@
   INNER JOIN "posthog_organization" ON ("posthog_organizationmembership"."organization_id" = "posthog_organization"."id")
   WHERE ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
          AND "posthog_organizationmembership"."user_id" = 2)
-  LIMIT 21
+  LIMIT 21 /*controller='project_dashboards-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%3F%24'*/
   '
 ---
 # name: TestDashboard.test_retrieve_dashboard_list_query_count_does_not_increase_with_the_dashboard_count.32
@@ -3718,7 +3718,7 @@
          "posthog_team"."event_properties_numerical"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 2
-  LIMIT 21
+  LIMIT 21 /*controller='project_dashboards-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%3F%24'*/
   '
 ---
 # name: TestDashboard.test_retrieve_dashboard_list_query_count_does_not_increase_with_the_dashboard_count.33
@@ -3774,7 +3774,7 @@
   FROM "posthog_dashboardtile"
   INNER JOIN "posthog_dashboard" ON ("posthog_dashboardtile"."dashboard_id" = "posthog_dashboard"."id")
   INNER JOIN "posthog_dashboarditem" ON ("posthog_dashboardtile"."insight_id" = "posthog_dashboarditem"."id")
-  WHERE "posthog_dashboardtile"."dashboard_id" = 2
+  WHERE "posthog_dashboardtile"."dashboard_id" = 2 /*controller='project_dashboards-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%3F%24'*/
   '
 ---
 # name: TestDashboard.test_retrieve_dashboard_list_query_count_does_not_increase_with_the_dashboard_count.34
@@ -3793,7 +3793,7 @@
          "posthog_organization"."domain_whitelist"
   FROM "posthog_organization"
   WHERE "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid
-  LIMIT 21
+  LIMIT 21 /*controller='project_dashboards-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%3F%24'*/
   '
 ---
 # name: TestDashboard.test_retrieve_dashboard_list_query_count_does_not_increase_with_the_dashboard_count.35
@@ -3801,14 +3801,14 @@
   SELECT COUNT(*) AS "__count"
   FROM "posthog_dashboarditem"
   INNER JOIN "posthog_dashboardtile" ON ("posthog_dashboarditem"."id" = "posthog_dashboardtile"."insight_id")
-  WHERE "posthog_dashboardtile"."dashboard_id" = 2
+  WHERE "posthog_dashboardtile"."dashboard_id" = 2 /*controller='project_dashboards-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%3F%24'*/
   '
 ---
 # name: TestDashboard.test_retrieve_dashboard_list_query_count_does_not_increase_with_the_dashboard_count.36
   '
   SELECT COUNT(*) AS "__count"
   FROM "posthog_taggeditem"
-  WHERE "posthog_taggeditem"."dashboard_id" = 2
+  WHERE "posthog_taggeditem"."dashboard_id" = 2 /*controller='project_dashboards-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%3F%24'*/
   '
 ---
 # name: TestDashboard.test_retrieve_dashboard_list_query_count_does_not_increase_with_the_dashboard_count.37
@@ -3847,7 +3847,7 @@
          "posthog_team"."event_properties_numerical"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 2
-  LIMIT 21
+  LIMIT 21 /*controller='project_dashboards-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%3F%24'*/
   '
 ---
 # name: TestDashboard.test_retrieve_dashboard_list_query_count_does_not_increase_with_the_dashboard_count.38
@@ -3973,7 +3973,7 @@
   LEFT OUTER JOIN "posthog_user" ON ("posthog_dashboarditem"."created_by_id" = "posthog_user"."id")
   LEFT OUTER JOIN "posthog_user" T7 ON ("posthog_dashboarditem"."last_modified_by_id" = T7."id")
   WHERE "posthog_dashboardtile"."dashboard_id" = 2
-  ORDER BY "posthog_dashboarditem"."order" ASC
+  ORDER BY "posthog_dashboarditem"."order" ASC /*controller='project_dashboards-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%3F%24'*/
   '
 ---
 # name: TestDashboard.test_retrieve_dashboard_list_query_count_does_not_increase_with_the_dashboard_count.39
@@ -3992,7 +3992,7 @@
          "posthog_organization"."domain_whitelist"
   FROM "posthog_organization"
   WHERE "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid
-  LIMIT 21
+  LIMIT 21 /*controller='project_dashboards-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%3F%24'*/
   '
 ---
 # name: TestDashboard.test_retrieve_dashboard_list_query_count_does_not_increase_with_the_dashboard_count.4
@@ -4048,7 +4048,7 @@
   FROM "posthog_dashboardtile"
   INNER JOIN "posthog_dashboard" ON ("posthog_dashboardtile"."dashboard_id" = "posthog_dashboard"."id")
   INNER JOIN "posthog_dashboarditem" ON ("posthog_dashboardtile"."insight_id" = "posthog_dashboarditem"."id")
-  WHERE "posthog_dashboardtile"."dashboard_id" = 2
+  WHERE "posthog_dashboardtile"."dashboard_id" = 2 /*controller='project_dashboards-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%3F%24'*/
   '
 ---
 # name: TestDashboard.test_retrieve_dashboard_list_query_count_does_not_increase_with_the_dashboard_count.40
@@ -4073,7 +4073,7 @@
          "posthog_user"."events_column_config"
   FROM "posthog_user"
   WHERE "posthog_user"."id" = 2
-  LIMIT 21
+  LIMIT 21 /**/
   '
 ---
 # name: TestDashboard.test_retrieve_dashboard_list_query_count_does_not_increase_with_the_dashboard_count.41
@@ -4112,7 +4112,7 @@
          "posthog_team"."event_properties_numerical"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 2
-  LIMIT 21
+  LIMIT 21 /*controller='project_dashboards-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%3F%24'*/
   '
 ---
 # name: TestDashboard.test_retrieve_dashboard_list_query_count_does_not_increase_with_the_dashboard_count.42
@@ -4139,7 +4139,7 @@
   INNER JOIN "posthog_organization" ON ("posthog_organizationmembership"."organization_id" = "posthog_organization"."id")
   WHERE ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
          AND "posthog_organizationmembership"."user_id" = 2)
-  LIMIT 21
+  LIMIT 21 /*controller='project_dashboards-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%3F%24'*/
   '
 ---
 # name: TestDashboard.test_retrieve_dashboard_list_query_count_does_not_increase_with_the_dashboard_count.43
@@ -4158,7 +4158,7 @@
          "posthog_organization"."domain_whitelist"
   FROM "posthog_organization"
   WHERE "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid
-  LIMIT 21
+  LIMIT 21 /*controller='project_dashboards-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%3F%24'*/
   '
 ---
 # name: TestDashboard.test_retrieve_dashboard_list_query_count_does_not_increase_with_the_dashboard_count.44
@@ -4166,7 +4166,7 @@
   SELECT COUNT(*) AS "__count"
   FROM "posthog_dashboard"
   WHERE ("posthog_dashboard"."team_id" = 2
-         AND NOT "posthog_dashboard"."deleted")
+         AND NOT "posthog_dashboard"."deleted") /*controller='project_dashboards-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%3F%24'*/
   '
 ---
 # name: TestDashboard.test_retrieve_dashboard_list_query_count_does_not_increase_with_the_dashboard_count.45
@@ -4254,7 +4254,7 @@
   WHERE ("posthog_dashboard"."team_id" = 2
          AND NOT "posthog_dashboard"."deleted")
   ORDER BY "posthog_dashboard"."name" ASC
-  LIMIT 100
+  LIMIT 100 /*controller='project_dashboards-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%3F%24'*/
   '
 ---
 # name: TestDashboard.test_retrieve_dashboard_list_query_count_does_not_increase_with_the_dashboard_count.46
@@ -4293,7 +4293,7 @@
                                                         3,
                                                         4,
                                                         5 /* ... */))
-  ORDER BY "posthog_dashboarditem"."order" ASC
+  ORDER BY "posthog_dashboarditem"."order" ASC /*controller='project_dashboards-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%3F%24'*/
   '
 ---
 # name: TestDashboard.test_retrieve_dashboard_list_query_count_does_not_increase_with_the_dashboard_count.5
@@ -4312,7 +4312,7 @@
          "posthog_organization"."domain_whitelist"
   FROM "posthog_organization"
   WHERE "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid
-  LIMIT 21
+  LIMIT 21 /*controller='project_dashboards-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%3F%24'*/
   '
 ---
 # name: TestDashboard.test_retrieve_dashboard_list_query_count_does_not_increase_with_the_dashboard_count.6
@@ -4320,14 +4320,14 @@
   SELECT COUNT(*) AS "__count"
   FROM "posthog_dashboarditem"
   INNER JOIN "posthog_dashboardtile" ON ("posthog_dashboarditem"."id" = "posthog_dashboardtile"."insight_id")
-  WHERE "posthog_dashboardtile"."dashboard_id" = 2
+  WHERE "posthog_dashboardtile"."dashboard_id" = 2 /*controller='project_dashboards-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%3F%24'*/
   '
 ---
 # name: TestDashboard.test_retrieve_dashboard_list_query_count_does_not_increase_with_the_dashboard_count.7
   '
   SELECT COUNT(*) AS "__count"
   FROM "posthog_taggeditem"
-  WHERE "posthog_taggeditem"."dashboard_id" = 2
+  WHERE "posthog_taggeditem"."dashboard_id" = 2 /*controller='project_dashboards-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%3F%24'*/
   '
 ---
 # name: TestDashboard.test_retrieve_dashboard_list_query_count_does_not_increase_with_the_dashboard_count.8
@@ -4366,7 +4366,7 @@
          "posthog_team"."event_properties_numerical"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 2
-  LIMIT 21
+  LIMIT 21 /*controller='project_dashboards-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%3F%24'*/
   '
 ---
 # name: TestDashboard.test_retrieve_dashboard_list_query_count_does_not_increase_with_the_dashboard_count.9
@@ -4492,6 +4492,6 @@
   LEFT OUTER JOIN "posthog_user" ON ("posthog_dashboarditem"."created_by_id" = "posthog_user"."id")
   LEFT OUTER JOIN "posthog_user" T7 ON ("posthog_dashboarditem"."last_modified_by_id" = T7."id")
   WHERE "posthog_dashboardtile"."dashboard_id" = 2
-  ORDER BY "posthog_dashboarditem"."order" ASC
+  ORDER BY "posthog_dashboarditem"."order" ASC /*controller='project_dashboards-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%3F%24'*/
   '
 ---
