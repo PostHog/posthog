@@ -1,6 +1,6 @@
 from posthog.clickhouse.table_engines import CollapsingMergeTree
 from posthog.models.person.sql import PERSON_STATIC_COHORT_TABLE
-from posthog.settings import CLICKHOUSE_CLUSTER
+from posthog.settings import CLICKHOUSE_CLUSTER, PERSON_COLLAPSING_COLUMN
 
 CALCULATE_COHORT_PEOPLE_SQL = """
 SELECT {id_column} FROM ({GET_TEAM_PERSON_DISTINCT_IDS}) WHERE {query}
@@ -36,11 +36,11 @@ FROM (
 """
 
 # Continually ensure that all previous version rows are deleted and insert persons that match the criteria
-RECALCULATE_COHORT_BY_ID = """
+RECALCULATE_COHORT_BY_ID = lambda cohort_filter: """
 INSERT INTO cohortpeople
 SELECT id, %(cohort_id)s as cohort_id, %(team_id)s as team_id, 1 AS sign, %(new_version)s AS version
 FROM (
-    SELECT id, argMax(properties, person.version) as properties, sum(is_deleted) as is_deleted FROM person WHERE team_id = %(team_id)s GROUP BY id
+    SELECT id, argMax(properties, person.{PERSON_COLLAPSING_COLUMN}) as properties, sum(is_deleted) as is_deleted FROM person WHERE team_id = %(team_id)s GROUP BY id
 ) as person
 WHERE person.is_deleted = 0
 AND id IN ({cohort_filter})
@@ -48,7 +48,9 @@ UNION ALL
 SELECT person_id, cohort_id, team_id, -1, version
 FROM cohortpeople
 WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s AND version < %(new_version)s AND sign = 1
-"""
+""".format(
+    cohort_filter=cohort_filter, PERSON_COLLAPSING_COLUMN=PERSON_COLLAPSING_COLUMN
+)
 
 GET_DISTINCT_ID_BY_ENTITY_SQL = """
 SELECT distinct_id FROM events WHERE team_id = %(team_id)s {date_query} AND {entity_query}

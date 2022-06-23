@@ -123,3 +123,5 @@ if "ee.apps.EnterpriseConfig" in INSTALLED_APPS:
 
 # Lastly, cloud settings override and modify all
 from posthog.settings.cloud import *  # noqa: F401
+
+PERSON_COLLAPSING_COLUMN = "version" if MULTI_TENANCY else "_timestamp"

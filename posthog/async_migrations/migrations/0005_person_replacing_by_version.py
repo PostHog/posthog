@@ -87,7 +87,7 @@ class Migration(AsyncMigrationDefinition):
     depends_on = "0004_replicated_schema"
 
     def precheck(self):
-        if not settings.MULTI_TENANCY:
+        if not settings.MULTI_TENANCY:  # Once guaranteed completed on self-hosted nuke PERSON_COLLAPSING_COLUMN
             return False, "This async migration is not yet ready for self-hosted users"
 
         return True, None

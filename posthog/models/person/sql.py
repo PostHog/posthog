@@ -6,7 +6,7 @@ from posthog.clickhouse.kafka_engine import (
 )
 from posthog.clickhouse.table_engines import CollapsingMergeTree, ReplacingMergeTree
 from posthog.kafka_client.topics import KAFKA_PERSON, KAFKA_PERSON_DISTINCT_ID, KAFKA_PERSON_UNIQUE_ID
-from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
+from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE, PERSON_COLLAPSING_COLUMN
 
 TRUNCATE_PERSON_TABLE_SQL = f"TRUNCATE TABLE IF EXISTS person ON CLUSTER '{CLICKHOUSE_CLUSTER}'"
 
@@ -71,17 +71,19 @@ FROM {database}.kafka_{table_name}
     table_name=PERSONS_TABLE, cluster=CLICKHOUSE_CLUSTER, database=CLICKHOUSE_DATABASE,
 )
 
-GET_LATEST_PERSON_SQL = """
+GET_LATEST_PERSON_SQL = lambda query: """
 SELECT * FROM person JOIN (
-    SELECT id, max(version) as version, max(is_deleted) as is_deleted
+    SELECT id, max({PERSON_COLLAPSING_COLUMN}) as {PERSON_COLLAPSING_COLUMN}, max(is_deleted) as is_deleted
     FROM person
     WHERE team_id = %(team_id)s
     GROUP BY id
-) as person_max ON person.id = person_max.id AND person.version = person_max.version
+) as person_max ON person.id = person_max.id AND person.{PERSON_COLLAPSING_COLUMN} = person_max.{PERSON_COLLAPSING_COLUMN}
 WHERE team_id = %(team_id)s
   AND person_max.is_deleted = 0
   {query}
-"""
+""".format(
+    query=query, PERSON_COLLAPSING_COLUMN=PERSON_COLLAPSING_COLUMN
+)
 
 GET_LATEST_PERSON_ID_SQL = """
 (select id from (

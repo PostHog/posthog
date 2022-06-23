@@ -14,6 +14,7 @@ from posthog.models.property.util import extract_tables_and_properties, parse_pr
 from posthog.models.utils import PersonPropertiesMode
 from posthog.queries.column_optimizer.column_optimizer import ColumnOptimizer
 from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
+from posthog.settings import PERSON_COLLAPSING_COLUMN
 
 
 class PersonQuery:
@@ -66,7 +67,8 @@ class PersonQuery:
 
     def get_query(self, prepend: str = "") -> Tuple[str, Dict]:
         fields = "id" + " ".join(
-            f", argMax({column_name}, version) as {alias}" for column_name, alias in self._get_fields()
+            f", argMax({column_name}, {PERSON_COLLAPSING_COLUMN}) as {alias}"
+            for column_name, alias in self._get_fields()
         )
 
         person_filters, params = self._get_person_filters(prepend=prepend)
