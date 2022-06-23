@@ -163,7 +163,9 @@ class EventQuery(metaclass=ABCMeta):
 
     def _get_sessions_query(self) -> Tuple[str, Dict]:
         if self._should_join_sessions:
+            params = {"team_id": self._team_id}
             parsed_date_from, parsed_date_to, date_params = parse_timestamps(filter=self._filter, team=self._team)
+            params.update(date_params)
 
             return (
                 f"""
@@ -175,14 +177,14 @@ class EventQuery(metaclass=ABCMeta):
                             events
                         WHERE
                             $session_id != ''
-                            AND team_id = {self._team_id}
+                            AND team_id = %(team_id)s
                             {parsed_date_from} - INTERVAL 24 HOUR
                             {parsed_date_to} + INTERVAL 24 HOUR
                         GROUP BY $session_id
                     ) as {self.SESSION_TABLE_ALIAS}
                     ON {self.SESSION_TABLE_ALIAS}.$session_id = {self.EVENT_TABLE_ALIAS}.$session_id
                 """,
-                date_params,
+                params,
             )
         return "", {}
 
