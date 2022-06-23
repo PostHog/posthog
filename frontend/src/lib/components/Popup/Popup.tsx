@@ -147,7 +147,7 @@ PopupProps): JSX.Element {
                         </div>
                     </PopupContext.Provider>
                 </CSSTransition>,
-                document.querySelector('body') as HTMLElement
+                document.body
             )}
         </>
     )
