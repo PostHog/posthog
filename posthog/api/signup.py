@@ -356,15 +356,15 @@ def process_social_domain_jit_provisioning_signup(
                     f"process_social_domain_jit_provisioning_join_complete",
                     domain=domain,
                     user=user.email,
-                    organization=domain_instance.organization.id,
+                    organization=domain_instance.organization_id,
                 )
-            elif not user.organizations.filter(pk=domain_instance.organization.pk).exists():
+            if not user.organizations.filter(pk=domain_instance.organization_id).exists():
                 user.join(organization=domain_instance.organization)
                 logger.info(
                     f"process_social_domain_jit_provisioning_join_existing",
                     domain=domain,
                     user=user.email,
-                    organization=domain_instance.organization.id,
+                    organization=domain_instance.organization_id,
                 )
 
     return user
