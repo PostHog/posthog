@@ -1,7 +1,7 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Link } from 'lib/components/Link'
-import React, { useEffect, useState } from 'react'
+import React, { useState } from 'react'
 import { ProjectSwitcherOverlay } from '~/layout/navigation/ProjectSwitcher'
 import {
     EventStackGearIcon,
@@ -62,20 +62,6 @@ function Pages(): JSX.Element {
 
     const [arePinnedDashboardsShown, setArePinnedDashboardsShown] = useState(false)
     const [isToolbarLaunchShown, setIsToolbarLaunchShown] = useState(false)
-
-    useEffect(() => console.log('currentOrganization', currentOrganization), [currentOrganization])
-    useEffect(() => console.log('hideSideBarMobile', hideSideBarMobile), [hideSideBarMobile])
-    useEffect(() => console.log('toggleProjectSwitcher', toggleProjectSwitcher), [toggleProjectSwitcher])
-    useEffect(() => console.log('hideProjectSwitcher', hideProjectSwitcher), [hideProjectSwitcher])
-    useEffect(() => console.log('isProjectSwitcherShown', isProjectSwitcherShown), [isProjectSwitcherShown])
-    useEffect(() => console.log('pinnedDashboards', pinnedDashboards), [pinnedDashboards])
-    useEffect(() => console.log('featureFlags', featureFlags), [featureFlags])
-    useEffect(() => console.log('showGroupsOptions', showGroupsOptions), [showGroupsOptions])
-    useEffect(() => console.log('hasAvailableFeature', hasAvailableFeature), [hasAvailableFeature])
-    useEffect(() => console.log('preflight', preflight), [preflight])
-    useEffect(() => console.log('currentTeam', currentTeam), [currentTeam])
-    useEffect(() => console.log('frontendApps', frontendApps), [frontendApps])
-    useEffect(() => console.log('arePinnedDashboardsShown', arePinnedDashboardsShown), [arePinnedDashboardsShown])
 
     return (
         <div className="Pages">
