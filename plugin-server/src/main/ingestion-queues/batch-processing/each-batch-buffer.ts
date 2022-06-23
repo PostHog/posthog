@@ -3,7 +3,12 @@ import { EachBatchPayload, KafkaMessage } from 'kafkajs'
 import { runInstrumentedFunction } from '../../utils'
 import { KafkaQueue } from '../kafka-queue'
 
-class DelayProcessing extends Error {}
+class DelayProcessing extends Error {
+    constructor() {
+        super()
+        this.name = 'DelayProcessing'
+    }
+}
 
 export async function eachMessageBuffer(
     message: KafkaMessage,

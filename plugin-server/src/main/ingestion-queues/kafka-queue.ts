@@ -7,6 +7,7 @@ import { status } from '../../utils/status'
 import { killGracefully } from '../../utils/utils'
 import { KAFKA_BUFFER, KAFKA_EVENTS_JSON, prefix as KAFKA_PREFIX } from './../../config/kafka-topics'
 import { eachBatchAsyncHandlers } from './batch-processing/each-batch-async-handlers'
+import { eachBatchBuffer } from './batch-processing/each-batch-buffer'
 import { eachBatchIngestion } from './batch-processing/each-batch-ingestion'
 import { addMetricsEventListeners, emitConsumerGroupMetrics } from './kafka-metrics'
 
@@ -45,6 +46,7 @@ export class KafkaQueue {
         this.eventsTopic = KAFKA_EVENTS_JSON
         this.eachBatch = {
             [this.ingestionTopic]: eachBatchIngestion,
+            [this.bufferTopic]: eachBatchBuffer,
             [this.eventsTopic]: eachBatchAsyncHandlers,
         }
     }
@@ -54,6 +56,7 @@ export class KafkaQueue {
 
         if (this.pluginsServer.capabilities.ingestion) {
             topics.push(this.ingestionTopic)
+            topics.push(this.bufferTopic)
         } else if (this.pluginsServer.capabilities.processAsyncHandlers) {
             topics.push(this.eventsTopic)
         } else {
@@ -170,11 +173,11 @@ export class KafkaQueue {
             let partitionInfo = ''
             if (partition) {
                 resumePayload.partitions = [partition]
-                partitionInfo = `(partition ${partition})`
+                partitionInfo = `(partition ${partition}) `
             }
             status.info('⏳', `Resuming Kafka consumer for topic ${targetTopic} ${partitionInfo}...`)
             this.consumer.resume([resumePayload])
-            status.info('▶️', `Kafka consumer for topic ${targetTopic} ${partitionInfo} resumed!`)
+            status.info('▶️', `Kafka consumer for topic ${targetTopic} ${partitionInfo}resumed!`)
         }
     }
 
