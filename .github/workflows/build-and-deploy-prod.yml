@@ -148,6 +148,13 @@ jobs:
                   service: posthog-production-worker
                   cluster: posthog-production-cluster
 
+            - name: Deploy Amazon ECS post processing worker task definition
+              uses: aws-actions/amazon-ecs-deploy-task-definition@v1
+              with:
+                  task-definition: ${{ steps.task-def-worker.outputs.task-definition }}
+                  service: posthog-production-post-processing-worker
+                  cluster: posthog-production-cluster
+
             - name: Deploy Amazon ECS plugins task definition
               uses: aws-actions/amazon-ecs-deploy-task-definition@v1
               with:

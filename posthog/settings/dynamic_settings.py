@@ -17,12 +17,12 @@ CONSTANCE_CONFIG = {
         bool,
     ),
     "RECORDINGS_POST_PROCESSING_RECENCY_LAG": (
-        172800,  # 48 hours in seconds
+        10,  # 48 hours in seconds
         "Number of seconds recordings from most recent event in a recording. This is the delay after which we consider the recording finished",
         int,
     ),
     "RECORDINGS_POST_PROCESSING_CRON": (
-        "13 3 * * *",
+        "* * * * *",
         "The cron schedule to launch session recording post processing",
         str,
     ),

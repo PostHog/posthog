@@ -158,7 +158,7 @@ def teardown_instrumentation(task_id, task, **kwargs):
     client._request_information = None
 
 
-@app.task()
+@app.task(queue="post-process", ignore_result=True)
 def post_process_snapshot_recordings():
     from posthog.models.instance_setting import get_instance_setting
     from posthog.session_recordings.process_finished_session_recordings import (
@@ -178,7 +178,7 @@ def post_process_snapshot_recordings():
     return res
 
 
-@app.task()
+@app.task(queue="post-process")
 def post_process_session(session_id: str, team_id: int, partition: str):
     from posthog.models.instance_setting import get_instance_setting
     from posthog.session_recordings.process_finished_session_recordings import process_finished_session_recording

@@ -1,0 +1,283 @@
+{
+    "family": "posthog-production-post-processing-worker",
+    "networkMode": "awsvpc",
+    "executionRoleArn": "posthog-production-ecs-task",
+    "taskRoleArn": "posthog-production-ecs-task",
+    "containerDefinitions": [
+        {
+            "name": "posthog-production-post-processing-worker",
+            "logConfiguration": {
+                "logDriver": "awslogs",
+                "options": {
+                    "awslogs-group": "awslogs-posthog-production",
+                    "awslogs-region": "us-east-1",
+                    "awslogs-stream-prefix": "posthog-production-post-processing-worker"
+                }
+            },
+            "essential": true,
+            "environment": [
+                {
+                    "name": "MULTI_TENANCY",
+                    "value": "True"
+                },
+                {
+                    "name": "USING_PGBOUNCER",
+                    "value": "True"
+                },
+                {
+                    "name": "DISABLE_SERVER_SIDE_CURSORS",
+                    "value": "True"
+                },
+                {
+                    "name": "CLICKHOUSE_ASYNC",
+                    "value": "False"
+                },
+                {
+                    "name": "CLICKHOUSE_DATABASE",
+                    "value": "posthog"
+                },
+                {
+                    "name": "CLICKHOUSE_ENABLE_STORAGE_POLICY",
+                    "value": "True"
+                },
+                {
+                    "name": "CLICKHOUSE_REPLICATION",
+                    "value": "True"
+                },
+                {
+                    "name": "CLICKHOUSE_SECURE",
+                    "value": "True"
+                },
+                {
+                    "name": "CLICKHOUSE_VERIFY",
+                    "value": "True"
+                },
+                {
+                    "name": "EVENT_USAGE_CACHING_TTL",
+                    "value": "3600"
+                },
+                {
+                    "name": "INCLUDE_DOCS",
+                    "value": "1"
+                },
+                {
+                    "name": "IS_BEHIND_PROXY",
+                    "value": "True"
+                },
+                {
+                    "name": "DISABLE_SECURE_SSL_REDIRECT",
+                    "value": "True"
+                },
+                {
+                    "name": "SITE_URL",
+                    "value": "https://app.posthog.com"
+                },
+                {
+                    "name": "EMAIL_DEFAULT_FROM",
+                    "value": "hey@posthog.com"
+                },
+                {
+                    "name": "DEPLOYMENT",
+                    "value": "Posthog Cloud"
+                },
+                {
+                    "name": "BILLING_TRIAL_DAYS",
+                    "value": "0"
+                },
+                {
+                    "name": "BILLING_NO_PLAN_EVENT_ALLOCATION",
+                    "value": "10000"
+                },
+                {
+                    "name": "TRUST_ALL_PROXIES",
+                    "value": "True"
+                },
+                {
+                    "name": "EVENT_PROPERTY_USAGE_INTERVAL_SECONDS",
+                    "value": "3600"
+                },
+                {
+                    "name": "CAPTURE_INTERNAL_METRICS",
+                    "value": "True"
+                },
+                {
+                    "name": "USING_PGBOUNCER",
+                    "value": "True"
+                },
+                {
+                    "name": "CALCULATE_X_COHORTS_PARALLEL",
+                    "value": "50"
+                },
+                {
+                    "name": "PERSON_DISTINCT_ID_OPTIMIZATION_TEAM_IDS",
+                    "value": "2,2635"
+                },
+                {
+                    "name": "ASYNC_MIGRATIONS_DISABLE_AUTO_ROLLBACK",
+                    "value": "1"
+                },
+                {
+                    "name": "UPDATE_CACHED_DASHBOARD_ITEMS_INTERVAL_SECONDS",
+                    "value": "60"
+                },
+                {
+                    "name": "PARALLEL_DASHBOARD_ITEM_CACHE",
+                    "value": "7"
+                },
+                {
+                    "name": "CALCULATE_X_COHORTS_PARALLEL",
+                    "value": "5"
+                },
+                {
+                    "name": "OBJECT_STORAGE_ENABLED",
+                    "value": "True"
+                },
+                {
+                    "name": "KAFKA_SECURITY_PROTOCOL",
+                    "value": "SSL"
+                },
+                {
+                    "name": "CLEAR_CLICKHOUSE_REMOVED_DATA_SCHEDULE_CRON",
+                    "value": "0 5 * * SUN"
+                }
+            ],
+            "secrets": [
+                {
+                    "name": "CLICKHOUSE_CA",
+                    "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:CLICKHOUSE_CA::"
+                },
+                {
+                    "name": "CLICKHOUSE_HOST",
+                    "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:CLICKHOUSE_HOST::"
+                },
+                {
+                    "name": "CLICKHOUSE_STABLE_HOST",
+                    "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:CLICKHOUSE_STABLE_HOST::"
+                },
+                {
+                    "name": "CLICKHOUSE_PASSWORD",
+                    "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:CLICKHOUSE_PASSWORD::"
+                },
+                {
+                    "name": "DATABASE_URL",
+                    "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:DATABASE_URL::"
+                },
+                {
+                    "name": "EMAIL_HOST",
+                    "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:EMAIL_HOST::"
+                },
+                {
+                    "name": "EMAIL_HOST_PASSWORD",
+                    "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:EMAIL_HOST_PASSWORD::"
+                },
+                {
+                    "name": "EMAIL_HOST_USER",
+                    "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:EMAIL_HOST_USER::"
+                },
+                {
+                    "name": "EMAIL_PORT",
+                    "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:EMAIL_PORT::"
+                },
+                {
+                    "name": "EMAIL_USE_TLS",
+                    "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:EMAIL_USE_TLS::"
+                },
+                {
+                    "name": "KAFKA_URL",
+                    "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:MSKProduction-ZnkrjC:KAFKA_URL::"
+                },
+                {
+                    "name": "POSTHOG_PERSONAL_API_KEY",
+                    "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:POSTHOG_PERSONAL_API_KEY::"
+                },
+                {
+                    "name": "REDIS_URL",
+                    "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:REDIS_URL::"
+                },
+                {
+                    "name": "SECRET_KEY",
+                    "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:SECRET_KEY::"
+                },
+                {
+                    "name": "SENTRY_DSN",
+                    "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:SENTRY_DSN::"
+                },
+                {
+                    "name": "SOCIAL_AUTH_GITHUB_KEY",
+                    "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:SOCIAL_AUTH_GITHUB_KEY::"
+                },
+                {
+                    "name": "SOCIAL_AUTH_GITHUB_SECRET",
+                    "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:SOCIAL_AUTH_GITHUB_SECRET::"
+                },
+                {
+                    "name": "SOCIAL_AUTH_GITLAB_KEY",
+                    "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:SOCIAL_AUTH_GITLAB_KEY::"
+                },
+                {
+                    "name": "SOCIAL_AUTH_GITLAB_SECRET",
+                    "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:SOCIAL_AUTH_GITLAB_SECRET::"
+                },
+                {
+                    "name": "SOCIAL_AUTH_GOOGLE_OAUTH2_KEY",
+                    "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:SOCIAL_AUTH_GOOGLE_OAUTH2_KEY::"
+                },
+                {
+                    "name": "SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET",
+                    "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET::"
+                },
+                {
+                    "name": "STATSD_HOST",
+                    "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:STATSD_HOST::"
+                },
+                {
+                    "name": "STRIPE_API_KEY",
+                    "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:STRIPE_API_KEY::"
+                },
+                {
+                    "name": "STRIPE_DEFAULT_PRICE_ID",
+                    "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:STRIPE_DEFAULT_PRICE_ID::"
+                },
+                {
+                    "name": "STRIPE_GROWTH_PRICE_ID",
+                    "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:STRIPE_GROWTH_PRICE_ID::"
+                },
+                {
+                    "name": "STRIPE_PUBLISHABLE_KEY",
+                    "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:STRIPE_PUBLISHABLE_KEY::"
+                },
+                {
+                    "name": "STRIPE_WEBHOOK_SECRET",
+                    "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:STRIPE_WEBHOOK_SECRET::"
+                },
+                {
+                    "name": "HUBSPOT_API_KEY",
+                    "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:HUBSPOT_API_KEY::"
+                },
+                {
+                    "name": "OBJECT_STORAGE_ENDPOINT",
+                    "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:OBJECT_STORAGE_ENDPOINT::"
+                },
+                {
+                    "name": "OBJECT_STORAGE_BUCKET",
+                    "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:OBJECT_STORAGE_BUCKET::"
+                }
+            ],
+            "entryPoint": ["sh", "-c"],
+            "command": ["./bin/docker-worker-celery --with-scheduler --queue post-process"],
+            "ulimits": [
+                {
+                    "name": "nofile",
+                    "softLimit": 1024000,
+                    "hardLimit": 1024000
+                }
+            ],
+            "linuxParameters": {
+                "initProcessEnabled": true
+            }
+        }
+    ],
+    "requiresCompatibilities": ["FARGATE"],
+    "cpu": "2048",
+    "memory": "16GB"
+}
