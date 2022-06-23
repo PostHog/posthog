@@ -1,21 +1,16 @@
 from random import randrange
 
-from celery import Celery
+from celery import Celery, current_app
 from celery.schedules import crontab
 from django.conf import settings
 
-from ee.clickhouse.materialized_columns.analyze import materialize_properties_task
-from ee.tasks.materialized_columns import mark_all_materialized
-from ee.tasks.org_usage_report import send_all_org_usage_reports
-from ee.tasks.send_license_usage import send_license_usage
-from ee.tasks.subscriptions import schedule_all_subscriptions as _schedule_all_subscriptions
-from posthog.celery import app
 from posthog.utils import get_crontab
+
+app = current_app._get_current_object()
 
 
 @app.on_after_configure.connect
 def setup_periodic_tasks(sender: Celery, **kwargs):
-
     sender.add_periodic_task(
         crontab(
             hour=0, minute=randrange(0, 40)
@@ -58,26 +53,36 @@ def recompute_materialized_columns_enabled() -> bool:
 @app.task(ignore_result=True)
 def clickhouse_materialize_columns():
     if recompute_materialized_columns_enabled():
+        from ee.clickhouse.materialized_columns.analyze import materialize_properties_task
+
         materialize_properties_task()
 
 
 @app.task(ignore_result=True)
 def clickhouse_mark_all_materialized():
     if recompute_materialized_columns_enabled():
+        from ee.tasks.materialized_columns import mark_all_materialized
+
         mark_all_materialized()
 
 
 @app.task(ignore_result=True)
 def clickhouse_send_license_usage():
     if not settings.MULTI_TENANCY:
+        from ee.tasks.send_license_usage import send_license_usage
+
         send_license_usage()
 
 
 @app.task(ignore_result=True)
 def send_org_usage_report():
+    from ee.tasks.org_usage_report import send_all_org_usage_reports
+
     send_all_org_usage_reports()
 
 
 @app.task(ignore_result=True)
 def schedule_all_subscriptions():
+    from ee.tasks.subscriptions import schedule_all_subscriptions as _schedule_all_subscriptions
+
     _schedule_all_subscriptions()
