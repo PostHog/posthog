@@ -12,7 +12,7 @@ import {
 } from '../src/main/services/schedule'
 import { Hub, LogLevel, PluginScheduleControl } from '../src/types'
 import { createHub } from '../src/utils/db/hub'
-import { delay } from '../src/utils/utils'
+import { delay, UUIDT } from '../src/utils/utils'
 import { createPromise } from './helpers/promises'
 import { resetTestDatabase } from './helpers/sql'
 import { setupPiscina } from './helpers/worker'
@@ -23,6 +23,7 @@ jest.setTimeout(60000) // 60 sec timeout
 
 function createEvent(index = 0): PluginEvent {
     return {
+        uuid: new UUIDT().toString(),
         distinct_id: 'my_id',
         ip: '127.0.0.1',
         site_url: 'http://localhost',
@@ -117,10 +118,13 @@ describe('schedule', () => {
     })
 
     describe('startPluginSchedules', () => {
-        let hub: Hub, piscina: Piscina, closeHub: () => Promise<void>, redis: Redis
+        let hub: Hub
+        let piscina: Piscina, closeHub: () => Promise<void>
+        let redis: Redis
+        let workerThreads: number
 
         beforeEach(async () => {
-            const workerThreads = 2
+            workerThreads = 2
             const testCode = `
             async function runEveryMinute (meta) {
                 throw new Error('lol')
@@ -219,6 +223,9 @@ describe('schedule', () => {
                     runEveryHour: [],
                     runEveryDay: [],
                 })
+
+                const threadsScheduleReady = await piscina.broadcastTask({ task: 'pluginScheduleReady' })
+                expect(threadsScheduleReady).toEqual(Array.from({ length: workerThreads }).map(() => true))
             })
 
             test('node-schedule tasks are created and removed on stop', async () => {

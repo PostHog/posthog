@@ -19,6 +19,8 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { alphabet, convertPropertiesToPropertyGroup } from 'lib/utils'
 import { PropertyGroupFilters } from 'lib/components/PropertyGroupFilters/PropertyGroupFilters'
 import { MathAvailability } from 'scenes/insights/ActionFilter/ActionFilterRow/ActionFilterRow'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 export interface TrendTabProps {
     view: InsightType
@@ -26,6 +28,7 @@ export interface TrendTabProps {
 
 export function TrendTab({ view }: TrendTabProps): JSX.Element {
     const { insightProps, allEventNames } = useValues(insightLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
     const { filters } = useValues(trendsLogic(insightProps))
     const { setFilters, toggleLifecycle } = useActions(trendsLogic(insightProps))
     const { groupsTaxonomicTypes } = useValues(groupsModel)
@@ -49,6 +52,23 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
     const isTrends = !filters.insight || filters.insight === InsightType.TRENDS
     const formulaAvailable = isTrends
     const formulaEnabled = (filters.events?.length || 0) + (filters.actions?.length || 0) > 0
+
+    const propertiesTaxonomicGroupTypes = featureFlags[FEATURE_FLAGS.SESSION_ANALYSIS]
+        ? [
+              TaxonomicFilterGroupType.EventProperties,
+              TaxonomicFilterGroupType.PersonProperties,
+              TaxonomicFilterGroupType.Sessions,
+              ...groupsTaxonomicTypes,
+              TaxonomicFilterGroupType.Cohorts,
+              TaxonomicFilterGroupType.Elements,
+          ]
+        : [
+              TaxonomicFilterGroupType.EventProperties,
+              TaxonomicFilterGroupType.PersonProperties,
+              ...groupsTaxonomicTypes,
+              TaxonomicFilterGroupType.Cohorts,
+              TaxonomicFilterGroupType.Elements,
+          ]
 
     return (
         <>
@@ -77,13 +97,7 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
                                 ? MathAvailability.ActorsOnly
                                 : MathAvailability.All
                         }
-                        propertiesTaxonomicGroupTypes={[
-                            TaxonomicFilterGroupType.EventProperties,
-                            TaxonomicFilterGroupType.PersonProperties,
-                            ...groupsTaxonomicTypes,
-                            TaxonomicFilterGroupType.Cohorts,
-                            TaxonomicFilterGroupType.Elements,
-                        ]}
+                        propertiesTaxonomicGroupTypes={propertiesTaxonomicGroupTypes}
                     />
                 </Col>
                 <Col md={12} xs={24} style={{ marginTop: isSmallScreen ? '2rem' : 0 }}>
@@ -119,13 +133,7 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
                                 onChange={(properties) => {
                                     setFilters({ properties })
                                 }}
-                                taxonomicGroupTypes={[
-                                    TaxonomicFilterGroupType.EventProperties,
-                                    TaxonomicFilterGroupType.PersonProperties,
-                                    ...groupsTaxonomicTypes,
-                                    TaxonomicFilterGroupType.Cohorts,
-                                    TaxonomicFilterGroupType.Elements,
-                                ]}
+                                taxonomicGroupTypes={propertiesTaxonomicGroupTypes}
                                 pageKey="trends-filters"
                                 eventNames={allEventNames}
                                 filters={filters}

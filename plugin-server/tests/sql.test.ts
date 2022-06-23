@@ -74,7 +74,6 @@ describe('sql', () => {
     test('getPluginRows', async () => {
         const rowsExpected = [
             {
-                archive: expect.any(Buffer),
                 config_schema: {
                     localhostIP: {
                         default: '',
@@ -103,15 +102,15 @@ describe('sql', () => {
                 is_preinstalled: false,
                 is_stateless: false,
                 organization_id: commonOrganizationId,
-                latest_tag: null,
-                latest_tag_checked_at: null,
                 log_level: null,
                 name: 'test-maxmind-plugin',
                 plugin_type: 'custom',
                 public_jobs: null,
                 source: null,
+                source__plugin_json:
+                    '{"name":"posthog-maxmind-plugin","description":"just for testing","url":"http://example.com/plugin","config":{},"main":"index.js"}',
+                source__index_ts: 'const processEvent = event => event',
                 source__frontend_tsx: null,
-                source__index_ts: null,
                 tag: '0.0.2',
                 url: 'https://www.npmjs.com/package/posthog-maxmind-plugin',
                 created_at: expect.anything(),

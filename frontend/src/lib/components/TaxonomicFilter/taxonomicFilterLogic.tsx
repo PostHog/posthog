@@ -371,6 +371,20 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                         getValue: (dashboard: DashboardType) => dashboard.id,
                         getPopupHeader: () => `Dashboards`,
                     },
+                    {
+                        name: 'Sessions',
+                        searchPlaceholder: 'sessions',
+                        type: TaxonomicFilterGroupType.Sessions,
+                        options: [
+                            {
+                                name: 'Session duration',
+                                value: '$session_duration',
+                            },
+                        ],
+                        getName: (option) => option.name,
+                        getValue: (option) => option.value,
+                        getPopupHeader: () => 'Session',
+                    },
                     ...groupAnalyticsTaxonomicGroups,
                     ...groupAnalyticsTaxonomicGroupNames,
                 ]

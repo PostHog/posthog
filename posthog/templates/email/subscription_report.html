@@ -1,4 +1,4 @@
-{% extends "email/base_transactional.html" %} {% load posthog_assets %} {% block section %}
+{% extends "email/base.html" %} {% load posthog_assets %} {% block section %}
 
 {% if inviter %}
 <h1 class="invite-header">
@@ -54,6 +54,10 @@
 
 <div class="mb mt text-center">
     <a class="button primary" href="{{ resource_url }}">View in PostHog</a>
+</div>
+
+<div class="mt text-center">
+    Are you finding subscriptions valuable? <a href="https://posthog.com/feedback?{{ utm_tags }}"><b>Share feedback</b></a>
 </div>
 
 {% endblock %}{% load posthog_filters %}

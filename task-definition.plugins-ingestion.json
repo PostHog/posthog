@@ -62,7 +62,7 @@
                 },
                 {
                     "name": "CAPTURE_INTERNAL_METRICS",
-                    "value": "True"
+                    "value": "False"
                 },
                 {
                     "name": "PISCINA_ATOMICS_TIMEOUT",
@@ -90,7 +90,7 @@
                 },
                 {
                     "name": "KAFKA_PARTITIONS_CONSUMED_CONCURRENTLY",
-                    "value": "1"
+                    "value": "5"
                 },
                 {
                     "name": "CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS",
@@ -111,10 +111,6 @@
                 {
                     "name": "CLEAR_CLICKHOUSE_REMOVED_DATA_SCHEDULE_CRON",
                     "value": "0 5 * * SUN"
-                },
-                {
-                    "name": "INGESTION_BATCH_BREAKUP_BY_DISTINCT_ID_TEAMS",
-                    "value": "7964"
                 }
             ],
             "secrets": [

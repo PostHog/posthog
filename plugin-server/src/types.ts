@@ -149,7 +149,6 @@ export interface PluginsServerConfig extends Record<string, any> {
     OBJECT_STORAGE_SESSION_RECORDING_FOLDER: string
     OBJECT_STORAGE_BUCKET: string
     PLUGIN_SERVER_MODE: 'ingestion' | 'async' | null
-    INGESTION_BATCH_BREAKUP_BY_DISTINCT_ID_TEAMS: string
     KAFKAJS_LOG_LEVEL: 'NOTHING' | 'DEBUG' | 'INFO' | 'WARN' | 'ERROR'
 }
 
@@ -196,7 +195,6 @@ export interface Hub extends PluginsServerConfig {
     lastActivityType: string
     statelessVms: StatelessVmMap
     conversionBufferEnabledTeams: Set<number>
-    ingestionBatchBreakupByDistinctIdTeams: Set<number>
 }
 
 export interface PluginServerCapabilities {
@@ -271,9 +269,10 @@ export interface Plugin {
     url?: string
     config_schema: Record<string, PluginConfigSchema> | PluginConfigSchema[]
     tag?: string
-    archive: Buffer | null
     /** @deprecated Replaced with source__index_ts */
     source?: string
+    /** Cached source for plugin.json from a joined PluginSourceFile query */
+    source__plugin_json?: string
     /** Cached source for index.ts from a joined PluginSourceFile query */
     source__index_ts?: string
     /** Cached source for frontend.tsx from a joined PluginSourceFile query */
@@ -390,7 +389,7 @@ export interface PluginTask {
 }
 
 export type WorkerMethods = {
-    runBufferEventPipeline: (event: PreIngestionEvent) => Promise<IngestEventResponse>
+    runBufferEventPipeline: (event: PluginEvent) => Promise<IngestEventResponse>
     runAsyncHandlersEventPipeline: (event: IngestionEvent) => Promise<void>
     runEventPipeline: (event: PluginEvent) => Promise<void>
 }
@@ -498,9 +497,6 @@ export interface Team {
     name: string
     anonymize_ips: boolean
     api_token: string
-    app_urls: string[]
-    completed_snippet_onboarding: boolean
-    opt_out_capture: boolean
     slack_incoming_webhook: string
     session_recording_opt_in: boolean
     ingested_event: boolean
@@ -810,13 +806,6 @@ export interface RawAction {
 /** Usable Action model. */
 export interface Action extends RawAction {
     steps: ActionStep[]
-}
-
-/** Action<>Event mapping row. */
-export interface ActionEventPair {
-    id: number
-    action_id: Action['id']
-    event_id: Event['id']
 }
 
 export interface SessionRecordingEvent {

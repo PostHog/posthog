@@ -10,13 +10,13 @@ from ee.clickhouse.materialized_columns.columns import (
     get_materialized_columns,
     materialize,
 )
-from ee.clickhouse.materialized_columns.util import instance_memoize
 from ee.settings import (
     MATERIALIZE_COLUMNS_ANALYSIS_PERIOD_HOURS,
     MATERIALIZE_COLUMNS_BACKFILL_PERIOD_DAYS,
     MATERIALIZE_COLUMNS_MAX_AT_ONCE,
     MATERIALIZE_COLUMNS_MINIMUM_QUERY_TIME,
 )
+from posthog.clickhouse.materialized_columns.util import instance_memoize
 from posthog.client import sync_execute
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.person.sql import GET_PERSON_PROPERTIES_COUNT
@@ -75,7 +75,7 @@ class Query:
                 yield "events", property
 
 
-def get_queries(since_hours_ago: int, min_query_time: int) -> List[Query]:
+def _get_queries(since_hours_ago: int, min_query_time: int) -> List[Query]:
     "Finds queries that have happened since cutoff that were slow"
 
     raw_queries = sync_execute(
@@ -98,7 +98,7 @@ def get_queries(since_hours_ago: int, min_query_time: int) -> List[Query]:
     return [Query(query, query_duration_ms, min_query_time) for query, query_duration_ms in raw_queries]
 
 
-def analyze(queries: List[Query]) -> List[Suggestion]:
+def _analyze(queries: List[Query]) -> List[Suggestion]:
     """
     Analyzes query history to find which properties could get materialized.
 
@@ -133,7 +133,7 @@ def materialize_properties_task(
     """
 
     if columns_to_materialize is None:
-        columns_to_materialize = analyze(get_queries(time_to_analyze_hours, min_query_time))
+        columns_to_materialize = _analyze(_get_queries(time_to_analyze_hours, min_query_time))
     result = []
     for suggestion in columns_to_materialize:
         table, property_name, _ = suggestion

@@ -14,9 +14,6 @@ from django.utils import timezone
 from sentry_sdk import capture_exception
 from statshog.defaults.django import statsd
 
-from ee.clickhouse.queries.paths import ClickhousePaths
-from ee.clickhouse.queries.retention import ClickhouseRetention
-from ee.clickhouse.queries.stickiness import ClickhouseStickiness
 from posthog.celery import update_cache_item_task
 from posthog.constants import (
     INSIGHT_FUNNELS,
@@ -33,6 +30,9 @@ from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.filters.utils import get_filter
 from posthog.queries.funnels import ClickhouseFunnelTimeToConvert, ClickhouseFunnelTrends
 from posthog.queries.funnels.utils import get_funnel_order_class
+from posthog.queries.paths import Paths
+from posthog.queries.retention import Retention
+from posthog.queries.stickiness import Stickiness
 from posthog.queries.trends.trends import Trends
 from posthog.types import FilterType
 from posthog.utils import generate_cache_key
@@ -43,9 +43,9 @@ logger = structlog.get_logger(__name__)
 
 CACHE_TYPE_TO_INSIGHT_CLASS = {
     CacheType.TRENDS: Trends,
-    CacheType.STICKINESS: ClickhouseStickiness,
-    CacheType.RETENTION: ClickhouseRetention,
-    CacheType.PATHS: ClickhousePaths,
+    CacheType.STICKINESS: Stickiness,
+    CacheType.RETENTION: Retention,
+    CacheType.PATHS: Paths,
 }
 
 
