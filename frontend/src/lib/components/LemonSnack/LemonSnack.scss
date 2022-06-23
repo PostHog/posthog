@@ -1,13 +1,15 @@
 .LemonSnack {
-    display: flex;
-    flex-direction: row;
-    align-items: center;
-    padding: 0.25rem 0.4rem;
-
+    display: inline-block;
     background: var(--primary-bg-hover);
     border-radius: var(--radius);
-
     color: var(--primary-alt);
+
+    .LemonSnack__inner {
+        display: flex;
+        flex-direction: row;
+        align-items: center;
+        padding: 0.25rem 0.4rem;
+    }
 
     .LemonSnack__close {
         margin-left: 0.25rem;
