@@ -1188,12 +1188,18 @@ export class DB {
         return insertResult.rows[0]
     }
 
-    // Featue Flag Hash Key overrides
+    // Feature Flag Hash Key overrides
     public async addFeatureFlagHashKeysForMergedPerson(
         teamID: Team['id'],
         sourcePersonID: Person['id'],
         targetPersonID: Person['id']
     ): Promise<void> {
+        // Delete and insert in a single query to ensure
+        // this function is safe wherever it is run.
+        // The CTE helps make this happen.
+        //
+        // Every override is unique for a team-personID-featureFlag combo.
+        // Thus, if the target person already has an override, we do nothing on conflict
         await this.postgresQuery(
             `
             WITH deletions AS (
