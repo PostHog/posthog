@@ -1,9 +1,10 @@
 // Keep this in sync with ee/kafka_client/topics.py
 
 import { isTestEnv } from '../utils/env-utils'
+import { defaultConfig } from './config'
 
 const suffix = isTestEnv() ? '_test' : ''
-export const prefix = process.env.KAFKA_PREFIX || ''
+const prefix = defaultConfig.KAFKA_PREFIX
 
 export const KAFKA_EVENTS = `${prefix}clickhouse_events_proto${suffix}`
 export const KAFKA_EVENTS_JSON = `${prefix}clickhouse_events_json${suffix}`

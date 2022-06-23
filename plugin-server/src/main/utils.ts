@@ -1,9 +1,10 @@
 import * as Sentry from '@sentry/node'
+import { defaultConfig } from 'config/config'
 import { StatsD } from 'hot-shots'
 import { Consumer, Kafka } from 'kafkajs'
 import { KafkaProducerWrapper } from 'utils/db/kafka-producer-wrapper'
 
-import { KAFKA_HEALTHCHECK, prefix as KAFKA_PREFIX } from '../config/kafka-topics'
+import { KAFKA_HEALTHCHECK } from '../config/kafka-topics'
 import { Hub } from '../types'
 import { timeoutGuard } from '../utils/db/utils'
 import { status } from '../utils/status'
@@ -99,7 +100,7 @@ export async function kafkaHealthcheck(
 
 export async function setupKafkaHealthcheckConsumer(kafka: Kafka): Promise<Consumer> {
     const consumer = kafka.consumer({
-        groupId: `${KAFKA_PREFIX}healthcheck-group`,
+        groupId: `${defaultConfig.KAFKA_PREFIX}healthcheck-group`,
         maxWaitTimeInMs: 100,
     })
 
