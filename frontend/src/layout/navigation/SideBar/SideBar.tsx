@@ -91,9 +91,8 @@ function Pages(): JSX.Element {
                         sideAction={{
                             identifier: 'pinned-dashboards',
                             tooltip: 'Pinned dashboards',
-                            onClick: () => setArePinnedDashboardsShown(!arePinnedDashboardsShown),
+                            onClick: () => setArePinnedDashboardsShown((state) => !state),
                             popup: {
-                                actionable: true,
                                 visible: arePinnedDashboardsShown,
                                 onClickOutside: () => setArePinnedDashboardsShown(false),
                                 onClickInside: hideSideBarMobile,
