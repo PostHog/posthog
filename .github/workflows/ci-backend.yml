@@ -277,11 +277,13 @@ jobs:
                   # Default: 'Commit from GitHub Actions (name of the workflow)'
                   message: 'Update snapshots'
             - name: Check if any snapshot changes were left uncomitted
-              id: changes
-              uses: UnicornGlobal/has-changes-action@v1.0.11
+              id: check-changes
+              uses: mskri/check-uncommitted-changes-action@v1.0.1
             - name: Fail CI if some snapshots have been updated but not committed
-              if: steps.changes.outputs.changed == 1
-              run: exit 1
+              if: steps.check-changes.outputs.outcome == failure()
+              run: |
+                  echo "${{ steps.check-changes.outputs.changes }}"
+                  exit 1
             - name: Archive email renders
               uses: actions/upload-artifact@v3
               if: ${{ matrix.foss }}
