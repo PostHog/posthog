@@ -270,7 +270,7 @@ jobs:
               with:
                   # The arguments for the `git add` command (see the paragraph below for more info)
                   # Default: '.'
-                  add: '["ee/clickhouse", "posthog/api/test/__snapshots__", "posthog/test/__snapshots__"]'
+                  add: '["ee/clickhouse", "posthog/api/test/__snapshots__", "posthog/test/__snapshots__", "posthog/queries/"]'
 
                   default_author: github_actions
 
@@ -279,7 +279,7 @@ jobs:
                   message: 'Update snapshots'
             - name: Check if any snapshot changes were left uncomitted
               id: changed-files
-              run: echo '::set-output name=diff::$(git status --porcelain | grep -vw ".test_duration")'
+              run: echo '::set-output name=diff::$(git status --porcelain | grep -v ".test_durations")'
 
             - name: Fail CI if some snapshots have been updated but not committed
               if: steps.changed-files.outputs.diff != '' && steps.add-and-commit.outcome == 'success'
