@@ -14,6 +14,10 @@ export async function emitToBufferStep(
         teamId: TeamId
     ) => boolean = shouldSendEventToBuffer
 ): Promise<StepResult> {
+    if (event.event === '$snapshot') {
+        return runner.nextStep('processPersonsStep', event, undefined)
+    }
+
     const person = await runner.hub.db.fetchPerson(event.team_id, event.distinct_id)
 
     if (shouldBuffer(runner.hub, event, person, event.team_id)) {
