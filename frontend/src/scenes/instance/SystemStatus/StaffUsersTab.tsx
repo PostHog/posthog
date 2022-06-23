@@ -115,7 +115,7 @@ export function StaffUsersTab(): JSX.Element {
             </div>
             <Divider style={{ margin: 0, marginBottom: 16 }} />
             <section>
-                <div className="flex gap-05">
+                <div className="flex gap-05 mb">
                     <div style={{ flex: 1 }}>
                         <LemonSelectWithSearch
                             placeholder="Add staff users here…"

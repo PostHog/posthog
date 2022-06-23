@@ -62,6 +62,7 @@
     padding: 0.5rem;
     border-radius: var(--radius);
     border: 1px solid var(--border);
+    margin: -4px 0px; // Counteract antd wrapper
 
     .ant-select-item {
         cursor: pointer;
