@@ -148,7 +148,7 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
             get_crontab(settings.RECORDINGS_POST_PROCESSING_CRON),
             post_process_session_recordings.s(),
             name="recordings post-processing controller",
-            queue="post-processing",
+            queue="recordings",
         )
 
     except Exception as e:

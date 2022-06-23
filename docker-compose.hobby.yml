@@ -91,6 +91,11 @@ services:
             - clickhouse
             - kafka
             - object_storage
+
+    recordings_worker:
+        <<: *worker
+        command: ./bin/docker-worker-celery --with-scheduler --queue=post-process
+
     web:
         <<: *worker
         command: /compose/start

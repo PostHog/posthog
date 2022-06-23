@@ -1,11 +1,11 @@
 {
-    "family": "posthog-production-post-processing-worker",
+    "family": "posthog-production-recordings-post-processing-worker",
     "networkMode": "awsvpc",
     "executionRoleArn": "posthog-production-ecs-task",
     "taskRoleArn": "posthog-production-ecs-task",
     "containerDefinitions": [
         {
-            "name": "posthog-production-post-processing-worker",
+            "name": "posthog-production-recordings-post-processing-worker",
             "logConfiguration": {
                 "logDriver": "awslogs",
                 "options": {
@@ -16,6 +16,8 @@
             },
             "essential": true,
             "environment": [
+                { "name": "RECORDINGS_POST_PROCESSING_ENABLED", "value": "True" },
+                { "name": "RECORDINGS_POST_PROCESSING_CRON", "value": "12 2 * * *" },
                 {
                     "name": "MULTI_TENANCY",
                     "value": "True"
@@ -264,7 +266,7 @@
                 }
             ],
             "entryPoint": ["sh", "-c"],
-            "command": ["./bin/docker-worker-celery --with-scheduler --queue post-process"],
+            "command": ["./bin/docker-worker-celery --with-scheduler --queue recordings"],
             "ulimits": [
                 {
                     "name": "nofile",
@@ -278,6 +280,6 @@
         }
     ],
     "requiresCompatibilities": ["FARGATE"],
-    "cpu": "2048",
-    "memory": "16GB"
+    "cpu": "1024",
+    "memory": "2048"
 }
