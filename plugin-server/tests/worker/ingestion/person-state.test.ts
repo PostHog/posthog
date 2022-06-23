@@ -239,7 +239,6 @@ describe('PersonState.update()', () => {
             })
         )
         const clickhousePersons = await delayUntilEventIngested(fetchPersonsRows)
-        console.log(clickhousePersons)
         expect(clickhousePersons.length).toEqual(1)
         expect(clickhousePersons[0]).toEqual(
             expect.objectContaining({
