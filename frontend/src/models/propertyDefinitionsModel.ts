@@ -1,8 +1,9 @@
 import { kea } from 'kea'
 import api from 'lib/api'
-import { PropertyDefinition, PropertyFilterValue, SelectOption } from '~/types'
+import { PropertyDefinition, PropertyFilterValue, PropertyType, SelectOption } from '~/types'
 import type { propertyDefinitionsModelType } from './propertyDefinitionsModelType'
 import { dayjs } from 'lib/dayjs'
+import { TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
 
 export interface PropertySelectOption extends SelectOption {
     is_numerical?: boolean
@@ -13,6 +14,17 @@ export interface PropertyDefinitionStorage {
     next: null | string
     results: PropertyDefinition[]
 }
+
+const localPropertyDefinitions: PropertyDefinition[] = [
+    {
+        id: '$session_duration',
+        name: '$session_duration',
+        description: 'Duration of the session',
+        is_numerical: true,
+        is_event_property: false,
+        property_type: PropertyType.Duration,
+    },
+]
 
 const normaliseToArray = (
     valueToFormat: Exclude<PropertyFilterValue, null>
@@ -92,7 +104,8 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>({
         ],
         propertyDefinitions: [
             (s) => [s.propertyStorage],
-            (propertyStorage): PropertyDefinition[] => propertyStorage.results || [],
+            (propertyStorage): PropertyDefinition[] =>
+                propertyStorage.results ? [...localPropertyDefinitions, ...propertyStorage.results] : [],
         ],
         transformedPropertyDefinitions: [
             // Transformed propertyDefinitions to use in `Select` components
@@ -115,8 +128,8 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>({
         ],
         describeProperty: [
             (s) => [s.propertyDefinitions],
-            (propertyDefinitions: PropertyDefinition[]): ((s: string) => string | null) =>
-                (propertyName: string) => {
+            (propertyDefinitions: PropertyDefinition[]): ((s: TaxonomicFilterValue) => string | null) =>
+                (propertyName: TaxonomicFilterValue) => {
                     // if the model hasn't already cached this definition, will fall back to original display type
                     const match = propertyDefinitions.find((pd) => pd.name === propertyName)
                     return match?.property_type ?? null

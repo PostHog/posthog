@@ -23,6 +23,7 @@ from posthog.models.person.sql import (
     INSERT_PERSON_DISTINCT_ID2,
     INSERT_PERSON_SQL,
 )
+from posthog.models.signals import mutable_receiver
 from posthog.models.team import Team
 from posthog.models.utils import UUIDT
 from posthog.queries.person_distinct_id_query import fetch_person_distinct_id2_ready
@@ -31,7 +32,7 @@ from posthog.settings import TEST
 if TEST:
     # :KLUDGE: Hooks are kept around for tests. All other code goes through plugin-server or the other methods explicitly
 
-    @receiver(post_save, sender=Person)
+    @mutable_receiver(post_save, sender=Person)
     def person_created(sender, instance: Person, created, **kwargs):
         create_person(
             team_id=instance.team.pk,

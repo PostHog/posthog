@@ -40,7 +40,7 @@ RECALCULATE_COHORT_BY_ID = """
 INSERT INTO cohortpeople
 SELECT id, %(cohort_id)s as cohort_id, %(team_id)s as team_id, 1 AS sign, %(new_version)s AS version
 FROM (
-    SELECT id, argMax(properties, person._timestamp) as properties, sum(is_deleted) as is_deleted FROM person WHERE team_id = %(team_id)s GROUP BY id
+    SELECT id, argMax(properties, person.version) as properties, sum(is_deleted) as is_deleted FROM person WHERE team_id = %(team_id)s GROUP BY id
 ) as person
 WHERE person.is_deleted = 0
 AND id IN ({cohort_filter})

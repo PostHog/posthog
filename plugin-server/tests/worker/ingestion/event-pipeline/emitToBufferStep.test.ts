@@ -1,22 +1,25 @@
+import { PluginEvent } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 
-import { Person, PreIngestionEvent } from '../../../../src/types'
+import { Person } from '../../../../src/types'
+import { UUIDT } from '../../../../src/utils/utils'
 import {
     emitToBufferStep,
     shouldSendEventToBuffer,
-} from '../../../../src/worker/ingestion/event-pipeline/3-emitToBufferStep'
+} from '../../../../src/worker/ingestion/event-pipeline/1-emitToBufferStep'
 
 const now = DateTime.fromISO('2020-01-01T12:00:05.200Z')
 
-const preIngestionEvent: PreIngestionEvent = {
-    eventUuid: 'uuid1',
-    distinctId: 'my_id',
-    ip: '127.0.0.1',
-    teamId: 2,
-    timestamp: '2020-02-23T02:15:00Z',
+const pluginEvent: PluginEvent = {
     event: '$pageview',
-    properties: {},
-    elementsList: [],
+    properties: { foo: 'bar' },
+    timestamp: '2020-02-23T02:15:00Z',
+    now: '2020-02-23T02:15:00Z',
+    team_id: 2,
+    distinct_id: 'my_id',
+    ip: null,
+    site_url: 'https://example.com',
+    uuid: new UUIDT().toString(),
 }
 
 const existingPerson: Person = {
@@ -50,27 +53,27 @@ beforeEach(() => {
 
 describe('emitToBufferStep()', () => {
     it('calls `produceEventToBuffer` if event should be buffered, stops processing', async () => {
-        const response = await emitToBufferStep(runner, preIngestionEvent, () => true)
+        const response = await emitToBufferStep(runner, pluginEvent, () => true)
 
-        expect(runner.hub.eventsProcessor.produceEventToBuffer).toHaveBeenCalledWith(preIngestionEvent)
+        expect(runner.hub.eventsProcessor.produceEventToBuffer).toHaveBeenCalledWith(pluginEvent)
         expect(runner.hub.db.fetchPerson).toHaveBeenCalledWith(2, 'my_id')
         expect(response).toEqual(null)
     })
 
-    it('calls `createEventStep` next if not buffering', async () => {
-        const response = await emitToBufferStep(runner, preIngestionEvent, () => false)
+    it('calls `pluginsProcessEventStep` next if not buffering', async () => {
+        const response = await emitToBufferStep(runner, pluginEvent, () => false)
 
-        expect(response).toEqual(['createEventStep', { ...preIngestionEvent, person: existingPerson }])
+        expect(response).toEqual(['pluginsProcessEventStep', pluginEvent, existingPerson])
         expect(runner.hub.db.fetchPerson).toHaveBeenCalledWith(2, 'my_id')
         expect(runner.hub.eventsProcessor.produceEventToBuffer).not.toHaveBeenCalled()
     })
 
-    it('does not call `db.fetchPerson` if person not passed in', async () => {
-        const event = { ...preIngestionEvent, person: existingPerson }
+    it('calls `processPersonsStep` for $snapshot events', async () => {
+        const event = { ...pluginEvent, event: '$snapshot' }
 
-        const response = await emitToBufferStep(runner, event, () => false)
+        const response = await emitToBufferStep(runner, event, () => true)
 
-        expect(response).toEqual(['createEventStep', event])
+        expect(response).toEqual(['processPersonsStep', event, undefined])
         expect(runner.hub.db.fetchPerson).not.toHaveBeenCalled()
         expect(runner.hub.eventsProcessor.produceEventToBuffer).not.toHaveBeenCalled()
     })
@@ -82,7 +85,7 @@ describe('shouldSendEventToBuffer()', () => {
     })
 
     it('returns false for an existing non-anonymous person', () => {
-        const result = shouldSendEventToBuffer(runner.hub, preIngestionEvent, existingPerson, 2)
+        const result = shouldSendEventToBuffer(runner.hub, pluginEvent, existingPerson, 2)
         expect(result).toEqual(false)
     })
 
@@ -92,13 +95,13 @@ describe('shouldSendEventToBuffer()', () => {
             created_at: now.minus({ seconds: 5 }),
         }
 
-        const result = shouldSendEventToBuffer(runner.hub, preIngestionEvent, person, 2)
+        const result = shouldSendEventToBuffer(runner.hub, pluginEvent, person, 2)
         expect(result).toEqual(true)
     })
 
     it('returns false for anonymous person', () => {
         const anonEvent = {
-            ...preIngestionEvent,
+            ...pluginEvent,
             distinctId: '$some_device_id',
             properties: { $device_id: '$some_device_id' },
         }
@@ -109,8 +112,8 @@ describe('shouldSendEventToBuffer()', () => {
 
     it('returns false for recently created anonymous person', () => {
         const anonEvent = {
-            ...preIngestionEvent,
-            distinctId: '$some_device_id',
+            ...pluginEvent,
+            distinct_id: '$some_device_id',
             properties: { $device_id: '$some_device_id' },
         }
 
@@ -124,13 +127,13 @@ describe('shouldSendEventToBuffer()', () => {
     })
 
     it('returns true for non-existing person', () => {
-        const result = shouldSendEventToBuffer(runner.hub, preIngestionEvent, undefined, 2)
+        const result = shouldSendEventToBuffer(runner.hub, pluginEvent, undefined, 2)
         expect(result).toEqual(true)
     })
 
     it('returns false for $identify events for non-existing users', () => {
         const event = {
-            ...preIngestionEvent,
+            ...pluginEvent,
             event: '$identify',
         }
 
@@ -140,7 +143,7 @@ describe('shouldSendEventToBuffer()', () => {
 
     it('returns false for $identify events for new users', () => {
         const event = {
-            ...preIngestionEvent,
+            ...pluginEvent,
             event: '$identify',
         }
         const person = {
@@ -156,10 +159,10 @@ describe('shouldSendEventToBuffer()', () => {
         runner.hub.CONVERSION_BUFFER_ENABLED = false
         runner.hub.conversionBufferEnabledTeams = new Set([2])
 
-        expect(shouldSendEventToBuffer(runner.hub, preIngestionEvent, undefined, 2)).toEqual(true)
-        expect(shouldSendEventToBuffer(runner.hub, preIngestionEvent, undefined, 3)).toEqual(false)
+        expect(shouldSendEventToBuffer(runner.hub, pluginEvent, undefined, 2)).toEqual(true)
+        expect(shouldSendEventToBuffer(runner.hub, pluginEvent, undefined, 3)).toEqual(false)
 
         runner.hub.CONVERSION_BUFFER_ENABLED = true
-        expect(shouldSendEventToBuffer(runner.hub, preIngestionEvent, undefined, 3)).toEqual(true)
+        expect(shouldSendEventToBuffer(runner.hub, pluginEvent, undefined, 3)).toEqual(true)
     })
 })
