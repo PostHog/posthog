@@ -16,6 +16,7 @@ export const scene: SceneExport = {
     paramsToProps: ({ params: { id } }): ActionLogicProps => ({ id: parseInt(id) }),
 }
 
+// Action has been renamed to Event and Event to Raw Event in the UI (not code) as per #10139
 export function Action({ id }: { id?: ActionType['id'] } = {}): JSX.Element {
     const fixedFilters = { action_id: id }
 

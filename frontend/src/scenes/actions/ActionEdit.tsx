@@ -299,6 +299,7 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
     )
 }
 
+// TODO: remove when "simplify-actions" FF is released
 export function duplicateActionErrorToast(errorActionId: string, shouldSimplifyActions: boolean): void {
     lemonToast.error(
         <>

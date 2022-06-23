@@ -14,7 +14,7 @@ import { organizationLogic } from 'scenes/organizationLogic'
 import { ActionHeader, EventDefinitionHeader } from 'scenes/data-management/events/DefinitionHeader'
 import { humanFriendlyNumber } from 'lib/utils'
 import { EventDefinitionProperties } from 'scenes/data-management/events/EventDefinitionProperties'
-import { Input, Row } from 'antd'
+import { Alert, Input, Row } from 'antd'
 import { DataManagementPageHeader } from 'scenes/data-management/DataManagementPageHeader'
 import { DataManagementTab } from 'scenes/data-management/DataManagementPageTabs'
 import { UsageDisabledWarning } from 'scenes/events/UsageDisabledWarning'
@@ -103,26 +103,20 @@ export function EventDefinitionsTable(): JSX.Element {
                       },
                   } as LemonTableColumn<CombinedEvent, keyof CombinedEvent | undefined>,
                   {
-                      title: 'Created',
-                      key: 'created_at',
+                      title: 'Last updated',
+                      key: 'last_updated',
                       align: 'left',
                       render: function Render(_, definition: CombinedEvent) {
-                          const created_at = isActionEvent(definition)
-                              ? definition.last_calculated_at
-                              : definition.created_at
-                          return created_at ? (
+                          const last_updated_at = definition.last_updated_at
+                          return last_updated_at ? (
                               <div style={{ whiteSpace: 'nowrap' }}>
-                                  <TZLabel time={created_at} />
+                                  <TZLabel time={last_updated_at} />
                               </div>
                           ) : (
                               <span style={{ color: 'var(--muted)' }}>—</span>
                           )
                       },
-                      sorter: (a, b) =>
-                          new Date((isActionEvent(a) ? a.last_calculated_at : a.created_at) || 0) >
-                          new Date((isActionEvent(b) ? b.last_calculated_at : b.created_at) || 0)
-                              ? 1
-                              : -1,
+                      sorter: (a, b) => (new Date(a.last_updated_at || 0) > new Date(b.last_updated_at || 0) ? 1 : -1),
                   } as LemonTableColumn<CombinedEvent, keyof CombinedEvent | undefined>,
                   {
                       title: 'Webhook',
@@ -188,6 +182,21 @@ export function EventDefinitionsTable(): JSX.Element {
     return (
         <div data-attr="manage-events-table">
             <DataManagementPageHeader activeTab={DataManagementTab.EventDefinitions} />
+            {shouldSimplifyActions && (
+                <Alert
+                    style={{ marginBottom: 16, display: 'flex', alignItems: 'center' }}
+                    message="Actions have moved to the Events tab"
+                    description={
+                        <>
+                            Actions have been renamed to events and events to raw events. To create a new "Action",
+                            click "New Event" to get started.
+                        </>
+                    }
+                    type="info"
+                    showIcon
+                    closable
+                />
+            )}
             {preflight && !preflight?.is_event_property_usage_enabled && (
                 <UsageDisabledWarning tab="Event Definitions" />
             )}

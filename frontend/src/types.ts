@@ -257,6 +257,7 @@ export interface ActionType {
     id: number
     is_calculating?: boolean
     last_calculated_at?: string
+    last_updated_at?: string // alias for last_calculated_at to achieve event and action parity
     name: string | null
     description?: string
     post_to_slack?: boolean
@@ -1506,6 +1507,7 @@ export interface EventDefinition {
     owner?: UserBasicType | null
     created_at?: string
     last_seen_at?: string
+    last_updated_at?: string // alias for last_seen_at to achieve event and action parity
     updated_at?: string
     updated_by?: UserBasicType | null
     verified?: boolean

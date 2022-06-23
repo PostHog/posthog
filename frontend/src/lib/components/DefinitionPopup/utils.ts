@@ -41,6 +41,7 @@ export function formatTimeFromNow(day?: string): string {
     return day ? dayjs.utc(day).fromNow() : '-'
 }
 
+// TODO: remove when "simplify-actions" FF is released
 export function getSingularType(type: TaxonomicFilterGroupType, shouldSimplifyActions: boolean = false): string {
     switch (type) {
         case TaxonomicFilterGroupType.Actions:
