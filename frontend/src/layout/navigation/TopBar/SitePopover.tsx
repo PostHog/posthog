@@ -36,7 +36,6 @@ import { inviteLogic } from 'scenes/organization/Settings/inviteLogic'
 import { Tooltip } from 'lib/components/Tooltip'
 import { LemonButtonPropsBase } from '@posthog/lemon-ui'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { Placement } from '@floating-ui/react-dom-interactions'
 
 function SitePopoverSection({ title, children }: { title?: string | JSX.Element; children: any }): JSX.Element {
     return (
@@ -278,10 +277,7 @@ function SignOutButton(): JSX.Element {
     )
 }
 
-export interface SitePopoverProps {
-    placement?: Placement
-}
-export function SitePopover({ placement }: SitePopoverProps): JSX.Element {
+export function SitePopover(): JSX.Element {
     const { user, otherOrganizations } = useValues(userLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const { preflight } = useValues(preflightLogic)
@@ -297,7 +293,6 @@ export function SitePopover({ placement }: SitePopoverProps): JSX.Element {
             visible={isSitePopoverOpen}
             className="SitePopover"
             onClickOutside={closeSitePopover}
-            placement={placement}
             overlay={
                 <>
                     <SitePopoverSection title="Signed in as">

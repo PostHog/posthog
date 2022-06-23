@@ -61,8 +61,8 @@ export function TopBar(): JSX.Element {
                     </div>
                 </div>
                 <div className="TopBar__segment TopBar__segment--right">
-                    <HelpButton placement="bottom-end" />
-                    <SitePopover placement="bottom-end" />
+                    <HelpButton />
+                    <SitePopover />
                 </div>
             </header>
             <CommandPalette />

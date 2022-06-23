@@ -72,8 +72,8 @@ export function Popup({
         strategy: 'fixed',
         middleware: [
             offset(4),
-            shift(),
             ...(fallbackPlacements ? [flip({ fallbackPlacements })] : []),
+            shift(),
             size({
                 padding: 5,
                 apply({ rects, availableHeight, elements: { floating } }) {
