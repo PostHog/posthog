@@ -268,7 +268,26 @@ jobs:
               # Also skip in extra variant runs (FOSS or persons-on-events), as we want to ignore snapshots diverging there
               if: ${{ !matrix.person-on-events && !matrix.foss && github.event.pull_request.head.repo.full_name == github.repository }}
               with:
+                  add: '["ee/clickhouse", "posthog/api/test/__snapshots__", "posthog/test/__snapshots__", "posthog/queries/"]'
                   message: 'Update snapshots'
+
+            - name: Check if any snapshot changes were left uncomitted
+              id: changed-files
+              if: ${{ matrix.clickhouse-server-image == 'clickhouse/clickhouse-server:22.3' && !matrix.person-on-events }}
+              run: |
+                  if [[ -z $(git status -s | grep -v ".test_durations" | tr -d "\n") ]]
+                  then
+                    echo '::set-output name=files_found::false'
+                  else
+                    echo '::set-output name=diff::$(git status --porcelain)'
+                    echo '::set-output name=files_found::true'
+                  fi
+
+            - name: Fail CI if some snapshots have been updated but not committed
+              if: ${{ matrix.clickhouse-server-image == 'clickhouse/clickhouse-server:22.3' && !matrix.person-on-events && steps.changed-files.outputs.files_found == 'true' && steps.add-and-commit.outcome == 'success' }}
+              run: |
+                  echo "${{ steps.changed-files.outputs.diff }}"
+                  exit 1
 
             - name: Archive email renders
               uses: actions/upload-artifact@v3

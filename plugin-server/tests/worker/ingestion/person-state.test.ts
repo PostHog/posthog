@@ -1,7 +1,7 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 
-import { Hub } from '../../../src/types'
+import { Hub, Person } from '../../../src/types'
 import { createHub } from '../../../src/utils/db/hub'
 import { UUIDT } from '../../../src/utils/utils'
 import { PersonState } from '../../../src/worker/ingestion/person-state'
@@ -12,19 +12,26 @@ jest.mock('../../../src/utils/status')
 jest.setTimeout(60000) // 60 sec timeout
 
 const timestamp = DateTime.fromISO('2020-01-01T12:00:05.200Z').toUTC()
-const uuid = new UUIDT()
-const uuid2 = new UUIDT()
 
 describe('PersonState.update()', () => {
     let hub: Hub
     let closeHub: () => Promise<void>
 
+    let uuid: UUIDT
+    let uuid2: UUIDT
+
     beforeEach(async () => {
+        uuid = new UUIDT()
+        uuid2 = new UUIDT()
+
         await resetTestDatabase()
         await resetTestDatabaseClickhouse()
         ;[hub, closeHub] = await createHub({})
         // Avoid collapsing merge tree causing race conditions!
         await hub.db.clickhouseQuery('SYSTEM STOP MERGES')
+
+        jest.spyOn(hub.personManager, 'isNewPerson')
+        jest.spyOn(hub.db, 'fetchPerson')
     })
 
     afterEach(async () => {
@@ -32,7 +39,7 @@ describe('PersonState.update()', () => {
         await hub.db.clickhouseQuery('SYSTEM START MERGES')
     })
 
-    function personState(event: Partial<PluginEvent>) {
+    function personState(event: Partial<PluginEvent>, person?: Person) {
         const fullEvent = {
             team_id: 2,
             properties: {},
@@ -46,16 +53,17 @@ describe('PersonState.update()', () => {
             hub.db,
             hub.statsd,
             hub.personManager,
+            person,
             uuid
         )
     }
 
-    async function fetchPersonsRows(options: { final?: boolean } = {}) {
-        const query = `SELECT * FROM person ${options.final ? 'FINAL' : ''}`
+    async function fetchPersonsRows() {
+        const query = `SELECT * FROM person FINAL`
         return (await hub.db.clickhouseQuery(query)).data
     }
 
-    it('creates person if theyre new', async () => {
+    it('creates person if they are new', async () => {
         const createdPerson = await personState({ event: '$pageview', distinct_id: 'new-user' }).update()
 
         expect(createdPerson).toEqual(
@@ -78,6 +86,8 @@ describe('PersonState.update()', () => {
                 version: 0,
             })
         )
+        expect(hub.personManager.isNewPerson).toHaveBeenCalledTimes(1)
+        expect(hub.db.fetchPerson).toHaveBeenCalledTimes(0)
     })
 
     it('creates person with properties', async () => {
@@ -110,6 +120,105 @@ describe('PersonState.update()', () => {
                 version: 0,
             })
         )
+        expect(hub.personManager.isNewPerson).toHaveBeenCalledTimes(1)
+        expect(hub.db.fetchPerson).toHaveBeenCalledTimes(0)
+    })
+
+    it('updates person properties if needed', async () => {
+        await hub.db.createPerson(timestamp, { b: 3, c: 4 }, {}, {}, 2, null, false, uuid.toString(), ['new-user'])
+
+        const updatedPerson = await personState({
+            event: '$pageview',
+            distinct_id: 'new-user',
+            properties: {
+                $set_once: { c: 3, e: 4 },
+                $set: { b: 4 },
+            },
+        }).update()
+
+        expect(updatedPerson).toEqual(
+            expect.objectContaining({
+                id: expect.any(Number),
+                uuid: uuid.toString(),
+                properties: { b: 4, c: 4, e: 4 },
+                created_at: timestamp,
+                version: 1,
+            })
+        )
+
+        const clickhousePersons = await delayUntilEventIngested(fetchPersonsRows)
+        expect(clickhousePersons.length).toEqual(1)
+        expect(clickhousePersons[0]).toEqual(
+            expect.objectContaining({
+                id: uuid.toString(),
+                properties: JSON.stringify({ b: 4, c: 4, e: 4 }),
+                created_at: '2020-01-01 12:00:05.000',
+                version: 1,
+            })
+        )
+        expect(hub.personManager.isNewPerson).toHaveBeenCalledTimes(1)
+        expect(hub.db.fetchPerson).toHaveBeenCalledTimes(1)
+    })
+
+    it('updating with cached person data skips checking if person is new', async () => {
+        const person = await hub.db.createPerson(timestamp, { b: 3, c: 4 }, {}, {}, 2, null, false, uuid.toString(), [
+            'new-user',
+        ])
+
+        const updatedPerson = await personState(
+            {
+                event: '$pageview',
+                distinct_id: 'new-user',
+                properties: {
+                    $set_once: { c: 3, e: 4 },
+                    $set: { b: 4 },
+                },
+            },
+            person
+        ).update()
+
+        expect(updatedPerson).toEqual(
+            expect.objectContaining({
+                id: expect.any(Number),
+                uuid: uuid.toString(),
+                properties: { b: 4, c: 4, e: 4 },
+                created_at: timestamp,
+                version: 1,
+            })
+        )
+        expect(hub.personManager.isNewPerson).toHaveBeenCalledTimes(0)
+        expect(hub.db.fetchPerson).toHaveBeenCalledTimes(0)
+
+        const clickhouseRows = await delayUntilEventIngested(fetchPersonsRows)
+        expect(clickhouseRows.length).toEqual(1)
+    })
+
+    it('does not update person if not needed', async () => {
+        await hub.db.createPerson(timestamp, { b: 3, c: 4 }, {}, {}, 2, null, false, uuid.toString(), ['new-user'])
+
+        const updatedPerson = await personState({
+            event: '$pageview',
+            distinct_id: 'new-user',
+            properties: {
+                $set_once: { c: 3 },
+                $set: { b: 3 },
+            },
+        }).update()
+
+        expect(updatedPerson).toEqual(
+            expect.objectContaining({
+                id: expect.any(Number),
+                uuid: uuid.toString(),
+                properties: { b: 3, c: 4 },
+                created_at: timestamp,
+                version: 0,
+            })
+        )
+
+        expect(hub.db.fetchPerson).toHaveBeenCalledTimes(1)
+
+        const clickhouseRows = await delayUntilEventIngested(fetchPersonsRows)
+        expect(clickhouseRows.length).toEqual(1)
     })
 
     // This is a regression test
@@ -142,6 +251,8 @@ describe('PersonState.update()', () => {
                 version: 0,
             })
         )
+        expect(hub.db.fetchPerson).toHaveBeenCalledTimes(2)
+        expect(hub.personManager.isNewPerson).toHaveBeenCalledTimes(0)
     })
 
     it('merges people on $identify event', async () => {
@@ -190,9 +301,12 @@ describe('PersonState.update()', () => {
                 }),
             ])
         )
+
+        expect(hub.db.fetchPerson).toHaveBeenCalledTimes(2)
+        expect(hub.personManager.isNewPerson).toHaveBeenCalledTimes(0)
     })
 
-    it('adds adds new distinct_id and updates is_identified on $identify event', async () => {
+    it('adds new distinct_id and updates is_identified on $identify event', async () => {
         await hub.db.createPerson(timestamp, {}, {}, {}, 2, null, false, uuid2.toString(), ['new-user'])
 
         await personState({
@@ -219,6 +333,12 @@ describe('PersonState.update()', () => {
         )
         const distinctIds = await hub.db.fetchDistinctIdValues(persons[0])
         expect(distinctIds).toEqual(expect.arrayContaining(['new-user', 'old-user']))
+
+        expect(hub.personManager.isNewPerson).toHaveBeenCalledTimes(0)
+        expect(hub.db.fetchPerson).toHaveBeenCalledTimes(2)
+
+        const clickhouseRows = await delayUntilEventIngested(fetchPersonsRows)
+        expect(clickhouseRows.length).toEqual(1)
     })
 
     it('marks user as is_identified on $identify event', async () => {
@@ -246,6 +366,12 @@ describe('PersonState.update()', () => {
                 version: 1,
             })
         )
+
+        expect(hub.personManager.isNewPerson).toHaveBeenCalledTimes(0)
+        expect(hub.db.fetchPerson).toHaveBeenCalledTimes(2)
+
+        const clickhouseRows = await delayUntilEventIngested(fetchPersonsRows)
+        expect(clickhouseRows.length).toEqual(1)
     })
 
     it('does not update person if user already identified and no properties change on $identify event', async () => {
@@ -272,6 +398,9 @@ describe('PersonState.update()', () => {
                 version: 0,
             })
         )
+
+        const clickhouseRows = await delayUntilEventIngested(fetchPersonsRows)
+        expect(clickhouseRows.length).toEqual(1)
     })
 
     it('does not merge already identified users', async () => {
@@ -290,6 +419,8 @@ describe('PersonState.update()', () => {
 
         const persons = await hub.db.fetchPersons()
         expect(persons.length).toEqual(2)
+
+        await delayUntilEventIngested(fetchPersonsRows, 2)
     })
 
     it('merges people on $identify event and updates properties with $set/$set_once', async () => {
@@ -342,5 +473,8 @@ describe('PersonState.update()', () => {
                 }),
             ])
         )
+
+        expect(hub.personManager.isNewPerson).toHaveBeenCalledTimes(0)
+        expect(hub.db.fetchPerson).toHaveBeenCalledTimes(2)
     })
 })

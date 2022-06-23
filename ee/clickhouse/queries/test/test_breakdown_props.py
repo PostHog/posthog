@@ -1,11 +1,11 @@
 from freezegun import freeze_time
 
-from ee.clickhouse.models.group import create_group
-from ee.clickhouse.queries.breakdown_props import get_breakdown_prop_values
 from posthog.models.cohort import Cohort
 from posthog.models.entity import Entity
 from posthog.models.filters import Filter
+from posthog.models.group.util import create_group
 from posthog.models.group_type_mapping import GroupTypeMapping
+from posthog.queries.breakdown_props import get_breakdown_prop_values
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,

@@ -1,6 +1,6 @@
 import { PluginEvent } from '@posthog/plugin-scaffold/src/types'
 
-import { Action, EnqueuedJob, Hub, IngestionEvent, PluginTaskType, PreIngestionEvent, Team } from '../types'
+import { Action, EnqueuedJob, Hub, IngestionEvent, PluginTaskType, Team } from '../types'
 import { convertToProcessedPluginEvent } from '../utils/event'
 import { EventPipelineRunner } from './ingestion/event-pipeline/runner'
 import { runPluginTask, runProcessEvent } from './plugins/run'
@@ -25,12 +25,15 @@ export const workerTasks: Record<string, TaskRunner> = {
     getPluginSchedule: (hub) => {
         return hub.pluginSchedule
     },
+    pluginScheduleReady: (hub) => {
+        return hub.pluginSchedule !== null
+    },
     runEventPipeline: async (hub, args: { event: PluginEvent }) => {
         const runner = new EventPipelineRunner(hub, args.event)
         return await runner.runEventPipeline(args.event)
     },
-    runBufferEventPipeline: async (hub, args: { event: PreIngestionEvent }) => {
-        const runner = new EventPipelineRunner(hub, convertToProcessedPluginEvent(args.event))
+    runBufferEventPipeline: async (hub, args: { event: PluginEvent }) => {
+        const runner = new EventPipelineRunner(hub, args.event)
         return await runner.runBufferEventPipeline(args.event)
     },
     runAsyncHandlersEventPipeline: async (hub, args: { event: IngestionEvent }) => {

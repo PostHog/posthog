@@ -287,7 +287,6 @@ class Migration(AsyncMigrationDefinition):
         )[0][0]
 
     def tables_to_migrate(self):
-        from ee.clickhouse.sql.groups import GROUPS_TABLE_ENGINE, KAFKA_GROUPS_TABLE_SQL
         from posthog.clickhouse.dead_letter_queue import (
             DEAD_LETTER_QUEUE_TABLE_ENGINE,
             KAFKA_DEAD_LETTER_QUEUE_TABLE_SQL,
@@ -304,6 +303,7 @@ class Migration(AsyncMigrationDefinition):
             KAFKA_EVENTS_TABLE_SQL,
             WRITABLE_EVENTS_TABLE_SQL,
         )
+        from posthog.models.group.sql import GROUPS_TABLE_ENGINE, KAFKA_GROUPS_TABLE_SQL
         from posthog.models.person.sql import (
             KAFKA_PERSON_DISTINCT_ID2_TABLE_SQL,
             KAFKA_PERSONS_TABLE_SQL,

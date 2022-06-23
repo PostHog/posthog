@@ -6,11 +6,11 @@ import { DateTime, Duration } from 'luxon'
 import { status } from '../../utils/status'
 
 export function parseEventTimestamp(data: PluginEvent, statsd?: StatsD | undefined): DateTime {
-    const now = DateTime.fromISO(data['now'])
-    const sentAt = data['sent_at'] ? DateTime.fromISO(data['sent_at']) : null
+    const now = DateTime.fromISO(data['now']).toUTC()
+    const sentAt = data['sent_at'] ? DateTime.fromISO(data['sent_at']).toUTC() : null
 
     const parsedTs = handleTimestamp(data, now, sentAt)
-    const ts = parsedTs.isValid ? parsedTs : DateTime.now()
+    const ts = parsedTs.isValid ? parsedTs : DateTime.utc()
     if (!parsedTs.isValid) {
         statsd?.increment('process_event_invalid_timestamp', { teamId: String(data['team_id']) })
     }
@@ -42,7 +42,7 @@ function handleTimestamp(data: PluginEvent, now: DateTime, sentAt: DateTime | nu
 export function parseDate(supposedIsoString: string): DateTime {
     const jsDate = new Date(supposedIsoString)
     if (Number.isNaN(jsDate.getTime())) {
-        return DateTime.fromISO(supposedIsoString)
+        return DateTime.fromISO(supposedIsoString).toUTC()
     }
-    return DateTime.fromJSDate(jsDate)
+    return DateTime.fromJSDate(jsDate).toUTC()
 }

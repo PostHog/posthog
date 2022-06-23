@@ -7,7 +7,6 @@ from django.utils import timezone
 from freezegun import freeze_time
 
 from ee.clickhouse.queries.funnels.funnel_correlation_persons import FunnelCorrelationActors
-from ee.clickhouse.test.test_journeys import journeys_for
 from posthog.constants import INSIGHT_FUNNELS
 from posthog.models import Cohort, Filter
 from posthog.models.person import Person
@@ -20,6 +19,7 @@ from posthog.test.base import (
     _create_person,
     snapshot_clickhouse_queries,
 )
+from posthog.test.test_journeys import journeys_for
 
 FORMAT_TIME = "%Y-%m-%d 00:00:00"
 MAX_STEP_COLUMN = 0

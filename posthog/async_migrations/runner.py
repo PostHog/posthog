@@ -46,7 +46,7 @@ def start_async_migration(
     send_analytics_to_posthog("Async migration start", {"name": migration_name})
 
     migration_instance = AsyncMigration.objects.get(name=migration_name)
-    over_concurrent_migrations_limit = len(get_all_running_async_migrations()) >= MAX_CONCURRENT_ASYNC_MIGRATIONS
+    over_concurrent_migrations_limit = get_all_running_async_migrations().count() >= MAX_CONCURRENT_ASYNC_MIGRATIONS
     posthog_version_valid = ignore_posthog_version or is_posthog_version_compatible(
         migration_instance.posthog_min_version, migration_instance.posthog_max_version
     )

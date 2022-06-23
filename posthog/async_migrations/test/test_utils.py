@@ -27,7 +27,7 @@ class TestUtils(AsyncMigrationBaseTest):
         execute_op(DEFAULT_CH_OP, "some_id")
 
         # correctly routes to ch
-        mock_sync_execute.assert_called_once_with("/* some_id */ SELECT 1", settings={"max_execution_time": 10})
+        mock_sync_execute.assert_called_once_with("/* some_id */ SELECT 1", None, settings={"max_execution_time": 10})
 
     @patch("django.db.connection.cursor")
     def test_execute_op_postgres(self, mock_cursor):
