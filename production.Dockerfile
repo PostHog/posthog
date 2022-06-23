@@ -75,10 +75,9 @@ RUN apk --update --no-cache --virtual .build-deps add \
     yarn install --frozen-lockfile && \
     yarn build && \
     yarn cache clean && \
-    rm -rf ./node_modules \
+    rm -rf ./node_modules &&\
     yarn install --frozen-lockfile --cwd plugin-server && \
-    yarn cache clean \
-    && \
+    yarn cache clean && \
     apk del .build-deps
 
 
