@@ -184,20 +184,20 @@ def bulk_create_events(events: List[Dict[str, Any]], person_mapping: Optional[Di
             "group2_properties": json.dumps(event["group2_properties"]) if event.get("group2_properties") else "{}",
             "group3_properties": json.dumps(event["group3_properties"]) if event.get("group3_properties") else "{}",
             "group4_properties": json.dumps(event["group4_properties"]) if event.get("group4_properties") else "{}",
-            "group0_created_at": event["person_created_at"]
-            if event.get("person_created_at")
+            "group0_created_at": event["group0_created_at"]
+            if event.get("group0_created_at")
             else datetime64_default_timestamp,
-            "group1_created_at": event["person_created_at"]
-            if event.get("person_created_at")
+            "group1_created_at": event["group1_created_at"]
+            if event.get("group1_created_at")
             else datetime64_default_timestamp,
-            "group2_created_at": event["person_created_at"]
-            if event.get("person_created_at")
+            "group2_created_at": event["group2_created_at"]
+            if event.get("group2_created_at")
             else datetime64_default_timestamp,
-            "group3_created_at": event["person_created_at"]
-            if event.get("person_created_at")
+            "group3_created_at": event["group3_created_at"]
+            if event.get("group3_created_at")
             else datetime64_default_timestamp,
-            "group4_created_at": event["person_created_at"]
-            if event.get("person_created_at")
+            "group4_created_at": event["group4_created_at"]
+            if event.get("group4_created_at")
             else datetime64_default_timestamp,
         }
 
