@@ -2,6 +2,7 @@ import { LemonButton, LemonButtonWithPopupProps, LemonButtonWithSideAction } fro
 import { Select } from 'antd'
 import React, { useState } from 'react'
 import { IconClose } from '../icons'
+import { LemonSnack } from '../LemonSnack/LemonSnack'
 import { PopupProps } from '../Popup/Popup'
 import './LemonMultiSelect.scss'
 
@@ -31,8 +32,6 @@ export function LemonMultiSelect<O extends LemonMultiSelectOptions>({
     value,
     onChange,
     options,
-    dropdownPlacement,
-    ...buttonProps
 }: LemonMultiSelectProps<O>): JSX.Element {
     const [hover, setHover] = useState(false)
 
@@ -44,24 +43,16 @@ export function LemonMultiSelect<O extends LemonMultiSelectOptions>({
                 tokenSeparators={[',']}
                 value={value ? value : []}
                 dropdownRender={(menu) => <div className="LemonMultiSelectDropdown">{menu}</div>}
-                tagRender={({ label, value, closable, onClose }) => {
-                    console.log(label, value)
+                tagRender={({ value, onClose }) => {
                     const option = options?.[value as any]
 
                     return (
-                        <LemonButtonWithSideAction
-                            size="small"
-                            icon={option?.icon}
-                            sideAction={{
-                                icon: <IconClose />,
-                                tooltip: 'Delete',
-                                size: 'small',
-                                onClick: () => onClose(),
-                            }}
-                        >
-                            {option?.label || value}
-                            {option?.element}
-                        </LemonButtonWithSideAction>
+                        <LemonSnack icon={option?.icon} onClose={onClose}>
+                            <>
+                                {option?.label || value}
+                                {option?.element}
+                            </>
+                        </LemonSnack>
                     )
                 }}
             >
