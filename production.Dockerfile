@@ -88,6 +88,7 @@ RUN cd plugin-server \
     && ln -s /lib/ld-musl-x86_64.so.1 /lib/ld-linux-x86-64.so.2 \
     && yarn build \
     && yarn cache clean \
+    && rm -rf ./node_modules \
     && cd ..
 
 # Build the frontend
