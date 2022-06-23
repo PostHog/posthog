@@ -19,7 +19,7 @@ export interface PopupProps {
     visible?: boolean
     onClickOutside?: (event: Event) => void
     onClickInside?: MouseEventHandler<HTMLDivElement>
-    /** Popover trigger element. If you pass one <Component/> child, it will get the "ref" props automatically. */
+    /** Popover trigger element. If you pass one <Component/> child, it will get the `ref` prop automatically. */
     children: React.ReactChild | ((props: { ref: MutableRefObject<HTMLElement | null> }) => JSX.Element)
     /** Content of the overlay. */
     overlay: React.ReactNode | React.ReactNode[]
