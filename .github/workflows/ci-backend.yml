@@ -284,7 +284,7 @@ jobs:
                   fi
 
             - name: Fail CI if some snapshots have been updated but not committed
-              if: ${{ matrix.clickhouse-server-image == 'clickhouse/clickhouse-server:22.3' && !matrix.person-on-events && steps.changed-files.outputs.files_found == 'true' && steps.add-and-commit.outcome == 'success' }}
+              if: ${{ steps.changed-files.outputs.files_found == 'true' && steps.add-and-commit.outcome == 'success' }}
               run: |
                   echo "${{ steps.changed-files.outputs.diff }}"
                   exit 1
