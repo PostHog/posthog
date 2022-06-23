@@ -20,12 +20,7 @@ export interface PopupProps {
     onClickOutside?: (event: Event) => void
     onClickInside?: MouseEventHandler<HTMLDivElement>
     /** Popover trigger element. */
-    children:
-        | React.ReactChild
-        | ((props: {
-              // setRef: (ref: HTMLElement | null) => void
-              ref: MutableRefObject<HTMLElement | null>
-          }) => JSX.Element)
+    children: React.ReactChild | ((props: { ref: MutableRefObject<HTMLElement | null> }) => JSX.Element)
     /** Content of the overlay. */
     overlay: React.ReactNode | React.ReactNode[]
     /** Where the popover should start relative to children. */
