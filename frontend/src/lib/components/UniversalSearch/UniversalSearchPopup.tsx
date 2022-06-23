@@ -166,19 +166,17 @@ export function UniversalSearchPopup({
                 placement="right-start"
                 fallbackPlacements={['bottom']}
                 onClickOutside={() => setVisible(false)}
-                modifier={{
-                    name: 'offset',
-                    options: {
-                        // @ts-expect-error
-                        offset: ({ placement }) => {
+                middleware={[
+                    {
+                        name: 'offset',
+                        fn({ x, y, placement }) {
                             if (placement === 'right-start') {
-                                return [-25, -250]
-                            } else {
-                                return []
+                                return { y: y - 29, x: x - 253 }
                             }
+                            return {}
                         },
                     },
-                }}
+                ]}
             >
                 {({ setRef }) => (
                     <div

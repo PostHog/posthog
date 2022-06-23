@@ -9,11 +9,11 @@ import { Popup } from 'lib/components/Popup/Popup'
 import { PlusCircleOutlined } from '@ant-design/icons'
 import '../../../../scenes/actions/Actions.scss' // TODO: we should decouple this styling from this component sooner than later
 import './FilterRow.scss'
-import { Placement } from '@popperjs/core'
 import clsx from 'clsx'
 import { IconDelete, IconPlus } from 'lib/components/icons'
 import { LemonButton } from 'lib/components/LemonButton'
 import { CloseButton } from 'lib/components/CloseButton'
+import { Placement } from '@floating-ui/react-dom-interactions'
 
 interface FilterRowProps {
     item: Record<string, any>
