@@ -1046,7 +1046,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         self.organization_membership.save()
         self.team.access_control = True
         self.team.save()
-        self_team_membership = ExplicitTeamMembership.objects.create(
+        ExplicitTeamMembership.objects.create(
             team=self.team, parent_membership=self.organization_membership, level=ExplicitTeamMembership.Level.MEMBER
         )
         response = self.client.get(
