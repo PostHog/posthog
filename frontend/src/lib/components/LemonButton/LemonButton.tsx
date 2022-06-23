@@ -11,7 +11,7 @@ export interface LemonButtonPopup extends Omit<PopupProps, 'children'> {
     closeOnClickInside?: boolean
 }
 export interface LemonButtonPropsBase extends Omit<LemonRowPropsBase<'button'>, 'tag' | 'type' | 'ref'> {
-    ref?: React.Ref<HTMLButtonElement>
+    ref?: React.Ref<HTMLButtonElement> | React.Ref<HTMLElement>
     type?: 'default' | 'alt' | 'primary' | 'secondary' | 'tertiary' | 'stealth' | 'highlighted'
     htmlType?: LemonRowPropsBase<'button'>['type']
     /** Whether the button should have transparent background in its base state (i.e. non-hover). */
@@ -43,7 +43,7 @@ function LemonButtonInternal(
         disabled,
         ...buttonProps
     }: LemonButtonProps,
-    ref: React.Ref<HTMLButtonElement>
+    ref: React.Ref<HTMLElement>
 ): JSX.Element {
     const rowProps: LemonRowProps<'button'> = {
         tag: 'button',

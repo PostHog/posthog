@@ -56,18 +56,17 @@ export function TaxonomicBreakdownButton({
                 />
             }
             placement={'bottom-start'}
-            fallbackPlacements={['bottom-end']}
             visible={open}
             onClickOutside={() => setOpen(false)}
         >
-            {({ setRef }) => (
+            {({ ref }) => (
                 <Button
                     type={buttonType}
                     icon={<PlusCircleOutlined />}
                     data-attr="add-breakdown-button"
                     onClick={() => setOpen(!open)}
                     className="taxonomic-breakdown-filter tag-button"
-                    ref={setRef}
+                    ref={ref}
                 >
                     <PropertyKeyInfo
                         value={

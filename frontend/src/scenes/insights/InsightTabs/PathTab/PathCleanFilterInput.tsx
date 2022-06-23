@@ -53,11 +53,11 @@ export function PathCleanFilterInput(): JSX.Element {
                         />
                     }
                 >
-                    {({ setRef }) => {
+                    {({ ref }) => {
                         return (
                             <>
                                 <Button
-                                    ref={setRef}
+                                    ref={ref}
                                     onClick={() => setOpen(!open)}
                                     className="new-prop-filter"
                                     data-attr={'new-prop-filter-' + 'pathcleanfilters-local'}

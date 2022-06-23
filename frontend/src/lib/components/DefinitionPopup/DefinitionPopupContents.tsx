@@ -4,9 +4,9 @@ import {
     TaxonomicFilterGroup,
     TaxonomicFilterGroupType,
 } from 'lib/components/TaxonomicFilter/types'
-import { BindLogic, Provider, useActions, useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { definitionPopupLogic, DefinitionPopupState } from 'lib/components/DefinitionPopup/definitionPopupLogic'
-import React, { CSSProperties, useEffect, useState } from 'react'
+import React, { useEffect } from 'react'
 import { isPostHogProp, keyMapping, PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { DefinitionPopup } from 'lib/components/DefinitionPopup/DefinitionPopup'
 import { InfoCircleOutlined, LockOutlined } from '@ant-design/icons'
@@ -21,9 +21,8 @@ import { formatTimeFromNow } from 'lib/components/DefinitionPopup/utils'
 import { CSSTransition } from 'react-transition-group'
 import { Tooltip } from 'lib/components/Tooltip'
 import { humanFriendlyNumber } from 'lib/utils'
-import { usePopper } from 'react-popper'
-import ReactDOM from 'react-dom'
 import { TitleWithIcon } from '../TitleWithIcon'
+import { UseFloatingReturn } from '@floating-ui/react-dom'
 
 export const ThirtyDayVolumeTitle = ({ tooltipPlacement }: { tooltipPlacement?: 'top' | 'bottom' }): JSX.Element => (
     <TitleWithIcon
@@ -449,19 +448,13 @@ interface BaseDefinitionPopupContentsProps {
 }
 
 interface ControlledDefinitionPopupContentsProps extends BaseDefinitionPopupContentsProps {
-    popper: {
-        styles: CSSProperties
-        attributes?: Record<string, any>
-        forceUpdate: (() => void) | null
-        setRef: React.Dispatch<React.SetStateAction<HTMLDivElement | null>>
-        ref: HTMLDivElement | null
-    }
+    floatingReturn: UseFloatingReturn<HTMLElement>
 }
 
 export function ControlledDefinitionPopupContents({
     item,
     group,
-    popper,
+    floatingReturn,
 }: ControlledDefinitionPopupContentsProps): JSX.Element {
     // Supports all types specified in selectedItemHasPopup
     const value = group.getValue?.(item)
@@ -480,9 +473,18 @@ export function ControlledDefinitionPopupContents({
         setDefinition(item)
     }, [item])
 
+    const {
+        x,
+        y,
+        floating: setFloatingRef,
+        refs: { floating: floatingRef },
+        strategy,
+        update,
+    } = floatingReturn
+
     // Force popper to recalculate position when popup state changes. Keep this independent of logic
     useEffect(() => {
-        popper.forceUpdate?.()
+        update()
     }, [state])
 
     return (
@@ -500,21 +502,22 @@ export function ControlledDefinitionPopupContents({
                     // If not in edit mode, bury it.
                     style={{ zIndex: 1062 }}
                     onClick={() => {
-                        popper.ref?.focus()
+                        floatingRef.current?.focus()
                     }}
                 />
             </CSSTransition>
             <div
                 className="popper-tooltip click-outside-block hotkey-block Popup Popup__box"
                 tabIndex={-1} // Only programmatically focusable
-                ref={popper.setRef}
+                ref={setFloatingRef}
                 // zIndex: 1063 ensures it opens above the overlay which is 1062
                 style={{
-                    ...popper.styles,
+                    position: strategy,
+                    top: y ?? 0,
+                    left: x ?? 0,
                     transition: 'none',
                     zIndex: 1063,
                 }}
-                {...popper.attributes}
                 onMouseLeave={() => {
                     if (state !== DefinitionPopupState.Edit) {
                         onMouseLeave?.()
@@ -539,88 +542,6 @@ export function ControlledDefinitionPopupContents({
                     {state === DefinitionPopupState.Edit ? <DefinitionEdit /> : <DefinitionView group={group} />}
                 </DefinitionPopup.Wrapper>
             </div>
-        </>
-    )
-}
-
-interface DefinitionPopupContentsProps extends BaseDefinitionPopupContentsProps {
-    referenceEl: HTMLElement | null
-    children?: React.ReactNode
-    updateRemoteItem?: (item: TaxonomicDefinitionTypes) => void
-    onMouseLeave?: () => void
-    onCancel?: () => void
-    onSave?: () => void
-    hideView?: boolean
-    hideEdit?: boolean
-    openDetailInNewTab?: boolean
-}
-
-export function DefinitionPopupContents({
-    item,
-    group,
-    referenceEl,
-    children,
-    updateRemoteItem,
-    onMouseLeave,
-    onCancel,
-    onSave,
-    hideView = false,
-    hideEdit = false,
-    openDetailInNewTab = true,
-}: DefinitionPopupContentsProps): JSX.Element {
-    const [popperElement, setPopperElement] = useState<HTMLDivElement | null>(null)
-
-    const { styles, attributes, forceUpdate } = usePopper(referenceEl, popperElement, {
-        placement: 'right',
-        modifiers: [
-            {
-                name: 'offset',
-                options: {
-                    offset: [0, 10],
-                },
-            },
-            {
-                name: 'preventOverflow',
-                options: {
-                    padding: 10,
-                },
-            },
-        ],
-    })
-
-    return (
-        <>
-            <Provider>
-                {ReactDOM.createPortal(
-                    <BindLogic
-                        logic={definitionPopupLogic}
-                        props={{
-                            type: group.type,
-                            updateRemoteItem,
-                            onMouseLeave,
-                            onSave,
-                            onCancel,
-                            hideView,
-                            hideEdit,
-                            openDetailInNewTab,
-                        }}
-                    >
-                        <ControlledDefinitionPopupContents
-                            item={item}
-                            group={group}
-                            popper={{
-                                styles: styles.popper,
-                                attributes: attributes.popper,
-                                forceUpdate,
-                                setRef: setPopperElement,
-                                ref: popperElement,
-                            }}
-                        />
-                    </BindLogic>,
-                    document.querySelector('body') as HTMLElement
-                )}
-            </Provider>
-            {children}
         </>
     )
 }

@@ -140,8 +140,6 @@ export function TaxonomicPropertyFilter({
 
                     <Popup
                         overlay={dropdownOpen ? taxonomicFilter : null}
-                        placement={'bottom-start'}
-                        fallbackPlacements={['bottom-end']}
                         visible={dropdownOpen}
                         onClickOutside={closeDropdown}
                     >

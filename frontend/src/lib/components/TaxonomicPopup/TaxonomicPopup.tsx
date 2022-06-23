@@ -67,11 +67,11 @@ export function TaxonomicPopup({
             visible={visible}
             onClickOutside={() => setVisible(false)}
         >
-            {({ setRef }) => (
+            {({ ref }) => (
                 <Button
                     data-attr={dataAttr}
                     onClick={() => setVisible(!visible)}
-                    ref={setRef}
+                    ref={ref}
                     className={clsx('TaxonomicPopup__button', { 'full-width': fullWidth })}
                     style={style}
                 >

@@ -2,7 +2,7 @@ import './Popup.scss'
 import React, { MouseEventHandler, MutableRefObject, ReactElement, useEffect, useMemo } from 'react'
 import ReactDOM from 'react-dom'
 import { useOutsideClickHandler } from 'lib/hooks/useOutsideClickHandler'
-import { offset, ReferenceType, useFloating } from '@floating-ui/react-dom'
+import { offset, useFloating } from '@floating-ui/react-dom'
 import clsx from 'clsx'
 import { CSSTransition } from 'react-transition-group'
 import { autoUpdate, flip, Middleware, Placement, shift } from '@floating-ui/react-dom-interactions'
@@ -15,8 +15,8 @@ export interface PopupProps {
     children:
         | React.ReactChild
         | ((props: {
-              setRef: (ref: HTMLElement | null) => void
-              ref: MutableRefObject<ReferenceType | null>
+              // setRef: (ref: HTMLElement | null) => void
+              ref: MutableRefObject<HTMLElement | null>
           }) => JSX.Element)
     /** Content of the overlay. */
     overlay: React.ReactNode | React.ReactNode[]
@@ -70,7 +70,7 @@ let uniqueMemoizedIndex = 1
 //     requires: ['computeStyles'],
 // }
 
-/** This is a custom popup control that uses `react-popper` to position DOM nodes.
+/** This is a custom popup control that uses `floating-ui` to position DOM nodes.
  *
  * Often used with buttons for various menu. If this is your intention, use `LemonButtonWithPopup`.
  */
@@ -81,7 +81,7 @@ export function Popup({
     onClickOutside,
     onClickInside,
     placement = 'bottom-start',
-    fallbackPlacements = ['bottom-end', 'top-start', 'top-end'],
+    fallbackPlacements = ['bottom-start', 'bottom-end', 'top-start', 'top-end'],
     className,
     actionable = false,
     middleware,
@@ -89,21 +89,16 @@ export function Popup({
 // maxWindowDimensions = false,
 // maxContentWidth = false,
 PopupProps): JSX.Element {
-    useEffect(() => console.log('visible', visible), [visible])
-    useEffect(() => console.log('placement', placement), [placement])
-
     const popupId = useMemo(() => uniqueMemoizedIndex++, [])
-    useEffect(() => console.log('popupId', popupId), [popupId])
-
     const {
         x,
         y,
-        reference,
-        floating,
+        // reference: setReferenceRef,
+        floating: setFloatingRef,
         refs: { reference: referenceRef, floating: floatingRef },
         strategy,
         update,
-    } = useFloating({
+    } = useFloating<HTMLElement>({
         placement,
         strategy: 'fixed',
         middleware: [
@@ -126,7 +121,7 @@ PopupProps): JSX.Element {
 
     const clonedChildren =
         typeof children === 'function'
-            ? children({ ref: referenceRef, setRef: reference })
+            ? children({ ref: referenceRef })
             : React.Children.toArray(children).map((child) =>
                   React.cloneElement(child as ReactElement, { ref: referenceRef })
               )
@@ -139,7 +134,7 @@ PopupProps): JSX.Element {
                     <PopupContext.Provider value={popupId}>
                         <div
                             className={clsx('Popup', actionable && 'Popup--actionable', className)}
-                            ref={floating}
+                            ref={setFloatingRef}
                             style={{ position: strategy, top: y ?? 0, left: x ?? 0 }}
                             onClick={onClickInside}
                         >

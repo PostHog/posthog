@@ -104,9 +104,9 @@ export const PersonPropertySelect = ({
                     />
                 }
             >
-                {({ setRef }) => (
+                {({ ref }) => (
                     <Button
-                        ref={setRef}
+                        ref={ref}
                         onClick={() => toggle()}
                         type="link"
                         className="new-prop-filter"

@@ -202,12 +202,12 @@ export function ActionFilterRow({
             visible={dropDownCondition}
             onClickOutside={() => selectFilter(null)}
         >
-            {({ setRef }) => (
+            {({ ref }) => (
                 <Button
                     data-attr={'trend-element-subject-' + index}
                     onClick={onClick}
                     block
-                    ref={setRef}
+                    ref={ref}
                     disabled={disabled || readOnly}
                     style={{
                         maxWidth: '100%',

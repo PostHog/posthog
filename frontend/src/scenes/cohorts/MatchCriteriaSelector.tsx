@@ -88,8 +88,6 @@ function PropertyCriteriaRow({
                     }}
                     propertyFilters={group.properties}
                     taxonomicGroupTypes={[TaxonomicFilterGroupType.PersonProperties, TaxonomicFilterGroupType.Cohorts]}
-                    popoverPlacement="top"
-                    taxonomicPopoverPlacement="auto"
                 />
             </div>
         </div>

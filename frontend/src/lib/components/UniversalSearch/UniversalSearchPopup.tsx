@@ -1,5 +1,5 @@
 import './UniversalSearch.scss'
-import React, { useState } from 'react'
+import React, { MutableRefObject, useState } from 'react'
 import { LemonButtonWithPopupProps } from '../LemonButton'
 import { TaxonomicFilterGroupType, TaxonomicFilterLogicProps, TaxonomicFilterValue } from '../TaxonomicFilter/types'
 import { Popup } from 'lib/components/Popup/Popup'
@@ -178,7 +178,7 @@ export function UniversalSearchPopup({
                     },
                 ]}
             >
-                {({ setRef }) => (
+                {({ ref }) => (
                     <div
                         data-attr={dataAttr}
                         onClick={(e) => {
@@ -186,7 +186,7 @@ export function UniversalSearchPopup({
                             e.stopPropagation()
                             setVisible(!visible)
                         }}
-                        ref={setRef}
+                        ref={ref as MutableRefObject<HTMLDivElement>}
                         className={clsx(
                             { 'full-width': fullWidth },
                             '',

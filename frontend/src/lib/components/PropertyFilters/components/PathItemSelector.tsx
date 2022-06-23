@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { MutableRefObject, useState } from 'react'
 import { Popup } from 'lib/components/Popup/Popup'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { SimpleOption, TaxonomicFilterGroupType, TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
@@ -26,7 +26,6 @@ export function PathItemSelector({
         <Popup
             visible={visible}
             placement={'bottom-end'}
-            fallbackPlacements={['bottom-start']}
             onClickOutside={() => setVisible(false)}
             overlay={
                 <TaxonomicFilter
@@ -41,9 +40,12 @@ export function PathItemSelector({
                 />
             }
         >
-            {({ setRef }) => {
+            {({ ref }) => {
                 return (
-                    <div ref={setRef} onClick={disabled ? () => {} : () => setVisible(!visible)}>
+                    <div
+                        ref={ref as MutableRefObject<HTMLDivElement>}
+                        onClick={disabled ? () => {} : () => setVisible(!visible)}
+                    >
                         {children}
                     </div>
                 )
