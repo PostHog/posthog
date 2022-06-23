@@ -250,10 +250,10 @@ export function PropertyValue({
                 <DurationPicker
                     style={commonInputProps.style}
                     autoFocus={autoFocus}
-                    initialValue={value}
+                    initialValue={value as number}
                     onChange={setValue}
                     key={propertyKey}
-                 />
+                />
             ) : (
                 <AutoComplete
                     {...commonInputProps}

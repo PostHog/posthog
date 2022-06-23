@@ -11,7 +11,7 @@ export interface DurationPickerProps {
 
 const TIME_MULTIPLIERS: Record<TimeUnit, number> = { seconds: 1, minutes: 60, hours: 3600 }
 
-const convertSecondsToDuration = (seconds: number): Duration => {
+export const convertSecondsToDuration = (seconds: number): Duration => {
     const orderOfUnitsToTest: TimeUnit[] = ['hours', 'minutes']
     for (const unit of orderOfUnitsToTest) {
         if (seconds / TIME_MULTIPLIERS[unit] >= 1 && seconds % TIME_MULTIPLIERS[unit] === 0) {
@@ -38,7 +38,7 @@ export const durationPickerLogic = kea<durationPickerLogicType>({
 
     reducers: ({ props }) => ({
         unit: [
-            convertSecondsToDuration(props.initialValue).unit as TimeUnit,
+            props.initialValue ? convertSecondsToDuration(props.initialValue).unit : ('minutes' as TimeUnit),
             {
                 setUnit: (_, { unit }) => unit,
             },

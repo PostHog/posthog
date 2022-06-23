@@ -10,8 +10,8 @@ interface Props {
     initialValue: number
     onChange: (value: number) => void
     key: string
-    autoFocus: boolean
-    style: Partial<React.CSSProperties>
+    autoFocus?: boolean
+    style?: Partial<React.CSSProperties>
 }
 
 export const durationOptions: TimeUnit[] = ['seconds', 'minutes', 'hours']
