@@ -1,3 +1,10 @@
+/*
+This file contains a bunch of legacy E2E tests mixed with unit tests.
+
+Rather than add tests here, consider improving event-pipeline-integration test suite or adding
+unit tests to appropriate classes/functions.
+*/
+
 import { Properties } from '@posthog/plugin-scaffold'
 import { PluginEvent } from '@posthog/plugin-scaffold/src/types'
 import * as IORedis from 'ioredis'
@@ -11,7 +18,6 @@ import {
     LogLevel,
     Person,
     PluginsServerConfig,
-    PreIngestionEvent,
     PropertyType,
     PropertyUpdateOperation,
     Team,
@@ -102,18 +108,26 @@ async function processEvent(
     distinctId: string,
     ip: string | null,
     _siteUrl: string,
-    data: PluginEvent,
+    data: Partial<PluginEvent>,
     teamId: number,
     timestamp: DateTime,
     eventUuid: string
-): Promise<PreIngestionEvent | null> {
-    const response = await eventsProcessor.processEvent(distinctId, ip, data, teamId, timestamp, eventUuid)
-    if (response) {
-        await eventsProcessor.createEvent(response)
-    }
-    await delayUntilEventIngested(() => hub.db.fetchEvents(), ++processEventCounter)
+): Promise<void> {
+    const pluginEvent: PluginEvent = {
+        distinct_id: distinctId,
+        site_url: _siteUrl,
+        team_id: teamId,
+        timestamp: timestamp.toUTC().toISO(),
+        now: timestamp.toUTC().toISO(),
+        ip: ip,
+        uuid: eventUuid,
+        ...data,
+    } as any as PluginEvent
 
-    return response
+    const runner = new EventPipelineRunner(hub, pluginEvent)
+    await runner.runEventPipeline(pluginEvent)
+
+    await delayUntilEventIngested(() => hub.db.fetchEvents(), ++processEventCounter)
 }
 
 // Simple client used to simulate sending events
@@ -580,10 +594,9 @@ test('capture new person', async () => {
 })
 
 test('capture bad team', async () => {
-    await expect(async () => {
-        await processEvent(
+    await expect(
+        eventsProcessor.processEvent(
             'asdfasdfasdf',
-            '',
             '',
             {
                 event: '$pageview',
@@ -593,7 +606,7 @@ test('capture bad team', async () => {
             now,
             new UUIDT().toString()
         )
-    }).rejects.toThrowError("No team found with ID 1337. Can't ingest event.")
+    ).rejects.toThrowError("No team found with ID 1337. Can't ingest event.")
 })
 
 test('capture no element', async () => {
@@ -993,8 +1006,9 @@ test('snapshot event stored as session_recording_event', async () => {
 })
 
 test('$snapshot event creates new person if needed', async () => {
-    await eventsProcessor.processEvent(
+    await processEvent(
         'some_new_id',
+        '',
         '',
         {
             event: '$snapshot',
@@ -1821,9 +1835,8 @@ test('long event name substr', async () => {
 
 test('throws with bad uuid', async () => {
     await expect(
-        processEvent(
+        eventsProcessor.processEvent(
             'xxx',
-            '',
             '',
             { event: 'E', properties: { price: 299.99, name: 'AirPods Pro' } } as any as PluginEvent,
             team.id,
@@ -1833,9 +1846,8 @@ test('throws with bad uuid', async () => {
     ).rejects.toEqual(new Error('Not a valid UUID: "this is not an uuid"'))
 
     await expect(
-        processEvent(
+        eventsProcessor.processEvent(
             'xxx',
-            '',
             '',
             { event: 'E', properties: { price: 299.99, name: 'AirPods Pro' } } as any as PluginEvent,
             team.id,

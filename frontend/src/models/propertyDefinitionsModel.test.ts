@@ -63,7 +63,21 @@ describe('the property definitions model', () => {
     })
 
     it('can load property definitions', () => {
-        expectLogic(logic).toMatchValues({ propertyDefinitions })
+        expectLogic(logic).toMatchValues({
+            propertyDefinitions: [
+                // Locally defined property definition
+                {
+                    description: 'Duration of the session',
+                    id: '$session_duration',
+                    is_event_property: false,
+                    is_numerical: true,
+                    name: '$session_duration',
+                    property_type: 'Duration',
+                },
+                // Fetched property definitions
+                ...propertyDefinitions,
+            ],
+        })
     })
 
     it('does not describe a property that has no server provided type', () => {

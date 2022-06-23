@@ -6,10 +6,10 @@ from posthog.constants import TRENDS_CUMULATIVE, TRENDS_PIE
 from posthog.models import Cohort, Person
 from posthog.models.filters.filter import Filter
 from posthog.queries.trends.trends import Trends
-from posthog.test.base import APIBaseTest, _create_event
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, snapshot_clickhouse_queries
 
 
-class TestFormula(APIBaseTest):
+class TestFormula(ClickhouseTestMixin, APIBaseTest):
     CLASS_DATA_LEVEL_SETUP = False
 
     def setUp(self):
@@ -23,39 +23,44 @@ class TestFormula(APIBaseTest):
                 team=self.team,
                 event="session start",
                 distinct_id="blabla",
-                properties={"session duration": 200, "location": "Paris", "$current_url": "http://example.org"},
+                properties={
+                    "session duration": 200,
+                    "location": "Paris",
+                    "$current_url": "http://example.org",
+                    "$session_id": "1",
+                },
             )
             _create_event(
                 team=self.team,
                 event="session start",
                 distinct_id="blabla",
-                properties={"session duration": 300, "location": "Paris"},
+                properties={"session duration": 300, "location": "Paris", "$session_id": "1",},
             )
             _create_event(
                 team=self.team,
                 event="session start",
                 distinct_id="blabla",
-                properties={"session duration": 400, "location": "London"},
+                properties={"session duration": 400, "location": "London", "$session_id": "1",},
             )
         with freeze_time("2020-01-03T13:01:01Z"):
             _create_event(
                 team=self.team,
                 event="session start",
                 distinct_id="blabla",
-                properties={"session duration": 400, "location": "London"},
+                properties={"session duration": 400, "location": "London", "$session_id": "1",},
             )
         with freeze_time("2020-01-03T13:04:01Z"):
             _create_event(
                 team=self.team,
                 event="session start",
                 distinct_id="blabla",
-                properties={"session duration": 500, "location": "London"},
+                properties={"session duration": 500, "location": "London", "$session_id": "1",},
             )
             _create_event(
                 team=self.team,
                 event="session end",
                 distinct_id="blabla",
-                properties={"session duration": 500, "location": "London"},
+                properties={"session duration": 500, "location": "London", "$session_id": "1",},
             )
 
     def _run(self, extra: Dict = {}, run_at: Optional[str] = None):
@@ -142,6 +147,23 @@ class TestFormula(APIBaseTest):
 
         self.assertEqual(self._run({"formula": "A/0"})[0]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
         self.assertEqual(self._run({"formula": "A/0"})[0]["count"], 0)
+
+    @snapshot_clickhouse_queries
+    def test_formula_with_unique_sessions(self):
+        with freeze_time("2020-01-04T13:01:01Z"):
+            action_response = Trends().run(
+                Filter(
+                    data={
+                        "events": [
+                            {"id": "session start", "math": "unique_session"},
+                            {"id": "session start", "math": "dau"},
+                        ],
+                        "formula": "A / B",
+                    }
+                ),
+                self.team,
+            )
+            self.assertEqual(action_response[0]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 0.0])
 
     def test_breakdown(self):
         response = self._run({"formula": "A - B", "breakdown": "location"})

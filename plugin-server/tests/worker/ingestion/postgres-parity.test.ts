@@ -192,7 +192,7 @@ describe('postgres parity', () => {
         // update date and boolean to false
 
         const randomDate = DateTime.utc().minus(100000).setZone('UTC')
-        const updatedPerson = await hub.db.updatePersonDeprecated(person, {
+        const [updatedPerson] = await hub.db.updatePersonDeprecated(person, {
             created_at: randomDate,
             is_identified: false,
         })

@@ -71,9 +71,6 @@ export async function createHub(
     const conversionBufferEnabledTeams = new Set(
         serverConfig.CONVERSION_BUFFER_ENABLED_TEAMS.split(',').filter(String).map(Number)
     )
-    const ingestionBatchBreakupByDistinctIdTeams = new Set(
-        serverConfig.INGESTION_BATCH_BREAKUP_BY_DISTINCT_ID_TEAMS.split(',').filter(String).map(Number)
-    )
 
     if (serverConfig.STATSD_HOST) {
         status.info('🤔', `Connecting to StatsD...`)
@@ -214,7 +211,7 @@ export async function createHub(
     const rootAccessManager = new RootAccessManager(db)
     const promiseManager = new PromiseManager(serverConfig, statsd)
     const siteUrlManager = new SiteUrlManager(db, serverConfig.SITE_URL)
-    const actionManager = new ActionManager(db)
+    const actionManager = new ActionManager(db, capabilities)
     await actionManager.prepare()
 
     const hub: Partial<Hub> = {
@@ -247,7 +244,6 @@ export async function createHub(
         actionManager,
         actionMatcher: new ActionMatcher(db, actionManager, statsd),
         conversionBufferEnabledTeams,
-        ingestionBatchBreakupByDistinctIdTeams,
     }
 
     // :TODO: This is only used on worker threads, not main

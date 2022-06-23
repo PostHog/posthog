@@ -117,6 +117,7 @@ export const FEATURE_FLAGS = {
     BREAKDOWN_ATTRIBUTION: 'breakdown-attribution', // owner: @neilkakkar
     INSIGHT_SUBSCRIPTIONS: 'insight-subscriptions', // owner: @benjackwhite
     SIMPLIFY_ACTIONS: 'simplify-actions', // owner: @alexkim205,
+    SESSION_ANALYSIS: 'session-analysis', // owner: @rcmarron
     TOOLBAR_LAUNCH_SIDE_ACTION: 'toolbar-launch-side-action', // owner: @pauldambra,
 }
 
@@ -140,6 +141,7 @@ export const FEATURE_MINIMUM_PLAN: Record<AvailableFeature, LicensePlan> = {
     [AvailableFeature.PROJECT_BASED_PERMISSIONING]: LicensePlan.Enterprise,
     [AvailableFeature.SAML]: LicensePlan.Enterprise,
     [AvailableFeature.SSO_ENFORCEMENT]: LicensePlan.Enterprise,
+    [AvailableFeature.SUBSCRIPTIONS]: LicensePlan.Scale,
 }
 
 export const ENTITY_MATCH_TYPE = 'entities'

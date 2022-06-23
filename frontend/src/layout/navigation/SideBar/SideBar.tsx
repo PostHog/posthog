@@ -12,14 +12,14 @@ import {
     IconExperiment,
     IconFlag,
     IconGauge,
+    IconLive,
+    IconOpenInApp,
     IconPerson,
     IconPin,
     IconPlus,
     IconRecording,
     IconSettings,
     IconTools,
-    IconLive,
-    IconOpenInApp,
 } from 'lib/components/icons'
 import { LemonDivider } from 'lib/components/LemonDivider'
 import { Lettermark } from 'lib/components/Lettermark/Lettermark'
@@ -62,53 +62,6 @@ function Pages(): JSX.Element {
 
     const [arePinnedDashboardsShown, setArePinnedDashboardsShown] = useState(false)
     const [isToolbarLaunchShown, setIsToolbarLaunchShown] = useState(false)
-
-    const toolbarSideAction = !!featureFlags[FEATURE_FLAGS.TOOLBAR_LAUNCH_SIDE_ACTION]
-        ? {
-              identifier: 'toolbar-launch',
-              tooltip: 'Launch toolbar',
-              onClick: () => setIsToolbarLaunchShown((state) => !state),
-              popup: {
-                  visible: isToolbarLaunchShown,
-                  onClickOutside: () => setIsToolbarLaunchShown(false),
-                  onClickInside: hideSideBarMobile,
-                  overlay: (
-                      <div className="SideBar__side-actions" data-attr="sidebar-launch-toolbar">
-                          <h5>TOOLBAR URLS</h5>
-                          <LemonDivider />
-                          {appUrls.map((appUrl, index) => (
-                              <LemonButton
-                                  className="LaunchToolbarButton"
-                                  type="stealth"
-                                  fullWidth
-                                  key={index}
-                                  onClick={() => setIsToolbarLaunchShown(false)}
-                                  href={launchUrl(appUrl)}
-                                  sideIcon={
-                                      <Tooltip title="Launch toolbar">
-                                          <IconOpenInApp />
-                                      </Tooltip>
-                                  }
-                              >
-                                  <Typography.Text ellipsis={true} title={appUrl}>
-                                      {appUrl}
-                                  </Typography.Text>
-                              </LemonButton>
-                          ))}
-                          <LemonButton
-                              type="stealth"
-                              data-attr="sidebar-launch-toolbar-add-new-url"
-                              fullWidth
-                              to={`${urls.toolbarLaunch()}?addNew=true`}
-                              onClick={() => setIsToolbarLaunchShown(false)}
-                          >
-                              Add toolbar URL
-                          </LemonButton>
-                      </div>
-                  ),
-              },
-          }
-        : undefined
 
     return (
         <div className="Pages">
@@ -256,7 +209,50 @@ function Pages(): JSX.Element {
                         icon={<IconTools />}
                         identifier={Scene.ToolbarLaunch}
                         to={urls.toolbarLaunch()}
-                        sideAction={toolbarSideAction}
+                        sideAction={{
+                            identifier: 'toolbar-launch',
+                            tooltip: 'Launch toolbar',
+                            onClick: () => setIsToolbarLaunchShown((state) => !state),
+                            popup: {
+                                visible: isToolbarLaunchShown,
+                                onClickOutside: () => setIsToolbarLaunchShown(false),
+                                onClickInside: hideSideBarMobile,
+                                overlay: (
+                                    <div className="SideBar__side-actions" data-attr="sidebar-launch-toolbar">
+                                        <h5>TOOLBAR URLS</h5>
+                                        <LemonDivider />
+                                        {appUrls.map((appUrl, index) => (
+                                            <LemonButton
+                                                className="LaunchToolbarButton"
+                                                type="stealth"
+                                                fullWidth
+                                                key={index}
+                                                onClick={() => setIsToolbarLaunchShown(false)}
+                                                href={launchUrl(appUrl)}
+                                                sideIcon={
+                                                    <Tooltip title="Launch toolbar">
+                                                        <IconOpenInApp />
+                                                    </Tooltip>
+                                                }
+                                            >
+                                                <Typography.Text ellipsis={true} title={appUrl}>
+                                                    {appUrl}
+                                                </Typography.Text>
+                                            </LemonButton>
+                                        ))}
+                                        <LemonButton
+                                            type="stealth"
+                                            data-attr="sidebar-launch-toolbar-add-new-url"
+                                            fullWidth
+                                            to={`${urls.toolbarLaunch()}?addNew=true`}
+                                            onClick={() => setIsToolbarLaunchShown(false)}
+                                        >
+                                            Add toolbar URL
+                                        </LemonButton>
+                                    </div>
+                                ),
+                            },
+                        }}
                     />
                     <PageButton
                         icon={<IconSettings />}
