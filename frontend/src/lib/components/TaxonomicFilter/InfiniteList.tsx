@@ -22,7 +22,7 @@ import clsx from 'clsx'
 import { definitionPopupLogic } from 'lib/components/DefinitionPopup/definitionPopupLogic'
 import { ControlledDefinitionPopupContents } from 'lib/components/DefinitionPopup/DefinitionPopupContents'
 import { pluralize } from 'lib/utils'
-import { offset, shift, useFloating } from '@floating-ui/react-dom-interactions'
+import { flip, offset, shift, size, useFloating } from '@floating-ui/react-dom-interactions'
 
 enum ListTooltip {
     None = 0,
@@ -189,7 +189,17 @@ export function InfiniteList(): JSX.Element {
     const floatingReturn = useFloating<HTMLElement>({
         placement: 'right',
         strategy: 'fixed',
-        middleware: [offset(4), shift({ padding: 5 })],
+        middleware: [
+            offset(4),
+            shift({ padding: 5 }),
+            flip({ fallbackPlacements: ['left'] }),
+            size({
+                padding: 5,
+                apply({ availableWidth, elements: { floating } }) {
+                    Object.assign(floating.style, { visibility: availableWidth > 330 ? 'visible' : 'hidden' })
+                },
+            }),
+        ],
     })
 
     const {
