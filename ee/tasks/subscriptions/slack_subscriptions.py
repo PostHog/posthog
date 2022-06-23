@@ -29,20 +29,9 @@ def send_slack_subscription_report(
 ) -> None:
     utm_tags = f"{UTM_TAGS_BASE}&utm_medium=slack"
 
-    resource_name = None
-    resource_noun = None
-    resource_url = None
-
-    if subscription.insight:
-        resource_name = f"{subscription.insight.name or subscription.insight.derived_name}"
-        resource_noun = "Insight"
-        resource_url = subscription.insight.url
-    elif subscription.dashboard:
-        resource_name = subscription.dashboard.name
-        resource_noun = "Dashboard"
-        resource_url = subscription.dashboard.url
-    else:
-        raise NotImplementedError()
+    resource_info = subscription.resource_info
+    if not resource_info:
+        return NotImplementedError("This type of subscription resource is not supported")
 
     integration = Integration.objects.filter(team=subscription.team, kind="slack").first()
 
@@ -57,7 +46,7 @@ def send_slack_subscription_report(
 
     first_asset, *other_assets = assets
 
-    title = f"Your subscription to the {resource_noun} *{resource_name}* is ready!"
+    title = f"Your subscription to the {resource_info.kind} *{resource_info.name}* is ready!"
 
     blocks = []
 
@@ -75,7 +64,7 @@ def send_slack_subscription_report(
                     {
                         "type": "button",
                         "text": {"type": "plain_text", "text": "View in PostHog"},
-                        "url": f"{resource_url}?{utm_tags}",
+                        "url": f"{resource_info.url}?{utm_tags}",
                     },
                     {
                         "type": "button",
@@ -106,7 +95,7 @@ def send_slack_subscription_report(
                         "type": "section",
                         "text": {
                             "type": "mrkdwn",
-                            "text": f"Showing {len(assets)} of {total_asset_count} Insights. <{resource_url}?{utm_tags}|View the rest in PostHog>",
+                            "text": f"Showing {len(assets)} of {total_asset_count} Insights. <{resource_info.url}?{utm_tags}|View the rest in PostHog>",
                         },
                     }
                 ],

@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from datetime import timedelta
 from typing import Any, Dict
 
@@ -35,6 +36,13 @@ RRULE_WEEKDAY_MAP = {
     "saturday": SA,
     "sunday": SU,
 }
+
+
+@dataclass
+class SubscriptionResourceInfo:
+    kind: str = None
+    name: str = None
+    url: str = None
 
 
 class Subscription(models.Model):
@@ -121,6 +129,17 @@ class Subscription(models.Model):
             return absolute_uri(f"/insights/{self.insight.short_id}/subscriptions/{self.id}")
         elif self.dashboard:
             return absolute_uri(f"/dashboard/{self.dashboard.id}/subscriptions/{self.id}")
+        return None
+
+    @property
+    def resource_info(self) -> SubscriptionResourceInfo:
+        if self.insight:
+            return SubscriptionResourceInfo(
+                "Insight", f"{self.insight.name or self.insight.derived_name}", self.insight.url
+            )
+        elif self.dashboard:
+            return SubscriptionResourceInfo("Dashboard", self.dashboard.name, self.dashboard.url)
+
         return None
 
     @property

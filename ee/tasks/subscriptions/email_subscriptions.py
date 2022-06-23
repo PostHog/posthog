@@ -26,31 +26,22 @@ def send_email_subscription_report(
     self_invite = inviter.email == email
 
     subject = "Posthog Report"
-    resource_noun = None
-    resource_url = None
 
-    if subscription.insight:
-        resource_name = f"{subscription.insight.name or subscription.insight.derived_name}"
-        resource_noun = "Insight"
-        resource_url = subscription.insight.url
-    elif subscription.dashboard:
-        resource_name = subscription.dashboard.name
-        resource_noun = "Dashboard"
-        resource_url = subscription.dashboard.url
-    else:
-        raise NotImplementedError()
+    resource_info = subscription.resource_info
+    if not resource_info:
+        return NotImplementedError("This type of subscription resource is not supported")
 
-    subject = f"PostHog {resource_noun} report - {resource_name}"
-    campaign_key = f"{resource_noun.lower()}_subscription_report_{subscription.next_delivery_date.isoformat()}"
+    subject = f"PostHog {resource_info.kind} report - {resource_info.name}"
+    campaign_key = f"{resource_info.kind.lower()}_subscription_report_{subscription.next_delivery_date.isoformat()}"
 
     unsubscribe_url = absolute_uri(f"/unsubscribe?token={get_unsubscribe_token(subscription, email)}&{utm_tags}")
 
     if is_invite:
         if self_invite:
-            subject = f"You have been subscribed to a PostHog {resource_noun}"
+            subject = f"You have been subscribed to a PostHog {resource_info.kind}"
         else:
-            subject = f"{inviter.first_name or 'Someone'} subscribed you to a PostHog {resource_noun}"
-        campaign_key = f"{resource_noun.lower()}_subscription_new_{uuid.uuid4()}"
+            subject = f"{inviter.first_name or 'Someone'} subscribed you to a PostHog {resource_info.kind}"
+        campaign_key = f"{resource_info.kind.lower()}_subscription_new_{uuid.uuid4()}"
 
     message = EmailMessage(
         campaign_key=campaign_key,
@@ -58,9 +49,9 @@ def send_email_subscription_report(
         template_name="subscription_report",
         template_context={
             "images": [x.get_public_content_url() for x in assets],
-            "resource_noun": resource_noun,
-            "resource_name": resource_name,
-            "resource_url": f"{resource_url}?{utm_tags}",
+            "resource_noun": resource_info.kind,
+            "resource_name": resource_info.name,
+            "resource_url": f"{resource_info.url}?{utm_tags}",
             "subscription_url": f"{subscription.url}?{utm_tags}",
             "unsubscribe_url": unsubscribe_url,
             "inviter": inviter if is_invite else None,
