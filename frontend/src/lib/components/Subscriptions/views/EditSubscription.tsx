@@ -22,7 +22,10 @@ import {
     weekdayOptions,
 } from '../utils'
 import { LemonDivider, LemonInput, LemonTextArea } from '@posthog/lemon-ui'
-import { LemonSelectSearch, usersLemonSelectOptions } from 'lib/components/LemonSelectSearch/LemonSelectSearch'
+import {
+    LemonSelectWithSearch,
+    usersLemonSelectOptions,
+} from 'lib/components/LemonSelectWithSearch/LemonSelectWithSearch'
 
 interface EditSubscriptionProps extends SubscriptionBaseProps {
     id: number | 'new'
@@ -140,7 +143,7 @@ export function EditSubscription({
                     <Field name={'target_value'} label={'Who do you want to subscribe'}>
                         {({ value, onChange }) => (
                             <>
-                                <LemonSelectSearch
+                                <LemonSelectWithSearch
                                     onChange={(val) => onChange(val.join(','))}
                                     value={value?.split(',').filter(Boolean)}
                                     filterOption={false}

@@ -7,7 +7,7 @@ import { ActivityType, mergeSplitPersonLogic } from './mergeSplitPersonLogic'
 import { capitalizeFirstLetter, midEllipsis, pluralize } from 'lib/utils'
 import { InlineMessage } from 'lib/components/InlineMessage/InlineMessage'
 import { Tooltip } from 'lib/components/Tooltip'
-import { LemonSelectSearch } from 'lib/components/LemonSelectSearch/LemonSelectSearch'
+import { LemonSelectWithSearch } from 'lib/components/LemonSelectWithSearch/LemonSelectWithSearch'
 
 export function MergeSplitPerson({ person }: { person: PersonType }): JSX.Element {
     const logicProps = { person }
@@ -73,7 +73,7 @@ function MergePerson(): JSX.Element {
                 .
             </p>
 
-            <LemonSelectSearch
+            <LemonSelectWithSearch
                 placeholder="Please select persons to merge"
                 onChange={(value) => setSelectedPersonsToMerge(value.map((x) => parseInt(x, 10)))}
                 filterOption={false}

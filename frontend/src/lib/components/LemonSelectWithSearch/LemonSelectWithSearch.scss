@@ -1,8 +1,8 @@
-.LemonSelectSearch {
+.LemonSelectWithSearch {
     .ant-select {
         width: 100%;
         .ant-select-selector,
-        &.ant-select-single:not(.ant-select-customize-input) .ant-select-selector {
+        &.ant-select-single .ant-select-selector {
             padding: 0.25rem;
             border-radius: var(--radius);
             font-size: 0.875rem;
@@ -11,34 +11,24 @@
 
             border: 1px solid var(--border);
             background: var(--bg-light);
-            &:not(:disabled):hover,
-            &.ant-select-focused,
-            &:not(:disabled):active {
-                background: var(--bg-light);
-                border-color: var(--primary);
-            }
-            &:not(:disabled):active {
-                color: var(--primary-active);
-            }
 
             .ant-select-selection-overflow {
                 gap: 0.25rem;
             }
         }
 
-        &.ant-select-focused:not(.ant-select-disabled).ant-select:not(.ant-select-customize-input) {
+        &:not(.ant-select-disabled):hover,
+        &.ant-select-focused:not(.ant-select-disabled),
+        &:not(.ant-select-disabled):active {
             .ant-select-selector {
                 background: var(--bg-light);
                 border-color: var(--primary);
                 box-shadow: none;
             }
         }
-
-        &.ant-select-multiple.ant-select-disabled.ant-select:not(.ant-select-customize-input) {
+        &:not(.ant-select-disabled):active {
             .ant-select-selector {
-                background: var(--bg-light);
-                border-color: var(--border);
-                box-shadow: none;
+                color: var(--primary-active);
             }
         }
 
@@ -60,17 +50,20 @@
                 }
             }
         }
+
+        .ant-select-arrow {
+            display: none;
+        }
     }
 }
 
-.LemonSelectSearchDropdown {
+.LemonSelectWithSearchDropdown {
     background: #fff;
     padding: 0.5rem;
     border-radius: var(--radius);
     border: 1px solid var(--border);
 
     .ant-select-item {
-        font-weight: 500;
         cursor: pointer;
         border-radius: var(--radius);
         padding: 0.25rem 0.5rem;

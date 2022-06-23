@@ -1,12 +1,12 @@
 import React, { useState } from 'react'
 import { ComponentMeta, ComponentStory } from '@storybook/react'
-import { LemonSelectSearch, LemonSelectSearchProps } from './LemonSelectSearch'
+import { LemonSelectWithSearch, LemonSelectWithSearchProps } from './LemonSelectWithSearch'
 import { ProfilePicture } from '../ProfilePicture'
 import { capitalizeFirstLetter } from 'lib/utils'
 
 export default {
-    title: 'Lemon UI/Lemon MultiSelect',
-    component: LemonSelectSearch,
+    title: 'Lemon UI/Lemon SelectWithSearch',
+    component: LemonSelectWithSearch,
     argTypes: {
         options: {
             defaultValue: ['ben', 'marius', 'paul', 'tiina', 'li'].reduce(
@@ -27,22 +27,20 @@ export default {
             ),
         },
     },
-} as ComponentMeta<typeof LemonSelectSearch>
+} as ComponentMeta<typeof LemonSelectWithSearch>
 
-const Template: ComponentStory<typeof LemonSelectSearch> = (
-    props: LemonSelectSearchProps<Record<string, { label: string }>>
-) => {
+const Template: ComponentStory<typeof LemonSelectWithSearch> = (props: LemonSelectWithSearchProps) => {
     const [value, setValue] = useState(props.value || [])
     return (
         <>
-            <LemonSelectSearch {...props} value={value} onChange={setValue} />
+            <LemonSelectWithSearch {...props} value={value} onChange={setValue} />
         </>
     )
 }
 
 export const Default = Template.bind({})
 Default.args = {
-    placeholder: 'Pick one emails',
+    placeholder: 'Pick one email',
 }
 
 export const MultipleSelect = Template.bind({})
@@ -58,4 +56,7 @@ MultipleSelectWithCustom.args = {
 }
 
 export const Disabled = Template.bind({})
-Disabled.args = { disabled: true }
+Disabled.args = {
+    placeholder: 'Disabled...',
+    disabled: true,
+}

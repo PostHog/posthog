@@ -17,7 +17,10 @@ import { ProfilePicture } from 'lib/components/ProfilePicture'
 import { Tooltip } from 'lib/components/Tooltip'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { AlertMessage } from 'lib/components/AlertMessage'
-import { LemonSelectSearch, usersLemonSelectOptions } from 'lib/components/LemonSelectSearch/LemonSelectSearch'
+import {
+    LemonSelectWithSearch,
+    usersLemonSelectOptions,
+} from 'lib/components/LemonSelectWithSearch/LemonSelectWithSearch'
 
 export const DASHBOARD_RESTRICTION_OPTIONS: LemonSelectOptions = {
     [DashboardRestrictionLevel.EveryoneInProjectCanEdit]: {
@@ -131,7 +134,7 @@ function DashboardCollaboration({ dashboardId }: { dashboardId: DashboardType['i
                                 <>
                                     <div className="flex gap-05">
                                         <div style={{ flex: 1 }}>
-                                            <LemonSelectSearch
+                                            <LemonSelectWithSearch
                                                 placeholder="Search for team members to add…"
                                                 value={explicitCollaboratorsToBeAdded}
                                                 loading={explicitCollaboratorsLoading}

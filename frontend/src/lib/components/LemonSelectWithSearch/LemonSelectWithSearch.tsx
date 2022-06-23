@@ -3,22 +3,22 @@ import React from 'react'
 import { UserBasicType } from '~/types'
 import { LemonSnack } from '../LemonSnack/LemonSnack'
 import { ProfilePicture } from '../ProfilePicture'
-import './LemonSelectSearch.scss'
+import './LemonSelectWithSearch.scss'
 
-export interface LemonSelectSearchOption {
+export interface LemonSelectWithSearchOption {
     label: string | React.ReactNode
     disabled?: boolean
     'data-attr'?: string
 }
 
-export interface LemonSelectSearchOptionItem extends LemonSelectSearchOption {
+export interface LemonSelectWithSearchOptionItem extends LemonSelectWithSearchOption {
     key: string
 }
 
-export type LemonSelectSearchOptions = Record<string, LemonSelectSearchOption>
+export type LemonSelectWithSearchOptions = Record<string, LemonSelectWithSearchOption>
 
-export interface LemonSelectSearchProps {
-    options?: LemonSelectSearchOptions | LemonSelectSearchOptionItem[]
+export interface LemonSelectWithSearchProps {
+    options?: LemonSelectWithSearchOptions | LemonSelectWithSearchOptionItem[]
     value?: string[] | null
     disabled?: boolean
     loading?: boolean
@@ -30,7 +30,7 @@ export interface LemonSelectSearchProps {
     'data-attr'?: string
 }
 
-export function LemonSelectSearch({
+export function LemonSelectWithSearch({
     value,
     options,
     disabled,
@@ -41,8 +41,8 @@ export function LemonSelectSearch({
     filterOption = true,
     mode = 'single',
     ...props
-}: LemonSelectSearchProps): JSX.Element {
-    const saneOptions: LemonSelectSearchOptionItem[] = Array.isArray(options)
+}: LemonSelectWithSearchProps): JSX.Element {
+    const saneOptions: LemonSelectWithSearchOptionItem[] = Array.isArray(options)
         ? options
         : Object.entries(options || {}).map(([key, option]) => ({
               key: key,
@@ -56,7 +56,7 @@ export function LemonSelectSearch({
     }))
 
     return (
-        <div className="LemonSelectSearch" {...props}>
+        <div className="LemonSelectWithSearch" {...props}>
             <Select
                 mode={mode === 'multiple' ? 'multiple' : mode === 'multiple-custom' ? 'tags' : undefined}
                 showSearch
@@ -66,7 +66,7 @@ export function LemonSelectSearch({
                 onChange={(v) => onChange?.(v)}
                 tokenSeparators={[',']}
                 value={value ? value : []}
-                dropdownRender={(menu) => <div className="LemonSelectSearchDropdown">{menu}</div>}
+                dropdownRender={(menu) => <div className="LemonSelectWithSearchDropdown">{menu}</div>}
                 options={antOptions}
                 placeholder={placeholder}
                 notFoundContent={<></>}
@@ -80,7 +80,7 @@ export function LemonSelectSearch({
 export function usersLemonSelectOptions(
     users: UserBasicType[],
     key: 'email' | 'uuid' = 'email'
-): LemonSelectSearchOptionItem[] {
+): LemonSelectWithSearchOptionItem[] {
     return users.map((user) => ({
         key: user[key],
         label: (
