@@ -2,7 +2,6 @@ from typing import Any, Dict, cast
 
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
-from django_deprecate_fields import deprecate_field
 
 from posthog.constants import AvailableFeature
 from posthog.utils import absolute_uri
@@ -44,11 +43,9 @@ class Dashboard(models.Model):
     insights = models.ManyToManyField("posthog.Insight", related_name="dashboards", through="DashboardTile", blank=True)
 
     # Deprecated in favour of app-wide tagging model. See EnterpriseTaggedItem
-    deprecated_tags: ArrayField = deprecate_field(
-        ArrayField(models.CharField(max_length=32), blank=True, default=list), return_instead=[],
-    )
-    tags: ArrayField = deprecate_field(
-        ArrayField(models.CharField(max_length=32), blank=True, default=None), return_instead=[],
+    deprecated_tags: ArrayField = ArrayField(models.CharField(max_length=32), null=True, blank=True, default=list)
+    deprecated_tags_v2: ArrayField = ArrayField(
+        models.CharField(max_length=32), null=True, blank=True, default=None, db_column="tags"
     )
 
     @property

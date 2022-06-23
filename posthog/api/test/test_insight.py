@@ -266,8 +266,8 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
 
         self.assertEqual(len(response.json()["results"]), 2)
         self.assertEqual(
-            list(response.json()["results"][0].keys()),
-            [
+            set(response.json()["results"][0].keys()),
+            {
                 "id",
                 "short_id",
                 "name",
@@ -277,12 +277,12 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                 "last_refresh",
                 "refreshing",
                 "saved",
-                "tags",
                 "updated_at",
                 "created_by",
                 "created_at",
                 "last_modified_at",
-            ],
+                "tags",
+            },
         )
 
     def test_listing_insights_does_not_nplus1(self):
