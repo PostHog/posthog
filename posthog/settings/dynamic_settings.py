@@ -16,11 +16,6 @@ CONSTANCE_CONFIG = {
         "Whether recordings in the session_recording_events table are processed to object_storage and the session_recording_metadata table",
         bool,
     ),
-    "RECORDINGS_POST_PROCESSING_CRON": (
-        "*/5 * * * *",
-        "The cron schedule to launch session recording post processing",
-        str,
-    ),
     "MATERIALIZED_COLUMNS_ENABLED": (
         get_from_env("MATERIALIZED_COLUMNS_ENABLED", True, type_cast=str_to_bool),
         "Whether materialized columns should be created or used at query time.",

@@ -144,6 +144,13 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
                 clear_clickhouse_crontab, clickhouse_clear_removed_data.s(), name="clickhouse clear removed data"
             )
 
+        sender.add_periodic_task(
+            get_crontab(settings.RECORDINGS_POST_PROCESSING_CRON),
+            post_process_session_recordings.s(),
+            name="recordings post-processing controller",
+            queue="post-processing",
+        )
+
     except Exception as e:
         logger.error(f"celery scheduler failed: {str(e)}", exception=e)
         raise e
@@ -532,3 +539,15 @@ def schedule_all_subscriptions():
         pass
     else:
         schedule_all_subscriptions()
+
+
+@app.task()
+def post_process_session_recordings():
+    from posthog.models.instance_setting import get_instance_setting
+
+    recordings_post_processing_enabled = get_instance_setting("RECORDINGS_POST_PROCESSING_ENABLED")
+
+    if not recordings_post_processing_enabled:
+        return
+
+    logger.debug("running post_process_session_recordings")
