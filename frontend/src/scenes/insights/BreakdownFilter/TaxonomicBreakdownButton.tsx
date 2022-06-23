@@ -59,24 +59,19 @@ export function TaxonomicBreakdownButton({
             visible={open}
             onClickOutside={() => setOpen(false)}
         >
-            {({ ref }) => (
-                <Button
-                    type={buttonType}
-                    icon={<PlusCircleOutlined />}
-                    data-attr="add-breakdown-button"
-                    onClick={() => setOpen(!open)}
-                    className="taxonomic-breakdown-filter tag-button"
-                    ref={ref}
-                >
-                    <PropertyKeyInfo
-                        value={
-                            breakdownType === TaxonomicFilterGroupType.CohortsWithAllUsers
-                                ? 'Add cohort'
-                                : 'Add breakdown'
-                        }
-                    />
-                </Button>
-            )}
+            <Button
+                type={buttonType}
+                icon={<PlusCircleOutlined />}
+                data-attr="add-breakdown-button"
+                onClick={() => setOpen(!open)}
+                className="taxonomic-breakdown-filter tag-button"
+            >
+                <PropertyKeyInfo
+                    value={
+                        breakdownType === TaxonomicFilterGroupType.CohortsWithAllUsers ? 'Add cohort' : 'Add breakdown'
+                    }
+                />
+            </Button>
         </Popup>
     )
 }

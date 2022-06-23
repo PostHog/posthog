@@ -22,7 +22,7 @@ import { CSSTransition } from 'react-transition-group'
 import { Tooltip } from 'lib/components/Tooltip'
 import { humanFriendlyNumber } from 'lib/utils'
 import { TitleWithIcon } from '../TitleWithIcon'
-import { UseFloatingReturn } from '@floating-ui/react-dom'
+import { UseFloatingReturn } from '@floating-ui/react-dom-interactions'
 
 export const ThirtyDayVolumeTitle = ({ tooltipPlacement }: { tooltipPlacement?: 'top' | 'bottom' }): JSX.Element => (
     <TitleWithIcon

@@ -1,5 +1,5 @@
 import './UniversalSearch.scss'
-import React, { MutableRefObject, useState } from 'react'
+import React, { useState } from 'react'
 import { LemonButtonWithPopupProps } from '../LemonButton'
 import { TaxonomicFilterGroupType, TaxonomicFilterLogicProps, TaxonomicFilterValue } from '../TaxonomicFilter/types'
 import { Popup } from 'lib/components/Popup/Popup'
@@ -178,33 +178,30 @@ export function UniversalSearchPopup({
                     },
                 ]}
             >
-                {({ ref }) => (
-                    <div
-                        data-attr={dataAttr}
-                        onClick={(e) => {
-                            e.preventDefault()
-                            e.stopPropagation()
-                            setVisible(!visible)
-                        }}
-                        ref={ref as MutableRefObject<HTMLDivElement>}
-                        className={clsx(
-                            { 'full-width': fullWidth },
-                            '',
-                            'universal-search-box',
-                            isSideBarShown && 'universal-search-box--sidebar-shown'
-                        )}
-                        style={style}
-                    >
-                        {!visible && (
-                            <LemonInput
-                                data-attr="universal-search-field"
-                                placeholder={'Search...'}
-                                value={searchQuery}
-                                icon={<IconMagnifier />}
-                            />
-                        )}
-                    </div>
-                )}
+                <div
+                    data-attr={dataAttr}
+                    onClick={(e) => {
+                        e.preventDefault()
+                        e.stopPropagation()
+                        setVisible(!visible)
+                    }}
+                    className={clsx(
+                        { 'full-width': fullWidth },
+                        '',
+                        'universal-search-box',
+                        isSideBarShown && 'universal-search-box--sidebar-shown'
+                    )}
+                    style={style}
+                >
+                    {!visible && (
+                        <LemonInput
+                            data-attr="universal-search-field"
+                            placeholder={'Search...'}
+                            value={searchQuery}
+                            icon={<IconMagnifier />}
+                        />
+                    )}
+                </div>
             </Popup>
         </div>
     )

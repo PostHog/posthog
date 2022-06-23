@@ -1,4 +1,4 @@
-import React, { MutableRefObject, useState } from 'react'
+import React, { useState } from 'react'
 import { Popup } from 'lib/components/Popup/Popup'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { SimpleOption, TaxonomicFilterGroupType, TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
@@ -40,16 +40,7 @@ export function PathItemSelector({
                 />
             }
         >
-            {({ ref }) => {
-                return (
-                    <div
-                        ref={ref as MutableRefObject<HTMLDivElement>}
-                        onClick={disabled ? () => {} : () => setVisible(!visible)}
-                    >
-                        {children}
-                    </div>
-                )
-            }}
+            <div onClick={disabled ? () => {} : () => setVisible(!visible)}>{children}</div>
         </Popup>
     )
 }

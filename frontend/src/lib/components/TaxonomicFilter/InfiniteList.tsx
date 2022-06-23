@@ -22,8 +22,7 @@ import clsx from 'clsx'
 import { definitionPopupLogic } from 'lib/components/DefinitionPopup/definitionPopupLogic'
 import { ControlledDefinitionPopupContents } from 'lib/components/DefinitionPopup/DefinitionPopupContents'
 import { pluralize } from 'lib/utils'
-import { offset, useFloating } from '@floating-ui/react-dom'
-import { shift } from '@floating-ui/react-dom-interactions'
+import { offset, shift, useFloating } from '@floating-ui/react-dom-interactions'
 
 enum ListTooltip {
     None = 0,
@@ -315,7 +314,7 @@ export function InfiniteList(): JSX.Element {
                               />
                           </BindLogic>
                       ) : null,
-                      document.querySelector('body') as HTMLElement
+                      document.body
                   )
                 : null}
         </div>

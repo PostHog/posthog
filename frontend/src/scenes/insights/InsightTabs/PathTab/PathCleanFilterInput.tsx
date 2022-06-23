@@ -53,23 +53,16 @@ export function PathCleanFilterInput(): JSX.Element {
                         />
                     }
                 >
-                    {({ ref }) => {
-                        return (
-                            <>
-                                <Button
-                                    ref={ref}
-                                    onClick={() => setOpen(!open)}
-                                    className="new-prop-filter"
-                                    data-attr={'new-prop-filter-' + 'pathcleanfilters-local'}
-                                    type="link"
-                                    style={{ paddingLeft: 0 }}
-                                    icon={<PlusCircleOutlined />}
-                                >
-                                    {'Add Rule'}
-                                </Button>
-                            </>
-                        )
-                    }}
+                    <Button
+                        onClick={() => setOpen(!open)}
+                        className="new-prop-filter"
+                        data-attr={'new-prop-filter-' + 'pathcleanfilters-local'}
+                        type="link"
+                        style={{ paddingLeft: 0 }}
+                        icon={<PlusCircleOutlined />}
+                    >
+                        {'Add Rule'}
+                    </Button>
                 </Popup>
                 <PathCleanFilterToggle filters={filter} onChange={setFilter} />
             </Row>

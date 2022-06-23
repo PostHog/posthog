@@ -202,28 +202,25 @@ export function ActionFilterRow({
             visible={dropDownCondition}
             onClickOutside={() => selectFilter(null)}
         >
-            {({ ref }) => (
-                <Button
-                    data-attr={'trend-element-subject-' + index}
-                    onClick={onClick}
-                    block
-                    ref={ref}
-                    disabled={disabled || readOnly}
-                    style={{
-                        maxWidth: '100%',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                        borderColor: selectedFilter && selectedFilter.index === index ? 'var(--primary-hover)' : '',
-                        borderWidth: selectedFilter && selectedFilter.index === index ? '1.5px' : '1px',
-                    }}
-                >
-                    <span className="text-overflow" style={{ maxWidth: '100%' }}>
-                        <EntityFilterInfo filter={filter} />
-                    </span>
-                    <DownOutlined style={{ fontSize: 10 }} />
-                </Button>
-            )}
+            <Button
+                data-attr={'trend-element-subject-' + index}
+                onClick={onClick}
+                block
+                disabled={disabled || readOnly}
+                style={{
+                    maxWidth: '100%',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    borderColor: selectedFilter && selectedFilter.index === index ? 'var(--primary-hover)' : '',
+                    borderWidth: selectedFilter && selectedFilter.index === index ? '1.5px' : '1px',
+                }}
+            >
+                <span className="text-overflow" style={{ maxWidth: '100%' }}>
+                    <EntityFilterInfo filter={filter} />
+                </span>
+                <DownOutlined style={{ fontSize: 10 }} />
+            </Button>
         </Popup>
     )
 

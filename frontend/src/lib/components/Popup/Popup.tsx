@@ -2,10 +2,17 @@ import './Popup.scss'
 import React, { MouseEventHandler, MutableRefObject, ReactElement, useEffect, useMemo } from 'react'
 import ReactDOM from 'react-dom'
 import { useOutsideClickHandler } from 'lib/hooks/useOutsideClickHandler'
-import { offset, useFloating } from '@floating-ui/react-dom'
 import clsx from 'clsx'
 import { CSSTransition } from 'react-transition-group'
-import { autoUpdate, flip, Middleware, Placement, shift } from '@floating-ui/react-dom-interactions'
+import {
+    offset,
+    useFloating,
+    autoUpdate,
+    flip,
+    Middleware,
+    Placement,
+    shift,
+} from '@floating-ui/react-dom-interactions'
 
 export interface PopupProps {
     visible?: boolean
