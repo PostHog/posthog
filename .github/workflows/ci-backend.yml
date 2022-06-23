@@ -265,6 +265,7 @@ jobs:
                   person-on-events: ${{ matrix.person-on-events }}
 
             - uses: EndBug/add-and-commit@v9 # You can change this to use a specific version.
+              id: add-and-commit
               if: ${{ matrix.clickhouse-server-image == 'clickhouse/clickhouse-server:22.3' && !matrix.person-on-events }}
               with:
                   # The arguments for the `git add` command (see the paragraph below for more info)
@@ -281,7 +282,7 @@ jobs:
               run: echo '::set-output name=diff::$(git status --porcelain)'
 
             - name: Fail CI if some snapshots have been updated but not committed
-              if: steps.changed-files.outputs.diff != '' && ${{ matrix.clickhouse-server-image == 'clickhouse/clickhouse-server:22.3' && !matrix.person-on-events }}
+              if: steps.changed-files.outputs.diff != '' && steps.add-and-commit.outcome == 'success'
               run: |
                   echo "${{ steps.changed-files.outputs.diff }}"
                   exit 1
