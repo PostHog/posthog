@@ -602,6 +602,13 @@ class ClickhouseTestTrends(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest):
 
         assert sorted([p["id"] for p in people]) == sorted([str(created_people["1"].uuid)])
 
+        with freeze_time("2012-01-15T04:01:34.000Z"):
+            people = get_people_from_url_ok(self.client, data["$pageview - 0"]["2012-01-14"].person_url)
+
+        assert sorted([p["id"] for p in people]) == sorted(
+            [str(created_people["1"].uuid), str(created_people["2"].uuid), str(created_people["3"].uuid)]
+        )
+
     @snapshot_clickhouse_queries
     def test_insight_trends_clean_arg(self):
 
