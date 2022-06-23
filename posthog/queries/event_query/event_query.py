@@ -1,7 +1,7 @@
 from abc import ABCMeta, abstractmethod
 from typing import Any, Dict, List, Optional, Tuple, Union
 
-from ee.clickhouse.materialized_columns.columns import ColumnName
+from posthog.clickhouse.materialized_columns import ColumnName
 from posthog.models import Cohort, Filter, Property
 from posthog.models.cohort.util import is_precalculated_query
 from posthog.models.filters.mixins.utils import cached_property
@@ -13,7 +13,7 @@ from posthog.models.property import PropertyGroup, PropertyName
 from posthog.models.property.util import parse_prop_grouped_clauses
 from posthog.models.team import Team
 from posthog.models.utils import PersonPropertiesMode
-from posthog.queries.column_optimizer import ColumnOptimizer
+from posthog.queries.column_optimizer.column_optimizer import ColumnOptimizer
 from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
 from posthog.queries.person_query import PersonQuery
 from posthog.queries.util import parse_timestamps
@@ -163,7 +163,9 @@ class EventQuery(metaclass=ABCMeta):
 
     def _get_sessions_query(self) -> Tuple[str, Dict]:
         if self._should_join_sessions:
+            params = {"team_id": self._team_id}
             parsed_date_from, parsed_date_to, date_params = parse_timestamps(filter=self._filter, team=self._team)
+            params.update(date_params)
 
             return (
                 f"""
@@ -175,14 +177,14 @@ class EventQuery(metaclass=ABCMeta):
                             events
                         WHERE
                             $session_id != ''
-                            AND team_id = {self._team_id}
+                            AND team_id = %(team_id)s
                             {parsed_date_from} - INTERVAL 24 HOUR
                             {parsed_date_to} + INTERVAL 24 HOUR
                         GROUP BY $session_id
                     ) as {self.SESSION_TABLE_ALIAS}
                     ON {self.SESSION_TABLE_ALIAS}.$session_id = {self.EVENT_TABLE_ALIAS}.$session_id
                 """,
-                date_params,
+                params,
             )
         return "", {}
 

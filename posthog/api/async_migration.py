@@ -68,7 +68,7 @@ class AsyncMigrationsViewset(StructuredViewSetMixin, viewsets.ModelViewSet):
 
     @action(methods=["POST"], detail=True)
     def trigger(self, request, **kwargs):
-        if len(get_all_running_async_migrations()) >= MAX_CONCURRENT_ASYNC_MIGRATIONS:
+        if get_all_running_async_migrations().count() >= MAX_CONCURRENT_ASYNC_MIGRATIONS:
             return response.Response(
                 {
                     "success": False,

@@ -16,22 +16,13 @@ export function EFTrendsSteps({ insightProps }: EditorFilterProps): JSX.Element 
     const { groupsTaxonomicTypes } = useValues(groupsModel)
     const { featureFlags } = useValues(featureFlagLogic)
 
-    const propertiesTaxonomicGroupTypes = featureFlags[FEATURE_FLAGS.SESSION_ANALYSIS]
-        ? [
-              TaxonomicFilterGroupType.EventProperties,
-              TaxonomicFilterGroupType.PersonProperties,
-              TaxonomicFilterGroupType.Sessions,
-              ...groupsTaxonomicTypes,
-              TaxonomicFilterGroupType.Cohorts,
-              TaxonomicFilterGroupType.Elements,
-          ]
-        : [
-              TaxonomicFilterGroupType.EventProperties,
-              TaxonomicFilterGroupType.PersonProperties,
-              ...groupsTaxonomicTypes,
-              TaxonomicFilterGroupType.Cohorts,
-              TaxonomicFilterGroupType.Elements,
-          ]
+    const propertiesTaxonomicGroupTypes = [
+        TaxonomicFilterGroupType.EventProperties,
+        TaxonomicFilterGroupType.PersonProperties,
+        ...groupsTaxonomicTypes,
+        TaxonomicFilterGroupType.Cohorts,
+        TaxonomicFilterGroupType.Elements,
+    ].concat(featureFlags[FEATURE_FLAGS.SESSION_ANALYSIS] ? [TaxonomicFilterGroupType.Sessions] : [])
 
     return (
         <>

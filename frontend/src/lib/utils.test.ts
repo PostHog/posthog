@@ -35,6 +35,7 @@ import {
     calculateDays,
     range,
     durationOperatorMap,
+    isExternalLink,
 } from './utils'
 import { ActionFilter, ElementType, FilterLogicalOperator, PropertyOperator, PropertyType, TimeUnitType } from '~/types'
 import { dayjs } from 'lib/dayjs'
@@ -164,6 +165,22 @@ describe('isURL()', () => {
         expect(isURL(1)).toEqual(false)
         expect(isURL(true)).toEqual(false)
         expect(isURL(null)).toEqual(false)
+    })
+})
+
+describe('isExternalLink()', () => {
+    it('recognizes external links properly', () => {
+        expect(isExternalLink('http://www.posthog.com')).toEqual(true)
+        expect(isExternalLink('https://www.posthog.com')).toEqual(true)
+        expect(isExternalLink('mailto:ben@posthog.com')).toEqual(true)
+    })
+
+    it('recognizes non-external links properly', () => {
+        expect(isExternalLink('path')).toEqual(false)
+        expect(isExternalLink('/path')).toEqual(false)
+        expect(isExternalLink(1)).toEqual(false)
+        expect(isExternalLink(true)).toEqual(false)
+        expect(isExternalLink(null)).toEqual(false)
     })
 })
 

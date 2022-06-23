@@ -29,10 +29,10 @@ class TestPersonalAPIKeysAPI(APIBaseTest):
     def test_delete_personal_api_key(self):
         key = PersonalAPIKey(label="Test", user=self.user)
         key.save()
-        self.assertEqual(len(PersonalAPIKey.objects.all()), 1)
+        self.assertEqual(PersonalAPIKey.objects.count(), 1)
         response = self.client.delete(f"/api/personal_api_keys/{key.id}/")
         self.assertEqual(response.status_code, 204)
-        self.assertEqual(len(PersonalAPIKey.objects.all()), 0)
+        self.assertEqual(PersonalAPIKey.objects.count(), 0)
 
     def test_list_only_user_personal_api_keys(self):
         my_label = "Test"
@@ -41,7 +41,7 @@ class TestPersonalAPIKeysAPI(APIBaseTest):
         other_user = self._create_user("abc@def.xyz")
         other_key = PersonalAPIKey(label="Other test", user=other_user)
         other_key.save()
-        self.assertEqual(len(PersonalAPIKey.objects.all()), 2)
+        self.assertEqual(PersonalAPIKey.objects.count(), 2)
         response = self.client.get("/api/personal_api_keys")
         self.assertEqual(response.status_code, 200)
         response_data = response.json()

@@ -1,6 +1,6 @@
-from ee.kafka_client.topics import KAFKA_PLUGIN_LOG_ENTRIES
 from posthog.clickhouse.kafka_engine import KAFKA_COLUMNS, kafka_engine, ttl_period
 from posthog.clickhouse.table_engines import ReplacingMergeTree
+from posthog.kafka_client.topics import KAFKA_PLUGIN_LOG_ENTRIES
 from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
 
 PLUGIN_LOG_ENTRIES_TABLE = "plugin_log_entries"

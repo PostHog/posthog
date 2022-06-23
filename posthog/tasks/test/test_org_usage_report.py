@@ -5,8 +5,8 @@ from dateutil.relativedelta import relativedelta
 from django.utils.timezone import now
 from freezegun import freeze_time
 
-from ee.clickhouse.models.group import create_group
 from posthog.models import Organization, Team, User
+from posthog.models.group.util import create_group
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.organization import OrganizationMembership
 from posthog.tasks.org_usage_report import OrgReport, send_all_reports

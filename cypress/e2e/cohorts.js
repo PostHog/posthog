@@ -12,7 +12,9 @@ describe('Cohorts', () => {
         cy.get('[data-attr="create-cohort"]').click()
 
         // select "add filter" and "property"
-        cy.get('[data-attr="property-filter-0"] button').first().click()
+        cy.get('[data-attr="cohort-selector-field-value"]').click()
+        cy.get('[data-attr="cohort-personPropertyBehavioral-have_property-type"]').click()
+        cy.get('[data-attr="cohort-taxonomic-field-key"]').click()
 
         // select the first property
         cy.get('[data-attr=taxonomic-filter-searchfield]').click()

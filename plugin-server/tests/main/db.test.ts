@@ -151,7 +151,7 @@ describe('DB', () => {
             const personProvided = { ...personDbBefore, properties: { c: 'bbb' }, created_at: providedPersonTs }
             const updateTs = DateTime.fromISO('2000-04-04T11:42:06.502Z').toUTC()
             const update = { created_at: updateTs }
-            const updatedPerson = await db.updatePersonDeprecated(personProvided, update)
+            const [updatedPerson] = await db.updatePersonDeprecated(personProvided, update)
 
             // verify we have the correct update in Postgres db
             const personDbAfter = await fetchPersonByPersonId(personDbBefore.team_id, personDbBefore.id)
@@ -458,7 +458,7 @@ describe('DB', () => {
             )
             const res = await db.getPersonData(2, distinctId)
             expect(res?.uuid).toEqual(uuid)
-            expect(res?.created_at_iso).toEqual(TIMESTAMP.toISO())
+            expect(res?.created_at.toISO()).toEqual(TIMESTAMP.toUTC().toISO())
             expect(res?.properties).toEqual({ a: 12345, b: false, c: 'bbb' })
         })
 
@@ -480,7 +480,7 @@ describe('DB', () => {
             db.personAndGroupsCachingEnabledTeams.add(2)
             const res = await db.getPersonData(2, distinctId)
             expect(res?.uuid).toEqual(uuid)
-            expect(res?.created_at_iso).toEqual(TIMESTAMP.toISO())
+            expect(res?.created_at.toISO()).toEqual(TIMESTAMP.toUTC().toISO())
             expect(res?.properties).toEqual({ a: 123, b: false, c: 'bbb' })
         })
 

@@ -1,15 +1,16 @@
 import { PluginEvent, ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 import * as Sentry from '@sentry/node'
 
-import { Hub, IngestionEvent, PreIngestionEvent } from '../../../types'
+import { Hub, IngestionEvent } from '../../../types'
 import { timeoutGuard } from '../../../utils/db/utils'
 import { status } from '../../../utils/status'
 import { generateEventDeadLetterQueueMessage } from '../utils'
-import { pluginsProcessEventStep } from './1-pluginsProcessEventStep'
-import { prepareEventStep } from './2-prepareEventStep'
-import { emitToBufferStep } from './3-emitToBufferStep'
-import { createEventStep } from './4-createEventStep'
-import { runAsyncHandlersStep } from './5-runAsyncHandlersStep'
+import { emitToBufferStep } from './1-emitToBufferStep'
+import { pluginsProcessEventStep } from './2-pluginsProcessEventStep'
+import { processPersonsStep } from './3-processPersonsStep'
+import { prepareEventStep } from './4-prepareEventStep'
+import { createEventStep } from './5-createEventStep'
+import { runAsyncHandlersStep } from './6-runAsyncHandlersStep'
 
 export type StepParameters<T extends (...args: any[]) => any> = T extends (
     runner: EventPipelineRunner,
@@ -19,9 +20,10 @@ export type StepParameters<T extends (...args: any[]) => any> = T extends (
     : never
 
 const EVENT_PIPELINE_STEPS = {
-    pluginsProcessEventStep,
-    prepareEventStep,
     emitToBufferStep,
+    pluginsProcessEventStep,
+    processPersonsStep,
+    prepareEventStep,
     createEventStep,
     runAsyncHandlersStep,
 }
@@ -32,9 +34,10 @@ export type NextStep<Step extends StepType> = [StepType, StepParameters<EventPip
 
 export type StepResult =
     | null
-    | NextStep<'pluginsProcessEventStep'>
-    | NextStep<'prepareEventStep'>
     | NextStep<'emitToBufferStep'>
+    | NextStep<'pluginsProcessEventStep'>
+    | NextStep<'processPersonsStep'>
+    | NextStep<'prepareEventStep'>
     | NextStep<'createEventStep'>
     | NextStep<'runAsyncHandlersStep'>
 
@@ -46,9 +49,10 @@ export type EventPipelineResult = {
 }
 
 const STEPS_TO_EMIT_TO_DLQ_ON_FAILURE: Array<StepType> = [
-    'pluginsProcessEventStep',
-    'prepareEventStep',
     'emitToBufferStep',
+    'pluginsProcessEventStep',
+    'processPersonsStep',
+    'prepareEventStep',
     'createEventStep',
 ]
 
@@ -63,15 +67,15 @@ export class EventPipelineRunner {
 
     async runEventPipeline(event: PluginEvent): Promise<EventPipelineResult> {
         this.hub.statsd?.increment('kafka_queue.event_pipeline.start', { pipeline: 'event' })
-        const result = await this.runPipeline('pluginsProcessEventStep', event)
+        const result = await this.runPipeline('emitToBufferStep', event)
         this.hub.statsd?.increment('kafka_queue.single_event.processed_and_ingested')
         return result
     }
 
-    async runBufferEventPipeline(event: PreIngestionEvent): Promise<EventPipelineResult> {
+    async runBufferEventPipeline(event: PluginEvent): Promise<EventPipelineResult> {
         this.hub.statsd?.increment('kafka_queue.event_pipeline.start', { pipeline: 'buffer' })
-        const person = await this.hub.db.fetchPerson(event.teamId, event.distinctId)
-        const result = await this.runPipeline('createEventStep', event, person)
+        const person = await this.hub.db.fetchPerson(event.team_id, event.distinct_id)
+        const result = await this.runPipeline('pluginsProcessEventStep', event, person)
         this.hub.statsd?.increment('kafka_queue.buffer_event.processed_and_ingested')
         return result
     }
@@ -79,7 +83,7 @@ export class EventPipelineRunner {
     async runAsyncHandlersEventPipeline(event: IngestionEvent): Promise<EventPipelineResult> {
         this.hub.statsd?.increment('kafka_queue.event_pipeline.start', { pipeline: 'asyncHandlers' })
         const person = await this.hub.db.fetchPerson(event.teamId, event.distinctId)
-        const result = await this.runPipeline('runAsyncHandlersStep', event, person)
+        const result = await this.runPipeline('runAsyncHandlersStep', { ...event, person })
         this.hub.statsd?.increment('kafka_queue.async_handlers.processed')
         return result
     }
