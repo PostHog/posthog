@@ -2,7 +2,6 @@ import React from 'react'
 import { useActions, useValues } from 'kea'
 import { LemonButton } from 'lib/components/LemonButton'
 import { VerticalForm } from 'lib/forms/VerticalForm'
-import { Select } from 'antd'
 import { membersLogic } from 'scenes/organization/Settings/membersLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { Field } from 'lib/forms/Field'
@@ -23,6 +22,7 @@ import {
     weekdayOptions,
 } from '../utils'
 import { LemonDivider, LemonInput, LemonTextArea } from '@posthog/lemon-ui'
+import { LemonSelectSearch, usersLemonSelectOptions } from 'lib/components/LemonSelectSearch/LemonSelectSearch'
 
 interface EditSubscriptionProps extends SubscriptionBaseProps {
     id: number | 'new'
@@ -48,7 +48,7 @@ export function EditSubscription({
         dashboardId,
     })
 
-    const { antSelectOptions } = useValues(membersLogic)
+    const { members, membersLoading } = useValues(membersLogic)
     const { subscription, isSubscriptionSubmitting, subscriptionChanged } = useValues(logic)
     const { preflight, siteUrlMisconfigured } = useValues(preflightLogic)
     const { deleteSubscription } = useActions(subscriptionslogic)
@@ -140,16 +140,16 @@ export function EditSubscription({
                     <Field name={'target_value'} label={'Who do you want to subscribe'}>
                         {({ value, onChange }) => (
                             <>
-                                <Select
-                                    disabled={emailDisabled}
-                                    bordered
-                                    mode="tags"
-                                    dropdownMatchSelectWidth={false}
-                                    data-attr="subscribed-emails"
-                                    options={antSelectOptions}
-                                    style={{ width: '100%' }}
-                                    value={value?.split(',').filter(Boolean)}
+                                <LemonSelectSearch
                                     onChange={(val) => onChange(val.join(','))}
+                                    value={value?.split(',').filter(Boolean)}
+                                    filterOption={false}
+                                    disabled={emailDisabled}
+                                    mode="multiple-custom"
+                                    data-attr="subscribed-emails"
+                                    options={usersLemonSelectOptions(members.map((x) => x.user))}
+                                    loading={membersLoading}
+                                    placeholder="Enter an email address"
                                 />
                                 <div className="text-small text-muted mt-05">
                                     Enter the email addresses of the users you want to share with

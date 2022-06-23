@@ -7,6 +7,7 @@ import { ActivityType, mergeSplitPersonLogic } from './mergeSplitPersonLogic'
 import { capitalizeFirstLetter, midEllipsis, pluralize } from 'lib/utils'
 import { InlineMessage } from 'lib/components/InlineMessage/InlineMessage'
 import { Tooltip } from 'lib/components/Tooltip'
+import { LemonSelectSearch } from 'lib/components/LemonSelectSearch/LemonSelectSearch'
 
 export function MergeSplitPerson({ person }: { person: PersonType }): JSX.Element {
     const logicProps = { person }
@@ -55,7 +56,7 @@ export function MergeSplitPerson({ person }: { person: PersonType }): JSX.Elemen
 }
 
 function MergePerson(): JSX.Element {
-    const { persons, person, executedLoading } = useValues(mergeSplitPersonLogic)
+    const { persons, person, executedLoading, selectedPersonsToMerge } = useValues(mergeSplitPersonLogic)
     const { setListFilters, setSelectedPersonsToMerge } = useActions(mergeSplitPersonLogic)
 
     return (
@@ -71,31 +72,23 @@ function MergePerson(): JSX.Element {
                 </a>
                 .
             </p>
-            <Select
-                mode="multiple"
-                allowClear
-                showSearch
-                style={{ width: '100%' }}
+
+            <LemonSelectSearch
                 placeholder="Please select persons to merge"
-                onChange={(value: number[]) => setSelectedPersonsToMerge(value)}
+                onChange={(value) => setSelectedPersonsToMerge(value.map((x) => parseInt(x, 10)))}
                 filterOption={false}
-                onSearch={(value) => {
-                    setListFilters({ search: value })
-                }}
-                className="mt"
+                onSearch={(value) => setListFilters({ search: value })}
+                mode="multiple"
+                data-attr="subscribed-emails"
+                value={selectedPersonsToMerge.map((x) => x.toString())}
+                options={(persons.results || [])
+                    .filter((p: PersonType) => p.id && p.uuid !== person.uuid)
+                    .map((p) => ({
+                        key: `${p.id}`,
+                        label: p.name,
+                    }))}
                 disabled={executedLoading}
-            >
-                {persons.results &&
-                    persons.results
-                        .filter((p: PersonType) => p.uuid !== person.uuid)
-                        .map((p: PersonType) =>
-                            p.id ? (
-                                <Select.Option value={p.id} key={p.id}>
-                                    {p.name}
-                                </Select.Option>
-                            ) : undefined
-                        )}
-            </Select>
+            />
             <InlineMessage style={{ marginTop: 16 }} type="danger">
                 This action is not reversible. Please be sure before continuing.
             </InlineMessage>
