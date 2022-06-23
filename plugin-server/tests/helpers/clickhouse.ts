@@ -19,7 +19,6 @@ export async function resetTestDatabaseClickhouse(extraServerConfig?: Partial<Pl
     })
     await Promise.all([
         clickhouse.querying('TRUNCATE sharded_events'),
-        clickhouse.querying('TRUNCATE person_mv'),
         clickhouse.querying('TRUNCATE person'),
         clickhouse.querying('TRUNCATE person_distinct_id'),
         clickhouse.querying('TRUNCATE person_distinct_id2'),

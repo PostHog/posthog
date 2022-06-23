@@ -6,7 +6,6 @@ import { createHub } from '../../../src/utils/db/hub'
 import { UUIDT } from '../../../src/utils/utils'
 import { PersonState } from '../../../src/worker/ingestion/person-state'
 import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../../helpers/clickhouse'
-import { resetKafka } from '../../helpers/kafka'
 import { resetTestDatabase } from '../../helpers/sql'
 
 jest.mock('../../../src/utils/status')
@@ -25,7 +24,6 @@ describe('PersonState.update()', () => {
         uuid = new UUIDT()
         uuid2 = new UUIDT()
 
-        await resetKafka()
         await resetTestDatabase()
         await resetTestDatabaseClickhouse()
         ;[hub, closeHub] = await createHub({})
@@ -190,6 +188,8 @@ describe('PersonState.update()', () => {
         )
         expect(hub.personManager.isNewPerson).toHaveBeenCalledTimes(0)
         expect(hub.db.fetchPerson).toHaveBeenCalledTimes(0)
+
+        await delayUntilEventIngested(fetchPersonsRows)
     })
 
     it('does not update person if not needed', async () => {
@@ -215,6 +215,7 @@ describe('PersonState.update()', () => {
         )
 
         expect(hub.db.fetchPerson).toHaveBeenCalledTimes(1)
+        await delayUntilEventIngested(fetchPersonsRows)
     })
 
     // This is a regression test
@@ -333,6 +334,8 @@ describe('PersonState.update()', () => {
 
         expect(hub.personManager.isNewPerson).toHaveBeenCalledTimes(0)
         expect(hub.db.fetchPerson).toHaveBeenCalledTimes(2)
+
+        await delayUntilEventIngested(fetchPersonsRows)
     })
 
     it('marks user as is_identified on $identify event', async () => {
@@ -363,6 +366,8 @@ describe('PersonState.update()', () => {
 
         expect(hub.personManager.isNewPerson).toHaveBeenCalledTimes(0)
         expect(hub.db.fetchPerson).toHaveBeenCalledTimes(2)
+
+        await delayUntilEventIngested(fetchPersonsRows)
     })
 
     it('does not update person if user already identified and no properties change on $identify event', async () => {
@@ -389,6 +394,8 @@ describe('PersonState.update()', () => {
                 version: 0,
             })
         )
+
+        await delayUntilEventIngested(fetchPersonsRows)
     })
 
     it('does not merge already identified users', async () => {
@@ -407,6 +414,7 @@ describe('PersonState.update()', () => {
 
         const persons = await hub.db.fetchPersons()
         expect(persons.length).toEqual(2)
+        await delayUntilEventIngested(fetchPersonsRows)
     })
 
     it('merges people on $identify event and updates properties with $set/$set_once', async () => {
