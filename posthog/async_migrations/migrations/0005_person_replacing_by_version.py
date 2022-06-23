@@ -139,8 +139,16 @@ class Migration(AsyncMigrationDefinition):
                     SELECT *
                     FROM {PERSON_TABLE}
                 """,
+                # This speeds up copying significantly
+                sql_settings={
+                    "max_block_size": 50000,
+                    "max_insert_block_size": 50000,
+                    "max_threads": 20,
+                    "max_insert_threads": 20,
+                    "optimize_on_insert": 0,
+                    "max_execution_time": 2 * 24 * 60 * 60,  # two days
+                },
                 rollback=f"TRUNCATE TABLE IF EXISTS {TEMPORARY_TABLE_NAME} ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'",
-                timeout_seconds=2 * 24 * 60 * 60,  # two days
             ),
             AsyncMigrationOperationSQL(
                 database=AnalyticsDBMS.CLICKHOUSE,
