@@ -295,7 +295,7 @@ export const genericOperatorMap: Record<string, string> = {
     regex: '∼ matches regex',
     not_regex: "≁ doesn't match regex",
     gt: '> greater than',
-    lt: '< lower than',
+    lt: '< less than',
     is_set: '✓ is set',
     is_not_set: '✕ is not set',
 }
@@ -317,7 +317,7 @@ export const numericOperatorMap: Record<string, string> = {
     regex: '∼ matches regex',
     not_regex: "≁ doesn't match regex",
     gt: '> greater than',
-    lt: '< lower than',
+    lt: '< less than',
     is_set: '✓ is set',
     is_not_set: '✕ is not set',
 }
@@ -337,12 +337,18 @@ export const booleanOperatorMap: Record<string, string> = {
     is_not_set: '✕ is not set',
 }
 
+export const durationOperatorMap: Record<string, string> = {
+    gt: '> greater than',
+    lt: '< less than',
+}
+
 export const allOperatorsMapping: Record<string, string> = {
     ...dateTimeOperatorMap,
     ...stringOperatorMap,
     ...numericOperatorMap,
     ...genericOperatorMap,
     ...booleanOperatorMap,
+    ...durationOperatorMap,
     // slight overkill to spread all of these into the map
     // but gives freedom for them to diverge more over time
 }
@@ -352,6 +358,7 @@ const operatorMappingChoice: Record<keyof typeof PropertyType, Record<string, st
     String: stringOperatorMap,
     Numeric: numericOperatorMap,
     Boolean: booleanOperatorMap,
+    Duration: durationOperatorMap,
 }
 
 export function chooseOperatorMap(propertyType: PropertyType | undefined): Record<string, string> {
