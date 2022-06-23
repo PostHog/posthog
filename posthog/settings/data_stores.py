@@ -12,6 +12,9 @@ DISABLE_SERVER_SIDE_CURSORS = get_from_env("USING_PGBOUNCER", False, type_cast=s
 # See https://docs.djangoproject.com/en/3.2/ref/settings/#std:setting-DATABASE-DISABLE_SERVER_SIDE_CURSORS
 DEFAULT_AUTO_FIELD = "django.db.models.AutoField"
 
+# Configuration for sqlcommenter
+SQLCOMMENTER_WITH_FRAMEWORK = False
+
 # Database
 # https://docs.djangoproject.com/en/2.2/ref/settings/#databases
 
