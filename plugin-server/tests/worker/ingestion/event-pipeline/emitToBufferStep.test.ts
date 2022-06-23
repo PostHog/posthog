@@ -67,6 +67,16 @@ describe('emitToBufferStep()', () => {
         expect(runner.hub.db.fetchPerson).toHaveBeenCalledWith(2, 'my_id')
         expect(runner.hub.eventsProcessor.produceEventToBuffer).not.toHaveBeenCalled()
     })
+
+    it('calls `processPersonsStep` for $snapshot events', async () => {
+        const event = { ...pluginEvent, event: '$snapshot' }
+
+        const response = await emitToBufferStep(runner, event, () => true)
+
+        expect(response).toEqual(['processPersonsStep', event, undefined])
+        expect(runner.hub.db.fetchPerson).not.toHaveBeenCalled()
+        expect(runner.hub.eventsProcessor.produceEventToBuffer).not.toHaveBeenCalled()
+    })
 })
 
 describe('shouldSendEventToBuffer()', () => {
