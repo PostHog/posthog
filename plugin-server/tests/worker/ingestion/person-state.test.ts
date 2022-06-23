@@ -6,20 +6,26 @@ import { createHub } from '../../../src/utils/db/hub'
 import { UUIDT } from '../../../src/utils/utils'
 import { PersonState } from '../../../src/worker/ingestion/person-state'
 import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../../helpers/clickhouse'
+import { resetKafka } from '../../helpers/kafka'
 import { resetTestDatabase } from '../../helpers/sql'
 
 jest.mock('../../../src/utils/status')
 jest.setTimeout(60000) // 60 sec timeout
 
 const timestamp = DateTime.fromISO('2020-01-01T12:00:05.200Z').toUTC()
-const uuid = new UUIDT()
-const uuid2 = new UUIDT()
 
 describe('PersonState.update()', () => {
     let hub: Hub
     let closeHub: () => Promise<void>
 
+    let uuid: UUIDT
+    let uuid2: UUIDT
+
     beforeEach(async () => {
+        uuid = new UUIDT()
+        uuid2 = new UUIDT()
+
+        await resetKafka()
         await resetTestDatabase()
         await resetTestDatabaseClickhouse()
         ;[hub, closeHub] = await createHub({})
@@ -232,6 +238,7 @@ describe('PersonState.update()', () => {
             })
         )
         const clickhousePersons = await delayUntilEventIngested(fetchPersonsRows)
+        console.log(clickhousePersons)
         expect(clickhousePersons.length).toEqual(1)
         expect(clickhousePersons[0]).toEqual(
             expect.objectContaining({
