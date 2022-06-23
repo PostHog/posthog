@@ -427,6 +427,7 @@ export const insightsActivityResponseJson: ActivityLogItem[] = [
             name: 'DAU',
             merge: null,
             changes: [
+                { type: 'Insight', action: 'changed', field: 'name', before: 'cool insight', after: 'DAU' },
                 {
                     type: 'Insight',
                     after: {

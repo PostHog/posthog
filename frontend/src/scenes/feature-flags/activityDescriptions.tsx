@@ -225,12 +225,12 @@ export function SentenceList({ listParts, prefix = null, suffix = null }: Senten
                         return [
                             isntFirst && (
                                 <div className="sentence-part" key={`${index}-a`}>
-                                    ,&#32;
+                                    ,{' '}
                                 </div>
                             ),
                             isLast && atLeastThree && (
                                 <div className="sentence-part" key={`${index}-b`}>
-                                    and&#32;
+                                    and{' '}
                                 </div>
                             ),
                             <div className="sentence-part" key={`${index}-c`}>
