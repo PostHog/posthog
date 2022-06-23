@@ -61,7 +61,7 @@
                        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     INNER JOIN
                       (SELECT id,
-                              argMax(created_at, _timestamp) as created_at
+                              argMax(created_at, version) as created_at
                        FROM person
                        WHERE team_id = 2
                        GROUP BY id
@@ -144,7 +144,7 @@
                        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     INNER JOIN
                       (SELECT id,
-                              argMax(created_at, _timestamp) as created_at
+                              argMax(created_at, version) as created_at
                        FROM person
                        WHERE team_id = 2
                        GROUP BY id
@@ -227,7 +227,7 @@
                        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     INNER JOIN
                       (SELECT id,
-                              argMax(created_at, _timestamp) as created_at
+                              argMax(created_at, version) as created_at
                        FROM person
                        WHERE team_id = 2
                        GROUP BY id
@@ -310,7 +310,7 @@
                        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     INNER JOIN
                       (SELECT id,
-                              argMax(created_at, _timestamp) as created_at
+                              argMax(created_at, version) as created_at
                        FROM person
                        WHERE team_id = 2
                        GROUP BY id
@@ -393,7 +393,7 @@
                        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     INNER JOIN
                       (SELECT id,
-                              argMax(created_at, _timestamp) as created_at
+                              argMax(created_at, version) as created_at
                        FROM person
                        WHERE team_id = 2
                        GROUP BY id
@@ -484,7 +484,7 @@
                        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     INNER JOIN
                       (SELECT id,
-                              argMax(created_at, _timestamp) as created_at
+                              argMax(created_at, version) as created_at
                        FROM person
                        WHERE team_id = 2
                        GROUP BY id
@@ -567,7 +567,7 @@
                        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     INNER JOIN
                       (SELECT id,
-                              argMax(created_at, _timestamp) as created_at
+                              argMax(created_at, version) as created_at
                        FROM person
                        WHERE team_id = 2
                        GROUP BY id

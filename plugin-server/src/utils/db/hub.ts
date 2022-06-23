@@ -211,7 +211,7 @@ export async function createHub(
     const rootAccessManager = new RootAccessManager(db)
     const promiseManager = new PromiseManager(serverConfig, statsd)
     const siteUrlManager = new SiteUrlManager(db, serverConfig.SITE_URL)
-    const actionManager = new ActionManager(db)
+    const actionManager = new ActionManager(db, capabilities)
     await actionManager.prepare()
 
     const hub: Partial<Hub> = {

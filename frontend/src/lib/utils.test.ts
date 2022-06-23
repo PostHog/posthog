@@ -34,6 +34,7 @@ import {
     convertPropertiesToPropertyGroup,
     calculateDays,
     range,
+    durationOperatorMap,
     isExternalLink,
 } from './utils'
 import { ActionFilter, ElementType, FilterLogicalOperator, PropertyOperator, PropertyType, TimeUnitType } from '~/types'
@@ -566,6 +567,7 @@ describe('{floor|ceil}MsToClosestSecond()', () => {
             { propertyType: PropertyType.String, expected: stringOperatorMap },
             { propertyType: PropertyType.Numeric, expected: numericOperatorMap },
             { propertyType: PropertyType.Boolean, expected: booleanOperatorMap },
+            { propertyType: PropertyType.Duration, expected: durationOperatorMap },
             { propertyType: undefined, expected: genericOperatorMap },
         ]
         testCases.forEach((testcase) => {
