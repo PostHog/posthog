@@ -159,7 +159,10 @@ def bulk_create_events(events: List[Dict[str, Any]], person_mapping: Optional[Di
                     event = {
                         **event,
                         group_property_key: {**group.group_properties, **event.get(group_property_key, {})},
-                        group_created_at_key: {**group.created_at, **event.get(group_created_at_key, {})},
+                        group_created_at_key: {
+                            **group.created_at,
+                            **event.get(group_created_at_key, datetime64_default_timestamp),
+                        },
                     }
 
                 except Group.DoesNotExist:
