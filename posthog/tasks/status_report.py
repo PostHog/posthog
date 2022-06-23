@@ -192,6 +192,9 @@ def fetch_sql(sql_: str, params: Tuple[Any, ...]) -> List[Any]:
 
 
 def get_instance_licenses() -> List[str]:
-    from ee.models import License
-
-    return [license.key for license in License.objects.all()]
+    try:
+        from ee.models import License
+    except ImportError:
+        return []
+    else:
+        return [license.key for license in License.objects.all()]

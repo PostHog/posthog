@@ -1,6 +1,6 @@
 from typing import Counter, List, Set, Union, cast
 
-from ee.clickhouse.materialized_columns.columns import ColumnName, get_materialized_columns
+from posthog.clickhouse.materialized_columns import ColumnName, get_materialized_columns
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, FunnelCorrelationType
 from posthog.models.action.util import get_action_tables_and_properties, uses_elements_chain
 from posthog.models.entity import Entity
@@ -109,6 +109,9 @@ class ColumnOptimizer:
             # See ee/clickhouse/queries/trends/util.py#process_math
             if entity.math_property:
                 counter[(entity.math_property, "event", None)] += 1
+
+            if entity.math == "unique_session":
+                counter[(f"$session_id", "event", None)] += 1
 
             # :TRICKY: If action contains property filters, these need to be included
             #

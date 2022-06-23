@@ -8,7 +8,7 @@
                              $window_id)) as matching_events
   FROM
     (SELECT e.timestamp as timestamp,
-            e.properties as properties,
+            e."properties" as "properties",
             e."$window_id" as $window_id,
             e."$session_id" as $session_id,
             pdi.person_id as person_id,

@@ -21,7 +21,7 @@ export async function prepareEventStep(runner: EventPipelineRunner, event: Plugi
     if (preIngestionEvent && preIngestionEvent.event !== '$snapshot') {
         return runner.nextStep('emitToBufferStep', preIngestionEvent)
     } else if (preIngestionEvent && preIngestionEvent.event === '$snapshot') {
-        return runner.nextStep('runAsyncHandlersStep', preIngestionEvent, undefined)
+        return runner.nextStep('runAsyncHandlersStep', preIngestionEvent)
     } else {
         return null
     }

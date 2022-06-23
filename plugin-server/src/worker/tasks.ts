@@ -25,6 +25,9 @@ export const workerTasks: Record<string, TaskRunner> = {
     getPluginSchedule: (hub) => {
         return hub.pluginSchedule
     },
+    pluginScheduleReady: (hub) => {
+        return hub.pluginSchedule !== null
+    },
     runEventPipeline: async (hub, args: { event: PluginEvent }) => {
         const runner = new EventPipelineRunner(hub, args.event)
         return await runner.runEventPipeline(args.event)
