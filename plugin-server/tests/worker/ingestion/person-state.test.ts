@@ -213,6 +213,7 @@ describe('PersonState.update()', () => {
 
     // This is a regression test
     it('creates person on $identify event', async () => {
+        // am i working?
         const createdPerson = await personState({
             event: '$identify',
             distinct_id: 'new-user',
