@@ -136,6 +136,17 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
             clear_clickhouse_crontab, clickhouse_clear_removed_data.s(), name="clickhouse clear removed data"
         )
 
+    from posthog.models.instance_setting import get_instance_setting
+
+    recordings_post_processing_enabled = get_instance_setting("RECORDINGS_POST_PROCESSING_ENABLED")
+    recordings_post_processing_crontab = get_crontab(get_instance_setting("RECORDINGS_POST_PROCESSING_CRON"))
+    if recordings_post_processing_enabled and recordings_post_processing_crontab:
+        sender.add_periodic_task(
+            recordings_post_processing_crontab,
+            post_process_snapshot_recordings.s(),
+            name="recordings post-processing parent",
+        )
+
 
 # Set up clickhouse query instrumentation
 @task_prerun.connect
@@ -150,6 +161,11 @@ def teardown_instrumentation(task_id, task, **kwargs):
     from posthog import client
 
     client._request_information = None
+
+
+@app.task(queue="post-process")
+def post_process_snapshot_recordings():
+    pass
 
 
 @app.task(ignore_result=True)

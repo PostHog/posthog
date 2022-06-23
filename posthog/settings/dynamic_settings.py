@@ -11,6 +11,16 @@ CONSTANCE_CONFIG = {
         "Number of weeks recordings will be kept before removing them (for all projects). Storing recordings for a shorter timeframe can help reduce Clickhouse disk usage.",
         int,
     ),
+    "RECORDINGS_POST_PROCESSING_ENABLED": (
+        True,
+        "Whether recordings in the session_recording_events table are processed to object_storage and the session_recording_metadata table",
+        bool,
+    ),
+    "RECORDINGS_POST_PROCESSING_CRON": (
+        "*/5 * * * *",
+        "The cron schedule to launch session recording post processing",
+        str,
+    ),
     "MATERIALIZED_COLUMNS_ENABLED": (
         get_from_env("MATERIALIZED_COLUMNS_ENABLED", True, type_cast=str_to_bool),
         "Whether materialized columns should be created or used at query time.",
@@ -113,6 +123,8 @@ CONSTANCE_CONFIG = {
 
 SETTINGS_ALLOWING_API_OVERRIDE = (
     "RECORDINGS_TTL_WEEKS",
+    "RECORDINGS_POST_PROCESSING_ENABLED",
+    "RECORDINGS_POST_PROCESSING_CRON",
     "AUTO_START_ASYNC_MIGRATIONS",
     "AGGREGATE_BY_DISTINCT_IDS_TEAMS",
     "ASYNC_MIGRATIONS_ROLLBACK_TIMEOUT",

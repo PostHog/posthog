@@ -93,6 +93,11 @@ services:
             - clickhouse
             - kafka
             - object_storage
+
+    post_processing:
+        <<: *worker
+        command: ./bin/docker-worker-celery --with-scheduler --queue post-process
+
     web:
         <<: *worker
         command: '${CH_WEB_SCRIPT:-./ee/bin/docker-ch-dev-web}'
