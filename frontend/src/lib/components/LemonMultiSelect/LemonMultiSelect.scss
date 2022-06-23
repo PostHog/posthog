@@ -1,0 +1,56 @@
+// Antd arrows rotated at convenient angles
+.LemonMultiSelect {
+    .ant-select {
+        width: 100%;
+    }
+
+    .ant-select-selector {
+        padding: 0.25rem;
+        border-radius: var(--radius);
+        background: var(--bg-light);
+        font-size: 0.875rem;
+        text-align: left;
+        line-height: 1.25rem;
+
+        border: 1px solid var(--border);
+        background: var(--bg-light);
+        &:not(:disabled):hover,
+        &.ant-select-focused,
+        &:not(:disabled):active {
+            background: var(--bg-light);
+            border-color: var(--primary);
+        }
+        &:not(:disabled):active {
+            color: var(--primary-active);
+        }
+
+        .ant-select-selection-overflow {
+            & > * + * {
+                margin-left: 0.25rem;
+            }
+        }
+    }
+}
+
+.LemonMultiSelectDropdown {
+    background: #fff;
+    padding: 0.5rem;
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
+
+    .ant-select-item {
+        padding: 0px;
+        background-color: transparent;
+        color: inherit;
+
+        .ant-select-item-option-state {
+            display: none;
+        }
+    }
+
+    .rc-virtual-list-holder-inner {
+        & > * + * {
+            margin-top: 0.25rem;
+        }
+    }
+}
