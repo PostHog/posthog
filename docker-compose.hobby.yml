@@ -94,7 +94,7 @@ services:
 
     recordings_worker:
         <<: *worker
-        command: ./bin/docker-worker-celery --with-scheduler --queue=post-process
+        command: ./bin/docker-worker-celery --with-scheduler --queue=recordings
 
     web:
         <<: *worker
