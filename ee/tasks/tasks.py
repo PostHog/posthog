@@ -1,15 +1,13 @@
 from random import randrange
 
-from celery import Celery, current_app
+from celery import Celery
 from celery.schedules import crontab
 from django.conf import settings
 
+from posthog.celery import app
 from posthog.utils import get_crontab
 
-app = current_app._get_current_object()
 
-
-@app.on_after_configure.connect
 def setup_periodic_tasks(sender: Celery, **kwargs):
     sender.add_periodic_task(
         crontab(
