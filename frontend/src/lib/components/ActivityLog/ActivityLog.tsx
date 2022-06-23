@@ -76,12 +76,7 @@ export const ActivityLog = ({
                             <div className={'activity-log-row'} key={index}>
                                 <ProfilePicture showName={false} email={logItem.email} size={'xl'} />
                                 <div className="details">
-                                    <div className="activity-description">
-                                        <div style={{ display: 'inline-block' }}>
-                                            <strong>{logItem.name ?? 'unknown user'}</strong>
-                                        </div>{' '}
-                                        {logItem.description}
-                                    </div>
+                                    <div className="activity-description">{logItem.description}</div>
                                     <div className={'text-muted'}>
                                         <TZLabel time={logItem.created_at} />
                                     </div>

@@ -1,7 +1,7 @@
 import { ActivityChange, ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
 import { Link } from 'lib/components/Link'
 import { urls } from 'scenes/urls'
-import { ChangeDescriptions, FilterType, InsightModel } from '~/types'
+import { Description, FilterType, InsightModel } from '~/types'
 import React from 'react'
 import { SentenceList } from 'scenes/feature-flags/activityDescriptions'
 import { BreakdownSummary, FiltersSummary, QuerySummary } from 'lib/components/InsightCard/InsightDetails'
@@ -26,22 +26,19 @@ const linkToDashboard = (dashboard: DashboardLink): JSX.Element => (
     </div>
 )
 
-const insightActionsMapping: Record<keyof InsightModel, (change?: ActivityChange) => ChangeDescriptions | null> = {
+const insightActionsMapping: Record<keyof InsightModel, (change?: ActivityChange) => Description[] | null> = {
     name: function onName(change) {
-        return {
-            descriptions: [
-                <>
-                    changed the name to <strong>"{change?.after}"</strong>
-                </>,
-            ],
-            bareName: false,
-        }
+        return [
+            <>
+                changed the name to <strong>"{change?.after}"</strong>
+            </>,
+        ]
     },
     filters: function onChangedFilter(change) {
         // const filtersBefore = change?.before as FeatureFlagFilters
         const filtersAfter = change?.after as Partial<FilterType>
 
-        const changes: (string | JSX.Element | null)[] = []
+        const changes: Description[] = []
 
         if (filtersAfter.insight && INSIGHT_TYPES_WHERE_DETAILS_UNSUPPORTED.includes(filtersAfter.insight)) {
             changes.push(<>changed details</>)
@@ -59,55 +56,43 @@ const insightActionsMapping: Record<keyof InsightModel, (change?: ActivityChange
         }
 
         if (changes.length > 0) {
-            return { descriptions: changes, bareName: false }
+            return changes
         }
 
         console.error({ change }, 'could not describe this change')
         return null
     },
     deleted: function onSoftDelete() {
-        return { descriptions: [<>deleted</>], bareName: true }
+        return [<>deleted the insight</>]
     },
     short_id: function onShortId(change) {
-        return {
-            descriptions: [
-                <>
-                    changed the short id to <strong>"{change?.after}"</strong>
-                </>,
-            ],
-            bareName: false,
-        }
+        return [
+            <>
+                changed the short id to <strong>"{change?.after}"</strong>
+            </>,
+        ]
     },
     derived_name: function onDerivedName(change) {
-        return {
-            descriptions: [
-                <>
-                    changed the name to <strong>"{change?.after}"</strong>
-                </>,
-            ],
-            bareName: false,
-        }
+        return [
+            <>
+                changed the name to <strong>"{change?.after}"</strong>
+            </>,
+        ]
     },
     description: function onDescription(change) {
-        return {
-            descriptions: [
-                <>
-                    changed the description to <strong>"{change?.after}"</strong>
-                </>,
-            ],
-            bareName: false,
-        }
+        return [
+            <>
+                changed the description to <strong>"{change?.after}"</strong>
+            </>,
+        ]
     },
     favorited: function onFavorited(change) {
         const isFavoriteAfter = change?.after as boolean
-        return {
-            descriptions: [
-                <>
-                    <div className="highlighted-activity">{isFavoriteAfter ? '' : 'un-'}favorited</div>
-                </>,
-            ],
-            bareName: true,
-        }
+        return [
+            <>
+                <div className="highlighted-activity">{isFavoriteAfter ? '' : 'un-'}favorited</div>
+            </>,
+        ]
     },
     tags: function onTags(change) {
         const tagsBefore = change?.before as string[]
@@ -115,7 +100,7 @@ const insightActionsMapping: Record<keyof InsightModel, (change?: ActivityChange
         const addedTags = tagsAfter.filter((t) => tagsBefore.indexOf(t) === -1)
         const removedTags = tagsBefore.filter((t) => tagsAfter.indexOf(t) === -1)
 
-        const changes: (string | JSX.Element | null)[] = []
+        const changes: Description[] = []
         if (addedTags.length) {
             changes.push(
                 <>
@@ -132,7 +117,7 @@ const insightActionsMapping: Record<keyof InsightModel, (change?: ActivityChange
                 </>
             )
         }
-        return { descriptions: changes, bareName: false }
+        return changes
     },
     dashboards: function onDashboardsChange(change) {
         const dashboardsBefore = change?.before as DashboardLink[]
@@ -148,7 +133,7 @@ const insightActionsMapping: Record<keyof InsightModel, (change?: ActivityChange
         const describeAdded = addedDashboards.map((d) => <>added to {linkToDashboard(d)}</>)
         const describeRemoved = removedDashboards.map((d) => <>removed from {linkToDashboard(d)}</>)
 
-        return { descriptions: describeAdded.concat(describeRemoved), bareName: true }
+        return describeAdded.concat(describeRemoved)
     },
     // fields that are excluded on the backend
     id: () => null,
@@ -172,41 +157,47 @@ const insightActionsMapping: Record<keyof InsightModel, (change?: ActivityChange
     effective_privilege_level: () => null, // read from dashboards
 }
 
-export function insightActivityDescriber(logItem: ActivityLogItem): string | JSX.Element | null {
+export function insightActivityDescriber(logItem: ActivityLogItem, users_name: string): string | JSX.Element | null {
     if (logItem.scope != 'Insight') {
         console.error('insight describer received a non-insight activity')
         return null
     }
 
     if (logItem.activity == 'created') {
-        return <>created the insight: {nameOrLinkToInsight(logItem)}</>
+        return (
+            <>
+                <strong>{users_name}</strong> created the insight: {nameOrLinkToInsight(logItem)}
+            </>
+        )
     }
     if (logItem.activity == 'deleted') {
-        return <>deleted the insight: {logItem.detail.name}</>
+        return (
+            <>
+                <strong>{users_name}</strong> deleted the insight: {logItem.detail.name}
+            </>
+        )
     }
     if (logItem.activity == 'updated') {
-        const changes: ChangeDescriptions = { descriptions: [], bareName: false }
+        let changes: Description[] = []
 
         for (const change of logItem.detail.changes || []) {
             if (!change?.field) {
                 continue // insight updates have to have a "field" to be described
             }
 
-            const nextChange: ChangeDescriptions | null = insightActionsMapping[change.field](change)
-            if (nextChange?.descriptions) {
-                changes.descriptions = changes.descriptions.concat(nextChange?.descriptions)
-                changes.bareName = nextChange?.bareName
+            const nextChange: Description[] | null = insightActionsMapping[change.field](change)
+            if (nextChange) {
+                changes = changes.concat(nextChange)
             }
         }
 
-        if (changes.descriptions.length) {
-            const sayOn = changes.bareName ? '' : 'on'
+        if (changes.length) {
             return (
                 <SentenceList
-                    listParts={changes.descriptions}
-                    suffix={
+                    listParts={changes}
+                    prefix={
                         <>
-                            {sayOn} {nameOrLinkToInsight(logItem)}
+                            On {nameOrLinkToInsight(logItem)}, <strong>{users_name}</strong>
                         </>
                     }
                 />
