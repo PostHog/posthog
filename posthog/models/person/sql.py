@@ -337,7 +337,7 @@ INSERT INTO person_distinct_id2 (distinct_id, person_id, team_id, is_deleted, ve
 """
 
 DELETE_PERSON_BY_ID = """
-INSERT INTO person (id, created_at, team_id, properties, is_identified, _timestamp, _offset, is_deleted) SELECT %(id)s, %(created_at)s, %(team_id)s, %(properties)s, %(is_identified)s, %(_timestamp)s, 0, 1
+INSERT INTO person (id, created_at, team_id, properties, is_identified, version, _timestamp, _offset, is_deleted) SELECT %(id)s, %(created_at)s, %(team_id)s, %(properties)s, %(is_identified)s, %(version)s, %(_timestamp)s, 0, 1
 """
 
 DELETE_PERSON_EVENTS_BY_ID = """

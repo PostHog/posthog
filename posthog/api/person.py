@@ -204,7 +204,12 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             person_id = person.id
 
             delete_person(
-                person.uuid, person.properties, person.is_identified, delete_events=True, team_id=self.team.pk
+                person.uuid,
+                person.properties,
+                person.is_identified,
+                delete_events=True,
+                team_id=self.team.pk,
+                version=person.version,
             )
             person.delete()
 

@@ -47,7 +47,13 @@ if TEST:
 
     @receiver(post_delete, sender=Person)
     def person_deleted(sender, instance: Person, **kwargs):
-        delete_person(instance.uuid, instance.properties, instance.is_identified, team_id=instance.team_id)
+        delete_person(
+            instance.uuid,
+            instance.properties,
+            instance.is_identified,
+            team_id=instance.team_id,
+            version=instance.version,
+        )
 
     @receiver(post_delete, sender=PersonDistinctId)
     def person_distinct_id_deleted(sender, instance: PersonDistinctId, **kwargs):
@@ -148,7 +154,12 @@ def get_persons_by_uuids(team: Team, uuids: List[str]) -> QuerySet:
 
 
 def delete_person(
-    person_id: UUID, properties: Dict, is_identified: bool, delete_events: bool = False, team_id: int = False
+    person_id: UUID,
+    properties: Dict,
+    is_identified: bool,
+    delete_events: bool = False,
+    team_id: int = False,
+    version: int = 0,
 ) -> None:
     timestamp = now()
 
@@ -159,6 +170,7 @@ def delete_person(
         "is_identified": int(is_identified),
         "created_at": timestamp.strftime("%Y-%m-%d %H:%M:%S"),
         "_timestamp": timestamp.strftime("%Y-%m-%d %H:%M:%S"),
+        "version": int(version or 0) + 100,  # keep in sync with plugin-server db:deletePerson
     }
 
     try:
