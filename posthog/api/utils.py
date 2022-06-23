@@ -339,7 +339,7 @@ def create_event_definitions_sql(include_actions: bool, is_enterprise: bool = Fa
     # Prevent fetching deprecated `tags` field. Tags are separately fetched in TaggedItemSerializerMixin
     ee_model = EnterpriseEventDefinition if is_enterprise else EventDefinition
     event_definition_fields = {
-        f'"{f.column}"'
+        f'"{f.column}"'  # type: ignore
         for f in ee_model._meta.get_fields()
         if hasattr(f, "column") and f.column not in ["deprecated_tags", "tags"]  # type: ignore
     }
