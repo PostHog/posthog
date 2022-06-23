@@ -1,6 +1,6 @@
 import { Select } from 'antd'
 import React from 'react'
-import { UserBasicType } from '~/types'
+import { UserBasicType, UserType } from '~/types'
 import { LemonSnack } from '../LemonSnack/LemonSnack'
 import { ProfilePicture } from '../ProfilePicture'
 import './LemonSelectWithSearch.scss'
@@ -78,7 +78,7 @@ export function LemonSelectWithSearch({
 }
 
 export function usersLemonSelectOptions(
-    users: UserBasicType[],
+    users: (UserBasicType | UserType)[],
     key: 'email' | 'uuid' = 'email'
 ): LemonSelectWithSearchOptionItem[] {
     return users.map((user) => ({

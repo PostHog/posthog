@@ -86,7 +86,7 @@ export interface UserBasicType extends UserBaseType {
 }
 
 /** Full User model. */
-export interface UserType extends UserBasicType {
+export interface UserType extends UserBaseType {
     date_joined: string
     email_opt_in: boolean
     events_column_config: ColumnConfig
