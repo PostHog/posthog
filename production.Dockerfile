@@ -55,6 +55,9 @@ RUN apk --update --no-cache --virtual .build-deps add \
     && \
     apk del .build-deps
 
+# Copy everything else
+COPY . .
+
 # Compile and install Yarn dependencies.
 #
 # Notes:
@@ -65,19 +68,20 @@ RUN apk --update --no-cache --virtual .build-deps add \
 # - we need few additional OS packages for this. Let's install
 #   and then uninstall them when the compilation is completed.
 COPY package.json yarn.lock ./
-COPY ./plugin-server/ ./plugin-server/
 RUN apk --update --no-cache --virtual .build-deps add \
     "gcc~=10.3" \
     && \
     yarn config set network-timeout 300000 && \
     yarn install --frozen-lockfile && \
+    yarn build && \
+    yarn cache clean && \
+    rm -rf ./node_modules \
     yarn install --frozen-lockfile --cwd plugin-server && \
     yarn cache clean \
     && \
     apk del .build-deps
 
-# Copy everything else
-COPY . .
+
 
 # Build the plugin server
 #
@@ -88,16 +92,7 @@ RUN cd plugin-server \
     && ln -s /lib/ld-musl-x86_64.so.1 /lib/ld-linux-x86-64.so.2 \
     && yarn build \
     && yarn cache clean \
-    && rm -rf ./node_modules \
     && cd ..
-
-# Build the frontend
-#
-# Note: we run the build as a separate actions to increase
-# the cache hit ratio of the layers above.
-RUN yarn build && \
-    yarn cache clean && \
-    rm -rf ./node_modules
 
 # Generate Django's static files
 RUN SKIP_SERVICE_VERSION_REQUIREMENTS=1 SECRET_KEY='unsafe secret key for collectstatic only' DATABASE_URL='postgres:///' REDIS_URL='redis:///' python manage.py collectstatic --noinput
