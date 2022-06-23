@@ -3,7 +3,7 @@ from unittest.mock import MagicMock, patch
 from freezegun import freeze_time
 
 from ee.tasks.subscriptions.slack_subscriptions import send_slack_subscription_report
-from ee.tasks.test.subscriptions.utils_subscription_tests import create_subscription
+from ee.tasks.test.subscriptions.subscriptions_test_factory import create_subscription
 from posthog.models.dashboard import Dashboard
 from posthog.models.exported_asset import ExportedAsset
 from posthog.models.insight import Insight

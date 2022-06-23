@@ -16,7 +16,7 @@ from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMembe
 
 
 class IntegrationSerializer(serializers.ModelSerializer):
-    """Standard Inteegration serializer."""
+    """Standard Integration serializer."""
 
     created_by = UserBasicSerializer(read_only=True)
 

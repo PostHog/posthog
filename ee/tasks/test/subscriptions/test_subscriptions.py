@@ -6,7 +6,7 @@ import pytz
 from freezegun import freeze_time
 
 from ee.tasks.subscriptions import deliver_new_subscription, deliver_subscription_report, schedule_all_subscriptions
-from ee.tasks.test.subscriptions.utils_subscription_tests import create_subscription
+from ee.tasks.test.subscriptions.subscriptions_test_factory import create_subscription
 from posthog.models.dashboard import Dashboard
 from posthog.models.dashboard_tile import DashboardTile
 from posthog.models.exported_asset import ExportedAsset

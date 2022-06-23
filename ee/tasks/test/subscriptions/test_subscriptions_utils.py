@@ -3,18 +3,13 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from ee.tasks.subscriptions.subscription_utils import (
-    DEFAULT_MAX_ASSET_COUNT,
-    generate_assets,
-    get_tiles_ordered_by_position,
-)
-from ee.tasks.test.subscriptions.utils_subscription_tests import create_subscription
+from ee.tasks.subscriptions.subscription_utils import DEFAULT_MAX_ASSET_COUNT, generate_assets
+from ee.tasks.test.subscriptions.subscriptions_test_factory import create_subscription
 from posthog.models.dashboard import Dashboard
 from posthog.models.dashboard_tile import DashboardTile
 from posthog.models.exported_asset import ExportedAsset
 from posthog.models.insight import Insight
 from posthog.test.base import APIBaseTest
-from posthog.test.db_context_capturing import capture_db_queries
 
 
 @patch("ee.tasks.subscriptions.subscription_utils.group")
@@ -33,17 +28,6 @@ class TestSubscriptionsTasksUtils(APIBaseTest):
             self.tiles.append(DashboardTile.objects.create(dashboard=self.dashboard, insight=self.insight))
 
         self.subscription = create_subscription(team=self.team, insight=self.insight, created_by=self.user)
-
-    def test_loads_dashboard_tiles_efficiently(self, mock_export_task: MagicMock, mock_group: MagicMock) -> None:
-        with capture_db_queries() as capture_query_context:
-            tiles = get_tiles_ordered_by_position(dashboard=self.dashboard)
-
-            for tile in tiles:
-                assert tile.insight.id
-
-            assert len(tiles) == 10
-
-        assert len(capture_query_context.captured_queries) == 1
 
     def test_generate_assets_for_insight(self, mock_export_task: MagicMock, mock_group: MagicMock) -> None:
         insights, assets = generate_assets(self.subscription)

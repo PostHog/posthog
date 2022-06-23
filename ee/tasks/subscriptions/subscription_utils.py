@@ -4,8 +4,7 @@ from typing import List, Tuple
 import structlog
 from celery import group
 
-from posthog.models.dashboard import Dashboard
-from posthog.models.dashboard_tile import DashboardTile
+from posthog.models.dashboard_tile import get_tiles_ordered_by_position
 from posthog.models.exported_asset import ExportedAsset
 from posthog.models.insight import Insight
 from posthog.models.subscription import Subscription
@@ -16,14 +15,6 @@ logger = structlog.get_logger(__name__)
 UTM_TAGS_BASE = "utm_source=posthog&utm_campaign=subscription_report"
 
 DEFAULT_MAX_ASSET_COUNT = 6
-
-
-def get_tiles_ordered_by_position(dashboard: Dashboard) -> List[DashboardTile]:
-    tiles = list(
-        DashboardTile.objects.filter(dashboard=dashboard).select_related("insight").order_by("insight__order").all()
-    )
-    tiles.sort(key=lambda x: x.layouts.get("xs", {}).get("y", 100))
-    return tiles
 
 
 def generate_assets(
