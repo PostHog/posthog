@@ -245,7 +245,7 @@ describe('the activity log logic', () => {
                 const actual = logic.values.humanizedActivity
 
                 expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent(
-                    'merged into this person: User A,andUser C'
+                    'peter merged people into this person: User A, and User C'
                 )
             })
 
@@ -263,7 +263,7 @@ describe('the activity log logic', () => {
                 const actual = logic.values.humanizedActivity
 
                 expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent(
-                    'split this person into a,andb'
+                    'peter split this person into: a, and b'
                 )
             })
         })
@@ -286,7 +286,9 @@ describe('the activity log logic', () => {
                 ])
 
                 const actual = logic.values.humanizedActivity
-                expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent('deleted test flag')
+                expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent(
+                    'On test flag, peter deleted the flag'
+                )
             })
 
             it('can handle soft enabling flag', async () => {
@@ -300,7 +302,9 @@ describe('the activity log logic', () => {
                 ])
 
                 const actual = logic.values.humanizedActivity
-                expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent('enabled test flag')
+                expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent(
+                    'On test flag, peter enabled the flag'
+                )
             })
 
             it('can handle soft disabling flag', async () => {
@@ -314,7 +318,9 @@ describe('the activity log logic', () => {
                 ])
 
                 const actual = logic.values.humanizedActivity
-                expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent('disabled test flag')
+                expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent(
+                    'On test flag, peter disabled the flag'
+                )
             })
 
             it('can handle deleting several groups from a flag', async () => {
@@ -368,7 +374,7 @@ describe('the activity log logic', () => {
 
                 const actual = logic.values.humanizedActivity
                 expect(keaRender(<>{actual[0]?.description}</>).container).toHaveTextContent(
-                    'removed 2 release conditions on test flag'
+                    'On test flag, peter removed 2 release conditions'
                 )
             })
 
@@ -419,7 +425,7 @@ describe('the activity log logic', () => {
 
                 const actual = logic.values.humanizedActivity
                 expect(keaRender(<>{actual[0]?.description}</>).container).toHaveTextContent(
-                    'removed 1 release condition on test flag'
+                    'On test flag, peter removed 1 release condition'
                 )
             })
 
@@ -436,7 +442,7 @@ describe('the activity log logic', () => {
                 const actual = logic.values.humanizedActivity
 
                 expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent(
-                    'changed rollout percentage to 36% on test flag'
+                    'On test flag, peter changed rollout percentage to 36%'
                 )
             })
 
@@ -480,7 +486,7 @@ describe('the activity log logic', () => {
 
                 const actual = logic.values.humanizedActivity
                 expect(keaRender(<>{actual[0]?.description}</>).container).toHaveTextContent(
-                    'removed 1 release condition on test flag'
+                    'On test flag, peter changed the filter conditions to apply to 30% of all users, and removed 1 release condition'
                 )
             })
 
@@ -503,7 +509,7 @@ describe('the activity log logic', () => {
                 const actual = logic.values.humanizedActivity
 
                 expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent(
-                    'changed rollout percentage to 36%,andchanged the description to "strawberry" on test flag'
+                    'On test flag, peter changed rollout percentage to 36%, and changed the description to "strawberry"'
                 )
             })
 
@@ -520,7 +526,7 @@ describe('the activity log logic', () => {
                 const actual = logic.values.humanizedActivity
 
                 expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent(
-                    'changed the filter conditions to apply to 99% of all users on test flag'
+                    'On test flag, peter changed the filter conditions to apply to 99% of all users'
                 )
             })
 
@@ -562,7 +568,7 @@ describe('the activity log logic', () => {
                 const actual = logic.values.humanizedActivity
 
                 expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent(
-                    'changed the filter conditions to apply to 100% ofID 98,and100% ofID 411 on with cohort'
+                    'On with cohort, peter changed the filter conditions to apply to 100% ofID 98, and 100% ofID 411'
                 )
             })
 
@@ -595,7 +601,7 @@ describe('the activity log logic', () => {
                 const actual = logic.values.humanizedActivity
 
                 expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent(
-                    'changed the filter conditions to apply to 77% of all users on with simple rollout change'
+                    'On with simple rollout change, peter changed the filter conditions to apply to 77% of all users'
                 )
             })
 
@@ -653,7 +659,7 @@ describe('the activity log logic', () => {
                 const actual = logic.values.humanizedActivity
 
                 expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent(
-                    'changed the filter conditions to apply to 100% ofemail = someone@somewhere.dev on with null rollout change'
+                    'On with null rollout change, peter changed the filter conditions to apply to 100% ofemail = someone@somewhere.dev'
                 )
             })
 
@@ -723,7 +729,7 @@ describe('the activity log logic', () => {
                 const actual = logic.values.humanizedActivity
 
                 expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent(
-                    'changed the filter conditions to apply to 76% ofInitial Browser = Chrome ,and99% ofInitial Browser Version = 100 on with two changes'
+                    'On with two changes, peter changed the filter conditions to apply to 76% ofInitial Browser = Chrome , and 99% ofInitial Browser Version = 100'
                 )
             })
         })
@@ -748,7 +754,7 @@ describe('the activity log logic', () => {
                 const actual = logic.values.humanizedActivity
 
                 expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent(
-                    'changed the name to "finish" on test insight'
+                    'On test insight, peter changed the name to "finish"'
                 )
             })
 
@@ -835,7 +841,7 @@ describe('the activity log logic', () => {
                 const renderedDescription = keaRender(<>{actual[0].description}</>).container
                 expect(renderedDescription).toHaveTextContent(
                     // text is huge don't assert on entire content
-                    'changed details on test insight'
+                    'On test insight, peter changed details'
                 )
             })
 
@@ -865,7 +871,7 @@ describe('the activity log logic', () => {
                 const actual = logic.values.humanizedActivity
 
                 expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent(
-                    'changed the short id to "changed" on test insight'
+                    'On test insight, peter changed the short id to "changed"'
                 )
             })
 
@@ -881,7 +887,7 @@ describe('the activity log logic', () => {
                 const actual = logic.values.humanizedActivity
 
                 expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent(
-                    'changed the name to "changed" on test insight'
+                    'On test insight, peter changed the name to "changed"'
                 )
             })
 
@@ -897,7 +903,7 @@ describe('the activity log logic', () => {
                 const actual = logic.values.humanizedActivity
 
                 expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent(
-                    'changed the description to "changed" on test insight'
+                    'On test insight, peter changed the description to "changed"'
                 )
             })
 
@@ -912,7 +918,9 @@ describe('the activity log logic', () => {
                 ])
                 const actual = logic.values.humanizedActivity
 
-                expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent('favorited test insight')
+                expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent(
+                    'On test insight, peter favorited the insight'
+                )
             })
 
             it('can handle removal of favorited', async () => {
@@ -926,7 +934,9 @@ describe('the activity log logic', () => {
                 ])
                 const actual = logic.values.humanizedActivity
 
-                expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent('un-favorited test insight')
+                expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent(
+                    'On test insight, peter un-favorited the insight'
+                )
             })
 
             it('can handle addition of tags', async () => {
@@ -942,7 +952,7 @@ describe('the activity log logic', () => {
                 const actual = logic.values.humanizedActivity
 
                 expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent(
-                    'added the tag 3 on test insight'
+                    'On test insight, peter added the tag 3'
                 )
             })
 
@@ -959,7 +969,7 @@ describe('the activity log logic', () => {
                 const actual = logic.values.humanizedActivity
 
                 expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent(
-                    'removed the tag 3 on test insight'
+                    'On test insight, peter removed the tag 3'
                 )
             })
 
@@ -983,7 +993,7 @@ describe('the activity log logic', () => {
                 const actual = logic.values.humanizedActivity
 
                 expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent(
-                    'added to dashboard added test insight'
+                    'On test insight, peter added to dashboard added'
                 )
             })
 
@@ -1007,7 +1017,7 @@ describe('the activity log logic', () => {
                 const actual = logic.values.humanizedActivity
 
                 expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent(
-                    'removed from dashboard removed test insight'
+                    'On test insight, peter removed from dashboard removed'
                 )
             })
         })

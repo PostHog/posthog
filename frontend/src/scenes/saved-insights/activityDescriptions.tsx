@@ -90,7 +90,7 @@ const insightActionsMapping: Record<keyof InsightModel, (change?: ActivityChange
         const isFavoriteAfter = change?.after as boolean
         return [
             <>
-                <div className="highlighted-activity">{isFavoriteAfter ? '' : 'un-'}favorited</div>
+                <div className="highlighted-activity">{isFavoriteAfter ? '' : 'un-'}favorited the insight</div>
             </>,
         ]
     },
