@@ -2,6 +2,7 @@ import os
 import time
 from random import randrange
 
+import structlog
 from celery import Celery
 from celery.schedules import crontab
 from celery.signals import task_postrun, task_prerun
@@ -11,6 +12,8 @@ from django.utils import timezone
 
 from posthog.redis import get_client
 from posthog.utils import get_crontab
+
+logger = structlog.get_logger(__name__)
 
 # set the default Django settings module for the 'celery' program.
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "posthog.settings")
@@ -42,110 +45,108 @@ UPDATE_CACHED_DASHBOARD_ITEMS_INTERVAL_SECONDS = settings.UPDATE_CACHED_DASHBOAR
 
 @app.on_after_configure.connect
 def setup_periodic_tasks(sender: Celery, **kwargs):
-    # Monitoring tasks
-    sender.add_periodic_task(60.0, monitoring_check_clickhouse_schema_drift.s(), name="Monitor ClickHouse schema drift")
-
-    if not settings.DEBUG:
-        sender.add_periodic_task(1.0, redis_celery_queue_depth.s(), name="1 sec queue probe", priority=0)
-    # Heartbeat every 10sec to make sure the worker is alive
-    sender.add_periodic_task(10.0, redis_heartbeat.s(), name="10 sec heartbeat", priority=0)
-
-    # Update events table partitions twice a week
-    sender.add_periodic_task(
-        crontab(day_of_week="mon,fri", hour=0, minute=0), update_event_partitions.s(),  # check twice a week
-    )
-
-    # Send weekly status report on self-hosted instances
-    if not getattr(settings, "MULTI_TENANCY", False):
-        sender.add_periodic_task(crontab(day_of_week="mon", hour=0, minute=0), status_report.s())
-
-    # Cloud (posthog-cloud) cron jobs
-    if getattr(settings, "MULTI_TENANCY", False):
-        sender.add_periodic_task(crontab(hour=0, minute=0), calculate_billing_daily_usage.s())  # every day midnight UTC
-        sender.add_periodic_task(crontab(hour=4, minute=0), verify_persons_data_in_sync.s())
-
-    sender.add_periodic_task(crontab(day_of_week="fri", hour=0, minute=0), clean_stale_partials.s())
-
-    # Send the emails at 3PM UTC every day
-    sender.add_periodic_task(crontab(hour=15, minute=0), send_first_ingestion_reminder_emails.s())
-    sender.add_periodic_task(crontab(hour=15, minute=0), send_second_ingestion_reminder_emails.s())
-
-    # sync all Organization.available_features every hour
-    sender.add_periodic_task(crontab(minute=30, hour="*"), sync_all_organization_available_features.s())
-
-    sender.add_periodic_task(
-        UPDATE_CACHED_DASHBOARD_ITEMS_INTERVAL_SECONDS, check_cached_items.s(), name="check dashboard items"
-    )
-
-    sender.add_periodic_task(crontab(minute="*/15"), check_async_migration_health.s())
-
-    sender.add_periodic_task(
-        crontab(
-            hour=0, minute=randrange(0, 40)
-        ),  # every day at a random minute past midnight. Sends data from the preceding whole day.
-        send_org_usage_report.s(),
-        name="send event usage report",
-    )
-
-    if getattr(settings, "MULTI_TENANCY", False):
-        sender.add_periodic_task(60, ingestion_lag.s(), name="ingestion lag")
-    sender.add_periodic_task(120, clickhouse_lag.s(), name="clickhouse table lag")
-    sender.add_periodic_task(120, clickhouse_row_count.s(), name="clickhouse events table row count")
-    sender.add_periodic_task(120, clickhouse_part_count.s(), name="clickhouse table parts count")
-    sender.add_periodic_task(120, clickhouse_mutation_count.s(), name="clickhouse table mutations count")
-
-    sender.add_periodic_task(120, pg_table_cache_hit_rate.s(), name="PG table cache hit rate")
-    sender.add_periodic_task(
-        crontab(minute=0, hour="*"), pg_plugin_server_query_timing.s(), name="PG plugin server query timing"
-    )
-
-    sender.add_periodic_task(crontab(minute=0, hour="*"), calculate_cohort_ids_in_feature_flags_task.s())
-
-    sender.add_periodic_task(
-        crontab(hour=0, minute=randrange(0, 40)), clickhouse_send_license_usage.s()
-    )  # every day at a random minute past midnight. Randomize to avoid overloading license.posthog.com
-
-    materialize_columns_crontab = get_crontab(settings.MATERIALIZE_COLUMNS_SCHEDULE_CRON)
-
-    if materialize_columns_crontab:
+    try:
+        # Monitoring tasks
         sender.add_periodic_task(
-            materialize_columns_crontab, clickhouse_materialize_columns.s(), name="clickhouse materialize columns",
+            60.0, monitoring_check_clickhouse_schema_drift.s(), name="Monitor ClickHouse schema drift"
         )
 
+        if not settings.DEBUG:
+            sender.add_periodic_task(1.0, redis_celery_queue_depth.s(), name="1 sec queue probe", priority=0)
+        # Heartbeat every 10sec to make sure the worker is alive
+        sender.add_periodic_task(10.0, redis_heartbeat.s(), name="10 sec heartbeat", priority=0)
+
+        # Update events table partitions twice a week
         sender.add_periodic_task(
-            crontab(hour="*/4", minute=0),
-            clickhouse_mark_all_materialized.s(),
-            name="clickhouse mark all columns as materialized",
+            crontab(day_of_week="mon,fri", hour=0, minute=0), update_event_partitions.s(),  # check twice a week
         )
 
-    sender.add_periodic_task(120, calculate_cohort.s(), name="recalculate cohorts")
+        # Send weekly status report on self-hosted instances
+        if not getattr(settings, "MULTI_TENANCY", False):
+            sender.add_periodic_task(crontab(day_of_week="mon", hour=0, minute=0), status_report.s())
 
-    # Hourly check for email subscriptions
-    sender.add_periodic_task(crontab(hour="*", minute=55), schedule_all_subscriptions.s())
+        # Cloud (posthog-cloud) cron jobs
+        if getattr(settings, "MULTI_TENANCY", False):
+            sender.add_periodic_task(
+                crontab(hour=0, minute=0), calculate_billing_daily_usage.s()
+            )  # every day midnight UTC
+            sender.add_periodic_task(crontab(hour=4, minute=0), verify_persons_data_in_sync.s())
 
-    if settings.ASYNC_EVENT_PROPERTY_USAGE:
+        sender.add_periodic_task(crontab(day_of_week="fri", hour=0, minute=0), clean_stale_partials.s())
+
+        # Send the emails at 3PM UTC every day
+        sender.add_periodic_task(crontab(hour=15, minute=0), send_first_ingestion_reminder_emails.s())
+        sender.add_periodic_task(crontab(hour=15, minute=0), send_second_ingestion_reminder_emails.s())
+
+        # sync all Organization.available_features every hour
+        sender.add_periodic_task(crontab(minute=30, hour="*"), sync_all_organization_available_features.s())
+
         sender.add_periodic_task(
-            EVENT_PROPERTY_USAGE_INTERVAL_SECONDS,
-            calculate_event_property_usage.s(),
-            name="calculate event property usage",
+            UPDATE_CACHED_DASHBOARD_ITEMS_INTERVAL_SECONDS, check_cached_items.s(), name="check dashboard items"
         )
 
-    clear_clickhouse_crontab = get_crontab(settings.CLEAR_CLICKHOUSE_REMOVED_DATA_SCHEDULE_CRON)
-    if clear_clickhouse_crontab:
+        sender.add_periodic_task(crontab(minute="*/15"), check_async_migration_health.s())
+
         sender.add_periodic_task(
-            clear_clickhouse_crontab, clickhouse_clear_removed_data.s(), name="clickhouse clear removed data"
+            crontab(
+                hour=0, minute=randrange(0, 40)
+            ),  # every day at a random minute past midnight. Sends data from the preceding whole day.
+            send_org_usage_report.s(),
+            name="send event usage report",
         )
 
-    from posthog.models.instance_setting import get_instance_setting
+        if getattr(settings, "MULTI_TENANCY", False):
+            sender.add_periodic_task(60, ingestion_lag.s(), name="ingestion lag")
+        sender.add_periodic_task(120, clickhouse_lag.s(), name="clickhouse table lag")
+        sender.add_periodic_task(120, clickhouse_row_count.s(), name="clickhouse events table row count")
+        sender.add_periodic_task(120, clickhouse_part_count.s(), name="clickhouse table parts count")
+        sender.add_periodic_task(120, clickhouse_mutation_count.s(), name="clickhouse table mutations count")
 
-    recordings_post_processing_enabled = get_instance_setting("RECORDINGS_POST_PROCESSING_ENABLED")
-    recordings_post_processing_crontab = get_crontab(get_instance_setting("RECORDINGS_POST_PROCESSING_CRON"))
-    if recordings_post_processing_enabled and recordings_post_processing_crontab:
+        sender.add_periodic_task(120, pg_table_cache_hit_rate.s(), name="PG table cache hit rate")
         sender.add_periodic_task(
-            recordings_post_processing_crontab,
-            post_process_snapshot_recordings.s(),
-            name="recordings post-processing parent",
+            crontab(minute=0, hour="*"), pg_plugin_server_query_timing.s(), name="PG plugin server query timing"
         )
+
+        sender.add_periodic_task(crontab(minute=0, hour="*"), calculate_cohort_ids_in_feature_flags_task.s())
+
+        sender.add_periodic_task(
+            crontab(hour=0, minute=randrange(0, 40)), clickhouse_send_license_usage.s()
+        )  # every day at a random minute past midnight. Randomize to avoid overloading license.posthog.com
+
+        materialize_columns_crontab = get_crontab(settings.MATERIALIZE_COLUMNS_SCHEDULE_CRON)
+
+        if materialize_columns_crontab:
+            sender.add_periodic_task(
+                materialize_columns_crontab, clickhouse_materialize_columns.s(), name="clickhouse materialize columns",
+            )
+
+            sender.add_periodic_task(
+                crontab(hour="*/4", minute=0),
+                clickhouse_mark_all_materialized.s(),
+                name="clickhouse mark all columns as materialized",
+            )
+
+        sender.add_periodic_task(120, calculate_cohort.s(), name="recalculate cohorts")
+
+        # Hourly check for email subscriptions
+        sender.add_periodic_task(crontab(hour="*", minute=55), schedule_all_subscriptions.s())
+
+        if settings.ASYNC_EVENT_PROPERTY_USAGE:
+            sender.add_periodic_task(
+                EVENT_PROPERTY_USAGE_INTERVAL_SECONDS,
+                calculate_event_property_usage.s(),
+                name="calculate event property usage",
+            )
+
+        clear_clickhouse_crontab = get_crontab(settings.CLEAR_CLICKHOUSE_REMOVED_DATA_SCHEDULE_CRON)
+        if clear_clickhouse_crontab:
+            sender.add_periodic_task(
+                clear_clickhouse_crontab, clickhouse_clear_removed_data.s(), name="clickhouse clear removed data"
+            )
+
+    except Exception as e:
+        logger.error(f"celery scheduler failed: {str(e)}", exception=e)
+        raise e
 
 
 # Set up clickhouse query instrumentation
@@ -161,11 +162,6 @@ def teardown_instrumentation(task_id, task, **kwargs):
     from posthog import client
 
     client._request_information = None
-
-
-@app.task(queue="post-process")
-def post_process_snapshot_recordings():
-    pass
 
 
 @app.task(ignore_result=True)
