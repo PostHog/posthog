@@ -1,6 +1,5 @@
 from uuid import UUID, uuid4
 
-from ee.clickhouse.models.group import create_group  # move this to /ee
 from posthog.client import sync_execute
 from posthog.models import Team
 from posthog.models.cohort.util import insert_static_cohort
@@ -38,15 +37,6 @@ class TestDeleteEvents(ClickhouseTestMixin, ClickhouseDestroyTablesMixin, BaseTe
 
         self.assertEqual(self.select_remaining("person", "properties"), ['{"x": 2}'])
         self.assertEqual(self.select_remaining("person_distinct_id", "distinct_id"), ["2"])
-
-    def test_delete_groups(self):
-        create_group(self.teams[0].pk, 0, "g0")
-        create_group(self.teams[1].pk, 1, "g1")
-        create_group(self.teams[2].pk, 2, "g2")
-
-        delete_teams_clickhouse_data([self.teams[0].pk, self.teams[1].pk])
-
-        self.assertEqual(self.select_remaining("groups", "group_key"), ["g2"])
 
     def test_delete_cohorts(self):
         insert_static_cohort([uuid4()], 0, self.teams[0])

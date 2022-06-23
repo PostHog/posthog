@@ -338,7 +338,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         self.assertEqual(response_data["tags"], [])
 
         objects = Insight.objects.all()
-        self.assertEqual(len(objects), 1)
+        self.assertEqual(objects.count(), 1)
         self.assertEqual(objects[0].filters["events"][0]["id"], "$pageview")
         self.assertEqual(objects[0].filters["date_from"], "-90d")
         self.assertEqual(len(objects[0].short_id), 8)
@@ -671,7 +671,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
         objects = Insight.objects.all()
-        self.assertEqual(len(objects), 1)
+        self.assertEqual(objects.count(), 1)
         self.assertEqual(objects[0].filters["events"][1]["id"], "$rageclick")
         self.assertEqual(objects[0].filters["display"], "FunnelViz")
         self.assertEqual(objects[0].filters["interval"], "day")

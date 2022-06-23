@@ -123,22 +123,25 @@ class TestSignupAPI(APIBaseTest):
 
     @pytest.mark.ee
     def test_signup_allowed_on_self_hosted_with_env_var(self):
-        from ee.models.license import License, LicenseManager
-
-        super(LicenseManager, cast(LicenseManager, License.objects)).create(
-            key="key_123", plan="enterprise", valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7), max_users=3,
-        )
-
-        Organization.objects.create(name="name")
-        User.objects.create(first_name="name", email="email@posthog.com")
-        count = Organization.objects.count()
-        with self.settings(MULTI_TENANCY=False, MULTI_ORG_ENABLED=True):
-            response = self.client.post(
-                "/api/signup/", {"first_name": "Jane", "email": "hedgehog4@posthog.com", "password": "notsecure"},
+        try:
+            from ee.models.license import License, LicenseManager
+        except ImportError:
+            pass
+        else:
+            super(LicenseManager, cast(LicenseManager, License.objects)).create(
+                key="key_123", plan="enterprise", valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7), max_users=3,
             )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(response.json()["email"], "hedgehog4@posthog.com")
-        self.assertEqual(Organization.objects.count(), count + 1)
+
+            Organization.objects.create(name="name")
+            User.objects.create(first_name="name", email="email@posthog.com")
+            count = Organization.objects.count()
+            with self.settings(MULTI_TENANCY=False, MULTI_ORG_ENABLED=True):
+                response = self.client.post(
+                    "/api/signup/", {"first_name": "Jane", "email": "hedgehog4@posthog.com", "password": "notsecure"},
+                )
+            self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+            self.assertEqual(response.json()["email"], "hedgehog4@posthog.com")
+            self.assertEqual(Organization.objects.count(), count + 1)
 
     @pytest.mark.skip_on_multitenancy
     @patch("posthoganalytics.capture")
@@ -283,27 +286,31 @@ class TestSignupAPI(APIBaseTest):
     @pytest.mark.ee
     def test_api_can_use_social_login_to_create_organization_if_enabled(self, mock_request):
         Organization.objects.create(name="Test org")
-        from ee.models.license import License, LicenseManager
 
-        super(LicenseManager, cast(LicenseManager, License.objects)).create(
-            key="key_123", plan="enterprise", valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7), max_users=3,
-        )
+        try:
+            from ee.models.license import License, LicenseManager
+        except ImportError:
+            pass
+        else:
+            super(LicenseManager, cast(LicenseManager, License.objects)).create(
+                key="key_123", plan="enterprise", valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7), max_users=3,
+            )
 
-        with self.settings(SOCIAL_AUTH_GITLAB_KEY="gitlab_123", SOCIAL_AUTH_GITLAB_SECRET="gitlab_secret"):
-            response = self.client.get(reverse("social:begin", kwargs={"backend": "gitlab"}))
-        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+            with self.settings(SOCIAL_AUTH_GITLAB_KEY="gitlab_123", SOCIAL_AUTH_GITLAB_SECRET="gitlab_secret"):
+                response = self.client.get(reverse("social:begin", kwargs={"backend": "gitlab"}))
+            self.assertEqual(response.status_code, status.HTTP_302_FOUND)
 
-        url = reverse("social:complete", kwargs={"backend": "gitlab"})
-        url += f"?code=2&state={response.client.session['gitlab_state']}"
-        mock_request.return_value.json.return_value = MOCK_GITLAB_SSO_RESPONSE
+            url = reverse("social:complete", kwargs={"backend": "gitlab"})
+            url += f"?code=2&state={response.client.session['gitlab_state']}"
+            mock_request.return_value.json.return_value = MOCK_GITLAB_SSO_RESPONSE
 
-        with self.settings(MULTI_ORG_ENABLED=True):
-            response = self.client.get(url, follow=True)
-        self.assertEqual(response.status_code, status.HTTP_200_OK)  # because `follow=True`
-        self.assertRedirects(
-            response,
-            "/organization/confirm-creation?organization_name=&first_name=John%20Doe&email=testemail%40posthog.com",
-        )  # page where user will create a new org
+            with self.settings(MULTI_ORG_ENABLED=True):
+                response = self.client.get(url, follow=True)
+            self.assertEqual(response.status_code, status.HTTP_200_OK)  # because `follow=True`
+            self.assertRedirects(
+                response,
+                "/organization/confirm-creation?organization_name=&first_name=John%20Doe&email=testemail%40posthog.com",
+            )  # page where user will create a new org
 
     @mock.patch("social_core.backends.base.BaseAuth.request")
     @pytest.mark.ee
@@ -311,25 +318,28 @@ class TestSignupAPI(APIBaseTest):
     def test_api_cannot_use_social_login_to_create_organization_if_disabled(self, mock_request):
         Organization.objects.create(name="Test org")
         # Even with a valid license, because `MULTI_ORG_ENABLED` is not enabled, no new organizations will be allowed.
-        from ee.models.license import License, LicenseManager
+        try:
+            from ee.models.license import License, LicenseManager
+        except ImportError:
+            pass
+        else:
+            super(LicenseManager, cast(LicenseManager, License.objects)).create(
+                key="key_123", plan="enterprise", valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7), max_users=3,
+            )
 
-        super(LicenseManager, cast(LicenseManager, License.objects)).create(
-            key="key_123", plan="enterprise", valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7), max_users=3,
-        )
+            with self.settings(SOCIAL_AUTH_GITLAB_KEY="gitlab_123", SOCIAL_AUTH_GITLAB_SECRET="gitlab_secret"):
+                response = self.client.get(reverse("social:begin", kwargs={"backend": "gitlab"}))
+            self.assertEqual(response.status_code, status.HTTP_302_FOUND)
 
-        with self.settings(SOCIAL_AUTH_GITLAB_KEY="gitlab_123", SOCIAL_AUTH_GITLAB_SECRET="gitlab_secret"):
-            response = self.client.get(reverse("social:begin", kwargs={"backend": "gitlab"}))
-        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+            url = reverse("social:complete", kwargs={"backend": "gitlab"})
+            url += f"?code=2&state={response.client.session['gitlab_state']}"
+            mock_request.return_value.json.return_value = MOCK_GITLAB_SSO_RESPONSE
 
-        url = reverse("social:complete", kwargs={"backend": "gitlab"})
-        url += f"?code=2&state={response.client.session['gitlab_state']}"
-        mock_request.return_value.json.return_value = MOCK_GITLAB_SSO_RESPONSE
-
-        response = self.client.get(url, follow=True)
-        self.assertEqual(response.status_code, status.HTTP_200_OK)  # because `follow=True`
-        self.assertRedirects(
-            response, "/login?error_code=no_new_organizations"
-        )  # show the user an error; operation not permitted
+            response = self.client.get(url, follow=True)
+            self.assertEqual(response.status_code, status.HTTP_200_OK)  # because `follow=True`
+            self.assertRedirects(
+                response, "/login?error_code=no_new_organizations"
+            )  # show the user an error; operation not permitted
 
     @mock.patch("social_core.backends.base.BaseAuth.request")
     @pytest.mark.ee

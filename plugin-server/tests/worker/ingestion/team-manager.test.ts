@@ -45,7 +45,7 @@ describe('TeamManager()', () => {
             expect(team!.name).toEqual('TEST PROJECT')
             // expect(team!.__fetch_event_uuid).toEqual('uuid1')
 
-            jest.spyOn(global.Date, 'now').mockImplementation(() => new Date('2020-02-27T11:00:25Z').getTime())
+            jest.spyOn(global.Date, 'now').mockImplementation(() => new Date('2020-02-27T11:00:55Z').getTime())
             await hub.db.postgresQuery("UPDATE posthog_team SET name = 'Updated Name!'", undefined, 'testTag')
 
             jest.mocked(hub.db.postgresQuery).mockClear()
@@ -55,7 +55,7 @@ describe('TeamManager()', () => {
             // expect(team!.__fetch_event_uuid).toEqual('uuid1')
             expect(hub.db.postgresQuery).toHaveBeenCalledTimes(0)
 
-            jest.spyOn(global.Date, 'now').mockImplementation(() => new Date('2020-02-27T11:00:36Z').getTime())
+            jest.spyOn(global.Date, 'now').mockImplementation(() => new Date('2020-02-27T11:02:06Z').getTime())
 
             team = await teamManager.fetchTeam(2)
             expect(team!.name).toEqual('Updated Name!')

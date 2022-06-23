@@ -4,7 +4,6 @@ from uuid import uuid4
 import pytest
 from django.conf import settings
 
-from ee.clickhouse.sql.groups import KAFKA_GROUPS_TABLE_SQL
 from posthog.async_migrations.runner import start_async_migration
 from posthog.async_migrations.setup import get_async_migration_definition, setup_async_migrations
 from posthog.async_migrations.test.util import AsyncMigrationBaseTest
@@ -15,6 +14,7 @@ from posthog.conftest import create_clickhouse_tables
 from posthog.models.async_migration import AsyncMigration, MigrationStatus
 from posthog.models.event.sql import DISTRIBUTED_EVENTS_TABLE_SQL, KAFKA_EVENTS_TABLE_SQL
 from posthog.models.event.util import create_event
+from posthog.models.group.sql import KAFKA_GROUPS_TABLE_SQL
 from posthog.models.person.sql import KAFKA_PERSON_DISTINCT_ID2_TABLE_SQL, KAFKA_PERSONS_TABLE_SQL
 from posthog.models.session_recording_event.sql import KAFKA_SESSION_RECORDING_EVENTS_TABLE_SQL
 from posthog.test.base import ClickhouseTestMixin
@@ -41,6 +41,7 @@ class Test0004ReplicatedSchema(AsyncMigrationBaseTest, ClickhouseTestMixin):
 
     def tearDown(self):
         self.recreate_database()
+        settings.CLICKHOUSE_REPLICATION = True
         super().tearDown()
 
     def recreate_database(self):
