@@ -11,7 +11,7 @@ on:
     pull_request:
     workflow_dispatch:
         inputs:
-            clickhouseServerVersion:{ s
+            clickhouseServerVersion:
                 description: ClickHouse server version. Leave blank for default
                 type: string
 
