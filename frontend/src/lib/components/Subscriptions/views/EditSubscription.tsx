@@ -155,7 +155,7 @@ export function EditSubscription({
                     </Field>
 
                     {featureFlags[FEATURE_FLAGS.SUBSCRIPTIONS_SLACK] && (
-                        <Field name={'target_type'} label={'Subscription Type'}>
+                        <Field name={'target_type'} label={'Destination'}>
                             <LemonSelect options={targetTypeOptions} {...commonSelectProps} />
                         </Field>
                     )}
