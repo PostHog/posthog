@@ -22,11 +22,11 @@ PERIOD_END = timedelta(days=2)
 
 GET_PERSON_CH_QUERY = """
 SELECT id, version, properties FROM person JOIN (
-    SELECT id, max(_timestamp) as _timestamp, max(is_deleted) as is_deleted, team_id
+    SELECT id, max(version) as version, max(is_deleted) as is_deleted, team_id
     FROM person
     WHERE team_id IN %(team_ids)s AND id IN (%(person_ids)s)
     GROUP BY team_id, id
-) as person_max ON person.id = person_max.id AND person._timestamp = person_max._timestamp AND person.team_id = person_max.team_id
+) as person_max ON person.id = person_max.id AND person.version = person_max.version AND person.team_id = person_max.team_id
 WHERE team_id IN %(team_ids)s
   AND person_max.is_deleted = 0
   AND id IN (%(person_ids)s)
