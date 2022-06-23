@@ -1326,10 +1326,10 @@ export class DB {
 
     public async fetchAllActionsGroupedByTeam(): Promise<Record<Team['id'], Record<Action['id'], Action>>> {
         const restHooks = await this.fetchActionRestHooks()
-        const restHookPluginIds = restHooks.map(({ resource_id }) => resource_id)
+        const restHookActionIds = restHooks.map(({ resource_id }) => resource_id)
 
-        const rawActions: any[] = (
-            await this.postgresQuery(
+        const rawActions = (
+            await this.postgresQuery<RawAction>(
                 `
                 SELECT
                     id,
@@ -1347,7 +1347,7 @@ export class DB {
                 FROM posthog_action
                 WHERE deleted = FALSE AND (post_to_slack OR id = ANY($1))
             `,
-                [restHookPluginIds],
+                [restHookActionIds],
                 'fetchActions'
             )
         ).rows
@@ -1486,16 +1486,16 @@ export class DB {
 
     // Hook (EE)
 
-    private async fetchActionRestHooks(resource_id?: Hook['resource_id']): Promise<Hook[]> {
+    private async fetchActionRestHooks(actionId?: Hook['resource_id']): Promise<Hook[]> {
         try {
             const { rows } = await this.postgresQuery<Hook>(
                 `
                 SELECT *
                 FROM ee_hook
                 WHERE event = 'action_performed'
-                ${resource_id !== undefined ? 'AND resource_id = $1' : ''}
+                ${actionId !== undefined ? 'AND resource_id = $1' : ''}
                 `,
-                resource_id !== undefined ? [resource_id] : [],
+                actionId !== undefined ? [actionId] : [],
                 'fetchActionRestHooks'
             )
             return rows
