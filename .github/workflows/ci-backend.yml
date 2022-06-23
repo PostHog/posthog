@@ -278,14 +278,12 @@ jobs:
                   message: 'Update snapshots'
             - name: Check if any snapshot changes were left uncomitted
               id: changed-files
-              uses: tj-actions/changed-files@v23
+              run: echo '::set-output name=diff::$(git status --porcelain)'
 
             - name: Fail CI if some snapshots have been updated but not committed
-              if: steps.changed-files.outputs.all_changed_files != ''
+              if: steps.changed-files.outputs.diff != ''
               run: |
-                  for file in ${{ steps.changed-files.outputs.all_changed_files }}; do
-                    echo "$file was changed"
-                  done
+                  echo "${{ steps.changed-files.outputs.diff }}"
                   exit 1
             - name: Archive email renders
               uses: actions/upload-artifact@v3
