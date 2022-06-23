@@ -8,10 +8,10 @@ from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.filters.utils import GroupTypeIndex
 from posthog.models.property import PropertyIdentifier
 from posthog.models.property.util import box_value, extract_tables_and_properties
-from posthog.queries.column_optimizer import ColumnOptimizer
+from posthog.queries.column_optimizer.foss_column_optimizer import FOSSColumnOptimizer
 
 
-class EnterpriseColumnOptimizer(ColumnOptimizer):
+class EnterpriseColumnOptimizer(FOSSColumnOptimizer):
     @cached_property
     def group_types_to_query(self) -> Set[GroupTypeIndex]:
         used_properties = self._used_properties_with_type("group")
@@ -59,6 +59,9 @@ class EnterpriseColumnOptimizer(ColumnOptimizer):
             # See ee/clickhouse/queries/trends/util.py#process_math
             if entity.math == "unique_group":
                 counter[(f"$group_{entity.math_group_type_index}", "event", None)] += 1
+
+            if entity.math == "unique_session":
+                counter[(f"$session_id", "event", None)] += 1
 
             # :TRICKY: If action contains property filters, these need to be included
             #

@@ -45,6 +45,8 @@ export class PersonState {
     timestamp: DateTime
     newUuid: string
 
+    person: Person | undefined
+
     private db: DB
     private statsd: StatsD | undefined
     private personManager: PersonManager
@@ -58,7 +60,8 @@ export class PersonState {
         db: DB,
         statsd: StatsD | undefined,
         personManager: PersonManager,
-        uuid?: UUIDT
+        person: Person | undefined = undefined,
+        uuid: UUIDT | undefined = undefined
     ) {
         this.event = event
         this.distinctId = distinctId
@@ -71,6 +74,10 @@ export class PersonState {
         this.statsd = statsd
         this.personManager = personManager
 
+        // Used to avoid unneeded person fetches.
+        // :KLUDGE: May change through `handleIdentifyOrAlias` flow on merges/create person
+        this.person = person
+
         // If set to true, we'll update `is_identified` at the end of `updateProperties`
         // :KLUDGE: This is an indirect communication channel between `handleIdentifyOrAlias` and `updateProperties`
         this.updateIsIdentified = false
@@ -82,17 +89,22 @@ export class PersonState {
     }
 
     async updateProperties(): Promise<Person | undefined> {
-        const createdPerson = await this.createPersonIfDistinctIdIsNew()
+        let result: Person | undefined = this.person
+        let personCreated = false
+        if (!result) {
+            result = await this.createPersonIfDistinctIdIsNew()
+            personCreated = !!result
+        }
         if (
-            !createdPerson &&
+            !personCreated &&
             (this.eventProperties['$set'] ||
                 this.eventProperties['$set_once'] ||
                 this.eventProperties['$unset'] ||
                 this.updateIsIdentified)
         ) {
-            return await this.updatePersonProperties()
+            result = await this.updatePersonProperties()
         }
-        return createdPerson
+        return result
     }
 
     private async createPersonIfDistinctIdIsNew(): Promise<Person | undefined> {
@@ -165,7 +177,8 @@ export class PersonState {
     }
 
     private async updatePersonProperties(): Promise<Person> {
-        const personFound = await this.db.fetchPerson(this.teamId, this.distinctId)
+        // Note: In majority of cases person has been found already here!
+        const personFound = this.person || (await this.db.fetchPerson(this.teamId, this.distinctId))
         if (!personFound) {
             this.statsd?.increment('person_not_found', { teamId: String(this.teamId), key: 'update' })
             throw new Error(
@@ -183,7 +196,8 @@ export class PersonState {
         }
 
         if (Object.keys(update).length > 0) {
-            return await this.db.updatePersonDeprecated(personFound, update)
+            const [updatedPerson] = await this.db.updatePersonDeprecated(personFound, update)
+            return updatedPerson
         } else {
             return personFound
         }
@@ -272,7 +286,9 @@ export class PersonState {
         }
 
         const oldPerson = await this.db.fetchPerson(teamId, previousDistinctId)
-        const newPerson = await this.db.fetchPerson(teamId, distinctId)
+        // :TRICKY: Reduce needless lookups for person
+        this.person = this.person || (await this.db.fetchPerson(teamId, distinctId))
+        const newPerson = this.person
 
         if (oldPerson && !newPerson) {
             try {
@@ -314,7 +330,7 @@ export class PersonState {
             }
         } else if (!oldPerson && !newPerson) {
             try {
-                await this.createPerson(
+                const person = await this.createPerson(
                     timestamp,
                     this.eventProperties['$set'] || {},
                     this.eventProperties['$set_once'] || {},
@@ -324,6 +340,8 @@ export class PersonState {
                     this.newUuid,
                     [distinctId, previousDistinctId]
                 )
+                // :KLUDGE: Avoid unneeded fetches in updateProperties()
+                this.person = person
             } catch {
                 // Catch race condition where in between getting and creating,
                 // another request already created this person
@@ -407,7 +425,7 @@ export class PersonState {
         // in which case we'll bail and rethrow the error.
         await this.db.postgresTransaction(async (client) => {
             try {
-                const updatePersonMessages = await this.db.updatePersonDeprecated(
+                const [person, updatePersonMessages] = await this.db.updatePersonDeprecated(
                     mergeInto,
                     {
                         created_at: firstSeen,
@@ -416,6 +434,9 @@ export class PersonState {
                     },
                     client
                 )
+
+                // :KLUDGE: Avoid unneeded fetches in updateProperties()
+                this.person = person
 
                 // Merge the distinct IDs
                 await this.db.postgresQuery(
@@ -454,4 +475,15 @@ export class PersonState {
 
         await this.db.kafkaProducer.queueMessages(kafkaMessages)
     }
+}
+
+// Helper functions to ease mocking in tests
+export function updatePersonState(...params: ConstructorParameters<typeof PersonState>): Promise<Person | undefined> {
+    return new PersonState(...params).update()
+}
+
+export function updatePropertiesPersonState(
+    ...params: ConstructorParameters<typeof PersonState>
+): Promise<Person | undefined> {
+    return new PersonState(...params).updateProperties()
 }

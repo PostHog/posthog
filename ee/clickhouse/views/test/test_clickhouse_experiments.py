@@ -3,11 +3,11 @@ from flaky import flaky
 from rest_framework import status
 
 from ee.api.test.base import APILicensedTest
-from ee.clickhouse.test.test_journeys import journeys_for
 from posthog.constants import ExperimentSignificanceCode
 from posthog.models.experiment import Experiment
 from posthog.models.feature_flag import FeatureFlag
 from posthog.test.base import ClickhouseTestMixin, snapshot_clickhouse_queries
+from posthog.test.test_journeys import journeys_for
 
 
 class TestExperimentCRUD(APILicensedTest):

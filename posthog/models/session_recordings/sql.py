@@ -1,6 +1,6 @@
 from django.conf import settings
 
-from ee.kafka_client.topics import KAFKA_SESSION_RECORDINGS
+from posthog.kafka_client.topics import KAFKA_SESSION_RECORDINGS
 from posthog.clickhouse.kafka_engine import KAFKA_COLUMNS, kafka_engine
 from posthog.clickhouse.table_engines import Distributed, ReplacingMergeTree, ReplicationScheme
 

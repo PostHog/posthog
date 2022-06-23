@@ -31,11 +31,11 @@ def create_clickhouse_tables(num_tables: int):
 def reset_clickhouse_tables():
     # Truncate clickhouse tables to default before running test
     # Mostly so that test runs locally work correctly
-    from ee.clickhouse.sql.groups import TRUNCATE_GROUPS_TABLE_SQL
     from posthog.clickhouse.dead_letter_queue import TRUNCATE_DEAD_LETTER_QUEUE_TABLE_SQL
     from posthog.clickhouse.plugin_log_entries import TRUNCATE_PLUGIN_LOG_ENTRIES_TABLE_SQL
     from posthog.models.cohort.sql import TRUNCATE_COHORTPEOPLE_TABLE_SQL
     from posthog.models.event.sql import TRUNCATE_EVENTS_TABLE_SQL
+    from posthog.models.group.sql import TRUNCATE_GROUPS_TABLE_SQL
     from posthog.models.person.sql import (
         TRUNCATE_PERSON_DISTINCT_ID2_TABLE_SQL,
         TRUNCATE_PERSON_DISTINCT_ID_TABLE_SQL,
