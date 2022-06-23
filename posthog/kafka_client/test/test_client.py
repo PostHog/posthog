@@ -3,7 +3,7 @@ from unittest.mock import patch
 import kafka
 from django.test import TestCase
 
-from ee.kafka_client.client import _KafkaProducer, build_kafka_consumer
+from posthog.kafka_client.client import _KafkaProducer, build_kafka_consumer
 
 
 class KafkaClientTestCase(TestCase):
@@ -36,10 +36,10 @@ class KafkaClientTestCase(TestCase):
         producer = _KafkaProducer(test=False)
         self.assertEqual(producer.producer.config["security_protocol"], "PLAINTEXT")  # type: ignore
 
-    @patch("ee.kafka_client.client.KAFKA_SECURITY_PROTOCOL", "SASL_PLAINTEXT")
-    @patch("ee.kafka_client.client.KAFKA_SASL_MECHANISM", "<mechanism>")
-    @patch("ee.kafka_client.client.KAFKA_SASL_USER", "<user>")
-    @patch("ee.kafka_client.client.KAFKA_SASL_PASSWORD", "<password>")
+    @patch("posthog.kafka_client.client.KAFKA_SECURITY_PROTOCOL", "SASL_PLAINTEXT")
+    @patch("posthog.kafka_client.client.KAFKA_SASL_MECHANISM", "<mechanism>")
+    @patch("posthog.kafka_client.client.KAFKA_SASL_USER", "<user>")
+    @patch("posthog.kafka_client.client.KAFKA_SASL_PASSWORD", "<password>")
     def test_kafka_sasl_params(self):
         expected_sasl_config = {
             "security_protocol": "SASL_PLAINTEXT",
@@ -55,10 +55,10 @@ class KafkaClientTestCase(TestCase):
         for key, value in expected_sasl_config.items():
             self.assertEqual(value, producer.producer.config[key])  # type: ignore
 
-    @patch("ee.kafka_client.client.KAFKA_SECURITY_PROTOCOL", "SSL")
-    @patch("ee.kafka_client.client.KAFKA_SASL_MECHANISM", "<mechanism>")
-    @patch("ee.kafka_client.client.KAFKA_SASL_USER", "<user>")
-    @patch("ee.kafka_client.client.KAFKA_SASL_PASSWORD", "<password>")
+    @patch("posthog.kafka_client.client.KAFKA_SECURITY_PROTOCOL", "SSL")
+    @patch("posthog.kafka_client.client.KAFKA_SASL_MECHANISM", "<mechanism>")
+    @patch("posthog.kafka_client.client.KAFKA_SASL_USER", "<user>")
+    @patch("posthog.kafka_client.client.KAFKA_SASL_PASSWORD", "<password>")
     def test_kafka_no_sasl_params(self):
         expected_sasl_config = {
             "security_protocol": "SSL",

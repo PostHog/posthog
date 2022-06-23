@@ -24,7 +24,7 @@ class SessionRecordingQueryResult(NamedTuple):
     has_more_recording: bool
 
 
-class ClickhouseSessionRecordingList(EventQuery):
+class SessionRecordingList(EventQuery):
     _filter: SessionRecordingsFilter
     SESSION_RECORDINGS_DEFAULT_LIMIT = 50
 

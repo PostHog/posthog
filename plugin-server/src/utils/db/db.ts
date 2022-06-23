@@ -765,7 +765,7 @@ export class DB {
         let queryString = `SELECT
                 posthog_person.id, posthog_person.created_at, posthog_person.team_id, posthog_person.properties,
                 posthog_person.properties_last_updated_at, posthog_person.properties_last_operation, posthog_person.is_user_id, posthog_person.is_identified,
-                posthog_person.uuid, posthog_persondistinctid.team_id AS persondistinctid__team_id,
+                posthog_person.uuid, posthog_person.version, posthog_persondistinctid.team_id AS persondistinctid__team_id,
                 posthog_persondistinctid.distinct_id AS persondistinctid__distinct_id
             FROM posthog_person
             JOIN posthog_persondistinctid ON (posthog_persondistinctid.person_id = posthog_person.id)
@@ -895,6 +895,13 @@ export class DB {
             created_at: DateTime.fromISO(updatedPersonRaw.created_at).toUTC(),
             version: Number(updatedPersonRaw.version || 0),
         } as Person
+
+        // Track the disparity between the version on the database and the version of the person we have in memory
+        // Without races, the returned person (updatedPerson) should have a version that's only +1 the person in memory
+        const versionDisparity = updatedPerson.version - person.version - 1
+        if (versionDisparity > 0) {
+            this.statsd?.increment('person_update_version_mismatch', { versionDisparity: String(versionDisparity) })
+        }
 
         const kafkaMessages = []
         const message = generateKafkaPersonUpdateMessage(

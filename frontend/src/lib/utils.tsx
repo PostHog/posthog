@@ -601,6 +601,14 @@ export function isURL(input: any): boolean {
     return !!input.trim().match(regexp)
 }
 
+export function isExternalLink(input: any): boolean {
+    if (!input || typeof input !== 'string') {
+        return false
+    }
+    const regexp = /^(https?:|mailto:)/
+    return !!input.trim().match(regexp)
+}
+
 export function isEmail(string: string): boolean {
     if (!string) {
         return false

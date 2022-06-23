@@ -2,8 +2,6 @@ from typing import Any, Dict
 
 import jwt
 from django.db.models import QuerySet
-from django.db.models.signals import post_save
-from django.dispatch import receiver
 from django.http import HttpRequest, JsonResponse
 from rest_framework import serializers, viewsets
 from rest_framework.authentication import BasicAuthentication, SessionAuthentication

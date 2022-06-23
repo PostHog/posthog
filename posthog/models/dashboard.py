@@ -72,13 +72,19 @@ class Dashboard(models.Model):
         ):
             # Returning the highest access level if no checks needed
             return self.PrivilegeLevel.CAN_EDIT
-        from ee.models import DashboardPrivilege
 
         try:
-            return cast(Dashboard.PrivilegeLevel, self.privileges.values_list("level", flat=True).get(user_id=user_id))
-        except DashboardPrivilege.DoesNotExist:
-            # Returning the lowest access level if there's no explicit privilege for this user
+            from ee.models import DashboardPrivilege
+        except ImportError:
             return self.PrivilegeLevel.CAN_VIEW
+        else:
+            try:
+                return cast(
+                    Dashboard.PrivilegeLevel, self.privileges.values_list("level", flat=True).get(user_id=user_id)
+                )
+            except DashboardPrivilege.DoesNotExist:
+                # Returning the lowest access level if there's no explicit privilege for this user
+                return self.PrivilegeLevel.CAN_VIEW
 
     def can_user_edit(self, user_id: int) -> bool:
         if self.effective_restriction_level < self.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT:

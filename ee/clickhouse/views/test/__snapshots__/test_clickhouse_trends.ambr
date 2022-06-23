@@ -117,7 +117,7 @@
                          toStartOfDay(toDateTime(timestamp), 'UTC') as date
         FROM
           (SELECT e.timestamp as timestamp,
-                  e.properties as properties
+                  e."properties" as "properties"
            FROM events e
            WHERE team_id = 2
              AND event = '$pageview'
@@ -135,7 +135,7 @@
   SELECT person_id AS actor_id
   FROM
     (SELECT e.timestamp as timestamp,
-            e.properties as properties,
+            e."properties" as "properties",
             pdi.person_id as person_id,
             e.distinct_id as distinct_id,
             e.team_id as team_id
@@ -298,7 +298,7 @@
   SELECT person_id AS actor_id
   FROM
     (SELECT e.timestamp as timestamp,
-            e.properties as properties,
+            e."properties" as "properties",
             pdi.person_id as person_id,
             e.distinct_id as distinct_id,
             e.team_id as team_id
@@ -456,7 +456,7 @@
   SELECT person_id AS actor_id
   FROM
     (SELECT e.timestamp as timestamp,
-            e.properties as properties,
+            e."properties" as "properties",
             pdi.person_id as person_id,
             e.distinct_id as distinct_id,
             e.team_id as team_id
@@ -601,7 +601,7 @@
   SELECT person_id AS actor_id
   FROM
     (SELECT e.timestamp as timestamp,
-            e.properties as properties,
+            e."properties" as "properties",
             pdi.person_id as person_id,
             e.distinct_id as distinct_id,
             e.team_id as team_id
@@ -793,7 +793,7 @@
                          toStartOfDay(toDateTime(timestamp), 'UTC') as date
         FROM
           (SELECT e.timestamp as timestamp,
-                  e.$group_0 as $group_0
+                  e."$group_0" as "$group_0"
            FROM events e
            WHERE team_id = 2
              AND event = '$pageview'
@@ -811,7 +811,7 @@
   SELECT $group_0 AS actor_id
   FROM
     (SELECT e.timestamp as timestamp,
-            e.$group_0 as $group_0
+            e."$group_0" as "$group_0"
      FROM events e
      WHERE team_id = 2
        AND event = '$pageview'
@@ -842,7 +842,7 @@
                          toStartOfDay(toDateTime(timestamp), 'UTC') as date
         FROM
           (SELECT e.timestamp as timestamp,
-                  e.$session_id as $session_id
+                  e."$session_id" as "$session_id"
            FROM events e
            WHERE team_id = 2
              AND event = '$pageview'
@@ -859,7 +859,7 @@
   SELECT person_id AS actor_id
   FROM
     (SELECT e.timestamp as timestamp,
-            e.$session_id as $session_id,
+            e."$session_id" as "$session_id",
             pdi.person_id as person_id,
             e.distinct_id as distinct_id,
             e.team_id as team_id
