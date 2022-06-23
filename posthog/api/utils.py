@@ -341,7 +341,7 @@ def create_event_definitions_sql(include_actions: bool, is_enterprise: bool = Fa
 
         ee_model = EnterpriseEventDefinition
     else:
-        ee_model = EventDefinition
+        ee_model = EventDefinition  # type: ignore
 
     event_definition_fields = {
         f'"{f.column}"'  # type: ignore
