@@ -65,6 +65,7 @@ export function Popup({
         y,
         refs: { reference: referenceRef, floating: floatingRef },
         strategy,
+        placement: floatingPlacement,
         update,
     } = useFloating<HTMLElement>({
         placement,
@@ -118,6 +119,7 @@ export function Popup({
                                 maxContentWidth && 'Popup--max-content-width',
                                 className
                             )}
+                            data-floating-placement={floatingPlacement}
                             ref={floatingRef as MutableRefObject<HTMLDivElement>}
                             style={{ position: strategy, top: y ?? 0, left: x ?? 0 }}
                             onClick={onClickInside}

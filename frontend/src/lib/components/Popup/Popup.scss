@@ -8,7 +8,7 @@
     p:last-child {
         margin-bottom: 0;
     }
-    &[data-popper-placement^='top'] {
+    &[data-floating-placement^='top'] {
         perspective-origin: bottom;
     }
 }
@@ -25,7 +25,7 @@
     max-height: inherit;
     overflow: auto;
 
-    [data-popper-placement^='top'] & {
+    [data-floating-placement^='top'] & {
         transform-origin: bottom;
     }
 
@@ -39,8 +39,8 @@
         transform: rotateX(-12deg);
     }
 
-    .Popup--enter[data-popper-placement^='top'] &,
-    .Popup--exit.Popup--exit-active[data-popper-placement^='top'] & {
+    .Popup--enter[data-floating-placement^='top'] &,
+    .Popup--exit.Popup--exit-active[data-floating-placement^='top'] & {
         transform: rotateX(12deg);
     }
 
