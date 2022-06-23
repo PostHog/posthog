@@ -273,7 +273,8 @@ jobs:
 
             - name: Check if any snapshot changes were left uncomitted
               id: changed-files
-              if: ${{ matrix.clickhouse-server-image == 'clickhouse/clickhouse-server:22.3' && !matrix.person-on-events }}
+              if: ${{ !matrix.person-on-events && !matrix.foss && github.event.pull_request.head.repo.full_name == github.repository }}
+              with:
               run: |
                   if [[ -z $(git status -s | grep -v ".test_durations" | tr -d "\n") ]]
                   then
