@@ -279,7 +279,7 @@ jobs:
                   message: 'Update snapshots'
             - name: Check if any snapshot changes were left uncomitted
               id: changed-files
-              run: echo '::set-output name=diff::$(git status --porcelain | grep -v ".test_durations")'
+              run: echo '::set-output name=diff::$(git status --porcelain | grep -v ".test_durations" | tr -d "\n")'
 
             - name: Fail CI if some snapshots have been updated but not committed
               if: steps.changed-files.outputs.diff != '' && steps.add-and-commit.outcome == 'success'
