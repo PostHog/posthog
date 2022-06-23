@@ -55,7 +55,6 @@ export function TaxonomicBreakdownButton({
                     }
                 />
             }
-            placement={'bottom-start'}
             visible={open}
             onClickOutside={() => setOpen(false)}
         >
