@@ -8,6 +8,7 @@ from posthog.celery import app
 from posthog.utils import get_crontab
 
 
+@app.on_after_configure.connect
 def setup_periodic_tasks(sender: Celery, **kwargs):
     sender.add_periodic_task(
         crontab(

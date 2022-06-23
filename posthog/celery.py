@@ -9,7 +9,6 @@ from django.db import connection
 from django.utils import timezone
 
 from posthog.redis import get_client
-from posthog.settings.ee import EE_AVAILABLE
 from posthog.utils import get_crontab
 
 # set the default Django settings module for the 'celery' program.
@@ -107,14 +106,6 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
         sender.add_periodic_task(
             clear_clickhouse_crontab, clickhouse_clear_removed_data.s(), name="clickhouse clear removed data"
         )
-
-    if EE_AVAILABLE:
-        try:
-            from ee.tasks.tasks import setup_periodic_tasks as ee_setup_periodic_tasks
-        except ImportError:
-            pass
-        else:
-            ee_setup_periodic_tasks(sender, **kwargs)
 
 
 # Set up clickhouse query instrumentation
