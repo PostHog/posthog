@@ -126,8 +126,9 @@ COPY ./plugin-server/package.json ./plugin-server/yarn.lock ./
 USER root
 RUN apk --update --no-cache add "yarn~=1"
 
-# NOTE: we need make for node-gyp
-RUN apk --update --no-cache add "make~=4.3" --virtual .build-deps \
+# NOTE: we need make and g++ for node-gyp
+# NOTE: npm is required for re2
+RUN apk --update --no-cache add "make~=4.3" "g++~=10.3" "npm~=7" --virtual .build-deps \
     && yarn install --frozen-lockfile --production=true \
     && apk del .build-deps
 
