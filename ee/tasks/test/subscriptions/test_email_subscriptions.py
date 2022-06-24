@@ -53,6 +53,7 @@ class TestEmailSubscriptionsTasks(APIBaseTest):
 
         assert f"has subscribed you" in mocked_email_messages[0].html_body
         assert "Someone subscribed you to a PostHog Insight" == mocked_email_messages[0].subject
+        assert "This subscription is sent every day. The next subscription will be sent on Wednesday February 02, 2022"
         assert "My invite message" in mocked_email_messages[0].html_body
 
     def test_should_have_different_text_for_self(self, MockEmailMessage: MagicMock,) -> None:
