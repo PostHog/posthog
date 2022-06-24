@@ -2,8 +2,7 @@ from django.core.exceptions import ValidationError
 from django.db import IntegrityError
 
 from posthog.models import Action, Dashboard, DashboardTile, Insight, Tag, TaggedItem
-
-from .base import BaseTest
+from posthog.test.base import BaseTest
 
 
 class TestTaggedItem(BaseTest):
