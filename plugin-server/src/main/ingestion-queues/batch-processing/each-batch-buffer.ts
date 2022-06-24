@@ -2,20 +2,14 @@ import { EachBatchPayload, KafkaMessage } from 'kafkajs'
 
 import { runInstrumentedFunction } from '../../utils'
 import { KafkaQueue } from '../kafka-queue'
-
-class DelayProcessing extends Error {
-    constructor() {
-        super()
-        this.name = 'DelayProcessing'
-    }
-}
+import { formPluginEvent } from './each-batch-ingestion'
 
 export async function eachMessageBuffer(
     message: KafkaMessage,
     resolveOffset: EachBatchPayload['resolveOffset'],
     queue: KafkaQueue
 ): Promise<void> {
-    const bufferEvent = JSON.parse(message.value!.toString())
+    const bufferEvent = formPluginEvent(message)
     await runInstrumentedFunction({
         server: queue.pluginsServer,
         event: bufferEvent,
@@ -52,12 +46,6 @@ export async function eachBatchBuffer(
     if (consumerSleepMs > 0) {
         // pause the consumer for this partition until we can process all unprocessed messages from this batch
         await queue.bufferSleep(consumerSleepMs, batch.partition)
-
-        // we throw an error to prevent the non-processed message offsets from being committed
-        // from the kafkajs docs:
-        // > resolveOffset() is used to mark a message in the batch as processed.
-        // > In case of errors, the consumer will automatically commit the resolved offsets.
-        throw new DelayProcessing()
     }
 
     await commitOffsetsIfNecessary()
