@@ -194,7 +194,8 @@ jobs:
                   event_type: deploy_app_version
                   message: |
                       {
-                        "image_tag": "${{ github.sha }}"
+                        "image_tag": "${{ github.sha }}",
+                        "context": ${{ toJson(github) }}
                       }
 
     # TODO: Bring back once https://github.com/rtCamp/action-slack-notify/issues/126 is resolved
