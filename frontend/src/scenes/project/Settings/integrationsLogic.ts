@@ -87,7 +87,13 @@ export const integrationsLogic = kea<integrationsLogicType>([
         handleRedirect: async ({ kind, searchParams }) => {
             switch (kind) {
                 case 'slack':
-                    const { state, code } = searchParams
+                    const { state, code, error } = searchParams
+
+                    if (error) {
+                        lemonToast.error(`Failed due to "${error}"`)
+                        router.actions.replace(urls.projectSettings())
+                        return
+                    }
 
                     try {
                         await api.integrations.create({
