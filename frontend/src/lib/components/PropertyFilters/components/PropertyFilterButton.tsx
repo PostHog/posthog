@@ -2,7 +2,7 @@ import './PropertyFilterButton.scss'
 import { Button } from 'antd'
 import { useValues } from 'kea'
 import { formatPropertyLabel, midEllipsis } from 'lib/utils'
-import React from 'react'
+import React, { MutableRefObject } from 'react'
 import { cohortsModel } from '~/models/cohortsModel'
 import { AnyPropertyFilter } from '~/types'
 import { keyMapping } from 'lib/components/PropertyKeyInfo'
@@ -14,7 +14,7 @@ import { Tooltip } from 'lib/components/Tooltip'
 export interface PropertyFilterButtonProps {
     onClick?: () => void
     onClose?: () => void
-    setRef?: (ref: HTMLElement) => void
+    ref?: MutableRefObject<HTMLElement | null>
     children?: string | JSX.Element
     item: AnyPropertyFilter
     style?: React.CSSProperties
@@ -64,7 +64,7 @@ function PropertyFilterIcon({ item }: { item: AnyPropertyFilter }): JSX.Element 
 export function PropertyFilterButton({
     onClick,
     onClose,
-    setRef,
+    ref,
     children,
     item,
     style,
@@ -74,7 +74,7 @@ export function PropertyFilterButton({
             shape="round"
             style={{ ...style }}
             onClick={onClick}
-            ref={setRef}
+            ref={ref}
             className="PropertyFilterButton ph-no-capture"
         >
             <PropertyFilterIcon item={item} />

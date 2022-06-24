@@ -1938,3 +1938,17 @@ export interface ChangeDescriptions {
 }
 
 export type CombinedEvent = EventDefinition | ActionType
+
+export interface IntegrationType {
+    id: number
+    kind: 'slack'
+    config: any
+    created_by?: UserBasicType | null
+    created_at: string
+}
+
+export interface SlackChannelType {
+    id: string
+    name: string
+    is_private: boolean
+}

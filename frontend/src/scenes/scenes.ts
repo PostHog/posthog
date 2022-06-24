@@ -142,6 +142,9 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
         hideDemoWarnings: true,
         name: 'Project settings',
     },
+    [Scene.IntegrationsRedirect]: {
+        name: 'Integrations Redirect',
+    },
     [Scene.Ingestion]: {
         projectBased: true,
         plain: true,
@@ -298,4 +301,5 @@ export const routes: Record<string, Scene> = {
     [urls.ingestion()]: Scene.Ingestion,
     [urls.ingestion() + '/*']: Scene.Ingestion,
     [urls.unsubscribe()]: Scene.Unsubscribe,
+    [urls.integrationsRedirect(':kind')]: Scene.IntegrationsRedirect,
 }

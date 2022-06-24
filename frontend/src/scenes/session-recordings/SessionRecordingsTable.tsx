@@ -135,7 +135,6 @@ export function SessionRecordingsTable({ personUUID, isPersonPage = false }: Ses
                                 </Tooltip>
                             </Typography.Text>
                             <PropertyFilters
-                                popoverPlacement="bottomRight"
                                 pageKey={isPersonPage ? `person-${personUUID}` : 'session-recordings'}
                                 taxonomicGroupTypes={[
                                     TaxonomicFilterGroupType.PersonProperties,

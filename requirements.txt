@@ -293,6 +293,8 @@ six==1.14.0
     #   protobuf
     #   python-dateutil
     #   tenacity
+slack-sdk==3.17.1
+    # via -r requirements.in
 sniffio==1.2.0
     # via trio
 social-auth-app-django==5.0.0

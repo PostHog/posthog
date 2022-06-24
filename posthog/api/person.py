@@ -166,9 +166,15 @@ def get_funnel_actor_class(filter: Filter) -> Callable:
     funnel_actor_class: Type[ActorBaseQuery]
 
     if filter.correlation_person_entity and EE_AVAILABLE:
-        from ee.clickhouse.queries.funnels.funnel_correlation_persons import FunnelCorrelationActors
 
-        funnel_actor_class = FunnelCorrelationActors
+        if EE_AVAILABLE:
+            from ee.clickhouse.queries.funnels.funnel_correlation_persons import FunnelCorrelationActors
+
+            funnel_actor_class = FunnelCorrelationActors
+        else:
+            raise ValueError(
+                "Funnel Correlations is not available without an enterprise license and enterprise supported deployment"
+            )
     elif filter.funnel_viz_type == FunnelVizType.TRENDS:
         funnel_actor_class = ClickhouseFunnelTrendsActors
     else:

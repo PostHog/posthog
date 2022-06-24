@@ -8,13 +8,14 @@ import { FunnelVizType, InsightType } from '~/types'
 import { PersonsModal } from 'scenes/trends/PersonsModal'
 import { personsModalLogic } from 'scenes/trends/personsModalLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { SaveCohortModal } from 'scenes/trends/SaveCohortModal'
 
 export function FunnelInsight(): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     const { isValidFunnel, insightLoading, filters, areFiltersValid, barGraphLayout, aggregationTargetLabel } =
         useValues(funnelLogic(insightProps))
     const { showingPeople, cohortModalVisible } = useValues(personsModalLogic)
-    const { setCohortModalVisible } = useActions(personsModalLogic)
+    const { setCohortModalVisible, saveCohortWithUrl } = useActions(personsModalLogic)
 
     const nonEmptyState = (isValidFunnel && areFiltersValid) || insightLoading
     const noPadding = filters.funnel_viz_type == FunnelVizType.Steps && barGraphLayout === FunnelLayout.vertical
@@ -39,6 +40,14 @@ export function FunnelInsight(): JSX.Element {
             >
                 <Funnel />
             </div>
+            <SaveCohortModal
+                visible={cohortModalVisible}
+                onOk={(title: string) => {
+                    saveCohortWithUrl(title)
+                    setCohortModalVisible(false)
+                }}
+                onCancel={() => setCohortModalVisible(false)}
+            />
         </>
     )
 }

@@ -166,47 +166,42 @@ export function UniversalSearchPopup({
                 placement="right-start"
                 fallbackPlacements={['bottom']}
                 onClickOutside={() => setVisible(false)}
-                modifier={{
-                    name: 'offset',
-                    options: {
-                        // @ts-expect-error
-                        offset: ({ placement }) => {
+                middleware={[
+                    {
+                        name: 'offset',
+                        fn({ x, y, placement }) {
                             if (placement === 'right-start') {
-                                return [-25, -250]
-                            } else {
-                                return []
+                                return { y: y - 29, x: x - 253 }
                             }
+                            return {}
                         },
                     },
-                }}
+                ]}
             >
-                {({ setRef }) => (
-                    <div
-                        data-attr={dataAttr}
-                        onClick={(e) => {
-                            e.preventDefault()
-                            e.stopPropagation()
-                            setVisible(!visible)
-                        }}
-                        ref={setRef}
-                        className={clsx(
-                            { 'full-width': fullWidth },
-                            '',
-                            'universal-search-box',
-                            isSideBarShown && 'universal-search-box--sidebar-shown'
-                        )}
-                        style={style}
-                    >
-                        {!visible && (
-                            <LemonInput
-                                data-attr="universal-search-field"
-                                placeholder={'Search...'}
-                                value={searchQuery}
-                                icon={<IconMagnifier />}
-                            />
-                        )}
-                    </div>
-                )}
+                <div
+                    data-attr={dataAttr}
+                    onClick={(e) => {
+                        e.preventDefault()
+                        e.stopPropagation()
+                        setVisible(!visible)
+                    }}
+                    className={clsx(
+                        { 'full-width': fullWidth },
+                        '',
+                        'universal-search-box',
+                        isSideBarShown && 'universal-search-box--sidebar-shown'
+                    )}
+                    style={style}
+                >
+                    {!visible && (
+                        <LemonInput
+                            data-attr="universal-search-field"
+                            placeholder={'Search...'}
+                            value={searchQuery}
+                            icon={<IconMagnifier />}
+                        />
+                    )}
+                </div>
             </Popup>
         </div>
     )

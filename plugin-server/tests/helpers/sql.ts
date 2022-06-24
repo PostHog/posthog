@@ -31,6 +31,7 @@ export const POSTGRES_TRUNCATE_TABLES_QUERY = `
 TRUNCATE TABLE
     posthog_personalapikey,
     posthog_featureflag,
+    posthog_featureflaghashkeyoverride,
     posthog_annotation,
     posthog_dashboarditem,
     posthog_dashboard,
