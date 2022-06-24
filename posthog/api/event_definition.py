@@ -23,6 +23,7 @@ class EventDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelSeri
     created_by = UserBasicSerializer(read_only=True)
     is_calculating = serializers.BooleanField(read_only=True)
     last_calculated_at = serializers.DateTimeField(read_only=True)
+    last_updated_at = serializers.DateTimeField(read_only=True)
     post_to_slack = serializers.BooleanField(default=False)
 
     class Meta:
@@ -34,6 +35,7 @@ class EventDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelSeri
             "query_usage_30_day",
             "created_at",
             "last_seen_at",
+            "last_updated_at",
             "tags",
             # Action fields
             "is_action",
