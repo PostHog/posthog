@@ -690,14 +690,14 @@ export class DB {
         const queryOptions: string[] = []
         const args: any[] = [teamId]
         let index = args.length + 1
-        for (const gi of groupIdentifiers) {
+        for (const groupIdentifier of groupIdentifiers) {
             this.statsd?.increment(`group_properties_cache.miss`, {
                 team_id: teamId.toString(),
-                group_type_index: gi.index.toString(),
+                group_type_index: groupIdentifier.index.toString(),
             })
             queryOptions.push(`(group_type_index = $${index} AND group_key = $${index + 1})`)
             index += 2
-            args.push(gi.index, gi.key)
+            args.push(groupIdentifier.index, groupIdentifier.key)
         }
         const result = await this.postgresQuery(
             'SELECT group_type_index, group_key, group_properties FROM posthog_group WHERE team_id=$1 AND '.concat(
@@ -720,9 +720,9 @@ export class DB {
             res[`group${index}_properties`] = JSON.stringify(properties)
         }
 
-        for (const gi of notHandledIdentifiers) {
-            void this.updateGroupPropertiesCache(teamId, gi.index, gi.key, {})
-            res[`group${gi.index}_properties`] = JSON.stringify({}) // also adding to event for consistency
+        for (const groupIdentifier of notHandledIdentifiers) {
+            void this.updateGroupPropertiesCache(teamId, groupIdentifier.index, groupIdentifier.key, {})
+            res[`group${groupIdentifier.index}_properties`] = JSON.stringify({}) // also adding to event for consistency
         }
         return res
     }
@@ -737,14 +737,14 @@ export class DB {
         const queryOptions: string[] = []
         const args: any[] = [teamId]
         let index = args.length + 1
-        for (const gi of groupIdentifiers) {
+        for (const groupIdentifier of groupIdentifiers) {
             this.statsd?.increment(`group_created_at_cache.miss`, {
                 team_id: teamId.toString(),
-                group_type_index: gi.index.toString(),
+                group_type_index: groupIdentifier.index.toString(),
             })
             queryOptions.push(`(group_type_index = $${index} AND group_key = $${index + 1})`)
             index += 2
-            args.push(gi.index, gi.key)
+            args.push(groupIdentifier.index, groupIdentifier.key)
         }
         const result = await this.postgresQuery(
             'SELECT group_type_index, group_key, created_at FROM posthog_group WHERE team_id=$1 AND '.concat(
