@@ -25,7 +25,7 @@ def _deliver_subscription_report(
     )
 
     is_new_subscription_target = False
-    if previous_value != None:
+    if previous_value is not None:
         # If previous_value is set we are triggering a "new" or "invite" message
         is_new_subscription_target = subscription.target_value != previous_value
 
