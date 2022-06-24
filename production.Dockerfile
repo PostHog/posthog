@@ -30,7 +30,6 @@ WORKDIR /code/plugin-server
 
 # Install python and make as they are needed for the yarn install
 RUN apk --update --no-cache add \
-    "python3" \
     "make~=4.3" \
     "g++~=10.3" \
     "gcc~=10.3"
@@ -130,6 +129,7 @@ RUN apk --update --no-cache add "yarn~=1"
 # NOTE: npm is required for re2
 RUN apk --update --no-cache add "make~=4.3" "g++~=10.3" "npm~=7" --virtual .build-deps \
     && yarn install --frozen-lockfile --production=true \
+    && yarn cache clean \
     && apk del .build-deps
 
 USER posthog
