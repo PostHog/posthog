@@ -109,16 +109,9 @@ export function EditSubscription({
 
                 {!subscription && subscriptionLoading ? (
                     <>
-                        <Skeleton paragraph={false} />
-                        <Skeleton.Button active block size="large" />
-                        <Skeleton paragraph={false} />
-                        <Skeleton.Button active block size="large" />
-                        <Skeleton paragraph={false} />
-                        <Skeleton.Button active block size="large" />
-                        <Skeleton paragraph={false} />
-                        <Skeleton.Button active block size="large" />
-                        <Skeleton paragraph={false} />
-                        <Skeleton.Button active block size="large" />
+                        <Skeleton />
+                        <Skeleton />
+                        <Skeleton />
                     </>
                 ) : (
                     <section>
