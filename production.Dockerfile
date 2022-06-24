@@ -49,7 +49,6 @@ RUN yarn config set network-timeout 300000 && \
 #
 # Note: we run the build as a separate actions to increase
 # the cache hit ratio of the layers above.
-# symlink musl -> ld-linux is required for re2 compat on alpine
 COPY ./plugin-server/src/ ./src/
 RUN yarn build
 
@@ -120,17 +119,30 @@ RUN SKIP_SERVICE_VERSION_REQUIREMENTS=1 SECRET_KEY='unsafe secret key for collec
 
 # Add in the plugin-server compiled code, as well as the runtime dependencies
 WORKDIR /code/plugin-server
-COPY package.json yarn.lock ./
+COPY ./plugin-server/package.json ./plugin-server/yarn.lock ./
 
 # Switch to root and install yarn so we can install runtime deps. Node that we
 # still need yarn to run the plugin-server so we do not remove it.
 USER root
 RUN apk --update --no-cache add "yarn~=1"
+
+# NOTE: we need make for node-gyp
+RUN apk --update --no-cache add "make~=4.3" --virtual .build-deps \
+    && yarn install --frozen-lockfile --production=true \
+    && apk del .build-deps
+
 USER posthog
-RUN yarn install --frozen-lockfile --production=true
 
 # Add in the compiled plugin-server
 COPY --from=plugin-server /code/plugin-server/dist/ ./dist/
+
+WORKDIR /code/
+USER root
+COPY ./plugin-server/package.json ./plugin-server/
+# We need bash to run the bin scripts
+RUN apk --update --no-cache add "bash~=5.1"
+COPY ./bin ./bin/
+USER posthog
 
 ENV CHROME_BIN=/usr/bin/chromium-browser \
     CHROME_PATH=/usr/lib/chromium/ \

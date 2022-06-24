@@ -16,19 +16,57 @@ jobs:
             - name: Checkout PR branch
               uses: actions/checkout@v2
 
+            # As ghcr.io complains if the image has upper case letters, we use
+            # this action to ensure we get a lower case version. See
+            # https://github.com/docker/build-push-action/issues/237#issuecomment-848673650
+            # for more details
+            - name: Docker image metadata
+              id: meta
+              uses: docker/metadata-action@v3
+              with:
+                  images: ghcr.io/${{ github.repository }}/posthog
+                  tags: |
+                      type=ref,event=branch
+                      type=raw,value=master
+
+            # We also want to use cache-from when building, but we want to also
+            # include the master tag so we get the master branch image as well.
+            # This creates a scope similar to the github cache action scoping
+            - name: Docker cache-from/cache-to metadata
+              id: meta-for-cache
+              uses: docker/metadata-action@v3
+              with:
+                  images: ghcr.io/${{ github.repository }}/posthog
+                  tags: |
+                      type=raw,value=master
+
             - name: Set up QEMU
               uses: docker/setup-qemu-action@v1
 
             - name: Set up Docker Buildx
               uses: docker/setup-buildx-action@v1
 
+            - name: Login to GitHub Container Registry
+              uses: docker/login-action@v1
+              with:
+                  registry: ghcr.io
+                  username: ${{ github.actor }}
+                  password: ${{ secrets.GITHUB_TOKEN }}
+
             - name: Build
               id: docker_build
               uses: docker/build-push-action@v2
               with:
-                  push: false
+                  push: true
                   load: true
-                  tags: posthog/posthog:testing
+                  cache-from: ${{ steps.meta-for-cache.outputs.tags }}
+                  tags: ${{ steps.meta.outputs.tags }}
+                  labels: ${{ steps.meta.outputs.labels }}
+                  # NOTE: we use inline as suggested here:
+                  # https://github.com/docker/build-push-action/blob/master/docs/advanced/cache.md#inline-cache
+                  # It notes that it doesn't support mode=max, but we're not
+                  # removing any layers, soooo, maybe it's fine.
+                  cache-to: type=inline
 
             - name: Output image info including size
               run: |
