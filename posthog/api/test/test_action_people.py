@@ -217,7 +217,7 @@ class TestActionPeople(ClickhouseTestMixin, APIBaseTest):
 
         person1, person2, person3, person4, person5, person6, person7 = self._create_people_interval_events()
 
-        person = _create_person(team_id=self.team.pk, distinct_ids=["outside_range"])
+        _create_person(team_id=self.team.pk, distinct_ids=["outside_range"])
         _create_event(
             team=self.team, event="sign up", distinct_id="outside_range", timestamp="2020-01-04T13:50:00Z",
         )
@@ -287,7 +287,7 @@ class TestActionPeople(ClickhouseTestMixin, APIBaseTest):
         _create_event(
             team=self.team, event="sign up", distinct_id="person2", timestamp="2020-01-05T12:00:00Z",
         )
-        person = _create_person(team_id=self.team.pk, distinct_ids=["outside_range"])
+        _create_person(team_id=self.team.pk, distinct_ids=["outside_range"])
         _create_event(
             team=self.team, event="sign up", distinct_id="outside_range", timestamp="2020-01-03T13:50:00Z",
         )
@@ -331,7 +331,7 @@ class TestActionPeople(ClickhouseTestMixin, APIBaseTest):
         _create_event(
             team=self.team, event="sign up", distinct_id="person2", timestamp="2020-01-04T20:00:00Z",
         )
-        outside_range_person = _create_person(team_id=self.team.pk, distinct_ids=["outside_range"])
+        _create_person(team_id=self.team.pk, distinct_ids=["outside_range"])
         _create_event(
             team=self.team, event="sign up", distinct_id="outside_range", timestamp="2020-01-02T13:50:00Z",
         )
@@ -374,7 +374,7 @@ class TestActionPeople(ClickhouseTestMixin, APIBaseTest):
 
         person1, person2, person3, person4, person5, person6, person7 = self._create_people_interval_events()
 
-        person = _create_person(team_id=self.team.pk, distinct_ids=["outside_range"])
+        _create_person(team_id=self.team.pk, distinct_ids=["outside_range"])
         _create_event(
             team=self.team, event="sign up", distinct_id="outside_range", timestamp="2019-10-26T13:50:00Z",
         )
@@ -417,7 +417,7 @@ class TestActionPeople(ClickhouseTestMixin, APIBaseTest):
 
         person1, person2, person3, person4, person5, person6, person7 = self._create_people_interval_events()
 
-        person = _create_person(team_id=self.team.pk, distinct_ids=["outside_range"])
+        _create_person(team_id=self.team.pk, distinct_ids=["outside_range"])
         _create_event(
             team=self.team, event="sign up", distinct_id="outside_range", timestamp="2019-12-01T13:50:00Z",
         )
@@ -599,7 +599,7 @@ class TestActionPeople(ClickhouseTestMixin, APIBaseTest):
 
     def test_breakdown_by_person_property_people_endpoint(self):
         person1, person2, person3, person4 = self._create_multiple_people()
-        action = _create_action(name="watched movie", team=self.team)
+        _create_action(name="watched movie", team=self.team)
 
         people = self.client.get(
             f"/api/projects/{self.team.id}/actions/people/",
@@ -619,7 +619,7 @@ class TestActionPeople(ClickhouseTestMixin, APIBaseTest):
 
     def test_breakdown_by_event_property_people_endpoint(self):
         person1, person2, person3, person4 = self._create_multiple_people()
-        action = _create_action(name="watched movie", team=self.team)
+        _create_action(name="watched movie", team=self.team)
 
         people = self.client.get(
             f"/api/projects/{self.team.id}/actions/people/",
@@ -657,7 +657,7 @@ class TestActionPeople(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(people["results"][0]["people"][0]["id"], str(person2.uuid))
 
     def test_active_user_weekly_people(self):
-        p1 = _create_person(team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "p1"})
+        _create_person(team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "p1"})
         _create_event(
             team=self.team,
             event="$pageview",
@@ -680,7 +680,7 @@ class TestActionPeople(ClickhouseTestMixin, APIBaseTest):
             properties={"key": "val"},
         )
 
-        p2 = _create_person(team_id=self.team.pk, distinct_ids=["p2"], properties={"name": "p2"})
+        _create_person(team_id=self.team.pk, distinct_ids=["p2"], properties={"name": "p2"})
         _create_event(
             team=self.team,
             event="$pageview",
@@ -709,7 +709,7 @@ class TestActionPeople(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(people["results"][0]["people"]), 2)
 
     def test_breakdown_by_person_property_nones_people_endpoint(self):
-        p1 = _create_person(team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "p1"})
+        _create_person(team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "p1"})
         _create_event(
             team=self.team,
             event="$pageview",
@@ -732,7 +732,7 @@ class TestActionPeople(ClickhouseTestMixin, APIBaseTest):
             properties={"key": "val"},
         )
 
-        p2 = _create_person(team_id=self.team.pk, distinct_ids=["p2"], properties={})
+        _create_person(team_id=self.team.pk, distinct_ids=["p2"], properties={})
         _create_event(
             team=self.team,
             event="$pageview",
@@ -784,7 +784,7 @@ class TestActionPeople(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(people["results"][0]["people"]), 1)
 
     def test_breakdown_by_event_property_none_people_endpoint(self):
-        p1 = _create_person(team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "p1"})
+        _create_person(team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "p1"})
         _create_event(
             team=self.team,
             event="$pageview",
@@ -807,7 +807,7 @@ class TestActionPeople(ClickhouseTestMixin, APIBaseTest):
             properties={"key": "val"},
         )
 
-        p2 = _create_person(team_id=self.team.pk, distinct_ids=["p2"], properties={"name": "p2"})
+        _create_person(team_id=self.team.pk, distinct_ids=["p2"], properties={"name": "p2"})
         _create_event(
             team=self.team, event="$pageview", distinct_id="p2", timestamp="2020-01-09T12:00:00Z", properties={},
         )
