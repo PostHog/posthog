@@ -1,6 +1,9 @@
 import IORedis from 'ioredis'
+import { Consumer,Kafka } from 'kafkajs'
 
+import { defaultConfig } from '../src/config/config'
 import { ONE_HOUR } from '../src/config/constants'
+import { KAFKA_BUFFER } from '../src/config/kafka-topics'
 import { startPluginsServer } from '../src/main/pluginsServer'
 import { LogLevel, PluginsServerConfig } from '../src/types'
 import { Hub } from '../src/types'
@@ -45,37 +48,30 @@ export function onEvent (event, { global }) {
         min: new Date(Date.now()-${ONE_HOUR})
     }
     testConsole.log('onEvent', event.event)
-}
-
-export function onSnapshot (event) {
-    testConsole.log('onSnapshot', event.event)
-}
-
-
-export async function exportEvents(events) {
-    for (const event of events) {
-        if (event.properties && event.properties['$$is_historical_export_event']) {
-            testConsole.log('exported historical event', event)
-        }
-    }
-}
-
-export async function onAction(action, event) {
-    testConsole.log('onAction', action, event)
-}
-
-
-export async function runEveryMinute() {}
-`
+}`
 
 describe('E2E with buffer enabled', () => {
     let hub: Hub
     let stopServer: () => Promise<void>
     let posthog: DummyPostHog
     let redis: IORedis.Redis
+    let bufferTopicMessages: any[]
+    let bufferConsumer: Consumer
 
     beforeAll(async () => {
         await resetKafka(extraServerConfig)
+        bufferConsumer = new Kafka({
+            clientId: `plugin-server-test`,
+            brokers: defaultConfig.KAFKA_HOSTS.split(','),
+        }).consumer({ groupId: 'e2e-buffer-test' })
+        await bufferConsumer.subscribe({ topic: KAFKA_BUFFER })
+        await bufferConsumer.run({
+            eachMessage: ({ message }) => {
+                const messageValueParsed = JSON.parse(message.value!.toString())
+                bufferTopicMessages.push(messageValueParsed)
+                return Promise.resolve() // Not needed but KafkaJS's typing accepts promises only
+            },
+        })
     })
 
     beforeEach(async () => {
@@ -86,12 +82,18 @@ describe('E2E with buffer enabled', () => {
         hub = startResponse.hub
         stopServer = startResponse.stop
         redis = await hub.redisPool.acquire()
+        bufferTopicMessages = []
         posthog = createPosthog(hub, pluginConfig39)
     })
 
     afterEach(async () => {
         await hub.redisPool.release(redis)
         await stopServer()
+    })
+
+    afterAll(async () => {
+        await bufferConsumer.stop()
+        await bufferConsumer.disconnect()
     })
 
     describe('ClickHouse ingestion', () => {
@@ -101,12 +103,15 @@ describe('E2E with buffer enabled', () => {
             const uuid = new UUIDT().toString()
 
             await posthog.capture('custom event via buffer', { name: 'hehe', uuid })
-
-            await delayUntilEventIngested(() => hub.db.fetchEvents())
-
             await hub.kafkaProducer.flush()
+
+            await delayUntilEventIngested(() =>
+                bufferTopicMessages.filter((message) => message.properties.uuid === uuid)
+            )
+            await delayUntilEventIngested(() => hub.db.fetchEvents())
             const events = await hub.db.fetchEvents()
 
+            expect(bufferTopicMessages.filter((message) => message.properties.uuid === uuid).length).toBe(1)
             expect(events.length).toBe(1)
 
             // processEvent ran and modified

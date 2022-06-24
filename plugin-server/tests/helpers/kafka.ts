@@ -2,6 +2,7 @@ import { Kafka, logLevel } from 'kafkajs'
 
 import { defaultConfig, overrideWithEnv } from '../../src/config/config'
 import {
+    KAFKA_BUFFER,
     KAFKA_EVENTS,
     KAFKA_EVENTS_PLUGIN_INGESTION,
     KAFKA_GROUPS,
@@ -27,6 +28,7 @@ export async function resetKafka(extraServerConfig?: Partial<PluginsServerConfig
     await createTopics(kafka, [
         KAFKA_EVENTS,
         KAFKA_EVENTS_PLUGIN_INGESTION,
+        KAFKA_BUFFER,
         KAFKA_GROUPS,
         KAFKA_SESSION_RECORDING_EVENTS,
         KAFKA_PERSON,
