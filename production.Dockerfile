@@ -41,7 +41,7 @@ RUN apk --update --no-cache add \
 #
 # - we explicitly COPY the files so that we don't need to rebuild
 #   the container every time a dependency changes
-COPY ./plugin-server/package.json yarn.lock ./
+COPY ./plugin-server/package.json ./plugin-server/yarn.lock ./plugin-server/tsconfig.json ./
 RUN yarn config set network-timeout 300000 && \
     yarn install
 
@@ -52,6 +52,8 @@ RUN yarn config set network-timeout 300000 && \
 # symlink musl -> ld-linux is required for re2 compat on alpine
 RUN yarn build
 
+# Build the posthog image, incorporating the Django app along with the frontend,
+# as well as the plugin-server
 FROM python:3.8.12-alpine3.14
 
 ENV PYTHONUNBUFFERED 1
