@@ -39,7 +39,7 @@ def _deliver_subscription_report(
         # Send emails
         emails = subscription.target_value.split(",")
         if is_new_subscription_target:
-            previous_emails = previous_value.split(",")
+            previous_emails = previous_value.split(",") if previous_value else []
             emails = list(set(emails) - set(previous_emails))
 
         for email in emails:

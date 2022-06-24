@@ -6,8 +6,8 @@ import pytz
 from freezegun import freeze_time
 
 from ee.tasks.subscriptions import (
-    handle_subscription_value_change,
     deliver_subscription_report,
+    handle_subscription_value_change,
     schedule_all_subscriptions,
 )
 from ee.tasks.test.subscriptions.subscriptions_test_factory import create_subscription
