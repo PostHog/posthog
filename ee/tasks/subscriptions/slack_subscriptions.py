@@ -1,4 +1,4 @@
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 import structlog
 from django.conf import settings
@@ -25,7 +25,7 @@ def _block_for_asset(asset: ExportedAsset) -> Dict:
 
 
 def send_slack_subscription_report(
-    subscription: Subscription, assets: List[ExportedAsset], total_asset_count: int,
+    subscription: Subscription, assets: List[ExportedAsset], total_asset_count: int, is_new_subscription: bool = False
 ) -> None:
     utm_tags = f"{UTM_TAGS_BASE}&utm_medium=slack"
 
@@ -46,7 +46,11 @@ def send_slack_subscription_report(
 
     first_asset, *other_assets = assets
 
-    title = f"Your subscription to the {resource_info.kind} *{resource_info.name}* is ready!"
+    if is_new_subscription:
+        title = f"This channel has been subscribed to the {resource_info.kind} *{resource_info.name}* on PostHog. "
+        title += f"\nThis subscription is { subscription.summary }. The next subscription will be sent on { subscription.next_delivery_date.strftime('%A %B %d, %Y')}"
+    else:
+        title = f"Your subscription to the {resource_info.kind} *{resource_info.name}* is ready!"
 
     blocks = []
 

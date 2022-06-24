@@ -26,6 +26,7 @@ def send_email_subscription_report(
     self_invite = inviter.email == email
 
     subject = "Posthog Report"
+    invite_summary = None
 
     resource_info = subscription.resource_info
     if not resource_info:
@@ -37,6 +38,7 @@ def send_email_subscription_report(
     unsubscribe_url = absolute_uri(f"/unsubscribe?token={get_unsubscribe_token(subscription, email)}&{utm_tags}")
 
     if is_invite:
+        invite_summary = f"This subscription is { subscription.summary }. The next subscription will be sent on { subscription.next_delivery_date.strftime('%A %B %d, %Y')}"
         if self_invite:
             subject = f"You have been subscribed to a PostHog {resource_info.kind}"
         else:
@@ -57,6 +59,7 @@ def send_email_subscription_report(
             "inviter": inviter if is_invite else None,
             "self_invite": self_invite,
             "invite_message": invite_message,
+            "invite_summary": invite_summary,
             "total_asset_count": total_asset_count,
         },
     )

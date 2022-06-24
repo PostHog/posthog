@@ -5,7 +5,11 @@ from unittest.mock import MagicMock, call, patch
 import pytz
 from freezegun import freeze_time
 
-from ee.tasks.subscriptions import deliver_new_subscription, deliver_subscription_report, schedule_all_subscriptions
+from ee.tasks.subscriptions import (
+    handle_subscription_value_change,
+    deliver_subscription_report,
+    schedule_all_subscriptions,
+)
 from ee.tasks.test.subscriptions.subscriptions_test_factory import create_subscription
 from posthog.models.dashboard import Dashboard
 from posthog.models.dashboard_tile import DashboardTile
@@ -76,19 +80,30 @@ class TestSubscriptionsTasks(APIBaseTest):
             call("test2@posthog.com", subscription, [self.asset], invite_message=None, total_asset_count=1),
         ]
 
-    def test_deliver_new_subscription_email(
+    def test_handle_subscription_value_change_email(
         self, mock_gen_assets: MagicMock, mock_send_email: MagicMock, mock_send_slack: MagicMock,
     ) -> None:
-        subscription = create_subscription(team=self.team, insight=self.insight, created_by=self.user)
+        subscription = create_subscription(
+            team=self.team,
+            insight=self.insight,
+            created_by=self.user,
+            target_value="test_existing@posthog.com,test_new@posthog.com",
+        )
         mock_gen_assets.return_value = [self.insight], [self.asset]
 
-        deliver_new_subscription(subscription.id, new_emails=["test@posthog.com"], invite_message="My invite message")
+        handle_subscription_value_change(
+            subscription.id, previous_value="test_existing@posthog.com", invite_message="My invite message"
+        )
 
         assert mock_send_email.call_count == 1
 
         assert mock_send_email.call_args_list == [
             call(
-                "test@posthog.com", subscription, [self.asset], invite_message="My invite message", total_asset_count=1
+                "test_new@posthog.com",
+                subscription,
+                [self.asset],
+                invite_message="My invite message",
+                total_asset_count=1,
             ),
         ]
 
@@ -108,5 +123,5 @@ class TestSubscriptionsTasks(APIBaseTest):
 
         assert mock_send_slack.call_count == 1
         assert mock_send_slack.call_args_list == [
-            call(subscription, [self.asset], total_asset_count=1),
+            call(subscription, [self.asset], total_asset_count=1, is_new_subscription=False),
         ]
