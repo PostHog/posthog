@@ -597,7 +597,6 @@ describe('DB', () => {
                 { index: 0, key: 'g0' },
                 { index: 1, key: 'g1' },
                 { index: 2, key: 'g2' },
-                { index: 3, key: 'g3' },
                 { index: 4, key: 'g4' },
             ])
 
@@ -605,7 +604,6 @@ describe('DB', () => {
                 group0_created_at: castTimestampOrNow(TIMESTAMP, TimestampFormat.ClickHouse),
                 group1_created_at: castTimestampOrNow(TIMESTAMP.minus(1), TimestampFormat.ClickHouse),
                 group2_created_at: castTimestampOrNow(TIMESTAMP.minus(2), TimestampFormat.ClickHouse),
-                group3_created_at: castTimestampOrNow(TIMESTAMP.minus(3), TimestampFormat.ClickHouse),
                 group4_created_at: castTimestampOrNow(TIMESTAMP.minus(4), TimestampFormat.ClickHouse),
             })
 
