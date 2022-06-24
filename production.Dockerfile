@@ -99,7 +99,7 @@ RUN addgroup -S posthog && \
     mv /code /home/posthog && \
     chown -R posthog:1000 /home/posthog/code
 
-WORKDIR /home/posthog/code
+# still need yarn to run the plugin-server so we do not remove it.
 USER posthog
 
 ENV CHROME_BIN=/usr/bin/chromium-browser \
