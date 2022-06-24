@@ -2880,10 +2880,10 @@
     chartjs-color "^2.1.0"
     moment "^2.10.2"
 
-"@posthog/plugin-scaffold@1.0.4":
-  version "1.0.4"
-  resolved "https://registry.yarnpkg.com/@posthog/plugin-scaffold/-/plugin-scaffold-1.0.4.tgz#a627d46e760af970757b94e40a3ca4e17da7faf4"
-  integrity sha512-/FX6dLq8Kug1vYW9Kk3D5Ik+7CpMSAMlplvdnnDcyeJPPU4UyFdWOCydRgBva4/HblfshW+j51tgjzWHEQQ0Hg==
+"@posthog/plugin-scaffold@1.1.0":
+  version "1.1.0"
+  resolved "https://registry.yarnpkg.com/@posthog/plugin-scaffold/-/plugin-scaffold-1.1.0.tgz#887ccbea34dcb6197dfa04104c8c6d4be72dfb06"
+  integrity sha512-sXHEju7iDSoameO8OiIljmtcuko+KjBobKU5V8mDVNFqO1+nm5NcipoQEPKPRnQVn4M1//U1CKpp5dbErd2qXw==
   dependencies:
     "@maxmind/geoip2-node" "^3.0.0"
 
