@@ -2036,7 +2036,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                     {"event": "buy", "timestamp": datetime(2020, 1, 2, 16),},
                 ],
             }
-            people = journeys_for(events_by_person, self.team)
+            journeys_for(events_by_person, self.team)
 
             result = funnel.run()
             result = sorted(result, key=lambda res: res[0]["breakdown"])

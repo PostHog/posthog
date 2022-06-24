@@ -6,15 +6,19 @@ import { urls } from 'scenes/urls'
 import { AuthorizedUrlsTable } from 'scenes/toolbar-launch/AuthorizedUrlsTable'
 import { IconEdit } from 'lib/components/icons'
 import { LemonButton } from 'lib/components/LemonButton'
+import { useValues } from 'kea'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 export function NewActionButton(): JSX.Element {
     const [visible, setVisible] = useState(false)
     const [appUrlsVisible, setAppUrlsVisible] = useState(false)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     return (
         <>
             <LemonButton type="primary" onClick={() => setVisible(true)} data-attr="create-action">
-                New Action
+                New {featureFlags[FEATURE_FLAGS.SIMPLIFY_ACTIONS] ? 'Event' : 'Action'}
             </LemonButton>
             <Modal
                 visible={visible}

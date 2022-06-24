@@ -251,7 +251,6 @@ jobs:
                   fetch-depth: 1
                   repository: ${{ github.event.pull_request.head.repo.full_name }}
                   ref: ${{ github.event.pull_request.head.ref }}
-                  token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
 
             - uses: ./.github/actions/run-backend-tests
               with:
@@ -264,21 +263,17 @@ jobs:
                   group: ${{ matrix.group }}
                   person-on-events: ${{ matrix.person-on-events }}
 
-            - uses: EndBug/add-and-commit@v9 # You can change this to use a specific version.
-              id: add-and-commit
-              if: ${{ matrix.clickhouse-server-image == 'clickhouse/clickhouse-server:22.3' && !matrix.person-on-events }}
+            - uses: EndBug/add-and-commit@v9
+              # Skip on forks
+              # Also skip for persons-on-events runs, as we want to ignore snapshots diverging there
+              if: ${{ !matrix.person-on-events && github.event.pull_request.head.repo.full_name == github.repository }}
               with:
-                  # The arguments for the `git add` command (see the paragraph below for more info)
-                  # Default: '.'
                   add: '["ee/clickhouse", "posthog/api/test/__snapshots__", "posthog/test/__snapshots__", "posthog/queries/"]'
-
-                  default_author: github_actions
-
-                  # The message for the commit.
-                  # Default: 'Commit from GitHub Actions (name of the workflow)'
                   message: 'Update snapshots'
+
             - name: Check if any snapshot changes were left uncomitted
               id: changed-files
+              if: ${{ !matrix.person-on-events && github.event.pull_request.head.repo.full_name == github.repository }}
               run: |
                   if [[ -z $(git status -s | grep -v ".test_durations" | tr -d "\n") ]]
                   then
@@ -293,9 +288,10 @@ jobs:
               run: |
                   echo "${{ steps.changed-files.outputs.diff }}"
                   exit 1
+
             - name: Archive email renders
               uses: actions/upload-artifact@v3
-              if: ${{ matrix.foss }}
+              if: matrix.foss
               with:
                   name: email_renders
                   path: posthog/tasks/test/__emails__

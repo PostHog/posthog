@@ -391,9 +391,7 @@ def stickiness_test_factory(stickiness, event_factory, person_factory, action_fa
         def test_stickiness_people_paginated(self):
             for i in range(150):
                 person_name = f"person{i}"
-                person = person_factory(
-                    team_id=self.team.id, distinct_ids=[person_name], properties={"name": person_name}
-                )
+                person_factory(team_id=self.team.id, distinct_ids=[person_name], properties={"name": person_name})
                 event_factory(
                     team=self.team,
                     event="watched movie",
@@ -449,7 +447,7 @@ def stickiness_test_factory(stickiness, event_factory, person_factory, action_fa
 
         def test_filter_test_accounts(self):
             self._create_multiple_people()
-            p1 = person_factory(team_id=self.team.id, distinct_ids=["ph"], properties={"email": "test@posthog.com"})
+            person_factory(team_id=self.team.id, distinct_ids=["ph"], properties={"email": "test@posthog.com"})
             event_factory(
                 team=self.team,
                 event="watched movie",

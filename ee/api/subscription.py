@@ -82,7 +82,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         invite_message = validated_data.pop("invite_message", "")
         instance: Subscription = super().create(validated_data)
 
-        self._handle_email_invites(instance, invite_message, previous_value="")
+        subscriptions.handle_subscription_value_change.delay(instance.id, "", invite_message)
 
         return instance
 
@@ -91,16 +91,9 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         invite_message = validated_data.pop("invite_message", "")
         instance = super().update(instance, validated_data)
 
-        self._handle_email_invites(instance, invite_message, previous_value=previous_value)
+        subscriptions.handle_subscription_value_change.delay(instance.id, previous_value, invite_message)
 
         return instance
-
-    def _handle_email_invites(self, instance: Subscription, invite_message, previous_value=None):
-        if instance.target_type == "email":
-            emails = instance.target_value.split(",")
-            previous_emails = previous_value.split(",") if previous_value else []
-            new_emails = list(set(emails) - set(previous_emails))
-            subscriptions.deliver_new_subscription.delay(instance.id, new_emails, invite_message)
 
 
 class SubscriptionViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):

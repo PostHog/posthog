@@ -15,12 +15,8 @@ logger = structlog.get_logger(__name__)
 
 
 def _deliver_subscription_report(
-    subscription_id: int, new_emails: Optional[List[str]] = None, invite_message: Optional[str] = None
+    subscription_id: int, previous_value: Optional[str] = None, invite_message: Optional[str] = None
 ) -> None:
-    is_invite = new_emails is not None
-
-    if is_invite and not new_emails:
-        return
 
     subscription = (
         Subscription.objects.prefetch_related("dashboard__insights")
@@ -28,19 +24,31 @@ def _deliver_subscription_report(
         .get(pk=subscription_id)
     )
 
+    is_new_subscription_target = False
+    if previous_value is not None:
+        # If previous_value is set we are triggering a "new" or "invite" message
+        is_new_subscription_target = subscription.target_value != previous_value
+
+        if not is_new_subscription_target:
+            # Same value as before so nothing to do
+            return
+
     if subscription.target_type == "email":
         insights, assets = generate_assets(subscription)
 
         # Send emails
-        emails_to_send = new_emails or subscription.target_value.split(",")
+        emails = subscription.target_value.split(",")
+        if is_new_subscription_target:
+            previous_emails = previous_value.split(",") if previous_value else []
+            emails = list(set(emails) - set(previous_emails))
 
-        for email in emails_to_send:
+        for email in emails:
             try:
                 send_email_subscription_report(
                     email,
                     subscription,
                     assets,
-                    invite_message=invite_message or "" if is_invite else None,
+                    invite_message=invite_message or "" if is_new_subscription_target else None,
                     total_asset_count=len(insights),
                 )
                 incr("subscription_email_send_success")
@@ -53,7 +61,7 @@ def _deliver_subscription_report(
         insights, assets = generate_assets(subscription)
         try:
             send_slack_subscription_report(
-                subscription, assets, total_asset_count=len(insights),
+                subscription, assets, total_asset_count=len(insights), is_new_subscription=is_new_subscription_target
             )
             incr("subscription_slack_send_success")
         except Exception as e:
@@ -62,7 +70,7 @@ def _deliver_subscription_report(
     else:
         raise NotImplementedError(f"{subscription.target_type} is not supported")
 
-    if not is_invite:
+    if not is_new_subscription_target:
         subscription.set_next_delivery_date(subscription.next_delivery_date)
         subscription.save()
 
@@ -87,7 +95,7 @@ def deliver_subscription_report(subscription_id: int) -> None:
 
 
 @app.task()
-def deliver_new_subscription(subscription_id: int, new_emails: List[str], invite_message: Optional[str] = None) -> None:
-    if not new_emails:
-        return
-    return _deliver_subscription_report(subscription_id, new_emails, invite_message)
+def handle_subscription_value_change(
+    subscription_id: int, previous_value: str, invite_message: Optional[str] = None
+) -> None:
+    return _deliver_subscription_report(subscription_id, previous_value, invite_message)

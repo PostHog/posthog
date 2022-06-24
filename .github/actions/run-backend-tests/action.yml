@@ -82,15 +82,22 @@ runs:
           shell: bash
           run: bin/check_kafka_clickhouse_up
 
+        - name: Determine if --snapshot-update should be on
+          # Skip on forks (due to GITHUB_TOKEN being read-only in PRs coming from them) except for persons-on-events
+          # runs, as we want to ignore snapshots diverging there
+          if: github.event.pull_request.head.repo.full_name == github.repository || inputs.person-on-events == 'true' || inputs.foss == 'true'
+          shell: bash
+          run: echo "PYTEST_ARGS=--snapshot-update" >> $GITHUB_ENV # We can only update snapshots within the PostHog org
+
         - name: Run FOSS tests
           if: ${{ inputs.foss == 'true' }}
           shell: bash
           run: |
               pytest -m "not ee and not async_migrations" posthog/ --cov  --cov-report=xml:coverage-postgres.xml \
-                --snapshot-update --durations=150 --durations-min=1.0
+                --durations=150 --durations-min=1.0 $PYTEST_ARGS
 
         - name: Run ee/ tests
-          if: ${{ inputs.ee == 'true' && inputs.person-on-events != 'true'}}
+          if: ${{ inputs.ee == 'true' && inputs.person-on-events != 'true' }}
           shell: bash
           run: |
               pytest ee \
@@ -99,8 +106,8 @@ runs:
                   --store-durations \
                   --cov \
                   --cov-report=xml:coverage-clickhouse.xml \
-                  --snapshot-update\
-                  --durations=100 --durations-min=1.0
+                  --durations=100 --durations-min=1.0 \
+                  $PYTEST_ARGS
 
         - name: Run ee/ tests with person-on-events, no snapshot commits
           if: ${{ inputs.ee == 'true' && inputs.person-on-events == 'true' }}
@@ -109,7 +116,7 @@ runs:
               ENABLE_ACTOR_ON_EVENTS_TEAMS=all pytest ee \
                   --splits ${{ inputs.concurrency }} \
                   --group ${{ inputs.group }} \
-                  --snapshot-update
+                  $PYTEST_ARGS
 
         - name: Run pytest.mark.ee tests
           if: ${{ inputs.ee == 'true' && inputs.group == '1' }}
