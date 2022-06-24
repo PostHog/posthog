@@ -50,6 +50,8 @@ class FeatureFlag(models.Model):
     deleted: models.BooleanField = models.BooleanField(default=False)
     active: models.BooleanField = models.BooleanField(default=True)
 
+    ensure_experience_continuity: models.BooleanField = models.BooleanField(default=False, null=True, blank=True)
+
     def matches(self, *args, **kwargs) -> Optional[FeatureFlagMatch]:
         return FeatureFlagMatcher(self, *args, **kwargs).get_match()
 
@@ -144,6 +146,25 @@ class FeatureFlagOverride(models.Model):
         return {
             "override_value_type": type(self.override_value).__name__,
         }
+
+
+class FeatureFlagHashKeyOverride(models.Model):
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["team", "person", "feature_flag_key"],
+                name="Unique hash_key for a user/team/feature_flag combo",
+            ),
+        ]
+
+    # Can't use a foreign key to feature_flag_key directly, since
+    # the unique constraint is on (team_id+key), and not just key.
+    # A standard id foreign key leads to INNER JOINs everytime we want to get the key
+    # and we only ever want to get the key.
+    feature_flag_key: models.CharField = models.CharField(max_length=400)
+    person: models.ForeignKey = models.ForeignKey("Person", on_delete=models.CASCADE)
+    team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
+    hash_key: models.CharField = models.CharField(max_length=400)
 
 
 class FlagsMatcherCache:

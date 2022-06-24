@@ -74,7 +74,7 @@ describe('VMs are extra lazy 💤', () => {
         }
 
         export async function onEvent () {
-            
+
         }
     `
         await resetTestDatabase(indexJs)
@@ -84,11 +84,6 @@ describe('VMs are extra lazy 💤', () => {
         jest.spyOn(lazyVm, 'setupPluginIfNeeded')
         await lazyVm.initialize!(indexJs, pluginDigest(plugin60))
 
-        expect(lazyVm.ready).toEqual(false)
-        expect(lazyVm.setupPluginIfNeeded).not.toHaveBeenCalled()
-        expect(fetch).not.toHaveBeenCalled()
-
-        await lazyVm.getOnAction()
         expect(lazyVm.ready).toEqual(false)
         expect(lazyVm.setupPluginIfNeeded).not.toHaveBeenCalled()
         expect(fetch).not.toHaveBeenCalled()
