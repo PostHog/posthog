@@ -3,7 +3,7 @@ import { LemonSelectOptions } from '@posthog/lemon-ui'
 import { range } from 'lib/utils'
 import { urls } from 'scenes/urls'
 import { InsightShortId } from '~/types'
-import { IconMail, IconOpenInNew, IconSlack } from '../icons'
+import { IconMail, IconSlack } from '../icons'
 
 export interface SubscriptionBaseProps {
     dashboardId?: number
