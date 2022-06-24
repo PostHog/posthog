@@ -210,9 +210,9 @@ export class EventsProcessor {
 
         const elementsChain = elements && elements.length ? elementsToString(elements) : ''
 
-        const groupIds = this.getGroupIdentifiers(properties)
-        const groupsProperties = await this.db.getPropertiesForGroups(teamId, groupIds)
-        const groupsCreatedAt = await this.db.getCreatedAtForGroups(teamId, groupIds)
+        const groupIdentifiers = this.getGroupIdentifiers(properties)
+        const groupsProperties = await this.db.getPropertiesForGroups(teamId, groupIdentifiers)
+        const groupsCreatedAt = await this.db.getCreatedAtForGroups(teamId, groupIdentifiers)
 
         let eventPersonProperties: string | null = null
         let personInfo = preIngestionEvent.person

@@ -71,6 +71,7 @@ import {
     UUIDT,
 } from '../utils'
 import { OrganizationPluginsAccessLevel } from './../../types'
+import { PromiseManager } from './../../worker/vm/promise-manager'
 import { chainToElements } from './elements-chain'
 import { KafkaProducerWrapper } from './kafka-producer-wrapper'
 import {
@@ -168,12 +169,16 @@ export class DB {
     /** Which teams is person info caching enabled on */
     personAndGroupsCachingEnabledTeams: Set<number>
 
+    /** PromiseManager instance to keep track of voided promises */
+    promiseManager: PromiseManager
+
     constructor(
         postgres: Pool,
         redisPool: GenericPool<Redis.Redis>,
         kafkaProducer: KafkaProducerWrapper,
         clickhouse: ClickHouse,
         statsd: StatsD | undefined,
+        promiseManager: PromiseManager,
         personAndGroupsCacheTtl = 1,
         personAndGroupsCachingEnabledTeams: Set<number> = new Set<number>()
     ) {
@@ -184,6 +189,7 @@ export class DB {
         this.statsd = statsd
         this.PERSONS_AND_GROUPS_CACHE_TTL = personAndGroupsCacheTtl
         this.personAndGroupsCachingEnabledTeams = personAndGroupsCachingEnabledTeams
+        this.promiseManager = promiseManager
     }
 
     // Postgres
@@ -642,9 +648,9 @@ export class DB {
             const personUuid = String(result.rows[0].uuid)
             const personCreatedAtIso = String(result.rows[0].created_at)
             const personProperties: Properties = result.rows[0].properties
-            void this.updatePersonUuidCache(teamId, personId, personUuid)
-            void this.updatePersonCreatedAtIsoCache(teamId, personId, personCreatedAtIso)
-            void this.updatePersonPropertiesCache(teamId, personId, personProperties)
+            this.promiseManager.trackPromise(this.updatePersonUuidCache(teamId, personId, personUuid))
+            this.promiseManager.trackPromise(this.updatePersonCreatedAtIsoCache(teamId, personId, personCreatedAtIso))
+            this.promiseManager.trackPromise(this.updatePersonPropertiesCache(teamId, personId, personProperties))
             return {
                 team_id: teamId,
                 uuid: personUuid,
@@ -716,12 +722,14 @@ export class DB {
             const key = String(row.group_key)
             const properties = row.group_properties as Properties
             notHandledIdentifiers = notHandledIdentifiers.filter((gi) => !(gi.index === index && gi.key === key))
-            void this.updateGroupPropertiesCache(teamId, index, key, properties)
+            this.promiseManager.trackPromise(this.updateGroupPropertiesCache(teamId, index, key, properties))
             res[`group${index}_properties`] = JSON.stringify(properties)
         }
 
         for (const groupIdentifier of notHandledIdentifiers) {
-            void this.updateGroupPropertiesCache(teamId, groupIdentifier.index, groupIdentifier.key, {})
+            this.promiseManager.trackPromise(
+                this.updateGroupPropertiesCache(teamId, groupIdentifier.index, groupIdentifier.key, {})
+            )
             res[`group${groupIdentifier.index}_properties`] = JSON.stringify({}) // also adding to event for consistency
         }
         return res
@@ -759,7 +767,7 @@ export class DB {
             const index = Number(row.group_type_index)
             const key = String(row.group_key)
             const createdAt = DateTime.fromISO(row.created_at)
-            void this.updateGroupCreatedAtCache(teamId, index, key, createdAt)
+            this.promiseManager.trackPromise(this.updateGroupCreatedAtCache(teamId, index, key, createdAt))
             res[`group${index}_created_at`] = castTimestampOrNow(createdAt, TimestampFormat.ClickHouse)
         }
 
@@ -1788,8 +1796,10 @@ export class DB {
             throw new RaceConditionError('Parallel posthog_group inserts, retry')
         }
         // group identify event doesn't need groups properties attached so we don't need to await
-        void this.updateGroupPropertiesCache(teamId, groupTypeIndex, groupKey, groupProperties)
-        void this.updateGroupCreatedAtCache(teamId, groupTypeIndex, groupKey, createdAt)
+        this.promiseManager.trackPromise(
+            this.updateGroupPropertiesCache(teamId, groupTypeIndex, groupKey, groupProperties)
+        )
+        this.promiseManager.trackPromise(this.updateGroupCreatedAtCache(teamId, groupTypeIndex, groupKey, createdAt))
     }
 
     public async updateGroup(

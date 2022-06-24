@@ -485,7 +485,7 @@ describe('DB', () => {
             expect(res?.properties).toEqual({ a: 123, b: false, c: 'bbb' })
         })
 
-        it('Person props are cached and used from cache', async () => {
+        it('person props are cached and used from cache', async () => {
             // manually update from the DB and check that we still get the right props, i.e. previous ones
             const uuid = new UUIDT().toString()
             const distinctId = 'distinct_id1'
@@ -514,7 +514,7 @@ describe('DB', () => {
             expect(res?.properties).toEqual({ a: 333, b: false, c: 'bbb' })
         })
 
-        it('Gets the right group properties', async () => {
+        it('gets the right group properties', async () => {
             await db.insertGroup(
                 // would get cached
                 2,
@@ -556,7 +556,7 @@ describe('DB', () => {
             })
         })
 
-        it('Group props are cached and used from cache', async () => {
+        it('group props are cached and used from cache', async () => {
             // manually update from the DB and check that we still get the right props, i.e. previous ones
             await db.insertGroup(
                 // would get cached
@@ -584,7 +584,7 @@ describe('DB', () => {
             })
         })
 
-        it('Gets created_at from DB if cache does not exist', async () => {
+        it('gets created_at from DB if cache does not exist', async () => {
             jest.spyOn(db, 'getGroupsCreatedAtFromDbAndUpdateCache')
             // No cache exists as this was inserted directly
             await db.postgresQuery(
@@ -602,7 +602,7 @@ describe('DB', () => {
             expect(db.getGroupsCreatedAtFromDbAndUpdateCache).toHaveBeenCalled()
         })
 
-        it('Group created_at is cached and used from cache', async () => {
+        it('group created_at is cached and used from cache', async () => {
             jest.spyOn(db, 'getGroupsCreatedAtFromDbAndUpdateCache')
 
             // manually update from the DB and check that we still get the right props, i.e. previous ones
