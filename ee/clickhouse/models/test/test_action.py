@@ -6,7 +6,7 @@ from posthog.models.action import Action
 from posthog.models.action.util import filter_event, format_action_filter
 from posthog.models.action_step import ActionStep
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, _create_person
-from posthog.test.test_event_model import filter_by_actions_factory
+from posthog.models.test.test_event_model import filter_by_actions_factory
 
 
 @dataclasses.dataclass
