@@ -52,6 +52,7 @@ MIDDLEWARE = [
     # using dependencies that the healthcheck should be checking. It should be
     # ok below the above middlewares however.
     "posthog.health.healthcheck_middleware",
+    "google.cloud.sqlcommenter.django.middleware.SqlCommenter",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "corsheaders.middleware.CorsMiddleware",
     "django.middleware.common.CommonMiddleware",

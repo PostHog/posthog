@@ -128,7 +128,7 @@ class Subscription(models.Model):
         if self.insight:
             return absolute_uri(f"/insights/{self.insight.short_id}/subscriptions/{self.id}")
         elif self.dashboard:
-            return absolute_uri(f"/dashboard/{self.dashboard.id}/subscriptions/{self.id}")
+            return absolute_uri(f"/dashboard/{self.dashboard_id}/subscriptions/{self.id}")
         return None
 
     @property

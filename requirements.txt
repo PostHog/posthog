@@ -137,6 +137,8 @@ drf-spectacular==0.21.1
     # via -r requirements.in
 future==0.18.2
     # via lzstring
+google-cloud-sqlcommenter==2.0.0
+    # via -r requirements.in
 grpcio==1.33.1
     # via -r requirements.in
 gunicorn==20.1.0

@@ -86,14 +86,14 @@ def handle_check(necessary_migrations):
         exit(1)
 
     running_migrations = get_async_migrations_by_status([MigrationStatus.Running, MigrationStatus.Starting])
-    if len(running_migrations) > 0:
+    if running_migrations.exists():
         print(
             f"Async migration {running_migrations[0].name} is currently running. If you're trying to update PostHog, wait for it to finish before proceeding."
         )
         exit(1)
 
     errored_migrations = get_async_migrations_by_status([MigrationStatus.Errored])
-    if len(errored_migrations) > 0:
+    if errored_migrations.exists():
         print(
             "Some async migrations are currently in an 'Errored' state. If you're trying to update PostHog, please make sure they complete successfully first."
         )
