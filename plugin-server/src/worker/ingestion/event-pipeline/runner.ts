@@ -56,6 +56,8 @@ const STEPS_TO_EMIT_TO_DLQ_ON_FAILURE: Array<StepType> = [
     'createEventStep',
 ]
 
+export const EVENTS_TO_SKIP_BUFFER_AND_PROCESS_EVENT = new Set(['$snapshot', '$$delete_person'])
+
 export class EventPipelineRunner {
     hub: Hub
     originalEvent: PluginEvent | ProcessedPluginEvent

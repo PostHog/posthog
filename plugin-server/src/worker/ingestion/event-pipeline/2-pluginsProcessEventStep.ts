@@ -3,7 +3,7 @@ import { PluginEvent } from '@posthog/plugin-scaffold'
 import { runInstrumentedFunction } from '../../../main/utils'
 import { Person } from '../../../types'
 import { runProcessEvent } from '../../plugins/run'
-import { EventPipelineRunner, StepResult } from './runner'
+import { EventPipelineRunner, EVENTS_TO_SKIP_BUFFER_AND_PROCESS_EVENT, StepResult } from './runner'
 
 export async function pluginsProcessEventStep(
     runner: EventPipelineRunner,
@@ -13,7 +13,7 @@ export async function pluginsProcessEventStep(
     let processedEvent: PluginEvent | null = event
 
     // run processEvent on all events that are not $snapshot
-    if (event.event !== '$snapshot') {
+    if (!EVENTS_TO_SKIP_BUFFER_AND_PROCESS_EVENT.has(event.event)) {
         processedEvent = await runInstrumentedFunction({
             server: runner.hub,
             event,

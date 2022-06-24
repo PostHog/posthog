@@ -791,6 +791,45 @@ export class DB {
         }
     }
 
+    public async fetchPersonById(
+        teamId: number,
+        personId: Person['id'],
+        client?: PoolClient,
+        options: { forUpdate?: boolean } = {}
+    ): Promise<Person | undefined> {
+        let queryString = `
+            SELECT
+                id, 
+                created_at, 
+                team_id, 
+                properties,
+                properties_last_updated_at, 
+                properties_last_operation, 
+                is_user_id, 
+                is_identified,
+                uuid, 
+                version
+            FROM posthog_person
+            WHERE team_id = $1 AND id = $2
+        `
+        if (options.forUpdate) {
+            // Locks the teamId and distinctId tied to this personId + this person's info
+            queryString = queryString.concat(` FOR UPDATE`)
+        }
+        const values = [teamId, personId]
+
+        const selectResult: QueryResult = await this.postgresQuery(queryString, values, 'fetchPersonById', client)
+
+        if (selectResult.rows.length > 0) {
+            const rawPerson: RawPerson = selectResult.rows[0]
+            return {
+                ...rawPerson,
+                created_at: DateTime.fromISO(rawPerson.created_at).toUTC(),
+                version: Number(rawPerson.version || 0),
+            }
+        }
+    }
+
     public async createPerson(
         createdAt: DateTime,
         properties: Properties,
@@ -933,7 +972,7 @@ export class DB {
             kafkaMessages = [
                 generateKafkaPersonUpdateMessage(
                     person.created_at,
-                    person.properties,
+                    {},
                     person.team_id,
                     person.is_identified,
                     person.uuid,

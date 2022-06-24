@@ -2,7 +2,7 @@ import { PluginEvent } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 
 import { Hub, IngestionPersonData, TeamId } from '../../../types'
-import { EventPipelineRunner, StepResult } from './runner'
+import { EventPipelineRunner, EVENTS_TO_SKIP_BUFFER_AND_PROCESS_EVENT, StepResult } from './runner'
 
 export async function emitToBufferStep(
     runner: EventPipelineRunner,
@@ -14,7 +14,7 @@ export async function emitToBufferStep(
         teamId: TeamId
     ) => boolean = shouldSendEventToBuffer
 ): Promise<StepResult> {
-    if (event.event === '$snapshot') {
+    if (EVENTS_TO_SKIP_BUFFER_AND_PROCESS_EVENT.has(event.event)) {
         return runner.nextStep('processPersonsStep', event, undefined)
     }
 

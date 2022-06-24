@@ -11,6 +11,21 @@ export async function processPersonsStep(
     pluginEvent: PluginEvent,
     person: Person | undefined
 ): Promise<StepResult> {
+    if (pluginEvent.event === '$$delete_person') {
+        console.log('HEREEEEE')
+        console.log('HEREEEEE')
+        console.log('HEREEEEE')
+        console.log('HEREEEEE')
+        person =
+            person ||
+            (await runner.hub.db.fetchPersonById(pluginEvent.team_id, pluginEvent.properties?.['$$person_id']))
+        console.log(person)
+        if (person) {
+            await runner.hub.db.deletePerson(person)
+        }
+        return null
+    }
+
     const event = normalizeEvent(pluginEvent)
     const timestamp = parseEventTimestamp(event, runner.hub.statsd)
 
