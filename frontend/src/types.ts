@@ -1386,6 +1386,7 @@ export interface FeatureFlagType {
     created_at: string | null
     is_simple_flag: boolean
     rollout_percentage: number | null
+    ensure_experience_continuity: boolean | null
 }
 
 export interface FeatureFlagOverrideType {

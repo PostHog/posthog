@@ -54,6 +54,7 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
             "created_at",
             "is_simple_flag",
             "rollout_percentage",
+            "ensure_experience_continuity",
         ]
 
     # Simple flags are ones that only have rollout_percentage
