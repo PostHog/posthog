@@ -58,7 +58,6 @@ jobs:
               uses: docker/build-push-action@v2
               with:
                   push: true
-                  load: true
                   cache-from: ${{ steps.meta-for-cache.outputs.tags }}
                   tags: ${{ steps.meta.outputs.tags }}
                   labels: ${{ steps.meta.outputs.labels }}
