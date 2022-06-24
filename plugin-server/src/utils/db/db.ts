@@ -1189,6 +1189,34 @@ export class DB {
         return insertResult.rows[0]
     }
 
+    // Feature Flag Hash Key overrides
+    public async addFeatureFlagHashKeysForMergedPerson(
+        teamID: Team['id'],
+        sourcePersonID: Person['id'],
+        targetPersonID: Person['id']
+    ): Promise<void> {
+        // Delete and insert in a single query to ensure
+        // this function is safe wherever it is run.
+        // The CTE helps make this happen.
+        //
+        // Every override is unique for a team-personID-featureFlag combo.
+        // Thus, if the target person already has an override, we do nothing on conflict
+        await this.postgresQuery(
+            `
+            WITH deletions AS (
+                DELETE FROM posthog_featureflaghashkeyoverride WHERE team_id = $1 AND person_id = $2
+                RETURNING team_id, person_id, feature_flag_key, hash_key
+            )
+            INSERT INTO posthog_featureflaghashkeyoverride (team_id, person_id, feature_flag_key, hash_key)
+                SELECT team_id, $3, feature_flag_key, hash_key
+                FROM deletions
+                ON CONFLICT DO NOTHING
+            `,
+            [teamID, sourcePersonID, targetPersonID],
+            'addFeatureFlagHashKeysForMergedPerson'
+        )
+    }
+
     // Event
 
     public async fetchEvents(): Promise<Event[] | ClickHouseEvent[]> {

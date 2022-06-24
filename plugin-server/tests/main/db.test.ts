@@ -810,4 +810,162 @@ describe('DB', () => {
             expect(await db.fetchInstanceSetting('BOOLEAN_SETTING')).toEqual(true)
         })
     })
+
+    describe('addFeatureFlagHashKeysForMergedPerson()', () => {
+        let team: Team
+        let sourcePersonID: Person['id']
+        let targetPersonID: Person['id']
+
+        async function getAllHashKeyOverrides(): Promise<any> {
+            const result = await db.postgresQuery(
+                'SELECT feature_flag_key, hash_key, person_id FROM posthog_featureflaghashkeyoverride',
+                [],
+                ''
+            )
+            return result.rows
+        }
+
+        beforeEach(async () => {
+            team = await getFirstTeam(hub)
+            const sourcePerson = await db.createPerson(
+                TIMESTAMP,
+                {},
+                {},
+                {},
+                team.id,
+                null,
+                false,
+                new UUIDT().toString(),
+                ['source_person']
+            )
+            const targetPerson = await db.createPerson(
+                TIMESTAMP,
+                {},
+                {},
+                {},
+                team.id,
+                null,
+                false,
+                new UUIDT().toString(),
+                ['target_person']
+            )
+            sourcePersonID = sourcePerson.id
+            targetPersonID = targetPerson.id
+        })
+
+        it("doesn't fail on empty data", async () => {
+            await db.addFeatureFlagHashKeysForMergedPerson(team.id, sourcePersonID, targetPersonID)
+        })
+
+        it('updates all valid keys when target person had no overrides', async () => {
+            await insertRow(db.postgres, 'posthog_featureflaghashkeyoverride', {
+                team_id: team.id,
+                person_id: sourcePersonID,
+                feature_flag_key: 'aloha',
+                hash_key: 'override_value_for_aloha',
+            })
+            await insertRow(db.postgres, 'posthog_featureflaghashkeyoverride', {
+                team_id: team.id,
+                person_id: sourcePersonID,
+                feature_flag_key: 'beta-feature',
+                hash_key: 'override_value_for_beta_feature',
+            })
+
+            await db.addFeatureFlagHashKeysForMergedPerson(team.id, sourcePersonID, targetPersonID)
+
+            const result = await getAllHashKeyOverrides()
+
+            expect(result.length).toEqual(2)
+            expect(result).toEqual(
+                expect.arrayContaining([
+                    {
+                        feature_flag_key: 'aloha',
+                        hash_key: 'override_value_for_aloha',
+                        person_id: targetPersonID,
+                    },
+                    {
+                        feature_flag_key: 'beta-feature',
+                        hash_key: 'override_value_for_beta_feature',
+                        person_id: targetPersonID,
+                    },
+                ])
+            )
+        })
+
+        it('updates all valid keys when conflicts with target person', async () => {
+            await insertRow(db.postgres, 'posthog_featureflaghashkeyoverride', {
+                team_id: team.id,
+                person_id: sourcePersonID,
+                feature_flag_key: 'aloha',
+                hash_key: 'override_value_for_aloha',
+            })
+            await insertRow(db.postgres, 'posthog_featureflaghashkeyoverride', {
+                team_id: team.id,
+                person_id: sourcePersonID,
+                feature_flag_key: 'beta-feature',
+                hash_key: 'override_value_for_beta_feature',
+            })
+            await insertRow(db.postgres, 'posthog_featureflaghashkeyoverride', {
+                team_id: team.id,
+                person_id: targetPersonID,
+                feature_flag_key: 'beta-feature',
+                hash_key: 'existing_override_value_for_beta_feature',
+            })
+
+            await db.addFeatureFlagHashKeysForMergedPerson(team.id, sourcePersonID, targetPersonID)
+
+            const result = await getAllHashKeyOverrides()
+
+            expect(result.length).toEqual(2)
+            expect(result).toEqual(
+                expect.arrayContaining([
+                    {
+                        feature_flag_key: 'beta-feature',
+                        hash_key: 'existing_override_value_for_beta_feature',
+                        person_id: targetPersonID,
+                    },
+                    {
+                        feature_flag_key: 'aloha',
+                        hash_key: 'override_value_for_aloha',
+                        person_id: targetPersonID,
+                    },
+                ])
+            )
+        })
+
+        it('updates nothing when target person overrides exist', async () => {
+            await insertRow(db.postgres, 'posthog_featureflaghashkeyoverride', {
+                team_id: team.id,
+                person_id: targetPersonID,
+                feature_flag_key: 'aloha',
+                hash_key: 'override_value_for_aloha',
+            })
+            await insertRow(db.postgres, 'posthog_featureflaghashkeyoverride', {
+                team_id: team.id,
+                person_id: targetPersonID,
+                feature_flag_key: 'beta-feature',
+                hash_key: 'override_value_for_beta_feature',
+            })
+
+            await db.addFeatureFlagHashKeysForMergedPerson(team.id, sourcePersonID, targetPersonID)
+
+            const result = await getAllHashKeyOverrides()
+
+            expect(result.length).toEqual(2)
+            expect(result).toEqual(
+                expect.arrayContaining([
+                    {
+                        feature_flag_key: 'aloha',
+                        hash_key: 'override_value_for_aloha',
+                        person_id: targetPersonID,
+                    },
+                    {
+                        feature_flag_key: 'beta-feature',
+                        hash_key: 'override_value_for_beta_feature',
+                        person_id: targetPersonID,
+                    },
+                ])
+            )
+        })
+    })
 })
