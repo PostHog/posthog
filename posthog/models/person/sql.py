@@ -33,7 +33,7 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
 ) ENGINE = {engine}
 """
 
-PERSONS_TABLE_ENGINE = lambda: ReplacingMergeTree(PERSONS_TABLE, ver="_timestamp")
+PERSONS_TABLE_ENGINE = lambda: ReplacingMergeTree(PERSONS_TABLE, ver="version")
 PERSONS_TABLE_SQL = lambda: (
     PERSONS_TABLE_BASE_SQL
     + """Order By (team_id, id)
@@ -73,11 +73,11 @@ FROM {database}.kafka_{table_name}
 
 GET_LATEST_PERSON_SQL = """
 SELECT * FROM person JOIN (
-    SELECT id, max(_timestamp) as _timestamp, max(is_deleted) as is_deleted
+    SELECT id, max(version) as version, max(is_deleted) as is_deleted
     FROM person
     WHERE team_id = %(team_id)s
     GROUP BY id
-) as person_max ON person.id = person_max.id AND person._timestamp = person_max._timestamp
+) as person_max ON person.id = person_max.id AND person.version = person_max.version
 WHERE team_id = %(team_id)s
   AND person_max.is_deleted = 0
   {query}

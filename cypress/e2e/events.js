@@ -86,7 +86,7 @@ describe('Events', () => {
 
         cy.get('.taxonomic-operator').click()
         cy.get('.operator-value-option').its('length').should('eql', 10)
-        cy.get('.operator-value-option').contains('< lower than').should('be.visible')
+        cy.get('.operator-value-option').contains('< less than').should('be.visible')
         cy.get('.operator-value-option').contains('> greater than').should('be.visible')
     })
 

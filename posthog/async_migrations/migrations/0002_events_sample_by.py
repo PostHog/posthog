@@ -121,7 +121,7 @@ class Migration(AsyncMigrationDefinition):
             try:
                 execute_op_clickhouse(
                     f"OPTIMIZE TABLE {EVENTS_TABLE_NAME} FINAL",
-                    query_id,
+                    query_id=query_id,
                     settings={
                         "max_execution_time": default_timeout,
                         "send_timeout": default_timeout,

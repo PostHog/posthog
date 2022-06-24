@@ -5,6 +5,7 @@ import pytest
 from posthog.models.instance_setting import (
     InstanceSetting,
     get_instance_setting,
+    get_instance_settings,
     override_instance_config,
     set_instance_setting,
 )
@@ -48,3 +49,21 @@ def test_override_constance_config(db):
     with override_instance_config("MATERIALIZED_COLUMNS_ENABLED", False):
         assert not get_instance_setting("MATERIALIZED_COLUMNS_ENABLED")
     assert get_instance_setting("MATERIALIZED_COLUMNS_ENABLED")
+
+
+def test_can_retrieve_multiple_settings(db):
+    set_instance_setting("MATERIALIZED_COLUMNS_ENABLED", True)
+    set_instance_setting("ASYNC_MIGRATIONS_ROLLBACK_TIMEOUT", 20000)
+
+    assert get_instance_setting("MATERIALIZED_COLUMNS_ENABLED") is True
+    assert get_instance_setting("ASYNC_MIGRATIONS_ROLLBACK_TIMEOUT") == 20000
+
+    returned = get_instance_settings(
+        ["MATERIALIZED_COLUMNS_ENABLED", "ASYNC_MIGRATIONS_ROLLBACK_TIMEOUT", "ASYNC_MIGRATIONS_AUTO_CONTINUE"]
+    )
+
+    assert returned == {
+        "ASYNC_MIGRATIONS_ROLLBACK_TIMEOUT": 20000,
+        "MATERIALIZED_COLUMNS_ENABLED": True,
+        "ASYNC_MIGRATIONS_AUTO_CONTINUE": True,
+    }
