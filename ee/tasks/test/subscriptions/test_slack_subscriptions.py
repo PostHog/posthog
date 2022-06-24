@@ -47,13 +47,13 @@ class TestSlackSubscriptionsTasks(APIBaseTest):
         first_call = post_message_calls[0].kwargs
 
         assert first_call["channel"] == "C12345"
-        assert first_call["text"] == "Your subscription to the Insight *My Test subscription* is ready!"
+        assert first_call["text"] == "Your subscription to the Insight *My Test subscription* is ready! 🎉"
         assert first_call["blocks"] == [
             {
                 "type": "section",
                 "text": {
                     "type": "mrkdwn",
-                    "text": "Your subscription to the Insight *My Test subscription* is ready!",
+                    "text": "Your subscription to the Insight *My Test subscription* is ready! 🎉",
                 },
             },
             {
@@ -92,7 +92,7 @@ class TestSlackSubscriptionsTasks(APIBaseTest):
 
         assert (
             first_call["text"]
-            == "This channel has been subscribed to the Insight *My Test subscription* on PostHog. This subscription is sent every day. The next subscription will be sent on Wednesday February 02, 2022"
+            == "This channel has been subscribed to the Insight *My Test subscription* on PostHog! 🎉\nThis subscription is sent every day. The next one will be sent on Wednesday February 02, 2022"
         )
 
     def test_subscription_dashboard_delivery(self, MockSlackIntegration: MagicMock) -> None:
@@ -115,12 +115,15 @@ class TestSlackSubscriptionsTasks(APIBaseTest):
         first_call = post_message_calls[0].kwargs
 
         assert first_call["channel"] == "C12345"
-        assert first_call["text"] == "Your subscription to the Dashboard *private dashboard* is ready!"
+        assert first_call["text"] == "Your subscription to the Dashboard *private dashboard* is ready! 🎉"
 
         assert first_call["blocks"] == [
             {
                 "type": "section",
-                "text": {"type": "mrkdwn", "text": "Your subscription to the Dashboard *private dashboard* is ready!",},
+                "text": {
+                    "type": "mrkdwn",
+                    "text": "Your subscription to the Dashboard *private dashboard* is ready! 🎉",
+                },
             },
             {
                 "type": "image",
