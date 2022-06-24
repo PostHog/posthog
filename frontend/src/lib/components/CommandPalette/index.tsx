@@ -42,7 +42,7 @@ export function CommandPalette(): JSX.Element | null {
     })
 
     useOutsideClickHandler(
-        boxRef.current,
+        boxRef,
         () => {
             if (isPaletteShown) {
                 hidePalette()

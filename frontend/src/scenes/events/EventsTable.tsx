@@ -415,7 +415,6 @@ export function EventsTable({
                                 propertyFilters={properties}
                                 onChange={setProperties}
                                 pageKey={pageKey}
-                                taxonomicPopoverPlacement="bottom-start"
                                 style={{ marginBottom: 0, marginTop: 0 }}
                                 eventNames={eventFilter ? [eventFilter] : []}
                                 useLemonButton

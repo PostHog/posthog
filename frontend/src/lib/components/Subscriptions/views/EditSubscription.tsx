@@ -74,7 +74,6 @@ export function EditSubscription({
     const commonSelectProps: Partial<LemonSelectProps<LemonSelectOptions>> = {
         type: 'stealth',
         outlined: true,
-        dropdownMaxWindowDimensions: true,
     }
 
     useEffect(() => {
