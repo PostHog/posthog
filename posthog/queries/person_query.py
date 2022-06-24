@@ -1,6 +1,6 @@
 from typing import Dict, List, Optional, Set, Tuple, Union
 
-from ee.clickhouse.materialized_columns.columns import ColumnName
+from posthog.clickhouse.materialized_columns import ColumnName
 from posthog.constants import PropertyOperatorType
 from posthog.models import Filter
 from posthog.models.cohort import Cohort
@@ -12,7 +12,7 @@ from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.property import Property, PropertyGroup
 from posthog.models.property.util import extract_tables_and_properties, parse_prop_grouped_clauses
 from posthog.models.utils import PersonPropertiesMode
-from posthog.queries.column_optimizer import ColumnOptimizer
+from posthog.queries.column_optimizer.column_optimizer import ColumnOptimizer
 from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
 
 
@@ -66,7 +66,7 @@ class PersonQuery:
 
     def get_query(self, prepend: str = "") -> Tuple[str, Dict]:
         fields = "id" + " ".join(
-            f", argMax({column_name}, _timestamp) as {alias}" for column_name, alias in self._get_fields()
+            f", argMax({column_name}, version) as {alias}" for column_name, alias in self._get_fields()
         )
 
         person_filters, params = self._get_person_filters(prepend=prepend)

@@ -204,13 +204,7 @@ export class HookCommander {
         }
 
         if (organization!.available_features.includes('zapier')) {
-            const restHooks = (
-                await Promise.all(
-                    actionMatches.map(
-                        async (action) => await this.db.fetchRelevantRestHooks(team.id, 'action_performed', action.id)
-                    )
-                )
-            ).flat()
+            const restHooks = actionMatches.map(({ hooks }) => hooks).flat()
 
             const restHookRequests = restHooks.map((hook) => this.postRestHook(hook, event, person))
             await Promise.all(restHookRequests).catch((error) => captureException(error))

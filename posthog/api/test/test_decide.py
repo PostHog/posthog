@@ -311,7 +311,7 @@ class TestDecide(BaseTest):
         self.team.app_urls = ["https://example.com"]
         self.team.save()
         self.client.logout()
-        # ingesiton delay so person isn't created yet
+        # We're simulating ingestion delays, so this person below we expect to be created isn't created yet
         # person = Person.objects.create(team=self.team, distinct_ids=["example_id"], properties={"email": "tim@posthog.com"})
 
         FeatureFlag.objects.create(

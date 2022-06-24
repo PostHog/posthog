@@ -2,6 +2,7 @@ import uuid
 from unittest.mock import ANY, patch
 
 import pytest
+from django.core.cache import cache
 from django.utils.text import slugify
 from rest_framework import status
 
@@ -39,6 +40,12 @@ class TestUserAPI(APIBaseTest):
         cls.user.current_organization = cls.organization
         cls.user.current_team = cls.team
         cls.user.save()
+
+    def setUp(self):
+        # prevent throttling of user requests to pass on from one test
+        # to the next
+        cache.clear()
+        return super().setUp()
 
     # RETRIEVING USER
 
@@ -93,40 +100,42 @@ class TestUserAPI(APIBaseTest):
 
     @pytest.mark.ee
     def test_organization_metadata_on_user_serializer(self):
+        try:
+            from ee.models import EnterpriseEventDefinition, EnterprisePropertyDefinition
+        except ImportError:
+            pass
+        else:
+            enterprise_event = EnterpriseEventDefinition.objects.create(
+                team=self.team, name="enterprise event", owner=self.user
+            )
+            tag = Tag.objects.create(name="deprecated", team_id=self.team.id)
+            enterprise_event.tagged_items.create(tag_id=tag.id)
+            EnterpriseEventDefinition.objects.create(
+                team=self.team, name="a new event", owner=self.user  # I shouldn't be counted
+            )
+            timestamp_property = EnterprisePropertyDefinition.objects.create(
+                team=self.team, name="a timestamp", property_type="DateTime", description="This is a cool timestamp.",
+            )
+            tag_test = Tag.objects.create(name="test", team_id=self.team.id)
+            tag_official = Tag.objects.create(name="official", team_id=self.team.id)
+            timestamp_property.tagged_items.create(tag_id=tag_test.id)
+            timestamp_property.tagged_items.create(tag_id=tag_official.id)
+            EnterprisePropertyDefinition.objects.create(
+                team=self.team, name="plan", description="The current membership plan the user has active.",
+            )
+            tagged_property = EnterprisePropertyDefinition.objects.create(team=self.team, name="property")
+            tag_test2 = Tag.objects.create(name="test2", team_id=self.team.id)
+            tagged_property.tagged_items.create(tag_id=tag_test2.id)
+            EnterprisePropertyDefinition.objects.create(
+                team=self.team, name="some_prop",  # I shouldn't be counted
+            )
 
-        from ee.models import EnterpriseEventDefinition, EnterprisePropertyDefinition
+            response = self.client.get("/api/users/@me/")
 
-        enterprise_event = EnterpriseEventDefinition.objects.create(
-            team=self.team, name="enterprise event", owner=self.user
-        )
-        tag = Tag.objects.create(name="deprecated", team_id=self.team.id)
-        enterprise_event.tagged_items.create(tag_id=tag.id)
-        EnterpriseEventDefinition.objects.create(
-            team=self.team, name="a new event", owner=self.user  # I shouldn't be counted
-        )
-        timestamp_property = EnterprisePropertyDefinition.objects.create(
-            team=self.team, name="a timestamp", property_type="DateTime", description="This is a cool timestamp.",
-        )
-        tag_test = Tag.objects.create(name="test", team_id=self.team.id)
-        tag_official = Tag.objects.create(name="official", team_id=self.team.id)
-        timestamp_property.tagged_items.create(tag_id=tag_test.id)
-        timestamp_property.tagged_items.create(tag_id=tag_official.id)
-        EnterprisePropertyDefinition.objects.create(
-            team=self.team, name="plan", description="The current membership plan the user has active.",
-        )
-        tagged_property = EnterprisePropertyDefinition.objects.create(team=self.team, name="property")
-        tag_test2 = Tag.objects.create(name="test2", team_id=self.team.id)
-        tagged_property.tagged_items.create(tag_id=tag_test2.id)
-        EnterprisePropertyDefinition.objects.create(
-            team=self.team, name="some_prop",  # I shouldn't be counted
-        )
-
-        response = self.client.get("/api/users/@me/")
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        response_data = response.json()
-        self.assertEqual(response_data["organization"]["metadata"]["taxonomy_set_events_count"], 1)
-        self.assertEqual(response_data["organization"]["metadata"]["taxonomy_set_properties_count"], 3)
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            response_data = response.json()
+            self.assertEqual(response_data["organization"]["metadata"]["taxonomy_set_events_count"], 1)
+            self.assertEqual(response_data["organization"]["metadata"]["taxonomy_set_properties_count"], 3)
 
     def test_can_only_list_yourself(self):
         """
@@ -539,6 +548,39 @@ class TestUserAPI(APIBaseTest):
         self.user.refresh_from_db()
         self.assertNotEqual(self.user.email, "new@posthog.com")
         self.assertFalse(self.user.check_password("hijacked"))
+
+    def test_user_cannot_update_password_with_incorrect_current_password_and_ratelimit_to_prevent_attacks(self):
+
+        for i in range(7):
+            response = self.client.patch("/api/users/@me/", {"current_password": "wrong", "password": "12345678"})
+        self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+        self.assertDictContainsSubset(
+            {"attr": None, "code": "throttled", "type": "throttled_error"}, response.json(),
+        )
+
+        # Password was not changed
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.check_password(self.CONFIG_PASSWORD))
+
+    def test_no_ratelimit_for_get_requests_for_users(self):
+
+        for i in range(6):
+            response = self.client.get("/api/users/@me/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        for i in range(4):
+            # below rate limit, so shouldn't be throttled
+            response = self.client.patch("/api/users/@me/", {"current_password": "wrong", "password": "12345678"})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+        for i in range(2):
+            response = self.client.get("/api/users/@me/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        for i in range(2):
+            # finally above rate limit, so should be throttled
+            response = self.client.patch("/api/users/@me/", {"current_password": "wrong", "password": "12345678"})
+        self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
 
     # DELETING USER
 

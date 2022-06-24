@@ -15,9 +15,8 @@ from typing import (
 from clickhouse_driver.util.escape import escape_param
 from rest_framework import exceptions
 
-from ee.clickhouse.materialized_columns.columns import TableWithProperties, get_materialized_columns
-from ee.clickhouse.sql.groups import GET_GROUP_IDS_BY_PROPERTY_SQL
 from posthog.clickhouse.kafka_engine import trim_quotes_expr
+from posthog.clickhouse.materialized_columns import TableWithProperties, get_materialized_columns
 from posthog.constants import PropertyOperatorType
 from posthog.models.cohort import Cohort
 from posthog.models.cohort.util import (
@@ -28,6 +27,7 @@ from posthog.models.cohort.util import (
     get_count_operator,
 )
 from posthog.models.event import Selector
+from posthog.models.group.sql import GET_GROUP_IDS_BY_PROPERTY_SQL
 from posthog.models.person.sql import GET_DISTINCT_IDS_BY_PERSON_ID_FILTER, GET_DISTINCT_IDS_BY_PROPERTY_SQL
 from posthog.models.property import (
     NEGATED_OPERATORS,
@@ -297,6 +297,10 @@ def parse_prop_clauses(
                     filters=filter_query, GET_TEAM_PERSON_DISTINCT_IDS=get_team_distinct_ids_query(team_id),
                 )
                 final.append(f"{property_operator} {table_name}distinct_id IN ({subquery})")
+            params.update(filter_params)
+        elif prop.type == "session":
+            filter_query, filter_params = get_session_property_filter_statement(prop, idx, prepend)
+            final.append(f"{property_operator} {filter_query}")
             params.update(filter_params)
 
     if final:
@@ -704,3 +708,21 @@ def build_selector_regex(selector: Selector) -> str:
 
 def extract_tables_and_properties(props: List[Property]) -> Counter[PropertyIdentifier]:
     return Counter((prop.key, prop.type, prop.group_type_index) for prop in props)
+
+
+def get_session_property_filter_statement(prop: Property, idx: int, prepend: str = "") -> Tuple[str, Dict[str, Any]]:
+    if prop.key == "$session_duration":
+        try:
+            duration = int(prop.value)  # type: ignore
+        except ValueError:
+            raise (exceptions.ValidationError(f"$session_duration value must be a number. Received '{prop.value}'"))
+        if prop.operator == "gt":
+            value = "session_duration_value{prepend}_{idx}"
+            return (f"sessions.session_duration > %({value})s", {value: duration})
+        if prop.operator == "lt":
+            value = "session_duration_value{prepend}_{idx}"
+            return (f"sessions.session_duration < %({value})s", {value: duration})
+        else:
+            raise exceptions.ValidationError(f"Operator '{prop.operator}' is not allowed in $session_duration filters.")
+    else:
+        raise exceptions.ValidationError(f"Property '{prop.key}' is not allowed in session property filters.")

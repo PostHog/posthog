@@ -4,7 +4,6 @@ import { Hub, PluginConfig, PluginTaskType, VMMethods } from '../../types'
 import { processError } from '../../utils/db/error'
 import { IllegalOperationError } from '../../utils/utils'
 import { runRetriableFunction } from '../retries'
-import { Action } from './../../types'
 
 export async function runOnEvent(hub: Hub, event: ProcessedPluginEvent): Promise<void> {
     const pluginMethodsToRun = await getPluginMethodsForTeam(hub, event.team_id, 'onEvent')
@@ -32,22 +31,6 @@ export async function runOnSnapshot(hub: Hub, event: ProcessedPluginEvent): Prom
                 async ([pluginConfig, onSnapshot]) =>
                     await runRetriableFunction('on_snapshot', hub, pluginConfig, {
                         tryFn: async () => await onSnapshot!(event),
-                        event,
-                    })
-            )
-    )
-}
-
-export async function runOnAction(hub: Hub, action: Action, event: ProcessedPluginEvent): Promise<void> {
-    const pluginMethodsToRun = await getPluginMethodsForTeam(hub, event.team_id, 'onAction')
-
-    await Promise.all(
-        pluginMethodsToRun
-            .filter(([, method]) => !!method)
-            .map(
-                async ([pluginConfig, onAction]) =>
-                    await runRetriableFunction('on_action', hub, pluginConfig, {
-                        tryFn: async () => await onAction!(action, event),
                         event,
                     })
             )

@@ -18,7 +18,7 @@ describe('DB', () => {
 
     beforeEach(async () => {
         ;[hub, closeServer] = await createHub()
-        await resetTestDatabase()
+        await resetTestDatabase(undefined, {}, {}, { withExtendedTestData: false })
         db = hub.db
     })
 
@@ -26,42 +26,217 @@ describe('DB', () => {
         await closeServer()
     })
 
-    const TEAM_ID = 2
-    const ACTION_ID = 69
-    const ACTION_STEP_ID = 913
     const TIMESTAMP = DateTime.fromISO('2000-10-14T11:42:06.502Z').toUTC()
 
-    test('fetchAllActionsGroupedByTeam', async () => {
-        const action = await db.fetchAllActionsGroupedByTeam()
+    describe('fetchAllActionsGroupedByTeam() and fetchAction()', () => {
+        beforeEach(async () => {
+            await insertRow(hub.db.postgres, 'posthog_action', {
+                id: 69,
+                team_id: 2,
+                name: 'Test Action',
+                description: '',
+                created_at: new Date().toISOString(),
+                created_by_id: 1001,
+                deleted: false,
+                post_to_slack: true,
+                slack_message_format: '',
+                is_calculating: false,
+                updated_at: new Date().toISOString(),
+                last_calculated_at: new Date().toISOString(),
+            })
+        })
 
-        expect(action).toMatchObject({
-            [TEAM_ID]: {
-                [ACTION_ID]: {
-                    id: ACTION_ID,
-                    name: 'Test Action',
-                    deleted: false,
-                    post_to_slack: true,
-                    slack_message_format: '',
-                    is_calculating: false,
-                    steps: [
-                        {
-                            id: ACTION_STEP_ID,
-                            action_id: ACTION_ID,
-                            tag_name: null,
-                            text: null,
-                            href: null,
-                            selector: null,
-                            url: null,
-                            url_matching: null,
-                            name: null,
-                            event: null,
-                            properties: [
-                                { type: 'event', operator: PropertyOperator.Exact, key: 'foo', value: ['bar'] },
-                            ],
-                        },
-                    ],
+        it('returns actions with `post_to_slack', async () => {
+            const result = await db.fetchAllActionsGroupedByTeam()
+
+            expect(result).toMatchObject({
+                2: {
+                    69: {
+                        id: 69,
+                        team_id: 2,
+                        name: 'Test Action',
+                        deleted: false,
+                        post_to_slack: true,
+                        slack_message_format: '',
+                        is_calculating: false,
+                        steps: [],
+                        hooks: [],
+                    },
                 },
-            },
+            })
+        })
+
+        it('returns actions with steps', async () => {
+            await insertRow(hub.db.postgres, 'posthog_actionstep', {
+                id: 913,
+                action_id: 69,
+                tag_name: null,
+                text: null,
+                href: null,
+                selector: null,
+                url: null,
+                url_matching: null,
+                name: null,
+                event: null,
+                properties: [{ type: 'event', operator: PropertyOperator.Exact, key: 'foo', value: ['bar'] }],
+            })
+
+            const result = await db.fetchAllActionsGroupedByTeam()
+
+            expect(result).toMatchObject({
+                2: {
+                    69: {
+                        id: 69,
+                        team_id: 2,
+                        name: 'Test Action',
+                        deleted: false,
+                        post_to_slack: true,
+                        slack_message_format: '',
+                        is_calculating: false,
+                        steps: [
+                            {
+                                id: 913,
+                                action_id: 69,
+                                tag_name: null,
+                                text: null,
+                                href: null,
+                                selector: null,
+                                url: null,
+                                url_matching: null,
+                                name: null,
+                                event: null,
+                                properties: [
+                                    { type: 'event', operator: PropertyOperator.Exact, key: 'foo', value: ['bar'] },
+                                ],
+                            },
+                        ],
+                        hooks: [],
+                    },
+                },
+            })
+
+            const action = await db.fetchAction(69)
+            expect(action!.steps).toEqual([
+                {
+                    id: 913,
+                    action_id: 69,
+                    tag_name: null,
+                    text: null,
+                    href: null,
+                    selector: null,
+                    url: null,
+                    url_matching: null,
+                    name: null,
+                    event: null,
+                    properties: [{ type: 'event', operator: PropertyOperator.Exact, key: 'foo', value: ['bar'] }],
+                },
+            ])
+        })
+
+        it('returns actions with correct `ee_hook`', async () => {
+            await hub.db.postgres.query('UPDATE posthog_action SET post_to_slack = false')
+            await insertRow(hub.db.postgres, 'ee_hook', {
+                id: 'abc',
+                team_id: 2,
+                user_id: 1001,
+                resource_id: 69,
+                event: 'action_performed',
+                target: 'https://rest-hooks.example.com/',
+                created: new Date().toISOString(),
+                updated: new Date().toISOString(),
+            })
+            const result = await db.fetchAllActionsGroupedByTeam()
+
+            expect(result).toMatchObject({
+                2: {
+                    69: {
+                        id: 69,
+                        team_id: 2,
+                        name: 'Test Action',
+                        deleted: false,
+                        post_to_slack: false,
+                        slack_message_format: '',
+                        is_calculating: false,
+                        steps: [],
+                        hooks: [
+                            {
+                                id: 'abc',
+                                team_id: 2,
+                                resource_id: 69,
+                                event: 'action_performed',
+                                target: 'https://rest-hooks.example.com/',
+                            },
+                        ],
+                    },
+                },
+            })
+
+            expect(await db.fetchAction(69)).toEqual(result[2][69])
+        })
+
+        it('does not return actions that dont match conditions', async () => {
+            await hub.db.postgres.query('UPDATE posthog_action SET post_to_slack = false')
+
+            const result = await db.fetchAllActionsGroupedByTeam()
+            expect(result).toEqual({})
+
+            expect(await db.fetchAction(69)).toEqual(null)
+        })
+
+        it('does not return actions which are deleted', async () => {
+            await hub.db.postgres.query('UPDATE posthog_action SET deleted = true')
+
+            const result = await db.fetchAllActionsGroupedByTeam()
+            expect(result).toEqual({})
+
+            expect(await db.fetchAction(69)).toEqual(null)
+        })
+
+        it('does not return actions with incorrect ee_hook', async () => {
+            await hub.db.postgres.query('UPDATE posthog_action SET post_to_slack = false')
+            await insertRow(hub.db.postgres, 'ee_hook', {
+                id: 'abc',
+                team_id: 2,
+                user_id: 1001,
+                resource_id: 69,
+                event: 'event_performed',
+                target: 'https://rest-hooks.example.com/',
+                created: new Date().toISOString(),
+                updated: new Date().toISOString(),
+            })
+            await insertRow(hub.db.postgres, 'ee_hook', {
+                id: 'efg',
+                team_id: 2,
+                user_id: 1001,
+                resource_id: 70,
+                event: 'event_performed',
+                target: 'https://rest-hooks.example.com/',
+                created: new Date().toISOString(),
+                updated: new Date().toISOString(),
+            })
+
+            const result = await db.fetchAllActionsGroupedByTeam()
+            expect(result).toEqual({})
+
+            expect(await db.fetchAction(69)).toEqual(null)
+        })
+
+        describe('FOSS', () => {
+            beforeEach(async () => {
+                await hub.db.postgres.query('ALTER TABLE ee_hook RENAME TO ee_hook_backup')
+            })
+
+            afterEach(async () => {
+                await hub.db.postgres.query('ALTER TABLE ee_hook_backup RENAME TO ee_hook')
+            })
+
+            it('does not blow up', async () => {
+                await hub.db.postgres.query('UPDATE posthog_action SET post_to_slack = false')
+
+                const result = await db.fetchAllActionsGroupedByTeam()
+                expect(result).toEqual({})
+                expect(await db.fetchAction(69)).toEqual(null)
+            })
         })
     })
 
@@ -151,7 +326,7 @@ describe('DB', () => {
             const personProvided = { ...personDbBefore, properties: { c: 'bbb' }, created_at: providedPersonTs }
             const updateTs = DateTime.fromISO('2000-04-04T11:42:06.502Z').toUTC()
             const update = { created_at: updateTs }
-            const updatedPerson = await db.updatePersonDeprecated(personProvided, update)
+            const [updatedPerson] = await db.updatePersonDeprecated(personProvided, update)
 
             // verify we have the correct update in Postgres db
             const personDbAfter = await fetchPersonByPersonId(personDbBefore.team_id, personDbBefore.id)
@@ -636,15 +811,15 @@ describe('DB', () => {
         })
     })
 
-    describe('feature flag hash key overrides', () => {
+    describe('addFeatureFlagHashKeysForMergedPerson()', () => {
         let team: Team
         let sourcePersonID: Person['id']
         let targetPersonID: Person['id']
 
-        async function getAllHashKeyOverrides(teamID: number, personID: Person['id']): Promise<any> {
+        async function getAllHashKeyOverrides(): Promise<any> {
             const result = await db.postgresQuery(
-                'SELECT feature_flag_key, hash_key FROM posthog_featureflaghashkeyoverride WHERE team_id=$1 AND person_id=$2',
-                [teamID, personID],
+                'SELECT feature_flag_key, hash_key, person_id FROM posthog_featureflaghashkeyoverride',
+                [],
                 ''
             )
             return result.rows
@@ -683,91 +858,114 @@ describe('DB', () => {
         })
 
         it('updates all valid keys when target person had no overrides', async () => {
-            await db.postgresQuery(
-                `INSERT INTO posthog_featureflaghashkeyoverride (team_id, person_id, feature_flag_key, hash_key) VALUES
-                ($1, $2, 'aloha', 'override_value_for_aloha'),
-                ($1, $2, 'beta-feature', 'override_value_for_beta_feature')
-                `,
-                [team.id, sourcePersonID],
-                ''
-            )
+            await insertRow(db.postgres, 'posthog_featureflaghashkeyoverride', {
+                team_id: team.id,
+                person_id: sourcePersonID,
+                feature_flag_key: 'aloha',
+                hash_key: 'override_value_for_aloha',
+            })
+            await insertRow(db.postgres, 'posthog_featureflaghashkeyoverride', {
+                team_id: team.id,
+                person_id: sourcePersonID,
+                feature_flag_key: 'beta-feature',
+                hash_key: 'override_value_for_beta_feature',
+            })
 
             await db.addFeatureFlagHashKeysForMergedPerson(team.id, sourcePersonID, targetPersonID)
 
-            let result = await getAllHashKeyOverrides(team.id, sourcePersonID)
-            expect(result.length).toEqual(0)
+            const result = await getAllHashKeyOverrides()
 
-            result = await getAllHashKeyOverrides(team.id, targetPersonID)
             expect(result.length).toEqual(2)
-            expect(result.sort()).toEqual([
-                {
-                    feature_flag_key: 'aloha',
-                    hash_key: 'override_value_for_aloha',
-                },
-                {
-                    feature_flag_key: 'beta-feature',
-                    hash_key: 'override_value_for_beta_feature',
-                },
-            ])
+            expect(result).toEqual(
+                expect.arrayContaining([
+                    {
+                        feature_flag_key: 'aloha',
+                        hash_key: 'override_value_for_aloha',
+                        person_id: targetPersonID,
+                    },
+                    {
+                        feature_flag_key: 'beta-feature',
+                        hash_key: 'override_value_for_beta_feature',
+                        person_id: targetPersonID,
+                    },
+                ])
+            )
         })
 
         it('updates all valid keys when conflicts with target person', async () => {
-            await db.postgresQuery(
-                `INSERT INTO posthog_featureflaghashkeyoverride (team_id, person_id, feature_flag_key, hash_key) VALUES
-                ($1, $2, 'aloha', 'override_value_for_aloha'),
-                ($1, $2, 'beta-feature', 'override_value_for_beta_feature'),
-                ($1, $3, 'beta-feature', 'existing_override_value_for_beta_feature')  -- targetPerson override already exists
-                `,
-                [team.id, sourcePersonID, targetPersonID],
-                ''
-            )
+            await insertRow(db.postgres, 'posthog_featureflaghashkeyoverride', {
+                team_id: team.id,
+                person_id: sourcePersonID,
+                feature_flag_key: 'aloha',
+                hash_key: 'override_value_for_aloha',
+            })
+            await insertRow(db.postgres, 'posthog_featureflaghashkeyoverride', {
+                team_id: team.id,
+                person_id: sourcePersonID,
+                feature_flag_key: 'beta-feature',
+                hash_key: 'override_value_for_beta_feature',
+            })
+            await insertRow(db.postgres, 'posthog_featureflaghashkeyoverride', {
+                team_id: team.id,
+                person_id: targetPersonID,
+                feature_flag_key: 'beta-feature',
+                hash_key: 'existing_override_value_for_beta_feature',
+            })
 
             await db.addFeatureFlagHashKeysForMergedPerson(team.id, sourcePersonID, targetPersonID)
 
-            let result = await getAllHashKeyOverrides(team.id, sourcePersonID)
-            expect(result.length).toEqual(0)
+            const result = await getAllHashKeyOverrides()
 
-            result = await getAllHashKeyOverrides(team.id, targetPersonID)
             expect(result.length).toEqual(2)
-            expect(result.sort()).toEqual([
-                {
-                    feature_flag_key: 'beta-feature',
-                    hash_key: 'existing_override_value_for_beta_feature',
-                },
-                {
-                    feature_flag_key: 'aloha',
-                    hash_key: 'override_value_for_aloha',
-                },
-            ])
+            expect(result).toEqual(
+                expect.arrayContaining([
+                    {
+                        feature_flag_key: 'beta-feature',
+                        hash_key: 'existing_override_value_for_beta_feature',
+                        person_id: targetPersonID,
+                    },
+                    {
+                        feature_flag_key: 'aloha',
+                        hash_key: 'override_value_for_aloha',
+                        person_id: targetPersonID,
+                    },
+                ])
+            )
         })
 
         it('updates nothing when target person overrides exist', async () => {
-            await db.postgresQuery(
-                `INSERT INTO posthog_featureflaghashkeyoverride (team_id, person_id, feature_flag_key, hash_key) VALUES
-                ($1, $2, 'aloha', 'override_value_for_aloha'),
-                ($1, $2, 'beta-feature', 'override_value_for_beta_feature')
-                `,
-                [team.id, targetPersonID],
-                ''
-            )
+            await insertRow(db.postgres, 'posthog_featureflaghashkeyoverride', {
+                team_id: team.id,
+                person_id: targetPersonID,
+                feature_flag_key: 'aloha',
+                hash_key: 'override_value_for_aloha',
+            })
+            await insertRow(db.postgres, 'posthog_featureflaghashkeyoverride', {
+                team_id: team.id,
+                person_id: targetPersonID,
+                feature_flag_key: 'beta-feature',
+                hash_key: 'override_value_for_beta_feature',
+            })
 
             await db.addFeatureFlagHashKeysForMergedPerson(team.id, sourcePersonID, targetPersonID)
 
-            let result = await getAllHashKeyOverrides(team.id, sourcePersonID)
-            expect(result.length).toEqual(0)
+            const result = await getAllHashKeyOverrides()
 
-            result = await getAllHashKeyOverrides(team.id, targetPersonID)
             expect(result.length).toEqual(2)
-            expect(result.sort()).toEqual([
-                {
-                    feature_flag_key: 'aloha',
-                    hash_key: 'override_value_for_aloha',
-                },
-                {
-                    feature_flag_key: 'beta-feature',
-                    hash_key: 'override_value_for_beta_feature',
-                },
-            ])
+            expect(result).toEqual(
+                expect.arrayContaining([
+                    {
+                        feature_flag_key: 'aloha',
+                        hash_key: 'override_value_for_aloha',
+                        person_id: targetPersonID,
+                    },
+                    {
+                        feature_flag_key: 'beta-feature',
+                        hash_key: 'override_value_for_beta_feature',
+                        person_id: targetPersonID,
+                    },
+                ])
+            )
         })
     })
 })

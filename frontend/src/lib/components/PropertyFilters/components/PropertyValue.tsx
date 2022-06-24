@@ -98,7 +98,7 @@ export function PropertyValue({
     }, [value])
 
     const loadPropertyValues = useThrottledCallback((newInput) => {
-        if (type === 'cohort') {
+        if (['cohort', 'session'].includes(type)) {
             return
         }
         if (!propertyKey) {

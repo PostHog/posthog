@@ -137,6 +137,8 @@ drf-spectacular==0.21.1
     # via -r requirements.in
 future==0.18.2
     # via lzstring
+google-cloud-sqlcommenter==2.0.0
+    # via -r requirements.in
 grpcio==1.33.1
     # via -r requirements.in
 gunicorn==20.1.0
@@ -291,6 +293,8 @@ six==1.14.0
     #   protobuf
     #   python-dateutil
     #   tenacity
+slack-sdk==3.17.1
+    # via -r requirements.in
 sniffio==1.2.0
     # via trio
 social-auth-app-django==5.0.0

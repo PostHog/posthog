@@ -1,6 +1,6 @@
 import json
 from contextlib import contextmanager
-from typing import Any
+from typing import Any, List
 
 from django.db import models
 
@@ -27,6 +27,20 @@ def get_instance_setting(key: str) -> Any:
         return saved_setting.value
     else:
         return CONSTANCE_CONFIG[key][0]  # Get the default value
+
+
+def get_instance_settings(keys: List[str]) -> Any:
+    for key in keys:
+        assert key in CONSTANCE_CONFIG, f"Unknown dynamic setting: {repr(key)}"
+
+    saved_settings = InstanceSetting.objects.filter(key__in=[CONSTANCE_DATABASE_PREFIX + key for key in keys]).all()
+    response = {key: CONSTANCE_CONFIG[key][0] for key in keys}
+
+    for setting in saved_settings:
+        key = setting.key.replace(CONSTANCE_DATABASE_PREFIX, "")
+        response[key] = setting.value
+
+    return response
 
 
 def set_instance_setting(key: str, value: Any):
