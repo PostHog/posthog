@@ -149,7 +149,7 @@ const featureFlagActionsMapping: Record<keyof FeatureFlagType, (change?: Activit
         }
         const describeChange: string = isEnabled ? 'enabled' : 'disabled'
 
-        return [<>{describeChange}</>]
+        return [<>`${describeChange} experience continuity`</>]
     },
     // fields that are excluded on the backend
     id: () => null,
