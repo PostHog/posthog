@@ -1498,7 +1498,20 @@ export class DB {
 
     public async fetchTeam(teamId: Team['id']): Promise<Team> {
         const selectResult = await this.postgresQuery<Team>(
-            `SELECT * FROM posthog_team WHERE id = $1`,
+            `
+            SELECT
+                id,
+                uuid,
+                organization_id,
+                name,
+                anonymize_ips,
+                api_token,
+                slack_incoming_webhook,
+                session_recording_opt_in,
+                ingested_event
+            FROM posthog_team
+            WHERE id = $1
+            `,
             [teamId],
             'fetchTeam'
         )

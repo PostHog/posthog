@@ -19,6 +19,7 @@ from .group import Group
 from .group_type_mapping import GroupTypeMapping
 from .insight import Insight, InsightViewed
 from .instance_setting import InstanceSetting
+from .integration import Integration
 from .messaging import MessagingRecord
 from .organization import Organization, OrganizationInvite, OrganizationMembership
 from .organization_domain import OrganizationDomain
@@ -43,9 +44,6 @@ __all__ = [
     "CohortPeople",
     "Dashboard",
     "DashboardTile",
-    "Insight",
-    "InsightViewed",
-    "InstanceSetting",
     "Element",
     "ElementGroup",
     "Entity",
@@ -58,6 +56,10 @@ __all__ = [
     "Filter",
     "Group",
     "GroupTypeMapping",
+    "Insight",
+    "InsightViewed",
+    "InstanceSetting",
+    "Integration",
     "MessagingRecord",
     "Organization",
     "OrganizationDomain",

@@ -73,6 +73,7 @@ export enum TaxonomicFilterGroupType {
     Plugins = 'plugins',
     Dashboards = 'dashboards',
     GroupNamesPrefix = 'name_groups',
+    Sessions = 'sessions',
 }
 
 export interface InfiniteListLogicProps extends TaxonomicFilterLogicProps {
