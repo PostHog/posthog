@@ -142,6 +142,15 @@ const featureFlagActionsMapping: Record<keyof FeatureFlagType, (change?: Activit
     key: function onKey(change) {
         return [<>changed flag key from ${change?.before}</>]
     },
+    ensure_experience_continuity: function onExperienceContinuity(change) {
+        let isEnabled: boolean = !!change?.after
+        if (typeof change?.after === 'string') {
+            isEnabled = change?.after.toLowerCase() === 'true'
+        }
+        const describeChange: string = isEnabled ? 'enabled' : 'disabled'
+
+        return [<>{describeChange}</>]
+    },
     // fields that are excluded on the backend
     id: () => null,
     created_at: () => null,
