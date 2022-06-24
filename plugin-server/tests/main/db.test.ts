@@ -636,15 +636,15 @@ describe('DB', () => {
         })
     })
 
-    describe('feature flag hash key overrides', () => {
+    describe('addFeatureFlagHashKeysForMergedPerson()', () => {
         let team: Team
         let sourcePersonID: Person['id']
         let targetPersonID: Person['id']
 
-        async function getAllHashKeyOverrides(teamID: number, personID: Person['id']): Promise<any> {
+        async function getAllHashKeyOverrides(): Promise<any> {
             const result = await db.postgresQuery(
-                'SELECT feature_flag_key, hash_key FROM posthog_featureflaghashkeyoverride WHERE team_id=$1 AND person_id=$2',
-                [teamID, personID],
+                'SELECT feature_flag_key, hash_key, person_id FROM posthog_featureflaghashkeyoverride',
+                [],
                 ''
             )
             return result.rows
@@ -698,21 +698,23 @@ describe('DB', () => {
 
             await db.addFeatureFlagHashKeysForMergedPerson(team.id, sourcePersonID, targetPersonID)
 
-            let result = await getAllHashKeyOverrides(team.id, sourcePersonID)
-            expect(result.length).toEqual(0)
+            const result = await getAllHashKeyOverrides()
 
-            result = await getAllHashKeyOverrides(team.id, targetPersonID)
             expect(result.length).toEqual(2)
-            expect(result.sort()).toEqual([
-                {
-                    feature_flag_key: 'aloha',
-                    hash_key: 'override_value_for_aloha',
-                },
-                {
-                    feature_flag_key: 'beta-feature',
-                    hash_key: 'override_value_for_beta_feature',
-                },
-            ])
+            expect(result).toEqual(
+                expect.arrayContaining([
+                    {
+                        feature_flag_key: 'aloha',
+                        hash_key: 'override_value_for_aloha',
+                        person_id: targetPersonID,
+                    },
+                    {
+                        feature_flag_key: 'beta-feature',
+                        hash_key: 'override_value_for_beta_feature',
+                        person_id: targetPersonID,
+                    },
+                ])
+            )
         })
 
         it('updates all valid keys when conflicts with target person', async () => {
@@ -737,21 +739,23 @@ describe('DB', () => {
 
             await db.addFeatureFlagHashKeysForMergedPerson(team.id, sourcePersonID, targetPersonID)
 
-            let result = await getAllHashKeyOverrides(team.id, sourcePersonID)
-            expect(result.length).toEqual(0)
+            const result = await getAllHashKeyOverrides()
 
-            result = await getAllHashKeyOverrides(team.id, targetPersonID)
             expect(result.length).toEqual(2)
-            expect(result.sort()).toEqual([
-                {
-                    feature_flag_key: 'beta-feature',
-                    hash_key: 'existing_override_value_for_beta_feature',
-                },
-                {
-                    feature_flag_key: 'aloha',
-                    hash_key: 'override_value_for_aloha',
-                },
-            ])
+            expect(result).toEqual(
+                expect.arrayContaining([
+                    {
+                        feature_flag_key: 'beta-feature',
+                        hash_key: 'existing_override_value_for_beta_feature',
+                        person_id: targetPersonID,
+                    },
+                    {
+                        feature_flag_key: 'aloha',
+                        hash_key: 'override_value_for_aloha',
+                        person_id: targetPersonID,
+                    },
+                ])
+            )
         })
 
         it('updates nothing when target person overrides exist', async () => {
@@ -770,21 +774,23 @@ describe('DB', () => {
 
             await db.addFeatureFlagHashKeysForMergedPerson(team.id, sourcePersonID, targetPersonID)
 
-            let result = await getAllHashKeyOverrides(team.id, sourcePersonID)
-            expect(result.length).toEqual(0)
+            const result = await getAllHashKeyOverrides()
 
-            result = await getAllHashKeyOverrides(team.id, targetPersonID)
             expect(result.length).toEqual(2)
-            expect(result.sort()).toEqual([
-                {
-                    feature_flag_key: 'aloha',
-                    hash_key: 'override_value_for_aloha',
-                },
-                {
-                    feature_flag_key: 'beta-feature',
-                    hash_key: 'override_value_for_beta_feature',
-                },
-            ])
+            expect(result).toEqual(
+                expect.arrayContaining([
+                    {
+                        feature_flag_key: 'aloha',
+                        hash_key: 'override_value_for_aloha',
+                        person_id: targetPersonID,
+                    },
+                    {
+                        feature_flag_key: 'beta-feature',
+                        hash_key: 'override_value_for_beta_feature',
+                        person_id: targetPersonID,
+                    },
+                ])
+            )
         })
     })
 })

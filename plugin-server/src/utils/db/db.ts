@@ -1213,7 +1213,7 @@ export class DB {
                 ON CONFLICT DO NOTHING
             `,
             [teamID, sourcePersonID, targetPersonID],
-            'upsertFeatureFlagHashKeyOverride'
+            'addFeatureFlagHashKeysForMergedPerson'
         )
     }
 

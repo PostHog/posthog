@@ -531,18 +531,20 @@ describe('PersonState.update()', () => {
                 [2],
                 'testQueryHashKeyOverride'
             )
-            expect(result.rows.sort()).toEqual([
-                {
-                    feature_flag_key: 'beta-feature',
-                    person_id: identifiedPerson.id,
-                    hash_key: 'example_id',
-                },
-                {
-                    feature_flag_key: 'multivariate-flag',
-                    person_id: identifiedPerson.id,
-                    hash_key: 'example_id',
-                },
-            ])
+            expect(result.rows).toEqual(
+                expect.arrayContaining([
+                    {
+                        feature_flag_key: 'beta-feature',
+                        person_id: identifiedPerson.id,
+                        hash_key: 'example_id',
+                    },
+                    {
+                        feature_flag_key: 'multivariate-flag',
+                        person_id: identifiedPerson.id,
+                        hash_key: 'example_id',
+                    },
+                ])
+            )
         })
 
         test('feature flag hash key overrides with some conflicts handled gracefully', async () => {
@@ -604,18 +606,20 @@ describe('PersonState.update()', () => {
                 [2],
                 'testQueryHashKeyOverride'
             )
-            expect(result.rows.sort()).toEqual([
-                {
-                    feature_flag_key: 'beta-feature',
-                    person_id: identifiedPerson.id,
-                    hash_key: 'different_id', // wasn't overriden from anon flag, because override already exists
-                },
-                {
-                    feature_flag_key: 'multivariate-flag',
-                    person_id: identifiedPerson.id,
-                    hash_key: 'other_different_id',
-                },
-            ])
+            expect(result.rows).toEqual(
+                expect.arrayContaining([
+                    {
+                        feature_flag_key: 'beta-feature',
+                        person_id: identifiedPerson.id,
+                        hash_key: 'different_id', // wasn't overriden from anon flag, because override already exists
+                    },
+                    {
+                        feature_flag_key: 'multivariate-flag',
+                        person_id: identifiedPerson.id,
+                        hash_key: 'other_different_id',
+                    },
+                ])
+            )
         })
 
         test('feature flag hash key overrides with no old overrides but existing new person overrides', async () => {
@@ -664,18 +668,20 @@ describe('PersonState.update()', () => {
                 [2],
                 'testQueryHashKeyOverride'
             )
-            expect(result.rows.sort()).toEqual([
-                {
-                    feature_flag_key: 'beta-feature',
-                    person_id: identifiedPerson.id,
-                    hash_key: 'example_id',
-                },
-                {
-                    feature_flag_key: 'multivariate-flag',
-                    person_id: identifiedPerson.id,
-                    hash_key: 'different_id',
-                },
-            ])
+            expect(result.rows).toEqual(
+                expect.arrayContaining([
+                    {
+                        feature_flag_key: 'beta-feature',
+                        person_id: identifiedPerson.id,
+                        hash_key: 'example_id',
+                    },
+                    {
+                        feature_flag_key: 'multivariate-flag',
+                        person_id: identifiedPerson.id,
+                        hash_key: 'different_id',
+                    },
+                ])
+            )
         })
     })
 })
