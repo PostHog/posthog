@@ -1,4 +1,4 @@
-import { afterMount, connect, kea, key, listeners, path, props } from 'kea'
+import { connect, kea, key, listeners, path, props } from 'kea'
 import { SubscriptionType } from '~/types'
 
 import api from 'lib/api'
@@ -87,7 +87,7 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
 
                 breakpoint()
 
-                const updatedSub =
+                const updatedSub: SubscriptionType =
                     props.id === 'new'
                         ? await api.subscriptions.create(payload)
                         : await api.subscriptions.update(props.id, payload)
