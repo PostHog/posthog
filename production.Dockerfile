@@ -34,7 +34,7 @@ WORKDIR /code/plugin-server
 #
 # - we explicitly COPY the files so that we don't need to rebuild
 #   the container every time a dependency changes
-COPY package.json yarn.lock ./
+COPY ./plugin-server/package.json yarn.lock ./
 RUN yarn config set network-timeout 300000 && \
     yarn install --frozen-lockfile
 
