@@ -49,7 +49,7 @@ export interface HumanizedActivityLogItem {
     created_at: dayjs.Dayjs
 }
 
-export type Describer = (logItem: ActivityLogItem, users_name: string) => string | JSX.Element | null
+export type Describer = (logItem: ActivityLogItem) => string | JSX.Element | null
 
 export function humanize(results: ActivityLogItem[], describer?: Describer): HumanizedActivityLogItem[] {
     if (!describer) {
@@ -60,7 +60,7 @@ export function humanize(results: ActivityLogItem[], describer?: Describer): Hum
     const logLines: HumanizedActivityLogItem[] = []
 
     for (const logItem of results) {
-        const description = describer(logItem, logItem.user.first_name)
+        const description = describer(logItem)
         if (description !== null) {
             logLines.push({
                 email: logItem.user.email,

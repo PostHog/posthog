@@ -3,7 +3,7 @@ import React from 'react'
 import { PersonHeader } from 'scenes/persons/PersonHeader'
 import { SentenceList } from 'scenes/feature-flags/activityDescriptions'
 
-export function personActivityDescriber(logItem: ActivityLogItem, users_name: string): string | JSX.Element | null {
+export function personActivityDescriber(logItem: ActivityLogItem): string | JSX.Element | null {
     if (logItem.scope != 'Person') {
         console.error('person describer received a non-person activity')
         return null
@@ -12,7 +12,7 @@ export function personActivityDescriber(logItem: ActivityLogItem, users_name: st
     if (logItem.activity === 'deleted') {
         return (
             <>
-                <strong>{users_name}</strong> deleted the person: {logItem.detail.name}
+                <strong>{logItem.user.first_name}</strong> deleted the person: {logItem.detail.name}
             </>
         )
     }
@@ -24,7 +24,7 @@ export function personActivityDescriber(logItem: ActivityLogItem, users_name: st
 
         return (
             <>
-                <strong>{users_name}</strong> edited this person's properties
+                <strong>{logItem.user.first_name}</strong> edited this person's properties
             </>
         )
     }
@@ -34,7 +34,7 @@ export function personActivityDescriber(logItem: ActivityLogItem, users_name: st
                 <SentenceList
                     prefix={
                         <>
-                            <strong>{users_name}</strong> merged people into this person:
+                            <strong>{logItem.user.first_name}</strong> merged people into this person:
                         </>
                     }
                     listParts={logItem.detail.merge.source.flatMap((di) => (
@@ -54,7 +54,7 @@ export function personActivityDescriber(logItem: ActivityLogItem, users_name: st
                 <SentenceList
                     prefix={
                         <>
-                            <strong>{users_name}</strong> split this person into:{' '}
+                            <strong>{logItem.user.first_name}</strong> split this person into:{' '}
                         </>
                     }
                     listParts={distinctIds.map((di) => (

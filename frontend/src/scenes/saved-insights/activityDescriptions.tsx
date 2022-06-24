@@ -157,7 +157,7 @@ const insightActionsMapping: Record<keyof InsightModel, (change?: ActivityChange
     effective_privilege_level: () => null, // read from dashboards
 }
 
-export function insightActivityDescriber(logItem: ActivityLogItem, users_name: string): string | JSX.Element | null {
+export function insightActivityDescriber(logItem: ActivityLogItem): string | JSX.Element | null {
     if (logItem.scope != 'Insight') {
         console.error('insight describer received a non-insight activity')
         return null
@@ -166,14 +166,14 @@ export function insightActivityDescriber(logItem: ActivityLogItem, users_name: s
     if (logItem.activity == 'created') {
         return (
             <>
-                <strong>{users_name}</strong> created the insight: {nameOrLinkToInsight(logItem)}
+                <strong>{logItem.user.first_name}</strong> created the insight: {nameOrLinkToInsight(logItem)}
             </>
         )
     }
     if (logItem.activity == 'deleted') {
         return (
             <>
-                <strong>{users_name}</strong> deleted the insight: {logItem.detail.name}
+                <strong>{logItem.user.first_name}</strong> deleted the insight: {logItem.detail.name}
             </>
         )
     }
@@ -197,7 +197,7 @@ export function insightActivityDescriber(logItem: ActivityLogItem, users_name: s
                     listParts={changes}
                     prefix={
                         <>
-                            On {nameOrLinkToInsight(logItem)}, <strong>{users_name}</strong>
+                            On {nameOrLinkToInsight(logItem)}, <strong>{logItem.user.first_name}</strong>
                         </>
                     }
                 />
@@ -213,7 +213,8 @@ export function insightActivityDescriber(logItem: ActivityLogItem, users_name: s
 
         return (
             <>
-                <strong>{users_name}</strong> exported the insight {nameOrLinkToInsight(logItem)} as a {exportType}
+                <strong>{logItem.user.first_name}</strong> exported the insight {nameOrLinkToInsight(logItem)} as a{' '}
+                {exportType}
             </>
         )
     }

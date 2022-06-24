@@ -149,7 +149,7 @@ const featureFlagActionsMapping: Record<keyof FeatureFlagType, (change?: Activit
     is_simple_flag: () => null,
 }
 
-export function flagActivityDescriber(logItem: ActivityLogItem, users_name: string): string | JSX.Element | null {
+export function flagActivityDescriber(logItem: ActivityLogItem): string | JSX.Element | null {
     if (logItem.scope != 'FeatureFlag') {
         console.error('feature flag describer received a non-feature flag activity')
         return null
@@ -181,7 +181,7 @@ export function flagActivityDescriber(logItem: ActivityLogItem, users_name: stri
                     listParts={changes}
                     prefix={
                         <>
-                            On {nameOrLinkToFlag(logItem)}, <strong>{users_name}</strong>
+                            On {nameOrLinkToFlag(logItem)}, <strong>{logItem.user.first_name}</strong>
                         </>
                     }
                 />
