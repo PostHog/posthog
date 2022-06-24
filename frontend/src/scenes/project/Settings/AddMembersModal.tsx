@@ -67,6 +67,7 @@ export function AddMembersModalWithButton({ isRestricted }: RestrictedComponentP
                         style={{ marginBottom: 8 }}
                         name="userUuids"
                     >
+                        {/* TODO: Refactor this to LemonSelectMultiple */}
                         <Select
                             mode="multiple"
                             placeholder="Organization members"

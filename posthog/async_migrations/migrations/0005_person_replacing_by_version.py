@@ -147,6 +147,8 @@ class Migration(AsyncMigrationDefinition):
                     "max_insert_threads": 20,
                     "optimize_on_insert": 0,
                     "max_execution_time": 2 * 24 * 60 * 60,  # two days
+                    "send_timeout": 2 * 24 * 60 * 60,  # two days,
+                    "receive_timeout": 2 * 24 * 60 * 60,  # two days,
                 },
                 rollback=f"TRUNCATE TABLE IF EXISTS {TEMPORARY_TABLE_NAME} ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'",
             ),

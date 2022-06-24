@@ -1,14 +1,14 @@
 import { runInstrumentedFunction } from '../../../main/utils'
 import { Action, Element, IngestionEvent, IngestionPersonData } from '../../../types'
 import { convertToProcessedPluginEvent } from '../../../utils/event'
-import { runOnAction, runOnEvent, runOnSnapshot } from '../../plugins/run'
+import { runOnEvent, runOnSnapshot } from '../../plugins/run'
 import { EventPipelineRunner, StepResult } from './runner'
 
 export async function runAsyncHandlersStep(runner: EventPipelineRunner, event: IngestionEvent): Promise<StepResult> {
     if (runner.hub.capabilities.processAsyncHandlers) {
         await Promise.all([
             processOnEvent(runner, event),
-            processOnActionAndWebhooks(runner, event, event.person, event.elementsList),
+            processWebhooks(runner, event, event.person, event.elementsList),
         ])
     }
 
@@ -29,32 +29,16 @@ async function processOnEvent(runner: EventPipelineRunner, event: IngestionEvent
     })
 }
 
-async function processOnActionAndWebhooks(
+async function processWebhooks(
     runner: EventPipelineRunner,
     event: IngestionEvent,
     person: IngestionPersonData | undefined,
     elements: Element[] | undefined
 ) {
-    const promises = []
     let actionMatches: Action[] = []
-    const processedPluginEvent = convertToProcessedPluginEvent(event)
 
     if (event.event !== '$snapshot') {
         actionMatches = await runner.hub.actionMatcher.match(event, person, elements)
-        promises.push(runner.hub.hookCannon.findAndFireHooks(event, person, actionMatches))
+        await runner.hub.hookCannon.findAndFireHooks(event, person, actionMatches)
     }
-
-    for (const actionMatch of actionMatches) {
-        promises.push(
-            runInstrumentedFunction({
-                server: runner.hub,
-                event: processedPluginEvent,
-                func: (event) => runOnAction(runner.hub, actionMatch, event),
-                statsKey: `kafka_queue.on_action`,
-                timeoutMessage: 'After 30 seconds still running onAction',
-            })
-        )
-    }
-
-    await Promise.all(promises)
 }

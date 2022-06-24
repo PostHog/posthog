@@ -1,3 +1,5 @@
+from typing import List
+
 from django.db import models
 from django.db.models.signals import post_save
 from django.dispatch import receiver
@@ -63,3 +65,11 @@ def update_filters_hashes(tile_update_candidates):
 
     if len(tiles_to_update):
         DashboardTile.objects.bulk_update(tiles_to_update, ["filters_hash"])
+
+
+def get_tiles_ordered_by_position(dashboard: Dashboard, size: str = "xs") -> List[DashboardTile]:
+    tiles = list(
+        DashboardTile.objects.filter(dashboard=dashboard).select_related("insight").order_by("insight__order").all()
+    )
+    tiles.sort(key=lambda x: x.layouts.get(size, {}).get("y", 100))
+    return tiles

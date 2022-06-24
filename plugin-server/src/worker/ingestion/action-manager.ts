@@ -61,16 +61,7 @@ export class ActionManager {
             )
             this.actionCache[teamId][actionId] = refetchedAction
         } else if (wasCachedAlready) {
-            status.info(
-                '🍿',
-                `Tried to fetch action ID ${actionId} (team ID ${teamId}) from DB, but it wasn't found in DB, so deleted from cache instead`
-            )
             delete this.actionCache[teamId][actionId]
-        } else {
-            status.info(
-                '🍿',
-                `Tried to fetch action ID ${actionId} (team ID ${teamId}) from DB, but it wasn't found in DB or cache, so did nothing instead`
-            )
         }
     }
 

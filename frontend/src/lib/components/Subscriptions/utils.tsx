@@ -1,7 +1,9 @@
+import React from 'react'
 import { LemonSelectOptions } from '@posthog/lemon-ui'
 import { range } from 'lib/utils'
 import { urls } from 'scenes/urls'
 import { InsightShortId } from '~/types'
+import { IconMail, IconSlack } from '../icons'
 
 export interface SubscriptionBaseProps {
     dashboardId?: number
@@ -27,6 +29,12 @@ export const urlForSubscription = (
         return urls.dashboardSubcription(dashboardId, id.toString())
     }
     return ''
+}
+
+export const targetTypeOptions: LemonSelectOptions = {
+    email: { label: 'Email', icon: <IconMail /> },
+    slack: { label: 'Slack', icon: <IconSlack /> },
+    // webhook: { label: 'Webhook', icon: <IconOpenInNew /> },
 }
 
 export const intervalOptions: LemonSelectOptions = range(1, 13).reduce(

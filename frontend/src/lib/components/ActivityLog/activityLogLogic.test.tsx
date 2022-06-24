@@ -1020,6 +1020,25 @@ describe('the activity log logic', () => {
                     'On test insight, peter removed from dashboard removed'
                 )
             })
+            const formats = ['png', 'pdf', 'csv']
+            formats.map((format) => {
+                it(`can handle export of insight to ${format}`, async () => {
+                    await insightTestSetup('test insight', 'exported', [
+                        {
+                            type: 'Insight',
+                            action: 'exported',
+                            field: 'export_format',
+                            before: undefined,
+                            after: `something/${format}`,
+                        },
+                    ])
+                    const actual = logic.values.humanizedActivity
+
+                    expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent(
+                        `exported the insight test insight as a ${format}`
+                    )
+                })
+            })
         })
     })
 })

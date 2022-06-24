@@ -2,23 +2,29 @@ import './EventDefinitionsTable.scss'
 import React from 'react'
 import { useActions, useValues } from 'kea'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/components/LemonTable'
-import { EventDefinition } from '~/types'
+import { CombinedEvent } from '~/types'
 import {
     EVENT_DEFINITIONS_PER_PAGE,
     eventDefinitionsTableLogic,
+    isActionEvent,
 } from 'scenes/data-management/events/eventDefinitionsTableLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { organizationLogic } from 'scenes/organizationLogic'
-import { EventDefinitionHeader } from 'scenes/data-management/events/DefinitionHeader'
+import { ActionHeader, EventDefinitionHeader } from 'scenes/data-management/events/DefinitionHeader'
 import { humanFriendlyNumber } from 'lib/utils'
 import { EventDefinitionProperties } from 'scenes/data-management/events/EventDefinitionProperties'
-import { Alert, Input } from 'antd'
+import { Alert, Input, Row } from 'antd'
 import { DataManagementPageHeader } from 'scenes/data-management/DataManagementPageHeader'
 import { DataManagementTab } from 'scenes/data-management/DataManagementPageTabs'
 import { UsageDisabledWarning } from 'scenes/events/UsageDisabledWarning'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { ThirtyDayQueryCountTitle, ThirtyDayVolumeTitle } from 'lib/components/DefinitionPopup/DefinitionPopupContents'
+import { ProfilePicture } from 'lib/components/ProfilePicture'
+import { teamLogic } from 'scenes/teamLogic'
+import { IconWebhook } from 'lib/components/icons'
+import { NewActionButton } from 'scenes/actions/NewActionButton'
+import { TZLabel } from 'lib/components/TimezoneAware'
 
 export const scene: SceneExport = {
     component: EventDefinitionsTable,
@@ -28,15 +34,20 @@ export const scene: SceneExport = {
 
 export function EventDefinitionsTable(): JSX.Element {
     const { preflight } = useValues(preflightLogic)
-    const { eventDefinitions, eventDefinitionsLoading, filters } = useValues(eventDefinitionsTableLogic)
+    const { eventDefinitions, eventDefinitionsLoading, filters, shouldSimplifyActions } =
+        useValues(eventDefinitionsTableLogic)
+    const { currentTeam } = useValues(teamLogic)
     const { loadEventDefinitions, setFilters } = useActions(eventDefinitionsTableLogic)
     const { hasDashboardCollaboration, hasIngestionTaxonomy } = useValues(organizationLogic)
 
-    const columns: LemonTableColumns<EventDefinition> = [
+    const columns: LemonTableColumns<CombinedEvent> = [
         {
             key: 'icon',
             className: 'definition-column-icon',
-            render: function Render(_, definition: EventDefinition) {
+            render: function Render(_, definition: CombinedEvent) {
+                if (isActionEvent(definition)) {
+                    return <ActionHeader definition={definition} hideText />
+                }
                 return <EventDefinitionHeader definition={definition} hideText />
             },
         },
@@ -44,50 +55,126 @@ export function EventDefinitionsTable(): JSX.Element {
             title: 'Name',
             key: 'name',
             className: 'definition-column-name',
-            render: function Render(_, definition: EventDefinition) {
-                return <EventDefinitionHeader definition={definition} hideIcon asLink />
+            render: function Render(_, definition: CombinedEvent) {
+                if (isActionEvent(definition)) {
+                    return <ActionHeader definition={definition} hideIcon asLink />
+                }
+                return <EventDefinitionHeader definition={definition} hideIcon asLink shouldSimplifyActions />
             },
-            sorter: (a, b) => a.name.localeCompare(b.name),
+            sorter: (a, b) => a.name?.localeCompare(b.name ?? '') ?? 0,
         },
         ...(hasDashboardCollaboration
             ? [
                   {
                       title: 'Tags',
                       key: 'tags',
-                      render: function Render(_, definition: EventDefinition) {
+                      render: function Render(_, definition: CombinedEvent) {
                           return <ObjectTags tags={definition.tags ?? []} staticOnly />
                       },
-                  } as LemonTableColumn<EventDefinition, keyof EventDefinition | undefined>,
+                  } as LemonTableColumn<CombinedEvent, keyof CombinedEvent | undefined>,
               ]
             : []),
-        ...(hasIngestionTaxonomy
+        ...(shouldSimplifyActions
+            ? [
+                  {
+                      title: 'Created by',
+                      key: 'created_by',
+                      align: 'left',
+                      render: function Render(_, definition: CombinedEvent) {
+                          const created_by = isActionEvent(definition) ? definition.created_by : definition.owner
+                          return (
+                              <Row align="middle" wrap={false}>
+                                  {created_by && (
+                                      <ProfilePicture name={created_by.first_name} email={created_by.email} size="md" />
+                                  )}
+                                  <div
+                                      style={{
+                                          maxWidth: 250,
+                                          width: 'auto',
+                                          verticalAlign: 'middle',
+                                          marginLeft: created_by ? 8 : 0,
+                                          color: created_by ? undefined : 'var(--muted)',
+                                      }}
+                                  >
+                                      {created_by ? created_by.first_name || created_by.email : '—'}
+                                  </div>
+                              </Row>
+                          )
+                      },
+                  } as LemonTableColumn<CombinedEvent, keyof CombinedEvent | undefined>,
+                  {
+                      title: 'Last updated',
+                      key: 'last_updated',
+                      align: 'left',
+                      render: function Render(_, definition: CombinedEvent) {
+                          const last_updated_at = definition.last_updated_at
+                          return last_updated_at ? (
+                              <div style={{ whiteSpace: 'nowrap' }}>
+                                  <TZLabel time={last_updated_at} />
+                              </div>
+                          ) : (
+                              <span style={{ color: 'var(--muted)' }}>—</span>
+                          )
+                      },
+                      sorter: (a, b) => (new Date(a.last_updated_at || 0) > new Date(b.last_updated_at || 0) ? 1 : -1),
+                  } as LemonTableColumn<CombinedEvent, keyof CombinedEvent | undefined>,
+                  {
+                      title: 'Webhook',
+                      key: 'webhook',
+                      align: 'center',
+                      render: function Render(_, definition: CombinedEvent) {
+                          if (
+                              isActionEvent(definition) &&
+                              !!currentTeam?.slack_incoming_webhook &&
+                              !!definition.post_to_slack
+                          ) {
+                              return <IconWebhook />
+                          }
+                          return <></>
+                      },
+                  } as LemonTableColumn<CombinedEvent, keyof CombinedEvent | undefined>,
+              ]
+            : []),
+        ...(!shouldSimplifyActions && hasIngestionTaxonomy
             ? [
                   {
                       title: <ThirtyDayVolumeTitle tooltipPlacement="bottom" />,
                       key: 'volume_30_day',
                       align: 'right',
-                      render: function Render(_, definition: EventDefinition) {
+                      render: function Render(_, definition: CombinedEvent) {
+                          if (isActionEvent(definition)) {
+                              return <span className="text-muted">—</span>
+                          }
                           return definition.volume_30_day ? (
                               humanFriendlyNumber(definition.volume_30_day)
                           ) : (
                               <span className="text-muted">—</span>
                           )
                       },
-                      sorter: (a, b) => (a?.volume_30_day ?? 0) - (b?.volume_30_day ?? 0),
-                  } as LemonTableColumn<EventDefinition, keyof EventDefinition | undefined>,
+                      sorter: (a, b) =>
+                          !isActionEvent(a) && !isActionEvent(b)
+                              ? (a?.volume_30_day ?? 0) - (b?.volume_30_day ?? 0)
+                              : 0,
+                  } as LemonTableColumn<CombinedEvent, keyof CombinedEvent | undefined>,
                   {
                       title: <ThirtyDayQueryCountTitle tooltipPlacement="bottom" />,
                       key: 'query_usage_30_day',
                       align: 'right',
-                      render: function Render(_, definition: EventDefinition) {
+                      render: function Render(_, definition: CombinedEvent) {
+                          if (isActionEvent(definition)) {
+                              return <span className="text-muted">—</span>
+                          }
                           return definition.query_usage_30_day ? (
                               humanFriendlyNumber(definition.query_usage_30_day)
                           ) : (
                               <span className="text-muted">—</span>
                           )
                       },
-                      sorter: (a, b) => (a?.query_usage_30_day ?? 0) - (b?.query_usage_30_day ?? 0),
-                  } as LemonTableColumn<EventDefinition, keyof EventDefinition | undefined>,
+                      sorter: (a, b) =>
+                          !isActionEvent(a) && !isActionEvent(b)
+                              ? (a?.query_usage_30_day ?? 0) - (b?.query_usage_30_day ?? 0)
+                              : 0,
+                  } as LemonTableColumn<CombinedEvent, keyof CombinedEvent | undefined>,
               ]
             : []),
     ]
@@ -95,16 +182,23 @@ export function EventDefinitionsTable(): JSX.Element {
     return (
         <div data-attr="manage-events-table">
             <DataManagementPageHeader activeTab={DataManagementTab.EventDefinitions} />
-            {preflight && !preflight?.is_event_property_usage_enabled ? (
+            {shouldSimplifyActions && (
+                <Alert
+                    style={{ marginBottom: 16, display: 'flex', alignItems: 'center' }}
+                    message="Actions have moved to the Events tab"
+                    description={
+                        <>
+                            Actions have been renamed to events and events to raw events. To create a new "Action",
+                            click "New Event" to get started.
+                        </>
+                    }
+                    type="info"
+                    showIcon
+                    closable
+                />
+            )}
+            {preflight && !preflight?.is_event_property_usage_enabled && (
                 <UsageDisabledWarning tab="Event Definitions" />
-            ) : (
-                eventDefinitions.results?.[0]?.volume_30_day === null && (
-                    <Alert
-                        type="warning"
-                        message="We haven't been able to get usage and volume data yet. Please check later."
-                        style={{ marginBottom: '1rem' }}
-                    />
-                )
             )}
             <div
                 style={{
@@ -127,6 +221,12 @@ export function EventDefinitionsTable(): JSX.Element {
                         setFilters({ event: e.target.value || '' })
                     }}
                 />
+                {shouldSimplifyActions && (
+                    <>
+                        <div style={{ flex: 1 }} />
+                        <NewActionButton />
+                    </>
+                )}
             </div>
             <LemonTable
                 columns={columns}
@@ -152,7 +252,13 @@ export function EventDefinitionsTable(): JSX.Element {
                 }}
                 expandable={{
                     expandedRowRender: function RenderPropertiesTable(definition) {
+                        if (isActionEvent(definition)) {
+                            return null
+                        }
                         return <EventDefinitionProperties definition={definition} />
+                    },
+                    rowExpandable: (definition) => {
+                        return !isActionEvent(definition)
                     },
                     noIndent: true,
                 }}

@@ -204,6 +204,19 @@ export function insightActivityDescriber(logItem: ActivityLogItem, users_name: s
             )
         }
     }
+    if (logItem.activity === 'exported') {
+        const exportFormat = logItem.detail.changes?.[0]?.after
+        let exportType = 'in an unknown format'
+        if (typeof exportFormat === 'string') {
+            exportType = exportFormat.split('/')[1]
+        }
+
+        return (
+            <>
+                exported the insight {nameOrLinkToInsight(logItem)} as a {exportType}
+            </>
+        )
+    }
 
     return null
 }

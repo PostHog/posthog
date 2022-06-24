@@ -14,10 +14,11 @@ import { DashboardRestrictionLevel, privilegeLevelToName, DashboardPrivilegeLeve
 import { LemonSelect, LemonSelectOptions } from 'lib/components/LemonSelect'
 import { dashboardCollaboratorsLogic } from './dashboardCollaboratorsLogic'
 import { ProfilePicture } from 'lib/components/ProfilePicture'
-import { Button, Select } from 'antd'
 import { Tooltip } from 'lib/components/Tooltip'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { AlertMessage } from 'lib/components/AlertMessage'
+import { LemonSelectMultiple } from 'lib/components/LemonSelectMultiple/LemonSelectMultiple'
+import { usersLemonSelectOptions } from 'lib/components/UserSelectItem'
 
 export const DASHBOARD_RESTRICTION_OPTIONS: LemonSelectOptions = {
     [DashboardRestrictionLevel.EveryoneInProjectCanEdit]: {
@@ -128,44 +129,30 @@ function DashboardCollaboration({ dashboardId }: { dashboardId: DashboardType['i
                         <section>
                             <h5>Collaborators</h5>
                             {canEditDashboard && (
-                                <div style={{ display: 'flex', marginBottom: '0.75rem' }}>
-                                    {/* TOOD: Use Lemon instead of Ant components here */}
-                                    <Select
-                                        mode="multiple"
-                                        placeholder="Search for team members to add…"
-                                        loading={explicitCollaboratorsLoading}
-                                        value={explicitCollaboratorsToBeAdded}
-                                        onChange={(newValues) => setExplicitCollaboratorsToBeAdded(newValues)}
-                                        showArrow
-                                        showSearch
-                                        style={{ flexGrow: 1 }}
-                                    >
-                                        {addableMembers.map((user) => (
-                                            <Select.Option
-                                                key={user.id}
-                                                value={user.uuid}
-                                                title={`${user.first_name} (${user.email})`}
-                                            >
-                                                <ProfilePicture
-                                                    name={user.first_name}
-                                                    email={user.email}
-                                                    size="sm"
-                                                    style={{ display: 'inline-flex', marginRight: 8 }}
-                                                />
-                                                {user.first_name} ({user.email})
-                                            </Select.Option>
-                                        ))}
-                                    </Select>
-                                    <Button
-                                        type="primary"
-                                        style={{ flexShrink: 0, marginLeft: '0.5rem' }}
-                                        loading={explicitCollaboratorsLoading}
-                                        disabled={explicitCollaboratorsToBeAdded.length === 0}
-                                        onClick={() => addExplicitCollaborators()}
-                                    >
-                                        Add
-                                    </Button>
-                                </div>
+                                <>
+                                    <div className="flex gap-05">
+                                        <div style={{ flex: 1 }}>
+                                            <LemonSelectMultiple
+                                                placeholder="Search for team members to add…"
+                                                value={explicitCollaboratorsToBeAdded}
+                                                loading={explicitCollaboratorsLoading}
+                                                onChange={(newValues) => setExplicitCollaboratorsToBeAdded(newValues)}
+                                                filterOption={false}
+                                                mode="multiple"
+                                                data-attr="subscribed-emails"
+                                                options={usersLemonSelectOptions(addableMembers)}
+                                            />
+                                        </div>
+                                        <LemonButton
+                                            type="primary"
+                                            loading={explicitCollaboratorsLoading}
+                                            disabled={explicitCollaboratorsToBeAdded.length === 0}
+                                            onClick={() => addExplicitCollaborators()}
+                                        >
+                                            Add
+                                        </LemonButton>
+                                    </div>
+                                </>
                             )}
                             {allCollaborators.map((collaborator) => (
                                 <CollaboratorRow

@@ -1,0 +1,97 @@
+.LemonSelectMultiple {
+    .ant-select {
+        width: 100%;
+        .ant-select-selector,
+        &.ant-select-single .ant-select-selector {
+            min-height: 40px;
+            padding: 0.25rem;
+            border-radius: var(--radius);
+            font-size: 0.875rem;
+            text-align: left;
+            line-height: 1.25rem;
+
+            border: 1px solid var(--border);
+            background: var(--bg-light);
+
+            .ant-select-selection-overflow {
+                gap: 0.25rem;
+            }
+        }
+
+        &:not(.ant-select-disabled):hover,
+        &.ant-select-focused:not(.ant-select-disabled),
+        &:not(.ant-select-disabled):active {
+            .ant-select-selector {
+                background: var(--bg-light);
+                border-color: var(--primary);
+                box-shadow: none;
+            }
+        }
+        &:not(.ant-select-disabled):active {
+            .ant-select-selector {
+                color: var(--primary-active);
+            }
+        }
+
+        .ant-select-selection-placeholder {
+            color: var(--text-muted);
+        }
+
+        &.ant-select-single {
+            .ant-select-selector {
+                height: 40px;
+                box-sizing: border-box;
+
+                .ant-select-selection-search-input {
+                    height: 38px;
+                }
+
+                .ant-select-selection-placeholder {
+                    padding-left: 0.4rem;
+                }
+
+                .ant-select-selection-item {
+                    padding-left: 0.4rem;
+                }
+            }
+        }
+
+        .ant-select-arrow {
+            display: none;
+        }
+    }
+}
+
+.LemonSelectMultipleDropdown {
+    background: #fff;
+    padding: 0.5rem;
+    border-radius: var(--radius);
+    border: 1px solid var(--primary);
+    margin: -4px 0px; // Counteract antd wrapper
+
+    .ant-select-item {
+        height: 40px;
+        cursor: pointer;
+        border-radius: var(--radius);
+        padding: 0.25rem 0.5rem;
+        &.ant-select-item-option-active {
+            background: var(--primary-bg-hover);
+        }
+
+        &.ant-select-item-option-selected {
+            background: var(--primary-bg-active);
+        }
+        .ant-select-item-option-state {
+            display: none;
+        }
+    }
+
+    .rc-virtual-list-holder-inner {
+        gap: 0.25rem;
+    }
+
+    .ant-select-item-option-content {
+        display: flex;
+        align-items: center;
+    }
+}

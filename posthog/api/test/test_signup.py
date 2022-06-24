@@ -837,7 +837,7 @@ class TestInviteSignup(APIBaseTest):
         self.organization.is_member_join_email_enabled = False
         self.organization.save()
 
-        initial_user = User.objects.create_and_join(self.organization, "test+420@posthog.com", None)
+        User.objects.create_and_join(self.organization, "test+420@posthog.com", None)
 
         invite: OrganizationInvite = OrganizationInvite.objects.create(
             target_email="test+100@posthog.com", organization=self.organization,

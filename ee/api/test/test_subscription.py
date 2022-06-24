@@ -79,8 +79,8 @@ class TestSubscription(APILicensedTest):
             "summary": "sent every week",
         }
 
-        mock_subscription_tasks.deliver_new_subscription.delay.assert_called_once_with(
-            data["id"], ["test@posthog.com"], "hey there!"
+        mock_subscription_tasks.handle_subscription_value_change.delay.assert_called_once_with(
+            data["id"], "", "hey there!"
         )
 
     def test_can_create_new_subscription_without_invite_message(self, mock_subscription_tasks):
@@ -88,19 +88,15 @@ class TestSubscription(APILicensedTest):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         data = response.json()
 
-        mock_subscription_tasks.deliver_new_subscription.delay.assert_called_once_with(
-            data["id"], ["test@posthog.com"], None
-        )
+        mock_subscription_tasks.handle_subscription_value_change.delay.assert_called_once_with(data["id"], "", None)
 
     def test_can_update_existing_subscription(self, mock_subscription_tasks):
         response = self._create_subscription(invite_message=None)
         data = response.json()
 
-        mock_subscription_tasks.deliver_new_subscription.delay.assert_called_once_with(
-            data["id"], ["test@posthog.com"], None
-        )
+        mock_subscription_tasks.handle_subscription_value_change.delay.assert_called_once_with(data["id"], "", None)
 
-        mock_subscription_tasks.deliver_new_subscription.delay.reset_mock()
+        mock_subscription_tasks.handle_subscription_value_change.delay.reset_mock()
         response = self.client.patch(
             f"/api/projects/{self.team.id}/subscriptions/{data['id']}",
             {"target_value": "test@posthog.com,new_user@posthog.com", "invite_message": "hi new user"},
@@ -108,6 +104,6 @@ class TestSubscription(APILicensedTest):
         updated_data = response.json()
         assert updated_data["target_value"] == "test@posthog.com,new_user@posthog.com"
 
-        mock_subscription_tasks.deliver_new_subscription.delay.assert_called_once_with(
-            data["id"], ["new_user@posthog.com"], "hi new user"
+        mock_subscription_tasks.handle_subscription_value_change.delay.assert_called_once_with(
+            data["id"], "test@posthog.com", "hi new user"
         )

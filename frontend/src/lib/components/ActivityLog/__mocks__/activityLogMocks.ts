@@ -586,12 +586,28 @@ export const personActivityResponseJson: ActivityLogItem[] = [
 
 export const insightsActivityResponseJson: ActivityLogItem[] = [
     {
-        user: { first_name: 'Cameron', email: 'cameron@posthog.com' },
-        activity: 'created',
+        user: {
+            first_name: 'Ben',
+            email: 'ben@posthog.com',
+        },
+        activity: 'exported',
         scope: ActivityScope.INSIGHT,
-        item_id: '738510',
-        detail: { changes: null, merge: null, name: null, short_id: '0GUplMDf' as InsightShortId },
-        created_at: '2022-05-03T16:28:38.470679Z',
+        item_id: '6',
+        detail: {
+            changes: [
+                {
+                    type: 'Insight',
+                    action: 'exported',
+                    field: 'export_format',
+                    before: undefined,
+                    after: 'image/png',
+                },
+            ],
+            merge: null,
+            name: 'Super B.I.',
+            short_id: 'KQhbLk2R' as InsightShortId,
+        },
+        created_at: '2022-06-24T14:53:24.194502Z',
     },
     {
         user: { first_name: 'Cameron', email: 'cameron@posthog.com' },

@@ -67,21 +67,18 @@ export function TaxonomicPopup({
             visible={visible}
             onClickOutside={() => setVisible(false)}
         >
-            {({ setRef }) => (
-                <Button
-                    data-attr={dataAttr}
-                    onClick={() => setVisible(!visible)}
-                    ref={setRef}
-                    className={clsx('TaxonomicPopup__button', { 'full-width': fullWidth })}
-                    style={style}
-                >
-                    <span className="text-overflow" style={{ maxWidth: '100%' }}>
-                        {value ? renderValue?.(value) ?? String(value) : <em>{placeholder}</em>}
-                    </span>
-                    <div style={{ flexGrow: 1 }} />
-                    <DownOutlined style={{ marginLeft: '8px', fontSize: 10 }} />
-                </Button>
-            )}
+            <Button
+                data-attr={dataAttr}
+                onClick={() => setVisible(!visible)}
+                className={clsx('TaxonomicPopup__button', { 'full-width': fullWidth })}
+                style={style}
+            >
+                <span className="text-overflow" style={{ maxWidth: '100%' }}>
+                    {value ? renderValue?.(value) ?? String(value) : <em>{placeholder}</em>}
+                </span>
+                <div style={{ flexGrow: 1 }} />
+                <DownOutlined style={{ marginLeft: '8px', fontSize: 10 }} />
+            </Button>
         </Popup>
     )
 }
