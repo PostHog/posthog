@@ -7,8 +7,8 @@ import {
     operatorToHumanName,
     propertyValueToHumanName,
 } from 'lib/components/DefinitionPopup/utils'
-import { COHORT_MATCHING_DAYS } from 'scenes/cohorts/MatchCriteriaSelector'
 import {
+    COHORT_MATCHING_DAYS,
     criteriaToBehavioralFilterType,
     criteriaToHumanSentence,
     isCohortCriteriaGroup,

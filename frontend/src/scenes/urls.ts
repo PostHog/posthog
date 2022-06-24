@@ -86,4 +86,5 @@ export const urls = {
     asyncMigrations: (): string => '/instance/async_migrations',
     deadLetterQueue: (): string => '/instance/dead_letter_queue',
     unsubscribe: (): string => '/unsubscribe',
+    integrationsRedirect: (kind: string): string => `/integrations/${kind}/redirect`,
 }

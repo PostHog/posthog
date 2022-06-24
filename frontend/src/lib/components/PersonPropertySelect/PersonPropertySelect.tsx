@@ -104,17 +104,9 @@ export const PersonPropertySelect = ({
                     />
                 }
             >
-                {({ setRef }) => (
-                    <Button
-                        ref={setRef}
-                        onClick={() => toggle()}
-                        type="link"
-                        className="new-prop-filter"
-                        icon={<PlusCircleOutlined />}
-                    >
-                        {addText}
-                    </Button>
-                )}
+                <Button onClick={() => toggle()} type="link" className="new-prop-filter" icon={<PlusCircleOutlined />}>
+                    {addText}
+                </Button>
             </Popup>
         </div>
     )

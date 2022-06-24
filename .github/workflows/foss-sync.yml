@@ -9,8 +9,7 @@ on:
 jobs:
     repo-sync:
         name: Sync posthog-foss with posthog
-        # TODO: Don't sync until the ee code relocation is done
-        if: ${{ false }} # github.repository == 'PostHog/posthog'
+        if: github.repository == 'PostHog/posthog'
         runs-on: ubuntu-latest
         steps:
             - name: Sync repositories 1 to 1 - master branch

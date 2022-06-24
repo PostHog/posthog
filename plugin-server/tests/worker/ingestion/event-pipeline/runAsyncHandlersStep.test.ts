@@ -1,7 +1,7 @@
 import { IngestionEvent } from '../../../../src/types'
 import { convertToProcessedPluginEvent } from '../../../../src/utils/event'
 import { runAsyncHandlersStep } from '../../../../src/worker/ingestion/event-pipeline/6-runAsyncHandlersStep'
-import { runOnAction, runOnEvent, runOnSnapshot } from '../../../../src/worker/plugins/run'
+import { runOnEvent, runOnSnapshot } from '../../../../src/worker/plugins/run'
 
 jest.mock('../../../../src/worker/plugins/run')
 
@@ -59,12 +59,10 @@ describe('runAsyncHandlersStep()', () => {
         ])
     })
 
-    it('calls onEvent and onAction plugin methods', async () => {
+    it('calls onEvent plugin methods', async () => {
         await runAsyncHandlersStep(runner, ingestionEvent)
 
         expect(runOnEvent).toHaveBeenCalledWith(runner.hub, convertToProcessedPluginEvent(ingestionEvent))
-        expect(runOnAction).toHaveBeenCalledWith(runner.hub, 'action1', convertToProcessedPluginEvent(ingestionEvent))
-        expect(runOnAction).toHaveBeenCalledWith(runner.hub, 'action2', convertToProcessedPluginEvent(ingestionEvent))
         expect(runOnSnapshot).not.toHaveBeenCalled()
     })
 
@@ -75,7 +73,6 @@ describe('runAsyncHandlersStep()', () => {
         await expect(runAsyncHandlersStep(runner, ingestionEvent)).rejects.toThrow(error)
 
         expect(runOnEvent).toHaveBeenCalledWith(runner.hub, convertToProcessedPluginEvent(ingestionEvent))
-        expect(runOnAction).not.toHaveBeenCalled()
     })
 
     it('stops processing if not capabilities.processAsyncHandlers', async () => {
@@ -86,7 +83,6 @@ describe('runAsyncHandlersStep()', () => {
         expect(result).toEqual(null)
         expect(runOnSnapshot).not.toHaveBeenCalled()
         expect(runOnEvent).not.toHaveBeenCalled()
-        expect(runOnAction).not.toHaveBeenCalled()
     })
 
     describe('$snapshot events', () => {
@@ -102,7 +98,6 @@ describe('runAsyncHandlersStep()', () => {
 
             expect(runOnSnapshot).toHaveBeenCalledWith(runner.hub, convertToProcessedPluginEvent(snapshotEvent))
             expect(runOnEvent).not.toHaveBeenCalled()
-            expect(runOnAction).not.toHaveBeenCalled()
         })
     })
 })

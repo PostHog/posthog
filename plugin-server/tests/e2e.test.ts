@@ -61,10 +61,6 @@ export async function exportEvents(events) {
     }
 }
 
-export async function onAction(action, event) {
-    testConsole.log('onAction', action, event)
-}
-
 
 export async function runEveryMinute() {}
 `
@@ -159,38 +155,6 @@ describe('e2e', () => {
                 expect.objectContaining({
                     type: 'INFO',
                     message: 'amogus',
-                })
-            )
-        })
-    })
-
-    describe('onAction', () => {
-        const getLogs = (): any[] => testConsole.read().filter((log) => log[1] === 'onAction event')
-
-        test('onAction receives the action and event', async () => {
-            await posthog.capture('onAction event', { foo: 'bar' })
-
-            await delayUntilEventIngested(() => Promise.resolve(getLogs()), 1)
-
-            const log = testConsole.read().filter((log) => log[0] === 'onAction')[0]
-
-            const [logName, action, event] = log
-
-            expect(logName).toEqual('onAction')
-            expect(action).toEqual(
-                expect.objectContaining({
-                    id: 69,
-                    name: 'Test Action',
-                    team_id: 2,
-                    deleted: false,
-                    post_to_slack: true,
-                })
-            )
-            expect(event).toEqual(
-                expect.objectContaining({
-                    distinct_id: 'plugin-id-60',
-                    team_id: 2,
-                    event: 'onAction event',
                 })
             )
         })

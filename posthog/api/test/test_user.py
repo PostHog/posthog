@@ -2,6 +2,7 @@ import uuid
 from unittest.mock import ANY, patch
 
 import pytest
+from django.core.cache import cache
 from django.utils.text import slugify
 from rest_framework import status
 
@@ -39,6 +40,12 @@ class TestUserAPI(APIBaseTest):
         cls.user.current_organization = cls.organization
         cls.user.current_team = cls.team
         cls.user.save()
+
+    def setUp(self):
+        # prevent throttling of user requests to pass on from one test
+        # to the next
+        cache.clear()
+        return super().setUp()
 
     # RETRIEVING USER
 
@@ -541,6 +548,39 @@ class TestUserAPI(APIBaseTest):
         self.user.refresh_from_db()
         self.assertNotEqual(self.user.email, "new@posthog.com")
         self.assertFalse(self.user.check_password("hijacked"))
+
+    def test_user_cannot_update_password_with_incorrect_current_password_and_ratelimit_to_prevent_attacks(self):
+
+        for i in range(7):
+            response = self.client.patch("/api/users/@me/", {"current_password": "wrong", "password": "12345678"})
+        self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+        self.assertDictContainsSubset(
+            {"attr": None, "code": "throttled", "type": "throttled_error"}, response.json(),
+        )
+
+        # Password was not changed
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.check_password(self.CONFIG_PASSWORD))
+
+    def test_no_ratelimit_for_get_requests_for_users(self):
+
+        for i in range(6):
+            response = self.client.get("/api/users/@me/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        for i in range(4):
+            # below rate limit, so shouldn't be throttled
+            response = self.client.patch("/api/users/@me/", {"current_password": "wrong", "password": "12345678"})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+        for i in range(2):
+            response = self.client.get("/api/users/@me/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        for i in range(2):
+            # finally above rate limit, so should be throttled
+            response = self.client.patch("/api/users/@me/", {"current_password": "wrong", "password": "12345678"})
+        self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
 
     # DELETING USER
 
