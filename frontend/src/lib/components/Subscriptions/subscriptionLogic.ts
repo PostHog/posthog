@@ -5,7 +5,7 @@ import api from 'lib/api'
 import { loaders } from 'kea-loaders'
 import { forms } from 'kea-forms'
 
-import { isEmail } from 'lib/utils'
+import { isEmail, isURL } from 'lib/utils'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from '../lemonToast'
 import { beforeUnload, router } from 'kea-router'
@@ -55,14 +55,26 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                 title: !title ? 'You need to give your subscription a name' : undefined,
                 interval: !interval ? 'You need to set an interval' : undefined,
                 start_date: !start_date ? 'You need to set a delivery time' : undefined,
-                target_value:
-                    target_type == 'email'
-                        ? !target_value
-                            ? 'At least one email is required'
-                            : !target_value.split(',').every((email) => isEmail(email))
-                            ? 'All emails must be valid'
-                            : undefined
-                        : undefined,
+                target_type: !['slack', 'email', 'webhook'].includes(target_type)
+                    ? 'Unsupported target type'
+                    : undefined,
+                target_value: !target_value
+                    ? 'This field is required.'
+                    : target_type == 'email'
+                    ? !target_value
+                        ? 'At least one email is required'
+                        : !target_value.split(',').every((email) => isEmail(email))
+                        ? 'All emails must be valid'
+                        : undefined
+                    : target_type == 'slack'
+                    ? !target_value
+                        ? 'A channel is required'
+                        : undefined
+                    : target_type == 'webhook'
+                    ? !isURL(target_value)
+                        ? 'Must be a valid URL'
+                        : undefined
+                    : undefined,
             }),
             submit: async (subscription, breakpoint) => {
                 const insightId = props.insightShortId ? await getInsightId(props.insightShortId) : undefined
@@ -112,6 +124,12 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                         byweekday: NEW_SUBSCRIPTION.byweekday,
                     })
                 }
+            }
+
+            if (key === 'target_type') {
+                actions.setSubscriptionValues({
+                    target_value: '',
+                })
             }
         },
     })),

@@ -1,7 +1,7 @@
 from abc import ABCMeta, abstractmethod
 from typing import Any, Dict, List, Optional, Tuple, Union
 
-from ee.clickhouse.materialized_columns.columns import ColumnName
+from posthog.clickhouse.materialized_columns import ColumnName
 from posthog.models import Cohort, Filter, Property
 from posthog.models.cohort.util import is_precalculated_query
 from posthog.models.filters.mixins.utils import cached_property
@@ -13,7 +13,7 @@ from posthog.models.property import PropertyGroup, PropertyName
 from posthog.models.property.util import parse_prop_grouped_clauses
 from posthog.models.team import Team
 from posthog.models.utils import PersonPropertiesMode
-from posthog.queries.column_optimizer import ColumnOptimizer
+from posthog.queries.column_optimizer.column_optimizer import ColumnOptimizer
 from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
 from posthog.queries.person_query import PersonQuery
 from posthog.queries.util import parse_timestamps
@@ -22,6 +22,7 @@ from posthog.queries.util import parse_timestamps
 class EventQuery(metaclass=ABCMeta):
     DISTINCT_ID_TABLE_ALIAS = "pdi"
     PERSON_TABLE_ALIAS = "person"
+    SESSION_TABLE_ALIAS = "sessions"
     EVENT_TABLE_ALIAS = "e"
 
     _filter: Union[Filter, PathFilter, RetentionFilter, StickinessFilter, SessionRecordingsFilter]
@@ -29,6 +30,7 @@ class EventQuery(metaclass=ABCMeta):
     _column_optimizer: ColumnOptimizer
     _should_join_distinct_ids = False
     _should_join_persons = False
+    _should_join_sessions = False
     _should_round_interval = False
     _extra_fields: List[ColumnName]
     _extra_event_properties: List[PropertyName]
@@ -41,6 +43,7 @@ class EventQuery(metaclass=ABCMeta):
         round_interval=False,
         should_join_distinct_ids=False,
         should_join_persons=False,
+        should_join_sessions=False,
         # Extra events/person table columns to fetch since parent query needs them
         extra_fields: List[ColumnName] = [],
         extra_event_properties: List[PropertyName] = [],
@@ -59,6 +62,7 @@ class EventQuery(metaclass=ABCMeta):
 
         self._should_join_distinct_ids = should_join_distinct_ids
         self._should_join_persons = should_join_persons
+        self._should_join_sessions = should_join_sessions
         self._extra_fields = extra_fields
         self._using_person_on_events = using_person_on_events
 
@@ -72,6 +76,9 @@ class EventQuery(metaclass=ABCMeta):
 
         if not self._should_join_persons:
             self._determine_should_join_persons()
+
+        if not self._should_join_sessions:
+            self._determine_should_join_sessions()
 
         self._should_round_interval = round_interval
 
@@ -117,6 +124,9 @@ class EventQuery(metaclass=ABCMeta):
     def _should_property_join_persons(self, prop: Property) -> bool:
         return prop.type == "cohort" and self._does_cohort_need_persons(prop)
 
+    def _determine_should_join_sessions(self) -> None:
+        pass
+
     def _does_cohort_need_persons(self, prop: Property) -> bool:
         try:
             cohort: Cohort = Cohort.objects.get(pk=prop.value, team_id=self._team_id)
@@ -149,6 +159,33 @@ class EventQuery(metaclass=ABCMeta):
             return "", {}
 
     def _get_groups_query(self) -> Tuple[str, Dict]:
+        return "", {}
+
+    def _get_sessions_query(self) -> Tuple[str, Dict]:
+        if self._should_join_sessions:
+            params = {"team_id": self._team_id}
+            parsed_date_from, parsed_date_to, date_params = parse_timestamps(filter=self._filter, team=self._team)
+            params.update(date_params)
+
+            return (
+                f"""
+                    INNER JOIN (
+                        SELECT
+                            $session_id,
+                            dateDiff('second',min(timestamp), max(timestamp)) as session_duration
+                        FROM
+                            events
+                        WHERE
+                            $session_id != ''
+                            AND team_id = %(team_id)s
+                            {parsed_date_from} - INTERVAL 24 HOUR
+                            {parsed_date_to} + INTERVAL 24 HOUR
+                        GROUP BY $session_id
+                    ) as {self.SESSION_TABLE_ALIAS}
+                    ON {self.SESSION_TABLE_ALIAS}.$session_id = {self.EVENT_TABLE_ALIAS}.$session_id
+                """,
+                params,
+            )
         return "", {}
 
     def _get_date_filter(self) -> Tuple[str, Dict]:

@@ -1,5 +1,6 @@
+from dataclasses import dataclass
 from datetime import timedelta
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from dateutil.rrule import (
     FR,
@@ -37,6 +38,13 @@ RRULE_WEEKDAY_MAP = {
 }
 
 
+@dataclass
+class SubscriptionResourceInfo:
+    kind: str
+    name: str
+    url: str
+
+
 class Subscription(models.Model):
     """
     Rather than re-invent the wheel, we are roughly following the iCalender format for recurring schedules
@@ -47,7 +55,8 @@ class Subscription(models.Model):
 
     class SubscriptionTarget(models.TextChoices):
         EMAIL = "email"
-        # SLACK = "slack"
+        SLACK = "slack"
+        WEBHOOK = "webhook"
 
     class SubscriptionFrequency(models.TextChoices):
         DAILY = "daily"
@@ -119,7 +128,18 @@ class Subscription(models.Model):
         if self.insight:
             return absolute_uri(f"/insights/{self.insight.short_id}/subscriptions/{self.id}")
         elif self.dashboard:
-            return absolute_uri(f"/dashboard/{self.dashboard.id}/subscriptions/{self.id}")
+            return absolute_uri(f"/dashboard/{self.dashboard_id}/subscriptions/{self.id}")
+        return None
+
+    @property
+    def resource_info(self) -> Optional[SubscriptionResourceInfo]:
+        if self.insight:
+            return SubscriptionResourceInfo(
+                "Insight", f"{self.insight.name or self.insight.derived_name}", self.insight.url
+            )
+        elif self.dashboard:
+            return SubscriptionResourceInfo("Dashboard", self.dashboard.name, self.dashboard.url)
+
         return None
 
     @property

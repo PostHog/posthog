@@ -2,8 +2,8 @@ admin: 0003_logentry_add_action_flag_choices
 auth: 0012_alter_user_first_name_max_length
 axes: 0006_remove_accesslog_trusted
 contenttypes: 0002_remove_content_type_name
-ee: 0012_migrate_tags_v2
-posthog: 0243_feature_flags_experience_continuity
+ee: 0013_silence_deprecated_tags_warnings
+posthog: 0247_feature_flags_experience_continuity
 rest_hooks: 0002_swappable_hook_model
 sessions: 0001_initial
 social_django: 0010_uid_db_index

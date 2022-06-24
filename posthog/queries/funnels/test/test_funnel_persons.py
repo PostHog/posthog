@@ -4,7 +4,6 @@ from uuid import UUID, uuid4
 from django.utils import timezone
 from freezegun import freeze_time
 
-from ee.clickhouse.test.test_journeys import journeys_for
 from posthog.constants import INSIGHT_FUNNELS
 from posthog.models import Cohort, Filter
 from posthog.models.event.util import bulk_create_events
@@ -19,6 +18,7 @@ from posthog.test.base import (
     snapshot_clickhouse_queries,
     test_with_materialized_columns,
 )
+from posthog.test.test_journeys import journeys_for
 
 FORMAT_TIME = "%Y-%m-%d 00:00:00"
 MAX_STEP_COLUMN = 0

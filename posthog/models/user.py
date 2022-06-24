@@ -139,23 +139,26 @@ class User(AbstractUser, UUIDClassicModel):
         if Organization.objects.filter(
             members=self, available_features__contains=[AvailableFeature.PROJECT_BASED_PERMISSIONING]
         ).exists():
-            from ee.models import ExplicitTeamMembership
-
-            available_private_project_ids = ExplicitTeamMembership.objects.filter(
-                Q(parent_membership__user=self)
-            ).values_list("team_id", flat=True)
-            organizations_where_user_is_admin = OrganizationMembership.objects.filter(
-                user=self, level__gte=OrganizationMembership.Level.ADMIN
-            ).values_list("organization_id", flat=True)
-            # If project access control IS applicable, make sure
-            # - project doesn't have access control OR
-            # - the user has explicit access OR
-            # - the user is Admin or owner
-            teams = teams.filter(
-                Q(access_control=False)
-                | Q(pk__in=available_private_project_ids)
-                | Q(organization__pk__in=organizations_where_user_is_admin)
-            )
+            try:
+                from ee.models import ExplicitTeamMembership
+            except ImportError:
+                pass
+            else:
+                available_private_project_ids = ExplicitTeamMembership.objects.filter(
+                    Q(parent_membership__user=self)
+                ).values_list("team_id", flat=True)
+                organizations_where_user_is_admin = OrganizationMembership.objects.filter(
+                    user=self, level__gte=OrganizationMembership.Level.ADMIN
+                ).values_list("organization_id", flat=True)
+                # If project access control IS applicable, make sure
+                # - project doesn't have access control OR
+                # - the user has explicit access OR
+                # - the user is Admin or owner
+                teams = teams.filter(
+                    Q(access_control=False)
+                    | Q(pk__in=available_private_project_ids)
+                    | Q(organization__pk__in=organizations_where_user_is_admin)
+                )
 
         return teams.order_by("access_control", "id")
 

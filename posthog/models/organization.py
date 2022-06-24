@@ -278,7 +278,7 @@ class OrganizationInvite(UUIDModel):
         if is_email_available(with_absolute_urls=True) and self.organization.is_member_join_email_enabled:
             from posthog.tasks.email import send_member_join
 
-            send_member_join.apply_async(kwargs={"invitee_uuid": user.uuid, "organization_id": self.organization.id})
+            send_member_join.apply_async(kwargs={"invitee_uuid": user.uuid, "organization_id": self.organization_id})
         OrganizationInvite.objects.filter(target_email__iexact=self.target_email).delete()
 
     def is_expired(self) -> bool:
