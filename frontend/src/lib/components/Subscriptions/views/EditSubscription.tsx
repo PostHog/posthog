@@ -63,7 +63,7 @@ export function EditSubscription({
     const { subscription, subscriptionLoading, isSubscriptionSubmitting, subscriptionChanged } = useValues(logic)
     const { preflight, siteUrlMisconfigured } = useValues(preflightLogic)
     const { deleteSubscription } = useActions(subscriptionslogic)
-    const { slackChannels, slackChannelsLoading, slackIntegration } = useValues(integrationsLogic)
+    const { slackChannels, slackChannelsLoading, slackIntegration, addToSlackButtonUrl } = useValues(integrationsLogic)
     const { loadSlackChannels } = useActions(integrationsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
@@ -107,12 +107,19 @@ export function EditSubscription({
                     <h4 className="mt-05">{id === 'new' ? 'New' : 'Edit '} Subscription</h4>
                 </header>
 
-                {!subscription && subscriptionLoading ? (
-                    <>
-                        <Skeleton />
-                        <Skeleton />
-                        <Skeleton />
-                    </>
+                {!subscription ? (
+                    subscriptionLoading ? (
+                        <>
+                            <Skeleton />
+                            <Skeleton />
+                            <Skeleton />
+                        </>
+                    ) : (
+                        <section className="pa text-center">
+                            <h2>Not found</h2>
+                            <p>This subscription could not be found. It may have been deleted.</p>
+                        </section>
+                    )
                 ) : (
                     <section>
                         {subscription?.created_by ? (
@@ -209,62 +216,92 @@ export function EditSubscription({
 
                         {subscription.target_type === 'slack' ? (
                             <>
-                                {slackDisabled && (
+                                {slackDisabled ? (
                                     <>
-                                        <AlertMessage type="error">
-                                            <>
-                                                Slack is not yet configured for this project. You can configure it at{' '}
-                                                <Link to={`${urls.projectSettings()}#slack`}>
-                                                    {' '}
-                                                    Slack Integration settings
-                                                </Link>
-                                                .
-                                            </>
-                                        </AlertMessage>
+                                        {addToSlackButtonUrl() ? (
+                                            <AlertMessage type="info">
+                                                <div className="space-between-items gap-05">
+                                                    <span>
+                                                        Slack is not yet configured for this project. Add PostHog to
+                                                        your Slack workspace to continue.
+                                                    </span>
+                                                    <a
+                                                        href={
+                                                            addToSlackButtonUrl(
+                                                                window.location.pathname + '?target_type=slack'
+                                                            ) || ''
+                                                        }
+                                                    >
+                                                        <img
+                                                            alt="Add to Slack"
+                                                            height="40"
+                                                            width="139"
+                                                            src="https://platform.slack-edge.com/img/add_to_slack.png"
+                                                            srcSet="https://platform.slack-edge.com/img/add_to_slack.png 1x, https://platform.slack-edge.com/img/add_to_slack@2x.png 2x"
+                                                        />
+                                                    </a>
+                                                </div>
+                                            </AlertMessage>
+                                        ) : (
+                                            <AlertMessage type="error">
+                                                <>
+                                                    Slack is not yet configured for this project. You can configure it
+                                                    at{' '}
+                                                    <Link to={`${urls.projectSettings()}#slack`}>
+                                                        {' '}
+                                                        Slack Integration settings
+                                                    </Link>
+                                                    .
+                                                </>
+                                            </AlertMessage>
+                                        )}
                                     </>
-                                )}
-                                <Field name={'target_value'} label={'Which Slack channel to send reports to'}>
-                                    {({ value, onChange }) => (
-                                        <>
-                                            <LemonSelectMultiple
-                                                onChange={(val) => onChange(val)}
-                                                value={value}
-                                                filterOption={true}
-                                                disabled={slackDisabled}
-                                                mode="single"
-                                                data-attr="select-slack-channel"
-                                                options={slackChannelOptions}
-                                                loading={slackChannelsLoading}
-                                                placeholder={'Pick a Slack channel'}
-                                            />
-                                            <div className="text-small text-muted mt-05">
-                                                Private channels are only shown if you have{' '}
+                                ) : (
+                                    <>
+                                        <Field name={'target_value'} label={'Which Slack channel to send reports to'}>
+                                            {({ value, onChange }) => (
+                                                <>
+                                                    <LemonSelectMultiple
+                                                        onChange={(val) => onChange(val)}
+                                                        value={value}
+                                                        filterOption={true}
+                                                        disabled={slackDisabled}
+                                                        mode="single"
+                                                        data-attr="select-slack-channel"
+                                                        options={slackChannelOptions}
+                                                        loading={slackChannelsLoading}
+                                                        placeholder={'Pick a Slack channel'}
+                                                    />
+                                                    <div className="text-small text-muted mt-05">
+                                                        Private channels are only shown if you have{' '}
+                                                        <a
+                                                            href="https://posthog.com/docs/integrations/slack"
+                                                            target="_blank"
+                                                            rel="noopener"
+                                                        >
+                                                            invited the PostHog bot
+                                                        </a>{' '}
+                                                        to them
+                                                    </div>
+                                                </>
+                                            )}
+                                        </Field>
+
+                                        <AlertMessage type="info">
+                                            <>
+                                                Don't forget to add the <strong>PostHog app</strong> to the channel
+                                                otherwise Subscriptions will fail to be delivered.{' '}
                                                 <a
                                                     href="https://posthog.com/docs/integrations/slack"
                                                     target="_blank"
                                                     rel="noopener"
                                                 >
-                                                    invited the PostHog bot
-                                                </a>{' '}
-                                                to them
-                                            </div>
-                                        </>
-                                    )}
-                                </Field>
-
-                                <AlertMessage type="info">
-                                    <>
-                                        Don't forget to add the <strong>PostHog app</strong> to the channel otherwise
-                                        Subscriptions will fail to be delivered.{' '}
-                                        <a
-                                            href="https://posthog.com/docs/integrations/slack"
-                                            target="_blank"
-                                            rel="noopener"
-                                        >
-                                            See the Docs for more information
-                                        </a>
+                                                    See the Docs for more information
+                                                </a>
+                                            </>
+                                        </AlertMessage>
                                     </>
-                                </AlertMessage>
+                                )}
                             </>
                         ) : null}
 
@@ -366,7 +403,7 @@ export function EditSubscription({
 
                 <footer className="space-between-items pt">
                     <div>
-                        {id !== 'new' && (
+                        {subscription && id !== 'new' && (
                             <LemonButton
                                 type="secondary"
                                 status="danger"
