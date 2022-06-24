@@ -55,6 +55,7 @@ export enum Scene {
     PreflightCheck = 'PreflightCheck',
     Ingestion = 'IngestionWizard',
     OrganizationCreationConfirm = 'OrganizationCreationConfirm',
+    Unsubscribe = 'Unsubscribe',
 }
 
 export type SceneProps = Record<string, any>

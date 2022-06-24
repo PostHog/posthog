@@ -5,6 +5,7 @@ import { DB } from '../../src/utils/db/db'
 import { createHub } from '../../src/utils/db/hub'
 import { generateKafkaPersonUpdateMessage } from '../../src/utils/db/utils'
 import { RaceConditionError, UUIDT } from '../../src/utils/utils'
+import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../helpers/clickhouse'
 import { getFirstTeam, insertRow, resetTestDatabase } from '../helpers/sql'
 import { plugin60 } from './../helpers/plugins'
 
@@ -64,7 +65,7 @@ describe('DB', () => {
         })
     })
 
-    async function fetchPersonByPersonId(teamId: number, personId: number): Promise<Person> {
+    async function fetchPersonByPersonId(teamId: number, personId: number): Promise<Person | undefined> {
         const selectResult = await db.postgresQuery(
             `SELECT * FROM posthog_person WHERE team_id = $1 AND id = $2`,
             [teamId, personId],
@@ -150,13 +151,12 @@ describe('DB', () => {
             const personProvided = { ...personDbBefore, properties: { c: 'bbb' }, created_at: providedPersonTs }
             const updateTs = DateTime.fromISO('2000-04-04T11:42:06.502Z').toUTC()
             const update = { created_at: updateTs }
-            const updatedPerson = await db.updatePersonDeprecated(personProvided, update)
+            const [updatedPerson] = await db.updatePersonDeprecated(personProvided, update)
 
             // verify we have the correct update in Postgres db
             const personDbAfter = await fetchPersonByPersonId(personDbBefore.team_id, personDbBefore.id)
             expect(personDbAfter.created_at).toEqual(updateTs.toISO())
             // we didn't change properties so they should be what was in the db
-            console.log(personDbAfter.properties)
             expect(personDbAfter.properties).toEqual({ c: 'aaa' })
 
             //verify we got the expected updated person back
@@ -173,6 +173,90 @@ describe('DB', () => {
                 1
             )
             expect(db.kafkaProducer!.queueMessage).toHaveBeenLastCalledWith(expected_message)
+        })
+    })
+
+    describe('deletePerson', () => {
+        jest.setTimeout(60000)
+
+        const uuid = new UUIDT().toString()
+        it('deletes person from postgres', async () => {
+            const team = await getFirstTeam(hub)
+            // :TRICKY: We explicitly don't create distinct_ids here to keep the deletion process simpler.
+            const person = await db.createPerson(TIMESTAMP, {}, {}, {}, team.id, null, true, uuid, [])
+
+            await db.deletePerson(person)
+
+            const fetchedPerson = await fetchPersonByPersonId(team.id, person.id)
+            expect(fetchedPerson).toEqual(undefined)
+        })
+
+        describe('clickhouse behavior', () => {
+            beforeEach(async () => {
+                await resetTestDatabaseClickhouse()
+                // :TRICKY: Avoid collapsing rows before we are able to read them in the below tests.
+                await db.clickhouseQuery('SYSTEM STOP MERGES')
+            })
+
+            afterEach(async () => {
+                await db.clickhouseQuery('SYSTEM START MERGES')
+            })
+
+            async function fetchPersonsRows(options: { final?: boolean } = {}) {
+                const query = `SELECT * FROM person ${options.final ? 'FINAL' : ''} WHERE id = '${uuid}'`
+                return (await db.clickhouseQuery(query)).data
+            }
+
+            it('marks person as deleted in clickhouse', async () => {
+                const team = await getFirstTeam(hub)
+                // :TRICKY: We explicitly don't create distinct_ids here to keep the deletion process simpler.
+                const person = await db.createPerson(TIMESTAMP, {}, {}, {}, team.id, null, true, uuid, [])
+                await delayUntilEventIngested(fetchPersonsRows, 1)
+
+                // We do an update to verify
+                await db.updatePersonDeprecated(person, { properties: { foo: 'bar' } })
+                await db.kafkaProducer.flush()
+                await delayUntilEventIngested(fetchPersonsRows, 2)
+
+                const kafkaMessages = await db.deletePerson(person)
+                await db.kafkaProducer.queueMessages(kafkaMessages)
+                await db.kafkaProducer.flush()
+
+                const persons = await delayUntilEventIngested(fetchPersonsRows, 3)
+
+                expect(persons).toEqual(
+                    expect.arrayContaining([
+                        expect.objectContaining({
+                            id: uuid,
+                            properties: JSON.stringify({}),
+                            is_deleted: 0,
+                            version: 0,
+                        }),
+                        expect.objectContaining({
+                            id: uuid,
+                            properties: JSON.stringify({ foo: 'bar' }),
+                            is_deleted: 0,
+                            version: 1,
+                        }),
+                        expect.objectContaining({
+                            id: uuid,
+                            is_deleted: 1,
+                            version: 101,
+                        }),
+                    ])
+                )
+
+                const personsFinal = await fetchPersonsRows({ final: true })
+                expect(personsFinal).toEqual(
+                    expect.arrayContaining([
+                        expect.objectContaining({
+                            id: uuid,
+                            is_deleted: 1,
+                            version: 101,
+                        }),
+                    ])
+                )
+            })
         })
     })
 
@@ -374,7 +458,7 @@ describe('DB', () => {
             )
             const res = await db.getPersonData(2, distinctId)
             expect(res?.uuid).toEqual(uuid)
-            expect(res?.created_at_iso).toEqual(TIMESTAMP.toISO())
+            expect(res?.created_at.toISO()).toEqual(TIMESTAMP.toUTC().toISO())
             expect(res?.properties).toEqual({ a: 12345, b: false, c: 'bbb' })
         })
 
@@ -396,7 +480,7 @@ describe('DB', () => {
             db.personAndGroupsCachingEnabledTeams.add(2)
             const res = await db.getPersonData(2, distinctId)
             expect(res?.uuid).toEqual(uuid)
-            expect(res?.created_at_iso).toEqual(TIMESTAMP.toISO())
+            expect(res?.created_at.toISO()).toEqual(TIMESTAMP.toUTC().toISO())
             expect(res?.properties).toEqual({ a: 123, b: false, c: 'bbb' })
         })
 

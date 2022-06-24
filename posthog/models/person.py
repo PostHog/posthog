@@ -49,7 +49,7 @@ class Person(models.Model):
             now = timezone.now()
             event = {"event": "$create_alias", "properties": {"alias": other_person.distinct_ids[-1]}}
 
-            capture_internal(event, self.distinct_ids[-1], None, None, now, now, self.team.id)
+            capture_internal(event, self.distinct_ids[-1], None, None, now, now, self.team_id)
 
     def split_person(self, main_distinct_id: Optional[str]):
         distinct_ids = Person.objects.get(pk=self.pk).distinct_ids
@@ -79,9 +79,7 @@ class Person(models.Model):
                     sign=1,
                     version=pdi.version,
                 )
-                create_person(
-                    team_id=self.team_id, uuid=str(person.uuid),
-                )
+                create_person(team_id=self.team_id, uuid=str(person.uuid), version=person.version or 0)
 
     objects = PersonManager()
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True, blank=True)

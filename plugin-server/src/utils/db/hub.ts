@@ -4,7 +4,7 @@ import * as fs from 'fs'
 import { createPool } from 'generic-pool'
 import { StatsD } from 'hot-shots'
 import Redis from 'ioredis'
-import { Kafka, logLevel, SASLOptions } from 'kafkajs'
+import { Kafka, Partitioners, SASLOptions } from 'kafkajs'
 import { DateTime } from 'luxon'
 import * as path from 'path'
 import { types as pgTypes } from 'pg'
@@ -12,6 +12,7 @@ import { ConnectionOptions } from 'tls'
 
 import { getPluginServerCapabilities } from '../../capabilities'
 import { defaultConfig } from '../../config/config'
+import { KAFKAJS_LOG_LEVEL_MAPPING } from '../../config/constants'
 import { JobQueueManager } from '../../main/job-queues/job-queue-manager'
 import { connectObjectStorage } from '../../main/services/object_storage'
 import { Hub, KafkaSecurityProtocol, PluginServerCapabilities, PluginsServerConfig } from '../../types'
@@ -19,6 +20,7 @@ import { ActionManager } from '../../worker/ingestion/action-manager'
 import { ActionMatcher } from '../../worker/ingestion/action-matcher'
 import { HookCommander } from '../../worker/ingestion/hooks'
 import { OrganizationManager } from '../../worker/ingestion/organization-manager'
+import { PersonManager } from '../../worker/ingestion/person-manager'
 import { EventsProcessor } from '../../worker/ingestion/process-event'
 import { SiteUrlManager } from '../../worker/ingestion/site-url-manager'
 import { TeamManager } from '../../worker/ingestion/team-manager'
@@ -65,8 +67,6 @@ export async function createHub(
     const instanceId = new UUIDT()
 
     let statsd: StatsD | undefined
-    let eventLoopLagInterval: NodeJS.Timeout | undefined
-    let eventLoopLagSetTimeoutInterval: NodeJS.Timeout | undefined
 
     const conversionBufferEnabledTeams = new Set(
         serverConfig.CONVERSION_BUFFER_ENABLED_TEAMS.split(',').filter(String).map(Number)
@@ -86,24 +86,6 @@ export async function createHub(
                 })
             },
         })
-        eventLoopLagInterval = setInterval(() => {
-            const time = new Date()
-            setImmediate(() => {
-                statsd?.timing('event_loop_lag', time, {
-                    instanceId: instanceId.toString(),
-                    threadId: String(threadId),
-                })
-            })
-        }, 2000)
-        eventLoopLagSetTimeoutInterval = setInterval(() => {
-            const time = new Date()
-            setTimeout(() => {
-                statsd?.timing('event_loop_lag_set_timeout', time, {
-                    instanceId: instanceId.toString(),
-                    threadId: String(threadId),
-                })
-            }, 0)
-        }, 2000)
         // don't repeat the same info in each thread
         if (threadId === null) {
             status.info(
@@ -171,7 +153,7 @@ export async function createHub(
     const kafka = new Kafka({
         clientId: `plugin-server-v${version}-${instanceId}`,
         brokers: serverConfig.KAFKA_HOSTS.split(','),
-        logLevel: logLevel.WARN,
+        logLevel: KAFKAJS_LOG_LEVEL_MAPPING[serverConfig.KAFKAJS_LOG_LEVEL],
         ssl: kafkaSsl,
         sasl: kafkaSasl,
         connectionTimeout: 7000, // default: 1000
@@ -179,6 +161,7 @@ export async function createHub(
     })
     const producer = kafka.producer({
         retry: { retries: 10, initialRetryTime: 1000, maxRetryTime: 30 },
+        createPartitioner: Partitioners.LegacyPartitioner,
     })
     await producer.connect()
 
@@ -228,7 +211,7 @@ export async function createHub(
     const rootAccessManager = new RootAccessManager(db)
     const promiseManager = new PromiseManager(serverConfig, statsd)
     const siteUrlManager = new SiteUrlManager(db, serverConfig.SITE_URL)
-    const actionManager = new ActionManager(db)
+    const actionManager = new ActionManager(db, capabilities)
     await actionManager.prepare()
 
     const hub: Partial<Hub> = {
@@ -265,6 +248,7 @@ export async function createHub(
 
     // :TODO: This is only used on worker threads, not main
     hub.eventsProcessor = new EventsProcessor(hub as Hub)
+    hub.personManager = new PersonManager(hub as Hub)
     hub.jobQueueManager = new JobQueueManager(hub as Hub)
     hub.hookCannon = new HookCommander(db, teamManager, organizationManager, siteUrlManager, statsd)
 
@@ -283,14 +267,6 @@ export async function createHub(
     }
 
     const closeHub = async () => {
-        if (eventLoopLagInterval) {
-            clearInterval(eventLoopLagInterval)
-        }
-
-        if (eventLoopLagSetTimeoutInterval) {
-            clearInterval(eventLoopLagSetTimeoutInterval)
-        }
-
         hub.mmdbUpdateJob?.cancel()
         await hub.jobQueueManager?.disconnectProducer()
         await kafkaProducer.disconnect()

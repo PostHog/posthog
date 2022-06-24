@@ -66,6 +66,7 @@ export const dashboardLogic = kea<dashboardLogicType>({
         setReceivedErrorsFromAPI: (receivedErrors: boolean) => ({
             receivedErrors,
         }),
+        loadExportedDashboard: (dashboard: DashboardType | null) => ({ dashboard }),
         loadDashboardItems: ({
             refresh,
         }: {
@@ -99,6 +100,7 @@ export const dashboardLogic = kea<dashboardLogicType>({
         setRefreshError: (shortId: InsightShortId) => ({ shortId }),
         reportDashboardViewed: true, // Reports `viewed dashboard` and `dashboard analyzed` events
         setShouldReportOnAPILoad: (shouldReport: boolean) => ({ shouldReport }), // See reducer for details
+        setSubscriptionMode: (enabled: boolean, id?: number | 'new') => ({ enabled, id }),
     },
 
     loaders: ({ actions, props }) => ({
@@ -165,6 +167,7 @@ export const dashboardLogic = kea<dashboardLogicType>({
         allItems: [
             null as DashboardType | null,
             {
+                loadExportedDashboard: (_, { dashboard }) => dashboard,
                 updateLayouts: (state, { layouts }) => {
                     const itemLayouts: Record<string, Partial<Record<string, Layout>>> = {}
                     state?.items.forEach((item) => {
@@ -332,6 +335,20 @@ export const dashboardLogic = kea<dashboardLogicType>({
             false,
             {
                 setShouldReportOnAPILoad: (_, { shouldReport }) => shouldReport,
+            },
+        ],
+
+        showSubscriptions: [
+            false,
+            {
+                setSubscriptionMode: (_, { enabled }) => enabled,
+            },
+        ],
+
+        subscriptionId: [
+            null as number | 'new' | null,
+            {
+                setSubscriptionMode: (_, { id }) => id || null,
             },
         ],
     }),
@@ -531,10 +548,15 @@ export const dashboardLogic = kea<dashboardLogicType>({
     events: ({ actions, cache, props }) => ({
         afterMount: () => {
             if (props.id) {
-                // When the scene is initially loaded, the dashboard ID is undefined
-                actions.loadDashboardItems({
-                    refresh: props.placement === DashboardPlacement.InternalMetrics,
-                })
+                const exportedDashboard = window.POSTHOG_EXPORTED_DATA?.dashboard
+                if (exportedDashboard && exportedDashboard.id === props.id && exportedDashboard.items) {
+                    actions.loadExportedDashboard(exportedDashboard as DashboardType)
+                } else {
+                    // When the scene is initially loaded, the dashboard ID is undefined
+                    actions.loadDashboardItems({
+                        refresh: props.placement === DashboardPlacement.InternalMetrics,
+                    })
+                }
             }
 
             if (props.shareToken) {
@@ -751,6 +773,21 @@ export const dashboardLogic = kea<dashboardLogicType>({
                 // allItems has not loaded yet, report after API request is completed
                 actions.setShouldReportOnAPILoad(true)
             }
+        },
+    }),
+
+    urlToAction: ({ actions }) => ({
+        '/dashboard/:id/subscriptions(/:subscriptionId)': ({ subscriptionId }) => {
+            const id = subscriptionId
+                ? subscriptionId == 'new'
+                    ? subscriptionId
+                    : parseInt(subscriptionId, 10)
+                : undefined
+            actions.setSubscriptionMode(true, id)
+        },
+
+        '/dashboard/:id': () => {
+            actions.setSubscriptionMode(false, undefined)
         },
     }),
 })

@@ -62,7 +62,7 @@
                 },
                 {
                     "name": "CAPTURE_INTERNAL_METRICS",
-                    "value": "True"
+                    "value": "False"
                 },
                 {
                     "name": "PISCINA_ATOMICS_TIMEOUT",
@@ -90,15 +90,11 @@
                 },
                 {
                     "name": "KAFKA_PARTITIONS_CONSUMED_CONCURRENTLY",
-                    "value": "1"
+                    "value": "5"
                 },
                 {
                     "name": "CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS",
                     "value": "True"
-                },
-                {
-                    "name": "HISTORICAL_EXPORTS_ENABLED",
-                    "value": "False"
                 },
                 {
                     "name": "PERSON_INFO_TO_REDIS_TEAMS",
@@ -113,12 +109,12 @@
                     "value": "SSL"
                 },
                 {
-                    "name": "TASKS_PER_WORKER",
+                    "name": "WORKER_CONCURRENCY",
                     "value": "2"
                 },
                 {
-                    "name": "WORKER_CONCURRENCY",
-                    "value": "2"
+                    "name": "CLEAR_CLICKHOUSE_REMOVED_DATA_SCHEDULE_CRON",
+                    "value": "0 5 * * SUN"
                 }
             ],
             "secrets": [
@@ -193,5 +189,5 @@
     ],
     "requiresCompatibilities": ["FARGATE"],
     "cpu": "4096",
-    "memory": "16384"
+    "memory": "8192"
 }

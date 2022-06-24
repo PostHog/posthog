@@ -1,4 +1,4 @@
-from ee.clickhouse.models.group import get_aggregation_target_field
+from posthog.models.group.util import get_aggregation_target_field
 from posthog.queries.retention.event_query import RetentionEventsQuery
 
 

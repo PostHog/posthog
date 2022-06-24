@@ -33,6 +33,9 @@ import {
     convertPropertyGroupToProperties,
     convertPropertiesToPropertyGroup,
     calculateDays,
+    range,
+    durationOperatorMap,
+    isExternalLink,
 } from './utils'
 import { ActionFilter, ElementType, FilterLogicalOperator, PropertyOperator, PropertyType, TimeUnitType } from '~/types'
 import { dayjs } from 'lib/dayjs'
@@ -140,15 +143,21 @@ describe('midEllipsis()', () => {
 })
 
 describe('isURL()', () => {
-    it('recognizes URLs propertly', () => {
+    it('recognizes URLs properly', () => {
         expect(isURL('https://www.posthog.com')).toEqual(true)
         expect(isURL('http://www.posthog.com')).toEqual(true)
         expect(isURL('http://www.posthog.com:8000/images')).toEqual(true)
         expect(isURL('http://localhost:8000/login?next=/insights')).toEqual(true)
         expect(isURL('http://localhost:8000/events?properties=%5B%5D')).toEqual(true)
+        expect(isURL('https://apple.com/')).toEqual(true)
+        expect(isURL('https://stripe.com')).toEqual(true)
+        expect(isURL('https://spotify.com')).toEqual(true)
+        expect(isURL('https://sevenapp.events/')).toEqual(true)
+        expect(isURL('https://seven-stagingenv.web.app/')).toEqual(true)
+        expect(isURL('https://salesforce.co.uk/')).toEqual(true)
     })
 
-    it('recognizes non-URLs propertly', () => {
+    it('recognizes non-URLs properly', () => {
         expect(isURL('1234567890')).toEqual(false)
         expect(isURL('www.posthog')).toEqual(false)
         expect(isURL('-.posthog')).toEqual(false)
@@ -156,6 +165,22 @@ describe('isURL()', () => {
         expect(isURL(1)).toEqual(false)
         expect(isURL(true)).toEqual(false)
         expect(isURL(null)).toEqual(false)
+    })
+})
+
+describe('isExternalLink()', () => {
+    it('recognizes external links properly', () => {
+        expect(isExternalLink('http://www.posthog.com')).toEqual(true)
+        expect(isExternalLink('https://www.posthog.com')).toEqual(true)
+        expect(isExternalLink('mailto:ben@posthog.com')).toEqual(true)
+    })
+
+    it('recognizes non-external links properly', () => {
+        expect(isExternalLink('path')).toEqual(false)
+        expect(isExternalLink('/path')).toEqual(false)
+        expect(isExternalLink(1)).toEqual(false)
+        expect(isExternalLink(true)).toEqual(false)
+        expect(isExternalLink(null)).toEqual(false)
     })
 })
 
@@ -542,6 +567,7 @@ describe('{floor|ceil}MsToClosestSecond()', () => {
             { propertyType: PropertyType.String, expected: stringOperatorMap },
             { propertyType: PropertyType.Numeric, expected: numericOperatorMap },
             { propertyType: PropertyType.Boolean, expected: booleanOperatorMap },
+            { propertyType: PropertyType.Duration, expected: durationOperatorMap },
             { propertyType: undefined, expected: genericOperatorMap },
         ]
         testCases.forEach((testcase) => {
@@ -617,5 +643,15 @@ describe('calculateDays', () => {
     })
     it('1 year to 365 days', () => {
         expect(calculateDays(1, TimeUnitType.Year)).toEqual(365)
+    })
+})
+
+describe('range', () => {
+    it('creates simple range', () => {
+        expect(range(4)).toEqual([0, 1, 2, 3])
+    })
+
+    it('creates offset range', () => {
+        expect(range(1, 5)).toEqual([1, 2, 3, 4])
     })
 })

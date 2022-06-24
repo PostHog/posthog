@@ -109,11 +109,15 @@ export const FEATURE_FLAGS = {
     INSIGHT_EDITOR_PANELS: '8929-insight-editor-panels', // owner: @mariusandra
     MULTI_DASHBOARD_INSIGHTS: 'multi-dashboard-insights', // owner: @pauldambra
     INSIGHT_ACTIVITY_LOG: '8545-insight-activity-log', // owner: @pauldambra
-    COHORT_FILTERS: 'cohort-filters', // owner: @edscode
     FRONTEND_APPS: '9618-frontend-apps', // owner: @mariusandra
     PROPERTY_FILTER_ON_DASHBOARD: 'property-filter-on-dashboard', // owner: @edscode
     EXPORT_DASHBOARD_INSIGHTS: 'export-dashboard-insights', // owner: @benjackwhite
     ONBOARDING_1_5: 'onboarding-1_5', // owner: @liyiy
+    BREAKDOWN_ATTRIBUTION: 'breakdown-attribution', // owner: @neilkakkar
+    INSIGHT_SUBSCRIPTIONS: 'insight-subscriptions', // owner: @benjackwhite
+    SIMPLIFY_ACTIONS: 'simplify-actions', // owner: @alexkim205,
+    SESSION_ANALYSIS: 'session-analysis', // owner: @rcmarron
+    TOOLBAR_LAUNCH_SIDE_ACTION: 'toolbar-launch-side-action', // owner: @pauldambra,
 }
 
 /** Which self-hosted plan's features are available with Cloud's "Standard" plan (aka card attached). */
@@ -136,6 +140,7 @@ export const FEATURE_MINIMUM_PLAN: Record<AvailableFeature, LicensePlan> = {
     [AvailableFeature.PROJECT_BASED_PERMISSIONING]: LicensePlan.Enterprise,
     [AvailableFeature.SAML]: LicensePlan.Enterprise,
     [AvailableFeature.SSO_ENFORCEMENT]: LicensePlan.Enterprise,
+    [AvailableFeature.SUBSCRIPTIONS]: LicensePlan.Scale,
 }
 
 export const ENTITY_MATCH_TYPE = 'entities'

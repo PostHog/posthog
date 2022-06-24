@@ -6,7 +6,7 @@ from typing import List
 
 from posthog.settings.base_variables import BASE_DIR, DEBUG, TEST
 from posthog.settings.statsd import STATSD_HOST
-from posthog.settings.utils import get_from_env, str_to_bool
+from posthog.settings.utils import get_from_env, get_list, str_to_bool
 
 # django-axes settings to lockout after too many attempts
 
@@ -42,8 +42,8 @@ INSTALLED_APPS = [
     "drf_spectacular",
 ]
 
-
 MIDDLEWARE = [
+    "posthog.gzip_middleware.ScopedGZipMiddleware",
     "django_structlog.middlewares.RequestMiddleware",
     "django_structlog.middlewares.CeleryMiddleware",
     "django.middleware.security.SecurityMiddleware",
@@ -52,6 +52,7 @@ MIDDLEWARE = [
     # using dependencies that the healthcheck should be checking. It should be
     # ok below the above middlewares however.
     "posthog.health.healthcheck_middleware",
+    "google.cloud.sqlcommenter.django.middleware.SqlCommenter",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "corsheaders.middleware.CorsMiddleware",
     "django.middleware.common.CommonMiddleware",
@@ -63,6 +64,7 @@ MIDDLEWARE = [
     "whitenoise.middleware.WhiteNoiseMiddleware",
     "axes.middleware.AxesMiddleware",
     "posthog.middleware.AutoProjectMiddleware",
+    "posthog.middleware.CHQueries",
 ]
 
 if STATSD_HOST is not None:
@@ -70,9 +72,13 @@ if STATSD_HOST is not None:
     MIDDLEWARE.append("django_statsd.middleware.StatsdMiddlewareTimer")
 
 # Append Enterprise Edition as an app if available
-INSTALLED_APPS.append("rest_hooks")
-INSTALLED_APPS.append("ee.apps.EnterpriseConfig")
-MIDDLEWARE.append("ee.clickhouse.middleware.CHQueries")
+try:
+    from ee.apps import EnterpriseConfig  # noqa: F401
+except ImportError:
+    pass
+else:
+    INSTALLED_APPS.append("rest_hooks")
+    INSTALLED_APPS.append("ee.apps.EnterpriseConfig")
 
 # Use django-extensions if it exists
 try:
@@ -219,10 +225,31 @@ EXCEPTIONS_HOG = {
 
 
 def add_recorder_js_headers(headers, path, url):
-    if url.endswith("/recorder.js"):
+    if url.endswith("/recorder.js") and not DEBUG:
         headers["Cache-Control"] = "max-age=31536000, public"
 
 
 WHITENOISE_ADD_HEADERS_FUNCTION = add_recorder_js_headers
 
 CSRF_COOKIE_NAME = "posthog_csrftoken"
+
+# see posthog.gzip_middleware.ScopedGZipMiddleware
+# for how adding paths here can add vulnerability to the "breach" attack
+GZIP_RESPONSE_ALLOW_LIST = get_list(
+    os.getenv(
+        "GZIP_RESPONSE_ALLOW_LIST",
+        ",".join(
+            [
+                "^/?api/projects/\\d+/session_recordings/.*/snapshots/?$",
+                "^/?api/plugin_config/\\d+/frontend/?$",
+                "^/?api/projects/@current/property_definitions/?$",
+                "^/?api/projects/\\d+/event_definitions/?$",
+                "^/?api/projects/\\d+/insights/(trend|funnel)/?$",
+                "^/?api/projects/\\d+/insights/\\d+/?$",
+                "^/?api/projects/\\d+/dashboards/\\d+/?$",
+                "^/?api/projects/\\d+/actions/?$",
+                "^/?api/projects/\\d+/session_recordings/?$",
+            ]
+        ),
+    )
+)

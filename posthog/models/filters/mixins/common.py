@@ -450,6 +450,16 @@ class EntityMathMixin(BaseParamMixin):
         return {"entity_math": self.target_entity_math} if self.target_entity_math else {}
 
 
+class EntityOrderMixin(BaseParamMixin):
+    @cached_property
+    def target_entity_order(self) -> Optional[str]:
+        return self._data.get("entity_order", None) or self._data.get("entity_order", None)
+
+    @include_dict
+    def entity_order_to_dict(self):
+        return {"entity_order": self.target_entity_order} if self.target_entity_order else {}
+
+
 class IncludeRecordingsMixin(BaseParamMixin):
     @cached_property
     def include_recordings(self) -> bool:

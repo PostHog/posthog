@@ -12,6 +12,7 @@ from posthog.event_usage import report_organization_deleted
 from posthog.models import Organization, User
 from posthog.models.organization import OrganizationMembership
 from posthog.models.signals import mute_selected_signals
+from posthog.models.team.util import delete_bulky_postgres_data
 from posthog.permissions import (
     CREATE_METHODS,
     OrganizationAdminWritePermissions,
@@ -124,6 +125,7 @@ class OrganizationSerializer(serializers.ModelSerializer):
         output["taxonomy_set_properties_count"] = EnterprisePropertyDefinition.objects.exclude(
             description="", tagged_items__isnull=True
         ).count()
+
         return output
 
 
@@ -166,5 +168,6 @@ class OrganizationViewSet(viewsets.ModelViewSet):
         report_organization_deleted(user, organization)
         team_ids = [team.pk for team in organization.teams.all()]
         delete_clickhouse_data.delay(team_ids=team_ids)
+        delete_bulky_postgres_data(team_ids=team_ids)
         with mute_selected_signals():
             super().perform_destroy(organization)

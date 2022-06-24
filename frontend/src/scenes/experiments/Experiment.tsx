@@ -550,6 +550,7 @@ export function Experiment(): JSX.Element {
                                             <InsightContainer
                                                 disableHeader={experimentInsightType === InsightType.TRENDS}
                                                 disableTable={true}
+                                                disableCorrelationTable={true}
                                             />
                                         </Col>
                                     </Row>

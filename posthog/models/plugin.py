@@ -2,10 +2,11 @@ import datetime
 import os
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Dict, List, Optional, cast
+from typing import Any, Dict, List, Optional, Tuple, cast
 from uuid import UUID
 
 from django.conf import settings
+from django.core import exceptions
 from django.db import models
 from django.db.models.signals import post_delete, post_save
 from django.dispatch.dispatcher import receiver
@@ -18,7 +19,13 @@ from posthog.models.signals import mutable_receiver
 from posthog.models.team import Team
 from posthog.plugins.access import can_configure_plugins, can_install_plugins
 from posthog.plugins.reload import reload_plugins_on_workers
-from posthog.plugins.utils import download_plugin_archive, get_json_from_archive, load_json_file, parse_url
+from posthog.plugins.utils import (
+    download_plugin_archive,
+    extract_plugin_code,
+    get_file_from_archive,
+    load_json_file,
+    parse_url,
+)
 from posthog.version import VERSION
 
 from .utils import UUIDModel, sane_repr
@@ -41,31 +48,34 @@ def raise_if_plugin_installed(url: str, organization_id: str):
         raise ValidationError(f'Plugin from URL "{url_without_private_key}" already installed!')
 
 
-def update_validated_data_from_url(validated_data: Dict[str, Any], url: str) -> Dict:
-    """If remote plugin, download the archive and get up-to-date validated_data from there."""
+def update_validated_data_from_url(validated_data: Dict[str, Any], url: str) -> Dict[str, Any]:
+    """If remote plugin, download the archive and get up-to-date validated_data from there. Returns plugin.json."""
+    plugin_json: Optional[Dict[str, Any]]
     if url.startswith("file:"):
         plugin_path = url[5:]
-        json_path = os.path.join(plugin_path, "plugin.json")
-        json = load_json_file(json_path)
-        if not json:
-            raise ValidationError(f"Could not load plugin.json from: {json_path}")
+        plugin_json_path = os.path.join(plugin_path, "plugin.json")
+        plugin_json = cast(Optional[Dict[str, Any]], load_json_file(plugin_json_path))
+        if not plugin_json:
+            raise ValidationError(f"Could not load plugin.json from: {plugin_json_path}")
         validated_data["plugin_type"] = "local"
         validated_data["url"] = url
         validated_data["tag"] = None
         validated_data["archive"] = None
-        validated_data["name"] = json.get("name", json_path.split("/")[-2])
-        validated_data["description"] = json.get("description", "")
-        validated_data["config_schema"] = json.get("config", [])
-        validated_data["public_jobs"] = json.get("publicJobs", {})
-        posthog_version = json.get("posthogVersion", None)
-        validated_data["is_stateless"] = json.get("stateless", False)
+        validated_data["name"] = plugin_json.get("name", plugin_json_path.split("/")[-2])
+        validated_data["description"] = plugin_json.get("description", "")
+        validated_data["config_schema"] = plugin_json.get("config", [])
+        validated_data["public_jobs"] = plugin_json.get("publicJobs", {})
+        posthog_version = plugin_json.get("posthogVersion", None)
+        validated_data["is_stateless"] = plugin_json.get("stateless", False)
     else:
         parsed_url = parse_url(url, get_latest_if_none=True)
         if parsed_url:
             validated_data["url"] = parsed_url["root_url"]
             validated_data["tag"] = parsed_url.get("tag", None)
             validated_data["archive"] = download_plugin_archive(validated_data["url"], validated_data["tag"])
-            plugin_json = get_json_from_archive(validated_data["archive"], "plugin.json")
+            plugin_json = cast(
+                Optional[Dict[str, Any]], get_file_from_archive(validated_data["archive"], "plugin.json")
+            )
             if not plugin_json:
                 raise ValidationError("Could not find plugin.json in the plugin")
             validated_data["name"] = plugin_json["name"]
@@ -97,18 +107,22 @@ def update_validated_data_from_url(validated_data: Dict[str, Any], url: str) -> 
                 f'Currently running PostHog version {VERSION} does not match this plugin\'s semantic version requirement "{posthog_version}".'
             )
 
-    return validated_data
+    return plugin_json
 
 
 class PluginManager(models.Manager):
     def install(self, **kwargs) -> "Plugin":
         if "organization_id" not in kwargs and "organization" in kwargs:
             kwargs["organization_id"] = kwargs["organization"].id
+        plugin_json: Optional[Dict[str, Any]] = None
         if kwargs.get("plugin_type", None) != Plugin.PluginType.SOURCE:
-            update_validated_data_from_url(kwargs, kwargs["url"])
+            plugin_json = update_validated_data_from_url(kwargs, kwargs["url"])
             raise_if_plugin_installed(kwargs["url"], kwargs["organization_id"])
+        plugin = Plugin.objects.create(**kwargs)
+        if plugin_json:
+            PluginSourceFile.objects.sync_from_plugin_archive(plugin, plugin_json)
         reload_plugins_on_workers()
-        return Plugin.objects.create(**kwargs)
+        return plugin
 
 
 class Plugin(models.Model):
@@ -175,6 +189,8 @@ class Plugin(models.Model):
         return config
 
     def __str__(self) -> str:
+        if not self.name:
+            return f"ID {self.id}"
         return self.name
 
     __repr__ = sane_repr("id", "name", "organization_id", "is_global")
@@ -230,6 +246,46 @@ class PluginLogEntryType(str, Enum):
     ERROR = "ERROR"
 
 
+class PluginSourceFileManager(models.Manager):
+    def sync_from_plugin_archive(
+        self, plugin: Plugin, plugin_json_parsed: Optional[Dict[str, Any]] = None
+    ) -> Tuple["PluginSourceFile", Optional["PluginSourceFile"], Optional["PluginSourceFile"]]:
+        """Create PluginSourceFile objects from a plugin that has an archive.
+
+        If plugin.json has already been parsed before this is called, its value can be passed in as an optimization."""
+        try:
+            plugin_json, index_ts, frontend_tsx = extract_plugin_code(plugin.archive, plugin_json_parsed)
+        except ValueError as e:
+            raise exceptions.ValidationError(f"{e} in plugin {plugin}")
+        # If frontend.tsx or index.ts are not present in the archive, make sure they aren't found in the DB either
+        filenames_to_delete = []
+        # Save plugin.json
+        plugin_json_instance, _ = PluginSourceFile.objects.update_or_create(
+            plugin=plugin, filename="plugin.json", defaults={"source": plugin_json}
+        )
+        # Save frontend.tsx
+        frontend_tsx_instance: Optional["PluginSourceFile"] = None
+        if frontend_tsx is not None:
+            frontend_tsx_instance, _ = PluginSourceFile.objects.update_or_create(
+                plugin=plugin, filename="frontend.tsx", defaults={"source": frontend_tsx}
+            )
+        else:
+            filenames_to_delete.append("frontend.tsx")
+        # Save index.ts
+        index_ts_instance: Optional["PluginSourceFile"] = None
+        if index_ts is not None:
+            # The original name of the file is not preserved, but this greatly simplifies the rest of the code,
+            # and we don't need to model the whole filesystem (at this point)
+            index_ts_instance, _ = PluginSourceFile.objects.update_or_create(
+                plugin=plugin, filename="index.ts", defaults={"source": index_ts}
+            )
+        else:
+            filenames_to_delete.append("index.ts")
+        # Make sure files are gone
+        PluginSourceFile.objects.filter(plugin=plugin, filename__in=filenames_to_delete).delete()
+        return plugin_json_instance, index_ts_instance, frontend_tsx_instance
+
+
 class PluginSourceFile(UUIDModel):
     class Meta:
         constraints = [
@@ -248,6 +304,8 @@ class PluginSourceFile(UUIDModel):
     status: models.CharField = models.CharField(max_length=20, choices=Status.choices, null=True)
     transpiled: models.TextField = models.TextField(blank=True, null=True)
     error: models.TextField = models.TextField(blank=True, null=True)
+
+    objects: PluginSourceFileManager = PluginSourceFileManager()
 
     __repr__ = sane_repr("plugin_id", "filename", "status")
 

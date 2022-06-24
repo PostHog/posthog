@@ -1,4 +1,4 @@
-{% extends "email/base_transactional.html" %} {% load posthog_assets %} {% block section %}
+{% extends "email/base.html" %} {% load posthog_assets %} {% block section %}
 <p>
     If you are seeing this email, you have properly configured your email settings for your PostHog instance at
     <a href="{{ site_url }}" target="_blank">{{ site_url }}</a>. Nothing else to do here, emails will now be sent when

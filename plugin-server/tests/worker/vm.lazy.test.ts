@@ -1,8 +1,10 @@
+import { RetryError } from '@posthog/plugin-scaffold'
+
 import { PluginLogEntrySource, PluginLogEntryType, PluginTaskType } from '../../src/types'
 import { status } from '../../src/utils/status'
 import { LazyPluginVM } from '../../src/worker/vm/lazy'
 import { createPluginConfigVM } from '../../src/worker/vm/vm'
-import { plugin60 } from '../helpers/plugins'
+import { plugin60, pluginConfig39 } from '../helpers/plugins'
 import { disablePlugin } from '../helpers/sqlMock'
 
 jest.mock('../../src/utils/db/error')
@@ -20,6 +22,7 @@ const mockConfig = {
 describe('LazyPluginVM', () => {
     const db = {
         queuePluginLogEntry: jest.fn(),
+        celeryApplyAsync: jest.fn(),
     }
 
     const mockServer: any = {
@@ -68,7 +71,7 @@ describe('LazyPluginVM', () => {
             void initializeVm(vm)
             await vm.resolveInternalVm
 
-            expect(status.info).toHaveBeenCalledWith('🔌', 'Loaded some plugin')
+            expect(status.info).toHaveBeenCalledWith('🔌', 'Loaded some plugin.')
             expect(mockServer.db.queuePluginLogEntry).toHaveBeenCalledWith(
                 expect.objectContaining({
                     instanceId: undefined,
@@ -114,20 +117,22 @@ describe('LazyPluginVM', () => {
             await vm.initialize!('some log info', 'failure plugin')
             await vm.resolveInternalVm
 
-            expect((status.warn as any).mock.calls).toEqual([['⚠️', 'VM creation failed before setupPlugin']])
+            expect((status.warn as any).mock.calls).toEqual([
+                ['⚠️', 'Failed to load failure plugin. Error: VM creation failed before setupPlugin'],
+            ])
 
             // plugin gets disabled
             expect(disablePlugin).toHaveBeenCalledTimes(1)
             expect(disablePlugin).toHaveBeenCalledWith(mockServer, 39)
         })
 
-        it('_setupPlugin handles retries correctly', async () => {
+        it('_setupPlugin handles RetryError succeeding at last', async () => {
             const mockedRun = jest.fn()
             const mockVm = {
                 run: mockedRun,
             }
             mockedRun.mockImplementation(() => {
-                throw new Error('oh no')
+                throw new RetryError()
             })
 
             const lazyVm = createVM()
@@ -137,7 +142,7 @@ describe('LazyPluginVM', () => {
             expect(mockServer.db.queuePluginLogEntry).toHaveBeenLastCalledWith(
                 expect.objectContaining({
                     instanceId: undefined,
-                    message: expect.stringContaining('oh no'),
+                    message: expect.stringContaining('setupPlugin failed with RetryError (attempt 1/5)'),
                 })
             )
             await lazyVm._setupPlugin(mockVm as any)
@@ -145,24 +150,111 @@ describe('LazyPluginVM', () => {
             await lazyVm._setupPlugin(mockVm as any)
 
             expect((status.warn as any).mock.calls).toEqual([
-                ['⚠️', expect.stringContaining('setupPlugin failed for plugin test-maxmind-plugin')],
-                ['⚠️', expect.stringContaining('setupPlugin failed for plugin test-maxmind-plugin')],
-                ['⚠️', expect.stringContaining('setupPlugin failed for plugin test-maxmind-plugin')],
-                ['⚠️', expect.stringContaining('setupPlugin failed for plugin test-maxmind-plugin')],
+                [
+                    '⚠️',
+                    expect.stringContaining(
+                        'setupPlugin failed with RetryError (attempt 1/5) for plugin test-maxmind-plugin'
+                    ),
+                ],
+                [
+                    '⚠️',
+                    expect.stringContaining(
+                        'setupPlugin failed with RetryError (attempt 2/5) for plugin test-maxmind-plugin'
+                    ),
+                ],
+                [
+                    '⚠️',
+                    expect.stringContaining(
+                        'setupPlugin failed with RetryError (attempt 3/5) for plugin test-maxmind-plugin'
+                    ),
+                ],
+                [
+                    '⚠️',
+                    expect.stringContaining(
+                        'setupPlugin failed with RetryError (attempt 4/5) for plugin test-maxmind-plugin'
+                    ),
+                ],
             ])
 
             expect((status.info as any).mock.calls).toEqual([])
 
+            // The 5th, final attempt succeeds because we re-mock the implementation to succeed. Yay!
             mockedRun.mockImplementation(() => 1)
+
+            await expect(lazyVm._setupPlugin(mockVm as any)).resolves.toBeUndefined()
+
+            expect((status.info as any).mock.calls).toEqual([
+                ['🔌', expect.stringContaining('setupPlugin succeeded for plugin test-maxmind-plugin')],
+            ])
+
+            // Plugin does not get disabled
+            expect(disablePlugin).toHaveBeenCalledTimes(0)
+        })
+
+        it('_setupPlugin handles RetryError never succeeding', async () => {
+            const mockedRun = jest.fn()
+            const mockVm = {
+                run: mockedRun,
+            }
+            mockedRun.mockImplementation(() => {
+                throw new RetryError()
+            })
+
+            const lazyVm = createVM()
 
             await lazyVm._setupPlugin(mockVm as any)
 
-            expect((status.info as any).mock.calls).toEqual([
-                ['🔌', expect.stringContaining('setupPlugin completed successfully for plugin test-maxmind-plugin')],
+            expect(mockServer.db.queuePluginLogEntry).toHaveBeenLastCalledWith(
+                expect.objectContaining({
+                    instanceId: undefined,
+                    message: expect.stringContaining('setupPlugin failed with RetryError (attempt 1/5)'),
+                })
+            )
+            await lazyVm._setupPlugin(mockVm as any)
+            await lazyVm._setupPlugin(mockVm as any)
+            await lazyVm._setupPlugin(mockVm as any)
+
+            expect(jest.mocked(status.warn).mock.calls).toEqual([
+                [
+                    '⚠️',
+                    expect.stringContaining(
+                        'setupPlugin failed with RetryError (attempt 1/5) for plugin test-maxmind-plugin'
+                    ),
+                ],
+                [
+                    '⚠️',
+                    expect.stringContaining(
+                        'setupPlugin failed with RetryError (attempt 2/5) for plugin test-maxmind-plugin'
+                    ),
+                ],
+                [
+                    '⚠️',
+                    expect.stringContaining(
+                        'setupPlugin failed with RetryError (attempt 3/5) for plugin test-maxmind-plugin'
+                    ),
+                ],
+                [
+                    '⚠️',
+                    expect.stringContaining(
+                        'setupPlugin failed with RetryError (attempt 4/5) for plugin test-maxmind-plugin'
+                    ),
+                ],
             ])
 
-            // plugin never gets disabled
-            expect(disablePlugin).toHaveBeenCalledTimes(0)
+            // Setup never succeeds
+            await expect(lazyVm._setupPlugin(mockVm as any)).rejects.toThrow(
+                'setupPlugin failed with RetryError (attempt 5/5) for plugin test-maxmind-plugin'
+            )
+
+            // Plugin gets disabled due to failure
+            expect(disablePlugin).toHaveBeenCalledTimes(1)
+            // An email to project members about the failure is queued
+            expect(mockServer.db.celeryApplyAsync).toHaveBeenCalledWith('posthog.tasks.email.send_fatal_plugin_error', [
+                pluginConfig39.id,
+                null,
+                'RetryError (attempt 5/5)',
+                false,
+            ])
         })
     })
 })

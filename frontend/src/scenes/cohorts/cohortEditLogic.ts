@@ -1,7 +1,7 @@
-import { actions, afterMount, beforeUnmount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, beforeUnmount, kea, key, listeners, path, props, reducers } from 'kea'
 import api from 'lib/api'
 import { cohortsModel } from '~/models/cohortsModel'
-import { ENTITY_MATCH_TYPE, FEATURE_FLAGS, PROPERTY_MATCH_TYPE } from 'lib/constants'
+import { ENTITY_MATCH_TYPE } from 'lib/constants'
 import {
     AnyCohortCriteriaType,
     AnyCohortGroupType,
@@ -17,19 +17,18 @@ import { router } from 'kea-router'
 import { actionToUrl } from 'kea-router'
 import { loaders } from 'kea-loaders'
 import { forms } from 'kea-forms'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import {
     applyAllCriteriaGroup,
     applyAllNestedCriteria,
     cleanCriteria,
     createCohortFormData,
     isCohortCriteriaGroup,
-    processCohortOnSet,
     validateGroup,
 } from 'scenes/cohorts/cohortUtils'
 import { NEW_COHORT, NEW_CRITERIA, NEW_CRITERIA_GROUP } from 'scenes/cohorts/CohortFilters/constants'
 import type { cohortEditLogicType } from './cohortEditLogicType'
 import { CohortLogicProps } from 'scenes/cohorts/cohortLogic'
+import { processCohort } from 'lib/utils'
 
 export const cohortEditLogic = kea<cohortEditLogicType>([
     props({} as CohortLogicProps),
@@ -145,35 +144,17 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
         ],
     })),
 
-    forms(({ actions, values }) => ({
+    forms(({ actions }) => ({
         cohort: {
             defaults: NEW_COHORT,
-            errors: ({ id, name, csv, is_static, groups, filters }) => ({
+            errors: ({ id, name, csv, is_static, filters }) => ({
                 name: !name ? 'Cohort name cannot be empty' : undefined,
                 csv: is_static && id === 'new' && !csv ? 'You need to upload a CSV file' : (null as any),
-                ...(values.newCohortFiltersEnabled
-                    ? {
-                          filters: {
-                              properties: {
-                                  values: is_static ? undefined : filters.properties.values.map(validateGroup),
-                              },
-                          },
-                      }
-                    : {
-                          groups: is_static
-                              ? undefined
-                              : !groups || groups.length < 1
-                              ? [{ id: 'You need at least one matching group' }]
-                              : groups?.map(({ matchType, properties, action_id, event_id }) => {
-                                    if (matchType === PROPERTY_MATCH_TYPE && !properties?.length) {
-                                        return { id: 'Please select at least one property or remove this match group.' }
-                                    }
-                                    if (matchType === ENTITY_MATCH_TYPE && !(action_id || event_id)) {
-                                        return { id: 'Please select an event or action.' }
-                                    }
-                                    return { id: undefined }
-                                }),
-                      }),
+                filters: {
+                    properties: {
+                        values: is_static ? undefined : filters.properties.values.map(validateGroup),
+                    },
+                },
             }),
             submit: (cohort) => {
                 actions.saveCohort(cohort)
@@ -185,14 +166,14 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
         cohort: [
             NEW_COHORT as CohortType,
             {
-                setCohort: ({ cohort }) => processCohortOnSet(cohort, values.newCohortFiltersEnabled),
+                setCohort: ({ cohort }) => processCohort(cohort),
                 fetchCohort: async ({ id }, breakpoint) => {
                     try {
                         const cohort = await api.cohorts.get(id)
                         breakpoint()
                         cohortsModel.actions.updateCohort(cohort)
                         actions.checkIfFinishedCalculating(cohort)
-                        return processCohortOnSet(cohort, values.newCohortFiltersEnabled)
+                        return processCohort(cohort)
                     } catch (error: any) {
                         lemonToast.error(error.detail || 'Failed to fetch cohort')
                         return values.cohort
@@ -200,7 +181,7 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                 },
                 saveCohort: async ({ cohortParams }, breakpoint) => {
                     let cohort = { ...cohortParams }
-                    const cohortFormData = createCohortFormData(cohort, values.newCohortFiltersEnabled)
+                    const cohortFormData = createCohortFormData(cohort)
 
                     try {
                         if (cohort.id !== 'new') {
@@ -224,7 +205,7 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                         toastId: `cohort-saved-${key}`,
                     })
                     actions.checkIfFinishedCalculating(cohort)
-                    return processCohortOnSet(cohort, values.newCohortFiltersEnabled)
+                    return processCohort(cohort)
                 },
                 onCriteriaChange: ({ newGroup, id }) => {
                     const cohort = { ...values.cohort }
@@ -241,19 +222,11 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                             ...newGroup,
                         }
                     }
-                    return processCohortOnSet(cohort, values.newCohortFiltersEnabled)
+                    return processCohort(cohort)
                 },
             },
         ],
     })),
-
-    selectors({
-        newCohortFiltersEnabled: [
-            () => [featureFlagLogic.selectors.featureFlags],
-            (featureFlags) => !!featureFlags[FEATURE_FLAGS.COHORT_FILTERS],
-        ],
-    }),
-
     listeners(({ actions, values, key }) => ({
         deleteCohort: () => {
             cohortsModel.findMounted()?.actions.deleteCohort({ id: values.cohort.id, name: values.cohort.name })

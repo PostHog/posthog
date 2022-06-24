@@ -1,0 +1,56 @@
+# Generates the `posthog/posthog:foss-latest-release` & `posthog/posthog:foss-release-[version]` Docker images
+# and pushes to Docker Hub
+
+name: Docker FOSS release image
+
+on:
+    push:
+        tags:
+            - '*.**'
+
+jobs:
+    build-push:
+        name: Build & push Docker release image
+        runs-on: ubuntu-20.04
+        permissions:
+            contents: read
+            id-token: write
+        steps:
+            - name: Checkout default branch
+              if: github.repository == 'PostHog/posthog-foss'
+              uses: actions/checkout@v2
+
+            - name: Get tag name
+              if: github.repository == 'PostHog/posthog-foss'
+              run: echo "TAG_NAME=$(echo ${GITHUB_REF#refs/tags/} | tr / -)" >> $GITHUB_ENV
+
+            - name: Update git SHA
+              if: github.repository == 'PostHog/posthog-foss'
+              run: echo "GIT_SHA = '${GITHUB_SHA}'" > posthog/gitsha.py
+
+            - name: Set up Depot CLI
+              if: github.repository == 'PostHog/posthog-foss'
+              uses: depot/setup-action@v1
+
+            - name: Login to DockerHub
+              if: github.repository == 'PostHog/posthog-foss'
+              uses: docker/login-action@v1
+              with:
+                  username: ${{ secrets.DOCKERHUB_USERNAME }}
+                  password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+            - name: Build and push release
+              if: github.repository == 'PostHog/posthog-foss'
+              id: docker-release
+              uses: depot/build-push-action@v1
+              with:
+                  context: .
+                  push: true
+                  tags: |
+                      posthog/posthog-foss:latest-release
+                      posthog/posthog-foss:release-${{ env.TAG_NAME  }}
+
+            - name: Image digest
+              if: github.repository == 'PostHog/posthog-foss'
+              run: |
+                  echo "Pushed release: ${{ steps.docker-release.outputs.digest }}"

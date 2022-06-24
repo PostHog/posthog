@@ -197,11 +197,11 @@ class TestUpdateCache(APIBaseTest):
         self.assertEqual(updated_dashboard_item.last_refresh, now())
 
     @freeze_time("2012-01-15")
-    @patch("ee.clickhouse.queries.funnels.ClickhouseFunnelUnordered", create=True)
-    @patch("ee.clickhouse.queries.funnels.ClickhouseFunnelStrict", create=True)
+    @patch("posthog.queries.funnels.ClickhouseFunnelUnordered", create=True)
+    @patch("posthog.queries.funnels.ClickhouseFunnelStrict", create=True)
     @patch("posthog.tasks.update_cache.ClickhouseFunnelTimeToConvert", create=True)
     @patch("posthog.tasks.update_cache.ClickhouseFunnelTrends", create=True)
-    @patch("ee.clickhouse.queries.funnels.ClickhouseFunnel", create=True)
+    @patch("posthog.queries.funnels.ClickhouseFunnel", create=True)
     def test_update_cache_item_calls_right_funnel_class_clickhouse(
         self,
         funnel_mock: MagicMock,

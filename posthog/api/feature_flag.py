@@ -206,6 +206,7 @@ class FeatureFlagViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.Mo
 
         feature_flags = (
             FeatureFlag.objects.filter(team=self.team, active=True, deleted=False)
+            .select_related("created_by")
             .prefetch_related(
                 Prefetch(
                     "featureflagoverride_set",

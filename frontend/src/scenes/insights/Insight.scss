@@ -1,8 +1,6 @@
 @import '../../styles/breakpoints';
 @import '../../styles/mixins';
 
-$editor_panel_width: min(28rem, 50%);
-
 .insights-page {
     h2 {
         font-size: 1.125rem;
@@ -52,10 +50,6 @@ $editor_panel_width: min(28rem, 50%);
         &.active {
             border-bottom: 2px solid var(--primary);
         }
-    }
-
-    .LastModified {
-        margin-top: 0.5rem;
     }
 
     hr {
@@ -111,45 +105,66 @@ $editor_panel_width: min(28rem, 50%);
         }
     }
 
-    .insights-wrapper {
-        @media screen and (min-width: $md) {
-            display: flex;
-            overflow: hidden;
-            gap: 1rem;
-            flex-direction: row-reverse;
-        }
+    .insight-editor-area-wrapper {
+        flex-shrink: 0;
 
-        .insights-container {
-            flex: 1;
-            overflow-x: auto;
-        }
         .insight-editor-area {
-            flex-shrink: 0;
-
             > * {
                 margin-bottom: 1em;
             }
+        }
 
-            @media screen and (min-width: $md) {
-                width: $editor_panel_width;
+        @media screen and (min-width: $lg) {
+            --editor-panel-width: max(25vw, 28rem);
 
-                &.anim--enter {
-                    width: 0px;
+            .insight-editor-area {
+                width: var(--editor-panel-width);
+                padding-right: 1rem;
+            }
+            &.anim--enter {
+                width: 0px;
+
+                .insight-editor-area {
+                    transform: translateX(calc(-1 * var(--editor-panel-width)));
                 }
+            }
 
-                &.anim--enter-active {
-                    width: $editor_panel_width;
-                    transition: width 250ms;
+            &.anim--enter-active {
+                width: var(--editor-panel-width);
+                transition: width 250ms;
+                .insight-editor-area {
+                    transform: translateX(0px);
+                    transition: transform 250ms;
                 }
+            }
 
-                &.anim--exit {
-                    width: $editor_panel_width;
+            &.anim--exit {
+                width: var(--editor-panel-width);
+                .insight-editor-area {
+                    transform: translateX(0px);
                 }
+            }
 
-                &.anim--exit-active {
-                    width: 0px;
-                    transition: width 250ms;
+            &.anim--exit-active {
+                width: 0px;
+                transition: width 250ms;
+                .insight-editor-area {
+                    transform: translateX(calc(-1 * var(--editor-panel-width)));
+                    transition: transform 250ms;
                 }
+            }
+        }
+    }
+
+    .insights-wrapper {
+        position: relative;
+        @media screen and (min-width: $lg) {
+            display: flex;
+            overflow: hidden;
+
+            .insights-container {
+                flex: 1;
+                overflow-x: auto;
             }
         }
     }

@@ -1,0 +1,80 @@
+# name: Test0005PersonCollapsedByVersion.test_migration_schema
+  '
+  CREATE TABLE posthog_test.kafka_person
+  (
+      `id` UUID,
+      `created_at` DateTime64(3),
+      `team_id` Int64,
+      `properties` String,
+      `is_identified` Int8,
+      `is_deleted` Int8 DEFAULT 0,
+      `version` UInt64
+  )
+  ENGINE = Kafka('kafka:9092', 'clickhouse_person_test', 'group1', 'JSONEachRow')
+  '
+---
+# name: Test0005PersonCollapsedByVersion.test_migration_schema.1
+  '
+  CREATE TABLE posthog_test.person
+  (
+      `id` UUID,
+      `created_at` DateTime64(3),
+      `team_id` Int64,
+      `properties` String,
+      `is_identified` Int8,
+      `is_deleted` Int8 DEFAULT 0,
+      `version` UInt64,
+      `_timestamp` DateTime,
+      `_offset` UInt64
+  )
+  ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/am0005_20220601000000_noshard/posthog.person', '{replica}-{shard}', version)
+  ORDER BY (team_id, id)
+  SETTINGS index_granularity = 8192
+  '
+---
+# name: Test0005PersonCollapsedByVersion.test_migration_schema.2
+  '
+  CREATE TABLE posthog_test.person_backup_0005_person_collapsed_by_version
+  (
+      `id` UUID,
+      `created_at` DateTime64(3),
+      `team_id` Int64,
+      `properties` String,
+      `is_identified` Int8,
+      `is_deleted` Int8 DEFAULT 0,
+      `version` UInt64,
+      `_timestamp` DateTime,
+      `_offset` UInt64
+  )
+  ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/00000000-0000-0000-0000-000000000000-noshard/posthog.person', '{replica}-{shard}', _timestamp)
+  ORDER BY (team_id, id)
+  SETTINGS index_granularity = 819
+  '
+---
+# name: Test0005PersonCollapsedByVersion.test_migration_schema.3
+  '
+  CREATE MATERIALIZED VIEW posthog_test.person_mv TO posthog_test.person
+  (
+      `id` UUID,
+      `created_at` DateTime64(3),
+      `team_id` Int64,
+      `properties` String,
+      `is_identified` Int8,
+      `is_deleted` Int8,
+      `version` UInt64,
+      `_timestamp` Nullable(DateTime),
+      `_offset` UInt64
+  ) AS
+  SELECT
+      id,
+      created_at,
+      team_id,
+      properties,
+      is_identified,
+      is_deleted,
+      version,
+      _timestamp,
+      _offset
+  FROM posthog_test.kafka_person
+  '
+---

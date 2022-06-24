@@ -175,12 +175,15 @@ export function ActionFilterRow({
         ) : (
             <SeriesLetter seriesIndex={index} hasBreakdown={hasBreakdown} />
         )
-
     const filterElement = (
         <Popup
             overlay={
                 <TaxonomicFilter
-                    groupType={filter.type as TaxonomicFilterGroupType}
+                    groupType={
+                        filter.type === EntityTypes.NEW_ENTITY
+                            ? TaxonomicFilterGroupType.Events
+                            : (filter.type as TaxonomicFilterGroupType)
+                    }
                     value={
                         filter.type === 'actions' && typeof value === 'string' ? parseInt(value) : value || undefined
                     }
@@ -211,6 +214,8 @@ export function ActionFilterRow({
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'space-between',
+                        borderColor: selectedFilter && selectedFilter.index === index ? 'var(--primary-hover)' : '',
+                        borderWidth: selectedFilter && selectedFilter.index === index ? '1.5px' : '1px',
                     }}
                 >
                     <span className="text-overflow" style={{ maxWidth: '100%' }}>

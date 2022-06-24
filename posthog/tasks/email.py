@@ -1,18 +1,17 @@
 import uuid
 from datetime import datetime
-from typing import List
+from typing import List, Optional
 
 import posthoganalytics
 import structlog
 from django.conf import settings
+from django.contrib.auth.tokens import default_token_generator
 from django.utils import timezone
 
 from posthog.celery import app
 from posthog.email import EmailMessage, is_email_available
 from posthog.event_usage import report_first_ingestion_reminder_email_sent, report_second_ingestion_reminder_email_sent
-from posthog.models import Organization, OrganizationInvite, User
-from posthog.models.team import Team
-from posthog.utils import absolute_uri
+from posthog.models import Organization, OrganizationInvite, OrganizationMembership, Plugin, PluginConfig, Team, User
 
 logger = structlog.get_logger(__name__)
 
@@ -61,6 +60,57 @@ def send_member_join(invitee_uuid: str, organization_id: str) -> None:
         for user in members_to_email:
             message.add_recipient(email=user.email, name=user.first_name)
         message.send()
+
+
+@app.task(max_retries=1)
+def send_password_reset(user_id: int) -> None:
+    user = User.objects.get(pk=user_id)
+    token = default_token_generator.make_token(user)
+    message = EmailMessage(
+        campaign_key=f"password-reset-{user.uuid}-{timezone.now().timestamp()}",
+        subject=f"Reset your PostHog password",
+        template_name="password_reset",
+        template_context={
+            "preheader": "Please follow the link inside to reset your password.",
+            "link": f"/reset/{user.uuid}/{token}",
+            "cloud": settings.MULTI_TENANCY,
+            "site_url": settings.SITE_URL,
+            "social_providers": list(user.social_auth.values_list("provider", flat=True)),
+        },
+    )
+    message.add_recipient(user.email)
+    message.send()
+
+
+@app.task(max_retries=1)
+def send_fatal_plugin_error(
+    plugin_config_id: int, plugin_config_updated_at: Optional[str], error: str, is_system_error: bool
+) -> None:
+    if not is_email_available(with_absolute_urls=True):
+        return
+    plugin_config: PluginConfig = PluginConfig.objects.select_related("plugin", "team").get(id=plugin_config_id)
+    plugin: Plugin = plugin_config.plugin
+    team: Team = plugin_config.team
+    campaign_key: str = f"plugin_disabled_email_plugin_config_{plugin_config_id}_updated_at_{plugin_config_updated_at}"
+    message = EmailMessage(
+        campaign_key=campaign_key,
+        subject=f"[Alert] {plugin} has been disabled in project {team} due to a fatal error",
+        template_name="fatal_plugin_error",
+        template_context={"plugin": plugin, "team": team, "error": error, "is_system_error": is_system_error},
+    )
+    memberships_to_email = [
+        membership
+        for membership in OrganizationMembership.objects.select_related("user", "organization").filter(
+            organization_id=team.organization_id
+        )
+        # Only send the email to users who have access to the affected project
+        # Those without access have `effective_membership_level` of `None`
+        if team.get_effective_membership_level_for_parent_membership(membership) is not None
+    ]
+    if memberships_to_email:
+        for membership in memberships_to_email:
+            message.add_recipient(email=membership.user.email, name=membership.user.first_name)
+        message.send(send_async=False)
 
 
 @app.task(max_retries=1)
@@ -136,15 +186,7 @@ def send_first_ingestion_reminder_emails() -> None:
                     subject="Get started: How to send events to PostHog",
                     reply_to="hey@posthog.com",
                     template_name="first_ingestion_reminder",
-                    template_context={
-                        "first_name": user.first_name,
-                        "invite_users_url": absolute_uri(
-                            "/organization/settings?utm_source=posthog&utm_medium=email&utm_campaign=first_ingestion_reminder"
-                        ),
-                        "ingest_events_url": absolute_uri(
-                            "ingestion/?utm_source=posthog&utm_medium=email&utm_campaign=first_ingestion_reminder"
-                        ),
-                    },
+                    template_context={"first_name": user.first_name},
                 )
 
                 message.add_recipient(user.email)
@@ -170,12 +212,7 @@ def send_second_ingestion_reminder_emails() -> None:
                     subject="Your PostHog project is waiting for events",
                     reply_to="hey@posthog.com",
                     template_name="second_ingestion_reminder",
-                    template_context={
-                        "first_name": user.first_name,
-                        "ingest_events_url": absolute_uri(
-                            "ingestion/?utm_source=posthog&utm_medium=email&utm_campaign=second_ingestion_reminder"
-                        ),
-                    },
+                    template_context={"first_name": user.first_name},
                 )
 
                 message.add_recipient(user.email)

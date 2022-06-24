@@ -108,7 +108,7 @@
                 },
                 {
                     "name": "CAPTURE_INTERNAL_METRICS",
-                    "value": "True"
+                    "value": "False"
                 },
                 {
                     "name": "USING_PGBOUNCER",
@@ -141,6 +141,10 @@
                 {
                     "name": "KAFKA_SECURITY_PROTOCOL",
                     "value": "SSL"
+                },
+                {
+                    "name": "CLEAR_CLICKHOUSE_REMOVED_DATA_SCHEDULE_CRON",
+                    "value": "0 5 * * SUN"
                 }
             ],
             "secrets": [

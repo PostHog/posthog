@@ -10,6 +10,12 @@ from posthog.models.instance_setting import get_instance_setting
 from posthog.settings import TEST
 from posthog.version import VERSION
 
+
+def reload_migration_definitions():
+    for name, module in all_migrations.items():
+        ALL_ASYNC_MIGRATIONS[name] = module.Migration()
+
+
 ALL_ASYNC_MIGRATIONS: Dict[str, AsyncMigrationDefinition] = {}
 
 ASYNC_MIGRATION_TO_DEPENDENCY: Dict[str, Optional[str]] = {}
@@ -24,9 +30,7 @@ ASYNC_MIGRATIONS_MODULE_PATH = "posthog.async_migrations.migrations"
 ASYNC_MIGRATIONS_EXAMPLE_MODULE_PATH = "posthog.async_migrations.examples"
 
 all_migrations = import_submodules(ASYNC_MIGRATIONS_MODULE_PATH)
-
-for name, module in all_migrations.items():
-    ALL_ASYNC_MIGRATIONS[name] = module.Migration()
+reload_migration_definitions()
 
 
 def setup_async_migrations(ignore_posthog_version: bool = False):
