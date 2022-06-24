@@ -119,6 +119,7 @@ export const FEATURE_FLAGS = {
     SUBSCRIPTIONS_SLACK: 'subscriptions-slack', // owner: @benjackwhite
     SESSION_ANALYSIS: 'session-analysis', // owner: @rcmarron
     TOOLBAR_LAUNCH_SIDE_ACTION: 'toolbar-launch-side-action', // owner: @pauldambra,
+    FEATURE_FLAG_EXPERIENCE_CONTINUITY: 'feature-flag-experience-continuity', // owner: @neilkakkar
 }
 
 /** Which self-hosted plan's features are available with Cloud's "Standard" plan (aka card attached). */
