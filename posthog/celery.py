@@ -108,8 +108,6 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
             clear_clickhouse_crontab, clickhouse_clear_removed_data.s(), name="clickhouse clear removed data"
         )
 
-    sender.add_periodic_task(crontab(hour="*", minute="*"), test_task.s())
-
     if EE_AVAILABLE:
         from ee.tasks.tasks import setup_periodic_tasks as setup_periodic_ee_tasks
 
@@ -439,8 +437,3 @@ def verify_persons_data_in_sync():
     from posthog.tasks.verify_persons_data_in_sync import verify_persons_data_in_sync as verify
 
     verify()
-
-
-@app.task(ignore_result=True)
-def test_task():
-    print("TASK FUCK")
