@@ -1,6 +1,8 @@
+from typing import Dict, List
 from unittest.mock import patch
 
 import celery
+from freezegun import freeze_time
 from rest_framework import status
 
 from posthog.models.dashboard import Dashboard
@@ -54,6 +56,7 @@ class TestExports(APIBaseTest):
 
         mock_exporter_task.export_task.delay.assert_called_once_with(data["id"])
 
+    @freeze_time("2021-08-25T22:09:14.252Z")
     def test_can_create_new_valid_export_insight(self, mock_exporter_task):
         response = self.client.post(
             f"/api/projects/{self.team.id}/exports", {"export_format": "application/pdf", "insight": self.insight.id}
@@ -70,6 +73,33 @@ class TestExports(APIBaseTest):
                 "has_content": False,
                 "dashboard": None,
             },
+        )
+
+        self._assert_logs_the_activity(
+            insight_id=self.insight.id,
+            expected=[
+                {
+                    "user": {"first_name": self.user.first_name, "email": self.user.email,},
+                    "activity": "exported",
+                    "created_at": "2021-08-25T22:09:14.252000Z",
+                    "scope": "Insight",
+                    "item_id": str(self.insight.id),
+                    "detail": {
+                        "changes": [
+                            {
+                                "action": "exported",
+                                "after": "application/pdf",
+                                "before": None,
+                                "field": "export_format",
+                                "type": "Insight",
+                            }
+                        ],
+                        "merge": None,
+                        "name": self.insight.name,
+                        "short_id": self.insight.short_id,
+                    },
+                }
+            ],
         )
 
         mock_exporter_task.export_task.delay.assert_called_once_with(data["id"])
@@ -189,4 +219,20 @@ class TestExports(APIBaseTest):
                 "detail": "This insight does not belong to your team.",
                 "type": "validation_error",
             },
+        )
+
+    def _get_insight_activity(self, insight_id: int, expected_status: int = status.HTTP_200_OK):
+        url = f"/api/projects/{self.team.id}/insights/{insight_id}/activity"
+        activity = self.client.get(url)
+        self.assertEqual(activity.status_code, expected_status)
+        return activity.json()
+
+    def _assert_logs_the_activity(self, insight_id: int, expected: List[Dict]) -> None:
+        activity_response = self._get_insight_activity(insight_id)
+
+        activity: List[Dict] = activity_response["results"]
+
+        self.maxDiff = None
+        self.assertEqual(
+            activity, expected,
         )

@@ -213,6 +213,19 @@ export function insightActivityDescriber(logItem: ActivityLogItem): string | JSX
             )
         }
     }
+    if (logItem.activity === 'exported') {
+        const exportFormat = logItem.detail.changes?.[0]?.after
+        let exportType = 'in an unknown format'
+        if (typeof exportFormat === 'string') {
+            exportType = exportFormat.split('/')[1]
+        }
+
+        return (
+            <>
+                exported the insight {nameOrLinkToInsight(logItem)} as a {exportType}
+            </>
+        )
+    }
 
     return null
 }
