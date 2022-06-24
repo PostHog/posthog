@@ -28,6 +28,9 @@ FROM node:16.15-alpine3.14 AS plugin-server
 
 WORKDIR /code/plugin-server
 
+# Install python as it's needed for the yarn install
+RUN apk --update --no-cache add "python3"
+
 # Compile and install Yarn dependencies.
 #
 # Notes:
@@ -36,7 +39,7 @@ WORKDIR /code/plugin-server
 #   the container every time a dependency changes
 COPY ./plugin-server/package.json yarn.lock ./
 RUN yarn config set network-timeout 300000 && \
-    yarn install --frozen-lockfile
+    yarn install
 
 # Build the plugin server
 #
