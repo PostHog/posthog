@@ -586,19 +586,29 @@ describe('DB', () => {
 
         it('gets created_at from DB if cache does not exist', async () => {
             jest.spyOn(db, 'getGroupsCreatedAtFromDbAndUpdateCache')
-            // No cache exists as this was inserted directly
-            await db.postgresQuery(
-                `
-            INSERT INTO posthog_group (team_id, group_key, group_type_index, group_properties, created_at, properties_last_updated_at, properties_last_operation, version)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-            `,
-                [2, 'g0', 0, '{}', TIMESTAMP, '{}', '{}', 1],
-                'testGroupsCreatedAtOnEventsInsert'
-            )
-            const res = await db.getCreatedAtForGroups(2, [{ index: 0, key: 'g0' }])
+
+            await db.insertGroup(2, 0, 'g0', {}, TIMESTAMP, {}, {}, 1, undefined, { cache: false })
+            await db.insertGroup(2, 1, 'g1', {}, TIMESTAMP.minus(1), {}, {}, 1, undefined, { cache: false })
+            await db.insertGroup(2, 2, 'g2', {}, TIMESTAMP.minus(2), {}, {}, 1, undefined, { cache: false })
+            await db.insertGroup(2, 3, 'g3', {}, TIMESTAMP.minus(3), {}, {}, 1, undefined, { cache: false })
+            await db.insertGroup(2, 4, 'g4', {}, TIMESTAMP.minus(4), {}, {}, 1, undefined, { cache: false })
+
+            const res = await db.getCreatedAtForGroups(2, [
+                { index: 0, key: 'g0' },
+                { index: 1, key: 'g1' },
+                { index: 2, key: 'g2' },
+                { index: 3, key: 'g3' },
+                { index: 4, key: 'g4' },
+            ])
+
             expect(res).toEqual({
                 group0_created_at: castTimestampOrNow(TIMESTAMP, TimestampFormat.ClickHouse),
+                group1_created_at: castTimestampOrNow(TIMESTAMP.minus(1), TimestampFormat.ClickHouse),
+                group2_created_at: castTimestampOrNow(TIMESTAMP.minus(2), TimestampFormat.ClickHouse),
+                group3_created_at: castTimestampOrNow(TIMESTAMP.minus(3), TimestampFormat.ClickHouse),
+                group4_created_at: castTimestampOrNow(TIMESTAMP.minus(4), TimestampFormat.ClickHouse),
             })
+
             expect(db.getGroupsCreatedAtFromDbAndUpdateCache).toHaveBeenCalled()
         })
 

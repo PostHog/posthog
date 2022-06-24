@@ -1769,7 +1769,8 @@ export class DB {
         propertiesLastUpdatedAt: PropertiesLastUpdatedAt,
         propertiesLastOperation: PropertiesLastOperation,
         version: number,
-        client?: PoolClient
+        client?: PoolClient,
+        options: { cache?: boolean } = { cache: true }
     ): Promise<void> {
         const result = await this.postgresQuery(
             `
@@ -1795,11 +1796,16 @@ export class DB {
         if (result.rows.length === 0) {
             throw new RaceConditionError('Parallel posthog_group inserts, retry')
         }
-        // group identify event doesn't need groups properties attached so we don't need to await
-        this.promiseManager.trackPromise(
-            this.updateGroupPropertiesCache(teamId, groupTypeIndex, groupKey, groupProperties)
-        )
-        this.promiseManager.trackPromise(this.updateGroupCreatedAtCache(teamId, groupTypeIndex, groupKey, createdAt))
+
+        if (options?.cache) {
+            // group identify event doesn't need groups properties attached so we don't need to await
+            this.promiseManager.trackPromise(
+                this.updateGroupPropertiesCache(teamId, groupTypeIndex, groupKey, groupProperties)
+            )
+            this.promiseManager.trackPromise(
+                this.updateGroupCreatedAtCache(teamId, groupTypeIndex, groupKey, createdAt)
+            )
+        }
     }
 
     public async updateGroup(
