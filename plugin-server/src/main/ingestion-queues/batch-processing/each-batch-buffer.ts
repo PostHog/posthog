@@ -2,14 +2,13 @@ import { EachBatchPayload, KafkaMessage } from 'kafkajs'
 
 import { runInstrumentedFunction } from '../../utils'
 import { KafkaQueue } from '../kafka-queue'
-import { formPluginEvent } from './each-batch-ingestion'
 
 export async function eachMessageBuffer(
     message: KafkaMessage,
     resolveOffset: EachBatchPayload['resolveOffset'],
     queue: KafkaQueue
 ): Promise<void> {
-    const bufferEvent = formPluginEvent(message)
+    const bufferEvent = JSON.parse(message.value!.toString())
     await runInstrumentedFunction({
         server: queue.pluginsServer,
         event: bufferEvent,

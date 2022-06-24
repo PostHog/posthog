@@ -3,7 +3,6 @@ import crypto from 'crypto'
 import { DateTime } from 'luxon'
 import { Hub, PluginConfig, RawEventMessage } from 'types'
 
-import { KAFKA_BUFFER } from '../../../config/kafka-topics'
 import { UUIDT } from '../../../utils/utils'
 import { ApiExtension, createApi } from './api'
 
@@ -23,13 +22,13 @@ export interface DummyPostHog {
     api: ApiExtension
 }
 
-async function queueEvent(hub: Hub, pluginConfig: PluginConfig, data: InternalData, topic?: string): Promise<void> {
+async function queueEvent(hub: Hub, pluginConfig: PluginConfig, data: InternalData): Promise<void> {
     const partitionKeyHash = crypto.createHash('sha256')
     partitionKeyHash.update(`${data.team_id}:${data.distinct_id}`)
     const partitionKey = partitionKeyHash.digest('hex')
 
     await hub.kafkaProducer.queueMessage({
-        topic: topic || hub.KAFKA_CONSUMPTION_TOPIC!,
+        topic: hub.KAFKA_CONSUMPTION_TOPIC!,
         messages: [
             {
                 key: partitionKey,
@@ -48,7 +47,7 @@ async function queueEvent(hub: Hub, pluginConfig: PluginConfig, data: InternalDa
     })
 }
 
-export function createPosthog(hub: Hub, pluginConfig: PluginConfig, bufferDirectly = false): DummyPostHog {
+export function createPosthog(hub: Hub, pluginConfig: PluginConfig): DummyPostHog {
     const distinctId = pluginConfig.plugin?.name || `plugin-id-${pluginConfig.plugin_id}`
 
     return {
@@ -67,7 +66,7 @@ export function createPosthog(hub: Hub, pluginConfig: PluginConfig, bufferDirect
                 team_id: pluginConfig.team_id,
                 uuid: new UUIDT().toString(),
             }
-            await queueEvent(hub, pluginConfig, data, bufferDirectly ? KAFKA_BUFFER : undefined)
+            await queueEvent(hub, pluginConfig, data)
             hub.statsd?.increment('vm_posthog_extension_capture_called')
         },
         api: createApi(hub, pluginConfig),
