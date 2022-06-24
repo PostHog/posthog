@@ -291,29 +291,28 @@ class QueryMatchingTest:
             assert params == self.snapshot, "\n".join(self.snapshot.get_assert_diff())
 
 
-def snapshot_postgres_queries(search_clauses=["SELECT"]):
-    def snapshot_postgres_queries(fn):
-        """
-        Captures and snapshots select queries from test using `syrupy` library.
-        Requires queries to be stable to avoid flakiness.
-        Snapshots are automatically saved in a __snapshot__/*.ambr file.
-        Update snapshots via --snapshot-update.
-        """
-        from django.db import connections
+def snapshot_postgres_queries(fn):
+    """
+    Captures and snapshots select queries from test using `syrupy` library.
 
-        @wraps(fn)
-        def wrapped(self, *args, **kwargs):
-            with CaptureQueriesContext(connections["default"]) as context:
-                fn(self, *args, **kwargs)
+    Requires queries to be stable to avoid flakiness.
 
-            for query_with_time in context.captured_queries:
-                query = query_with_time["sql"]
-                if any(clause in query for clause in search_clauses) and "django_session" not in query:
-                    self.assertQueryMatchesSnapshot(query, replace_all_numbers=True)
+    Snapshots are automatically saved in a __snapshot__/*.ambr file.
+    Update snapshots via --snapshot-update.
+    """
+    from django.db import connections
 
-        return wrapped
+    @wraps(fn)
+    def wrapped(self, *args, **kwargs):
+        with CaptureQueriesContext(connections["default"]) as context:
+            fn(self, *args, **kwargs)
 
-    return snapshot_postgres_queries
+        for query_with_time in context.captured_queries:
+            query = query_with_time["sql"]
+            if "SELECT" in query and "django_session" not in query:
+                self.assertQueryMatchesSnapshot(query, replace_all_numbers=True)
+
+    return wrapped
 
 
 class BaseTestMigrations(QueryMatchingTest):
@@ -351,7 +350,7 @@ class BaseTestMigrations(QueryMatchingTest):
 
         self.apps = executor.loader.project_state(self.migrate_to).apps
 
-    @snapshot_postgres_queries(["SELECT"])
+    @snapshot_postgres_queries
     def _execute_migration_with_snapshots(self, executor):
         executor.migrate(self.migrate_to)
 

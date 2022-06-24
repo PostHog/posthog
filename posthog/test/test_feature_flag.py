@@ -1,14 +1,9 @@
-from django.db import connection
-
 from posthog.models import Cohort, FeatureFlag, GroupTypeMapping, Person
 from posthog.models.feature_flag import (
-    FeatureFlagHashKeyOverride,
     FeatureFlagMatch,
     FeatureFlagMatcher,
     FeatureFlagOverride,
     get_overridden_feature_flags,
-    hash_key_overrides,
-    set_feature_flag_hash_key_overrides,
 )
 from posthog.models.group import Group
 from posthog.test.base import BaseTest, QueryMatchingTest, snapshot_postgres_queries
@@ -335,110 +330,3 @@ class TestFeatureFlagsWithOverrides(BaseTest, QueryMatchingTest):
                 "feature-groups-all": True,
             },
         )
-
-
-class TestFeatureFlagHashKeyOverrides(BaseTest, QueryMatchingTest):
-
-    person: Person
-
-    @classmethod
-    def setUpTestData(cls):
-        super().setUpTestData()
-        FeatureFlag.objects.create(
-            team=cls.team,
-            rollout_percentage=30,
-            name="Beta feature",
-            key="beta-feature",
-            created_by=cls.user,
-            ensure_experience_continuity=True,
-        )
-        FeatureFlag.objects.create(
-            team=cls.team,
-            filters={"groups": [{"properties": [], "rollout_percentage": None}]},
-            name="This is a feature flag with default params, no filters.",
-            key="default-flag",
-            created_by=cls.user,
-        )  # Should be enabled for everyone
-        FeatureFlag.objects.create(
-            team=cls.team,
-            filters={
-                "groups": [{"properties": [], "rollout_percentage": None}],
-                "multivariate": {
-                    "variants": [
-                        {"key": "first-variant", "name": "First Variant", "rollout_percentage": 50},
-                        {"key": "second-variant", "name": "Second Variant", "rollout_percentage": 25},
-                        {"key": "third-variant", "name": "Third Variant", "rollout_percentage": 25},
-                    ],
-                },
-            },
-            name="This is a feature flag with multiple variants.",
-            key="multivariate-flag",
-            created_by=cls.user,
-            ensure_experience_continuity=True,
-        )
-
-        cls.person = Person.objects.create(
-            team=cls.team, distinct_ids=["example_id"], properties={"email": "tim@posthog.com", "team": "posthog"},
-        )
-
-    def test_setting_overrides(self):
-
-        all_feature_flags = FeatureFlag.objects.filter(team_id=self.team.pk)
-
-        set_feature_flag_hash_key_overrides(
-            all_feature_flags, team_id=self.team.pk, person_id=self.person.id, hash_key_override="other_id"
-        )
-
-        with connection.cursor() as cursor:
-            cursor.execute(
-                f"SELECT hash_key FROM posthog_featureflaghashkeyoverride WHERE team_id = {self.team.pk} AND person_id={self.person.id}"
-            )
-            res = cursor.fetchall()
-            self.assertEqual(len(res), 2)
-            self.assertEqual(set([var[0] for var in res]), set(["other_id"]))
-
-    def test_retrieving_hash_key_overrides(self):
-
-        all_feature_flags = FeatureFlag.objects.filter(team_id=self.team.pk)
-
-        set_feature_flag_hash_key_overrides(
-            all_feature_flags, team_id=self.team.pk, person_id=self.person.id, hash_key_override="other_id"
-        )
-
-        hash_keys = hash_key_overrides(self.team.pk, self.person.id)
-
-        self.assertEqual(hash_keys, {"beta-feature": "other_id", "multivariate-flag": "other_id"})
-
-    def test_setting_overrides_doesnt_balk_with_existing_overrides(self):
-
-        all_feature_flags = FeatureFlag.objects.filter(team_id=self.team.pk)
-
-        # existing overrides
-        hash_key = "bazinga"
-        FeatureFlagHashKeyOverride.objects.bulk_create(
-            [
-                FeatureFlagHashKeyOverride(
-                    team_id=self.team.pk, person_id=self.person.id, feature_flag_key=feature_flag.key, hash_key=hash_key
-                )
-                for feature_flag in all_feature_flags
-            ]
-        )
-
-        # and now we come to get new overrides
-        set_feature_flag_hash_key_overrides(
-            all_feature_flags, team_id=self.team.pk, person_id=self.person.id, hash_key_override="other_id"
-        )
-
-        with connection.cursor() as cursor:
-            cursor.execute(
-                f"SELECT hash_key FROM posthog_featureflaghashkeyoverride WHERE team_id = {self.team.pk} AND person_id={self.person.id}"
-            )
-            res = cursor.fetchall()
-            self.assertEqual(len(res), 3)
-            self.assertEqual(set([var[0] for var in res]), set([hash_key]))
-
-    @snapshot_postgres_queries(search_clauses=["SELECT", "INSERT"])
-    def test_entire_flow_with_hash_key_override(self):
-        # get feature flags for 'other_id', with an override for 'example_id'
-        flags = get_overridden_feature_flags(self.team.pk, "other_id", {}, "example_id")
-        self.assertEqual(flags, {"beta-feature": True, "multivariate-flag": "first-variant", "default-flag": True,})
