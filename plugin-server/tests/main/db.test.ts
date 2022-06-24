@@ -24,6 +24,7 @@ describe('DB', () => {
 
     afterEach(async () => {
         await closeServer()
+        jest.clearAllMocks()
     })
 
     const TEAM_ID = 2
@@ -431,7 +432,7 @@ describe('DB', () => {
     describe('person and group properties on events', () => {
         beforeEach(async () => {
             const redis = await hub.redisPool.acquire()
-            const keys = (await redis.keys('person_*')).concat(await redis.keys('group_props*'))
+            const keys = (await redis.keys('person_*')).concat(await redis.keys('group_*'))
             const promises: Promise<number>[] = []
             for (const key of keys) {
                 promises.push(redis.del(key))
@@ -555,34 +556,6 @@ describe('DB', () => {
             })
         })
 
-        it('Group created_at is cached and used from cache', async () => {
-            // manually update from the DB and check that we still get the right props, i.e. previous ones
-            await db.insertGroup(
-                // would get cached
-                2,
-                0,
-                'group_key',
-                { prop: 'val', num: 1234567 },
-                TIMESTAMP,
-                { prop: TIMESTAMP.toISO() },
-                { prop: PropertyUpdateOperation.Set },
-                1
-            )
-            await db.postgresQuery(
-                // not cached
-                `
-            UPDATE posthog_group SET created_at = now()
-            WHERE team_id = $1 AND group_type_index = $2 AND group_key = $3
-            `,
-                [2, 0, 'group_key'],
-                'testGroupCreatedAtOnEvents'
-            )
-            const res = await db.getCreatedAtForGroups(2, [{ index: 0, key: 'group_key' }])
-            expect(res).toEqual({
-                group0_created_at: castTimestampOrNow(TIMESTAMP, TimestampFormat.ClickHouse),
-            })
-        })
-
         it('Group props are cached and used from cache', async () => {
             // manually update from the DB and check that we still get the right props, i.e. previous ones
             await db.insertGroup(
@@ -609,6 +582,55 @@ describe('DB', () => {
             expect(res).toEqual({
                 group0_properties: '{"prop":"val","num":1234567}',
             })
+        })
+
+        it('Gets created_at from DB if cache does not exist', async () => {
+            jest.spyOn(db, 'getGroupsCreatedAtFromDbAndUpdateCache')
+            // No cache exists as this was inserted directly
+            await db.postgresQuery(
+                `
+            INSERT INTO posthog_group (team_id, group_key, group_type_index, group_properties, created_at, properties_last_updated_at, properties_last_operation, version)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            `,
+                [2, 'g0', 0, '{}', TIMESTAMP, '{}', '{}', 1],
+                'testGroupsCreatedAtOnEventsInsert'
+            )
+            const res = await db.getCreatedAtForGroups(2, [{ index: 0, key: 'g0' }])
+            expect(res).toEqual({
+                group0_created_at: castTimestampOrNow(TIMESTAMP, TimestampFormat.ClickHouse),
+            })
+            expect(db.getGroupsCreatedAtFromDbAndUpdateCache).toHaveBeenCalled()
+        })
+
+        it('Group created_at is cached and used from cache', async () => {
+            jest.spyOn(db, 'getGroupsCreatedAtFromDbAndUpdateCache')
+
+            // manually update from the DB and check that we still get the right props, i.e. previous ones
+            await db.insertGroup(
+                // would get cached
+                2,
+                0,
+                'group_key',
+                { prop: 'val', num: 1234567 },
+                TIMESTAMP,
+                { prop: TIMESTAMP.toISO() },
+                { prop: PropertyUpdateOperation.Set },
+                1
+            )
+            await db.postgresQuery(
+                // not cached
+                `
+            UPDATE posthog_group SET created_at = now()
+            WHERE team_id = $1 AND group_type_index = $2 AND group_key = $3
+            `,
+                [2, 0, 'group_key'],
+                'testGroupCreatedAtOnEvents'
+            )
+            const res = await db.getCreatedAtForGroups(2, [{ index: 0, key: 'group_key' }])
+            expect(res).toEqual({
+                group0_created_at: castTimestampOrNow(TIMESTAMP, TimestampFormat.ClickHouse),
+            })
+            expect(db.getGroupsCreatedAtFromDbAndUpdateCache).not.toHaveBeenCalled()
         })
     })
 

@@ -727,7 +727,7 @@ export class DB {
         return res
     }
 
-    private async getGroupsCreatedAtFromDbAndUpdateCache(
+    public async getGroupsCreatedAtFromDbAndUpdateCache(
         teamId: number,
         groupIdentifiers: GroupIdentifier[]
     ): Promise<Record<string, string>> {
