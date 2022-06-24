@@ -24,6 +24,9 @@ import { combineUrl } from 'kea-router'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { DataManagementTab } from 'scenes/data-management/DataManagementPageTabs'
 import { DataManagementPageHeader } from 'scenes/data-management/DataManagementPageHeader'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { SimplifiedActionsBanner } from 'scenes/data-management/events/EventDefinitionsTable'
 
 const searchActions = (sources: ActionType[], search: string): ActionType[] => {
     return new Fuse(sources, {
@@ -45,6 +48,8 @@ export function ActionsTable(): JSX.Element {
     const [searchTerm, setSearchTerm] = useState('')
     const [filterByMe, setFilterByMe] = useState(false)
     const { user, hasAvailableFeature } = useValues(userLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const shouldSimplifyActions = !!featureFlags[FEATURE_FLAGS.SIMPLIFY_ACTIONS]
 
     const columns: LemonTableColumns<ActionType> = [
         {
@@ -120,7 +125,7 @@ export function ActionsTable(): JSX.Element {
                                 </div>
                             ))
                         ) : (
-                            <i>Empty – set this action up</i>
+                            <i>Empty – set this {shouldSimplifyActions ? 'event' : 'action'} up</i>
                         )}
                     </span>
                 )
@@ -186,7 +191,7 @@ export function ActionsTable(): JSX.Element {
                                     }
                                     fullWidth
                                 >
-                                    Delete action
+                                    Delete {shouldSimplifyActions ? 'event' : 'action'}
                                 </LemonButton>
                             </>
                         }
@@ -206,8 +211,9 @@ export function ActionsTable(): JSX.Element {
     return (
         <div data-attr="manage-events-table">
             <DataManagementPageHeader activeTab={DataManagementTab.Actions} />
+            {shouldSimplifyActions && <SimplifiedActionsBanner />}
             <Input.Search
-                placeholder="Search for actions"
+                placeholder={`Search for ${shouldSimplifyActions ? 'events' : 'actions'}`}
                 allowClear
                 enterButton
                 style={{ maxWidth: 600, width: 'initial', flexGrow: 1, marginRight: 12 }}
@@ -216,8 +222,8 @@ export function ActionsTable(): JSX.Element {
                 }}
             />
             <Radio.Group buttonStyle="solid" value={filterByMe} onChange={(e) => setFilterByMe(e.target.value)}>
-                <Radio.Button value={false}>All actions</Radio.Button>
-                <Radio.Button value={true}>My actions</Radio.Button>
+                <Radio.Button value={false}>All {shouldSimplifyActions ? 'events' : 'actions'}</Radio.Button>
+                <Radio.Button value={true}>My {shouldSimplifyActions ? 'events' : 'actions'}</Radio.Button>
             </Radio.Group>
             <div className="mb float-right">
                 <NewActionButton />
