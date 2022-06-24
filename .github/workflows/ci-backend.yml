@@ -265,7 +265,7 @@ jobs:
 
             - uses: EndBug/add-and-commit@v9
               # Skip on forks
-              # Also skip in extra variant runs (FOSS or persons-on-events), as we want to ignore snapshots diverging there
+              # Also skip for persons-on-events runs, as we want to ignore snapshots diverging there
               if: ${{ !matrix.person-on-events && github.event.pull_request.head.repo.full_name == github.repository }}
               with:
                   add: '["ee/clickhouse", "posthog/api/test/__snapshots__", "posthog/test/__snapshots__", "posthog/queries/"]'

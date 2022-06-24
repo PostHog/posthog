@@ -83,8 +83,8 @@ runs:
           run: bin/check_kafka_clickhouse_up
 
         - name: Determine if --snapshot-update should be on
-          # Skip on forks (due to GITHUB_TOKEN being read-only in PRs coming from them) except for
-          # extra variant runs – FOSS or persons-on-events (as we want to ignore snapshots diverging there)
+          # Skip on forks (due to GITHUB_TOKEN being read-only in PRs coming from them) except for persons-on-events
+          # runs, as we want to ignore snapshots diverging there
           if: github.event.pull_request.head.repo.full_name == github.repository || inputs.person-on-events == 'true' || inputs.foss == 'true'
           shell: bash
           run: echo "PYTEST_ARGS=--snapshot-update" >> $GITHUB_ENV # We can only update snapshots within the PostHog org
