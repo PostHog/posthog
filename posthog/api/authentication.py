@@ -8,7 +8,6 @@ from django.contrib.auth.tokens import default_token_generator
 from django.core.exceptions import ValidationError
 from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import redirect
-from django.utils import timezone
 from django.views.decorators.csrf import csrf_protect
 from loginas.utils import is_impersonated_session, restore_original_login
 from rest_framework import mixins, permissions, serializers, status, viewsets
@@ -16,9 +15,10 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from social_django.views import auth
 
-from posthog.email import EmailMessage, is_email_available
+from posthog.email import is_email_available
 from posthog.event_usage import report_user_logged_in, report_user_password_reset
 from posthog.models import OrganizationDomain, User
+from posthog.tasks.email import send_password_reset
 from posthog.utils import get_instance_available_sso_providers
 
 
@@ -50,6 +50,7 @@ def axes_locked_out(*args, **kwargs):
 
 
 def sso_login(request: HttpRequest, backend: str) -> HttpResponse:
+    request.session.flush()
     sso_providers = get_instance_available_sso_providers()
     # because SAML is configured at the domain-level, we have to assume it's enabled for someone in the instance
     sso_providers["saml"] = settings.EE_AVAILABLE
@@ -154,22 +155,7 @@ class PasswordResetSerializer(serializers.Serializer):
             user = None
 
         if user:
-            token = default_token_generator.make_token(user)
-
-            message = EmailMessage(
-                campaign_key=f"password-reset-{user.uuid}-{timezone.now()}",
-                subject=f"Reset your PostHog password",
-                template_name="password_reset",
-                template_context={
-                    "preheader": "Please follow the link inside to reset your password.",
-                    "link": f"/reset/{user.uuid}/{token}",
-                    "cloud": settings.MULTI_TENANCY,
-                    "site_url": settings.SITE_URL,
-                    "social_providers": list(user.social_auth.values_list("provider", flat=True)),
-                },
-            )
-            message.add_recipient(email)
-            message.send()
+            send_password_reset(user.id)
 
         # TODO: Limit number of requests for password reset emails
 

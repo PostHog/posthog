@@ -137,6 +137,8 @@ drf-spectacular==0.21.1
     # via -r requirements.in
 future==0.18.2
     # via lzstring
+google-cloud-sqlcommenter==2.0.0
+    # via -r requirements.in
 grpcio==1.33.1
     # via -r requirements.in
 gunicorn==20.1.0
@@ -210,7 +212,7 @@ pexpect==4.7.0
     # via -r requirements.in
 pickleshare==0.7.5
     # via -r requirements.in
-posthoganalytics==1.4.7
+posthoganalytics==1.4.9
     # via -r requirements.in
 protobuf==3.13.0
     # via -r requirements.in
@@ -220,8 +222,10 @@ ptyprocess==0.6.0
     # via pexpect
 pycparser==2.20
     # via cffi
-pyjwt==2.1.0
-    # via social-auth-core
+pyjwt==2.4.0
+    # via
+    #   -r requirements.in
+    #   social-auth-core
 pyopenssl==22.0.0
     # via urllib3
 pyparsing==3.0.7
@@ -252,6 +256,8 @@ pytz==2021.1
     #   tzlocal
 pyyaml==6.0
     # via drf-spectacular
+ratelimit==2.2.1
+    # via -r requirements.in
 redis==3.4.1
     # via
     #   -r requirements.in
@@ -287,6 +293,8 @@ six==1.14.0
     #   protobuf
     #   python-dateutil
     #   tenacity
+slack-sdk==3.17.1
+    # via -r requirements.in
 sniffio==1.2.0
     # via trio
 social-auth-app-django==5.0.0

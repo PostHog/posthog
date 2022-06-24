@@ -632,7 +632,9 @@ export const funnelLogic = kea<funnelLogicType>({
         filterSteps: [
             () => [selectors.apiParams],
             (apiParams) =>
-                [...(apiParams.events ?? []), ...(apiParams.actions ?? [])].sort((a, b) => a.order - b.order),
+                [...(apiParams.events ?? []), ...(apiParams.actions ?? []), ...(apiParams.new_entity ?? [])].sort(
+                    (a, b) => a.order - b.order
+                ),
         ],
         eventCount: [() => [selectors.apiParams], (apiParams) => apiParams.events?.length || 0],
         actionCount: [() => [selectors.apiParams], (apiParams) => apiParams.actions?.length || 0],
@@ -1200,6 +1202,14 @@ export const funnelLogic = kea<funnelLogicType>({
                 } else {
                     return 0
                 }
+            },
+        ],
+        breakdownAttributionStepOptions: [
+            (s) => [s.steps],
+            (steps) => {
+                const options = {}
+                steps.map((_, idx) => (options[idx] = { label: `Step ${idx + 1}` }))
+                return options
             },
         ],
     }),

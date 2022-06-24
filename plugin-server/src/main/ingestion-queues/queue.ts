@@ -1,7 +1,7 @@
 import Piscina from '@posthog/piscina'
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
-import { Hub, IngestionEvent, PreIngestionEvent, WorkerMethods } from '../../types'
+import { Hub, IngestionEvent, WorkerMethods } from '../../types'
 import { status } from '../../utils/status'
 import { KafkaQueue } from './kafka-queue'
 
@@ -25,7 +25,7 @@ export async function startQueues(
     workerMethods: Partial<WorkerMethods> = {}
 ): Promise<Queues> {
     const mergedWorkerMethods = {
-        runBufferEventPipeline: (event: PreIngestionEvent) => {
+        runBufferEventPipeline: (event: PluginEvent) => {
             server.lastActivity = new Date().valueOf()
             server.lastActivityType = 'runBufferEventPipeline'
             return piscina.run({ task: 'runBufferEventPipeline', args: { event } })

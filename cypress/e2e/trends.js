@@ -26,8 +26,8 @@ describe('Trends', () => {
     it('Add a pageview action filter', () => {
         // when
         cy.contains('Add graph series').click()
-        cy.get('[data-attr=trend-element-subject-1]').click()
         cy.get('[data-attr=taxonomic-tab-actions]').click()
+        cy.get('[data-attr=taxonomic-filter-searchfield]').click().type('home')
         cy.contains('Hogflix homepage view').click()
 
         // then
@@ -54,7 +54,8 @@ describe('Trends', () => {
 
     it('Apply specific filter on default pageview event', () => {
         cy.get('[data-attr=trend-element-subject-0]').click()
-        cy.get('.taxonomic-infinite-list').find('.property-key-info').contains('Pageview').click() // Tooltip is shown with description
+        cy.get('[data-attr=taxonomic-filter-searchfield]').click().type('Pageview')
+        cy.get('.taxonomic-infinite-list').find('.taxonomic-list-row').contains('Pageview').click({ force: true })
         cy.get('[data-attr=trend-element-subject-0]').should('have.text', 'Pageview')
 
         // Apply a property filter
@@ -77,7 +78,8 @@ describe('Trends', () => {
 
     it('Apply 1 overall filter', () => {
         cy.get('[data-attr=trend-element-subject-0]').click()
-        cy.get('.taxonomic-infinite-list').find('.property-key-info').contains('Pageview').click()
+        cy.get('[data-attr=taxonomic-filter-searchfield]').click().type('Pageview')
+        cy.get('.taxonomic-infinite-list').find('.taxonomic-list-row').contains('Pageview').click({ force: true })
         cy.get('[data-attr=trend-element-subject-0]').should('have.text', 'Pageview')
 
         cy.get('[data-attr=trends-filters-add-filter-group]').click()

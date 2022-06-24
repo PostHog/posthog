@@ -1,13 +1,19 @@
 from freezegun import freeze_time
 
-from ee.clickhouse.models.group import create_group
-from ee.clickhouse.queries.breakdown_props import get_breakdown_prop_values
-from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
 from posthog.models.cohort import Cohort
 from posthog.models.entity import Entity
 from posthog.models.filters import Filter
+from posthog.models.group.util import create_group
 from posthog.models.group_type_mapping import GroupTypeMapping
-from posthog.test.base import APIBaseTest, _create_event, _create_person, test_with_materialized_columns
+from posthog.queries.breakdown_props import get_breakdown_prop_values
+from posthog.test.base import (
+    APIBaseTest,
+    ClickhouseTestMixin,
+    _create_event,
+    _create_person,
+    snapshot_clickhouse_queries,
+    test_with_materialized_columns,
+)
 
 
 class TestBreakdownProps(ClickhouseTestMixin, APIBaseTest):

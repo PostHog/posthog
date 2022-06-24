@@ -1,10 +1,10 @@
-from ee.clickhouse.models.group import create_group
 from ee.clickhouse.queries.retention import ClickhouseRetention
-from ee.clickhouse.util import snapshot_clickhouse_queries
 from posthog.models.filters.retention_filter import RetentionFilter
+from posthog.models.group.util import create_group
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.person import Person
 from posthog.queries.test.test_retention import _create_events, _date, pluck, retention_test_factory
+from posthog.test.base import snapshot_clickhouse_queries
 
 
 class TestClickhouseRetention(retention_test_factory(ClickhouseRetention)):  # type: ignore

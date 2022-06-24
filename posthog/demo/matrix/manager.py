@@ -2,6 +2,7 @@ import datetime as dt
 import json
 from typing import Any, Dict, Literal, Optional, Tuple, cast
 
+from django.conf import settings
 from django.core import exceptions
 
 from posthog.client import query_with_columns, sync_execute
@@ -47,9 +48,10 @@ class MatrixManager:
         """If there's an email collision in signup in the demo environment, we treat it as a login."""
         existing_user: Optional[User] = User.objects.filter(email=email).first()
         if existing_user is None:
-            organization = Organization.objects.create(
-                name=organization_name, plugins_access_level=Organization.PluginsAccessLevel.INSTALL
-            )
+            organization_kwargs: Dict[str, Any] = {"name": organization_name}
+            if settings.DEMO:
+                organization_kwargs["plugins_access_level"] = Organization.PluginsAccessLevel.INSTALL
+            organization = Organization.objects.create(**organization_kwargs)
             new_user = User.objects.create_and_join(
                 organization, email, password, first_name, OrganizationMembership.Level.ADMIN
             )
@@ -111,9 +113,9 @@ class MatrixManager:
 
     @classmethod
     def copy_analytics_data_from_master_team(cls, target_team: Team):
-        from ee.clickhouse.sql.events import COPY_EVENTS_BETWEEN_TEAMS
-        from ee.clickhouse.sql.groups import COPY_GROUPS_BETWEEN_TEAMS
-        from ee.clickhouse.sql.person import COPY_PERSON_DISTINCT_ID2S_BETWEEN_TEAMS, COPY_PERSONS_BETWEEN_TEAMS
+        from posthog.models.event.sql import COPY_EVENTS_BETWEEN_TEAMS
+        from posthog.models.group.sql import COPY_GROUPS_BETWEEN_TEAMS
+        from posthog.models.person.sql import COPY_PERSON_DISTINCT_ID2S_BETWEEN_TEAMS, COPY_PERSONS_BETWEEN_TEAMS
 
         copy_params = {"source_team_id": cls.MASTER_TEAM_ID, "target_team_id": target_team.pk}
         sync_execute(COPY_PERSONS_BETWEEN_TEAMS, copy_params)
@@ -131,8 +133,8 @@ class MatrixManager:
 
     @classmethod
     def sync_postgres_with_clickhouse_data(cls, target_team: Team):
-        from ee.clickhouse.sql.groups import SELECT_GROUPS_OF_TEAM
-        from ee.clickhouse.sql.person import SELECT_PERSON_DISTINCT_ID2S_OF_TEAM, SELECT_PERSONS_OF_TEAM
+        from posthog.models.group.sql import SELECT_GROUPS_OF_TEAM
+        from posthog.models.person.sql import SELECT_PERSON_DISTINCT_ID2S_OF_TEAM, SELECT_PERSONS_OF_TEAM
 
         list_params = {"source_team_id": cls.MASTER_TEAM_ID}
         # Persons
@@ -174,13 +176,11 @@ class MatrixManager:
     def save_sim_person(team: Team, subject: SimPerson):
         if not subject.events:
             return  # Don't save a person who never participated
-        from ee.clickhouse.models.event import create_event
+        from posthog.models.event.util import create_event
         from posthog.models.person.util import create_person, create_person_distinct_id
 
         person_uuid_str = str(UUIDT(unix_time_ms=int(subject.events[0].timestamp.timestamp() * 1000)))
-        create_person(
-            uuid=person_uuid_str, team_id=team.pk, properties=subject.properties,
-        )
+        create_person(uuid=person_uuid_str, team_id=team.pk, properties=subject.properties, version=0)
         for distinct_id in subject.distinct_ids:
             create_person_distinct_id(team_id=team.pk, distinct_id=str(distinct_id), person_id=person_uuid_str)
         for event in subject.events:
@@ -198,13 +198,13 @@ class MatrixManager:
     def save_sim_group(
         team: Team, type_index: Literal[0, 1, 2, 3, 4], key: str, properties: Dict[str, Any], timestamp: dt.datetime
     ):
-        from ee.clickhouse.models.group import raw_create_group_ch
+        from posthog.models.group.util import raw_create_group_ch
 
         raw_create_group_ch(team.pk, type_index, key, properties, timestamp)
 
     @classmethod
     def is_demo_data_pre_saved(cls) -> bool:
-        from ee.clickhouse.sql.events import GET_TOTAL_EVENTS_VOLUME
+        from posthog.models.event.sql import GET_TOTAL_EVENTS_VOLUME
 
         total_events_volume = sync_execute(GET_TOTAL_EVENTS_VOLUME, {"team_id": cls.MASTER_TEAM_ID})[0][0]
         return total_events_volume > 0

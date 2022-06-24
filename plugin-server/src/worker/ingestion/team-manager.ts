@@ -3,7 +3,7 @@ import { StatsD } from 'hot-shots'
 import LRU from 'lru-cache'
 import { DateTime } from 'luxon'
 
-import { ONE_HOUR } from '../../config/constants'
+import { ONE_HOUR, ONE_MINUTE } from '../../config/constants'
 import { PluginsServerConfig, PropertyType, Team, TeamId } from '../../types'
 import { DB } from '../../utils/db/db'
 import { timeoutGuard } from '../../utils/db/utils'
@@ -12,6 +12,20 @@ import { status } from '../../utils/status'
 import { getByAge, UUIDT } from '../../utils/utils'
 import { detectPropertyDefinitionTypes } from './property-definitions-auto-discovery'
 import { PropertyDefinitionsCache } from './property-definitions-cache'
+
+// for e.g. internal events we don't want to be available for users in the UI
+const EVENTS_WITHOUT_EVENT_DEFINITION = ['$$plugin_metrics']
+// These are used internally for manipulating person/group properties
+const NOT_SYNCED_PROPERTIES = new Set([
+    '$set',
+    '$set_once',
+    '$unset',
+    '$group_0',
+    '$group_1',
+    '$group_2',
+    '$group_3',
+    '$group_4',
+])
 
 type TeamCache<T> = Map<TeamId, [T, number]>
 
@@ -55,7 +69,7 @@ export class TeamManager {
     }
 
     public async fetchTeam(teamId: number): Promise<Team | null> {
-        const cachedTeam = getByAge(this.teamCache, teamId)
+        const cachedTeam = getByAge(this.teamCache, teamId, 2 * ONE_MINUTE)
         if (cachedTeam) {
             return cachedTeam
         }
@@ -71,6 +85,10 @@ export class TeamManager {
     }
 
     public async updateEventNamesAndProperties(teamId: number, event: string, properties: Properties): Promise<void> {
+        if (EVENTS_WITHOUT_EVENT_DEFINITION.includes(event)) {
+            return
+        }
+
         const startTime = DateTime.now()
         const team: Team | null = await this.fetchTeam(teamId)
 
@@ -85,7 +103,7 @@ export class TeamManager {
 
         await this.cacheEventNamesAndProperties(team.id, event)
         await this.syncEventDefinitions(team, event)
-        await this.syncEventProperties(team, event, Object.keys(properties))
+        await this.syncEventProperties(team, event, properties)
         await this.syncPropertyDefinitions(properties, team)
         await this.setTeamIngestedEvent(team, properties)
 
@@ -137,19 +155,19 @@ VALUES ($1, $2, NULL, NULL, $3, NOW()) ON CONFLICT DO NOTHING`,
         }
     }
 
-    private async syncEventProperties(team: Team, event: string, propertyKeys: string[]) {
+    private async syncEventProperties(team: Team, event: string, properties: Properties) {
         if (!this.experimentalEventPropertyTrackerEnabled) {
             return
         }
         const key = JSON.stringify([team.id, event])
-        let properties = this.eventPropertiesCache.get(key)
-        if (!properties) {
-            properties = new Set()
-            this.eventPropertiesCache.set(key, properties)
+        let existingProperties = this.eventPropertiesCache.get(key)
+        if (!existingProperties) {
+            existingProperties = new Set()
+            this.eventPropertiesCache.set(key, existingProperties)
         }
-        for (const property of propertyKeys) {
-            if (!properties.has(property)) {
-                properties.add(property)
+        for (const property of this.getPropertyKeys(properties)) {
+            if (!existingProperties.has(property)) {
+                existingProperties.add(property)
                 await this.db.postgresQuery(
                     `INSERT INTO posthog_eventproperty (event, property, team_id) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`,
                     [event, property, team.id],
@@ -160,7 +178,8 @@ VALUES ($1, $2, NULL, NULL, $3, NOW()) ON CONFLICT DO NOTHING`,
     }
 
     private async syncPropertyDefinitions(properties: Properties, team: Team) {
-        for (const [key, value] of Object.entries(properties)) {
+        for (const key of this.getPropertyKeys(properties)) {
+            const value = properties[key]
             if (this.propertyDefinitionsCache.shouldUpdate(team.id, key)) {
                 const propertyType = detectPropertyDefinitionTypes(value, key)
                 const isNumerical = propertyType == PropertyType.Numeric
@@ -259,5 +278,9 @@ DO UPDATE SET property_type=$5 WHERE posthog_propertydefinition.property_type IS
                 }
             }
         }
+    }
+
+    private getPropertyKeys(properties: Properties): Array<string> {
+        return Object.keys(properties).filter((key) => !NOT_SYNCED_PROPERTIES.has(key))
     }
 }

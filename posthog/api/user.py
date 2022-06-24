@@ -16,6 +16,7 @@ from django.views.decorators.http import require_http_methods
 from django_filters.rest_framework import DjangoFilterBackend
 from loginas.utils import is_impersonated_session
 from rest_framework import exceptions, mixins, permissions, serializers, viewsets
+from rest_framework.throttling import UserRateThrottle
 
 from posthog.api.organization import OrganizationSerializer
 from posthog.api.shared import OrganizationBasicSerializer, TeamBasicSerializer
@@ -25,6 +26,16 @@ from posthog.models import Team, User
 from posthog.models.organization import Organization
 from posthog.tasks import user_identify
 from posthog.utils import get_js_url
+
+
+class UserAuthenticationThrottle(UserRateThrottle):
+    rate = "5/minute"
+
+    def allow_request(self, request, view):
+        # only throttle non-GET requests
+        if request.method == "GET":
+            return True
+        return super().allow_request(request, view)
 
 
 class UserSerializer(serializers.ModelSerializer):
@@ -164,6 +175,7 @@ class UserSerializer(serializers.ModelSerializer):
 
 
 class UserViewSet(mixins.RetrieveModelMixin, mixins.UpdateModelMixin, mixins.ListModelMixin, viewsets.GenericViewSet):
+    throttle_classes = [UserAuthenticationThrottle]
     serializer_class = UserSerializer
     permission_classes = [
         permissions.IsAuthenticated,

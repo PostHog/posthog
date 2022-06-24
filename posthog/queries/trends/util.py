@@ -3,12 +3,12 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 
 from rest_framework.exceptions import ValidationError
 
-from ee.clickhouse.models.property import get_property_string_expr
-from ee.clickhouse.sql.events import EVENT_JOIN_PERSON_SQL
 from posthog.constants import WEEKLY_ACTIVE
 from posthog.models.entity import Entity
+from posthog.models.event.sql import EVENT_JOIN_PERSON_SQL
 from posthog.models.filters import Filter, PathFilter
 from posthog.models.filters.utils import validate_group_type_index
+from posthog.models.property.util import get_property_string_expr
 from posthog.models.team import Team
 from posthog.queries.util import format_ch_timestamp, get_earliest_timestamp
 
@@ -41,6 +41,8 @@ def process_math(
         validate_group_type_index("math_group_type_index", entity.math_group_type_index, required=True)
 
         aggregate_operation = f"count(DISTINCT $group_{entity.math_group_type_index})"
+    elif entity.math == "unique_session":
+        aggregate_operation = "count(DISTINCT $session_id)"
     elif entity.math in MATH_FUNCTIONS:
         if entity.math_property is None:
             raise ValidationError({"math_property": "This field is required when `math` is set."}, code="required")

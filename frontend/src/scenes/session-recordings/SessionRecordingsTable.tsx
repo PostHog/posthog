@@ -59,7 +59,7 @@ export function SessionRecordingsTable({ personUUID, isPersonPage = false }: Ses
         {
             title: 'Start time',
             render: function RenderStartTime(_: any, sessionRecording: SessionRecordingType) {
-                return <TZLabel time={sessionRecording.start_time} formatString="MMMM DD, YYYY h:mm" />
+                return <TZLabel time={sessionRecording.start_time} formatDate="MMMM DD, YYYY" formatTime="h:mm A" />
             },
         },
         {
@@ -135,7 +135,6 @@ export function SessionRecordingsTable({ personUUID, isPersonPage = false }: Ses
                                 </Tooltip>
                             </Typography.Text>
                             <PropertyFilters
-                                popoverPlacement="bottomRight"
                                 pageKey={isPersonPage ? `person-${personUUID}` : 'session-recordings'}
                                 taxonomicGroupTypes={[
                                     TaxonomicFilterGroupType.PersonProperties,

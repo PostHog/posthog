@@ -7,8 +7,6 @@ import { DeleteOutlined, RedoOutlined, ProjectOutlined, DeploymentUnitOutlined, 
 import { annotationScopeToName } from 'lib/constants'
 import { PageHeader } from 'lib/components/PageHeader'
 import { AnnotationType, AnnotationScope } from '~/types'
-import dayjsGenerateConfig from 'rc-picker/lib/generate/dayjs'
-import generatePicker from 'antd/lib/date-picker/generatePicker'
 import { SceneExport } from 'scenes/sceneTypes'
 import { dayjs } from 'lib/dayjs'
 import { Spinner } from 'lib/components/Spinner/Spinner'
@@ -16,8 +14,7 @@ import { LemonTable, LemonTableColumns, LemonTableColumn } from 'lib/components/
 import { createdByColumn } from 'lib/components/LemonTable/columnUtils'
 import { TZLabel } from 'lib/components/TimezoneAware'
 import { LemonButton } from 'lib/components/LemonButton'
-
-const DatePicker = generatePicker<dayjs.Dayjs>(dayjsGenerateConfig)
+import { DatePicker } from 'lib/components/DatePicker'
 
 const { TextArea } = Input
 

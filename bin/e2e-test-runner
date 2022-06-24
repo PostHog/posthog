@@ -27,7 +27,7 @@ nc -z localhost 9092 || ( echo -e "\033[0;31mKafka isn't running. Please run\n\t
 wget -nv -t1 --spider 'http://localhost:8123/' || ( echo -e "\033[0;31mClickhouse isn't running. Please run\n\tdocker compose -f docker-compose.arm64.yml up zookeeper kafka clickhouse db redis.\nI'll wait while you do that.\033[0m" ; bin/check_kafka_clickhouse_up )
 
 
-trap "trap - SIGTERM && yarn remove cypress cypress-terminal-report @cypress/webpack-preprocessor && kill -- -$$" SIGINT SIGTERM EXIT
+trap "trap - SIGTERM && yarn remove cypress cypress-terminal-report && kill -- -$$" SIGINT SIGTERM EXIT
 
 dropdb --if-exists $DATABASE
 createdb $DATABASE

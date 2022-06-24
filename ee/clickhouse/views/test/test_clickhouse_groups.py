@@ -2,10 +2,9 @@ from uuid import UUID
 
 from freezegun.api import freeze_time
 
-from ee.clickhouse.models.group import create_group
-from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
 from posthog.models import GroupTypeMapping, Person
-from posthog.test.base import APIBaseTest, _create_event
+from posthog.models.group.util import create_group
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, snapshot_clickhouse_queries
 
 
 class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):

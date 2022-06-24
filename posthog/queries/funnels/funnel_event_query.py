@@ -1,9 +1,9 @@
 from typing import Any, Dict, Tuple
 
-from ee.clickhouse.models.group import get_aggregation_target_field
-from ee.clickhouse.models.property import get_property_string_expr
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 from posthog.models.filters.filter import Filter
+from posthog.models.group.util import get_aggregation_target_field
+from posthog.models.property.util import get_property_string_expr
 from posthog.models.utils import PersonPropertiesMode
 from posthog.queries.event_query import EventQuery
 

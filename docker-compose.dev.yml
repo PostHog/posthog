@@ -40,7 +40,7 @@ services:
             - '9440:9440'
             - '9009:9009'
         volumes:
-            - ./ee/idl:/idl
+            - ./posthog/idl:/idl
             - ./docker/clickhouse/docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d
             - ./docker/clickhouse/config.xml:/etc/clickhouse-server/config.xml
             - ./docker/clickhouse/users.xml:/etc/clickhouse-server/users.xml
@@ -84,6 +84,9 @@ services:
             PGUSER: posthog
             PGPASSWORD: posthog
             SITE_URL: http://web:8000
+            EMAIL_ENABLED: 'true'
+            EMAIL_HOST: 'maildev'
+            EMAIL_PORT: '1025'
         depends_on:
             - db
             - redis
@@ -128,3 +131,10 @@ services:
             MINIO_ROOT_PASSWORD: object_storage_root_password
         entrypoint: sh
         command: -c 'mkdir -p /data/posthog && minio server --address ":19000" --console-address ":19001" /data' # create the 'posthog' bucket before starting the service
+
+    maildev:
+        image: maildev/maildev
+        restart: on-failure
+        ports:
+            - '1080:1080'
+            - '1025:1025'

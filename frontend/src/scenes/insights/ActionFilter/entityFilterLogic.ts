@@ -213,16 +213,16 @@ export const entityFilterLogic = kea<entityFilterLogicType>({
             const previousLength = values.localFilters.length
             const newLength = previousLength + 1
             const precedingEntity = values.localFilters[previousLength - 1] as LocalFilter | undefined
-            actions.setFilters([
-                ...values.localFilters,
-                {
-                    id: '$pageview',
-                    type: 'events',
-                    order: precedingEntity ? precedingEntity.order + 1 : 0,
-                    name: '$pageview',
-                    ...props.addFilterDefaultOptions,
-                },
-            ])
+            const order = precedingEntity ? precedingEntity.order + 1 : 0
+            const newFilter = {
+                id: 'empty',
+                type: EntityTypes.NEW_ENTITY,
+                order: order,
+                name: 'empty',
+                ...props.addFilterDefaultOptions,
+            }
+            actions.setFilters([...values.localFilters, newFilter])
+            actions.selectFilter({ ...newFilter, index: order })
             eventUsageLogic.actions.reportInsightFilterAdded(newLength, GraphSeriesAddedSource.Default)
         },
         duplicateFilter: async ({ filter }) => {

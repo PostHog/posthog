@@ -5,14 +5,11 @@ from unittest.case import skip
 from unittest.mock import patch
 
 import pytz
-from django.db import DEFAULT_DB_ALIAS, connections
-from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 from freezegun import freeze_time
 from rest_framework import status
 
 from ee.api.test.base import LicensedTestMixin
-from ee.clickhouse.util import ClickhouseTestMixin
 from ee.models import DashboardPrivilege
 from ee.models.explicit_team_membership import ExplicitTeamMembership
 from posthog.models import (
@@ -28,7 +25,8 @@ from posthog.models import (
 )
 from posthog.models.organization import OrganizationMembership
 from posthog.tasks.update_cache import update_insight_cache
-from posthog.test.base import APIBaseTest, QueryMatchingTest, _create_event, _create_person
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest, _create_event, _create_person
+from posthog.test.db_context_capturing import capture_db_queries
 
 
 class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatchingTest):
@@ -268,8 +266,8 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
 
         self.assertEqual(len(response.json()["results"]), 2)
         self.assertEqual(
-            list(response.json()["results"][0].keys()),
-            [
+            set(response.json()["results"][0].keys()),
+            {
                 "id",
                 "short_id",
                 "name",
@@ -279,17 +277,15 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                 "last_refresh",
                 "refreshing",
                 "saved",
-                "tags",
                 "updated_at",
                 "created_by",
                 "created_at",
                 "last_modified_at",
-            ],
+                "tags",
+            },
         )
 
     def test_listing_insights_does_not_nplus1(self):
-        db_connection = connections[DEFAULT_DB_ALIAS]
-
         query_counts: List[int] = []
         queries = []
 
@@ -308,7 +304,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
 
             self.assertEqual(Insight.objects.count(), i + 1)
 
-            with CaptureQueriesContext(db_connection) as capture_query_context:
+            with capture_db_queries() as capture_query_context:
                 response = self.client.get(f"/api/projects/{self.team.id}/insights")
                 self.assertEqual(response.status_code, status.HTTP_200_OK)
                 self.assertEqual(len(response.json()["results"]), i + 1)
@@ -342,7 +338,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         self.assertEqual(response_data["tags"], [])
 
         objects = Insight.objects.all()
-        self.assertEqual(len(objects), 1)
+        self.assertEqual(objects.count(), 1)
         self.assertEqual(objects[0].filters["events"][0]["id"], "$pageview")
         self.assertEqual(objects[0].filters["date_from"], "-90d")
         self.assertEqual(len(objects[0].short_id), 8)
@@ -675,7 +671,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
         objects = Insight.objects.all()
-        self.assertEqual(len(objects), 1)
+        self.assertEqual(objects.count(), 1)
         self.assertEqual(objects[0].filters["events"][1]["id"], "$rageclick")
         self.assertEqual(objects[0].filters["display"], "FunnelViz")
         self.assertEqual(objects[0].filters["interval"], "day")

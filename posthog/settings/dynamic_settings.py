@@ -51,6 +51,11 @@ CONSTANCE_CONFIG = {
         "Whether to resume the migration, when celery worker crashed.",
         bool,
     ),
+    "STRICT_CACHING_TEAMS": (
+        get_from_env("STRICT_CACHING_TEAMS", ""),
+        "Whether to always try to find cached data for historical intervals on trends",
+        str,
+    ),
     "EMAIL_ENABLED": (
         get_from_env("EMAIL_ENABLED", True, type_cast=str_to_bool),
         "Whether email service is enabled or not.",
@@ -104,6 +109,16 @@ CONSTANCE_CONFIG = {
         bool,
     ),
     "INGESTION_SITE_URL": (None, "Used in ingestion pipeline to determine sites url", str),
+    "SLACK_APP_CLIENT_ID": (
+        get_from_env("SLACK_APP_CLIENT_ID", default=""),
+        "Used to enable the 'Add to Slack' button across all projects",
+        str,
+    ),
+    "SLACK_APP_CLIENT_SECRET": (
+        get_from_env("SLACK_APP_CLIENT_SECRET", default=""),
+        "Used to enable the 'Add to Slack' button across all projects",
+        str,
+    ),
 }
 
 SETTINGS_ALLOWING_API_OVERRIDE = (
@@ -124,10 +139,11 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "EMAIL_REPLY_TO",
     "ASYNC_MIGRATIONS_OPT_OUT_EMAILS",
     "ENABLE_ACTOR_ON_EVENTS_TEAMS",
+    "STRICT_CACHING_TEAMS",
+    "SLACK_APP_CLIENT_ID",
+    "SLACK_APP_CLIENT_SECRET",
 )
 
 # SECRET_SETTINGS can only be updated but will never be exposed through the API (we do store them plain text in the DB)
 # On the frontend UI will clearly show which configuration elements are secret and whether they have a set value or not.
-SECRET_SETTINGS = [
-    "EMAIL_HOST_PASSWORD",
-]
+SECRET_SETTINGS = ["EMAIL_HOST_PASSWORD", "SLACK_APP_CLIENT_SECRET"]

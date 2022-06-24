@@ -4,7 +4,11 @@ import {
     ActionFilter,
     ActionType,
     ActorType,
+    AnyCohortCriteriaType,
     AnyPropertyFilter,
+    BehavioralCohortType,
+    BehavioralEventType,
+    CohortCriteriaGroupFilter,
     CohortType,
     dateMappingOption,
     EventType,
@@ -30,6 +34,7 @@ import { getAppContext } from './utils/getAppContext'
 import { isValidPropertyFilter } from './components/PropertyFilters/utils'
 import { IconCopy } from './components/icons'
 import { lemonToast } from './components/lemonToast'
+import { BehavioralFilterKey } from 'scenes/cohorts/CohortFilters/types'
 
 export const ANTD_TOOLTIP_PLACEMENTS: Record<any, AlignType> = {
     // `@yiminghe/dom-align` objects
@@ -290,7 +295,7 @@ export const genericOperatorMap: Record<string, string> = {
     regex: '∼ matches regex',
     not_regex: "≁ doesn't match regex",
     gt: '> greater than',
-    lt: '< lower than',
+    lt: '< less than',
     is_set: '✓ is set',
     is_not_set: '✕ is not set',
 }
@@ -312,7 +317,7 @@ export const numericOperatorMap: Record<string, string> = {
     regex: '∼ matches regex',
     not_regex: "≁ doesn't match regex",
     gt: '> greater than',
-    lt: '< lower than',
+    lt: '< less than',
     is_set: '✓ is set',
     is_not_set: '✕ is not set',
 }
@@ -332,12 +337,18 @@ export const booleanOperatorMap: Record<string, string> = {
     is_not_set: '✕ is not set',
 }
 
+export const durationOperatorMap: Record<string, string> = {
+    gt: '> greater than',
+    lt: '< less than',
+}
+
 export const allOperatorsMapping: Record<string, string> = {
     ...dateTimeOperatorMap,
     ...stringOperatorMap,
     ...numericOperatorMap,
     ...genericOperatorMap,
     ...booleanOperatorMap,
+    ...durationOperatorMap,
     // slight overkill to spread all of these into the map
     // but gives freedom for them to diverge more over time
 }
@@ -347,6 +358,7 @@ const operatorMappingChoice: Record<keyof typeof PropertyType, Record<string, st
     String: stringOperatorMap,
     Numeric: numericOperatorMap,
     Boolean: booleanOperatorMap,
+    Duration: durationOperatorMap,
 }
 
 export function chooseOperatorMap(propertyType: PropertyType | undefined): Record<string, string> {
@@ -512,8 +524,8 @@ export function humanFriendlyDiff(from: dayjs.Dayjs | string, to: dayjs.Dayjs | 
 
 export function humanFriendlyDetailedTime(
     date: dayjs.Dayjs | string | null,
-    withSeconds: boolean = false,
-    formatString: string = 'MMMM DD, YYYY h:mm'
+    formatDate = 'MMMM DD, YYYY',
+    formatTime = 'h:mm:ss A'
 ): string {
     if (!date) {
         return 'Never'
@@ -524,15 +536,13 @@ export function humanFriendlyDetailedTime(
     if (parsedDate.isSame(dayjs(), 'm')) {
         return 'Just now'
     }
+    let formatString: string
     if (parsedDate.isSame(today, 'd')) {
-        formatString = '[Today] h:mm'
+        formatString = `[Today] ${formatTime}`
     } else if (parsedDate.isSame(yesterday, 'd')) {
-        formatString = '[Yesterday] h:mm'
-    }
-    if (withSeconds) {
-        formatString += ':ss A'
+        formatString = `[Yesterday] ${formatTime}`
     } else {
-        formatString += ' A'
+        formatString = `${formatDate} ${formatTime}`
     }
     return parsedDate.format(formatString)
 }
@@ -595,6 +605,14 @@ export function isURL(input: any): boolean {
     }
     // Regex by regextester.com/115236
     const regexp = /^(?:http(s)?:\/\/)([\w.-])+(?:[\w\.-]+)+([\w\-\._~:/?#[\]@%!\$&'\(\)\*\+,;=.])+$/
+    return !!input.trim().match(regexp)
+}
+
+export function isExternalLink(input: any): boolean {
+    if (!input || typeof input !== 'string') {
+        return false
+    }
+    const regexp = /^(https?:|mailto:)/
     return !!input.trim().match(regexp)
 }
 
@@ -1326,4 +1344,49 @@ export function calculateDays(timeValue: number, timeUnit: TimeUnitType): number
         return timeValue * 7
     }
     return timeValue
+}
+
+export function range(startOrEnd: number, end?: number): number[] {
+    let length = startOrEnd
+    let start = 0
+    if (typeof end == 'number') {
+        start = startOrEnd
+        length = end - start
+    }
+    return Array.from({ length }, (_, i) => i + start)
+}
+
+export function processCohort(cohort: CohortType): CohortType {
+    return {
+        ...cohort,
+        ...{
+            /* Populate value_property with value and overwrite value with corresponding behavioral filter type */
+            filters: {
+                properties: {
+                    ...cohort.filters.properties,
+                    values: (cohort.filters.properties?.values?.map((group) =>
+                        'values' in group
+                            ? {
+                                  ...group,
+                                  values: (group.values as AnyCohortCriteriaType[]).map((c) =>
+                                      c.type &&
+                                      [BehavioralFilterKey.Cohort, BehavioralFilterKey.Person].includes(c.type) &&
+                                      !('value_property' in c)
+                                          ? {
+                                                ...c,
+                                                value_property: c.value,
+                                                value:
+                                                    c.type === BehavioralFilterKey.Cohort
+                                                        ? BehavioralCohortType.InCohort
+                                                        : BehavioralEventType.HaveProperty,
+                                            }
+                                          : c
+                                  ),
+                              }
+                            : group
+                    ) ?? []) as CohortCriteriaGroupFilter[] | AnyCohortCriteriaType[],
+                },
+            },
+        },
+    }
 }

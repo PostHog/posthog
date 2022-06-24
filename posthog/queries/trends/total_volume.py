@@ -4,9 +4,9 @@ from typing import Any, Callable, Dict, List, Tuple
 
 import pytz
 
-from ee.clickhouse.sql.events import NULL_SQL
 from posthog.constants import MONTHLY_ACTIVE, NON_TIME_SERIES_DISPLAY_TYPES, TRENDS_CUMULATIVE, WEEKLY_ACTIVE
 from posthog.models.entity import Entity
+from posthog.models.event.sql import NULL_SQL
 from posthog.models.filters import Filter
 from posthog.models.team import Team
 from posthog.queries.trends.sql import (
@@ -121,7 +121,12 @@ class TrendsTotalVolume:
             )
             time_range = enumerate_time_range(filter, seconds_in_interval)
             filter_params = filter.to_params()
-            extra_params = {"entity_id": entity.id, "entity_type": entity.type, "entity_math": entity.math}
+            extra_params = {
+                "entity_id": entity.id,
+                "entity_type": entity.type,
+                "entity_math": entity.math,
+                "entity_order": entity.order,
+            }
             parsed_params: Dict[str, str] = encode_get_request_params({**filter_params, **extra_params})
 
             return [
@@ -159,6 +164,7 @@ class TrendsTotalVolume:
                 "entity_math": entity.math,
                 "date_from": filter.date_from if filter.display == TRENDS_CUMULATIVE else date_in_utc,
                 "date_to": date_in_utc,
+                "entity_order": entity.order,
             }
 
             parsed_params: Dict[str, str] = encode_get_request_params({**filter_params, **extra_params})

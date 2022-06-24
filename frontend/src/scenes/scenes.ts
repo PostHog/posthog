@@ -142,6 +142,9 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
         hideDemoWarnings: true,
         name: 'Project settings',
     },
+    [Scene.IntegrationsRedirect]: {
+        name: 'Integrations Redirect',
+    },
     [Scene.Ingestion]: {
         projectBased: true,
         plain: true,
@@ -212,6 +215,9 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
         plain: true,
         allowUnauthenticated: true,
     },
+    [Scene.Unsubscribe]: {
+        allowUnauthenticated: true,
+    },
 }
 
 export const redirects: Record<string, string | ((params: Params) => string)> = {
@@ -235,11 +241,15 @@ export const redirects: Record<string, string | ((params: Params) => string)> = 
 export const routes: Record<string, Scene> = {
     [urls.dashboards()]: Scene.Dashboards,
     [urls.dashboard(':id')]: Scene.Dashboard,
+    [urls.dashboardSubcriptions(':id')]: Scene.Dashboard,
+    [urls.dashboardSubcription(':id', ':subscriptionId')]: Scene.Dashboard,
     [urls.createAction()]: Scene.Action,
     [urls.action(':id')]: Scene.Action,
     [urls.insightNew()]: Scene.Insight,
     [urls.insightEdit(':shortId' as InsightShortId)]: Scene.Insight,
     [urls.insightView(':shortId' as InsightShortId)]: Scene.Insight,
+    [urls.insightSubcriptions(':shortId' as InsightShortId)]: Scene.Insight,
+    [urls.insightSubcription(':shortId' as InsightShortId, ':subscriptionId')]: Scene.Insight,
     [urls.savedInsights()]: Scene.SavedInsights,
     [urls.actions()]: Scene.Actions,
     [urls.eventDefinitions()]: Scene.EventDefinitions,
@@ -290,4 +300,6 @@ export const routes: Record<string, Scene> = {
     [urls.passwordResetComplete(':uuid', ':token')]: Scene.PasswordResetComplete,
     [urls.ingestion()]: Scene.Ingestion,
     [urls.ingestion() + '/*']: Scene.Ingestion,
+    [urls.unsubscribe()]: Scene.Unsubscribe,
+    [urls.integrationsRedirect(':kind')]: Scene.IntegrationsRedirect,
 }

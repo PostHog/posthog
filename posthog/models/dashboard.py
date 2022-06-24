@@ -2,9 +2,9 @@ from typing import Any, Dict, cast
 
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
-from django_deprecate_fields import deprecate_field
 
 from posthog.constants import AvailableFeature
+from posthog.utils import absolute_uri
 
 
 class Dashboard(models.Model):
@@ -43,12 +43,14 @@ class Dashboard(models.Model):
     insights = models.ManyToManyField("posthog.Insight", related_name="dashboards", through="DashboardTile", blank=True)
 
     # Deprecated in favour of app-wide tagging model. See EnterpriseTaggedItem
-    deprecated_tags: ArrayField = deprecate_field(
-        ArrayField(models.CharField(max_length=32), blank=True, default=list), return_instead=[],
+    deprecated_tags: ArrayField = ArrayField(models.CharField(max_length=32), null=True, blank=True, default=list)
+    deprecated_tags_v2: ArrayField = ArrayField(
+        models.CharField(max_length=32), null=True, blank=True, default=None, db_column="tags"
     )
-    tags: ArrayField = deprecate_field(
-        ArrayField(models.CharField(max_length=32), blank=True, default=None), return_instead=[],
-    )
+
+    @property
+    def url(self):
+        return absolute_uri(f"/dashboard/{self.id}")
 
     @property
     def effective_restriction_level(self) -> RestrictionLevel:
@@ -67,13 +69,19 @@ class Dashboard(models.Model):
         ):
             # Returning the highest access level if no checks needed
             return self.PrivilegeLevel.CAN_EDIT
-        from ee.models import DashboardPrivilege
 
         try:
-            return cast(Dashboard.PrivilegeLevel, self.privileges.values_list("level", flat=True).get(user_id=user_id))
-        except DashboardPrivilege.DoesNotExist:
-            # Returning the lowest access level if there's no explicit privilege for this user
+            from ee.models import DashboardPrivilege
+        except ImportError:
             return self.PrivilegeLevel.CAN_VIEW
+        else:
+            try:
+                return cast(
+                    Dashboard.PrivilegeLevel, self.privileges.values_list("level", flat=True).get(user_id=user_id)
+                )
+            except DashboardPrivilege.DoesNotExist:
+                # Returning the lowest access level if there's no explicit privilege for this user
+                return self.PrivilegeLevel.CAN_VIEW
 
     def can_user_edit(self, user_id: int) -> bool:
         if self.effective_restriction_level < self.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT:

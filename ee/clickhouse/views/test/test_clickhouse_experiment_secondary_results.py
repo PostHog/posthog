@@ -1,8 +1,8 @@
 from flaky import flaky
 
 from ee.api.test.base import APILicensedTest
-from ee.clickhouse.test.test_journeys import journeys_for
-from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
+from posthog.test.base import ClickhouseTestMixin, snapshot_clickhouse_queries
+from posthog.test.test_journeys import journeys_for
 
 
 @flaky(max_runs=10, min_passes=1)

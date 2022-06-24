@@ -2,12 +2,13 @@ import * as Sentry from '@sentry/node'
 import { Consumer, ConsumerSubscribeTopics, EachBatchPayload, Kafka } from 'kafkajs'
 
 import { Hub, WorkerMethods } from '../../types'
+import { timeoutGuard } from '../../utils/db/utils'
 import { status } from '../../utils/status'
 import { killGracefully } from '../../utils/utils'
 import { KAFKA_BUFFER, KAFKA_EVENTS_JSON, prefix as KAFKA_PREFIX } from './../../config/kafka-topics'
 import { eachBatchAsyncHandlers } from './batch-processing/each-batch-async-handlers'
 import { eachBatchIngestion } from './batch-processing/each-batch-ingestion'
-import { emitConsumerGroupMetrics } from './kafka-metrics'
+import { addMetricsEventListeners, emitConsumerGroupMetrics } from './kafka-metrics'
 
 type ConsumerManagementPayload = {
     topic: string
@@ -18,6 +19,7 @@ type EachBatchFunction = (payload: EachBatchPayload, queue: KafkaQueue) => Promi
 export class KafkaQueue {
     public pluginsServer: Hub
     public workerMethods: WorkerMethods
+    public consumerReady: boolean
     private kafka: Kafka
     private consumer: Consumer
     private consumerGroupMemberId: string | null
@@ -36,6 +38,7 @@ export class KafkaQueue {
         this.workerMethods = workerMethods
         this.sleepTimeout = null
         this.consumerGroupMemberId = null
+        this.consumerReady = false
 
         this.ingestionTopic = this.pluginsServer.KAFKA_CONSUMPTION_TOPIC!
         this.bufferTopic = KAFKA_BUFFER
@@ -71,11 +74,22 @@ export class KafkaQueue {
     }
 
     async start(): Promise<void> {
+        const timeout = timeoutGuard(
+            `Kafka queue is slow to start. Waiting over 1 minute to join the consumer group`,
+            {
+                topics: this.topics(),
+            },
+            60000
+        )
+
         const startPromise = new Promise<void>(async (resolve, reject) => {
-            // addMetricsEventListeners(this.consumer, this.pluginsServer.statsd)
+            addMetricsEventListeners(this.consumer, this.pluginsServer.statsd)
+
             this.consumer.on(this.consumer.events.GROUP_JOIN, ({ payload }) => {
                 status.info('ℹ️', 'Kafka joined consumer group', JSON.stringify(payload))
+                this.consumerReady = true
                 this.consumerGroupMemberId = payload.memberId
+                clearTimeout(timeout)
                 resolve()
             })
             this.consumer.on(this.consumer.events.CRASH, ({ payload: { error } }) => reject(error))
@@ -182,6 +196,8 @@ export class KafkaQueue {
         try {
             await this.consumer.disconnect()
         } catch {}
+
+        this.consumerReady = false
     }
 
     emitConsumerGroupMetrics(): Promise<void> {

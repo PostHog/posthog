@@ -62,7 +62,7 @@
                 },
                 {
                     "name": "CAPTURE_INTERNAL_METRICS",
-                    "value": "True"
+                    "value": "False"
                 },
                 {
                     "name": "PISCINA_ATOMICS_TIMEOUT",
@@ -90,15 +90,11 @@
                 },
                 {
                     "name": "KAFKA_PARTITIONS_CONSUMED_CONCURRENTLY",
-                    "value": "1"
+                    "value": "5"
                 },
                 {
                     "name": "CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS",
                     "value": "True"
-                },
-                {
-                    "name": "HISTORICAL_EXPORTS_ENABLED",
-                    "value": "False"
                 },
                 {
                     "name": "PERSON_INFO_TO_REDIS_TEAMS",
@@ -111,6 +107,10 @@
                 {
                     "name": "KAFKA_SECURITY_PROTOCOL",
                     "value": "SSL"
+                },
+                {
+                    "name": "CLEAR_CLICKHOUSE_REMOVED_DATA_SCHEDULE_CRON",
+                    "value": "0 5 * * SUN"
                 }
             ],
             "secrets": [

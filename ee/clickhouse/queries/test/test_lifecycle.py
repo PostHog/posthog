@@ -3,18 +3,17 @@ from datetime import datetime, timedelta
 from django.utils.timezone import now
 from freezegun.api import freeze_time
 
-from ee.clickhouse.models.group import create_group
-from ee.clickhouse.test.test_journeys import journeys_for
-from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
 from posthog.constants import FILTER_TEST_ACCOUNTS, TRENDS_LIFECYCLE
 from posthog.models.action import Action
 from posthog.models.action_step import ActionStep
 from posthog.models.filters.filter import Filter
+from posthog.models.group.util import create_group
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.person import Person
 from posthog.queries.test.test_lifecycle import lifecycle_test_factory
 from posthog.queries.trends.trends import Trends
-from posthog.test.base import _create_event, _create_person
+from posthog.test.base import ClickhouseTestMixin, _create_event, _create_person, snapshot_clickhouse_queries
+from posthog.test.test_journeys import journeys_for
 
 
 def _create_action(**kwargs):

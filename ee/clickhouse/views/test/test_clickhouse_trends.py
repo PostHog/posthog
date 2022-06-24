@@ -2,6 +2,7 @@ import json
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Union
+from unittest.case import skip
 from unittest.mock import ANY
 
 import pytest
@@ -10,14 +11,20 @@ from django.test import Client
 from freezegun import freeze_time
 
 from ee.api.test.base import LicensedTestMixin
-from ee.clickhouse.models.group import create_group
-from ee.clickhouse.test.test_journeys import journeys_for, update_or_create_person
-from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
 from posthog.api.test.test_cohort import create_cohort_ok
 from posthog.api.test.test_event_definition import create_organization, create_team, create_user
+from posthog.models.group.util import create_group
 from posthog.models.group_type_mapping import GroupTypeMapping
+from posthog.models.instance_setting import set_instance_setting
 from posthog.models.team import Team
-from posthog.test.base import APIBaseTest, _create_person, test_with_materialized_columns
+from posthog.test.base import (
+    APIBaseTest,
+    ClickhouseTestMixin,
+    _create_person,
+    snapshot_clickhouse_queries,
+    test_with_materialized_columns,
+)
+from posthog.test.test_journeys import journeys_for, update_or_create_person
 
 
 @pytest.mark.django_db
@@ -407,6 +414,7 @@ class TrendsRequest:
     events: List[Dict[str, Any]] = field(default_factory=list)
     properties: List[Dict[str, Any]] = field(default_factory=list)
     smoothing_intervals: Optional[int] = 1
+    refresh: Optional[bool] = False
 
 
 @dataclass
@@ -426,6 +434,7 @@ def get_trends(client, request: Union[TrendsRequestBreakdown, TrendsRequest], te
         "events": json.dumps(request.events),
         "properties": json.dumps(request.properties),
         "smoothing_intervals": request.smoothing_intervals,
+        "refresh": request.refresh,
     }
 
     if isinstance(request, TrendsRequestBreakdown):
@@ -452,7 +461,7 @@ class NormalizedTrendResult:
 
 
 def get_trends_time_series_ok(
-    client: Client, request: TrendsRequest, team: Team
+    client: Client, request: TrendsRequest, team: Team, with_order: bool = False
 ) -> Dict[str, Dict[str, NormalizedTrendResult]]:
     data = get_trends_ok(client=client, request=request, team=team)
     res = {}
@@ -465,9 +474,10 @@ def get_trends_time_series_ok(
                 person_url=item["persons_urls"][idx]["url"],
                 breakdown_value=item.get("breakdown_value", None),
             )
-        res[
-            "{}{}".format(item["label"], " - {}".format(item["compare_label"]) if item.get("compare_label") else "")
-        ] = collect_dates
+        suffix = " - {}".format(item["compare_label"]) if item.get("compare_label") else ""
+        if with_order:
+            suffix += " - {}".format(item["action"]["order"]) if item["action"].get("order") is not None else ""
+        res["{}{}".format(item["label"], suffix)] = collect_dates
 
     return res
 
@@ -541,6 +551,62 @@ class ClickhouseTestTrends(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest):
 
         assert sorted([p["id"] for p in people]) == sorted(
             [str(created_people["1"].uuid), str(created_people["2"].uuid)]
+        )
+
+    def test_insight_trends_entity_overlap(self):
+        events_by_person = {
+            "1": [{"event": "$pageview", "timestamp": datetime(2012, 1, 14, 3), "properties": {"key": "val"}},],
+            "2": [{"event": "$pageview", "timestamp": datetime(2012, 1, 14, 3)},],
+            "3": [{"event": "$pageview", "timestamp": datetime(2012, 1, 14, 3)},],
+        }
+        created_people = journeys_for(events_by_person, self.team)
+
+        with freeze_time("2012-01-15T04:01:34.000Z"):
+
+            request = TrendsRequest(
+                date_from="-14d",
+                display="ActionsLineGraph",
+                events=[
+                    {
+                        "id": "$pageview",
+                        "math": "dau",
+                        "name": "$pageview",
+                        "custom_name": None,
+                        "type": "events",
+                        "order": 0,
+                        "properties": [],
+                        "math_property": None,
+                    },
+                    {
+                        "id": "$pageview",
+                        "math": "dau",
+                        "name": "$pageview",
+                        "custom_name": None,
+                        "type": "events",
+                        "order": 1,
+                        "properties": [{"key": "key", "value": "val"}],
+                        "math_property": None,
+                    },
+                ],
+            )
+            data = get_trends_time_series_ok(self.client, request, self.team, with_order=True)
+
+        assert data["$pageview - 0"]["2012-01-13"].value == 0
+        assert data["$pageview - 0"]["2012-01-14"].value == 3
+        assert data["$pageview - 1"]["2012-01-14"].value == 1
+        assert data["$pageview - 0"]["2012-01-14"].label == "14-Jan-2012"
+        assert data["$pageview - 0"]["2012-01-15"].value == 0
+
+        with freeze_time("2012-01-15T04:01:34.000Z"):
+            people = get_people_from_url_ok(self.client, data["$pageview - 1"]["2012-01-14"].person_url)
+
+        assert sorted([p["id"] for p in people]) == sorted([str(created_people["1"].uuid)])
+
+        with freeze_time("2012-01-15T04:01:34.000Z"):
+            people = get_people_from_url_ok(self.client, data["$pageview - 0"]["2012-01-14"].person_url)
+
+        assert sorted([p["id"] for p in people]) == sorted(
+            [str(created_people["1"].uuid), str(created_people["2"].uuid), str(created_people["3"].uuid)]
         )
 
     @snapshot_clickhouse_queries
@@ -923,3 +989,469 @@ class ClickhouseTestTrendsGroups(ClickhouseTestMixin, LicensedTestMixin, APIBase
         curr_people = get_people_from_url_ok(self.client, data_response["$pageview"]["2020-01-02"].person_url)
 
         assert sorted([p["group_key"] for p in curr_people]) == sorted(["org:5", "org:6"])
+
+    @snapshot_clickhouse_queries
+    def test_aggregating_by_session(self):
+        events_by_person = {
+            "person1": [
+                {"event": "$pageview", "timestamp": datetime(2020, 1, 1, 12), "properties": {"$session_id": "1"}},
+                {"event": "$pageview", "timestamp": datetime(2020, 1, 1, 12), "properties": {"$session_id": "1"}},
+                {"event": "$pageview", "timestamp": datetime(2020, 1, 2, 12), "properties": {"$session_id": "2"}},
+            ],
+            "person2": [
+                {"event": "$pageview", "timestamp": datetime(2020, 1, 2, 12), "properties": {"$session_id": "3"}},
+            ],
+        }
+        journeys_for(events_by_person, self.team)
+
+        request = TrendsRequest(
+            date_from="2020-01-01 00:00:00",
+            date_to="2020-01-12 00:00:00",
+            events=[{"id": "$pageview", "type": "events", "order": 0, "math": "unique_session"}],
+        )
+        data_response = get_trends_time_series_ok(self.client, request, self.team)
+
+        assert data_response["$pageview"]["2020-01-01"].value == 1
+        assert data_response["$pageview"]["2020-01-02"].value == 2
+
+        curr_people = get_people_from_url_ok(self.client, data_response["$pageview"]["2020-01-02"].person_url)
+
+        assert sorted([p["distinct_ids"][0] for p in curr_people]) == sorted(["person1", "person2"])
+
+
+class ClickhouseTestTrendsCaching(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest):
+    maxDiff = None
+    CLASS_DATA_LEVEL_SETUP = False
+
+    @snapshot_clickhouse_queries
+    def test_insight_trends_merging(self):
+        set_instance_setting("STRICT_CACHING_TEAMS", "all")
+
+        events_by_person = {
+            "1": [{"event": "$pageview", "timestamp": datetime(2012, 1, 13, 3)},],
+            "2": [{"event": "$pageview", "timestamp": datetime(2012, 1, 13, 3)},],
+        }
+        journeys_for(events_by_person, self.team)
+
+        with freeze_time("2012-01-15T04:01:34.000Z"):
+
+            request = TrendsRequest(
+                date_from="-14d",
+                display="ActionsLineGraph",
+                events=[
+                    {
+                        "id": "$pageview",
+                        "math": "dau",
+                        "name": "$pageview",
+                        "custom_name": None,
+                        "type": "events",
+                        "order": 0,
+                        "properties": [],
+                        "math_property": None,
+                    }
+                ],
+            )
+            data = get_trends_time_series_ok(self.client, request, self.team)
+
+        assert data["$pageview"]["2012-01-13"].value == 2
+        assert data["$pageview"]["2012-01-14"].value == 0
+        assert data["$pageview"]["2012-01-15"].value == 0
+
+        events_by_person = {
+            "1": [{"event": "$pageview", "timestamp": datetime(2012, 1, 15, 3)},],
+        }
+        journeys_for(events_by_person, self.team)
+
+        with freeze_time("2012-01-15T04:01:34.000Z"):
+
+            request = TrendsRequest(
+                date_from="-14d",
+                display="ActionsLineGraph",
+                events=[
+                    {
+                        "id": "$pageview",
+                        "math": "dau",
+                        "name": "$pageview",
+                        "custom_name": None,
+                        "type": "events",
+                        "order": 0,
+                        "properties": [],
+                        "math_property": None,
+                    }
+                ],
+                refresh=True,
+            )
+            data = get_trends_time_series_ok(self.client, request, self.team)
+
+        assert data["$pageview"]["2012-01-13"].value == 2
+        assert data["$pageview"]["2012-01-14"].value == 0
+        assert data["$pageview"]["2012-01-15"].value == 1
+
+    def test_insight_trends_merging_multiple(self):
+        set_instance_setting("STRICT_CACHING_TEAMS", "all")
+
+        events_by_person = {
+            "1": [
+                {"event": "$pageview", "timestamp": datetime(2012, 1, 13, 3)},
+                {"event": "$action", "timestamp": datetime(2012, 1, 13, 3)},
+            ],
+            "2": [
+                {"event": "$pageview", "timestamp": datetime(2012, 1, 13, 3)},
+                {"event": "$action", "timestamp": datetime(2012, 1, 13, 3)},
+            ],
+        }
+        journeys_for(events_by_person, self.team)
+
+        with freeze_time("2012-01-15T04:01:34.000Z"):
+
+            request = TrendsRequest(
+                date_from="-14d",
+                display="ActionsLineGraph",
+                events=[
+                    {
+                        "id": "$pageview",
+                        "math": "dau",
+                        "name": "$pageview",
+                        "custom_name": None,
+                        "type": "events",
+                        "order": 0,
+                        "properties": [],
+                        "math_property": None,
+                    },
+                    {
+                        "id": "$action",
+                        "math": "dau",
+                        "name": "$action",
+                        "custom_name": None,
+                        "type": "events",
+                        "order": 1,
+                        "properties": [],
+                        "math_property": None,
+                    },
+                ],
+            )
+            data = get_trends_time_series_ok(self.client, request, self.team)
+
+        assert data["$pageview"]["2012-01-13"].value == 2
+        assert data["$pageview"]["2012-01-14"].value == 0
+        assert data["$pageview"]["2012-01-15"].value == 0
+
+        assert data["$action"]["2012-01-13"].value == 2
+        assert data["$action"]["2012-01-14"].value == 0
+        assert data["$action"]["2012-01-15"].value == 0
+
+        events_by_person = {
+            "1": [
+                {"event": "$pageview", "timestamp": datetime(2012, 1, 15, 3)},
+                {"event": "$action", "timestamp": datetime(2012, 1, 15, 3)},
+            ],
+            "3": [  # thhis won't be counted
+                {"event": "$pageview", "timestamp": datetime(2012, 1, 13, 3)},
+                {"event": "$action", "timestamp": datetime(2012, 1, 13, 3)},
+            ],
+        }
+        journeys_for(events_by_person, self.team)
+
+        with freeze_time("2012-01-15T04:01:34.000Z"):
+
+            request = TrendsRequest(
+                date_from="-14d",
+                display="ActionsLineGraph",
+                events=[
+                    {
+                        "id": "$pageview",
+                        "math": "dau",
+                        "name": "$pageview",
+                        "custom_name": None,
+                        "type": "events",
+                        "order": 0,
+                        "properties": [],
+                        "math_property": None,
+                    },
+                    {
+                        "id": "$action",
+                        "math": "dau",
+                        "name": "$action",
+                        "custom_name": None,
+                        "type": "events",
+                        "order": 1,
+                        "properties": [],
+                        "math_property": None,
+                    },
+                ],
+                refresh=True,
+            )
+            data = get_trends_time_series_ok(self.client, request, self.team)
+
+        assert data["$pageview"]["2012-01-13"].value == 2
+        assert data["$pageview"]["2012-01-14"].value == 0
+        assert data["$pageview"]["2012-01-15"].value == 1
+
+        assert data["$action"]["2012-01-13"].value == 2
+        assert data["$action"]["2012-01-14"].value == 0
+        assert data["$action"]["2012-01-15"].value == 1
+
+    @skip("Don't handle breakdowns right now")
+    def test_insight_trends_merging_breakdown(self):
+        set_instance_setting("STRICT_CACHING_TEAMS", "all")
+
+        events_by_person = {
+            "1": [
+                {"event": "$action", "timestamp": datetime(2012, 1, 13, 3), "properties": {"key": "1"}},
+                {"event": "$action", "timestamp": datetime(2012, 1, 13, 3), "properties": {"key": "2"}},
+            ],
+            "2": [{"event": "$action", "timestamp": datetime(2012, 1, 13, 3), "properties": {"key": "1"}}],
+        }
+        journeys_for(events_by_person, self.team)
+
+        with freeze_time("2012-01-15T04:01:34.000Z"):
+
+            request = TrendsRequestBreakdown(
+                date_from="-14d",
+                display="ActionsLineGraph",
+                events=[
+                    {
+                        "id": "$action",
+                        "math": "dau",
+                        "name": "$action",
+                        "custom_name": None,
+                        "type": "events",
+                        "order": 0,
+                        "properties": [],
+                        "math_property": None,
+                    }
+                ],
+                breakdown="key",
+            )
+            data = get_trends_time_series_ok(self.client, request, self.team)
+
+        assert data["$action - 1"]["2012-01-13"].value == 2
+        assert data["$action - 1"]["2012-01-14"].value == 0
+        assert data["$action - 1"]["2012-01-15"].value == 0
+
+        assert data["$action - 2"]["2012-01-13"].value == 1
+        assert data["$action - 2"]["2012-01-14"].value == 0
+        assert data["$action - 2"]["2012-01-15"].value == 0
+
+        events_by_person = {
+            "1": [{"event": "$action", "timestamp": datetime(2012, 1, 15, 3), "properties": {"key": "2"}},],
+            "2": [
+                {"event": "$action", "timestamp": datetime(2012, 1, 13, 3), "properties": {"key": "2"}}
+            ],  # this won't be counted
+        }
+        journeys_for(events_by_person, self.team)
+
+        with freeze_time("2012-01-15T04:01:34.000Z"):
+
+            request = TrendsRequestBreakdown(
+                date_from="-14d",
+                display="ActionsLineGraph",
+                events=[
+                    {
+                        "id": "$action",
+                        "math": "dau",
+                        "name": "$action",
+                        "custom_name": None,
+                        "type": "events",
+                        "order": 0,
+                        "properties": [],
+                        "math_property": None,
+                    }
+                ],
+                breakdown="key",
+                refresh=True,
+            )
+            data = get_trends_time_series_ok(self.client, request, self.team)
+
+        assert data["$action - 1"]["2012-01-13"].value == 2
+        assert data["$action - 1"]["2012-01-14"].value == 0
+        assert data["$action - 1"]["2012-01-15"].value == 0
+
+        assert data["$action - 2"]["2012-01-13"].value == 1
+        assert data["$action - 2"]["2012-01-14"].value == 0
+        assert data["$action - 2"]["2012-01-15"].value == 1
+
+    @skip("Don't handle breakdowns right now")
+    def test_insight_trends_merging_breakdown_multiple(self):
+        set_instance_setting("STRICT_CACHING_TEAMS", "all")
+
+        events_by_person = {
+            "1": [
+                {"event": "$pageview", "timestamp": datetime(2012, 1, 13, 3), "properties": {"key": "1"}},
+                {"event": "$action", "timestamp": datetime(2012, 1, 13, 3), "properties": {"key": "1"}},
+                {"event": "$action", "timestamp": datetime(2012, 1, 13, 3), "properties": {"key": "2"}},
+            ],
+            "2": [
+                {"event": "$pageview", "timestamp": datetime(2012, 1, 13, 3), "properties": {"key": "1"}},
+                {"event": "$action", "timestamp": datetime(2012, 1, 13, 3), "properties": {"key": "1"}},
+            ],
+        }
+        journeys_for(events_by_person, self.team)
+
+        with freeze_time("2012-01-15T04:01:34.000Z"):
+
+            request = TrendsRequestBreakdown(
+                date_from="-14d",
+                display="ActionsLineGraph",
+                events=[
+                    {
+                        "id": "$pageview",
+                        "math": "dau",
+                        "name": "$pageview",
+                        "custom_name": None,
+                        "type": "events",
+                        "order": 0,
+                        "properties": [],
+                        "math_property": None,
+                    },
+                    {
+                        "id": "$action",
+                        "math": "dau",
+                        "name": "$action",
+                        "custom_name": None,
+                        "type": "events",
+                        "order": 1,
+                        "properties": [],
+                        "math_property": None,
+                    },
+                ],
+                breakdown="key",
+            )
+            data = get_trends_time_series_ok(self.client, request, self.team)
+
+        assert data["$pageview - 1"]["2012-01-13"].value == 2
+        assert data["$pageview - 1"]["2012-01-14"].value == 0
+        assert data["$pageview - 1"]["2012-01-15"].value == 0
+
+        assert data["$action - 1"]["2012-01-13"].value == 2
+        assert data["$action - 1"]["2012-01-14"].value == 0
+        assert data["$action - 1"]["2012-01-15"].value == 0
+
+        assert data["$action - 2"]["2012-01-13"].value == 1
+        assert data["$action - 2"]["2012-01-14"].value == 0
+        assert data["$action - 2"]["2012-01-15"].value == 0
+
+        events_by_person = {
+            "1": [
+                {"event": "$pageview", "timestamp": datetime(2012, 1, 15, 3), "properties": {"key": "1"}},
+                {"event": "$action", "timestamp": datetime(2012, 1, 15, 3), "properties": {"key": "2"}},
+            ],
+            "2": [
+                {
+                    "event": "$action",
+                    "timestamp": datetime(2012, 1, 13, 3),
+                    "properties": {"key": "2"},
+                },  # this won't be counted
+            ],
+        }
+        journeys_for(events_by_person, self.team)
+
+        with freeze_time("2012-01-15T04:01:34.000Z"):
+
+            request = TrendsRequestBreakdown(
+                date_from="-14d",
+                display="ActionsLineGraph",
+                events=[
+                    {
+                        "id": "$pageview",
+                        "math": "dau",
+                        "name": "$pageview",
+                        "custom_name": None,
+                        "type": "events",
+                        "order": 0,
+                        "properties": [],
+                        "math_property": None,
+                    },
+                    {
+                        "id": "$action",
+                        "math": "dau",
+                        "name": "$action",
+                        "custom_name": None,
+                        "type": "events",
+                        "order": 1,
+                        "properties": [],
+                        "math_property": None,
+                    },
+                ],
+                breakdown="key",
+                refresh=True,
+            )
+            data = get_trends_time_series_ok(self.client, request, self.team)
+
+        assert data["$pageview - 1"]["2012-01-13"].value == 2
+        assert data["$pageview - 1"]["2012-01-14"].value == 0
+        assert data["$pageview - 1"]["2012-01-15"].value == 1
+
+        assert data["$action - 1"]["2012-01-13"].value == 2
+        assert data["$action - 1"]["2012-01-14"].value == 0
+        assert data["$action - 1"]["2012-01-15"].value == 0
+
+        assert data["$action - 2"]["2012-01-13"].value == 1
+        assert data["$action - 2"]["2012-01-14"].value == 0
+        assert data["$action - 2"]["2012-01-15"].value == 1
+
+    # When the latest time interval in the cached result doesn't match the current interval, do not use caching pattern
+    @snapshot_clickhouse_queries
+    def test_insight_trends_merging_skipped_interval(self):
+        set_instance_setting("STRICT_CACHING_TEAMS", "all")
+
+        events_by_person = {
+            "1": [{"event": "$pageview", "timestamp": datetime(2012, 1, 13, 3)},],
+            "2": [{"event": "$pageview", "timestamp": datetime(2012, 1, 13, 3)},],
+        }
+        journeys_for(events_by_person, self.team)
+
+        with freeze_time("2012-01-14T04:01:34.000Z"):
+
+            request = TrendsRequest(
+                date_from="-14d",
+                display="ActionsLineGraph",
+                events=[
+                    {
+                        "id": "$pageview",
+                        "math": "dau",
+                        "name": "$pageview",
+                        "custom_name": None,
+                        "type": "events",
+                        "order": 0,
+                        "properties": [],
+                        "math_property": None,
+                    }
+                ],
+            )
+            data = get_trends_time_series_ok(self.client, request, self.team)
+
+        assert data["$pageview"]["2012-01-13"].value == 2
+        assert data["$pageview"]["2012-01-14"].value == 0
+
+        events_by_person = {
+            "1": [{"event": "$pageview", "timestamp": datetime(2012, 1, 15, 3)},],
+            "2": [{"event": "$pageview", "timestamp": datetime(2012, 1, 16, 3)},],
+        }
+        journeys_for(events_by_person, self.team)
+
+        with freeze_time("2012-01-16T04:01:34.000Z"):
+
+            request = TrendsRequest(
+                date_from="-14d",
+                display="ActionsLineGraph",
+                events=[
+                    {
+                        "id": "$pageview",
+                        "math": "dau",
+                        "name": "$pageview",
+                        "custom_name": None,
+                        "type": "events",
+                        "order": 0,
+                        "properties": [],
+                        "math_property": None,
+                    }
+                ],
+                refresh=True,
+            )
+            data = get_trends_time_series_ok(self.client, request, self.team)
+
+        assert data["$pageview"]["2012-01-13"].value == 2
+        assert data["$pageview"]["2012-01-14"].value == 0
+        assert data["$pageview"]["2012-01-15"].value == 1
+        assert data["$pageview"]["2012-01-16"].value == 1

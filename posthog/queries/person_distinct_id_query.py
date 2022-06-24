@@ -1,8 +1,8 @@
 from datetime import timedelta
 
-from ee.clickhouse.materialized_columns.util import cache_for
-from ee.clickhouse.sql.person import GET_TEAM_PERSON_DISTINCT_IDS, GET_TEAM_PERSON_DISTINCT_IDS_NEW_TABLE
+from posthog.clickhouse.materialized_columns.util import cache_for
 from posthog.models.async_migration import is_async_migration_complete
+from posthog.models.person.sql import GET_TEAM_PERSON_DISTINCT_IDS, GET_TEAM_PERSON_DISTINCT_IDS_NEW_TABLE
 from posthog.settings import BENCHMARK, TEST
 
 using_new_table = TEST or BENCHMARK

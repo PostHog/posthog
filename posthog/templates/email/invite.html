@@ -1,4 +1,4 @@
-{% extends "email/base_transactional.html" %} {% load posthog_assets %} {% block section %}
+{% extends "email/base.html" %} {% load posthog_assets %} {% block section %}
 <h1 class="invite-header">
     <strong>{{ invite.created_by.first_name }}</strong> has invited you to join
     <strong>{{ invite.organization.name }}</strong> on PostHog
@@ -28,4 +28,7 @@
 <div class="text-center">
     <img src="{% absolute_asset_url 'email/invite-email-welcome.png' %}" />
 </div>
+
+{% block footer %}
+{% endblock %}
 {% endblock %}{% load posthog_filters %}

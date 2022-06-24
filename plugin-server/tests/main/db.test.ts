@@ -5,6 +5,7 @@ import { DB } from '../../src/utils/db/db'
 import { createHub } from '../../src/utils/db/hub'
 import { generateKafkaPersonUpdateMessage } from '../../src/utils/db/utils'
 import { RaceConditionError, UUIDT } from '../../src/utils/utils'
+import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../helpers/clickhouse'
 import { getFirstTeam, insertRow, resetTestDatabase } from '../helpers/sql'
 import { plugin60 } from './../helpers/plugins'
 
@@ -17,7 +18,7 @@ describe('DB', () => {
 
     beforeEach(async () => {
         ;[hub, closeServer] = await createHub()
-        await resetTestDatabase()
+        await resetTestDatabase(undefined, {}, {}, { withExtendedTestData: false })
         db = hub.db
     })
 
@@ -25,46 +26,221 @@ describe('DB', () => {
         await closeServer()
     })
 
-    const TEAM_ID = 2
-    const ACTION_ID = 69
-    const ACTION_STEP_ID = 913
     const TIMESTAMP = DateTime.fromISO('2000-10-14T11:42:06.502Z').toUTC()
 
-    test('fetchAllActionsGroupedByTeam', async () => {
-        const action = await db.fetchAllActionsGroupedByTeam()
+    describe('fetchAllActionsGroupedByTeam() and fetchAction()', () => {
+        beforeEach(async () => {
+            await insertRow(hub.db.postgres, 'posthog_action', {
+                id: 69,
+                team_id: 2,
+                name: 'Test Action',
+                description: '',
+                created_at: new Date().toISOString(),
+                created_by_id: 1001,
+                deleted: false,
+                post_to_slack: true,
+                slack_message_format: '',
+                is_calculating: false,
+                updated_at: new Date().toISOString(),
+                last_calculated_at: new Date().toISOString(),
+            })
+        })
 
-        expect(action).toMatchObject({
-            [TEAM_ID]: {
-                [ACTION_ID]: {
-                    id: ACTION_ID,
-                    name: 'Test Action',
-                    deleted: false,
-                    post_to_slack: true,
-                    slack_message_format: '',
-                    is_calculating: false,
-                    steps: [
-                        {
-                            id: ACTION_STEP_ID,
-                            action_id: ACTION_ID,
-                            tag_name: null,
-                            text: null,
-                            href: null,
-                            selector: null,
-                            url: null,
-                            url_matching: null,
-                            name: null,
-                            event: null,
-                            properties: [
-                                { type: 'event', operator: PropertyOperator.Exact, key: 'foo', value: ['bar'] },
-                            ],
-                        },
-                    ],
+        it('returns actions with `post_to_slack', async () => {
+            const result = await db.fetchAllActionsGroupedByTeam()
+
+            expect(result).toMatchObject({
+                2: {
+                    69: {
+                        id: 69,
+                        team_id: 2,
+                        name: 'Test Action',
+                        deleted: false,
+                        post_to_slack: true,
+                        slack_message_format: '',
+                        is_calculating: false,
+                        steps: [],
+                        hooks: [],
+                    },
                 },
-            },
+            })
+        })
+
+        it('returns actions with steps', async () => {
+            await insertRow(hub.db.postgres, 'posthog_actionstep', {
+                id: 913,
+                action_id: 69,
+                tag_name: null,
+                text: null,
+                href: null,
+                selector: null,
+                url: null,
+                url_matching: null,
+                name: null,
+                event: null,
+                properties: [{ type: 'event', operator: PropertyOperator.Exact, key: 'foo', value: ['bar'] }],
+            })
+
+            const result = await db.fetchAllActionsGroupedByTeam()
+
+            expect(result).toMatchObject({
+                2: {
+                    69: {
+                        id: 69,
+                        team_id: 2,
+                        name: 'Test Action',
+                        deleted: false,
+                        post_to_slack: true,
+                        slack_message_format: '',
+                        is_calculating: false,
+                        steps: [
+                            {
+                                id: 913,
+                                action_id: 69,
+                                tag_name: null,
+                                text: null,
+                                href: null,
+                                selector: null,
+                                url: null,
+                                url_matching: null,
+                                name: null,
+                                event: null,
+                                properties: [
+                                    { type: 'event', operator: PropertyOperator.Exact, key: 'foo', value: ['bar'] },
+                                ],
+                            },
+                        ],
+                        hooks: [],
+                    },
+                },
+            })
+
+            const action = await db.fetchAction(69)
+            expect(action!.steps).toEqual([
+                {
+                    id: 913,
+                    action_id: 69,
+                    tag_name: null,
+                    text: null,
+                    href: null,
+                    selector: null,
+                    url: null,
+                    url_matching: null,
+                    name: null,
+                    event: null,
+                    properties: [{ type: 'event', operator: PropertyOperator.Exact, key: 'foo', value: ['bar'] }],
+                },
+            ])
+        })
+
+        it('returns actions with correct `ee_hook`', async () => {
+            await hub.db.postgres.query('UPDATE posthog_action SET post_to_slack = false')
+            await insertRow(hub.db.postgres, 'ee_hook', {
+                id: 'abc',
+                team_id: 2,
+                user_id: 1001,
+                resource_id: 69,
+                event: 'action_performed',
+                target: 'https://rest-hooks.example.com/',
+                created: new Date().toISOString(),
+                updated: new Date().toISOString(),
+            })
+            const result = await db.fetchAllActionsGroupedByTeam()
+
+            expect(result).toMatchObject({
+                2: {
+                    69: {
+                        id: 69,
+                        team_id: 2,
+                        name: 'Test Action',
+                        deleted: false,
+                        post_to_slack: false,
+                        slack_message_format: '',
+                        is_calculating: false,
+                        steps: [],
+                        hooks: [
+                            {
+                                id: 'abc',
+                                team_id: 2,
+                                resource_id: 69,
+                                event: 'action_performed',
+                                target: 'https://rest-hooks.example.com/',
+                            },
+                        ],
+                    },
+                },
+            })
+
+            expect(await db.fetchAction(69)).toEqual(result[2][69])
+        })
+
+        it('does not return actions that dont match conditions', async () => {
+            await hub.db.postgres.query('UPDATE posthog_action SET post_to_slack = false')
+
+            const result = await db.fetchAllActionsGroupedByTeam()
+            expect(result).toEqual({})
+
+            expect(await db.fetchAction(69)).toEqual(null)
+        })
+
+        it('does not return actions which are deleted', async () => {
+            await hub.db.postgres.query('UPDATE posthog_action SET deleted = true')
+
+            const result = await db.fetchAllActionsGroupedByTeam()
+            expect(result).toEqual({})
+
+            expect(await db.fetchAction(69)).toEqual(null)
+        })
+
+        it('does not return actions with incorrect ee_hook', async () => {
+            await hub.db.postgres.query('UPDATE posthog_action SET post_to_slack = false')
+            await insertRow(hub.db.postgres, 'ee_hook', {
+                id: 'abc',
+                team_id: 2,
+                user_id: 1001,
+                resource_id: 69,
+                event: 'event_performed',
+                target: 'https://rest-hooks.example.com/',
+                created: new Date().toISOString(),
+                updated: new Date().toISOString(),
+            })
+            await insertRow(hub.db.postgres, 'ee_hook', {
+                id: 'efg',
+                team_id: 2,
+                user_id: 1001,
+                resource_id: 70,
+                event: 'event_performed',
+                target: 'https://rest-hooks.example.com/',
+                created: new Date().toISOString(),
+                updated: new Date().toISOString(),
+            })
+
+            const result = await db.fetchAllActionsGroupedByTeam()
+            expect(result).toEqual({})
+
+            expect(await db.fetchAction(69)).toEqual(null)
+        })
+
+        describe('FOSS', () => {
+            beforeEach(async () => {
+                await hub.db.postgres.query('ALTER TABLE ee_hook RENAME TO ee_hook_backup')
+            })
+
+            afterEach(async () => {
+                await hub.db.postgres.query('ALTER TABLE ee_hook_backup RENAME TO ee_hook')
+            })
+
+            it('does not blow up', async () => {
+                await hub.db.postgres.query('UPDATE posthog_action SET post_to_slack = false')
+
+                const result = await db.fetchAllActionsGroupedByTeam()
+                expect(result).toEqual({})
+                expect(await db.fetchAction(69)).toEqual(null)
+            })
         })
     })
 
-    async function fetchPersonByPersonId(teamId: number, personId: number): Promise<Person> {
+    async function fetchPersonByPersonId(teamId: number, personId: number): Promise<Person | undefined> {
         const selectResult = await db.postgresQuery(
             `SELECT * FROM posthog_person WHERE team_id = $1 AND id = $2`,
             [teamId, personId],
@@ -150,13 +326,12 @@ describe('DB', () => {
             const personProvided = { ...personDbBefore, properties: { c: 'bbb' }, created_at: providedPersonTs }
             const updateTs = DateTime.fromISO('2000-04-04T11:42:06.502Z').toUTC()
             const update = { created_at: updateTs }
-            const updatedPerson = await db.updatePersonDeprecated(personProvided, update)
+            const [updatedPerson] = await db.updatePersonDeprecated(personProvided, update)
 
             // verify we have the correct update in Postgres db
             const personDbAfter = await fetchPersonByPersonId(personDbBefore.team_id, personDbBefore.id)
             expect(personDbAfter.created_at).toEqual(updateTs.toISO())
             // we didn't change properties so they should be what was in the db
-            console.log(personDbAfter.properties)
             expect(personDbAfter.properties).toEqual({ c: 'aaa' })
 
             //verify we got the expected updated person back
@@ -173,6 +348,90 @@ describe('DB', () => {
                 1
             )
             expect(db.kafkaProducer!.queueMessage).toHaveBeenLastCalledWith(expected_message)
+        })
+    })
+
+    describe('deletePerson', () => {
+        jest.setTimeout(60000)
+
+        const uuid = new UUIDT().toString()
+        it('deletes person from postgres', async () => {
+            const team = await getFirstTeam(hub)
+            // :TRICKY: We explicitly don't create distinct_ids here to keep the deletion process simpler.
+            const person = await db.createPerson(TIMESTAMP, {}, {}, {}, team.id, null, true, uuid, [])
+
+            await db.deletePerson(person)
+
+            const fetchedPerson = await fetchPersonByPersonId(team.id, person.id)
+            expect(fetchedPerson).toEqual(undefined)
+        })
+
+        describe('clickhouse behavior', () => {
+            beforeEach(async () => {
+                await resetTestDatabaseClickhouse()
+                // :TRICKY: Avoid collapsing rows before we are able to read them in the below tests.
+                await db.clickhouseQuery('SYSTEM STOP MERGES')
+            })
+
+            afterEach(async () => {
+                await db.clickhouseQuery('SYSTEM START MERGES')
+            })
+
+            async function fetchPersonsRows(options: { final?: boolean } = {}) {
+                const query = `SELECT * FROM person ${options.final ? 'FINAL' : ''} WHERE id = '${uuid}'`
+                return (await db.clickhouseQuery(query)).data
+            }
+
+            it('marks person as deleted in clickhouse', async () => {
+                const team = await getFirstTeam(hub)
+                // :TRICKY: We explicitly don't create distinct_ids here to keep the deletion process simpler.
+                const person = await db.createPerson(TIMESTAMP, {}, {}, {}, team.id, null, true, uuid, [])
+                await delayUntilEventIngested(fetchPersonsRows, 1)
+
+                // We do an update to verify
+                await db.updatePersonDeprecated(person, { properties: { foo: 'bar' } })
+                await db.kafkaProducer.flush()
+                await delayUntilEventIngested(fetchPersonsRows, 2)
+
+                const kafkaMessages = await db.deletePerson(person)
+                await db.kafkaProducer.queueMessages(kafkaMessages)
+                await db.kafkaProducer.flush()
+
+                const persons = await delayUntilEventIngested(fetchPersonsRows, 3)
+
+                expect(persons).toEqual(
+                    expect.arrayContaining([
+                        expect.objectContaining({
+                            id: uuid,
+                            properties: JSON.stringify({}),
+                            is_deleted: 0,
+                            version: 0,
+                        }),
+                        expect.objectContaining({
+                            id: uuid,
+                            properties: JSON.stringify({ foo: 'bar' }),
+                            is_deleted: 0,
+                            version: 1,
+                        }),
+                        expect.objectContaining({
+                            id: uuid,
+                            is_deleted: 1,
+                            version: 101,
+                        }),
+                    ])
+                )
+
+                const personsFinal = await fetchPersonsRows({ final: true })
+                expect(personsFinal).toEqual(
+                    expect.arrayContaining([
+                        expect.objectContaining({
+                            id: uuid,
+                            is_deleted: 1,
+                            version: 101,
+                        }),
+                    ])
+                )
+            })
         })
     })
 
@@ -374,7 +633,7 @@ describe('DB', () => {
             )
             const res = await db.getPersonData(2, distinctId)
             expect(res?.uuid).toEqual(uuid)
-            expect(res?.created_at_iso).toEqual(TIMESTAMP.toISO())
+            expect(res?.created_at.toISO()).toEqual(TIMESTAMP.toUTC().toISO())
             expect(res?.properties).toEqual({ a: 12345, b: false, c: 'bbb' })
         })
 
@@ -396,7 +655,7 @@ describe('DB', () => {
             db.personAndGroupsCachingEnabledTeams.add(2)
             const res = await db.getPersonData(2, distinctId)
             expect(res?.uuid).toEqual(uuid)
-            expect(res?.created_at_iso).toEqual(TIMESTAMP.toISO())
+            expect(res?.created_at.toISO()).toEqual(TIMESTAMP.toUTC().toISO())
             expect(res?.properties).toEqual({ a: 123, b: false, c: 'bbb' })
         })
 
@@ -549,6 +808,164 @@ describe('DB', () => {
 
             expect(await db.fetchInstanceSetting('NUMERIC_SETTING')).toEqual(56)
             expect(await db.fetchInstanceSetting('BOOLEAN_SETTING')).toEqual(true)
+        })
+    })
+
+    describe('addFeatureFlagHashKeysForMergedPerson()', () => {
+        let team: Team
+        let sourcePersonID: Person['id']
+        let targetPersonID: Person['id']
+
+        async function getAllHashKeyOverrides(): Promise<any> {
+            const result = await db.postgresQuery(
+                'SELECT feature_flag_key, hash_key, person_id FROM posthog_featureflaghashkeyoverride',
+                [],
+                ''
+            )
+            return result.rows
+        }
+
+        beforeEach(async () => {
+            team = await getFirstTeam(hub)
+            const sourcePerson = await db.createPerson(
+                TIMESTAMP,
+                {},
+                {},
+                {},
+                team.id,
+                null,
+                false,
+                new UUIDT().toString(),
+                ['source_person']
+            )
+            const targetPerson = await db.createPerson(
+                TIMESTAMP,
+                {},
+                {},
+                {},
+                team.id,
+                null,
+                false,
+                new UUIDT().toString(),
+                ['target_person']
+            )
+            sourcePersonID = sourcePerson.id
+            targetPersonID = targetPerson.id
+        })
+
+        it("doesn't fail on empty data", async () => {
+            await db.addFeatureFlagHashKeysForMergedPerson(team.id, sourcePersonID, targetPersonID)
+        })
+
+        it('updates all valid keys when target person had no overrides', async () => {
+            await insertRow(db.postgres, 'posthog_featureflaghashkeyoverride', {
+                team_id: team.id,
+                person_id: sourcePersonID,
+                feature_flag_key: 'aloha',
+                hash_key: 'override_value_for_aloha',
+            })
+            await insertRow(db.postgres, 'posthog_featureflaghashkeyoverride', {
+                team_id: team.id,
+                person_id: sourcePersonID,
+                feature_flag_key: 'beta-feature',
+                hash_key: 'override_value_for_beta_feature',
+            })
+
+            await db.addFeatureFlagHashKeysForMergedPerson(team.id, sourcePersonID, targetPersonID)
+
+            const result = await getAllHashKeyOverrides()
+
+            expect(result.length).toEqual(2)
+            expect(result).toEqual(
+                expect.arrayContaining([
+                    {
+                        feature_flag_key: 'aloha',
+                        hash_key: 'override_value_for_aloha',
+                        person_id: targetPersonID,
+                    },
+                    {
+                        feature_flag_key: 'beta-feature',
+                        hash_key: 'override_value_for_beta_feature',
+                        person_id: targetPersonID,
+                    },
+                ])
+            )
+        })
+
+        it('updates all valid keys when conflicts with target person', async () => {
+            await insertRow(db.postgres, 'posthog_featureflaghashkeyoverride', {
+                team_id: team.id,
+                person_id: sourcePersonID,
+                feature_flag_key: 'aloha',
+                hash_key: 'override_value_for_aloha',
+            })
+            await insertRow(db.postgres, 'posthog_featureflaghashkeyoverride', {
+                team_id: team.id,
+                person_id: sourcePersonID,
+                feature_flag_key: 'beta-feature',
+                hash_key: 'override_value_for_beta_feature',
+            })
+            await insertRow(db.postgres, 'posthog_featureflaghashkeyoverride', {
+                team_id: team.id,
+                person_id: targetPersonID,
+                feature_flag_key: 'beta-feature',
+                hash_key: 'existing_override_value_for_beta_feature',
+            })
+
+            await db.addFeatureFlagHashKeysForMergedPerson(team.id, sourcePersonID, targetPersonID)
+
+            const result = await getAllHashKeyOverrides()
+
+            expect(result.length).toEqual(2)
+            expect(result).toEqual(
+                expect.arrayContaining([
+                    {
+                        feature_flag_key: 'beta-feature',
+                        hash_key: 'existing_override_value_for_beta_feature',
+                        person_id: targetPersonID,
+                    },
+                    {
+                        feature_flag_key: 'aloha',
+                        hash_key: 'override_value_for_aloha',
+                        person_id: targetPersonID,
+                    },
+                ])
+            )
+        })
+
+        it('updates nothing when target person overrides exist', async () => {
+            await insertRow(db.postgres, 'posthog_featureflaghashkeyoverride', {
+                team_id: team.id,
+                person_id: targetPersonID,
+                feature_flag_key: 'aloha',
+                hash_key: 'override_value_for_aloha',
+            })
+            await insertRow(db.postgres, 'posthog_featureflaghashkeyoverride', {
+                team_id: team.id,
+                person_id: targetPersonID,
+                feature_flag_key: 'beta-feature',
+                hash_key: 'override_value_for_beta_feature',
+            })
+
+            await db.addFeatureFlagHashKeysForMergedPerson(team.id, sourcePersonID, targetPersonID)
+
+            const result = await getAllHashKeyOverrides()
+
+            expect(result.length).toEqual(2)
+            expect(result).toEqual(
+                expect.arrayContaining([
+                    {
+                        feature_flag_key: 'aloha',
+                        hash_key: 'override_value_for_aloha',
+                        person_id: targetPersonID,
+                    },
+                    {
+                        feature_flag_key: 'beta-feature',
+                        hash_key: 'override_value_for_beta_feature',
+                        person_id: targetPersonID,
+                    },
+                ])
+            )
         })
     })
 })

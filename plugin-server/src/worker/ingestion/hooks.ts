@@ -3,8 +3,8 @@ import { StatsD } from 'hot-shots'
 import fetch from 'node-fetch'
 import { format } from 'util'
 
-import { Action, Hook, IngestionEvent, Person } from '../../types'
-import { CachedPersonData, DB } from '../../utils/db/db'
+import { Action, Hook, IngestionEvent, IngestionPersonData } from '../../types'
+import { DB } from '../../utils/db/db'
 import { stringify } from '../../utils/utils'
 import { OrganizationManager } from './organization-manager'
 import { SiteUrlManager } from './site-url-manager'
@@ -29,7 +29,7 @@ export function determineWebhookType(url: string): WebhookType {
 
 export function getUserDetails(
     event: IngestionEvent,
-    person: CachedPersonData | Person | undefined,
+    person: IngestionPersonData | undefined,
     siteUrl: string,
     webhookType: WebhookType
 ): [string, string] {
@@ -74,7 +74,7 @@ export function getTokens(messageFormat: string): [string[], string] {
 export function getValueOfToken(
     action: Action,
     event: IngestionEvent,
-    person: CachedPersonData | Person | undefined,
+    person: IngestionPersonData | undefined,
     siteUrl: string,
     webhookType: WebhookType,
     tokenParts: string[]
@@ -126,7 +126,7 @@ export function getValueOfToken(
 export function getFormattedMessage(
     action: Action,
     event: IngestionEvent,
-    person: CachedPersonData | Person | undefined,
+    person: IngestionPersonData | undefined,
     siteUrl: string,
     webhookType: WebhookType
 ): [string, string] {
@@ -180,7 +180,7 @@ export class HookCommander {
 
     public async findAndFireHooks(
         event: IngestionEvent,
-        person: CachedPersonData | Person | undefined,
+        person: IngestionPersonData | undefined,
         actionMatches: Action[]
     ): Promise<void> {
         if (!actionMatches.length) {
@@ -204,13 +204,7 @@ export class HookCommander {
         }
 
         if (organization!.available_features.includes('zapier')) {
-            const restHooks = (
-                await Promise.all(
-                    actionMatches.map(
-                        async (action) => await this.db.fetchRelevantRestHooks(team.id, 'action_performed', action.id)
-                    )
-                )
-            ).flat()
+            const restHooks = actionMatches.map(({ hooks }) => hooks).flat()
 
             const restHookRequests = restHooks.map((hook) => this.postRestHook(hook, event, person))
             await Promise.all(restHookRequests).catch((error) => captureException(error))
@@ -227,7 +221,7 @@ export class HookCommander {
         webhookUrl: string,
         action: Action,
         event: IngestionEvent,
-        person: CachedPersonData | Person | undefined
+        person: IngestionPersonData | undefined
     ): Promise<void> {
         const webhookType = determineWebhookType(webhookUrl)
         const siteUrl = await this.siteUrlManager.getSiteUrl()
@@ -250,22 +244,20 @@ export class HookCommander {
         })
         this.statsd?.increment('webhook_firings', {
             team_id: event.teamId.toString(),
-            action: action.name || 'unknown',
         })
     }
 
     public async postRestHook(
         hook: Hook,
         event: IngestionEvent,
-        person: CachedPersonData | Person | undefined
+        person: IngestionPersonData | undefined
     ): Promise<void> {
         let sendablePerson: Record<string, any> = {}
         if (person) {
             const { uuid, properties, team_id, id } = person
 
-            // CachedPersonData has created_at_iso (string), whereas Person has created_at (DateTime)
-            // so we standardize into ISO before sending the payload
-            const createdAt = 'created_at' in person ? person.created_at.toISO() : person.created_at_iso
+            // we standardize into ISO before sending the payload
+            const createdAt = person.created_at.toISO()
 
             sendablePerson = {
                 uuid,

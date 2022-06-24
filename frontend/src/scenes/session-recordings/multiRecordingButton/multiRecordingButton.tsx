@@ -1,4 +1,4 @@
-import React, { ReactNode, useCallback, useState } from 'react'
+import React, { MutableRefObject, ReactNode, useCallback, useState } from 'react'
 import { PlayCircleOutlined, DownOutlined, ArrowRightOutlined } from '@ant-design/icons'
 import { MatchedRecording } from '~/types'
 import { Button } from 'antd'
@@ -20,11 +20,11 @@ export function MultiRecordingButton({ sessionRecordings, onOpenRecording }: Mul
      * When there's only one recording, clicking opens the recording.
      * When there are more recordings, clicking shows the dropdown.
      */
-    const ButtonWrapper: (props: { setRef: (ref: HTMLElement | null) => void; children: ReactNode }) => JSX.Element =
+    const ButtonWrapper: (props: { ref: MutableRefObject<HTMLElement | null>; children: ReactNode }) => JSX.Element =
         useCallback(
-            ({ setRef, children }) => {
+            ({ ref, children }) => {
                 return isSingleRecording ? (
-                    <div ref={setRef}>
+                    <div ref={ref as MutableRefObject<HTMLDivElement>}>
                         <Link
                             onClick={(event) => {
                                 event.stopPropagation()
@@ -36,7 +36,7 @@ export function MultiRecordingButton({ sessionRecordings, onOpenRecording }: Mul
                     </div>
                 ) : (
                     <div
-                        ref={setRef}
+                        ref={ref as MutableRefObject<HTMLDivElement>}
                         onClick={(event) => {
                             event.stopPropagation()
                             setAreRecordingsShown((previousValue) => !previousValue)
@@ -74,8 +74,8 @@ export function MultiRecordingButton({ sessionRecordings, onOpenRecording }: Mul
                 setAreRecordingsShown(false)
             }}
         >
-            {({ setRef }) => (
-                <ButtonWrapper setRef={setRef}>
+            {({ ref }) => (
+                <ButtonWrapper ref={ref}>
                     <Button
                         className={'session-recordings-button'}
                         data-attr="session-recordings-button"

@@ -1,12 +1,14 @@
 import React, { useEffect, useState } from 'react'
 import { IconClose } from './icons'
 import { LemonButton, LemonButtonWithPopup, LemonButtonWithPopupProps } from './LemonButton'
+import { PopupProps } from './Popup/Popup'
 
 export interface LemonSelectOption {
     label: string
     icon?: React.ReactElement
     disabled?: boolean
     'data-attr'?: string
+    element?: React.ReactElement
 }
 
 export type LemonSelectOptions = Record<string | number, LemonSelectOption>
@@ -17,6 +19,8 @@ export interface LemonSelectProps<O extends LemonSelectOptions>
     value?: keyof O | null
     onChange?: (newValue: keyof O | null) => void
     dropdownMatchSelectWidth?: boolean
+    dropdownMaxContentWidth?: boolean
+    dropdownPlacement?: PopupProps['placement']
     allowClear?: boolean
 }
 
@@ -26,6 +30,8 @@ export function LemonSelect<O extends LemonSelectOptions>({
     options,
     placeholder = 'Select a value',
     dropdownMatchSelectWidth = true,
+    dropdownMaxContentWidth = false,
+    dropdownPlacement,
     allowClear = false,
     ...buttonProps
 }: LemonSelectProps<O>): JSX.Element {
@@ -68,10 +74,13 @@ export function LemonSelect<O extends LemonSelectOptions>({
                             data-attr={option['data-attr']}
                         >
                             {option.label || key}
+                            {option.element}
                         </LemonButton>
                     )),
                     sameWidth: dropdownMatchSelectWidth,
+                    placement: dropdownPlacement,
                     actionable: true,
+                    maxContentWidth: dropdownMaxContentWidth,
                 }}
                 icon={localValue && options[localValue]?.icon}
                 sideIcon={isClearButtonShown ? <div /> : undefined}

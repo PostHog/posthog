@@ -13,16 +13,16 @@ from typing import (
 
 from rest_framework.exceptions import ValidationError
 
-from ee.clickhouse.models.event import ElementSerializer
-from ee.clickhouse.models.property import get_property_string_expr
 from ee.clickhouse.queries.column_optimizer import EnterpriseColumnOptimizer
 from ee.clickhouse.queries.groups_join_query import GroupsJoinQuery
-from ee.clickhouse.sql.clickhouse import trim_quotes_expr
+from posthog.clickhouse.kafka_engine import trim_quotes_expr
 from posthog.client import sync_execute
 from posthog.constants import AUTOCAPTURE_EVENT, TREND_FILTER_TYPE_ACTIONS, FunnelCorrelationType
 from posthog.models import Team
-from posthog.models.element import chain_to_elements
+from posthog.models.element.element import chain_to_elements
+from posthog.models.event.util import ElementSerializer
 from posthog.models.filters import Filter
+from posthog.models.property.util import get_property_string_expr
 from posthog.queries.funnels.utils import get_funnel_order_actor_class
 from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
 from posthog.queries.person_query import PersonQuery

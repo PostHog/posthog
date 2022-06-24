@@ -16,8 +16,13 @@ export const urls = {
     dashboards: (): string => '/dashboard',
     dashboard: (id: string | number, highlightInsightId?: string): string =>
         combineUrl(`/dashboard/${id}`, highlightInsightId ? { highlightInsightId } : {}).url,
+
+    dashboardSubcriptions: (id: string | number): string => `/dashboard/${id}/subscriptions`,
+    dashboardSubcription: (id: string | number, subscriptionId: string): string =>
+        `/dashboard/${id}/subscriptions/${subscriptionId}`,
+
     sharedDashboard: (shareToken: string): string => `/shared_dashboard/${shareToken}`,
-    createAction: (): string => `/data-management/actions/new`, // TODO: For consistency, this should be `/action/new`
+    createAction: (): string => `/data-management/actions/new`,
     action: (id: string | number): string => `/data-management/actions/${id}`,
     actions: (): string => '/data-management/actions',
     eventDefinitions: (): string => '/data-management/events',
@@ -29,6 +34,9 @@ export const urls = {
         combineUrl('/insights/new', dashboardId ? { dashboard: dashboardId } : {}, filters ? { filters } : {}).url,
     insightEdit: (id: InsightShortId): string => `/insights/${id}/edit`,
     insightView: (id: InsightShortId): string => `/insights/${id}`,
+    insightSubcriptions: (id: InsightShortId): string => `/insights/${id}/subscriptions`,
+    insightSubcription: (id: InsightShortId, subscriptionId: string): string =>
+        `/insights/${id}/subscriptions/${subscriptionId}`,
     savedInsights: (): string => '/insights',
     webPerformance: (): string => '/web-performance',
     webPerformanceWaterfall: (id: string): string => `/web-performance/${id}/waterfall`,
@@ -77,4 +85,6 @@ export const urls = {
     instanceMetrics: (): string => `/instance/metrics`,
     asyncMigrations: (): string => '/instance/async_migrations',
     deadLetterQueue: (): string => '/instance/dead_letter_queue',
+    unsubscribe: (): string => '/unsubscribe',
+    integrationsRedirect: (kind: string): string => `/integrations/${kind}/redirect`,
 }

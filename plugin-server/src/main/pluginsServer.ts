@@ -213,7 +213,9 @@ export async function startPluginsServer(
         schedule.scheduleJob('*/10 * * * * *', () => {
             if (piscina) {
                 for (const [key, value] of Object.entries(getPiscinaStats(piscina))) {
-                    hub!.statsd?.gauge(`piscina.${key}`, value)
+                    if (value !== undefined) {
+                        hub!.statsd?.gauge(`piscina.${key}`, value)
+                    }
                 }
             }
         })

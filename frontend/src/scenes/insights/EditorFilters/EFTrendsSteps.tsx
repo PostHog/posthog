@@ -7,10 +7,22 @@ import { alphabet } from 'lib/utils'
 import { MathAvailability } from 'scenes/insights/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import React from 'react'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
-export function EFTrendsSteps({ filters, insightProps }: EditorFilterProps): JSX.Element {
+export function EFTrendsSteps({ insightProps }: EditorFilterProps): JSX.Element {
     const { setFilters } = useActions(trendsLogic(insightProps))
+    const { filters } = useValues(trendsLogic(insightProps))
     const { groupsTaxonomicTypes } = useValues(groupsModel)
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    const propertiesTaxonomicGroupTypes = [
+        TaxonomicFilterGroupType.EventProperties,
+        TaxonomicFilterGroupType.PersonProperties,
+        ...groupsTaxonomicTypes,
+        TaxonomicFilterGroupType.Cohorts,
+        TaxonomicFilterGroupType.Elements,
+    ].concat(featureFlags[FEATURE_FLAGS.SESSION_ANALYSIS] ? [TaxonomicFilterGroupType.Sessions] : [])
 
     return (
         <>
@@ -39,13 +51,7 @@ export function EFTrendsSteps({ filters, insightProps }: EditorFilterProps): JSX
                         ? MathAvailability.ActorsOnly
                         : MathAvailability.All
                 }
-                propertiesTaxonomicGroupTypes={[
-                    TaxonomicFilterGroupType.EventProperties,
-                    TaxonomicFilterGroupType.PersonProperties,
-                    ...groupsTaxonomicTypes,
-                    TaxonomicFilterGroupType.Cohorts,
-                    TaxonomicFilterGroupType.Elements,
-                ]}
+                propertiesTaxonomicGroupTypes={propertiesTaxonomicGroupTypes}
             />
         </>
     )
