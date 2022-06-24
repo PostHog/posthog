@@ -2,7 +2,6 @@ import React, { useEffect, useMemo } from 'react'
 import { useActions, useValues } from 'kea'
 import { LemonButton } from 'lib/components/LemonButton'
 import { VerticalForm } from 'lib/forms/VerticalForm'
-import { Select } from 'antd'
 import { membersLogic } from 'scenes/organization/Settings/membersLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { Field } from 'lib/forms/Field'
@@ -24,6 +23,11 @@ import {
     weekdayOptions,
 } from '../utils'
 import { LemonDivider, LemonInput, LemonTextArea, Link } from '@posthog/lemon-ui'
+import {
+    LemonSelectMultiple,
+    LemonSelectMultipleOptionItem,
+} from 'lib/components/LemonSelectMultiple/LemonSelectMultiple'
+import { usersLemonSelectOptions } from 'lib/components/UserSelectItem'
 import { integrationsLogic } from 'scenes/project/Settings/integrationsLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -53,7 +57,7 @@ export function EditSubscription({
         dashboardId,
     })
 
-    const { antSelectOptions } = useValues(membersLogic)
+    const { members, membersLoading } = useValues(membersLogic)
     const { subscription, isSubscriptionSubmitting, subscriptionChanged } = useValues(logic)
     const { preflight, siteUrlMisconfigured } = useValues(preflightLogic)
     const { deleteSubscription } = useActions(subscriptionslogic)
@@ -83,18 +87,16 @@ export function EditSubscription({
     }, [subscription.target_type])
 
     // If slackChannels aren't loaded, make sure we display only the channel name and not the actual underlying value
-    const slackChannelOptions = useMemo(
+    const slackChannelOptions: LemonSelectMultipleOptionItem[] = useMemo(
         () =>
             slackChannels
                 ? slackChannels.map((x) => ({
-                      key: x.id,
-                      value: `${x.id}|#${x.name}`,
+                      key: `${x.id}|#${x.name}`,
                       label: x.is_private ? `🔒${x.name}` : `#${x.name}`,
                   }))
                 : [
                       {
                           key: subscription.target_value,
-                          value: subscription.target_value,
                           label: subscription.target_value?.split('|')?.pop(),
                       },
                   ],
@@ -150,7 +152,7 @@ export function EditSubscription({
                     )}
 
                     <Field name={'title'} label={'Name'}>
-                        <LemonInput placeholder="e.g. Weekly team report" />
+                        <LemonInput placeholder="e.g. Weekly team report" disabled={emailDisabled} />
                     </Field>
 
                     {featureFlags[FEATURE_FLAGS.SUBSCRIPTIONS_SLACK] && (
@@ -177,26 +179,28 @@ export function EditSubscription({
                                     </>
                                 </AlertMessage>
                             )}
+
                             <Field name={'target_value'} label={'Who do you want to subscribe'}>
                                 {({ value, onChange }) => (
                                     <>
-                                        <Select
-                                            disabled={emailDisabled}
-                                            bordered
-                                            mode="tags"
-                                            dropdownMatchSelectWidth={false}
-                                            data-attr="subscribed-emails"
-                                            options={antSelectOptions}
-                                            style={{ width: '100%' }}
-                                            value={value?.split(',').filter(Boolean)}
+                                        <LemonSelectMultiple
                                             onChange={(val) => onChange(val.join(','))}
+                                            value={value?.split(',').filter(Boolean)}
+                                            filterOption={false}
+                                            disabled={emailDisabled}
+                                            mode="multiple-custom"
+                                            data-attr="subscribed-emails"
+                                            options={usersLemonSelectOptions(members.map((x) => x.user))}
+                                            loading={membersLoading}
+                                            placeholder="Enter an email address"
                                         />
-                                        <div className="text-small text-muted mt-05">
-                                            Enter the email addresses of the users you want to share with
-                                        </div>
                                     </>
                                 )}
                             </Field>
+                            <div className="text-small text-muted mt-05">
+                                Enter the email addresses of the users you want to share with
+                            </div>
+
                             <Field name={'invite_message'} label={'Message (optional)'}>
                                 <LemonTextArea placeholder="Your message to new subscribers (optional)" />
                             </Field>
@@ -222,17 +226,16 @@ export function EditSubscription({
                             <Field name={'target_value'} label={'Which Slack channel to send reports to'}>
                                 {({ value, onChange }) => (
                                     <>
-                                        <Select
-                                            showSearch
-                                            value={value}
-                                            placeholder={'Pick a Slack channel'}
-                                            disabled={slackDisabled}
-                                            filterOption={true}
+                                        <LemonSelectMultiple
                                             onChange={(val) => onChange(val)}
-                                            notFoundContent={null}
-                                            style={{ width: '100%' }}
-                                            loading={slackChannelsLoading}
+                                            value={value}
+                                            filterOption={true}
+                                            disabled={slackDisabled}
+                                            mode="single"
+                                            data-attr="select-slack-channel"
                                             options={slackChannelOptions}
+                                            loading={slackChannelsLoading}
+                                            placeholder={'Pick a Slack channel'}
                                         />
                                     </>
                                 )}
