@@ -79,6 +79,22 @@ class TestSlackSubscriptionsTasks(APIBaseTest):
             },
         ]
 
+    def test_subscription_delivery_new(self, MockSlackIntegration: MagicMock) -> None:
+        mock_slack_integration = MagicMock()
+        MockSlackIntegration.return_value = mock_slack_integration
+        mock_slack_integration.client.chat_postMessage.return_value = {"ts": "1.234"}
+
+        send_slack_subscription_report(self.subscription, [self.asset], 1, is_new_subscription=True)
+
+        assert mock_slack_integration.client.chat_postMessage.call_count == 1
+        post_message_calls = mock_slack_integration.client.chat_postMessage.call_args_list
+        first_call = post_message_calls[0].kwargs
+
+        assert (
+            first_call["text"]
+            == "This channel has been subscribed to the Insight *My Test subscription* on PostHog. This subscription is sent every day. The next subscription will be sent on Wednesday February 02, 2022"
+        )
+
     def test_subscription_dashboard_delivery(self, MockSlackIntegration: MagicMock) -> None:
         mock_slack_integration = MagicMock()
         MockSlackIntegration.return_value = mock_slack_integration

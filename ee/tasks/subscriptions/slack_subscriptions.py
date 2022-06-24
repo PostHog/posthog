@@ -1,4 +1,4 @@
-from typing import Dict, List, Optional
+from typing import Dict, List
 
 import structlog
 from django.conf import settings
@@ -48,7 +48,7 @@ def send_slack_subscription_report(
 
     if is_new_subscription:
         title = f"This channel has been subscribed to the {resource_info.kind} *{resource_info.name}* on PostHog. "
-        title += f"\nThis subscription is { subscription.summary }. The next subscription will be sent on { subscription.next_delivery_date.strftime('%A %B %d, %Y')}"
+        title += f"This subscription is { subscription.summary }. The next subscription will be sent on { subscription.next_delivery_date.strftime('%A %B %d, %Y')}"
     else:
         title = f"Your subscription to the {resource_info.kind} *{resource_info.name}* is ready!"
 
