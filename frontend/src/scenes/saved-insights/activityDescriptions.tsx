@@ -213,7 +213,7 @@ export function insightActivityDescriber(logItem: ActivityLogItem, users_name: s
 
         return (
             <>
-                exported the insight {nameOrLinkToInsight(logItem)} as a {exportType}
+                <strong>{users_name}</strong> exported the insight {nameOrLinkToInsight(logItem)} as a {exportType}
             </>
         )
     }
