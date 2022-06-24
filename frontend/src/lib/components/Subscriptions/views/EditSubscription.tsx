@@ -9,12 +9,13 @@ import { dayjs } from 'lib/dayjs'
 import { LemonSelect, LemonSelectOptions, LemonSelectProps } from 'lib/components/LemonSelect'
 import { subscriptionLogic } from '../subscriptionLogic'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
-import { IconChevronLeft, IconOpenInNew } from 'lib/components/icons'
+import { IconChevronLeft, IconOpenInNew, IconSlackExternal } from 'lib/components/icons'
 import { AlertMessage } from 'lib/components/AlertMessage'
 import { subscriptionsLogic } from '../subscriptionsLogic'
 import {
     bysetposOptions,
     frequencyOptions,
+    getSlackChannelOptions,
     intervalOptions,
     monthlyWeekdayOptions,
     SubscriptionBaseProps,
@@ -81,25 +82,14 @@ export function EditSubscription({
     }
 
     useEffect(() => {
-        if (subscription.target_type === 'slack') {
+        if (subscription.target_type === 'slack' && slackIntegration) {
             loadSlackChannels()
         }
-    }, [subscription.target_type])
+    }, [subscription.target_type, slackIntegration])
 
     // If slackChannels aren't loaded, make sure we display only the channel name and not the actual underlying value
     const slackChannelOptions: LemonSelectMultipleOptionItem[] = useMemo(
-        () =>
-            slackChannels
-                ? slackChannels.map((x) => ({
-                      key: `${x.id}|#${x.name}`,
-                      label: x.is_private ? `🔒${x.name}` : `#${x.name}`,
-                  }))
-                : [
-                      {
-                          key: subscription.target_value,
-                          label: subscription.target_value?.split('|')?.pop(),
-                      },
-                  ],
+        () => getSlackChannelOptions(subscription.target_value, slackChannels),
         [slackChannels, subscription.target_value]
     )
 
@@ -194,12 +184,12 @@ export function EditSubscription({
                                             loading={membersLoading}
                                             placeholder="Enter an email address"
                                         />
+                                        <div className="text-small text-muted mt-05">
+                                            Enter the email addresses of the users you want to share with
+                                        </div>
                                     </>
                                 )}
                             </Field>
-                            <div className="text-small text-muted mt-05">
-                                Enter the email addresses of the users you want to share with
-                            </div>
 
                             <Field name={'invite_message'} label={'Message (optional)'}>
                                 <LemonTextArea placeholder="Your message to new subscribers (optional)" />
@@ -237,9 +227,21 @@ export function EditSubscription({
                                             loading={slackChannelsLoading}
                                             placeholder={'Pick a Slack channel'}
                                         />
+                                        <div className="text-small text-muted mt-05">
+                                            Private channels are only shown if you have{' '}
+                                            <a
+                                                href="https://posthog.com/docs/integrations/slack"
+                                                target="_blank"
+                                                rel="noopener"
+                                            >
+                                                invited the PostHog bot
+                                            </a>{' '}
+                                            to them
+                                        </div>
                                     </>
                                 )}
                             </Field>
+
                             <AlertMessage type="info">
                                 <>
                                     Don't forget to add the <strong>PostHog app</strong> to the channel otherwise

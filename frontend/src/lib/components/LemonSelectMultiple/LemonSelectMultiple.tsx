@@ -1,6 +1,7 @@
 import { Select } from 'antd'
 import React from 'react'
 import { LemonSnack } from '../LemonSnack/LemonSnack'
+import { Spinner } from '../Spinner/Spinner'
 import './LemonSelectMultiple.scss'
 
 export interface LemonSelectMultipleOption {
@@ -67,7 +68,13 @@ export function LemonSelectMultiple({
                 dropdownRender={(menu) => <div className="LemonSelectMultipleDropdown">{menu}</div>}
                 options={antOptions}
                 placeholder={placeholder}
-                notFoundContent={<></>}
+                notFoundContent={
+                    loading ? (
+                        <span className="flex justify-center">
+                            <Spinner size="sm" />
+                        </span>
+                    ) : null
+                }
                 filterOption={filterOption}
                 tagRender={({ label, onClose }) => <LemonSnack onClose={onClose}>{label}</LemonSnack>}
             />
