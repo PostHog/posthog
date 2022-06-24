@@ -1,12 +1,12 @@
 import React, { useState } from 'react'
 import { ComponentMeta, ComponentStory } from '@storybook/react'
-import { LemonSelectWithSearch, LemonSelectWithSearchProps } from './LemonSelectWithSearch'
+import { LemonSelectMultiple, LemonSelectMultipleProps } from './LemonSelectMultiple'
 import { ProfilePicture } from '../ProfilePicture'
 import { capitalizeFirstLetter } from 'lib/utils'
 
 export default {
-    title: 'Lemon UI/Lemon SelectWithSearch',
-    component: LemonSelectWithSearch,
+    title: 'Lemon UI/Lemon SelectMultiple',
+    component: LemonSelectMultiple,
     argTypes: {
         options: {
             defaultValue: ['ben', 'marius', 'paul', 'tiina', 'li'].reduce(
@@ -27,15 +27,11 @@ export default {
             ),
         },
     },
-} as ComponentMeta<typeof LemonSelectWithSearch>
+} as ComponentMeta<typeof LemonSelectMultiple>
 
-const Template: ComponentStory<typeof LemonSelectWithSearch> = (props: LemonSelectWithSearchProps) => {
+const Template: ComponentStory<typeof LemonSelectMultiple> = (props: LemonSelectMultipleProps) => {
     const [value, setValue] = useState(props.value || [])
-    return (
-        <>
-            <LemonSelectWithSearch {...props} value={value} onChange={setValue} />
-        </>
-    )
+    return <LemonSelectMultiple {...props} value={value} onChange={setValue} />
 }
 
 export const Default = Template.bind({})

@@ -2,7 +2,7 @@ import React from 'react'
 import { useValues, useActions } from 'kea'
 import { pathsLogic } from 'scenes/paths/pathsLogic'
 import { EditorFilterProps } from '~/types'
-import { LemonSelectWithSearch } from 'lib/components/LemonSelectWithSearch/LemonSelectWithSearch'
+import { LemonSelectMultiple } from 'lib/components/LemonSelectMultiple/LemonSelectMultiple'
 
 export function EFPathsWildcardGroups({ insightProps }: EditorFilterProps): JSX.Element {
     const { filter } = useValues(pathsLogic(insightProps))
@@ -10,7 +10,7 @@ export function EFPathsWildcardGroups({ insightProps }: EditorFilterProps): JSX.
 
     return (
         <>
-            <LemonSelectWithSearch
+            <LemonSelectMultiple
                 onChange={(path_groupings) => setFilter({ path_groupings })}
                 value={filter.path_groupings || []}
                 filterOption={false}

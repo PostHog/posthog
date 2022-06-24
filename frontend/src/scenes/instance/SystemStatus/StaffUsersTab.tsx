@@ -9,10 +9,8 @@ import { staffUsersLogic } from './staffUsersLogic'
 import { LemonButton } from 'lib/components/LemonButton'
 import { userLogic } from 'scenes/userLogic'
 import { LemonTag } from 'lib/components/LemonTag/LemonTag'
-import {
-    LemonSelectWithSearch,
-    usersLemonSelectOptions,
-} from 'lib/components/LemonSelectWithSearch/LemonSelectWithSearch'
+import { LemonSelectMultiple } from 'lib/components/LemonSelectMultiple/LemonSelectMultiple'
+import { usersLemonSelectOptions } from 'lib/components/UserSelectItem'
 
 export function StaffUsersTab(): JSX.Element {
     const { user: myself } = useValues(userLogic)
@@ -117,7 +115,7 @@ export function StaffUsersTab(): JSX.Element {
             <section>
                 <div className="flex gap-05 mb">
                     <div style={{ flex: 1 }}>
-                        <LemonSelectWithSearch
+                        <LemonSelectMultiple
                             placeholder="Add staff users here…"
                             loading={allUsersLoading}
                             value={staffUsersToBeAdded}

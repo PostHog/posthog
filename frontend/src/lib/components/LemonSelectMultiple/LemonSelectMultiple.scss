@@ -1,8 +1,9 @@
-.LemonSelectWithSearch {
+.LemonSelectMultiple {
     .ant-select {
         width: 100%;
         .ant-select-selector,
         &.ant-select-single .ant-select-selector {
+            min-height: 40px;
             padding: 0.25rem;
             border-radius: var(--radius);
             font-size: 0.875rem;
@@ -38,7 +39,7 @@
 
         &.ant-select-single {
             .ant-select-selector {
-                height: 38px;
+                height: 40px;
                 box-sizing: border-box;
 
                 .ant-select-selection-search-input {
@@ -57,14 +58,15 @@
     }
 }
 
-.LemonSelectWithSearchDropdown {
+.LemonSelectMultipleDropdown {
     background: #fff;
     padding: 0.5rem;
     border-radius: var(--radius);
-    border: 1px solid var(--border);
+    border: 1px solid var(--primary);
     margin: -4px 0px; // Counteract antd wrapper
 
     .ant-select-item {
+        height: 40px;
         cursor: pointer;
         border-radius: var(--radius);
         padding: 0.25rem 0.5rem;
