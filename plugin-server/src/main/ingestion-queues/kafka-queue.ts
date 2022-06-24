@@ -141,14 +141,16 @@ export class KafkaQueue {
     }
 
     async bufferSleep(sleepMs: number, partition: number): Promise<void> {
-        this.sleepTimeout = setTimeout(() => {
-            if (this.sleepTimeout) {
-                clearTimeout(this.sleepTimeout)
-            }
-            this.resume(this.bufferTopic, partition)
-        }, sleepMs)
-
         await this.pause(this.bufferTopic, partition)
+        return await new Promise((resolve) => {
+            this.sleepTimeout = setTimeout(() => {
+                if (this.sleepTimeout) {
+                    clearTimeout(this.sleepTimeout)
+                }
+                this.resume(this.bufferTopic, partition)
+                resolve()
+            }, sleepMs)
+        })
     }
 
     async pause(targetTopic: string, partition?: number): Promise<void> {

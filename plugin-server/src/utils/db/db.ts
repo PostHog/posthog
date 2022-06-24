@@ -1191,7 +1191,7 @@ export class DB {
 
     // Event
 
-    public async fetchEvents(): Promise<Event[] | ClickHouseEvent[]> {
+    public async fetchEvents(): Promise<ClickHouseEvent[]> {
         const events = (await this.clickhouseQuery(`SELECT * FROM events ORDER BY timestamp ASC`))
             .data as ClickHouseEvent[]
         return (

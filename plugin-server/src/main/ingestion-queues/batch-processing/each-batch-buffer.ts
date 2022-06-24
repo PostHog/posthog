@@ -28,25 +28,29 @@ export async function eachBatchBuffer(
     }
     const batchStartTimer = new Date()
 
+    const messagesForLater: KafkaMessage[] = []
     let consumerSleepMs = 0
     for (const message of batch.messages) {
         // kafka timestamps are unix timestamps in string format
         const processAt = Number(message.timestamp) + queue.pluginsServer.BUFFER_CONVERSION_SECONDS * 1000
         const delayUntilTimeToProcess = processAt - Date.now()
 
-        if (delayUntilTimeToProcess < 0) {
+        if (delayUntilTimeToProcess <= 0) {
             await eachMessageBuffer(message, resolveOffset, queue)
         } else {
-            consumerSleepMs = Math.max(consumerSleepMs, delayUntilTimeToProcess)
+            if (consumerSleepMs < delayUntilTimeToProcess) {
+                consumerSleepMs = delayUntilTimeToProcess
+            }
+            messagesForLater.push(message)
         }
     }
-
-    // if consumerSleep > 0 it means we didn't process at least one message
-    if (consumerSleepMs > 0) {
+    if (messagesForLater.length > 0) {
         // pause the consumer for this partition until we can process all unprocessed messages from this batch
         await queue.bufferSleep(consumerSleepMs, batch.partition)
+        for (const message of messagesForLater) {
+            await eachMessageBuffer(message, resolveOffset, queue)
+        }
     }
-
     await commitOffsetsIfNecessary()
 
     queue.pluginsServer.statsd?.timing('kafka_queue.each_batch_buffer', batchStartTimer)
