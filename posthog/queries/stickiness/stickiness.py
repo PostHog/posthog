@@ -95,6 +95,7 @@ class Stickiness:
                 "entity_id": entity.id,
                 "entity_type": entity.type,
                 "entity_math": entity.math,
+                "entity_order": entity.order,
             }
             parsed_params: Dict[str, str] = encode_get_request_params({**filter_params, **extra_params})
             persons_url.append(

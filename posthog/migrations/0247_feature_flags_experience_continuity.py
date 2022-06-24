@@ -7,7 +7,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("posthog", "0243_unpack_plugin_source_files"),
+        ("posthog", "0246_integrations"),
     ]
 
     operations = [
