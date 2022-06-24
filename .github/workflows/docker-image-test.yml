@@ -39,6 +39,7 @@ jobs:
                   images: ghcr.io/${{ github.repository }}/posthog
                   tags: |
                       type=raw,value=master
+                      type=ref,event=branch
 
             - name: Set up QEMU
               uses: docker/setup-qemu-action@v1
