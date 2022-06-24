@@ -1,5 +1,5 @@
 import IORedis from 'ioredis'
-import { Consumer,Kafka } from 'kafkajs'
+import { Consumer, Kafka } from 'kafkajs'
 
 import { defaultConfig } from '../src/config/config'
 import { ONE_HOUR } from '../src/config/constants'
