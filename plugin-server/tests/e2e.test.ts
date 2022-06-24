@@ -2,7 +2,6 @@ import Piscina from '@posthog/piscina'
 import IORedis from 'ioredis'
 
 import { ONE_HOUR } from '../src/config/constants'
-import { KAFKA_EVENTS_PLUGIN_INGESTION } from '../src/config/kafka-topics'
 import { startPluginsServer } from '../src/main/pluginsServer'
 import { LogLevel, PluginsServerConfig } from '../src/types'
 import { Hub } from '../src/types'
@@ -22,10 +21,8 @@ jest.setTimeout(60000) // 60 sec timeout
 
 const extraServerConfig: Partial<PluginsServerConfig> = {
     WORKER_CONCURRENCY: 2,
-    KAFKA_CONSUMPTION_TOPIC: KAFKA_EVENTS_PLUGIN_INGESTION,
     LOG_LEVEL: LogLevel.Log,
-    BUFFER_CONVERSION_SECONDS: 1, // We want to test the delay mechanism, but with a much lower delay than in prod
-    CONVERSION_BUFFER_ENABLED: true,
+    CONVERSION_BUFFER_ENABLED: false,
 }
 
 const indexJs = `
@@ -71,7 +68,7 @@ export async function onAction(action, event) {
 export async function runEveryMinute() {}
 `
 
-describe('e2e', () => {
+describe('E2E', () => {
     let hub: Hub
     let stopServer: () => Promise<void>
     let posthog: DummyPostHog
@@ -99,7 +96,7 @@ describe('e2e', () => {
         await stopServer()
     })
 
-    describe('e2e clickhouse ingestion', () => {
+    describe('ClickHouse ingestion', () => {
         test('event captured, processed, ingested', async () => {
             expect((await hub.db.fetchEvents()).length).toBe(0)
 
@@ -120,28 +117,6 @@ describe('e2e', () => {
 
             // onEvent ran
             expect(testConsole.read()).toEqual([['processEvent'], ['onEvent', 'custom event']])
-        })
-
-        test('buffered event captured, processed, ingested', async () => {
-            expect((await hub.db.fetchEvents()).length).toBe(0)
-
-            const uuid = new UUIDT().toString()
-
-            await posthog.capture('custom event via buffer', { name: 'hehe', uuid })
-
-            await delayUntilEventIngested(() => hub.db.fetchEvents())
-
-            await hub.kafkaProducer.flush()
-            const events = await hub.db.fetchEvents()
-
-            expect(events.length).toBe(1)
-
-            // processEvent ran and modified
-            expect(events[0].properties.processed).toEqual('hell yes')
-            expect(events[0].properties.upperUuid).toEqual(uuid.toUpperCase())
-
-            // onEvent ran
-            expect(testConsole.read()).toEqual([['processEvent'], ['onEvent', 'custom event via buffer']])
         })
 
         test('snapshot captured, processed, ingested', async () => {
@@ -220,7 +195,7 @@ describe('e2e', () => {
 
     // TODO: we should enable this test again - they are enabled on self-hosted
     // historical exports are currently disabled
-    describe.skip('e2e export historical events', () => {
+    describe.skip('export historical events', () => {
         const awaitHistoricalEventLogs = async () =>
             await new Promise((resolve) => {
                 resolve(testConsole.read().filter((log) => log[0] === 'exported historical event'))
