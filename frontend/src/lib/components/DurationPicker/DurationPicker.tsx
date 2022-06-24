@@ -7,9 +7,9 @@ import { Input, Select } from 'antd'
 import { capitalizeFirstLetter } from 'lib/utils'
 
 interface Props {
-    initialValue: number
     onChange: (value: number) => void
     key: string
+    initialValue?: number
     autoFocus?: boolean
     style?: Partial<React.CSSProperties>
 }
@@ -25,13 +25,12 @@ export function DurationPicker({ initialValue, onChange, key, autoFocus, style }
             <Input
                 className="DurationPicker__time-input"
                 type="number"
-                value={timeValue}
+                value={timeValue ?? undefined}
                 placeholder="0"
                 min={0}
                 autoFocus={autoFocus}
                 step={1}
                 onChange={(event) => {
-                    console.log(event.target.value)
                     const newValue = parseFloat(event.target.value)
                     setTimeValue(newValue)
                 }}
