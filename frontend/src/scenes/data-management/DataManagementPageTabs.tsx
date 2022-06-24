@@ -96,8 +96,8 @@ export function DataManagementPageTabs({ tab }: { tab: DataManagementTab }): JSX
                                                 <br />
                                                 <br />
                                                 Actions have been moved into the events tab in an effort to simplify
-                                                terminology in our app. Actions are now called events and can be created
-                                                from the events tab.
+                                                naming in the app. Actions are now called events and can be created from
+                                                the events tab.
                                             </>
                                         )}
                                     </>

@@ -263,7 +263,7 @@ export function SimplifiedActionsBanner(): JSX.Element {
             message="Actions have moved to the Events tab"
             description={
                 <>
-                    Actions have been renamed to events and events to raw events in an effort to simplify naming in our
+                    Actions have been renamed to events and events to raw events in an effort to simplify naming in the
                     app. To create a new "Action", click "New Event" to get started.
                 </>
             }
