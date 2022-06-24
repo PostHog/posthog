@@ -138,7 +138,7 @@ type GroupProperties = {
 
 type GroupCreatedAt = {
     identifier: GroupIdentifier
-    createdAt: DateTime | null // ISO timestamp
+    createdAt: DateTime | null
 }
 
 /** The recommended way of accessing the database. */
