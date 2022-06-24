@@ -25,7 +25,7 @@
 # name: Test0004ReplicatedSchema.test_migration.12
   <class 'tuple'> (
     'person',
-    "ReplicatedReplacingMergeTree('/clickhouse/tables/am0004_20220201000000_noshard/posthog.person', '{replica}-{shard}', _timestamp) ORDER BY (team_id, id) SETTINGS index_granularity = 8192",
+    "ReplicatedReplacingMergeTree('/clickhouse/tables/am0004_20220201000000_noshard/posthog.person', '{replica}-{shard}', version) ORDER BY (team_id, id) SETTINGS index_granularity = 8192",
   )
 ---
 # name: Test0004ReplicatedSchema.test_migration.13
@@ -151,7 +151,7 @@
 # name: Test0004ReplicatedSchema.test_rollback.12
   <class 'tuple'> (
     'person',
-    'ReplacingMergeTree(_timestamp) ORDER BY (team_id, id) SETTINGS index_granularity = 8192',
+    'ReplacingMergeTree(version) ORDER BY (team_id, id) SETTINGS index_granularity = 8192',
   )
 ---
 # name: Test0004ReplicatedSchema.test_rollback.13

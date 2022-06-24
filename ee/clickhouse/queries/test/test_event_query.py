@@ -423,3 +423,64 @@ class TestEventQuery(ClickhouseTestMixin, APIBaseTest):
 
         results, _ = self._run_query(filter)
         self.assertEqual(len(results), 2)
+
+    @snapshot_clickhouse_queries
+    def test_entity_filtered_by_session_duration(self):
+
+        filter = Filter(
+            data={
+                "date_from": "2021-05-02 00:00:00",
+                "date_to": "2021-05-03 00:00:00",
+                "events": [
+                    {
+                        "id": "$pageview",
+                        "order": 0,
+                        "properties": [{"key": "$session_duration", "type": "session", "operator": "gt", "value": 90}],
+                    },
+                ],
+            }
+        )
+
+        event_timestamp_str = "2021-05-02 00:01:00"
+
+        # Session starts before the date_from
+        _create_event(
+            team=self.team,
+            event="start",
+            distinct_id="p1",
+            timestamp="2021-05-01 23:59:00",
+            properties={"$session_id": "1abc"},
+        )
+        # Event that should be returned
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p1",
+            timestamp=event_timestamp_str,
+            properties={"$session_id": "1abc"},
+        )
+
+        # Event in a session that's too short
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p2",
+            timestamp="2021-05-02 00:02:00",
+            properties={"$session_id": "2abc"},
+        )
+        _create_event(
+            team=self.team,
+            event="final_event",
+            distinct_id="p2",
+            timestamp="2021-05-02 00:02:01",
+            properties={"$session_id": "2abc"},
+        )
+
+        # Event with no session
+        _create_event(
+            team=self.team, event="$pageview", distinct_id="p2", timestamp="2021-05-02 00:02:00",
+        )
+
+        results, _ = self._run_query(filter)
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0][0].strftime("%Y-%m-%d %H:%M:%S"), event_timestamp_str)
