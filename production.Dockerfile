@@ -26,9 +26,7 @@ RUN yarn build
 #
 FROM node:16.15-alpine3.14 AS plugin-server
 
-WORKDIR /code/frontend
-
-RUN apk --update --no-cache add "yarn~=1"
+WORKDIR /code/plugin-server
 
 # Compile and install Yarn dependencies.
 #
