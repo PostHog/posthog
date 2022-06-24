@@ -62,6 +62,7 @@ jobs:
                   cache-from: ${{ steps.meta-for-cache.outputs.tags }}
                   tags: ${{ steps.meta.outputs.tags }}
                   labels: ${{ steps.meta.outputs.labels }}
+                  load: true # This is needed so we can get the size
                   # NOTE: we use inline as suggested here:
                   # https://github.com/docker/build-push-action/blob/master/docs/advanced/cache.md#inline-cache
                   # It notes that it doesn't support mode=max, but we're not
