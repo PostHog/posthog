@@ -2,6 +2,7 @@ import datetime as dt
 import json
 from typing import Any, Dict, Literal, Optional, Tuple, cast
 
+from django.conf import settings
 from django.core import exceptions
 
 from posthog.client import query_with_columns, sync_execute
@@ -47,9 +48,10 @@ class MatrixManager:
         """If there's an email collision in signup in the demo environment, we treat it as a login."""
         existing_user: Optional[User] = User.objects.filter(email=email).first()
         if existing_user is None:
-            organization = Organization.objects.create(
-                name=organization_name, plugins_access_level=Organization.PluginsAccessLevel.INSTALL
-            )
+            organization_kwargs: Dict[str, Any] = {"name": organization_name}
+            if settings.DEMO:
+                organization_kwargs["plugins_access_level"] = Organization.PluginsAccessLevel.INSTALL
+            organization = Organization.objects.create(**organization_kwargs)
             new_user = User.objects.create_and_join(
                 organization, email, password, first_name, OrganizationMembership.Level.ADMIN
             )
