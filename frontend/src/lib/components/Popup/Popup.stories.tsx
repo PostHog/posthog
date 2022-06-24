@@ -2,7 +2,7 @@ import React from 'react'
 import { ComponentStory, ComponentMeta } from '@storybook/react'
 
 import { Popup } from './Popup'
-import { IconChevronRight } from '../icons'
+import { IconArrowDropDown } from '../icons'
 
 export default {
     title: 'Lemon UI/Popup',
@@ -16,7 +16,7 @@ Popup_.args = {
     visible: true,
     children: (
         <span style={{ fontSize: '1.5rem' }}>
-            <IconChevronRight />
+            <IconArrowDropDown />
         </span>
     ),
     overlay: (
@@ -25,5 +25,4 @@ Popup_.args = {
             <span>You have been gnomed.</span>
         </>
     ),
-    placement: 'right-start',
 }

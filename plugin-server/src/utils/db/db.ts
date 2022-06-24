@@ -17,7 +17,6 @@ import {
 } from '../../config/kafka-topics'
 import {
     Action,
-    ActionEventPair,
     ActionStep,
     ClickHouseEvent,
     ClickhouseGroup,
@@ -766,7 +765,7 @@ export class DB {
         let queryString = `SELECT
                 posthog_person.id, posthog_person.created_at, posthog_person.team_id, posthog_person.properties,
                 posthog_person.properties_last_updated_at, posthog_person.properties_last_operation, posthog_person.is_user_id, posthog_person.is_identified,
-                posthog_person.uuid, posthog_persondistinctid.team_id AS persondistinctid__team_id,
+                posthog_person.uuid, posthog_person.version, posthog_persondistinctid.team_id AS persondistinctid__team_id,
                 posthog_persondistinctid.distinct_id AS persondistinctid__distinct_id
             FROM posthog_person
             JOIN posthog_persondistinctid ON (posthog_persondistinctid.person_id = posthog_person.id)
@@ -861,19 +860,13 @@ export class DB {
     public async updatePersonDeprecated(
         person: Person,
         update: Partial<Person>,
-        client: PoolClient
-    ): Promise<ProducerRecord[]>
-    public async updatePersonDeprecated(person: Person, update: Partial<Person>): Promise<Person>
-    public async updatePersonDeprecated(
-        person: Person,
-        update: Partial<Person>,
         client?: PoolClient
-    ): Promise<Person | ProducerRecord[]> {
+    ): Promise<[Person, ProducerRecord[]]> {
         const updateValues = Object.values(unparsePersonPartial(update))
 
         // short circuit if there are no updates to be made
         if (updateValues.length === 0) {
-            return client ? [] : person
+            return [person, []]
         }
 
         const values = [...updateValues, person.id]
@@ -897,6 +890,13 @@ export class DB {
             version: Number(updatedPersonRaw.version || 0),
         } as Person
 
+        // Track the disparity between the version on the database and the version of the person we have in memory
+        // Without races, the returned person (updatedPerson) should have a version that's only +1 the person in memory
+        const versionDisparity = updatedPerson.version - person.version - 1
+        if (versionDisparity > 0) {
+            this.statsd?.increment('person_update_version_mismatch', { versionDisparity: String(versionDisparity) })
+        }
+
         const kafkaMessages = []
         const message = generateKafkaPersonUpdateMessage(
             updatedPerson.created_at,
@@ -916,7 +916,7 @@ export class DB {
         await this.updatePersonPropertiesCache(updatedPerson.team_id, updatedPerson.id, updatedPerson.properties)
         await this.updatePersonCreatedAtCache(updatedPerson.team_id, updatedPerson.id, updatedPerson.created_at)
 
-        return client ? kafkaMessages : updatedPerson
+        return [updatedPerson, kafkaMessages]
     }
 
     public async deletePerson(person: Person, client?: PoolClient): Promise<ProducerRecord[]> {
@@ -1189,6 +1189,34 @@ export class DB {
         return insertResult.rows[0]
     }
 
+    // Feature Flag Hash Key overrides
+    public async addFeatureFlagHashKeysForMergedPerson(
+        teamID: Team['id'],
+        sourcePersonID: Person['id'],
+        targetPersonID: Person['id']
+    ): Promise<void> {
+        // Delete and insert in a single query to ensure
+        // this function is safe wherever it is run.
+        // The CTE helps make this happen.
+        //
+        // Every override is unique for a team-personID-featureFlag combo.
+        // Thus, if the target person already has an override, we do nothing on conflict
+        await this.postgresQuery(
+            `
+            WITH deletions AS (
+                DELETE FROM posthog_featureflaghashkeyoverride WHERE team_id = $1 AND person_id = $2
+                RETURNING team_id, person_id, feature_flag_key, hash_key
+            )
+            INSERT INTO posthog_featureflaghashkeyoverride (team_id, person_id, feature_flag_key, hash_key)
+                SELECT team_id, $3, feature_flag_key, hash_key
+                FROM deletions
+                ON CONFLICT DO NOTHING
+            `,
+            [teamID, sourcePersonID, targetPersonID],
+            'addFeatureFlagHashKeysForMergedPerson'
+        )
+    }
+
     // Event
 
     public async fetchEvents(): Promise<Event[] | ClickHouseEvent[]> {
@@ -1325,15 +1353,42 @@ export class DB {
     // Action & ActionStep & Action<>Event
 
     public async fetchAllActionsGroupedByTeam(): Promise<Record<Team['id'], Record<Action['id'], Action>>> {
-        const rawActions: RawAction[] = (
-            await this.postgresQuery(`SELECT * FROM posthog_action WHERE deleted = FALSE`, undefined, 'fetchActions')
+        const restHooks = await this.fetchActionRestHooks()
+        const restHookActionIds = restHooks.map(({ resource_id }) => resource_id)
+
+        const rawActions = (
+            await this.postgresQuery<RawAction>(
+                `
+                SELECT
+                    id,
+                    team_id,
+                    name,
+                    description,
+                    created_at,
+                    created_by_id,
+                    deleted,
+                    post_to_slack,
+                    slack_message_format,
+                    is_calculating,
+                    updated_at,
+                    last_calculated_at
+                FROM posthog_action
+                WHERE deleted = FALSE AND (post_to_slack OR id = ANY($1))
+            `,
+                [restHookActionIds],
+                'fetchActions'
+            )
         ).rows
+
+        const pluginIds: number[] = rawActions.map(({ id }) => id)
         const actionSteps: (ActionStep & { team_id: Team['id'] })[] = (
             await this.postgresQuery(
-                `SELECT posthog_actionstep.*, posthog_action.team_id
+                `
+                    SELECT posthog_actionstep.*, posthog_action.team_id
                     FROM posthog_actionstep JOIN posthog_action ON (posthog_action.id = posthog_actionstep.action_id)
-                    WHERE posthog_action.deleted = FALSE`,
-                undefined,
+                    WHERE posthog_action.id = ANY($1)
+                `,
+                [pluginIds],
                 'fetchActionSteps'
             )
         ).rows
@@ -1342,7 +1397,17 @@ export class DB {
             if (!actions[rawAction.team_id]) {
                 actions[rawAction.team_id] = {}
             }
-            actions[rawAction.team_id][rawAction.id] = { ...rawAction, steps: [] }
+
+            actions[rawAction.team_id][rawAction.id] = {
+                ...rawAction,
+                steps: [],
+                hooks: [],
+            }
+        }
+        for (const hook of restHooks) {
+            if (hook.resource_id !== null && actions[hook.team_id]?.[hook.resource_id]) {
+                actions[hook.team_id][hook.resource_id].hooks.push(hook)
+            }
         }
         for (const actionStep of actionSteps) {
             if (actions[actionStep.team_id]?.[actionStep.action_id]) {
@@ -1363,20 +1428,18 @@ export class DB {
         if (!rawActions.length) {
             return null
         }
-        const steps: ActionStep[] = (
-            await this.postgresQuery(`SELECT * FROM posthog_actionstep WHERE action_id = $1`, [id], 'fetchActionSteps')
-        ).rows
-        const action: Action = { ...rawActions[0], steps }
-        return action
-    }
 
-    public async fetchActionMatches(): Promise<ActionEventPair[]> {
-        const result = await this.postgresQuery<ActionEventPair>(
-            'SELECT * FROM posthog_action_events',
-            undefined,
-            'fetchActionMatches'
-        )
-        return result.rows
+        const [steps, hooks] = await Promise.all([
+            this.postgresQuery<ActionStep>(
+                `SELECT * FROM posthog_actionstep WHERE action_id = $1`,
+                [id],
+                'fetchActionSteps'
+            ),
+            this.fetchActionRestHooks(id),
+        ])
+
+        const action: Action = { ...rawActions[0], steps: steps.rows, hooks }
+        return action.post_to_slack || action.hooks.length > 0 ? action : null
     }
 
     // Organization
@@ -1394,7 +1457,20 @@ export class DB {
 
     public async fetchTeam(teamId: Team['id']): Promise<Team> {
         const selectResult = await this.postgresQuery<Team>(
-            `SELECT * FROM posthog_team WHERE id = $1`,
+            `
+            SELECT
+                id,
+                uuid,
+                organization_id,
+                name,
+                anonymize_ips,
+                api_token,
+                slack_incoming_webhook,
+                session_recording_opt_in,
+                ingested_event
+            FROM posthog_team
+            WHERE id = $1
+            `,
             [teamId],
             'fetchTeam'
         )
@@ -1438,20 +1514,27 @@ export class DB {
 
     // Hook (EE)
 
-    public async fetchRelevantRestHooks(
-        teamId: Hook['team_id'],
-        event: Hook['event'],
-        resourceId: Hook['resource_id']
-    ): Promise<Hook[]> {
-        const filterByResource = resourceId !== null
-        const { rows } = await this.postgresQuery<Hook>(
-            `
-            SELECT * FROM ee_hook
-            WHERE team_id = $1 AND event = $2 ${filterByResource ? 'AND resource_id = $3' : ''}`,
-            filterByResource ? [teamId, event, resourceId] : [teamId, event],
-            'fetchRelevantRestHooks'
-        )
-        return rows
+    private async fetchActionRestHooks(actionId?: Hook['resource_id']): Promise<Hook[]> {
+        try {
+            const { rows } = await this.postgresQuery<Hook>(
+                `
+                SELECT *
+                FROM ee_hook
+                WHERE event = 'action_performed'
+                ${actionId !== undefined ? 'AND resource_id = $1' : ''}
+                `,
+                actionId !== undefined ? [actionId] : [],
+                'fetchActionRestHooks'
+            )
+            return rows
+        } catch (err) {
+            // On FOSS this table does not exist - ignore errors
+            if (err.message.includes('relation "ee_hook" does not exist')) {
+                return []
+            }
+
+            throw err
+        }
     }
 
     public async deleteRestHook(hookId: Hook['id']): Promise<void> {

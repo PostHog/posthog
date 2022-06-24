@@ -45,9 +45,9 @@ describe('capabilities', () => {
                 export function randomFunction (event, meta) { return event}
                 export function onEvent (event, meta) { return event }
                 export function onSnapshot (event, meta) { return event }
-    
+
                 export function runEveryHour(meta) {console.log('1')}
-    
+
                 export const jobs = {
                     x: (event, meta) => console.log(event)
                 }
@@ -129,7 +129,7 @@ describe('capabilities', () => {
         })
 
         describe('processAsyncHandlers', () => {
-            it.each(['onEvent', 'onSnapshot', 'onAction', 'exportEvents'])(
+            it.each(['onEvent', 'onSnapshot', 'exportEvents'])(
                 'returns true if plugin has %s and the server has processAsyncHandlers capability',
                 (method) => {
                     const shouldSetupPlugin = shouldSetupPluginInServer(
@@ -140,7 +140,7 @@ describe('capabilities', () => {
                 }
             )
 
-            it('returns false if plugin has none of onEvent, onSnapshot, onAction, or exportEvents and the server has only processAsyncHandlers capability', () => {
+            it('returns false if plugin has none of onEvent, onSnapshot, or exportEvents and the server has only processAsyncHandlers capability', () => {
                 const shouldSetupPlugin = shouldSetupPluginInServer({ processAsyncHandlers: true }, { methods: [] })
                 expect(shouldSetupPlugin).toEqual(false)
             })

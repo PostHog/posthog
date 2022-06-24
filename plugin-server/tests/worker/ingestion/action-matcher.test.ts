@@ -18,6 +18,8 @@ import { commonUserId } from '../../helpers/plugins'
 import { insertRow, resetTestDatabase } from '../../helpers/sql'
 import { KafkaProducerWrapper } from './../../../src/utils/db/kafka-producer-wrapper'
 
+jest.mock('../../../src/utils/status')
+
 describe('ActionMatcher', () => {
     let hub: Hub
     let closeServer: () => Promise<void>
@@ -45,7 +47,7 @@ describe('ActionMatcher', () => {
             created_at: new Date().toISOString(),
             created_by_id: commonUserId,
             deleted: false,
-            post_to_slack: false,
+            post_to_slack: true,
             slack_message_format: '',
             is_calculating: false,
             updated_at: new Date().toISOString(),
@@ -71,7 +73,7 @@ describe('ActionMatcher', () => {
         await insertRow(hub.db.postgres, 'posthog_action', action)
         await Promise.all(steps.map((step) => insertRow(hub.db.postgres, 'posthog_actionstep', step)))
         await hub.actionManager.reloadAction(action.team_id, action.id)
-        return { ...action, steps }
+        return { ...action, steps, hooks: [] }
     }
 
     /** Return a test event created on a common base using provided property overrides. */

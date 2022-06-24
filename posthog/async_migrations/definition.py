@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Callable, List, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Tuple
 
 from posthog.constants import AnalyticsDBMS
 from posthog.models.utils import sane_repr
@@ -39,27 +39,31 @@ class AsyncMigrationOperationSQL(AsyncMigrationOperation):
         self,
         *,
         sql: str,
+        sql_settings: Optional[Dict] = None,
         rollback: Optional[str],
+        rollback_settings: Optional[Dict] = None,
         database: AnalyticsDBMS = AnalyticsDBMS.CLICKHOUSE,
         timeout_seconds: int = ASYNC_MIGRATIONS_DEFAULT_TIMEOUT_SECONDS,
     ):
         self.sql = sql
+        self.sql_settings = sql_settings
         self.rollback = rollback
+        self.rollback_settings = rollback_settings
         self.database = database
         self.timeout_seconds = timeout_seconds
 
     def fn(self, query_id: str):
-        self._execute_op(query_id, self.sql)
+        self._execute_op(query_id, self.sql, self.sql_settings)
 
     def rollback_fn(self, query_id: str):
         if self.rollback is not None:
-            self._execute_op(query_id, self.rollback)
+            self._execute_op(query_id, self.rollback, self.rollback_settings)
 
-    def _execute_op(self, query_id: str, sql: str):
+    def _execute_op(self, query_id: str, sql: str, settings: Optional[Dict]):
         from posthog.async_migrations.utils import execute_op_clickhouse, execute_op_postgres
 
         if self.database == AnalyticsDBMS.CLICKHOUSE:
-            execute_op_clickhouse(sql, query_id, self.timeout_seconds)
+            execute_op_clickhouse(sql, query_id=query_id, timeout_seconds=self.timeout_seconds, settings=settings)
         else:
             execute_op_postgres(sql, query_id)
 

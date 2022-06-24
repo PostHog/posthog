@@ -212,7 +212,7 @@ def test_with_materialized_columns(event_properties=[], person_properties=[], ve
     """
 
     try:
-        from ee.clickhouse.materialized_columns import get_materialized_columns, materialize
+        from ee.clickhouse.materialized_columns.analyze import get_materialized_columns, materialize
     except:
         # EE not available? Just run the main test
         return lambda fn: fn
@@ -291,28 +291,29 @@ class QueryMatchingTest:
             assert params == self.snapshot, "\n".join(self.snapshot.get_assert_diff())
 
 
-def snapshot_postgres_queries(fn):
-    """
-    Captures and snapshots select queries from test using `syrupy` library.
+def snapshot_postgres_queries(search_clauses=["SELECT"]):
+    def snapshot_postgres_queries(fn):
+        """
+        Captures and snapshots select queries from test using `syrupy` library.
+        Requires queries to be stable to avoid flakiness.
+        Snapshots are automatically saved in a __snapshot__/*.ambr file.
+        Update snapshots via --snapshot-update.
+        """
+        from django.db import connections
 
-    Requires queries to be stable to avoid flakiness.
+        @wraps(fn)
+        def wrapped(self, *args, **kwargs):
+            with CaptureQueriesContext(connections["default"]) as context:
+                fn(self, *args, **kwargs)
 
-    Snapshots are automatically saved in a __snapshot__/*.ambr file.
-    Update snapshots via --snapshot-update.
-    """
-    from django.db import connections
+            for query_with_time in context.captured_queries:
+                query = query_with_time["sql"]
+                if any(clause in query for clause in search_clauses) and "django_session" not in query:
+                    self.assertQueryMatchesSnapshot(query, replace_all_numbers=True)
 
-    @wraps(fn)
-    def wrapped(self, *args, **kwargs):
-        with CaptureQueriesContext(connections["default"]) as context:
-            fn(self, *args, **kwargs)
+        return wrapped
 
-        for query_with_time in context.captured_queries:
-            query = query_with_time["sql"]
-            if "SELECT" in query and "django_session" not in query:
-                self.assertQueryMatchesSnapshot(query, replace_all_numbers=True)
-
-    return wrapped
+    return snapshot_postgres_queries
 
 
 class BaseTestMigrations(QueryMatchingTest):
@@ -350,7 +351,7 @@ class BaseTestMigrations(QueryMatchingTest):
 
         self.apps = executor.loader.project_state(self.migrate_to).apps
 
-    @snapshot_postgres_queries
+    @snapshot_postgres_queries(["SELECT"])
     def _execute_migration_with_snapshots(self, executor):
         executor.migrate(self.migrate_to)
 

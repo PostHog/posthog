@@ -16,9 +16,6 @@ from rest_framework.settings import api_settings
 from rest_framework_csv import renderers as csvrenderers
 from sentry_sdk.api import capture_exception
 
-from ee.clickhouse.queries.funnels.funnel_correlation_persons import FunnelCorrelationActors
-from ee.clickhouse.queries.paths import ClickhousePathsActors
-from ee.clickhouse.queries.stickiness.stickiness_actors import ClickhouseStickinessActors
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.person import get_funnel_actor_class, should_paginate
 from posthog.api.routing import StructuredViewSetMixin
@@ -44,7 +41,9 @@ from posthog.models.person.sql import INSERT_COHORT_ALL_PEOPLE_THROUGH_PERSON_ID
 from posthog.models.team import Team
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.queries.actor_base_query import ActorBaseQuery, get_people
+from posthog.queries.paths import PathsActors
 from posthog.queries.person_query import PersonQuery
+from posthog.queries.stickiness import StickinessActors
 from posthog.queries.trends.person import TrendsActors
 from posthog.queries.util import get_earliest_timestamp
 from posthog.tasks.calculate_cohort import (
@@ -280,17 +279,14 @@ def insert_cohort_actors_into_ch(cohort: Cohort, filter_data: Dict):
     elif insight_type == INSIGHT_STICKINESS:
         stickiness_filter = StickinessFilter(data=filter_data, team=cohort.team)
         entity = get_target_entity(stickiness_filter)
-        query_builder = ClickhouseStickinessActors(cohort.team, entity, stickiness_filter)
+        query_builder = StickinessActors(cohort.team, entity, stickiness_filter)
     elif insight_type == INSIGHT_FUNNELS:
         funnel_filter = Filter(data=filter_data, team=cohort.team)
-        if funnel_filter.correlation_person_entity:
-            query_builder = FunnelCorrelationActors(filter=funnel_filter, team=cohort.team)
-        else:
-            funnel_actor_class = get_funnel_actor_class(funnel_filter)
-            query_builder = funnel_actor_class(filter=funnel_filter, team=cohort.team)
+        funnel_actor_class = get_funnel_actor_class(funnel_filter)
+        query_builder = funnel_actor_class(filter=funnel_filter, team=cohort.team)
     elif insight_type == INSIGHT_PATHS:
         path_filter = PathFilter(data=filter_data, team=cohort.team)
-        query_builder = ClickhousePathsActors(path_filter, cohort.team, funnel_filter=None)
+        query_builder = PathsActors(path_filter, cohort.team, funnel_filter=None)
     else:
         if settings.DEBUG:
             raise ValueError(f"Insight type: {insight_type} not supported for cohort creation")

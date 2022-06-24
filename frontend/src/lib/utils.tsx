@@ -25,7 +25,7 @@ import {
 } from '~/types'
 import equal from 'fast-deep-equal'
 import { tagColors } from 'lib/colors'
-import { ENTITY_MATCH_TYPE, PROPERTY_MATCH_TYPE, WEBHOOK_SERVICES } from 'lib/constants'
+import { WEBHOOK_SERVICES } from 'lib/constants'
 import { KeyMappingInterface } from 'lib/components/PropertyKeyInfo'
 import { AlignType } from 'rc-trigger/lib/interface'
 import { dayjs } from 'lib/dayjs'
@@ -295,7 +295,7 @@ export const genericOperatorMap: Record<string, string> = {
     regex: '∼ matches regex',
     not_regex: "≁ doesn't match regex",
     gt: '> greater than',
-    lt: '< lower than',
+    lt: '< less than',
     is_set: '✓ is set',
     is_not_set: '✕ is not set',
 }
@@ -317,7 +317,7 @@ export const numericOperatorMap: Record<string, string> = {
     regex: '∼ matches regex',
     not_regex: "≁ doesn't match regex",
     gt: '> greater than',
-    lt: '< lower than',
+    lt: '< less than',
     is_set: '✓ is set',
     is_not_set: '✕ is not set',
 }
@@ -337,12 +337,18 @@ export const booleanOperatorMap: Record<string, string> = {
     is_not_set: '✕ is not set',
 }
 
+export const durationOperatorMap: Record<string, string> = {
+    gt: '> greater than',
+    lt: '< less than',
+}
+
 export const allOperatorsMapping: Record<string, string> = {
     ...dateTimeOperatorMap,
     ...stringOperatorMap,
     ...numericOperatorMap,
     ...genericOperatorMap,
     ...booleanOperatorMap,
+    ...durationOperatorMap,
     // slight overkill to spread all of these into the map
     // but gives freedom for them to diverge more over time
 }
@@ -352,6 +358,7 @@ const operatorMappingChoice: Record<keyof typeof PropertyType, Record<string, st
     String: stringOperatorMap,
     Numeric: numericOperatorMap,
     Boolean: booleanOperatorMap,
+    Duration: durationOperatorMap,
 }
 
 export function chooseOperatorMap(propertyType: PropertyType | undefined): Record<string, string> {
@@ -598,6 +605,14 @@ export function isURL(input: any): boolean {
     }
     // Regex by regextester.com/115236
     const regexp = /^(?:http(s)?:\/\/)([\w.-])+(?:[\w\.-]+)+([\w\-\._~:/?#[\]@%!\$&'\(\)\*\+,;=.])+$/
+    return !!input.trim().match(regexp)
+}
+
+export function isExternalLink(input: any): boolean {
+    if (!input || typeof input !== 'string') {
+        return false
+    }
+    const regexp = /^(https?:|mailto:)/
     return !!input.trim().match(regexp)
 }
 
@@ -1341,51 +1356,37 @@ export function range(startOrEnd: number, end?: number): number[] {
     return Array.from({ length }, (_, i) => i + start)
 }
 
-export function processCohort(cohort: CohortType, isNewCohortFilterEnabled: boolean = false): CohortType {
+export function processCohort(cohort: CohortType): CohortType {
     return {
         ...cohort,
-        ...(isNewCohortFilterEnabled
-            ? {
-                  /* Populate value_property with value and overwrite value with corresponding behavioral filter type */
-                  filters: {
-                      properties: {
-                          ...cohort.filters.properties,
-                          values: (cohort.filters.properties?.values?.map((group) =>
-                              'values' in group
-                                  ? {
-                                        ...group,
-                                        values: (group.values as AnyCohortCriteriaType[]).map((c) =>
-                                            c.type &&
-                                            [BehavioralFilterKey.Cohort, BehavioralFilterKey.Person].includes(c.type) &&
-                                            !('value_property' in c)
-                                                ? {
-                                                      ...c,
-                                                      value_property: c.value,
-                                                      value:
-                                                          c.type === BehavioralFilterKey.Cohort
-                                                              ? BehavioralCohortType.InCohort
-                                                              : BehavioralEventType.HaveProperty,
-                                                  }
-                                                : c
-                                        ),
-                                    }
-                                  : group
-                          ) ?? []) as CohortCriteriaGroupFilter[] | AnyCohortCriteriaType[],
-                      },
-                  },
-              }
-            : {
-                  groups:
-                      cohort.groups?.map((group) => ({
-                          ...{
-                              ...group,
-                              matchType: group.action_id || group.event_id ? ENTITY_MATCH_TYPE : PROPERTY_MATCH_TYPE,
-                              id: group.id ?? Math.random().toString().substr(2, 5),
-                          },
-                          ...(group.properties
-                              ? { properties: convertPropertyGroupToProperties(group.properties) }
-                              : {}),
-                      })) ?? [],
-              }),
+        ...{
+            /* Populate value_property with value and overwrite value with corresponding behavioral filter type */
+            filters: {
+                properties: {
+                    ...cohort.filters.properties,
+                    values: (cohort.filters.properties?.values?.map((group) =>
+                        'values' in group
+                            ? {
+                                  ...group,
+                                  values: (group.values as AnyCohortCriteriaType[]).map((c) =>
+                                      c.type &&
+                                      [BehavioralFilterKey.Cohort, BehavioralFilterKey.Person].includes(c.type) &&
+                                      !('value_property' in c)
+                                          ? {
+                                                ...c,
+                                                value_property: c.value,
+                                                value:
+                                                    c.type === BehavioralFilterKey.Cohort
+                                                        ? BehavioralCohortType.InCohort
+                                                        : BehavioralEventType.HaveProperty,
+                                            }
+                                          : c
+                                  ),
+                              }
+                            : group
+                    ) ?? []) as CohortCriteriaGroupFilter[] | AnyCohortCriteriaType[],
+                },
+            },
+        },
     }
 }

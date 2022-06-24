@@ -9,7 +9,6 @@ from rest_framework import request, status
 from sentry_sdk import capture_exception
 from statshog.defaults.django import statsd
 
-from ee.models import EnterpriseEventDefinition
 from posthog.exceptions import RequestParsingError, generate_exception_response
 from posthog.models import Action, Entity, EventDefinition
 from posthog.models.entity import MATH_TYPE
@@ -30,6 +29,10 @@ def get_target_entity(filter: Union[Filter, StickinessFilter]) -> Entity:
         raise ValueError("An entity id and the entity type must be provided to determine an entity")
 
     entity_math = filter.target_entity_math or "total"  # make math explicit
+    possible_entity = entity_from_order(filter.target_entity_order, filter.entities)
+
+    if possible_entity:
+        return possible_entity
 
     possible_entity = retrieve_entity_from(
         filter.target_entity_id, filter.target_entity_type, entity_math, filter.events, filter.actions
@@ -40,6 +43,16 @@ def get_target_entity(filter: Union[Filter, StickinessFilter]) -> Entity:
         return Entity({"id": filter.target_entity_id, "type": filter.target_entity_type, "math": entity_math})
     else:
         raise ValueError("An entity must be provided for target entity to be determined")
+
+
+def entity_from_order(order: Optional[str], entities: List[Entity]) -> Optional[Entity]:
+    if not order:
+        return None
+
+    for entity in entities:
+        if entity.index == int(order):
+            return entity
+    return None
 
 
 def retrieve_entity_from(
@@ -323,16 +336,19 @@ def safe_clickhouse_string(s: str) -> str:
 
 def create_event_definitions_sql(include_actions: bool, is_enterprise: bool = False, conditions: str = "") -> str:
     # Prevent fetching deprecated `tags` field. Tags are separately fetched in TaggedItemSerializerMixin
-    ee_model = EnterpriseEventDefinition if is_enterprise else EventDefinition
+    if is_enterprise:
+        from ee.models import EnterpriseEventDefinition
+
+        ee_model = EnterpriseEventDefinition
+    else:
+        ee_model = EventDefinition  # type: ignore
+
     event_definition_fields = {
-        f'"{f.column}"' for f in ee_model._meta.get_fields() if hasattr(f, "column") and f.column != "tags"  # type: ignore
+        f'"{f.column}"'  # type: ignore
+        for f in ee_model._meta.get_fields()
+        if hasattr(f, "column") and f.column not in ["deprecated_tags", "tags"]  # type: ignore
     }
     shared_conditions = f"WHERE team_id = %(team_id)s {conditions}"
-    ordering = (
-        "ORDER BY last_seen_at DESC NULLS LAST, query_usage_30_day DESC NULLS LAST, name ASC"
-        if is_enterprise
-        else "ORDER BY name ASC"
-    )
 
     if include_actions:
         event_definition_fields.discard('"id"')
@@ -345,11 +361,16 @@ def create_event_definitions_sql(include_actions: bool, is_enterprise: bool = Fa
 
         raw_event_definition_fields = ",".join(
             [f"NULL AS {col}" if col in action_fields - event_definition_fields else col for col in combined_fields]
-            + ["id", "NULL AS action_id"]
+            + ["id", "NULL AS action_id", "last_seen_at AS last_updated_at"]
         )
         raw_action_fields = ",".join(
             [f"NULL AS {col}" if col in event_definition_fields - action_fields else col for col in combined_fields]
-            + ["NULL AS id", "id AS action_id"]
+            + ["NULL AS id", "id AS action_id", "last_calculated_at AS last_updated_at"]
+        )
+        ordering = (
+            "ORDER BY last_updated_at DESC NULLS LAST, query_usage_30_day DESC NULLS LAST, name ASC"
+            if is_enterprise
+            else "ORDER BY name ASC"
         )
 
         event_definition_table = (
@@ -376,6 +397,11 @@ def create_event_definitions_sql(include_actions: bool, is_enterprise: bool = Fa
         """
 
     raw_event_definition_fields = ",".join(event_definition_fields)
+    ordering = (
+        "ORDER BY last_seen_at DESC NULLS LAST, query_usage_30_day DESC NULLS LAST, name ASC"
+        if is_enterprise
+        else "ORDER BY name ASC"
+    )
 
     return (
         f"""

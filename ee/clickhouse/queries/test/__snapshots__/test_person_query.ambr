@@ -27,7 +27,7 @@
 # name: test_person_query_with_and_and_or_property_groups
   '
   
-              SELECT id, argMax(properties, _timestamp) as person_props
+              SELECT id, argMax(properties, version) as person_props
               FROM person
               
               WHERE team_id = %(team_id)s
@@ -53,7 +53,7 @@
 # name: test_person_query_with_entity_filters
   '
   
-              SELECT id, argMax(pmat_email, _timestamp) as pmat_email
+              SELECT id, argMax(pmat_email, version) as pmat_email
               FROM person
               
               WHERE team_id = %(team_id)s
@@ -79,7 +79,7 @@
 # name: test_person_query_with_entity_filters_and_property_group_filters
   '
   
-              SELECT id, argMax(pmat_email, _timestamp) as pmat_email , argMax(properties, _timestamp) as person_props
+              SELECT id, argMax(pmat_email, version) as pmat_email , argMax(properties, version) as person_props
               FROM person
               
               WHERE team_id = %(team_id)s
@@ -92,7 +92,7 @@
 # name: test_person_query_with_entity_filters_and_property_group_filters.1
   '
   
-              SELECT id, argMax(properties, _timestamp) as person_props
+              SELECT id, argMax(properties, version) as person_props
               FROM person
               
               WHERE team_id = %(team_id)s
@@ -105,7 +105,7 @@
 # name: test_person_query_with_extra_fields
   '
   
-              SELECT id, argMax(pmat_email, _timestamp) as pmat_email , argMax(properties, _timestamp) as person_props
+              SELECT id, argMax(pmat_email, version) as pmat_email , argMax(properties, version) as person_props
               FROM person
               
               WHERE team_id = %(team_id)s
@@ -118,7 +118,7 @@
 # name: test_person_query_with_extra_requested_fields
   '
   
-              SELECT id, argMax(properties, _timestamp) as person_props
+              SELECT id, argMax(properties, version) as person_props
               FROM person
               
               WHERE team_id = %(team_id)s
@@ -131,7 +131,7 @@
 # name: test_person_query_with_extra_requested_fields.1
   '
   
-              SELECT id, argMax(pmat_email, _timestamp) as pmat_email
+              SELECT id, argMax(pmat_email, version) as pmat_email
               FROM person
               
               WHERE team_id = %(team_id)s

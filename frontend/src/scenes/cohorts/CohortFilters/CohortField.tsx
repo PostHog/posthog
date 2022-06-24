@@ -55,6 +55,7 @@ export function CohortSelectorField({
             type="secondary"
             className="CohortField"
             sideIcon={undefined}
+            data-attr={`cohort-selector-field-${fieldKey}`}
             popup={{
                 className: 'Popup__CohortField',
                 placement: 'bottom-start',
@@ -122,6 +123,7 @@ export function CohortTaxonomicField({
             }}
             groupTypes={taxonomicGroupTypes}
             placeholder={placeholder}
+            data-attr={`cohort-taxonomic-field-${fieldKey}`}
         />
     )
 }

@@ -14,6 +14,8 @@ import equal from 'fast-deep-equal'
 import { userLogic } from 'scenes/userLogic'
 import { lemonToast } from '../lemonToast'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 
@@ -133,7 +135,14 @@ export const definitionPopupLogic = kea<definitionPopupLogicType>({
             () => [(_, props) => props.openDetailInNewTab],
             (openDetailInNewTab) => openDetailInNewTab ?? true,
         ],
-        singularType: [(s) => [s.type], (type) => getSingularType(type)],
+        singularType: [
+            (s) => [s.type],
+            (type) =>
+                getSingularType(
+                    type,
+                    !!featureFlagLogic.findMounted()?.values?.featureFlags?.[FEATURE_FLAGS.SIMPLIFY_ACTIONS]
+                ),
+        ],
         dirty: [
             (s) => [s.state, s.definition, s.localDefinition],
             (state, definition, localDefinition) =>

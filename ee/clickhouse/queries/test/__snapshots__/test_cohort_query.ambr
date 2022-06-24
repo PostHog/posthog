@@ -174,7 +174,7 @@
             id AS person_id
      FROM
        (SELECT id,
-               argMax(properties, _timestamp) as person_props
+               argMax(properties, version) as person_props
         FROM person
         WHERE team_id = 2
         GROUP BY id
@@ -370,7 +370,7 @@
             id AS person_id
      FROM
        (SELECT id,
-               argMax(properties, _timestamp) as person_props
+               argMax(properties, version) as person_props
         FROM person
         WHERE team_id = 2
         GROUP BY id
@@ -407,7 +407,7 @@
             id AS person_id
      FROM
        (SELECT id,
-               argMax(pmat_$sample_field, _timestamp) as pmat_$sample_field
+               argMax(pmat_$sample_field, version) as pmat_$sample_field
         FROM person
         WHERE team_id = 2
         GROUP BY id
@@ -449,7 +449,7 @@
             id AS person_id
      FROM
        (SELECT id,
-               argMax(properties, _timestamp) as person_props
+               argMax(properties, version) as person_props
         FROM person
         WHERE team_id = 2
         GROUP BY id

@@ -3,13 +3,11 @@ import { AnyPropertyFilter } from '~/types'
 import { Button } from 'antd'
 import { Row } from 'antd'
 import { PropertyFilterButton } from './PropertyFilterButton'
-import { TooltipPlacement } from 'antd/lib/tooltip'
 import { isValidPathCleanFilter, isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { Popup } from 'lib/components/Popup/Popup'
 import { PlusCircleOutlined } from '@ant-design/icons'
 import '../../../../scenes/actions/Actions.scss' // TODO: we should decouple this styling from this component sooner than later
 import './FilterRow.scss'
-import { Placement } from '@popperjs/core'
 import clsx from 'clsx'
 import { IconDelete, IconPlus } from 'lib/components/icons'
 import { LemonButton } from 'lib/components/LemonButton'
@@ -23,8 +21,6 @@ interface FilterRowProps {
     showConditionBadge?: boolean
     totalCount: number
     disablePopover?: boolean
-    popoverPlacement?: TooltipPlacement | null
-    taxonomicPopoverPlacement?: Placement
     filterComponent: (onComplete: () => void) => JSX.Element
     label: string
     onRemove: (index: number) => void
@@ -40,7 +36,6 @@ export const FilterRow = React.memo(function FilterRow({
     showConditionBadge,
     totalCount,
     disablePopover = false, // use bare PropertyFilter without popover
-    taxonomicPopoverPlacement = undefined,
     filterComponent,
     label,
     onRemove,
@@ -97,12 +92,10 @@ export const FilterRow = React.memo(function FilterRow({
                     <Popup
                         className={'filter-row-popup'}
                         visible={open}
-                        placement={taxonomicPopoverPlacement || 'bottom-end'}
-                        fallbackPlacements={['bottom-start']}
                         onClickOutside={() => handleVisibleChange(false)}
                         overlay={filterComponent(() => setOpen(false))}
                     >
-                        {({ setRef }) => {
+                        {({ ref }) => {
                             return (
                                 <>
                                     {isValidPropertyFilter(item) ? (
@@ -110,20 +103,20 @@ export const FilterRow = React.memo(function FilterRow({
                                             onClick={() => setOpen(!open)}
                                             onClose={() => onRemove(index)}
                                             item={item}
-                                            setRef={setRef}
+                                            ref={ref}
                                         />
                                     ) : isValidPathCleanFilter(item) ? (
                                         <PropertyFilterButton
                                             item={item}
                                             onClick={() => setOpen(!open)}
                                             onClose={() => onRemove(index)}
-                                            setRef={setRef}
+                                            ref={ref}
                                         >
                                             {`${item['alias']}::${item['regex']}`}
                                         </PropertyFilterButton>
                                     ) : useLemonButton ? (
                                         <LemonButton
-                                            ref={setRef}
+                                            ref={ref}
                                             onClick={() => setOpen(!open)}
                                             className="new-prop-filter"
                                             data-attr={'new-prop-filter-' + pageKey}
@@ -135,7 +128,7 @@ export const FilterRow = React.memo(function FilterRow({
                                         </LemonButton>
                                     ) : (
                                         <Button
-                                            ref={setRef}
+                                            ref={ref}
                                             onClick={() => setOpen(!open)}
                                             className="new-prop-filter"
                                             data-attr={'new-prop-filter-' + pageKey}

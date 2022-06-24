@@ -45,6 +45,7 @@ export enum AvailableFeature {
     TAGGING = 'tagging',
     BEHAVIORAL_COHORT_FILTERING = 'behavioral_cohort_filtering',
     WHITE_LABELLING = 'white_labelling',
+    SUBSCRIPTIONS = 'subscriptions',
 }
 
 export enum LicensePlan {
@@ -257,6 +258,7 @@ export interface ActionType {
     id: number
     is_calculating?: boolean
     last_calculated_at?: string
+    last_updated_at?: string // alias for last_calculated_at to achieve event and action parity
     name: string | null
     description?: string
     post_to_slack?: boolean
@@ -395,6 +397,12 @@ export interface PersonPropertyFilter extends BasePropertyFilter {
 export interface ElementPropertyFilter extends BasePropertyFilter {
     type: 'element'
     key: 'tag_name' | 'text' | 'href' | 'selector'
+    operator: PropertyOperator
+}
+
+export interface SessionPropertyFilter extends BasePropertyFilter {
+    type: 'session'
+    key: '$session_duration'
     operator: PropertyOperator
 }
 
@@ -1501,11 +1509,12 @@ export interface EventDefinition {
     name: string
     description?: string
     tags?: string[]
-    volume_30_day: number | null
-    query_usage_30_day: number | null
+    volume_30_day?: number | null
+    query_usage_30_day?: number | null
     owner?: UserBasicType | null
     created_at?: string
     last_seen_at?: string
+    last_updated_at?: string // alias for last_seen_at to achieve event and action parity
     updated_at?: string
     updated_by?: UserBasicType | null
     verified?: boolean
@@ -1520,6 +1529,7 @@ export enum PropertyType {
     String = 'String',
     Numeric = 'Numeric',
     Boolean = 'Boolean',
+    Duration = 'Duration',
 }
 
 export interface PropertyDefinition {
@@ -1527,8 +1537,8 @@ export interface PropertyDefinition {
     name: string
     description?: string
     tags?: string[]
-    volume_30_day: number | null
-    query_usage_30_day: number | null
+    volume_30_day?: number | null
+    query_usage_30_day?: number | null
     updated_at?: string
     updated_by?: UserBasicType | null
     is_numerical?: boolean // Marked as optional to allow merge of EventDefinition & PropertyDefinition
@@ -1925,4 +1935,20 @@ export interface ChangeDescriptions {
     descriptions: Description[]
     // e.g. should description say "did deletion _to_ Y" or "deleted Y"
     bareName: boolean
+}
+
+export type CombinedEvent = EventDefinition | ActionType
+
+export interface IntegrationType {
+    id: number
+    kind: 'slack'
+    config: any
+    created_by?: UserBasicType | null
+    created_at: string
+}
+
+export interface SlackChannelType {
+    id: string
+    name: string
+    is_private: boolean
 }

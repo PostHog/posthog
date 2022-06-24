@@ -13,7 +13,7 @@
     "homepage": "https://github.com/posthog/posthog#readme",
     "license": "MIT",
     "engines": {
-        "node": ">=16 <17"
+        "node": ">=16 <19"
     },
     "scripts": {
         "copy-scripts": "mkdir -p frontend/dist/ && yarn copy-scripts:array && yarn copy-scripts:recorder",
@@ -53,11 +53,11 @@
         "@ant-design/icons": "^4.7.0",
         "@babel/core": "^7.17.10",
         "@babel/runtime": "^7.17.9",
+        "@floating-ui/react-dom-interactions": "^0.6.6",
         "@lottiefiles/react-lottie-player": "^3.4.7",
         "@monaco-editor/react": "^4.1.3",
-        "@popperjs/core": "^2.9.2",
         "@posthog/chart.js": "^2.9.6",
-        "@posthog/plugin-scaffold": "1.0.4",
+        "@posthog/plugin-scaffold": "1.1.0",
         "@posthog/react-rrweb-player": "^1.1.3",
         "@posthog/simmerjs": "^0.7.7",
         "@react-hook/size": "^2.1.2",
@@ -101,7 +101,6 @@
         "react-grid-layout": "^1.3.0",
         "react-input-autosize": "^3.0.0",
         "react-markdown": "^5.0.3",
-        "react-popper": "^2.2.5",
         "react-resizable": "^1.11.1",
         "react-shadow": "^18.4.2",
         "react-sortable-hoc": "^1.11.0",
