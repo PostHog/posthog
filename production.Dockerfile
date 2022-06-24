@@ -50,6 +50,7 @@ RUN yarn config set network-timeout 300000 && \
 # Note: we run the build as a separate actions to increase
 # the cache hit ratio of the layers above.
 # symlink musl -> ld-linux is required for re2 compat on alpine
+COPY ./plugin-server/ ./
 RUN yarn build
 
 # Build the posthog image, incorporating the Django app along with the frontend,
