@@ -26,7 +26,7 @@ jobs:
               with:
                   images: ghcr.io/${{ github.repository }}/posthog
                   tags: |
-                      type=ref,event=branch
+                      type=ref,event=pr
                       type=sha
 
             # We also want to use cache-from when building, but we want to also
@@ -39,7 +39,7 @@ jobs:
                   images: ghcr.io/${{ github.repository }}/posthog
                   tags: |
                       type=raw,value=master
-                      type=ref,event=branch
+                      type=ref,event=pr
 
             - name: Set up QEMU
               uses: docker/setup-qemu-action@v1
