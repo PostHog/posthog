@@ -33,7 +33,7 @@ RUN apk --update --no-cache add \
     "make~=4.3" \
     "g++~=10.3" \
     "gcc~=10.3" \
-    "python3=3.9.5-r2"
+    "python3~=3.9"
 
 # Compile and install Yarn dependencies.
 #
