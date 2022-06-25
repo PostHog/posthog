@@ -28,11 +28,12 @@ FROM node:16.15-alpine3.14 AS plugin-server
 
 WORKDIR /code/plugin-server
 
-# Install python and make as they are needed for the yarn install
+# Install python, make and gcc as they are needed for the yarn install
 RUN apk --update --no-cache add \
     "make~=4.3" \
     "g++~=10.3" \
-    "gcc~=10.3"
+    "gcc~=10.3" \
+    "python3=3.9.5-r2"
 
 # Compile and install Yarn dependencies.
 #
