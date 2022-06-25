@@ -71,6 +71,6 @@ jobs:
 
             - name: Output image info including size
               run: |
-                  image_size_bytes=$(docker manifest inspect ${{ steps.docker_build.outputs.imageid }} | jq '[.layers[].size] | add' | numfmt --to=si)
+                  image_size_bytes=$(docker manifest inspect ghcr.io/${{ github.repository }}/posthog:${{ steps.docker_build.outputs.digest }} | jq '[.layers[].size] | add')
                   echo "### Build info" >> $GITHUB_STEP_SUMMARY
                   echo "Image size: $(numfmt --to=iec --suffix=B --format="%.2f" $image_size_bytes)" >> $GITHUB_STEP_SUMMARY
