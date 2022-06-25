@@ -139,6 +139,7 @@ COPY --from=plugin-server /code/plugin-server/dist/ ./dist/
 WORKDIR /code/
 USER root
 COPY ./plugin-server/package.json ./plugin-server/
+
 # We need bash to run the bin scripts
 RUN apk --update --no-cache add "bash~=5.1"
 COPY ./bin ./bin/

@@ -62,7 +62,7 @@ jobs:
                   cache-from: ${{ steps.meta-for-cache.outputs.tags }}
                   tags: ${{ steps.meta.outputs.tags }}
                   labels: ${{ steps.meta.outputs.labels }}
-                  load: true # This is needed so we can get the size
+                  # load: true # NOTE: this option is not compatible with `push: true`
                   # NOTE: we use inline as suggested here:
                   # https://github.com/docker/build-push-action/blob/master/docs/advanced/cache.md#inline-cache
                   # It notes that it doesn't support mode=max, but we're not
@@ -71,6 +71,6 @@ jobs:
 
             - name: Output image info including size
               run: |
-                  image_size_bytes=$(docker image inspect ${{ steps.docker_build.outputs.imageid }} | jq -r '.[0].Size')
+                  image_size_bytes=$(docker manifest inspect ${{ steps.docker_build.outputs.imageid }} | jq '[.layers[].size] | add' | numfmt --to=si)
                   echo "### Build info" >> $GITHUB_STEP_SUMMARY
                   echo "Image size: $(numfmt --to=iec --suffix=B --format="%.2f" $image_size_bytes)" >> $GITHUB_STEP_SUMMARY
