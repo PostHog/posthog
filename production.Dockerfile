@@ -69,7 +69,8 @@ RUN apk --update --no-cache add \
     "libxslt~=1.1" \
     "nodejs-current~=16" \
     "chromium~=93" \
-    "chromium-chromedriver~=93"
+    "chromium-chromedriver~=93" \
+    "xmlsec~=1.2"
 
 # Install SAML runtime dependencies
 RUN apk --update --no-cache add "xmlsec~=1.2"
