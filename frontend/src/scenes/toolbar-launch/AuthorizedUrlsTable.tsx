@@ -30,7 +30,7 @@ function AuthorizedUrlForm({ actionId }: { actionId?: number }): JSX.Element {
             enableFormOnSubmit
             className="AuthorizedURLForm"
         >
-            <Field name="url" label="">
+            <Field name="url">
                 <LemonInput
                     defaultValue={editUrlIndex && editUrlIndex >= 0 ? appUrls[editUrlIndex] : NEW_URL}
                     autoFocus

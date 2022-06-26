@@ -1,6 +1,15 @@
 .toolbar-launch-page {
     margin-bottom: 48px;
 
+    .EnableToolbarSwitch {
+        padding-top: 1em;
+        padding-bottom: 1em;
+        width: 100%;
+        max-width: 400px;
+        margin-bottom: 1.5em;
+        margin-top: 1em;
+    }
+
     .footer-caption {
         text-align: center;
         color: var(--muted);

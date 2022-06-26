@@ -8,12 +8,19 @@ import { urls } from 'scenes/urls'
 import { IconFlag, IconGroupedEvents, IconHeatmap } from 'lib/components/icons'
 import { Col, Row } from 'antd'
 import { AuthorizedUrlsTable } from './AuthorizedUrlsTable'
+import { LemonDivider } from 'lib/components/LemonDivider'
+import { LemonSwitch } from 'lib/components/LemonSwitch/LemonSwitch'
+import { useActions, useValues } from 'kea'
+import { userLogic } from 'scenes/userLogic'
 
 export const scene: SceneExport = {
     component: ToolbarLaunch,
 }
 
 function ToolbarLaunch(): JSX.Element {
+    const { user, userLoading } = useValues(userLogic)
+    const { updateUser } = useActions(userLogic)
+
     const features: FeatureHighlightProps[] = [
         {
             title: 'Heatmaps',
@@ -40,7 +47,29 @@ function ToolbarLaunch(): JSX.Element {
     return (
         <div className="toolbar-launch-page">
             <PageHeader title="Toolbar" caption="The toolbar launches PostHog right in your app or website." />
+            <LemonDivider />
 
+            <LemonSwitch
+                label="Enable the PostHog toolbar"
+                onChange={() =>
+                    updateUser({
+                        toolbar_mode: user?.toolbar_mode === 'disabled' ? 'toolbar' : 'disabled',
+                    })
+                }
+                checked={user?.toolbar_mode !== 'disabled'}
+                disabled={userLoading}
+                loading={userLoading}
+                type="primary"
+                className="EnableToolbarSwitch"
+            />
+
+            <h2 className="subtitle" id="urls">
+                Authorized URLs for Toolbar
+            </h2>
+            <p>
+                These are the domains and URLs where the <Link to={urls.toolbarLaunch()}>Toolbar</Link> will
+                automatically launch if you're signed in to your PostHog account.
+            </p>
             <AuthorizedUrlsTable pageKey="toolbar-launch" />
 
             <div className="footer-caption">
