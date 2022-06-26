@@ -104,4 +104,16 @@
         display: flex;
         align-items: center;
     }
+
+    .LemonSelectMultipleDropdown__skeleton {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        height: 40px;
+        padding: 0px 0.25rem;
+
+        .ant-skeleton-title {
+            margin: 0px;
+        }
+    }
 }

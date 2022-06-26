@@ -70,10 +70,10 @@ export function LemonSelectMultiple({
                 placeholder={placeholder}
                 notFoundContent={
                     loading ? (
-                        <div className="space-y-05 px-05">
-                            {range(3).map((x) => (
-                                <div key={x} className="flex items-center gap-05">
-                                    <Skeleton.Avatar className="mt-05" shape="circle" size="small" active />
+                        <div>
+                            {range(5).map((x) => (
+                                <div key={x} className="LemonSelectMultipleDropdown__skeleton">
+                                    <Skeleton.Avatar shape="circle" size="small" active />
                                     <Skeleton paragraph={false} active />
                                 </div>
                             ))}
