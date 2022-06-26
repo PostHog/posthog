@@ -5,11 +5,14 @@ import { useActions, useValues } from 'kea'
 import { LemonTag } from 'lib/components/LemonTag/LemonTag'
 import { LemonButton } from 'lib/components/LemonButton'
 import { Input } from 'antd'
-import { authorizedUrlsLogic } from './authorizedUrlsLogic'
+import { authorizedUrlsLogic, NEW_URL } from './authorizedUrlsLogic'
 import { isMobile } from 'lib/utils'
 import { LemonRow } from 'lib/components/LemonRow'
 import { IconDelete, IconEdit, IconOpenInApp, IconPlus } from 'lib/components/icons'
 import { Spinner } from 'lib/components/Spinner/Spinner'
+import { Form } from 'kea-forms'
+import { LemonInput } from 'lib/components/LemonInput/LemonInput'
+import { Field } from 'lib/forms/Field'
 
 interface AuthorizedUrlsTableInterface {
     pageKey?: string
@@ -18,17 +21,8 @@ interface AuthorizedUrlsTableInterface {
 
 export function AuthorizedUrlsTable({ pageKey, actionId }: AuthorizedUrlsTableInterface): JSX.Element {
     const logic = authorizedUrlsLogic({ actionId })
-    const {
-        appUrlsKeyed,
-        suggestionsLoading,
-        searchTerm,
-        launchUrl,
-        // editUrlIndex,
-        // isProposedUrlSubmitting,
-        // proposedUrlHasErrors,
-        // proposedUrlChanged,
-        // proposedUrlValidationErrors,
-    } = useValues(logic)
+    const { appUrlsKeyed, suggestionsLoading, searchTerm, launchUrl, editUrlIndex, isProposedUrlSubmitting } =
+        useValues(logic)
     const { addUrl, removeUrl, setSearchTerm, newUrl, setEditUrlIndex } = useActions(logic)
 
     // const columns: LemonTableColumns<KeyedAppUrl> = [
@@ -45,38 +39,7 @@ export function AuthorizedUrlsTable({ pageKey, actionId }: AuthorizedUrlsTableIn
     //                 </div>
     //             ) : (
     //                 <div>
-    //                     <Form
-    //                         logic={authorizedUrlsLogic}
-    //                         props={{ actionId }}
-    //                         formKey="proposedUrl"
-    //                         style={{ display: 'flex', flexDirection: 'column' }}
-    //                         enableFormOnSubmit
-    //                     >
-    //                         <div className="AuthorizedURLForm">
-    //                             <div className="FormBody">
-    //                                 <Field name="url" label="">
-    //                                     {/* "value" and "onChange" added automatically */}
-    //                                     <LemonInput
-    //                                         // className="ProposedURLInput"
-    //                                         autoFocus
-    //                                         placeholder="Enter a URL or wildcard subdomain (e.g. https://*.posthog.com)"
-    //                                     />
-    //                                 </Field>
-    //                                 <LemonButton htmlType="submit" type="primary" className="form-submit">
-    //                                     {isProposedUrlSubmitting ? '... ' : 'Save'}
-    //                                 </LemonButton>
-    //                             </div>
-    //                             <div className="FormErrors">
-    //                                 <div>
-    //                                     {proposedUrlChanged &&
-    //                                     proposedUrlHasErrors &&
-    //                                     proposedUrlValidationErrors['url'] ? (
-    //                                         <pre>{proposedUrlValidationErrors['url']}</pre>
-    //                                     ) : null}
-    //                                 </div>
-    //                             </div>
-    //                         </div>
-    //                     </Form>
+
     //                 </div>
     //             )
     //         },
@@ -159,47 +122,79 @@ export function AuthorizedUrlsTable({ pageKey, actionId }: AuthorizedUrlsTableIn
                             key={index}
                             className={clsx('AuthorizedUrlRow', keyedAppURL.type)}
                         >
-                            <div className="Url">
-                                {keyedAppURL.type === 'suggestion' && <LemonTag type="highlight">Suggestion</LemonTag>}
-                                {keyedAppURL.url}
-                            </div>
-                            <div className="Actions">
-                                {keyedAppURL.type === 'suggestion' ? (
+                            {editUrlIndex === index ? (
+                                <Form
+                                    logic={authorizedUrlsLogic}
+                                    props={{ actionId }}
+                                    formKey="proposedUrl"
+                                    enableFormOnSubmit
+                                    className="AuthorizedURLForm"
+                                >
+                                    <Field name="url" label="">
+                                        <LemonInput
+                                            defaultValue={editUrlIndex >= 0 ? keyedAppURL.url : NEW_URL}
+                                            autoFocus
+                                            placeholder="Enter a URL or wildcard subdomain (e.g. https://*.posthog.com)"
+                                        />
+                                    </Field>
                                     <LemonButton
-                                        onClick={() => addUrl(keyedAppURL.url)}
-                                        icon={<IconPlus />}
-                                        outlined={false}
-                                        style={{ paddingRight: 0, paddingLeft: 0 }}
+                                        htmlType="submit"
+                                        type="primary"
+                                        className="form-submit"
+                                        disabled={isProposedUrlSubmitting}
                                     >
-                                        Apply suggestion
+                                        Save
                                     </LemonButton>
-                                ) : (
-                                    <>
-                                        <LemonButton
-                                            fullWidth
-                                            icon={<IconOpenInApp />}
-                                            href={launchUrl(keyedAppURL.url)}
-                                            tooltip={'Launch toolbar'}
-                                            center
-                                        />
+                                </Form>
+                            ) : (
+                                <>
+                                    <div className="Url">
+                                        <>
+                                            {keyedAppURL.type === 'suggestion' && (
+                                                <LemonTag type="highlight">Suggestion</LemonTag>
+                                            )}
+                                            {keyedAppURL.url}
+                                        </>
+                                    </div>
+                                    <div className="Actions">
+                                        {keyedAppURL.type === 'suggestion' ? (
+                                            <LemonButton
+                                                onClick={() => addUrl(keyedAppURL.url)}
+                                                icon={<IconPlus />}
+                                                outlined={false}
+                                                style={{ paddingRight: 0, paddingLeft: 0 }}
+                                            >
+                                                Apply suggestion
+                                            </LemonButton>
+                                        ) : (
+                                            <>
+                                                <LemonButton
+                                                    fullWidth
+                                                    icon={<IconOpenInApp />}
+                                                    href={launchUrl(keyedAppURL.url)}
+                                                    tooltip={'Launch toolbar'}
+                                                    center
+                                                />
 
-                                        <LemonButton
-                                            fullWidth
-                                            icon={<IconEdit />}
-                                            onClick={() => setEditUrlIndex(keyedAppURL.originalIndex)}
-                                            tooltip={'Edit'}
-                                            center
-                                        />
-                                        <LemonButton
-                                            fullWidth
-                                            icon={<IconDelete />}
-                                            onClick={() => removeUrl(index)}
-                                            tooltip={'Remove URL'}
-                                            center
-                                        />
-                                    </>
-                                )}
-                            </div>
+                                                <LemonButton
+                                                    fullWidth
+                                                    icon={<IconEdit />}
+                                                    onClick={() => setEditUrlIndex(keyedAppURL.originalIndex)}
+                                                    tooltip={'Edit'}
+                                                    center
+                                                />
+                                                <LemonButton
+                                                    fullWidth
+                                                    icon={<IconDelete />}
+                                                    onClick={() => removeUrl(index)}
+                                                    tooltip={'Remove URL'}
+                                                    center
+                                                />
+                                            </>
+                                        )}
+                                    </div>
+                                </>
+                            )}
                         </LemonRow>
                     )
                 })

@@ -141,7 +141,12 @@ export const authorizedUrlsLogic = kea<authorizedUrlsLogicType>([
             submit: async ({ url }, breakpoint) => {
                 breakpoint() // avoid double clicks processing twice
                 if (url) {
-                    actions.addUrl(url)
+                    if (values.editUrlIndex && values.editUrlIndex >= 0) {
+                        actions.updateUrl(values.editUrlIndex, url)
+                    } else {
+                        actions.addUrl(url)
+                    }
+                    actions.setEditUrlIndex(null)
                 }
             },
         },
