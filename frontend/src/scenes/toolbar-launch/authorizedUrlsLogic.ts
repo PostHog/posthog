@@ -1,13 +1,49 @@
-import { kea } from 'kea'
+import {
+    actions,
+    afterMount,
+    connect,
+    kea,
+    key,
+    listeners,
+    path,
+    props,
+    reducers,
+    selectors,
+    sharedListeners,
+} from 'kea'
 import api from 'lib/api'
-import { toParams } from 'lib/utils'
+import { isURL, toParams } from 'lib/utils'
 import { EditorProps, TrendResult } from '~/types'
 import { teamLogic } from 'scenes/teamLogic'
 import { dayjs } from 'lib/dayjs'
 import Fuse from 'fuse.js'
 import type { authorizedUrlsLogicType } from './authorizedUrlsLogicType'
-import { encodeParams } from 'kea-router'
+import { encodeParams, urlToAction } from 'kea-router'
 import { urls } from 'scenes/urls'
+import { loaders } from 'kea-loaders'
+import { forms } from 'kea-forms'
+
+export interface ProposeNewUrlFormType {
+    url: string | undefined
+}
+
+const validateProposedURL = (proposedUrl: string | undefined, currentUrls: string[]): string | undefined => {
+    if (!proposedUrl) {
+        return 'Please type a valid URL or domain.'
+    }
+    // See https://regex101.com/r/UMBc9g/1 for tests
+    if (proposedUrl.indexOf('*') > -1 && !proposedUrl.match(/^(.*)\*[^\*]*\.[^\*]+\.[^\*]+$/)) {
+        return 'You can only wildcard subdomains. If you wildcard the domain or TLD, people might be able to gain access to your PostHog data.'
+    }
+    if (!isURL(proposedUrl)) {
+        return 'Please type a valid URL or domain.'
+    }
+
+    if (currentUrls.indexOf(proposedUrl) > -1) {
+        return 'This URL is already registered.'
+    }
+    return
+}
 
 /** defaultIntent: whether to launch with empty intent (i.e. toolbar mode is default) */
 export function appEditorUrl(appUrl?: string, actionId?: number, defaultIntent?: boolean): string {
@@ -27,18 +63,20 @@ export interface KeyedAppUrl {
     originalIndex: number
 }
 
-export const authorizedUrlsLogic = kea<authorizedUrlsLogicType>({
-    path: (key) => ['lib', 'components', 'AppEditorLink', 'appUrlsLogic', key],
-    key: (props) => `${props.pageKey}${props.actionId}` || 'global',
-    props: {} as {
-        actionId?: number
-        pageKey?: string
-    },
-    connect: {
+export const authorizedUrlsLogic = kea<authorizedUrlsLogicType>([
+    path((key) => ['lib', 'components', 'AppEditorLink', 'appUrlsLogic', key]),
+    key((props) => `${props.pageKey}${props.actionId}` || 'global'),
+    props(
+        {} as {
+            actionId?: number
+            pageKey?: string
+        }
+    ),
+    connect({
         values: [teamLogic, ['currentTeam', 'currentTeamId']],
         actions: [teamLogic, ['updateCurrentTeam']],
-    },
-    actions: () => ({
+    }),
+    actions(() => ({
         setAppUrls: (appUrls: string[]) => ({ appUrls }),
         addUrl: (url: string, launch?: boolean) => ({ url, launch }),
         newUrl: true,
@@ -47,9 +85,8 @@ export const authorizedUrlsLogic = kea<authorizedUrlsLogicType>({
         launchAtUrl: (url: string) => ({ url }),
         setSearchTerm: (term: string) => ({ term }),
         setEditUrlIndex: (originalIndex: number | null) => ({ originalIndex }),
-    }),
-
-    loaders: ({ values }) => ({
+    })),
+    loaders(({ values }) => ({
         suggestions: {
             __default: [] as string[],
             loadSuggestions: async () => {
@@ -88,16 +125,14 @@ export const authorizedUrlsLogic = kea<authorizedUrlsLogicType>({
                     .slice(0, 20)
             },
         },
+    })),
+    afterMount(({ actions, values }) => {
+        actions.loadSuggestions()
+        if (values.currentTeam) {
+            actions.setAppUrls(values.currentTeam.app_urls)
+        }
     }),
-    events: ({ actions, values }) => ({
-        afterMount: () => {
-            actions.loadSuggestions()
-            if (values.currentTeam) {
-                actions.setAppUrls(values.currentTeam.app_urls)
-            }
-        },
-    }),
-    reducers: () => ({
+    reducers(() => ({
         appUrls: [
             [] as string[],
             {
@@ -136,8 +171,13 @@ export const authorizedUrlsLogic = kea<authorizedUrlsLogicType>({
                         : editUrlIndex,
             },
         ],
-    }),
-    listeners: ({ sharedListeners, values, actions }) => ({
+    })),
+    sharedListeners(({ values }) => ({
+        saveAppUrls: () => {
+            teamLogic.actions.updateCurrentTeam({ app_urls: values.appUrls })
+        },
+    })),
+    listeners(({ sharedListeners, values, actions }) => ({
         addUrl: [
             sharedListeners.saveAppUrls,
             async ({ url, launch }) => {
@@ -156,13 +196,8 @@ export const authorizedUrlsLogic = kea<authorizedUrlsLogicType>({
         launchAtUrl: ({ url }) => {
             window.location.href = values.launchUrl(url)
         },
-    }),
-    sharedListeners: ({ values }) => ({
-        saveAppUrls: () => {
-            teamLogic.actions.updateCurrentTeam({ app_urls: values.appUrls })
-        },
-    }),
-    selectors: ({ props }) => ({
+    })),
+    selectors(({ props }) => ({
         appUrlsKeyed: [
             (s) => [s.appUrls, s.suggestions, s.searchTerm],
             (appUrls, suggestions, searchTerm): KeyedAppUrl[] => {
@@ -193,12 +228,26 @@ export const authorizedUrlsLogic = kea<authorizedUrlsLogicType>({
             },
         ],
         launchUrl: [() => [], () => (url: string) => appEditorUrl(url, props.actionId, !props.actionId)],
-    }),
-    urlToAction: ({ actions }) => ({
+    })),
+    urlToAction(({ actions }) => ({
         [urls.toolbarLaunch()]: (_, searchParams) => {
             if (searchParams.addNew) {
                 actions.newUrl()
             }
         },
-    }),
-})
+    })),
+    forms(({ values, actions }) => ({
+        proposedUrl: {
+            defaults: { url: undefined } as ProposeNewUrlFormType,
+            errors: ({ url }) => ({
+                url: validateProposedURL(url, values.appUrls),
+            }),
+            submit: async ({ url }, breakpoint) => {
+                breakpoint() // avoid double clicks processing twice
+                if (url) {
+                    actions.addUrl(url)
+                }
+            },
+        },
+    })),
+])

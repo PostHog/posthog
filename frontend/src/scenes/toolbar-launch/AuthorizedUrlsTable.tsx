@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React from 'react'
 import './AuthorizedUrlsTable.scss'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
@@ -8,8 +8,10 @@ import { CheckCircleFilled } from '@ant-design/icons'
 import { LemonButton } from 'lib/components/LemonButton'
 import { Button, Input } from 'antd'
 import { authorizedUrlsLogic, KeyedAppUrl, NEW_URL } from './authorizedUrlsLogic'
-import { isMobile, isURL } from 'lib/utils'
+import { isMobile } from 'lib/utils'
 import { More } from 'lib/components/LemonButton/More'
+import { Field, Form } from 'kea-forms'
+import { LemonInput } from 'lib/components/LemonInput/LemonInput'
 
 interface AuthorizedUrlsTableInterface {
     pageKey?: string
@@ -18,8 +20,18 @@ interface AuthorizedUrlsTableInterface {
 
 export function AuthorizedUrlsTable({ pageKey, actionId }: AuthorizedUrlsTableInterface): JSX.Element {
     const logic = authorizedUrlsLogic({ actionId })
-    const { appUrlsKeyed, suggestionsLoading, searchTerm, launchUrl, appUrls, editUrlIndex } = useValues(logic)
-    const { addUrl, removeUrl, setSearchTerm, updateUrl, newUrl, setEditUrlIndex } = useActions(logic)
+    const {
+        appUrlsKeyed,
+        suggestionsLoading,
+        searchTerm,
+        launchUrl,
+        editUrlIndex,
+        isProposedUrlSubmitting,
+        proposedUrlHasErrors,
+        proposedUrlChanged,
+        proposedUrlValidationErrors,
+    } = useValues(logic)
+    const { addUrl, removeUrl, setSearchTerm, newUrl, setEditUrlIndex } = useActions(logic)
 
     const columns: LemonTableColumns<KeyedAppUrl> = [
         {
@@ -27,40 +39,6 @@ export function AuthorizedUrlsTable({ pageKey, actionId }: AuthorizedUrlsTableIn
             dataIndex: 'url',
             key: 'url',
             render: function Render(url, record) {
-                const [urlUpdatingState, setUrlUpdatingState] = useState(record.url)
-                const [errorState, setErrorState] = useState('')
-                useEffect(() => setUrlUpdatingState(record.url), [record])
-                const save = (): void => {
-                    setErrorState('')
-                    if (urlUpdatingState === NEW_URL) {
-                        removeUrl(record.originalIndex)
-                    }
-                    // See https://regex101.com/r/UMBc9g/1 for tests
-                    if (
-                        urlUpdatingState.indexOf('*') > -1 &&
-                        !urlUpdatingState.match(/^(.*)\*[^\*]*\.[^\*]+\.[^\*]+$/)
-                    ) {
-                        setErrorState(
-                            'You can only wildcard subdomains. If you wildcard the domain or TLD, people might be able to gain access to your PostHog data.'
-                        )
-                        return
-                    }
-                    if (!isURL(urlUpdatingState)) {
-                        setErrorState('Please type a valid URL or domain.')
-                        return
-                    }
-
-                    if (
-                        appUrls.indexOf(urlUpdatingState) > -1 &&
-                        appUrls.indexOf(urlUpdatingState, record.originalIndex) !== record.originalIndex &&
-                        appUrls.indexOf(urlUpdatingState, record.originalIndex + 1) !== record.originalIndex
-                    ) {
-                        setErrorState('This URL is already registered.')
-                        return
-                    }
-
-                    updateUrl(record.originalIndex, urlUpdatingState)
-                }
                 return record.type === 'suggestion' || (url !== NEW_URL && editUrlIndex !== record.originalIndex) ? (
                     <div className={clsx('authorized-url-col', record.type)}>
                         {record.type === 'authorized' && <CheckCircleFilled style={{ marginRight: 4 }} />}
@@ -69,19 +47,37 @@ export function AuthorizedUrlsTable({ pageKey, actionId }: AuthorizedUrlsTableIn
                     </div>
                 ) : (
                     <div>
-                        <div style={{ display: 'flex' }}>
-                            <Input
-                                value={urlUpdatingState}
-                                onChange={(e) => setUrlUpdatingState(e.target.value)}
-                                onPressEnter={save}
-                                autoFocus
-                                placeholder="Enter a URL or wildcard subdomain (e.g. https://*.posthog.com)"
-                            />
-                            <Button type="primary" onClick={save}>
-                                Save
-                            </Button>
-                        </div>
-                        {errorState && <span className="text-small text-danger">{errorState}</span>}
+                        <Form
+                            logic={authorizedUrlsLogic}
+                            props={{ actionId }}
+                            formKey="proposedUrl"
+                            style={{ display: 'flex', flexDirection: 'column' }}
+                        >
+                            <div className="AuthorizedURLForm">
+                                <div className="FormBody">
+                                    <Field name="url" label="">
+                                        {/* "value" and "onChange" added automatically */}
+                                        <LemonInput
+                                            // className="ProposedURLInput"
+                                            autoFocus
+                                            placeholder="Enter a URL or wildcard subdomain (e.g. https://*.posthog.com)"
+                                        />
+                                    </Field>
+                                    <Button htmlType="submit" type="primary" className="form-submit">
+                                        {isProposedUrlSubmitting ? '... ' : 'Save'}
+                                    </Button>
+                                </div>
+                                <div className="FormErrors">
+                                    <div>
+                                        {proposedUrlChanged &&
+                                        proposedUrlHasErrors &&
+                                        proposedUrlValidationErrors['url'] ? (
+                                            <pre>{proposedUrlValidationErrors['url']}</pre>
+                                        ) : null}
+                                    </div>
+                                </div>
+                            </div>
+                        </Form>
                     </div>
                 )
             },

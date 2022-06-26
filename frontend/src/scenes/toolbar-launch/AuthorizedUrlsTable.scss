@@ -1,4 +1,23 @@
 .authorized-urls-table {
+    .AuthorizedURLForm {
+        .FormBody {
+            display: flex;
+            flex-direction: row;
+            flex-grow: 1;
+            margin-right: 0.5em;
+
+            .form-input-container {
+                width: 100%;
+                height: 100%;
+
+                .ProposedURLInput {
+                    width: 100%;
+                    height: 100%;
+                }
+            }
+        }
+    }
+
     .authorized-url-col {
         display: flex;
         align-items: center;
