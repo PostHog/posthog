@@ -14,18 +14,19 @@
         gap: 2rem;
         .EditorFilterGroup {
             flex: 1;
-            > * {
-                margin-bottom: 1em;
-            }
         }
     }
 
     &.EditorFiltersWrapper--editorpanels {
+        border: none;
+        padding: 0px;
+
         @media screen and (min-width: $lg) {
             --editor-panel-width: max(25vw, 28rem);
 
             .EditorFilters {
                 width: var(--editor-panel-width);
+                display: block;
                 padding-right: 1rem;
             }
             &.anim--enter {
