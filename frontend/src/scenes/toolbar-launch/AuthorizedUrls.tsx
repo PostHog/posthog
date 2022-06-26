@@ -5,7 +5,7 @@ import { useActions, useValues } from 'kea'
 import { LemonTag } from 'lib/components/LemonTag/LemonTag'
 import { LemonButton } from 'lib/components/LemonButton'
 import { Input } from 'antd'
-import { authorizedUrlsLogic, NEW_URL } from './authorizedUrlsLogic'
+import { authorizedUrlsLogic } from './authorizedUrlsLogic'
 import { isMobile } from 'lib/utils'
 import { LemonRow } from 'lib/components/LemonRow'
 import { IconDelete, IconEdit, IconOpenInApp, IconPlus } from 'lib/components/icons'
@@ -22,7 +22,8 @@ interface AuthorizedUrlsTableInterface {
 
 function AuthorizedUrlForm({ actionId }: { actionId?: number }): JSX.Element {
     const logic = authorizedUrlsLogic({ actionId })
-    const { editUrlIndex, isProposedUrlSubmitting, appUrls, proposedUrlHasErrors } = useValues(logic)
+    const { isProposedUrlSubmitting, proposedUrlHasErrors, urlToEdit } = useValues(logic)
+    const { cancelProposingUrl } = useActions(logic)
     return (
         <Form
             logic={authorizedUrlsLogic}
@@ -33,19 +34,24 @@ function AuthorizedUrlForm({ actionId }: { actionId?: number }): JSX.Element {
         >
             <Field name="url">
                 <LemonInput
-                    defaultValue={editUrlIndex && editUrlIndex >= 0 ? appUrls[editUrlIndex] : NEW_URL}
+                    defaultValue={urlToEdit}
                     autoFocus
                     placeholder="Enter a URL or wildcard subdomain (e.g. https://*.posthog.com)"
                 />
             </Field>
-            <LemonButton
-                htmlType="submit"
-                type="primary"
-                className="form-submit"
-                disabled={isProposedUrlSubmitting || proposedUrlHasErrors}
-            >
-                Save
-            </LemonButton>
+            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <LemonButton
+                    htmlType="submit"
+                    type="primary"
+                    className="form-submit"
+                    disabled={isProposedUrlSubmitting || proposedUrlHasErrors}
+                >
+                    Save
+                </LemonButton>
+                <LemonButton type="secondary" onClick={cancelProposingUrl}>
+                    Cancel
+                </LemonButton>
+            </div>
         </Form>
     )
 }

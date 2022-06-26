@@ -85,6 +85,7 @@ export const authorizedUrlsLogic = kea<authorizedUrlsLogicType>([
         launchAtUrl: (url: string) => ({ url }),
         setSearchTerm: (term: string) => ({ term }),
         setEditUrlIndex: (originalIndex: number | null) => ({ originalIndex }),
+        cancelProposingUrl: true,
     })),
     loaders(({ values }) => ({
         suggestions: {
@@ -141,12 +142,13 @@ export const authorizedUrlsLogic = kea<authorizedUrlsLogicType>([
             submit: async ({ url }, breakpoint) => {
                 breakpoint() // avoid double clicks processing twice
                 if (url) {
-                    if (values.editUrlIndex && values.editUrlIndex >= 0) {
+                    if (values.editUrlIndex !== null && values.editUrlIndex >= 0) {
                         actions.updateUrl(values.editUrlIndex, url)
                     } else {
                         actions.addUrl(url)
                     }
                     actions.setEditUrlIndex(null)
+                    actions.resetProposedUrl()
                 }
             },
         },
@@ -157,6 +159,7 @@ export const authorizedUrlsLogic = kea<authorizedUrlsLogicType>([
             {
                 newUrl: () => true,
                 submitProposedUrlSuccess: () => false,
+                cancelProposingUrl: () => false,
             },
         ],
         appUrls: [
@@ -195,6 +198,7 @@ export const authorizedUrlsLogic = kea<authorizedUrlsLogicType>([
                         ? null
                         : editUrlIndex,
                 newUrl: () => -1,
+                cancelProposingUrl: () => null,
             },
         ],
     })),
@@ -222,8 +226,20 @@ export const authorizedUrlsLogic = kea<authorizedUrlsLogicType>([
         launchAtUrl: ({ url }) => {
             window.location.href = values.launchUrl(url)
         },
+        cancelProposingUrl: () => {
+            actions.resetProposedUrl()
+        },
     })),
     selectors(({ props }) => ({
+        urlToEdit: [
+            (s) => [s.appUrls, s.editUrlIndex],
+            (appUrls, editUrlIndex) => {
+                if (editUrlIndex === null || editUrlIndex === -1) {
+                    return NEW_URL
+                }
+                return appUrls[editUrlIndex]
+            },
+        ],
         appUrlsKeyed: [
             (s) => [s.appUrls, s.suggestions, s.searchTerm],
             (appUrls, suggestions, searchTerm): KeyedAppUrl[] => {
