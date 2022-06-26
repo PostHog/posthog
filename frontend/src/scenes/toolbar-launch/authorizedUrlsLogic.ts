@@ -132,7 +132,28 @@ export const authorizedUrlsLogic = kea<authorizedUrlsLogicType>([
             actions.setAppUrls(values.currentTeam.app_urls)
         }
     }),
+    forms(({ values, actions }) => ({
+        proposedUrl: {
+            defaults: { url: undefined } as ProposeNewUrlFormType,
+            errors: ({ url }) => ({
+                url: validateProposedURL(url, values.appUrls),
+            }),
+            submit: async ({ url }, breakpoint) => {
+                breakpoint() // avoid double clicks processing twice
+                if (url) {
+                    actions.addUrl(url)
+                }
+            },
+        },
+    })),
     reducers(() => ({
+        showProposedURLForm: [
+            false as boolean,
+            {
+                newUrl: () => true,
+                submitProposedUrlSuccess: () => false,
+            },
+        ],
         appUrls: [
             [] as string[],
             {
@@ -234,20 +255,6 @@ export const authorizedUrlsLogic = kea<authorizedUrlsLogicType>([
             if (searchParams.addNew) {
                 actions.newUrl()
             }
-        },
-    })),
-    forms(({ values, actions }) => ({
-        proposedUrl: {
-            defaults: { url: undefined } as ProposeNewUrlFormType,
-            errors: ({ url }) => ({
-                url: validateProposedURL(url, values.appUrls),
-            }),
-            submit: async ({ url }, breakpoint) => {
-                breakpoint() // avoid double clicks processing twice
-                if (url) {
-                    actions.addUrl(url)
-                }
-            },
         },
     })),
 ])

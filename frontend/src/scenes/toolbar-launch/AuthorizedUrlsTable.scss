@@ -1,36 +1,47 @@
-.authorized-urls-table {
-    .AuthorizedURLForm {
-        .FormBody {
-            display: flex;
-            flex-direction: row;
-            flex-grow: 1;
-            margin-right: 0.5em;
+.AuthorizedUrlRow {
+    display: flex;
+    align-items: center;
+    margin-bottom: 0.5em;
 
-            .form-input-container {
+    .lemon-tag {
+        margin-right: 1em;
+    }
+    &.suggestion {
+        color: var(--text-muted-alt);
+    }
+    .Url {
+        flex-grow: 1;
+    }
+    .Actions {
+        display: flex;
+        flex-direction: row;
+
+        Button {
+            margin-right: 1.5em;
+        }
+    }
+}
+
+.AuthorizedURLForm {
+    .FormBody {
+        display: flex;
+        flex-direction: row;
+        flex-grow: 1;
+        margin-right: 0.5em;
+
+        .form-input-container {
+            width: 100%;
+            height: 100%;
+
+            .ProposedURLInput {
                 width: 100%;
                 height: 100%;
-
-                .ProposedURLInput {
-                    width: 100%;
-                    height: 100%;
-                }
             }
         }
     }
+}
 
-    .authorized-url-col {
-        display: flex;
-        align-items: center;
-        .lemon-tag {
-            margin-left: 6px;
-        }
-        &.suggestion {
-            color: var(--text-muted-alt);
-        }
-        &.authorized {
-            color: var(--success);
-        }
-    }
+.authorized-urls-table {
     .actions-col {
         display: flex;
         align-items: center;
