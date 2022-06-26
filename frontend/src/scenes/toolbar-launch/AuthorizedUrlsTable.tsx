@@ -9,6 +9,7 @@ import { authorizedUrlsLogic } from './authorizedUrlsLogic'
 import { isMobile } from 'lib/utils'
 import { LemonRow } from 'lib/components/LemonRow'
 import { IconDelete, IconEdit, IconOpenInApp, IconPlus } from 'lib/components/icons'
+import { Spinner } from 'lib/components/Spinner/Spinner'
 
 interface AuthorizedUrlsTableInterface {
     pageKey?: string
@@ -19,7 +20,7 @@ export function AuthorizedUrlsTable({ pageKey, actionId }: AuthorizedUrlsTableIn
     const logic = authorizedUrlsLogic({ actionId })
     const {
         appUrlsKeyed,
-        // suggestionsLoading,
+        suggestionsLoading,
         searchTerm,
         launchUrl,
         // editUrlIndex,
@@ -144,59 +145,65 @@ export function AuthorizedUrlsTable({ pageKey, actionId }: AuthorizedUrlsTableIn
                     Add{pageKey === 'toolbar-launch' && ' authorized URL'}
                 </LemonButton>
             </div>
-            {appUrlsKeyed.map((keyedAppURL, index) => {
-                return (
-                    <LemonRow
-                        outlined
-                        fullWidth
-                        size="large"
-                        key={index}
-                        className={clsx('AuthorizedUrlRow', keyedAppURL.type)}
-                    >
-                        <div className="Url">
-                            {keyedAppURL.type === 'suggestion' && <LemonTag type="highlight">Suggestion</LemonTag>}
-                            {keyedAppURL.url}
-                        </div>
-                        <div className="Actions">
-                            {keyedAppURL.type === 'suggestion' ? (
-                                <LemonButton
-                                    onClick={() => addUrl(keyedAppURL.url)}
-                                    icon={<IconPlus />}
-                                    outlined={false}
-                                    style={{ paddingRight: 0, paddingLeft: 0 }}
-                                >
-                                    Apply suggestion
-                                </LemonButton>
-                            ) : (
-                                <>
+            {suggestionsLoading ? (
+                <LemonRow outlined fullWidth size="large" key={-1} className={clsx('AuthorizedUrlRow')}>
+                    <Spinner size="md" />
+                </LemonRow>
+            ) : (
+                appUrlsKeyed.map((keyedAppURL, index) => {
+                    return (
+                        <LemonRow
+                            outlined
+                            fullWidth
+                            size="large"
+                            key={index}
+                            className={clsx('AuthorizedUrlRow', keyedAppURL.type)}
+                        >
+                            <div className="Url">
+                                {keyedAppURL.type === 'suggestion' && <LemonTag type="highlight">Suggestion</LemonTag>}
+                                {keyedAppURL.url}
+                            </div>
+                            <div className="Actions">
+                                {keyedAppURL.type === 'suggestion' ? (
                                     <LemonButton
-                                        fullWidth
-                                        icon={<IconOpenInApp />}
-                                        href={launchUrl(keyedAppURL.url)}
-                                        tooltip={'Launch toolbar'}
-                                        center
-                                    />
+                                        onClick={() => addUrl(keyedAppURL.url)}
+                                        icon={<IconPlus />}
+                                        outlined={false}
+                                        style={{ paddingRight: 0, paddingLeft: 0 }}
+                                    >
+                                        Apply suggestion
+                                    </LemonButton>
+                                ) : (
+                                    <>
+                                        <LemonButton
+                                            fullWidth
+                                            icon={<IconOpenInApp />}
+                                            href={launchUrl(keyedAppURL.url)}
+                                            tooltip={'Launch toolbar'}
+                                            center
+                                        />
 
-                                    <LemonButton
-                                        fullWidth
-                                        icon={<IconEdit />}
-                                        onClick={() => setEditUrlIndex(keyedAppURL.originalIndex)}
-                                        tooltip={'Edit'}
-                                        center
-                                    />
-                                    <LemonButton
-                                        fullWidth
-                                        icon={<IconDelete />}
-                                        onClick={() => removeUrl(index)}
-                                        tooltip={'Remove URL'}
-                                        center
-                                    />
-                                </>
-                            )}
-                        </div>
-                    </LemonRow>
-                )
-            })}
+                                        <LemonButton
+                                            fullWidth
+                                            icon={<IconEdit />}
+                                            onClick={() => setEditUrlIndex(keyedAppURL.originalIndex)}
+                                            tooltip={'Edit'}
+                                            center
+                                        />
+                                        <LemonButton
+                                            fullWidth
+                                            icon={<IconDelete />}
+                                            onClick={() => removeUrl(index)}
+                                            tooltip={'Remove URL'}
+                                            center
+                                        />
+                                    </>
+                                )}
+                            </div>
+                        </LemonRow>
+                    )
+                })
+            )}
             {/*<LemonTable*/}
             {/*    className="authorized-urls-table"*/}
             {/*    columns={columns}*/}
