@@ -235,7 +235,6 @@ export function EditSubscription({
                                                 data-attr="select-slack-channel"
                                                 options={slackChannelOptions}
                                                 loading={slackChannelsLoading}
-                                                placeholder={'Pick a Slack channel'}
                                             />
                                             <div className="text-small text-muted mt-05">
                                                 Private channels are only shown if you have{' '}
