@@ -23,6 +23,39 @@ const Template: ComponentStory<typeof LemonSelect> = (props: LemonSelectProps<Re
 export const Default = Template.bind({})
 Default.args = {}
 
+export const SectionedOptions = Template.bind({})
+SectionedOptions.args = {
+    dropdownMatchSelectWidth: false,
+    options: [
+        {
+            label: 'Fruits',
+            options: {
+                orange: { label: 'Orange' },
+                pineapple: { label: 'Pineapple' },
+                apple: { label: 'Apple' },
+            },
+        },
+        {
+            label: 'Vegetables',
+            options: {
+                potato: { label: 'Potato' },
+                lettuce: { label: 'Lettuce' },
+            },
+        },
+        {
+            label: (
+                <>
+                    <h5>I am a Custom label</h5>
+                    <div className="text-muted mx-05">I can put whatever I want here</div>
+                </>
+            ),
+            options: {
+                tomato: { label: 'Tomato??' },
+            },
+        },
+    ],
+}
+
 export const Stealth = Template.bind({})
 Stealth.args = { type: 'stealth', outlined: true }
 
