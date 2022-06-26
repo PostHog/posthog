@@ -27,7 +27,8 @@ jobs:
                   images: ghcr.io/${{ github.repository }}/posthog
                   tags: |
                       type=ref,event=pr
-                      type=sha
+                      type=sha,enable=${{ github.ref == format('refs/heads/{0}', 'master') }}
+                      type=raw,value=master,enable=${{ github.ref == format('refs/heads/{0}', 'master') }}
 
             # We also want to use cache-from when building, but we want to also
             # include the master tag so we get the master branch image as well.
