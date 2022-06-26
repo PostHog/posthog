@@ -21,7 +21,7 @@ interface AuthorizedUrlsTableInterface {
 
 function AuthorizedUrlForm({ actionId }: { actionId?: number }): JSX.Element {
     const logic = authorizedUrlsLogic({ actionId })
-    const { editUrlIndex, isProposedUrlSubmitting, appUrls } = useValues(logic)
+    const { editUrlIndex, isProposedUrlSubmitting, appUrls, proposedUrlHasErrors } = useValues(logic)
     return (
         <Form
             logic={authorizedUrlsLogic}
@@ -37,7 +37,12 @@ function AuthorizedUrlForm({ actionId }: { actionId?: number }): JSX.Element {
                     placeholder="Enter a URL or wildcard subdomain (e.g. https://*.posthog.com)"
                 />
             </Field>
-            <LemonButton htmlType="submit" type="primary" className="form-submit" disabled={isProposedUrlSubmitting}>
+            <LemonButton
+                htmlType="submit"
+                type="primary"
+                className="form-submit"
+                disabled={isProposedUrlSubmitting || proposedUrlHasErrors}
+            >
                 Save
             </LemonButton>
         </Form>
@@ -48,69 +53,6 @@ export function AuthorizedUrlsTable({ pageKey, actionId }: AuthorizedUrlsTableIn
     const logic = authorizedUrlsLogic({ actionId })
     const { appUrlsKeyed, suggestionsLoading, searchTerm, launchUrl, editUrlIndex } = useValues(logic)
     const { addUrl, removeUrl, setSearchTerm, newUrl, setEditUrlIndex } = useActions(logic)
-
-    // const columns: LemonTableColumns<KeyedAppUrl> = [
-    //     {
-    //         title: 'URLs',
-    //         dataIndex: 'url',
-    //         key: 'url',
-    //         render: function Render(url, record) {
-    //             return record.type === 'suggestion' || (url !== NEW_URL && editUrlIndex !== record.originalIndex) ? (
-    //                 <div className={clsx('authorized-url-col', record.type)}>
-    //                     {record.type === 'authorized' && <CheckCircleFilled style={{ marginRight: 4 }} />}
-    //                     {url}
-    //                     {record.type === 'suggestion' && <LemonTag>Suggestion</LemonTag>}
-    //                 </div>
-    //             ) : (
-    //                 <div>
-
-    //                 </div>
-    //             )
-    //         },
-    //     },
-    //     {
-    //         title: '',
-    //         key: 'actions',
-    //         render: function Render(_, record, index) {
-    //             return (
-    //                 <div className="actions-col">
-    //                     {record.type === 'suggestion' ? (
-    //                         <LemonButton type="secondary" onClick={() => addUrl(record.url)}>
-    //                             Apply suggestion
-    //                         </LemonButton>
-    //                     ) : (
-    //                         <>
-    //                             <LemonButton type="highlighted" href={launchUrl(record.url)} className="mr">
-    //                                 Open with Toolbar
-    //                             </LemonButton>
-    //                             <More
-    //                                 overlay={
-    //                                     <>
-    //                                         <LemonButton
-    //                                             fullWidth
-    //                                             type="stealth"
-    //                                             onClick={() => setEditUrlIndex(record.originalIndex)}
-    //                                         >
-    //                                             Edit authorized URL
-    //                                         </LemonButton>
-    //                                         <LemonButton
-    //                                             fullWidth
-    //                                             style={{ color: 'var(--danger)' }}
-    //                                             type="stealth"
-    //                                             onClick={() => removeUrl(index)}
-    //                                         >
-    //                                             Remove authorized URL
-    //                                         </LemonButton>
-    //                                     </>
-    //                                 }
-    //                             />
-    //                         </>
-    //                     )}
-    //                 </div>
-    //             )
-    //         },
-    //     },
-    // ]
 
     return (
         <div>
