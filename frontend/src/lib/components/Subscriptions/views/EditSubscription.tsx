@@ -279,7 +279,7 @@ export function EditSubscription({
                                                             target="_blank"
                                                             rel="noopener"
                                                         >
-                                                            invited the PostHog bot
+                                                            added the PostHog App
                                                         </a>{' '}
                                                         to them
                                                     </div>
@@ -289,7 +289,7 @@ export function EditSubscription({
 
                                         <AlertMessage type="info">
                                             <>
-                                                Don't forget to add the <strong>PostHog app</strong> to the channel
+                                                Don't forget to add the <strong>PostHog App</strong> to the channel
                                                 otherwise Subscriptions will fail to be delivered.{' '}
                                                 <a
                                                     href="https://posthog.com/docs/integrations/slack"
