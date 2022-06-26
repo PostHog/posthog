@@ -124,6 +124,7 @@ export function AuthorizedUrlsTable({ pageKey, actionId }: AuthorizedUrlsTableIn
                                                         href={launchUrl(keyedAppURL.url)}
                                                         tooltip={'Launch toolbar'}
                                                         center
+                                                        className="ActionButton"
                                                     />
 
                                                     <LemonButton
@@ -132,6 +133,7 @@ export function AuthorizedUrlsTable({ pageKey, actionId }: AuthorizedUrlsTableIn
                                                         onClick={() => setEditUrlIndex(keyedAppURL.originalIndex)}
                                                         tooltip={'Edit'}
                                                         center
+                                                        className="ActionButton"
                                                     />
                                                     <LemonButton
                                                         fullWidth
@@ -139,6 +141,7 @@ export function AuthorizedUrlsTable({ pageKey, actionId }: AuthorizedUrlsTableIn
                                                         onClick={() => removeUrl(index)}
                                                         tooltip={'Remove URL'}
                                                         center
+                                                        className="ActionButton"
                                                     />
                                                 </>
                                             )}

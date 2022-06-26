@@ -16,8 +16,12 @@
         display: flex;
         flex-direction: row;
 
-        Button {
+        .ActionButton {
             margin-right: 1.5em;
+        }
+
+        & > :last-child {
+            margin-right: 0.75em;
         }
     }
 }
