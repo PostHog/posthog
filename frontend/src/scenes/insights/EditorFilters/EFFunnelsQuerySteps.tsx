@@ -1,15 +1,15 @@
 import React from 'react'
 import { useValues, useActions, useMountedLogic } from 'kea'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
-import { ActionFilter } from '../ActionFilter/ActionFilter'
+import { ActionFilter } from '../Filters/ActionFilter/ActionFilter'
 import { EditorFilterProps } from '~/types'
 import { groupsModel } from '~/models/groupsModel'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { ToggleButtonChartFilter } from '../InsightTabs/FunnelTab/ToggleButtonChartFilter'
 import { funnelCommandLogic } from '../InsightTabs/FunnelTab/funnelCommandLogic'
-import { MathAvailability } from 'scenes/insights/ActionFilter/ActionFilterRow/ActionFilterRow'
+import { MathAvailability } from 'scenes/insights/Filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { EditorFilterItemTitle } from './EditorFilterItemTitle'
-import { AggregationSelect } from '../AggregationSelect'
+import { AggregationSelect } from '../Filters/AggregationSelect'
 import { FunnelConversionWindowFilter } from '../InsightTabs/FunnelTab/FunnelConversionWindowFilter'
 
 const FUNNEL_STEP_COUNT_LIMIT = 20

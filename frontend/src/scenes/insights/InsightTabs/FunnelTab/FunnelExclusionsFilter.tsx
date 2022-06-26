@@ -3,13 +3,13 @@ import { Button, Col, Row, Select } from 'antd'
 import { useActions, useValues } from 'kea'
 import useSize from '@react-hook/size'
 import { DeleteOutlined } from '@ant-design/icons'
-import { ActionFilter } from 'scenes/insights/ActionFilter/ActionFilter'
+import { ActionFilter } from 'scenes/insights/Filters/ActionFilter/ActionFilter'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { ANTD_TOOLTIP_PLACEMENTS } from 'lib/utils'
 import { FunnelStepRangeEntityFilter, ActionFilter as ActionFilterType, EntityTypes } from '~/types'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { MathAvailability } from 'scenes/insights/ActionFilter/ActionFilterRow/ActionFilterRow'
+import { MathAvailability } from 'scenes/insights/Filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 
 function ExclusionRowSuffix({
     filter,

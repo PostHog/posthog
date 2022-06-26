@@ -2,7 +2,7 @@ import { kea } from 'kea'
 import type { renameModalLogicType } from './renameModalLogicType'
 import { EntityFilterTypes } from '~/types'
 import { getDisplayNameFromEntityFilter } from 'scenes/insights/utils'
-import { entityFilterLogic } from 'scenes/insights/ActionFilter/entityFilterLogic'
+import { entityFilterLogic } from 'scenes/insights/Filters/ActionFilter/entityFilterLogic'
 
 export interface RenameModalProps {
     filter: EntityFilterTypes

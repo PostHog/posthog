@@ -7,7 +7,7 @@ import { animate, getOrCreateEl, wrap } from 'lib/utils/d3Utils'
 
 import './Histogram.scss'
 import { useActions, useValues } from 'kea'
-import { histogramLogic } from 'scenes/insights/Histogram/histogramLogic'
+import { histogramLogic } from 'scenes/insights/Views/Histogram/histogramLogic'
 
 export interface HistogramDatum {
     id: string | number

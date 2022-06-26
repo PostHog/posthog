@@ -105,66 +105,17 @@
         }
     }
 
-    .insight-editor-area-wrapper {
-        flex-shrink: 0;
+    .insight-wrapper {
+        &.insight-wrapper--editor-panels {
+            position: relative;
+            @media screen and (min-width: $lg) {
+                display: flex;
+                overflow: hidden;
 
-        .insight-editor-area {
-            > * {
-                margin-bottom: 1em;
-            }
-        }
-
-        @media screen and (min-width: $lg) {
-            --editor-panel-width: max(25vw, 28rem);
-
-            .insight-editor-area {
-                width: var(--editor-panel-width);
-                padding-right: 1rem;
-            }
-            &.anim--enter {
-                width: 0px;
-
-                .insight-editor-area {
-                    transform: translateX(calc(-1 * var(--editor-panel-width)));
+                .insights-container {
+                    flex: 1;
+                    overflow-x: auto;
                 }
-            }
-
-            &.anim--enter-active {
-                width: var(--editor-panel-width);
-                transition: width 250ms;
-                .insight-editor-area {
-                    transform: translateX(0px);
-                    transition: transform 250ms;
-                }
-            }
-
-            &.anim--exit {
-                width: var(--editor-panel-width);
-                .insight-editor-area {
-                    transform: translateX(0px);
-                }
-            }
-
-            &.anim--exit-active {
-                width: 0px;
-                transition: width 250ms;
-                .insight-editor-area {
-                    transform: translateX(calc(-1 * var(--editor-panel-width)));
-                    transition: transform 250ms;
-                }
-            }
-        }
-    }
-
-    .insights-wrapper {
-        position: relative;
-        @media screen and (min-width: $lg) {
-            display: flex;
-            overflow: hidden;
-
-            .insights-container {
-                flex: 1;
-                overflow-x: auto;
             }
         }
     }

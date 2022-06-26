@@ -7,6 +7,7 @@ import {
     InsightLogicProps,
     InsightType,
 } from '~/types'
+import { CSSTransition } from 'react-transition-group'
 import { EFTrendsSteps } from 'scenes/insights/EditorFilters/EFTrendsSteps'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { EFTrendsGlobalAndOrFilters } from 'scenes/insights/EditorFilters/EFTrendsGlobalAndOrFilters'
@@ -32,21 +33,26 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { EFPathsAdvancedPaywall } from './EFPathsAdvancedPaywall'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { EFInsightType } from './EFInsightType'
+import './EditorFilters.scss'
+import clsx from 'clsx'
 
 export interface EditorFiltersProps {
     insightProps: InsightLogicProps
+    showing: boolean
 }
 
-export function EditorFilters({ insightProps }: EditorFiltersProps): JSX.Element {
+export function EditorFilters({ insightProps, showing }: EditorFiltersProps): JSX.Element {
     const { user } = useValues(userLogic)
     const availableFeatures = user?.organization?.available_features || []
-    const { featureFlags } = useValues(featureFlagLogic)
 
     const logic = insightLogic(insightProps)
     const { filters, insight, filterPropertiesCount } = useValues(logic)
     const { preflight } = useValues(preflightLogic)
 
     const { advancedOptionsUsedCount } = useValues(funnelLogic(insightProps))
+
+    const { featureFlags } = useValues(featureFlagLogic)
+    const usingEditorPanels = featureFlags[FEATURE_FLAGS.INSIGHT_EDITOR_PANELS]
 
     const isTrends = !filters.insight || filters.insight === InsightType.TRENDS
     const isLifecycle = filters.insight === InsightType.LIFECYCLE
@@ -72,11 +78,13 @@ export function EditorFilters({ insightProps }: EditorFiltersProps): JSX.Element
         {
             title: 'General',
             editorFilters: filterFalsy([
-                {
-                    key: 'insight',
-                    label: 'Type',
-                    component: EFInsightType,
-                },
+                usingEditorPanels
+                    ? {
+                          key: 'insight',
+                          label: 'Type',
+                          component: EFInsightType,
+                      }
+                    : undefined,
                 isRetention && {
                     key: 'retention-summary',
                     label: 'Retention Summary',
@@ -127,6 +135,7 @@ export function EditorFilters({ insightProps }: EditorFiltersProps): JSX.Element
         },
         {
             title: 'Steps',
+
             editorFilters: filterFalsy([
                 isTrendsLike && {
                     key: 'steps',
@@ -137,10 +146,13 @@ export function EditorFilters({ insightProps }: EditorFiltersProps): JSX.Element
         {
             title: 'Filters',
             count: filterPropertiesCount,
+
             editorFilters: filterFalsy([
                 isLifecycle
                     ? {
                           key: 'properties',
+                          label: !usingEditorPanels ? 'Filters' : undefined,
+                          position: 'right',
                           component: EFLifecycleGlobalFilters,
                       }
                     : null,
@@ -148,12 +160,15 @@ export function EditorFilters({ insightProps }: EditorFiltersProps): JSX.Element
                     ? {
                           key: 'toggles',
                           label: 'Lifecycle Toggles',
+                          position: 'right',
                           component: EFLifecycleToggles,
                       }
                     : null,
                 hasPropertyFilters && filters.properties
                     ? {
                           key: 'properties',
+                          label: !usingEditorPanels ? 'Filters' : undefined,
+                          position: 'right',
                           component: EFTrendsGlobalAndOrFilters,
                       }
                     : null,
@@ -162,11 +177,13 @@ export function EditorFilters({ insightProps }: EditorFiltersProps): JSX.Element
         {
             title: 'Breakdown',
             count: filters.breakdowns?.length || (filters.breakdown ? 1 : 0),
+            position: 'right',
             editorFilters: filterFalsy([
                 hasBreakdown
                     ? {
                           key: 'breakdown',
                           label: 'Breakdown by',
+                          position: 'right',
                           tooltip: (
                               <>
                                   Use breakdown to see the aggregation (total volume, active users, etc.) for each value
@@ -181,10 +198,12 @@ export function EditorFilters({ insightProps }: EditorFiltersProps): JSX.Element
         },
         {
             title: 'Exclusions',
+            position: 'right',
             editorFilters: filterFalsy([
                 isPaths && {
                     key: 'paths-exclusions',
                     label: 'Exclusions',
+                    position: 'right',
                     tooltip: (
                         <>Exclude events from Paths visualisation. You can use wildcard groups in exclusions as well.</>
                     ),
@@ -194,6 +213,7 @@ export function EditorFilters({ insightProps }: EditorFiltersProps): JSX.Element
         },
         {
             title: 'Advanced Options',
+            position: 'left',
             defaultExpanded: advancedOptionsExpanded,
             count: advancedOptionsCount,
             editorFilters: filterFalsy([
@@ -201,6 +221,7 @@ export function EditorFilters({ insightProps }: EditorFiltersProps): JSX.Element
                     ? {
                           key: 'formula',
                           label: 'Formula',
+                          position: 'right',
                           tooltip: (
                               <>
                                   Apply math operations to your series. You can do operations among series (e.g.{' '}
@@ -231,17 +252,49 @@ export function EditorFilters({ insightProps }: EditorFiltersProps): JSX.Element
         },
     ].filter((x) => x.editorFilters.length > 0)
 
+    let legacyEditorFilterGroups: InsightEditorFilterGroup[] = []
+
+    if (!usingEditorPanels) {
+        const leftFilters = editorFilters.reduce(
+            (acc, x) => acc.concat(x.editorFilters.filter((y) => y.position !== 'right')),
+            [] as InsightEditorFilter[]
+        )
+        const rightFilters = editorFilters.reduce(
+            (acc, x) => acc.concat(x.editorFilters.filter((y) => y.position === 'right')),
+            [] as InsightEditorFilter[]
+        )
+
+        legacyEditorFilterGroups = [
+            {
+                title: 'Left',
+                editorFilters: leftFilters,
+            },
+            {
+                title: 'right',
+                editorFilters: rightFilters,
+            },
+        ]
+    }
+
     return (
-        <>
-            {editorFilters.map((editorFilterGroup) => (
-                <EditorFilterGroup
-                    key={editorFilterGroup.title}
-                    editorFilterGroup={editorFilterGroup}
-                    insight={insight}
-                    insightProps={insightProps}
-                />
-            ))}
-        </>
+        <CSSTransition in={showing} timeout={250} classNames="anim-" mountOnEnter unmountOnExit>
+            <div
+                className={clsx('EditorFiltersWrapper', {
+                    'EditorFiltersWrapper--editorpanels': usingEditorPanels,
+                })}
+            >
+                <div className="EditorFilters">
+                    {(usingEditorPanels ? editorFilters : legacyEditorFilterGroups).map((editorFilterGroup) => (
+                        <EditorFilterGroup
+                            key={editorFilterGroup.title}
+                            editorFilterGroup={editorFilterGroup}
+                            insight={insight}
+                            insightProps={insightProps}
+                        />
+                    ))}
+                </div>
+            </div>
+        </CSSTransition>
     )
 }
 

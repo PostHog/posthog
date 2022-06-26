@@ -5,7 +5,7 @@ import { propertyFilterTypeToTaxonomicFilterType } from 'lib/components/Property
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import React from 'react'
-import { TaxonomicBreakdownButton } from 'scenes/insights/BreakdownFilter/TaxonomicBreakdownButton'
+import { TaxonomicBreakdownButton } from 'scenes/insights/Filters/BreakdownFilter/TaxonomicBreakdownButton'
 import { cohortsModel } from '~/models/cohortsModel'
 import { Breakdown, ChartDisplayType, FilterType } from '~/types'
 import './TaxonomicBreakdownFilter.scss'

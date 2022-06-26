@@ -29,7 +29,6 @@ import { LemonButton } from 'lib/components/LemonButton'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import useBreakpoint from 'antd/lib/grid/hooks/useBreakpoint'
-import { CSSTransition } from 'react-transition-group'
 import { EditorFilters } from './EditorFilters/EditorFilters'
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { More } from 'lib/components/LemonButton/More'
@@ -41,6 +40,7 @@ import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
 import { SubscriptionsModal, SubscribeButton } from 'lib/components/Subscriptions/SubscriptionsModal'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
+import clsx from 'clsx'
 
 export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): JSX.Element {
     const { insightMode, subscriptionId } = useValues(insightSceneLogic)
@@ -265,24 +265,17 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                 }
             />
 
-            {usingEditorPanels ? (
-                <div className="insights-wrapper">
-                    <CSSTransition
-                        in={insightMode === ItemMode.Edit}
-                        timeout={250}
-                        classNames="anim-"
-                        mountOnEnter
-                        unmountOnExit
-                    >
-                        <div className="insight-editor-area-wrapper">
-                            <div className="insight-editor-area">{<EditorFilters insightProps={insightProps} />}</div>
-                        </div>
-                    </CSSTransition>
-                    <div className="insights-container">
-                        <InsightContainer />
-                    </div>
-                </div>
-            ) : (
+            {!usingEditorPanels && <InsightsNav />}
+
+            <div
+                className={clsx('insight-wrapper', {
+                    'insight-wrapper--editorpanels': usingEditorPanels,
+                })}
+            >
+                <EditorFilters insightProps={insightProps} showing={insightMode === ItemMode.Edit} />
+                <div className="insights-container">{/* <InsightContainer /> */}</div>
+            </div>
+            {usingEditorPanels ? null : (
                 // Old View mode
                 <>
                     {insightMode !== ItemMode.Edit ? (
@@ -317,7 +310,7 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                                         width: verticalLayout ? 'calc(100% - min(28rem, 50%) - 1rem)' : 'unset',
                                     }}
                                 >
-                                    <InsightContainer />
+                                    {/* <InsightContainer /> */}
                                 </div>
                             </div>
                         </>

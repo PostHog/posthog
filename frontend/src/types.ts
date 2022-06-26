@@ -1126,6 +1126,7 @@ export interface InsightEditorFilter {
     key: string
     label?: string
     tooltip?: JSX.Element
+    position?: 'left' | 'right'
     valueSelector?: (insight: Partial<InsightModel>) => any
     component?: (props: EditorFilterProps) => JSX.Element
 }

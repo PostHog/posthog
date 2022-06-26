@@ -1,6 +1,6 @@
 import * as d3 from 'd3'
 import { FunnelLayout } from 'lib/constants'
-import { HistogramDatum } from 'scenes/insights/Histogram/Histogram'
+import { HistogramDatum } from 'scenes/insights/Views/Histogram/Histogram'
 
 export interface HistogramConfig {
     layout: FunnelLayout

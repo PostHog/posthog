@@ -2,7 +2,7 @@ import React from 'react'
 import { useActions, useValues } from 'kea'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { EditorFilterProps, InsightType } from '~/types'
-import { BreakdownFilter } from 'scenes/insights/BreakdownFilter'
+import { BreakdownFilter } from 'scenes/insights/Filters/BreakdownFilter'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 

@@ -1,5 +1,5 @@
 import React from 'react'
-import { LineGraph } from '../../insights/LineGraph/LineGraph'
+import { LineGraph } from '../../insights/Views/LineGraph/LineGraph'
 import { useActions, useValues } from 'kea'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { InsightEmptyState } from '../../insights/EmptyStates'

@@ -8,10 +8,10 @@ import { Lettermark, LettermarkColor } from 'lib/components/Lettermark/Lettermar
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { getActionFilterFromFunnelStep } from 'scenes/insights/InsightTabs/FunnelTab/funnelStepTableUtils'
 import { humanFriendlyDuration, humanFriendlyNumber, percentage } from 'lib/utils'
-import { ensureTooltipElement } from 'scenes/insights/LineGraph/LineGraph'
+import { ensureTooltipElement } from 'scenes/insights/Views/LineGraph/LineGraph'
 import { LemonDivider } from 'lib/components/LemonDivider'
 import { cohortsModel } from '~/models/cohortsModel'
-import { formatBreakdownLabel } from 'scenes/insights/InsightsTable/InsightsTable'
+import { formatBreakdownLabel } from 'scenes/insights/Views/InsightsTable/InsightsTable'
 import { ClickToInspectActors } from 'scenes/insights/InsightTooltip/InsightTooltip'
 import { groupsModel } from '~/models/groupsModel'
 

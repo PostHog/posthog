@@ -5,14 +5,14 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { ChartParams, TrendResult } from '~/types'
 import './WorldMap.scss'
 import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
-import { SeriesDatum } from '../InsightTooltip/insightTooltipUtils'
+import { SeriesDatum } from '../../InsightTooltip/insightTooltipUtils'
 import { ensureTooltipElement } from '../LineGraph/LineGraph'
 import { worldMapLogic } from './worldMapLogic'
 import { countryCodeToFlag, countryCodeToName } from './countryCodes'
 import { personsModalLogic, PersonsModalParams } from 'scenes/trends/personsModalLogic'
 import { countryVectors } from './countryVectors'
 import { groupsModel } from '~/models/groupsModel'
-import { toLocalFilters } from '../ActionFilter/entityFilterLogic'
+import { toLocalFilters } from '../../Filters/ActionFilter/entityFilterLogic'
 
 /** The saturation of a country is proportional to its value BUT the saturation has a floor to improve visibility. */
 const SATURATION_FLOOR = 0.2

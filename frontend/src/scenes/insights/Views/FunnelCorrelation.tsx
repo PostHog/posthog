@@ -4,15 +4,15 @@ import TextArea from 'antd/lib/input/TextArea'
 import { useActions, useValues } from 'kea'
 import React, { useRef } from 'react'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
-import { insightLogic } from './insightLogic'
 import './FunnelCorrelation.scss'
-import { FunnelCorrelationTable } from './InsightTabs/FunnelTab/FunnelCorrelationTable'
-import { FunnelPropertyCorrelationTable } from './InsightTabs/FunnelTab/FunnelPropertyCorrelationTable'
 import { IconFeedbackWarning } from 'lib/components/icons'
 import { CloseOutlined } from '@ant-design/icons'
 import { PayCard } from 'lib/components/PayCard/PayCard'
 import { AvailableFeature } from '~/types'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { insightLogic } from '../insightLogic'
+import { FunnelCorrelationTable } from '../InsightTabs/FunnelTab/FunnelCorrelationTable'
+import { FunnelPropertyCorrelationTable } from '../InsightTabs/FunnelTab/FunnelPropertyCorrelationTable'
 
 export const FunnelCorrelation = (): JSX.Element | null => {
     const { insightProps } = useValues(insightLogic)

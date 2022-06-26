@@ -1,7 +1,7 @@
 import { kea } from 'kea'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { InsightLogicProps, TrendResult } from '~/types'
-import { keyForInsightLogicProps } from '../sharedUtils'
+import { keyForInsightLogicProps } from '../../sharedUtils'
 import type { worldMapLogicType } from './worldMapLogicType'
 
 export const worldMapLogic = kea<worldMapLogicType>({

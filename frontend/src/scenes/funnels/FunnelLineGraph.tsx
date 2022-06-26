@@ -1,5 +1,5 @@
 import React from 'react'
-import { LineGraph } from 'scenes/insights/LineGraph/LineGraph'
+import { LineGraph } from 'scenes/insights/Views/LineGraph/LineGraph'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { useActions, useValues } from 'kea'
 import { personsModalLogic } from 'scenes/trends/personsModalLogic'

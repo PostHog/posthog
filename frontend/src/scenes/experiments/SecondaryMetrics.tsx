@@ -3,7 +3,7 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import React from 'react'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
-import { ActionFilter } from 'scenes/insights/ActionFilter/ActionFilter'
+import { ActionFilter } from 'scenes/insights/Filters/ActionFilter/ActionFilter'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { InsightShortId, InsightType } from '~/types'
 import './Experiment.scss'
@@ -11,7 +11,7 @@ import { InsightContainer } from 'scenes/insights/InsightContainer'
 import { CaretDownOutlined, DeleteOutlined } from '@ant-design/icons'
 import { secondaryMetricsLogic, SecondaryMetricsProps } from './secondaryMetricsLogic'
 import { LemonButton } from 'lib/components/LemonButton'
-import { MathAvailability } from 'scenes/insights/ActionFilter/ActionFilterRow/ActionFilterRow'
+import { MathAvailability } from 'scenes/insights/Filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 
 export function SecondaryMetrics({ onMetricsChange, initialMetrics }: SecondaryMetricsProps): JSX.Element {
     const logic = secondaryMetricsLogic({ onMetricsChange, initialMetrics })

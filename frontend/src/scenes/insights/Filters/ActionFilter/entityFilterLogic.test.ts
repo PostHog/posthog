@@ -1,4 +1,4 @@
-import { entityFilterLogic, toLocalFilters } from 'scenes/insights/ActionFilter/entityFilterLogic'
+import { entityFilterLogic, toLocalFilters } from 'scenes/insights/Filters/ActionFilter/entityFilterLogic'
 import { expectLogic } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
 import filtersJson from './__mocks__/filters.json'
