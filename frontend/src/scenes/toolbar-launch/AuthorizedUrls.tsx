@@ -1,5 +1,5 @@
 import React from 'react'
-import './AuthorizedUrlsTable.scss'
+import './AuthorizedUrls.scss'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { LemonTag } from 'lib/components/LemonTag/LemonTag'
@@ -49,7 +49,7 @@ function AuthorizedUrlForm({ actionId }: { actionId?: number }): JSX.Element {
     )
 }
 
-export function AuthorizedUrlsTable({ pageKey, actionId }: AuthorizedUrlsTableInterface): JSX.Element {
+export function AuthorizedUrls({ pageKey, actionId }: AuthorizedUrlsTableInterface): JSX.Element {
     const logic = authorizedUrlsLogic({ actionId })
     const { appUrlsKeyed, suggestionsLoading, searchTerm, launchUrl, editUrlIndex } = useValues(logic)
     const { addUrl, removeUrl, setSearchTerm, newUrl, setEditUrlIndex } = useActions(logic)

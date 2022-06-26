@@ -7,7 +7,7 @@ import { Link } from 'lib/components/Link'
 import { urls } from 'scenes/urls'
 import { IconFlag, IconGroupedEvents, IconHeatmap } from 'lib/components/icons'
 import { Col, Row } from 'antd'
-import { AuthorizedUrlsTable } from './AuthorizedUrlsTable'
+import { AuthorizedUrls } from './AuthorizedUrls'
 import { LemonDivider } from 'lib/components/LemonDivider'
 import { LemonSwitch } from 'lib/components/LemonSwitch/LemonSwitch'
 import { useActions, useValues } from 'kea'
@@ -70,7 +70,7 @@ function ToolbarLaunch(): JSX.Element {
                 These are the domains and URLs where the <Link to={urls.toolbarLaunch()}>Toolbar</Link> will
                 automatically launch if you're signed in to your PostHog account.
             </p>
-            <AuthorizedUrlsTable pageKey="toolbar-launch" />
+            <AuthorizedUrls pageKey="toolbar-launch" />
 
             <div className="footer-caption">
                 Make sure you're using the <Link to={`${urls.projectSettings()}#snippet`}>HTML snippet</Link> or the

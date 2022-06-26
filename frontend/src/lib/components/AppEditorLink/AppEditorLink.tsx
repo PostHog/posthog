@@ -2,7 +2,7 @@ import React, { useState } from 'react'
 import { useValues } from 'kea'
 import { teamLogic } from 'scenes/teamLogic'
 import { Modal, Button } from 'antd'
-import { AuthorizedUrlsTable } from 'scenes/toolbar-launch/AuthorizedUrlsTable'
+import { AuthorizedUrls } from 'scenes/toolbar-launch/AuthorizedUrls'
 import { appEditorUrl } from 'scenes/toolbar-launch/authorizedUrlsLogic'
 
 export function AppEditorLink({
@@ -40,7 +40,7 @@ export function AppEditorLink({
                 footer={<Button onClick={() => setModalOpen(false)}>Close</Button>}
                 onCancel={() => setModalOpen(false)}
             >
-                <AuthorizedUrlsTable actionId={actionId} pageKey="app-editor-link" />
+                <AuthorizedUrls actionId={actionId} pageKey="app-editor-link" />
             </Modal>
         </>
     )
