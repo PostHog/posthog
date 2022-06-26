@@ -11,6 +11,10 @@
     }
     .Url {
         flex-grow: 1;
+
+        span {
+            max-width: 80%;
+        }
     }
     .Actions {
         display: flex;

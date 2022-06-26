@@ -13,6 +13,7 @@ import { Spinner } from 'lib/components/Spinner/Spinner'
 import { Form } from 'kea-forms'
 import { LemonInput } from 'lib/components/LemonInput/LemonInput'
 import { Field } from 'lib/forms/Field'
+import Typography from 'antd/lib/typography'
 
 interface AuthorizedUrlsTableInterface {
     pageKey?: string
@@ -99,12 +100,12 @@ export function AuthorizedUrls({ pageKey, actionId }: AuthorizedUrlsTableInterfa
                                 ) : (
                                     <>
                                         <div className="Url">
-                                            <>
-                                                {keyedAppURL.type === 'suggestion' && (
-                                                    <LemonTag type="highlight">Suggestion</LemonTag>
-                                                )}
+                                            {keyedAppURL.type === 'suggestion' && (
+                                                <LemonTag type="highlight">Suggestion</LemonTag>
+                                            )}
+                                            <Typography.Text ellipsis={{ tooltip: keyedAppURL.url }}>
                                                 {keyedAppURL.url}
-                                            </>
+                                            </Typography.Text>
                                         </div>
                                         <div className="Actions">
                                             {keyedAppURL.type === 'suggestion' ? (
