@@ -14,6 +14,7 @@ import { subscriptionsLogic } from './subscriptionsLogic'
 import type { subscriptionLogicType } from './subscriptionLogicType'
 import { getInsightId } from 'scenes/insights/utils'
 import { SubscriptionBaseProps, urlForSubscription } from './utils'
+import { integrationsLogic } from 'scenes/project/Settings/integrationsLogic'
 
 const NEW_SUBSCRIPTION: Partial<SubscriptionType> = {
     frequency: 'weekly',
@@ -33,6 +34,7 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
     key(({ id, insightShortId, dashboardId }) => `${insightShortId || dashboardId}-${id ?? 'new'}`),
     connect(({ insightShortId, dashboardId }: SubscriptionsLogicProps) => ({
         actions: [subscriptionsLogic({ insightShortId, dashboardId }), ['loadSubscriptions']],
+        values: [integrationsLogic, ['isMemberOfSlackChannel']],
     })),
 
     loaders(({ props }) => ({
@@ -47,9 +49,9 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
         },
     })),
 
-    forms(({ props, actions }) => ({
+    forms(({ props, actions, values }) => ({
         subscription: {
-            defaults: undefined as unknown as SubscriptionType,
+            defaults: {} as unknown as SubscriptionType,
             errors: ({ frequency, interval, target_value, target_type, title, start_date }) => ({
                 frequency: !frequency ? 'You need to set a schedule frequency' : undefined,
                 title: !title ? 'You need to give your subscription a name' : undefined,
@@ -75,6 +77,12 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                         ? 'Must be a valid URL'
                         : undefined
                     : undefined,
+                memberOfSlackChannel:
+                    target_type == 'slack'
+                        ? !values.isMemberOfSlackChannel(target_value)
+                            ? 'Please add the PostHog App to the selected Slack channel'
+                            : undefined
+                        : undefined,
             }),
             submit: async (subscription, breakpoint) => {
                 const insightId = props.insightShortId ? await getInsightId(props.insightShortId) : undefined
