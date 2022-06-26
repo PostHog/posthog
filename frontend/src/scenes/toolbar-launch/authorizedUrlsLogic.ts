@@ -164,7 +164,6 @@ export const authorizedUrlsLogic = kea<authorizedUrlsLogicType>([
             {
                 setAppUrls: (_, { appUrls }) => appUrls,
                 addUrl: (state, { url }) => state.concat([url]),
-                newUrl: (state) => (state.includes(NEW_URL) ? state : [NEW_URL].concat(state)),
                 updateUrl: (state, { index, url }) => Object.assign([...state], { [index]: url }),
                 removeUrl: (state, { index }) => {
                     const newAppUrls = [...state]
@@ -195,6 +194,7 @@ export const authorizedUrlsLogic = kea<authorizedUrlsLogicType>([
                         : index === editUrlIndex
                         ? null
                         : editUrlIndex,
+                newUrl: () => -1,
             },
         ],
     })),

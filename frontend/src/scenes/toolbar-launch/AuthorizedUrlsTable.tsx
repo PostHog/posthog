@@ -19,10 +19,34 @@ interface AuthorizedUrlsTableInterface {
     actionId?: number
 }
 
+function AuthorizedUrlForm({ actionId }: { actionId?: number }): JSX.Element {
+    const logic = authorizedUrlsLogic({ actionId })
+    const { editUrlIndex, isProposedUrlSubmitting, appUrls } = useValues(logic)
+    return (
+        <Form
+            logic={authorizedUrlsLogic}
+            props={{ actionId }}
+            formKey="proposedUrl"
+            enableFormOnSubmit
+            className="AuthorizedURLForm"
+        >
+            <Field name="url" label="">
+                <LemonInput
+                    defaultValue={editUrlIndex && editUrlIndex >= 0 ? appUrls[editUrlIndex] : NEW_URL}
+                    autoFocus
+                    placeholder="Enter a URL or wildcard subdomain (e.g. https://*.posthog.com)"
+                />
+            </Field>
+            <LemonButton htmlType="submit" type="primary" className="form-submit" disabled={isProposedUrlSubmitting}>
+                Save
+            </LemonButton>
+        </Form>
+    )
+}
+
 export function AuthorizedUrlsTable({ pageKey, actionId }: AuthorizedUrlsTableInterface): JSX.Element {
     const logic = authorizedUrlsLogic({ actionId })
-    const { appUrlsKeyed, suggestionsLoading, searchTerm, launchUrl, editUrlIndex, isProposedUrlSubmitting } =
-        useValues(logic)
+    const { appUrlsKeyed, suggestionsLoading, searchTerm, launchUrl, editUrlIndex } = useValues(logic)
     const { addUrl, removeUrl, setSearchTerm, newUrl, setEditUrlIndex } = useActions(logic)
 
     // const columns: LemonTableColumns<KeyedAppUrl> = [
@@ -113,91 +137,76 @@ export function AuthorizedUrlsTable({ pageKey, actionId }: AuthorizedUrlsTableIn
                     <Spinner size="md" />
                 </LemonRow>
             ) : (
-                appUrlsKeyed.map((keyedAppURL, index) => {
-                    return (
-                        <LemonRow
-                            outlined
-                            fullWidth
-                            size="large"
-                            key={index}
-                            className={clsx('AuthorizedUrlRow', keyedAppURL.type)}
-                        >
-                            {editUrlIndex === index ? (
-                                <Form
-                                    logic={authorizedUrlsLogic}
-                                    props={{ actionId }}
-                                    formKey="proposedUrl"
-                                    enableFormOnSubmit
-                                    className="AuthorizedURLForm"
-                                >
-                                    <Field name="url" label="">
-                                        <LemonInput
-                                            defaultValue={editUrlIndex >= 0 ? keyedAppURL.url : NEW_URL}
-                                            autoFocus
-                                            placeholder="Enter a URL or wildcard subdomain (e.g. https://*.posthog.com)"
-                                        />
-                                    </Field>
-                                    <LemonButton
-                                        htmlType="submit"
-                                        type="primary"
-                                        className="form-submit"
-                                        disabled={isProposedUrlSubmitting}
-                                    >
-                                        Save
-                                    </LemonButton>
-                                </Form>
-                            ) : (
-                                <>
-                                    <div className="Url">
-                                        <>
-                                            {keyedAppURL.type === 'suggestion' && (
-                                                <LemonTag type="highlight">Suggestion</LemonTag>
-                                            )}
-                                            {keyedAppURL.url}
-                                        </>
-                                    </div>
-                                    <div className="Actions">
-                                        {keyedAppURL.type === 'suggestion' ? (
-                                            <LemonButton
-                                                onClick={() => addUrl(keyedAppURL.url)}
-                                                icon={<IconPlus />}
-                                                outlined={false}
-                                                style={{ paddingRight: 0, paddingLeft: 0 }}
-                                            >
-                                                Apply suggestion
-                                            </LemonButton>
-                                        ) : (
-                                            <>
-                                                <LemonButton
-                                                    fullWidth
-                                                    icon={<IconOpenInApp />}
-                                                    href={launchUrl(keyedAppURL.url)}
-                                                    tooltip={'Launch toolbar'}
-                                                    center
-                                                />
-
-                                                <LemonButton
-                                                    fullWidth
-                                                    icon={<IconEdit />}
-                                                    onClick={() => setEditUrlIndex(keyedAppURL.originalIndex)}
-                                                    tooltip={'Edit'}
-                                                    center
-                                                />
-                                                <LemonButton
-                                                    fullWidth
-                                                    icon={<IconDelete />}
-                                                    onClick={() => removeUrl(index)}
-                                                    tooltip={'Remove URL'}
-                                                    center
-                                                />
-                                            </>
-                                        )}
-                                    </div>
-                                </>
-                            )}
+                <>
+                    {editUrlIndex === -1 && (
+                        <LemonRow outlined fullWidth size="large" className={clsx('AuthorizedUrlRow')}>
+                            <AuthorizedUrlForm actionId={actionId} />
                         </LemonRow>
-                    )
-                })
+                    )}
+                    {appUrlsKeyed.map((keyedAppURL, index) => {
+                        return (
+                            <LemonRow
+                                outlined
+                                fullWidth
+                                size="large"
+                                key={index}
+                                className={clsx('AuthorizedUrlRow', keyedAppURL.type)}
+                            >
+                                {editUrlIndex === index ? (
+                                    <AuthorizedUrlForm actionId={actionId} />
+                                ) : (
+                                    <>
+                                        <div className="Url">
+                                            <>
+                                                {keyedAppURL.type === 'suggestion' && (
+                                                    <LemonTag type="highlight">Suggestion</LemonTag>
+                                                )}
+                                                {keyedAppURL.url}
+                                            </>
+                                        </div>
+                                        <div className="Actions">
+                                            {keyedAppURL.type === 'suggestion' ? (
+                                                <LemonButton
+                                                    onClick={() => addUrl(keyedAppURL.url)}
+                                                    icon={<IconPlus />}
+                                                    outlined={false}
+                                                    style={{ paddingRight: 0, paddingLeft: 0 }}
+                                                >
+                                                    Apply suggestion
+                                                </LemonButton>
+                                            ) : (
+                                                <>
+                                                    <LemonButton
+                                                        fullWidth
+                                                        icon={<IconOpenInApp />}
+                                                        href={launchUrl(keyedAppURL.url)}
+                                                        tooltip={'Launch toolbar'}
+                                                        center
+                                                    />
+
+                                                    <LemonButton
+                                                        fullWidth
+                                                        icon={<IconEdit />}
+                                                        onClick={() => setEditUrlIndex(keyedAppURL.originalIndex)}
+                                                        tooltip={'Edit'}
+                                                        center
+                                                    />
+                                                    <LemonButton
+                                                        fullWidth
+                                                        icon={<IconDelete />}
+                                                        onClick={() => removeUrl(index)}
+                                                        tooltip={'Remove URL'}
+                                                        center
+                                                    />
+                                                </>
+                                            )}
+                                        </div>
+                                    </>
+                                )}
+                            </LemonRow>
+                        )
+                    })}
+                </>
             )}
             {/*<LemonTable*/}
             {/*    className="authorized-urls-table"*/}
