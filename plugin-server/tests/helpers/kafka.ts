@@ -73,7 +73,7 @@ export function spyOnKafka(
             eachMessage: ({ message }) => {
                 const messageValueParsed = JSON.parse(message.value!.toString())
                 bufferTopicMessages.push(messageValueParsed)
-                return Promise.resolve() // Not needed but KafkaJS's typing accepts promises only
+                return Promise.resolve() // Not really needed but KafkaJS's typing accepts promises only
             },
         })
     })

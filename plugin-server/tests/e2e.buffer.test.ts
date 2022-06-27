@@ -99,7 +99,7 @@ describe('E2E with buffer enabled', () => {
             expect(testConsole.read()).toEqual([['processEvent'], ['onEvent', 'custom event via buffer']])
         })
 
-        test('three events captured, processed, ingested - in order', async () => {
+        test('three events captured, processed, ingested', async () => {
             expect((await hub.db.fetchEvents()).length).toBe(0)
 
             const uuid1 = new UUIDT().toString()
@@ -116,7 +116,7 @@ describe('E2E with buffer enabled', () => {
             await hub.kafkaProducer.flush()
 
             const bufferTopicMessages = await delayUntilBufferMessageProduced(3)
-            const events = await delayUntilEventIngested(() => hub.db.fetchEvents(), 3)
+            const events = await delayUntilEventIngested(() => hub.db.fetchEvents(), 3, undefined, 200)
 
             expect(bufferTopicMessages.filter((message) => message.properties.uuid === uuid1).length).toBe(1)
             expect(bufferTopicMessages.filter((message) => message.properties.uuid === uuid2).length).toBe(1)
@@ -142,11 +142,10 @@ describe('E2E with buffer enabled', () => {
 
             // processEvent ran and modified
             expect(events[0].properties.processed).toEqual('hell yes')
-            expect(events[0].properties.upperUuid).toEqual(uuid1.toUpperCase())
             expect(events[1].properties.processed).toEqual('hell yes')
-            expect(events[1].properties.upperUuid).toEqual(uuid2.toUpperCase())
             expect(events[2].properties.processed).toEqual('hell yes')
-            expect(events[2].properties.upperUuid).toEqual(uuid3.toUpperCase())
+            const eventPluginUuids = events.map((event) => event.properties.upperUuid).sort()
+            expect(eventPluginUuids).toStrictEqual([uuid1.toUpperCase(), uuid2.toUpperCase(), uuid3.toUpperCase()])
 
             // onEvent ran
             expect(testConsole.read()).toEqual([
