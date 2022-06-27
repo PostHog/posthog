@@ -1,31 +1,24 @@
 name: E2E
 
 on:
-    pull_request:
-    push:
-        branches: [master]
-env:
-    SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
-    REDIS_URL: 'redis://localhost'
-    DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
-    KAFKA_URL: 'kafka://kafka:9092'
-    DISABLE_SECURE_SSL_REDIRECT: 1
-    SECURE_COOKIES: 0
-    OPT_OUT_CAPTURE: 1
-    SELF_CAPTURE: 0
-    E2E_TESTING: 1
-    EMAIL_HOST: 'email.test.posthog.net' # used to test password resets
-    SITE_URL: 'http://localhost:8000' # used to test password resets
-    NO_RESTART_LOOP: 1
-    CLICKHOUSE_SECURE: 0
-    OBJECT_STORAGE_ENABLED: 1
-    OBJECT_STORAGE_ENDPOINT: 'http://localhost:19000'
-    OBJECT_STORAGE_ACCESS_KEY_ID: 'object_storage_root_user'
-    OBJECT_STORAGE_SECRET_ACCESS_KEY: 'object_storage_root_password'
+    workflow_run:
+        workflows: [Test Docker image build]
+        types:
+            - completed
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
     cancel-in-progress: true
+
+env:
+    # NOTE: we assume the image name rather than e.g. getting the
+    # image name from the triggering docker build job via an artifact
+    # as it seems a little convoluted to do so according to the
+    # [documentation](https://docs.github.com/en/actions/using-workflows/events-that-trigger-workflows#workflow_run).
+    # If
+    # [this](https://github.com/actions/download-artifact/issues/60)
+    # gets resolve maybe it would be worth it.
+    DOCKER_IMAGE: ghcr.io/posthog/posthog/posthog:${GITHUB_REF##*/}
 
 jobs:
     # Job that lists and chunks spec file names and caches node modules
@@ -42,22 +35,6 @@ jobs:
               # List cypress/e2e and produce a JSON array of the files, in chunks
               run: echo "::set-output name=specs::$(ls cypress/e2e/* | jq --slurp --raw-input -c 'split("\n")[:-1] | _nwise(3) | join("\n")' | jq --slurp -c .)"
 
-            - uses: actions/cache@v2
-              id: cypress-node-modules-cache-3
-              with:
-                  path: |
-                      **/node_modules
-                      ~/.cache/Cypress
-                  key: ${{ runner.os }}-cypress-node-modules-3-${{ hashFiles('**/yarn.lock') }}
-                  restore-keys: |
-                      ${{ runner.os }}-cypress-node-modules-3-
-            - name: Yarn install deps
-              if: steps.cypress-node-modules-cache-3.outputs.cache-hit != 'true'
-              run: |
-                  yarn install --frozen-lockfile
-                  yarn add cypress@10.0.3 cypress-terminal-report@3.5.2
-                  cd plugin-server
-                  yarn install --frozen-lockfile
     cypress:
         name: Cypress E2E tests (${{ strategy.job-index }})
         if: ${{ github.ref != 'refs/heads/master' }} # Don't run on master, we only cace about node_modules cache
@@ -72,6 +49,7 @@ jobs:
             fail-fast: false
             matrix:
                 specs: ${{ fromJson(needs.cypress_prep.outputs.specs) }}
+
         steps:
             - name: Checkout
               uses: actions/checkout@v2
@@ -80,32 +58,12 @@ jobs:
               run: |
                   docker-compose -f docker-compose.dev.yml down
                   docker-compose -f docker-compose.dev.yml up -d db clickhouse zookeeper kafka redis object_storage &
-            - name: Add kafka host to /etc/hosts for kafka connectivity
-              run: sudo echo "127.0.0.1 kafka" | sudo tee -a /etc/hosts
 
-            - name: Set up Python 3.8.12
-              uses: actions/setup-python@v2
-              with:
-                  python-version: 3.8.12
-
-            - uses: syphar/restore-virtualenv@v1.2
-              id: cache-virtualenv
-              with:
-                  requirement_files: requirements.txt # this is optional
-            - uses: syphar/restore-pip-download-cache@v1
-              if: steps.cache-virtualenv.outputs.cache-hit != 'true'
-            - name: Install SAML (python3-saml) dependencies
-              run: |
-                  sudo apt-get update
-                  sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
-            - name: Install python dependencies
-              if: steps.cache-virtualenv.outputs.cache-hit != 'true'
-              run: |
-                  python -m pip install --upgrade pip
-                  python -m pip install -r requirements.txt --no-cache-dir --compile
+            # Get Cypress dependencies setup
             - uses: actions/setup-node@v1
               with:
                   node-version: 16
+
             - uses: actions/cache@v2
               id: cypress-node-modules-cache-3
               with:
@@ -115,32 +73,48 @@ jobs:
                   key: ${{ runner.os }}-cypress-node-modules-3-${{ hashFiles('**/yarn.lock') }}
                   restore-keys: |
                       ${{ runner.os }}-cypress-node-modules-3-
-            - name: Yarn install deps
-              # NOTE: we always try to run yarn install, as we're using a cache
-              # from the prep phase that hasn't been proven to be correct. We
-              # should still get some cache benefits.
+
+            - name: Yarn cypress deps
               run: |
-                  yarn install --frozen-lockfile
-                  yarn add cypress@10.0.3 cypress-terminal-report@3.5.2 
-                  cd plugin-server
-                  yarn install --frozen-lockfile
-            - name: Yarn build
-              env:
-                  GENERATE_SOURCEMAP: 'false'
+                  yarn add cypress@10.0.3 cypress-terminal-report@3.5.2
+
+            - run: |
+                  cat <<EOT >> .env
+                  SECRET_KEY='6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
+                  REDIS_URL='redis://localhost'
+                  DATABASE_URL='postgres://posthog:posthog@localhost:5432/posthog'
+                  KAFKA_URL='kafka://kafka:9092'
+                  DISABLE_SECURE_SSL_REDIRECT=1
+                  SECURE_COOKIES=0
+                  OPT_OUT_CAPTURE=1
+                  SELF_CAPTURE=0
+                  E2E_TESTING=1
+                  EMAIL_HOST='email.test.posthog.net' # used to test password resets
+                  SITE_URL='http://localhost:8000' # used to test password resets
+                  NO_RESTART_LOOP=1
+                  CLICKHOUSE_SECURE=0
+                  OBJECT_STORAGE_ENABLED=1
+                  OBJECT_STORAGE_ENDPOINT='http://localhost:19000'
+                  OBJECT_STORAGE_ACCESS_KEY_ID='object_storage_root_user'
+                  OBJECT_STORAGE_SECRET_ACCESS_KEY='object_storage_root_password'
+                  EOT
+
+            - name: Setup PostHog
+              uses: docker://${DOCKER_IMAGE}
               run: |
-                  yarn typegen:write
-                  yarn build
-                  cd plugin-server
-                  yarn build
-            - name: Boot PostHog
-              run: |
-                  python manage.py collectstatic --noinput
+                  set -a
+                  source .env
                   bin/check_kafka_clickhouse_up
                   ./bin/migrate
                   python manage.py setup_dev
+
+            - name: Boot PostHog
+              run: |
                   mkdir -p /tmp/logs
-                  ./bin/docker-worker &> /tmp/logs/worker.txt &
-                  ./bin/docker-server &> /tmp/logs/server.txt &
+
+                  docker run --rm $DOCKER_IMAGE --env-file .env ./bin/docker-worker &> /tmp/logs/worker.txt &
+                  docker run --rm $DOCKER_IMAGE --env-file .env ./bin/docker-server &> /tmp/logs/server.txt &
+
             - name: Cypress run
               uses: cypress-io/github-action@v2
               with:
@@ -151,24 +125,28 @@ jobs:
                   # We already install cypress separately, we don't need to install it again here
                   install-command: echo "no"
                   spec: ${{ matrix.specs }}
+
             - name: Archive test screenshots
               uses: actions/upload-artifact@v3
               with:
                   name: screenshots
                   path: cypress/screenshots
               if: ${{ failure() }}
+
             - name: Archive test downloads
               uses: actions/upload-artifact@v3
               with:
                   name: downloads
                   path: cypress/downloads
               if: ${{ failure() }}
+
             - name: Archive test videos
               uses: actions/upload-artifact@v3
               with:
                   name: videos
                   path: cypress/videos
               if: ${{ failure() }}
+
             - name: Show logs on failure
               # use artefact here, as I think the output will be too large for display in an action
               uses: actions/upload-artifact@v3
