@@ -245,7 +245,7 @@ class Migration(AsyncMigrationDefinition):
         values = []
         params: Dict = {}
         for i, person in enumerate(persons):
-            created_at = person.created_at.strftime("%Y-%m-%d %H:%M:%S.%f")
+            created_at = person.created_at.strftime("%Y-%m-%d %H:%M:%S")
             # :TRICKY: We use a custom _timestamp to identify rows migrated during this migration
             values.append(
                 f"(%(uuid_{i})s, '{created_at}', {person.team_id}, %(properties_{i})s, {'1' if person.is_identified else '0'}, '{PG_COPY_INSERT_TIMESTAMP}', 0, 0, {person.version or 0})"

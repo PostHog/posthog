@@ -18,7 +18,7 @@ logger = structlog.get_logger(__name__)
 @dataclasses.dataclass(frozen=True)
 class Change:
     type: Literal["FeatureFlag", "Person", "Insight"]
-    action: Literal["changed", "created", "deleted", "merged", "split"]
+    action: Literal["changed", "created", "deleted", "merged", "split", "exported"]
     field: Optional[str] = None
     before: Optional[Any] = None
     after: Optional[Any] = None
