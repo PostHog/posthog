@@ -3,10 +3,10 @@ import { EditorFilterProps } from '~/types'
 import { useActions } from 'kea'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { Tooltip } from 'lib/components/Tooltip'
-import { PlusCircleOutlined } from '@ant-design/icons'
-import { Button, Col, Row } from 'antd'
 import { CloseButton } from 'lib/components/CloseButton'
 import { Formula } from 'scenes/insights/Filters/Formula'
+import { LemonButton } from '@posthog/lemon-ui'
+import { IconPlusMini } from 'lib/components/icons'
 
 export function EFTrendsFormula({ filters, insightProps }: EditorFilterProps): JSX.Element {
     const { setFilters } = useActions(trendsLogic(insightProps))
@@ -17,41 +17,36 @@ export function EFTrendsFormula({ filters, insightProps }: EditorFilterProps): J
     return (
         <>
             {isUsingFormulas ? (
-                <Row align="middle" gutter={4}>
-                    <Col>
-                        <CloseButton
-                            onClick={() => {
-                                setIsUsingFormulas(false)
-                                setFilters({ formula: undefined })
-                            }}
-                        />
-                    </Col>
-                    <Col>
-                        <Formula
-                            filters={filters}
-                            onChange={(formula: string): void => {
-                                setFilters({ formula })
-                            }}
-                            autoFocus
-                            allowClear={false}
-                        />
-                    </Col>
-                </Row>
+                <div className="flex items-center gap-05">
+                    <CloseButton
+                        onClick={() => {
+                            setIsUsingFormulas(false)
+                            setFilters({ formula: undefined })
+                        }}
+                    />
+                    <Formula
+                        filters={filters}
+                        onChange={(formula: string): void => {
+                            setFilters({ formula })
+                        }}
+                        autoFocus
+                        allowClear={false}
+                    />
+                </div>
             ) : (
                 <Tooltip
                     title={!formulaEnabled ? 'Please add at least one graph series to use formulas' : undefined}
                     visible={formulaEnabled ? false : undefined}
                 >
-                    <Button
+                    <LemonButton
                         onClick={() => setIsUsingFormulas(true)}
                         disabled={!formulaEnabled}
-                        type="link"
-                        style={{ paddingLeft: 0 }}
-                        icon={<PlusCircleOutlined />}
+                        type="secondary"
+                        icon={<IconPlusMini color="var(--primary)" />}
                         data-attr="btn-add-formula"
                     >
                         Add formula
-                    </Button>
+                    </LemonButton>
                 </Tooltip>
             )}
         </>

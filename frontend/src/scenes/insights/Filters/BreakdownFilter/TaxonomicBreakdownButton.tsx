@@ -6,26 +6,23 @@ import {
 import React, { useState } from 'react'
 import { Popup } from 'lib/components/Popup/Popup'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
-import { Button } from 'antd'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { PlusCircleOutlined } from '@ant-design/icons'
 import { useValues } from 'kea'
 import { groupsModel } from '~/models/groupsModel'
-import { ButtonType } from 'antd/lib/button'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { LemonButton } from '@posthog/lemon-ui'
+import { IconPlusMini } from 'lib/components/icons'
 
 export interface TaxonomicBreakdownButtonProps {
     breakdownType?: TaxonomicFilterGroupType
     onChange: (breakdown: TaxonomicFilterValue, taxonomicGroup: TaxonomicFilterGroup) => void
     onlyCohorts?: boolean
-    buttonType?: ButtonType
 }
 
 export function TaxonomicBreakdownButton({
     breakdownType,
     onChange,
     onlyCohorts,
-    buttonType = 'link',
 }: TaxonomicBreakdownButtonProps): JSX.Element {
     const [open, setOpen] = useState(false)
     const { allEventNames } = useValues(insightLogic)
@@ -58,9 +55,9 @@ export function TaxonomicBreakdownButton({
             visible={open}
             onClickOutside={() => setOpen(false)}
         >
-            <Button
-                type={buttonType}
-                icon={<PlusCircleOutlined />}
+            <LemonButton
+                type={'secondary'}
+                icon={<IconPlusMini color="var(--primary)" />}
                 data-attr="add-breakdown-button"
                 onClick={() => setOpen(!open)}
                 className="taxonomic-breakdown-filter tag-button"
@@ -70,7 +67,7 @@ export function TaxonomicBreakdownButton({
                         breakdownType === TaxonomicFilterGroupType.CohortsWithAllUsers ? 'Add cohort' : 'Add breakdown'
                     }
                 />
-            </Button>
+            </LemonButton>
         </Popup>
     )
 }

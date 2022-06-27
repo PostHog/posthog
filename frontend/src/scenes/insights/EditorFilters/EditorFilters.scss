@@ -17,7 +17,16 @@
         }
     }
 
-    &.EditorFiltersWrapper--editorpanels {
+    &.EditorFiltersWrapper--funnels {
+        margin-right: 1rem;
+        .EditorFilters {
+            flex-direction: column;
+            gap: 0rem;
+        }
+    }
+
+    &.EditorFiltersWrapper--editorpanels,
+    &.EditorFiltersWrapper--funnels {
         border: none;
         padding: 0px;
 

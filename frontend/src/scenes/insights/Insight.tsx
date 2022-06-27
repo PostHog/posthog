@@ -4,7 +4,7 @@ import { useActions, useMountedLogic, useValues, BindLogic } from 'kea'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { insightLogic } from './insightLogic'
 import { insightCommandLogic } from './insightCommandLogic'
-import { ItemMode, AvailableFeature, InsightShortId, InsightModel } from '~/types'
+import { ItemMode, AvailableFeature, InsightShortId, InsightModel, InsightType } from '~/types'
 import { NPSPrompt } from 'lib/experimental/NPSPrompt'
 import { SaveCohortModal } from 'scenes/trends/SaveCohortModal'
 import { personsModalLogic } from 'scenes/trends/personsModalLogic'
@@ -253,6 +253,7 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
             <div
                 className={clsx('insight-wrapper', {
                     'insight-wrapper--editorpanels': usingEditorPanels,
+                    'insight-wrapper--funnels': !usingEditorPanels && filters.insight === InsightType.FUNNELS,
                 })}
             >
                 <EditorFilters insightProps={insightProps} showing={insightMode === ItemMode.Edit} />

@@ -14,12 +14,5 @@ export function EFTrendsBreakdown({ filters, insightProps }: EditorFilterProps):
     const useMultiBreakdown =
         filters.insight !== InsightType.TRENDS && !!featureFlags[FEATURE_FLAGS.BREAKDOWN_BY_MULTIPLE_PROPERTIES]
 
-    return (
-        <BreakdownFilter
-            filters={filters}
-            setFilters={setFilters}
-            buttonType="default"
-            useMultiBreakdown={useMultiBreakdown}
-        />
-    )
+    return <BreakdownFilter filters={filters} setFilters={setFilters} useMultiBreakdown={useMultiBreakdown} />
 }

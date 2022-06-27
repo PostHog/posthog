@@ -106,9 +106,10 @@
     }
 
     .insight-wrapper {
-        &.insight-wrapper--editorpanels {
+        &.insight-wrapper--editorpanels,
+        &.insight-wrapper--funnels {
             position: relative;
-            @media screen and (min-width: $lg) {
+            @media screen and (min-width: $xl) {
                 display: flex;
                 overflow: hidden;
 

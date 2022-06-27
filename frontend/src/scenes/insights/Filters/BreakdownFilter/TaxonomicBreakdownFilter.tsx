@@ -14,7 +14,6 @@ import { onFilterChange } from './taxonomicBreakdownFilterUtils'
 export interface TaxonomicBreakdownFilterProps {
     filters: Partial<FilterType>
     setFilters?: (filters: Partial<FilterType>, mergeFilters?: boolean) => void
-    buttonType?: ButtonType
     useMultiBreakdown?: boolean
 }
 
@@ -29,7 +28,6 @@ const isPersonEventOrGroup = (t: number | string): t is string => typeof t === '
 export function BreakdownFilter({
     filters,
     setFilters,
-    buttonType,
     useMultiBreakdown = false,
 }: TaxonomicBreakdownFilterProps): JSX.Element {
     const { breakdown, breakdowns, breakdown_type } = filters
@@ -103,7 +101,7 @@ export function BreakdownFilter({
         <Space direction="horizontal" wrap>
             {tags}
             {onChange && (!hasSelectedBreakdown || useMultiBreakdown) ? (
-                <TaxonomicBreakdownButton buttonType={buttonType} breakdownType={breakdownType} onChange={onChange} />
+                <TaxonomicBreakdownButton breakdownType={breakdownType} onChange={onChange} />
             ) : null}
         </Space>
     )

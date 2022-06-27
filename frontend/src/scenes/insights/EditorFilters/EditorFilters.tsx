@@ -296,17 +296,20 @@ export function EditorFilters({ insightProps, showing }: EditorFiltersProps): JS
             <div
                 className={clsx('EditorFiltersWrapper', {
                     'EditorFiltersWrapper--editorpanels': usingEditorPanels,
+                    'EditorFiltersWrapper--funnels': !usingEditorPanels && isFunnels,
                 })}
             >
                 <div className="EditorFilters">
-                    {(usingEditorPanels ? editorFilters : legacyEditorFilterGroups).map((editorFilterGroup) => (
-                        <EditorFilterGroup
-                            key={editorFilterGroup.title}
-                            editorFilterGroup={editorFilterGroup}
-                            insight={insight}
-                            insightProps={insightProps}
-                        />
-                    ))}
+                    {(usingEditorPanels || isFunnels ? editorFilters : legacyEditorFilterGroups).map(
+                        (editorFilterGroup) => (
+                            <EditorFilterGroup
+                                key={editorFilterGroup.title}
+                                editorFilterGroup={editorFilterGroup}
+                                insight={insight}
+                                insightProps={insightProps}
+                            />
+                        )
+                    )}
                 </div>
             </div>
         </CSSTransition>
