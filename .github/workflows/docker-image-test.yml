@@ -150,11 +150,13 @@ jobs:
               run: |
                   mkdir -p /tmp/logs
 
-                  docker run --rm --network host --env-file .env $DOCKER_IMAGE ./bin/migrate
-                  docker run --rm --network host --env-file .env $DOCKER_IMAGE python manage.py setup_dev
+                  DOCKER_RUN=docker run --rm --network host --env-file .env $DOCKER_IMAGE --add-host kafka:127.0.0.1 
 
-                  docker run --rm --network host --env-file .env $DOCKER_IMAGE ./bin/docker-worker &> /tmp/logs/worker.txt &
-                  docker run --rm --network host --env-file .env $DOCKER_IMAGE ./bin/docker-server &> /tmp/logs/server.txt &
+                  $DOCKER_RUN ./bin/migrate
+                  $DOCKER_RUN python manage.py setup_dev
+
+                  $DOCKER_RUN ./bin/docker-worker &> /tmp/logs/worker.txt &
+                  $DOCKER_RUN ./bin/docker-server &> /tmp/logs/server.txt &
 
             - name: Cypress run
               uses: cypress-io/github-action@v2
