@@ -20,13 +20,13 @@ from posthog.api.exports import ExportedAssetSerializer
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.client import query_with_columns, sync_execute
 from posthog.models import Element, ExportedAsset, Filter, Person
+from posthog.models.event.query_event_list import query_events_list
 from posthog.models.event.sql import GET_CUSTOM_EVENTS, SELECT_ONE_EVENT_SQL
 from posthog.models.event.util import ClickhouseEventSerializer
 from posthog.models.person.util import get_persons_by_distinct_ids
 from posthog.models.team import Team
 from posthog.models.utils import UUIDT
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
-from posthog.queries.event_query.query_event_list import query_events_list
 from posthog.queries.property_values import get_property_values_for_key
 from posthog.utils import convert_property_value, flatten
 

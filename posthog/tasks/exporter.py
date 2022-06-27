@@ -1,3 +1,4 @@
+import datetime
 import gzip
 import json
 import logging
@@ -19,9 +20,9 @@ from webdriver_manager.utils import ChromeType
 from posthog.celery import app
 from posthog.internal_metrics import incr, timing
 from posthog.models import Filter, Team
+from posthog.models.event.query_event_list import query_events_list
 from posthog.models.exported_asset import ExportedAsset
 from posthog.models.utils import UUIDT
-from posthog.queries.event_query.query_event_list import query_events_list
 from posthog.storage import object_storage
 from posthog.tasks.update_cache import update_insight_cache
 from posthog.utils import absolute_uri
@@ -127,6 +128,17 @@ def _export_to_png(exported_asset: ExportedAsset) -> None:
             driver.close()
 
 
+class CleverJSONEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, uuid.UUID):
+            return str(obj)
+
+        if isinstance(obj, datetime.datetime):
+            return obj.isoformat()
+
+        return json.JSONEncoder.default(self, obj)
+
+
 def stage_results_to_object_storage(day_filter: Filter, context: Dict, team: Team) -> str:
     # load results
     result = query_events_list(
@@ -139,7 +151,8 @@ def stage_results_to_object_storage(day_filter: Filter, context: Dict, team: Tea
     )
     # write them to object storage
     object_path = f"/exports/csvs/team-{team.id}/{UUIDT()}"
-    object_storage.write(object_path, gzip.compress(json.dumps(result).encode("utf-8")))
+    # NB this isn't how you write a a CSV :)
+    object_storage.write(object_path, gzip.compress(json.dumps(result, cls=CleverJSONEncoder).encode("utf-8")))
     # return the path of the new file
     return object_path
 
@@ -152,12 +165,13 @@ def concat_results_in_object_storage(day_files: List[str]) -> None:
 
 
 def _export_to_csv(exported_asset: ExportedAsset) -> None:
-    export_context = json.loads(exported_asset.export_context)
-    if export_context.get("type", None) == "list_events":
-        filter = Filter(data=export_context.get("filter"))
+    if exported_asset.export_context.get("type", None) == "list_events":
+        filter = Filter(data=exported_asset.export_context.get("filter"))
         day_files = []
         for day_filter in filter.split_by_day():
-            day_files.append(stage_results_to_object_storage(day_filter, export_context, exported_asset.team))
+            day_files.append(
+                stage_results_to_object_storage(day_filter, exported_asset.export_context, exported_asset.team)
+            )
 
         concat_results_in_object_storage(day_files)
 
