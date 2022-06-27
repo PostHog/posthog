@@ -3,6 +3,7 @@ import { initKeaTests } from '~/test/init'
 import { useMocks } from '~/mocks/jest'
 import { InsightShortId, SubscriptionType } from '~/types'
 import { subscriptionLogic } from './subscriptionLogic'
+import { router } from 'kea-router'
 
 const Insight1 = '1' as InsightShortId
 
@@ -45,6 +46,7 @@ describe('subscriptionLogic', () => {
     })
 
     it('updates values depending on frequency', async () => {
+        router.actions.push('/insights/123/subscriptions/new')
         await expectLogic(newLogic).toFinishListeners()
         expect(newLogic.values.subscription).toMatchObject({
             frequency: 'weekly',
@@ -66,6 +68,14 @@ describe('subscriptionLogic', () => {
             frequency: 'monthly',
             bysetpos: 1,
             byweekday: ['monday'],
+        })
+    })
+
+    it('sets the type from query params', async () => {
+        router.actions.push('/insights/123/subscriptions/new?target_type=slack')
+        await expectLogic(newLogic).toFinishListeners()
+        expect(newLogic.values.subscription).toMatchObject({
+            target_type: 'slack',
         })
     })
 })
