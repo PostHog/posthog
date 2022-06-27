@@ -6,8 +6,6 @@
 #
 django-rest-hooks@ git+https://github.com/zapier/django-rest-hooks.git@v1.6.0
 amqp==2.5.2
-asgiref==3.3.2
-aioch==0.0.2
 boto3==1.21.29
 celery==4.4.2
 celery-redbeat==2.0.0
