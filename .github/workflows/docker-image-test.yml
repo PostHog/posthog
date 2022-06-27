@@ -1,7 +1,7 @@
 name: Test Docker image build
 
 on:
-    - pull_request
+    - pull_request:
     - push:
           branches:
               - master
