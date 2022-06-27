@@ -1,10 +1,9 @@
 import json
 import urllib
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Any, Dict, List, Optional, Union
 
 from django.db.models.query import Prefetch
-from django.utils.timezone import now
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter
 from rest_framework import mixins, request, response, serializers, status, viewsets
@@ -21,20 +20,13 @@ from posthog.api.exports import ExportedAssetSerializer
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.client import query_with_columns, sync_execute
 from posthog.models import Element, ExportedAsset, Filter, Person
-from posthog.models.action import Action
-from posthog.models.action.util import format_action_filter
-from posthog.models.event.sql import (
-    GET_CUSTOM_EVENTS,
-    SELECT_EVENT_BY_TEAM_AND_CONDITIONS_FILTERS_SQL,
-    SELECT_EVENT_BY_TEAM_AND_CONDITIONS_SQL,
-    SELECT_ONE_EVENT_SQL,
-)
-from posthog.models.event.util import ClickhouseEventSerializer, determine_event_conditions
+from posthog.models.event.sql import GET_CUSTOM_EVENTS, SELECT_ONE_EVENT_SQL
+from posthog.models.event.util import ClickhouseEventSerializer
 from posthog.models.person.util import get_persons_by_distinct_ids
-from posthog.models.property.util import parse_prop_grouped_clauses
 from posthog.models.team import Team
 from posthog.models.utils import UUIDT
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
+from posthog.queries.event_query.query_event_list import query_events_list
 from posthog.queries.property_values import get_property_values_for_key
 from posthog.utils import convert_property_value, flatten
 
@@ -123,7 +115,13 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
                     dashboard=None,
                     insight=None,
                     export_format=ExportedAsset.ExportFormat.CSV,
-                    export_context={"type": "list_events", "filter": filter.to_dict()},
+                    export_context={
+                        "type": "list_events",
+                        "filter": filter.to_dict(),
+                        "request_get_query_dict": request.GET.dict(),
+                        "order_by": self._parse_order_by(self.request),
+                        "action_id": request.GET.get("action_id"),
+                    },
                 )
                 data = ExportedAssetSerializer(export_request, many=False).data
                 create_response = response.Response(
@@ -134,11 +132,26 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
                 )
                 return create_response
 
-            query_result = self._query_events_list(filter, team, request, limit=limit)
+            query_result = query_events_list(
+                filter,
+                team,
+                limit=limit,
+                request_get_query_dict=request.GET.dict(),
+                order_by=self._parse_order_by(self.request),
+                action_id=request.GET.get("action_id"),
+            )
 
             # Retry the query without the 1 day optimization
             if len(query_result) < limit and not request.GET.get("after"):
-                query_result = self._query_events_list(filter, team, request, long_date_from=True, limit=limit)
+                query_result = query_events_list(
+                    filter,
+                    team,
+                    long_date_from=True,
+                    limit=limit,
+                    request_get_query_dict=request.GET.dict(),
+                    order_by=self._parse_order_by(self.request),
+                    action_id=request.GET.get("action_id"),
+                )
 
             result = ClickhouseEventSerializer(
                 query_result[0:limit], many=True, context={"people": self._get_people(query_result, team),},
@@ -162,53 +175,6 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
             for distinct_id in person.distinct_ids:
                 distinct_to_person[distinct_id] = person
         return distinct_to_person
-
-    def _query_events_list(
-        self, filter: Filter, team: Team, request: request.Request, long_date_from: bool = False, limit: int = 100
-    ) -> List:
-
-        limit += 1
-        limit_sql = "LIMIT %(limit)s"
-        order = "DESC" if self._parse_order_by(self.request)[0] == "-timestamp" else "ASC"
-
-        conditions, condition_params = determine_event_conditions(
-            team,
-            {
-                "after": (now() - timedelta(days=1)).isoformat(),
-                "before": (now() + timedelta(seconds=5)).isoformat(),
-                **request.GET.dict(),
-            },
-            long_date_from,
-        )
-        prop_filters, prop_filter_params = parse_prop_grouped_clauses(
-            team_id=team.pk, property_group=filter.property_groups, has_person_id_joined=False
-        )
-
-        if request.GET.get("action_id"):
-            try:
-                action = Action.objects.get(pk=request.GET["action_id"], team_id=team.pk)
-            except Action.DoesNotExist:
-                return []
-            if action.steps.count() == 0:
-                return []
-
-            # NOTE: never accepts cohort parameters so no need for explicit person_id_joined_alias
-            action_query, params = format_action_filter(team_id=team.pk, action=action)
-            prop_filters += " AND {}".format(action_query)
-            prop_filter_params = {**prop_filter_params, **params}
-
-        if prop_filters != "":
-            return query_with_columns(
-                SELECT_EVENT_BY_TEAM_AND_CONDITIONS_FILTERS_SQL.format(
-                    conditions=conditions, limit=limit_sql, filters=prop_filters, order=order
-                ),
-                {"team_id": team.pk, "limit": limit, **condition_params, **prop_filter_params},
-            )
-        else:
-            return query_with_columns(
-                SELECT_EVENT_BY_TEAM_AND_CONDITIONS_SQL.format(conditions=conditions, limit=limit_sql, order=order),
-                {"team_id": team.pk, "limit": limit, **condition_params},
-            )
 
     def retrieve(
         self, request: request.Request, pk: Optional[Union[int, str]] = None, *args: Any, **kwargs: Any

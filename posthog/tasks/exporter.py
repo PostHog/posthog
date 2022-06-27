@@ -1,9 +1,10 @@
+import gzip
 import json
 import logging
 import os
 import time
 import uuid
-from typing import List
+from typing import Dict, List
 
 import structlog
 from django.conf import settings
@@ -17,8 +18,11 @@ from webdriver_manager.utils import ChromeType
 
 from posthog.celery import app
 from posthog.internal_metrics import incr, timing
-from posthog.models import Filter
+from posthog.models import Filter, Team
 from posthog.models.exported_asset import ExportedAsset
+from posthog.models.utils import UUIDT
+from posthog.queries.event_query.query_event_list import query_events_list
+from posthog.storage import object_storage
 from posthog.tasks.update_cache import update_insight_cache
 from posthog.utils import absolute_uri
 
@@ -123,17 +127,21 @@ def _export_to_png(exported_asset: ExportedAsset) -> None:
             driver.close()
 
 
-def _get_filter_by_day(filter: Filter) -> List[Filter]:
-    # split this filter in to multiple single day filters
-    # otherwise the data is too large for ClickHouse to handle
-    return filter.split_by_day()
-
-
-def stage_results_to_object_storage(day_filter: Filter) -> str:
+def stage_results_to_object_storage(day_filter: Filter, context: Dict, team: Team) -> str:
     # load results
+    result = query_events_list(
+        filter=day_filter,
+        team=team,
+        request_get_query_dict=context.get("request_get_query_dict"),
+        order_by=context.get("order_by"),
+        action_id=context.get("action_id"),
+        limit=100_000_000,  # what limit do we want?! None ¯\_(ツ)_/¯
+    )
     # write them to object storage
+    object_path = f"/exports/csvs/team-{team.id}/{UUIDT()}"
+    object_storage.write(object_path, gzip.compress(json.dumps(result).encode("utf-8")))
     # return the path of the new file
-    return "i am a path"
+    return object_path
 
 
 def concat_results_in_object_storage(day_files: List[str]) -> None:
@@ -148,8 +156,8 @@ def _export_to_csv(exported_asset: ExportedAsset) -> None:
     if export_context.get("type", None) == "list_events":
         filter = Filter(data=export_context.get("filter"))
         day_files = []
-        for day_filter in _get_filter_by_day(filter):
-            day_files.append(stage_results_to_object_storage(day_filter))
+        for day_filter in filter.split_by_day():
+            day_files.append(stage_results_to_object_storage(day_filter, export_context, exported_asset.team))
 
         concat_results_in_object_storage(day_files)
 
