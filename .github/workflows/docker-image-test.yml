@@ -76,4 +76,4 @@ jobs:
                   image_size_bytes=$(docker manifest inspect $docker_image | jq '[.layers[].size] | add')
                   echo "### Build info" >> $GITHUB_STEP_SUMMARY
                   echo "Image size: $(numfmt --to=iec --suffix=B --format="%.2f" $image_size_bytes)" >> $GITHUB_STEP_SUMMARY
-                  echo "Image name: $docker_image"
+                  echo "Image name: $docker_image" >> $GITHUB_STEP_SUMMARY
