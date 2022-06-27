@@ -10,9 +10,9 @@ import { CloseOutlined } from '@ant-design/icons'
 import { PayCard } from 'lib/components/PayCard/PayCard'
 import { AvailableFeature } from '~/types'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { insightLogic } from '../insightLogic'
-import { FunnelCorrelationTable } from './Funnels/FunnelCorrelationTable'
-import { FunnelPropertyCorrelationTable } from './Funnels/FunnelPropertyCorrelationTable'
+import { insightLogic } from 'scenes/insights/insightLogic'
+import { FunnelCorrelationTable } from './FunnelCorrelationTable'
+import { FunnelPropertyCorrelationTable } from './FunnelPropertyCorrelationTable'
 
 export const FunnelCorrelation = (): JSX.Element | null => {
     const { insightProps } = useValues(insightLogic)
