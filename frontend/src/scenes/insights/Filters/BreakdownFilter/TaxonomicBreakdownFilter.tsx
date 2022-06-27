@@ -1,5 +1,4 @@
-import { Space, Tag } from 'antd'
-import { ButtonType } from 'antd/lib/button'
+import { Tag } from 'antd'
 import { useValues } from 'kea'
 import { propertyFilterTypeToTaxonomicFilterType } from 'lib/components/PropertyFilters/utils'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
@@ -98,11 +97,11 @@ export function BreakdownFilter({
     const onChange = setFilters ? onFilterChange({ useMultiBreakdown, breakdownParts, setFilters }) : undefined
 
     return (
-        <Space direction="horizontal" wrap>
+        <div className="flex flex-wrap gap-05 items-center">
             {tags}
             {onChange && (!hasSelectedBreakdown || useMultiBreakdown) ? (
                 <TaxonomicBreakdownButton breakdownType={breakdownType} onChange={onChange} />
             ) : null}
-        </Space>
+        </div>
     )
 }
