@@ -198,7 +198,7 @@ class TestColumnOptimizer(ClickhouseTestMixin, APIBaseTest):
 
     def test_should_query_element_chain_column_with_actions(self):
         action = Action.objects.create(team=self.team)
-        step1 = ActionStep.objects.create(
+        ActionStep.objects.create(
             event="$autocapture", action=action, url="https://example.com/donate", url_matching=ActionStep.EXACT,
         )
 

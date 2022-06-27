@@ -123,7 +123,7 @@ class TestClickhouseStickiness(ClickhouseTestMixin, stickiness_test_factory(Clic
     @snapshot_clickhouse_queries
     @patch("posthoganalytics.feature_enabled", return_value=True)
     def test_timezones(self, patch_feature_enabled):
-        people = journeys_for(
+        journeys_for(
             {
                 "person1": [
                     {
