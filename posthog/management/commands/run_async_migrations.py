@@ -12,6 +12,7 @@ from posthog.models.async_migration import (
     get_async_migrations_by_status,
     is_async_migration_complete,
 )
+from posthog.models.instance_setting import get_instance_setting
 
 logger = structlog.get_logger(__name__)
 
@@ -86,7 +87,7 @@ def handle_check(necessary_migrations):
         exit(1)
 
     running_migrations = get_async_migrations_by_status([MigrationStatus.Running, MigrationStatus.Starting])
-    if running_migrations.exists():
+    if running_migrations.exists() and get_instance_setting("ASYNC_MIGRATIONS_RUNNING_BLOCK_UPGRADE"):
         print(
             f"Async migration {running_migrations[0].name} is currently running. If you're trying to update PostHog, wait for it to finish before proceeding."
         )
