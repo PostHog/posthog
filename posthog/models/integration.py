@@ -57,7 +57,7 @@ class SlackIntegration(object):
             if not cursor:
                 break
 
-        return channels
+        return sorted(channels, key=lambda x: x["name"])
 
     @classmethod
     def integration_from_slack_response(cls, team_id: str, created_by: User, params: Dict[str, str]) -> Integration:

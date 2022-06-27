@@ -478,7 +478,7 @@ export function groupBy<T extends Record<string, any>, K extends keyof T>(
         ? objects.reduce((grouping, currentItem) => {
               if (currentItem[key] in grouping) {
                   throw new Error(
-                      `Key "${key}" has more than one matching value, which is not allowed in flat groupBy!`
+                      `Key "${String(key)}" has more than one matching value, which is not allowed in flat groupBy!`
                   )
               }
               grouping[currentItem[key]] = currentItem

@@ -516,6 +516,26 @@ code.code {
     padding-left: 1rem;
 }
 
+.px {
+    padding-left: 1rem;
+    padding-right: 1rem;
+}
+
+.px-05 {
+    padding-left: 0.5rem;
+    padding-right: 0.5rem;
+}
+
+.py {
+    padding-top: 1rem;
+    padding-bottom: 1rem;
+}
+
+.py-05 {
+    padding-top: 0.5rem;
+    padding-bottom: 0.5rem;
+}
+
 .space-y-05 {
     & > * + * {
         @extend .mt-05;

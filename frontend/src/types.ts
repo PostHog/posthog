@@ -1952,4 +1952,6 @@ export interface SlackChannelType {
     id: string
     name: string
     is_private: boolean
+    is_ext_shared: boolean
+    is_member: boolean
 }

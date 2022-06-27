@@ -180,8 +180,8 @@ class Subscription(models.Model):
 def subscription_saved(sender, instance, created, raw, using, **kwargs):
     from posthog.event_usage import report_user_action
 
-    if instance.created_by:
-        event_name: str = "subscription created" if created else "subscription updated"
+    if instance.created_by and instance.resource_info:
+        event_name: str = f"{instance.resource_info.kind.lower()} subscription {'created' if created else 'updated'}"
         report_user_action(instance.created_by, event_name, instance.get_analytics_metadata())
 
 

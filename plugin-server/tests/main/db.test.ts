@@ -1,10 +1,10 @@
 import { DateTime } from 'luxon'
 
-import { Hub, Person, PropertyOperator, PropertyUpdateOperation, Team } from '../../src/types'
+import { Hub, Person, PropertyOperator, PropertyUpdateOperation, Team, TimestampFormat } from '../../src/types'
 import { DB } from '../../src/utils/db/db'
 import { createHub } from '../../src/utils/db/hub'
 import { generateKafkaPersonUpdateMessage } from '../../src/utils/db/utils'
-import { RaceConditionError, UUIDT } from '../../src/utils/utils'
+import { castTimestampOrNow, RaceConditionError, UUIDT } from '../../src/utils/utils'
 import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../helpers/clickhouse'
 import { getFirstTeam, insertRow, resetTestDatabase } from '../helpers/sql'
 import { plugin60 } from './../helpers/plugins'
@@ -24,6 +24,7 @@ describe('DB', () => {
 
     afterEach(async () => {
         await closeServer()
+        jest.clearAllMocks()
     })
 
     const TIMESTAMP = DateTime.fromISO('2000-10-14T11:42:06.502Z').toUTC()
@@ -263,23 +264,23 @@ describe('DB', () => {
             const person = await db.createPerson(TIMESTAMP, {}, {}, {}, team.id, null, false, uuid, [distinctId])
             const fetched_person = await fetchPersonByPersonId(team.id, person.id)
 
-            expect(fetched_person.is_identified).toEqual(false)
-            expect(fetched_person.properties).toEqual({})
-            expect(fetched_person.properties_last_operation).toEqual({})
-            expect(fetched_person.properties_last_updated_at).toEqual({})
-            expect(fetched_person.uuid).toEqual(uuid)
-            expect(fetched_person.team_id).toEqual(team.id)
+            expect(fetched_person!.is_identified).toEqual(false)
+            expect(fetched_person!.properties).toEqual({})
+            expect(fetched_person!.properties_last_operation).toEqual({})
+            expect(fetched_person!.properties_last_updated_at).toEqual({})
+            expect(fetched_person!.uuid).toEqual(uuid)
+            expect(fetched_person!.team_id).toEqual(team.id)
         })
 
         test('without properties indentified true', async () => {
             const person = await db.createPerson(TIMESTAMP, {}, {}, {}, team.id, null, true, uuid, [distinctId])
             const fetched_person = await fetchPersonByPersonId(team.id, person.id)
-            expect(fetched_person.is_identified).toEqual(true)
-            expect(fetched_person.properties).toEqual({})
-            expect(fetched_person.properties_last_operation).toEqual({})
-            expect(fetched_person.properties_last_updated_at).toEqual({})
-            expect(fetched_person.uuid).toEqual(uuid)
-            expect(fetched_person.team_id).toEqual(team.id)
+            expect(fetched_person!.is_identified).toEqual(true)
+            expect(fetched_person!.properties).toEqual({})
+            expect(fetched_person!.properties_last_operation).toEqual({})
+            expect(fetched_person!.properties_last_updated_at).toEqual({})
+            expect(fetched_person!.uuid).toEqual(uuid)
+            expect(fetched_person!.team_id).toEqual(team.id)
         })
 
         test('with properties', async () => {
@@ -295,20 +296,20 @@ describe('DB', () => {
                 [distinctId]
             )
             const fetched_person = await fetchPersonByPersonId(team.id, person.id)
-            expect(fetched_person.is_identified).toEqual(false)
-            expect(fetched_person.properties).toEqual({ a: 123, b: false, c: 'bbb' })
-            expect(fetched_person.properties_last_operation).toEqual({
+            expect(fetched_person!.is_identified).toEqual(false)
+            expect(fetched_person!.properties).toEqual({ a: 123, b: false, c: 'bbb' })
+            expect(fetched_person!.properties_last_operation).toEqual({
                 a: PropertyUpdateOperation.Set,
                 b: PropertyUpdateOperation.Set,
                 c: PropertyUpdateOperation.SetOnce,
             })
-            expect(fetched_person.properties_last_updated_at).toEqual({
+            expect(fetched_person!.properties_last_updated_at).toEqual({
                 a: TIMESTAMP.toISO(),
                 b: TIMESTAMP.toISO(),
                 c: TIMESTAMP.toISO(),
             })
-            expect(fetched_person.uuid).toEqual(uuid)
-            expect(fetched_person.team_id).toEqual(team.id)
+            expect(fetched_person!.uuid).toEqual(uuid)
+            expect(fetched_person!.team_id).toEqual(team.id)
         })
     })
 
@@ -330,9 +331,9 @@ describe('DB', () => {
 
             // verify we have the correct update in Postgres db
             const personDbAfter = await fetchPersonByPersonId(personDbBefore.team_id, personDbBefore.id)
-            expect(personDbAfter.created_at).toEqual(updateTs.toISO())
+            expect(personDbAfter!.created_at).toEqual(updateTs.toISO())
             // we didn't change properties so they should be what was in the db
-            expect(personDbAfter.properties).toEqual({ c: 'aaa' })
+            expect(personDbAfter!.properties).toEqual({ c: 'aaa' })
 
             //verify we got the expected updated person back
             expect(updatedPerson.created_at).toEqual(updateTs)
@@ -606,8 +607,8 @@ describe('DB', () => {
     describe('person and group properties on events', () => {
         beforeEach(async () => {
             const redis = await hub.redisPool.acquire()
-            const keys = (await redis.keys('person_*')).concat(await redis.keys('group_props*'))
-            const promises = []
+            const keys = (await redis.keys('person_*')).concat(await redis.keys('group_*'))
+            const promises: Promise<number>[] = []
             for (const key of keys) {
                 promises.push(redis.del(key))
             }
@@ -659,7 +660,7 @@ describe('DB', () => {
             expect(res?.properties).toEqual({ a: 123, b: false, c: 'bbb' })
         })
 
-        it('Person props are cached and used from cache', async () => {
+        it('person props are cached and used from cache', async () => {
             // manually update from the DB and check that we still get the right props, i.e. previous ones
             const uuid = new UUIDT().toString()
             const distinctId = 'distinct_id1'
@@ -688,7 +689,7 @@ describe('DB', () => {
             expect(res?.properties).toEqual({ a: 333, b: false, c: 'bbb' })
         })
 
-        it('Gets the right group properties', async () => {
+        it('gets the right group properties', async () => {
             await db.insertGroup(
                 // would get cached
                 2,
@@ -718,7 +719,7 @@ describe('DB', () => {
                 ],
                 'testGroupPropertiesOnEvents'
             )
-            const res = await db.getGroupProperties(2, [
+            const res = await db.getPropertiesForGroups(2, [
                 { index: 0, key: 'group_key' },
                 { index: 2, key: 'g2' },
                 { index: 3, key: 'no-such-group' },
@@ -730,7 +731,7 @@ describe('DB', () => {
             })
         })
 
-        it('Group props are cached and used from cache', async () => {
+        it('group props are cached and used from cache', async () => {
             // manually update from the DB and check that we still get the right props, i.e. previous ones
             await db.insertGroup(
                 // would get cached
@@ -752,10 +753,67 @@ describe('DB', () => {
                 [2, 0, 'group_key', JSON.stringify({ prop: 'val-that-isnt-cached' })],
                 'testGroupPropertiesOnEvents'
             )
-            const res = await db.getGroupProperties(2, [{ index: 0, key: 'group_key' }])
+            const res = await db.getPropertiesForGroups(2, [{ index: 0, key: 'group_key' }])
             expect(res).toEqual({
                 group0_properties: '{"prop":"val","num":1234567}',
             })
+        })
+
+        it('gets created_at from DB if cache does not exist', async () => {
+            jest.spyOn(db, 'getGroupsCreatedAtFromDbAndUpdateCache')
+
+            await db.insertGroup(2, 0, 'g0', {}, TIMESTAMP, {}, {}, 1, undefined, { cache: false })
+            await db.insertGroup(2, 1, 'g1', {}, TIMESTAMP.minus(1), {}, {}, 1, undefined, { cache: false })
+            await db.insertGroup(2, 2, 'g2', {}, TIMESTAMP.minus(2), {}, {}, 1, undefined, { cache: false })
+            await db.insertGroup(2, 3, 'g3', {}, TIMESTAMP.minus(3), {}, {}, 1, undefined, { cache: false })
+            await db.insertGroup(2, 4, 'g4', {}, TIMESTAMP.minus(4), {}, {}, 1, undefined, { cache: false })
+
+            const res = await db.getCreatedAtForGroups(2, [
+                { index: 0, key: 'g0' },
+                { index: 1, key: 'g1' },
+                { index: 2, key: 'g2' },
+                { index: 4, key: 'g4' },
+            ])
+
+            expect(res).toEqual({
+                group0_created_at: castTimestampOrNow(TIMESTAMP, TimestampFormat.ClickHouse),
+                group1_created_at: castTimestampOrNow(TIMESTAMP.minus(1), TimestampFormat.ClickHouse),
+                group2_created_at: castTimestampOrNow(TIMESTAMP.minus(2), TimestampFormat.ClickHouse),
+                group4_created_at: castTimestampOrNow(TIMESTAMP.minus(4), TimestampFormat.ClickHouse),
+            })
+
+            expect(db.getGroupsCreatedAtFromDbAndUpdateCache).toHaveBeenCalled()
+        })
+
+        it('group created_at is cached and used from cache', async () => {
+            jest.spyOn(db, 'getGroupsCreatedAtFromDbAndUpdateCache')
+
+            // manually update from the DB and check that we still get the right props, i.e. previous ones
+            await db.insertGroup(
+                // would get cached
+                2,
+                0,
+                'group_key',
+                { prop: 'val', num: 1234567 },
+                TIMESTAMP,
+                { prop: TIMESTAMP.toISO() },
+                { prop: PropertyUpdateOperation.Set },
+                1
+            )
+            await db.postgresQuery(
+                // not cached
+                `
+            UPDATE posthog_group SET created_at = now()
+            WHERE team_id = $1 AND group_type_index = $2 AND group_key = $3
+            `,
+                [2, 0, 'group_key'],
+                'testGroupCreatedAtOnEvents'
+            )
+            const res = await db.getCreatedAtForGroups(2, [{ index: 0, key: 'group_key' }])
+            expect(res).toEqual({
+                group0_created_at: castTimestampOrNow(TIMESTAMP, TimestampFormat.ClickHouse),
+            })
+            expect(db.getGroupsCreatedAtFromDbAndUpdateCache).not.toHaveBeenCalled()
         })
     })
 
