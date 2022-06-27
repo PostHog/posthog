@@ -43,7 +43,7 @@ class TestUser(BaseTest):
         self.team.completed_snippet_onboarding = True
         self.team.ingested_event = True
         self.team.save()
-        team_2: Team = Team.objects.create(organization=self.organization)
+        _: Team = Team.objects.create(organization=self.organization)
         user_2: User = User.objects.create(email="test_org_2@posthog.com", email_opt_in=True)
         user_2.join(organization=self.organization)
 
