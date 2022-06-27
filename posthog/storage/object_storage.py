@@ -25,6 +25,10 @@ class ObjectStorageClient(metaclass=abc.ABCMeta):
         pass
 
     @abc.abstractmethod
+    def read_bytes(self, bucket: str, key: str) -> Optional[bytes]:
+        pass
+
+    @abc.abstractmethod
     def write(self, bucket: str, key: str, content: Union[str, bytes]) -> None:
         pass
 
@@ -34,6 +38,9 @@ class UnavailableStorage(ObjectStorageClient):
         return False
 
     def read(self, bucket: str, key: str) -> Optional[str]:
+        pass
+
+    def read_bytes(self, bucket: str, key: str) -> Optional[bytes]:
         pass
 
     def write(self, bucket: str, key: str, content: Union[str, bytes]) -> None:
@@ -52,11 +59,13 @@ class ObjectStorage(ObjectStorageClient):
             return False
 
     def read(self, bucket: str, key: str) -> Optional[str]:
+        self.read_bytes(bucket, key).decode("utf-8")
+
+    def read_bytes(self, bucket: str, key: str) -> Optional[bytes]:
         s3_response = {}
         try:
             s3_response = self.aws_client.get_object(Bucket=bucket, Key=key)
-            content = s3_response["Body"].read()
-            return content.decode("utf-8")
+            return s3_response["Body"].read()
         except Exception as e:
             logger.error("object_storage.read_failed", bucket=bucket, file_name=key, error=e, s3_response=s3_response)
             raise ObjectStorageError("read failed") from e
@@ -98,8 +107,11 @@ def write(file_name: str, content: Union[str, bytes]) -> None:
 
 
 def read(file_name: str) -> Optional[str]:
-    client = object_storage_client()
-    return client.read(bucket=settings.OBJECT_STORAGE_BUCKET, key=file_name)
+    return object_storage_client().read(bucket=settings.OBJECT_STORAGE_BUCKET, key=file_name)
+
+
+def read_bytes(file_name: str) -> Optional[bytes]:
+    return object_storage_client().read_bytes(bucket=settings.OBJECT_STORAGE_BUCKET, key=file_name)
 
 
 def health_check() -> bool:

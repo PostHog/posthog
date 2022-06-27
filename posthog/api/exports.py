@@ -1,3 +1,4 @@
+import gzip
 import json
 from datetime import datetime, timedelta
 from typing import Any, Dict
@@ -23,6 +24,8 @@ from posthog.models import Insight
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.exported_asset import ExportedAsset, asset_for_token
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
+from posthog.settings import DEBUG
+from posthog.storage import object_storage
 from posthog.tasks import exporter
 from posthog.utils import render_template
 
@@ -31,12 +34,13 @@ logger = structlog.get_logger(__name__)
 MAX_AGE_CONTENT = 86400  # 1 day
 
 
-def get_content_response(asset: ExportedAsset, download: bool = False):
-    res = HttpResponse(asset.content, content_type=asset.export_format)
+def get_content_response(asset: ExportedAsset, content: bytes, download: bool = False):
+    res = HttpResponse(content, content_type=asset.export_format)
     if download:
         res["Content-Disposition"] = f'attachment; filename="{asset.filename}"'
 
-    res["Cache-Control"] = f"max-age={MAX_AGE_CONTENT}"
+    if not DEBUG:
+        res["Cache-Control"] = f"max-age={MAX_AGE_CONTENT}"
 
     return res
 
@@ -114,6 +118,15 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
         return instance
 
 
+def content_for_asset(instance: ExportedAsset):
+    if instance.export_format != "text/csv":
+        return instance.content
+
+    storage_location = instance.export_context.get("storage_location", None)
+    content_bytes = object_storage.read_bytes(storage_location)
+    return gzip.decompress(content_bytes)
+
+
 class ExportedAssetViewSet(
     mixins.RetrieveModelMixin, mixins.CreateModelMixin, StructuredViewSetMixin, viewsets.GenericViewSet
 ):
@@ -130,7 +143,9 @@ class ExportedAssetViewSet(
     @action(methods=["GET"], detail=True)
     def content(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
         instance = self.get_object()
-        return get_content_response(instance, request.query_params.get("download") == "true")
+        return get_content_response(
+            instance, content_for_asset(instance), request.query_params.get("download") == "true"
+        )
 
 
 class ExportedViewerPageViewSet(mixins.RetrieveModelMixin, StructuredViewSetMixin, viewsets.GenericViewSet):
@@ -170,7 +185,7 @@ class ExportedViewerPageViewSet(mixins.RetrieveModelMixin, StructuredViewSetMixi
             if not asset.content:
                 raise serializers.NotFound()
 
-            return get_content_response(asset, request.query_params.get("download") == "true")
+            return get_content_response(asset, content_for_asset(asset), request.query_params.get("download") == "true")
 
         if asset.dashboard:
             dashboard_data = DashboardSerializer(asset.dashboard, context=context).data

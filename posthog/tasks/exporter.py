@@ -156,10 +156,11 @@ def stage_results_to_object_storage(day_filter: Filter, exported_asset: Exported
     temporary_file.write(gzip.compress(json.dumps(result, cls=CleverJSONEncoder).encode("utf-8")))
 
 
-def concat_results_in_object_storage(temporary_file: IO, exported_asset: ExportedAsset) -> None:
+def concat_results_in_object_storage(temporary_file: IO, exported_asset: ExportedAsset) -> str:
     object_path = f"/exports/csvs/team-{exported_asset.team.id}/task-{exported_asset.id}/{UUIDT()}"
     temporary_file.seek(0)
     object_storage.write(object_path, temporary_file.read())
+    return object_path
 
 
 def write_headers(temporary_file: IO) -> None:
@@ -175,7 +176,9 @@ def _export_to_csv(exported_asset: ExportedAsset) -> None:
             for day_filter in filter.split_by_day():
                 stage_results_to_object_storage(day_filter, exported_asset, temporary_file)
 
-            concat_results_in_object_storage(temporary_file, exported_asset)
+            object_path = concat_results_in_object_storage(temporary_file, exported_asset)
+            exported_asset.export_context["storage_location"] = object_path
+            exported_asset.save(update_fields=["export_context"])
 
 
 @app.task()
