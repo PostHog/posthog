@@ -150,7 +150,7 @@ jobs:
               run: |
                   mkdir -p /tmp/logs
 
-                  DOCKER_RUN=docker run --rm --network host --env-file .env $DOCKER_IMAGE --add-host kafka:127.0.0.1 
+                  DOCKER_RUN="docker run --rm --network host --env-file .env $DOCKER_IMAGE --add-host kafka:127.0.0.1"
 
                   $DOCKER_RUN ./bin/migrate
                   $DOCKER_RUN python manage.py setup_dev
