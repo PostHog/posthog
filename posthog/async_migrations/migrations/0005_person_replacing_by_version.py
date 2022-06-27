@@ -98,11 +98,9 @@ class Migration(AsyncMigrationDefinition):
             {"database": settings.CLICKHOUSE_DATABASE, "name": "person"},
         )[0][0]
 
-        has_new_engine = not (
-            "ReplicatedReplacingMergeTree" in person_table_engine and ", version)" in person_table_engine
-        )
+        has_new_engine = "ReplicatedReplacingMergeTree" in person_table_engine and ", version)" in person_table_engine
         persons_backfill_ongoing = get_client().get(REDIS_HIGHWATERMARK_KEY) is not None
-        return has_new_engine and not persons_backfill_ongoing
+        return not has_new_engine or persons_backfill_ongoing
 
     @cached_property
     def operations(self):
