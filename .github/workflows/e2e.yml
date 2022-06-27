@@ -2,7 +2,7 @@ name: E2E
 
 on:
     workflow_run:
-        workflows: [Test Docker image build]
+        workflows: ['Test Docker image build']
         types:
             - completed
 
