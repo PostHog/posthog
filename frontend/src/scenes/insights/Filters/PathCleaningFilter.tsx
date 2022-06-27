@@ -1,19 +1,22 @@
 import React, { useState } from 'react'
 import { PathCleanFilters } from 'lib/components/PathCleanFilters/PathCleanFilters'
-import { Button, Row } from 'antd'
+import { Button, Row, Tooltip } from 'antd'
 import { Popup } from 'lib/components/Popup/Popup'
 import { PathRegexPopup } from 'lib/components/PathCleanFilters/PathCleanFilter'
-import { PathCleanFilterToggle } from './PathCleanFilterToggle'
 import { PlusCircleOutlined } from '@ant-design/icons'
 import { useActions, useValues } from 'kea'
 import { pathsLogic } from 'scenes/paths/pathsLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { LemonSwitch } from '@posthog/lemon-ui'
+import { teamLogic } from 'scenes/teamLogic'
 
-export function PathCleanFilterInput(): JSX.Element {
+export function PathCleaningFilter(): JSX.Element {
     const [open, setOpen] = useState(false)
     const { insightProps } = useValues(insightLogic)
     const { filter } = useValues(pathsLogic(insightProps))
     const { setFilter } = useActions(pathsLogic(insightProps))
+    const { currentTeam } = useValues(teamLogic)
+    const hasFilters = (currentTeam?.path_cleaning_filters || []).length > 0
 
     return (
         <>
@@ -64,7 +67,27 @@ export function PathCleanFilterInput(): JSX.Element {
                         {'Add Rule'}
                     </Button>
                 </Popup>
-                <PathCleanFilterToggle filters={filter} onChange={setFilter} />
+
+                <Tooltip
+                    title={
+                        hasFilters
+                            ? 'Clean paths based using regex replacement.'
+                            : "You don't have path cleaning filters. Click the gear icon to configure it."
+                    }
+                >
+                    <div className="flex gap">
+                        <label>Apply global path URL cleaning</label>
+                        <LemonSwitch
+                            disabled={!hasFilters}
+                            checked={hasFilters ? filter.path_replacements || false : false}
+                            onChange={(checked: boolean) => {
+                                localStorage.setItem('default_path_clean_filters', checked.toString())
+                                setFilter({ path_replacements: checked })
+                            }}
+                            size="small"
+                        />
+                    </div>
+                </Tooltip>
             </Row>
         </>
     )

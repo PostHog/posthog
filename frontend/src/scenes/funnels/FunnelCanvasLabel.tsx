@@ -10,7 +10,7 @@ import './FunnelCanvasLabel.scss'
 import { chartFilterLogic } from 'lib/components/ChartFilter/chartFilterLogic'
 import { FunnelVizType, InsightType } from '~/types'
 import { Tooltip } from 'lib/components/Tooltip'
-import { FunnelStepsPicker } from 'scenes/insights/InsightTabs/FunnelTab/FunnelStepsPicker'
+import { FunnelStepsPicker } from 'scenes/insights/Views/Funnels/FunnelStepsPicker'
 
 export function FunnelCanvasLabel(): JSX.Element | null {
     const { insightProps, filters, activeView } = useValues(insightLogic)

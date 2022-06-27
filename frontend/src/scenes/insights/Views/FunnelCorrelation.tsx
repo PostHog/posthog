@@ -11,8 +11,8 @@ import { PayCard } from 'lib/components/PayCard/PayCard'
 import { AvailableFeature } from '~/types'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { insightLogic } from '../insightLogic'
-import { FunnelCorrelationTable } from '../InsightTabs/FunnelTab/FunnelCorrelationTable'
-import { FunnelPropertyCorrelationTable } from '../InsightTabs/FunnelTab/FunnelPropertyCorrelationTable'
+import { FunnelCorrelationTable } from './Funnels/FunnelCorrelationTable'
+import { FunnelPropertyCorrelationTable } from './Funnels/FunnelPropertyCorrelationTable'
 
 export const FunnelCorrelation = (): JSX.Element | null => {
     const { insightProps } = useValues(insightLogic)

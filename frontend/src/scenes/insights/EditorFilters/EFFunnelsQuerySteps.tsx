@@ -5,12 +5,12 @@ import { ActionFilter } from '../Filters/ActionFilter/ActionFilter'
 import { EditorFilterProps } from '~/types'
 import { groupsModel } from '~/models/groupsModel'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { ToggleButtonChartFilter } from '../InsightTabs/FunnelTab/ToggleButtonChartFilter'
-import { funnelCommandLogic } from '../InsightTabs/FunnelTab/funnelCommandLogic'
+import { ToggleButtonChartFilter } from '../Views/Funnels/ToggleButtonChartFilter'
+import { funnelCommandLogic } from '../Views/Funnels/funnelCommandLogic'
 import { MathAvailability } from 'scenes/insights/Filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { EditorFilterItemTitle } from './EditorFilterItemTitle'
 import { AggregationSelect } from '../Filters/AggregationSelect'
-import { FunnelConversionWindowFilter } from '../InsightTabs/FunnelTab/FunnelConversionWindowFilter'
+import { FunnelConversionWindowFilter } from '../Views/Funnels/FunnelConversionWindowFilter'
 
 const FUNNEL_STEP_COUNT_LIMIT = 20
 

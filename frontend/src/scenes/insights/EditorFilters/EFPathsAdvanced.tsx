@@ -6,7 +6,7 @@ import { InfoCircleOutlined, SettingOutlined } from '@ant-design/icons'
 import { pathsLogic } from 'scenes/paths/pathsLogic'
 import { InputNumber, Tooltip } from 'antd'
 import { Link } from 'lib/components/Link'
-import { PathCleanFilterInput } from '../InsightTabs/PathTab/PathCleanFilterInput'
+import { PathCleaningFilter } from '../Filters/PathCleaningFilter'
 
 export function EFPathsAdvanced({ insightProps }: EditorFilterProps): JSX.Element {
     const { filter } = useValues(pathsLogic(insightProps))
@@ -112,7 +112,7 @@ export function EFPathsAdvanced({ insightProps }: EditorFilterProps): JSX.Elemen
                     </Link>
                 </div>
             </div>
-            <PathCleanFilterInput />
+            <PathCleaningFilter />
         </div>
     )
 }

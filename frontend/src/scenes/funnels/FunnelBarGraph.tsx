@@ -15,7 +15,7 @@ import { getBreakdownMaxIndex, getReferenceStep, getSeriesPositionName } from '.
 import { ChartParams, FunnelStepReference, StepOrderValue } from '~/types'
 import { Tooltip } from 'lib/components/Tooltip'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
-import { getActionFilterFromFunnelStep } from 'scenes/insights/InsightTabs/FunnelTab/funnelStepTableUtils'
+import { getActionFilterFromFunnelStep } from 'scenes/insights/Views/Funnels/funnelStepTableUtils'
 import { useResizeObserver } from '../../lib/hooks/useResizeObserver'
 import { getSeriesColor } from 'lib/colors'
 import { FunnelStepMore } from './FunnelStepMore'
