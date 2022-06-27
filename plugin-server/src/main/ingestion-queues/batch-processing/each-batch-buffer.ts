@@ -50,7 +50,6 @@ export async function eachBatchBuffer(
             }
         }
     }
-
     await commitOffsetsIfNecessary()
     if (cutoffMessage) {
         // Pause the consumer for this partition until we can process all unprocessed messages from this batch
