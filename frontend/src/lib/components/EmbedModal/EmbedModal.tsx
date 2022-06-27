@@ -13,7 +13,7 @@ export function EmbedModal({ visible, closeModal, insightShortId }: ExportModalP
     return (
         <LemonModal onCancel={closeModal} afterClose={closeModal} visible={visible} width={650}>
             Embed stuff
-            <iframe style={{ width: '100%', height: 300 }} src={urls.insightView(insightShortId)} />
+            <iframe style={{ width: '100%', height: 300 }} src={urls.exportPreview({ insight: insightShortId })} />
         </LemonModal>
     )
 }

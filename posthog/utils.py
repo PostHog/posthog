@@ -424,6 +424,14 @@ def cors_response(request, response):
     return response
 
 
+def embedded_response(request, response):
+    response["Access-Control-Allow-Origin"] = f"*"
+    response["Access-Control-Allow-Credentials"] = "true"
+    response["Access-Control-Allow-Methods"] = "GET, OPTIONS"
+    response["X-Frame-Options"] = None
+    return response
+
+
 def generate_cache_key(stringified: str) -> str:
     return "cache_" + hashlib.md5(stringified.encode("utf-8")).hexdigest()
 

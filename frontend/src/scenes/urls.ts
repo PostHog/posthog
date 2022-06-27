@@ -1,5 +1,6 @@
 import { DashboardType, FilterType, InsightShortId } from '~/types'
 import { combineUrl } from 'kea-router'
+import { ExportPreviewParams } from '~/exporter/types'
 
 /**
  * To add a new URL to the front end:
@@ -88,4 +89,5 @@ export const urls = {
     deadLetterQueue: (): string => '/instance/dead_letter_queue',
     unsubscribe: (): string => '/unsubscribe',
     integrationsRedirect: (kind: string): string => `/integrations/${kind}/redirect`,
+    exportPreview: (params: ExportPreviewParams): string => combineUrl(`/exporter/preview/`, params).url,
 }

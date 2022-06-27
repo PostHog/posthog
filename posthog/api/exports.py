@@ -24,7 +24,7 @@ from posthog.models.activity_logging.activity_log import Change, Detail, log_act
 from posthog.models.exported_asset import ExportedAsset, asset_for_token
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.tasks import exporter
-from posthog.utils import render_template
+from posthog.utils import embedded_response, render_template
 
 logger = structlog.get_logger(__name__)
 
@@ -186,4 +186,34 @@ class ExportedViewerPageViewSet(mixins.RetrieveModelMixin, StructuredViewSetMixi
             "exporter.html",
             request=request,
             context={"exported_data": json.dumps(exported_data, cls=DjangoJSONEncoder)},
+        )
+
+
+class ExportedPreviewPageViewSet(mixins.RetrieveModelMixin, StructuredViewSetMixin, viewsets.GenericViewSet):
+    queryset = ExportedAsset.objects.none()
+    permission_classes = [IsAuthenticated]
+
+    def preview(self, request: Request, *args: Any, **kwargs: Any) -> Any:
+        context = {"view": self, "request": request}
+        exported_data: Dict[str, Any] = {"type": "embed"}
+
+        if request.GET.get("dashboard"):
+            dashboard = self.request.user.team.dashboard_set.get(pk=request.GET.get("dashboard"))
+            dashboard_data = DashboardSerializer(dashboard, context=context).data
+            # We don't want the dashboard to be accidentally loaded via the shared endpoint
+            dashboard_data["share_token"] = None
+            exported_data.update({"dashboard": dashboard_data})
+
+        if request.GET.get("insight"):
+            insight = self.request.user.team.insight_set.get(short_id=request.GET.get("insight"))
+            insight_data = InsightSerializer(insight, many=False, context=context).data
+            exported_data.update({"insight": insight_data})
+
+        return embedded_response(
+            request,
+            render_template(
+                "exporter.html",
+                request=request,
+                context={"exported_data": json.dumps(exported_data, cls=DjangoJSONEncoder)},
+            ),
         )

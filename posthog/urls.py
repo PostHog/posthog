@@ -120,6 +120,7 @@ urlpatterns = [
     re_path(r"^api.+", api_not_found),
     path("authorize_and_redirect/", login_required(authorize_and_redirect)),
     path("shared_dashboard/<str:share_token>", dashboard.shared_dashboard),
+    path("exporter/preview/", exports.ExportedPreviewPageViewSet.as_view({"get": "preview"})),
     path("exporter/<str:access_token>", exports.ExportedViewerPageViewSet.as_view({"get": "retrieve"})),
     re_path(r"^demo.*", login_required(demo_route)),
     # ingestion
