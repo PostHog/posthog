@@ -1528,3 +1528,14 @@ export function IconSlack(props: React.SVGProps<SVGSVGElement>): JSX.Element {
         </svg>
     )
 }
+
+export function IconSlackExternal(props: React.SVGProps<SVGSVGElement>): JSX.Element {
+    return (
+        <svg width="16" height="16" viewBox="0 0 20 20" {...props}>
+            <g fill="currentColor" stroke="currentColor" strokeLinejoin="round" strokeWidth="1.5">
+                <path d="M13 4.75 18.25 10 13 15.25 7.75 10 13 4.75Z" />
+                <path d="M8.01 5.76 7 4.75 1.75 10 7 15.25l1.01-1.01-2.872-3.037a1.75 1.75 0 0 1 0-2.406L8.01 5.76Z" />
+            </g>
+        </svg>
+    )
+}

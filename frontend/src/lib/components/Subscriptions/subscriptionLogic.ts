@@ -14,6 +14,7 @@ import { subscriptionsLogic } from './subscriptionsLogic'
 import type { subscriptionLogicType } from './subscriptionLogicType'
 import { getInsightId } from 'scenes/insights/utils'
 import { SubscriptionBaseProps, urlForSubscription } from './utils'
+import { integrationsLogic } from 'scenes/project/Settings/integrationsLogic'
 
 const NEW_SUBSCRIPTION: Partial<SubscriptionType> = {
     frequency: 'weekly',
@@ -33,11 +34,12 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
     key(({ id, insightShortId, dashboardId }) => `${insightShortId || dashboardId}-${id ?? 'new'}`),
     connect(({ insightShortId, dashboardId }: SubscriptionsLogicProps) => ({
         actions: [subscriptionsLogic({ insightShortId, dashboardId }), ['loadSubscriptions']],
+        values: [integrationsLogic, ['isMemberOfSlackChannel']],
     })),
 
     loaders(({ props }) => ({
         subscription: {
-            __default: {} as SubscriptionType,
+            __default: undefined as unknown as SubscriptionType,
             loadSubscription: async () => {
                 if (props.id && props.id !== 'new') {
                     return await api.subscriptions.get(props.id)
@@ -47,9 +49,9 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
         },
     })),
 
-    forms(({ props, actions }) => ({
+    forms(({ props, actions, values }) => ({
         subscription: {
-            defaults: { ...NEW_SUBSCRIPTION } as SubscriptionType,
+            defaults: {} as unknown as SubscriptionType,
             errors: ({ frequency, interval, target_value, target_type, title, start_date }) => ({
                 frequency: !frequency ? 'You need to set a schedule frequency' : undefined,
                 title: !title ? 'You need to give your subscription a name' : undefined,
@@ -75,6 +77,12 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                         ? 'Must be a valid URL'
                         : undefined
                     : undefined,
+                memberOfSlackChannel:
+                    target_type == 'slack'
+                        ? !values.isMemberOfSlackChannel(target_value)
+                            ? 'Please add the PostHog App to the selected Slack channel'
+                            : undefined
+                        : undefined,
             }),
             submit: async (subscription, breakpoint) => {
                 const insightId = props.insightShortId ? await getInsightId(props.insightShortId) : undefined
@@ -85,26 +93,24 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                     dashboard: props.dashboardId,
                 }
 
-                let subscriptionId = props.id
-
                 breakpoint()
 
-                if (subscriptionId === 'new') {
-                    const newSub = await api.subscriptions.create(payload)
-                    subscriptionId = newSub.id
-                } else {
-                    await api.subscriptions.update(subscriptionId, payload)
-                }
+                const updatedSub =
+                    props.id === 'new'
+                        ? await api.subscriptions.create(payload)
+                        : await api.subscriptions.update(props.id, payload)
 
                 actions.resetSubscription()
 
-                if (subscriptionId !== props.id) {
-                    router.actions.replace(urlForSubscription(subscriptionId, props))
+                if (updatedSub.id !== props.id) {
+                    router.actions.replace(urlForSubscription(updatedSub.id, props))
                 }
 
                 actions.loadSubscriptions()
-                actions.loadSubscription()
+                actions.loadSubscriptionSuccess(updatedSub)
                 lemonToast.success(`Subscription saved.`)
+
+                return updatedSub
             },
         },
     })),

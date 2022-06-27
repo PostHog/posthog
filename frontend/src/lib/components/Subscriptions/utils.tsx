@@ -2,8 +2,9 @@ import React from 'react'
 import { LemonSelectOptions } from '@posthog/lemon-ui'
 import { range } from 'lib/utils'
 import { urls } from 'scenes/urls'
-import { InsightShortId } from '~/types'
-import { IconMail, IconSlack } from '../icons'
+import { InsightShortId, SlackChannelType } from '~/types'
+import { IconMail, IconSlack, IconSlackExternal } from '../icons'
+import { LemonSelectMultipleOptionItem } from '../LemonSelectMultiple/LemonSelectMultiple'
 
 export interface SubscriptionBaseProps {
     dashboardId?: number
@@ -81,3 +82,27 @@ export const timeOptions: LemonSelectOptions = range(0, 24).reduce(
     }),
     {}
 )
+
+export const getSlackChannelOptions = (
+    value: string,
+    slackChannels?: SlackChannelType[] | null
+): LemonSelectMultipleOptionItem[] => {
+    return slackChannels
+        ? slackChannels.map((x) => ({
+              key: `${x.id}|#${x.name}`,
+              label: (
+                  <span className="flex items-center">
+                      {x.is_private ? `🔒${x.name}` : `#${x.name}`}
+                      {x.is_ext_shared ? <IconSlackExternal className="ml-05" /> : null}
+                  </span>
+              ),
+          }))
+        : value
+        ? [
+              {
+                  key: value,
+                  label: value?.split('|')?.pop(),
+              },
+          ]
+        : []
+}
