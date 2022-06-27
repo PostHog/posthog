@@ -7,7 +7,7 @@ from django.db.models.query import Prefetch
 from django.utils.timezone import now
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter
-from rest_framework import mixins, request, response, serializers, viewsets
+from rest_framework import mixins, request, response, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound
 from rest_framework.pagination import LimitOffsetPagination
@@ -17,9 +17,10 @@ from rest_framework_csv import renderers as csvrenderers
 from sentry_sdk import capture_exception
 
 from posthog.api.documentation import PropertiesSerializer, extend_schema
+from posthog.api.exports import ExportedAssetSerializer
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.client import query_with_columns, sync_execute
-from posthog.models import Element, Filter, Person
+from posthog.models import Element, ExportedAsset, Filter, Person
 from posthog.models.action import Action
 from posthog.models.action.util import format_action_filter
 from posthog.models.event.sql import (
@@ -115,6 +116,23 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
 
             team = self.team
             filter = Filter(request=request, team=self.team)
+
+            if is_csv_request:
+                export_request = ExportedAsset.objects.create(
+                    team=self.team,
+                    dashboard=None,
+                    insight=None,
+                    export_format=ExportedAsset.ExportFormat.CSV,
+                    export_context={"type": "list_events", "filter": filter.to_dict()},
+                )
+                data = ExportedAssetSerializer(export_request, many=False).data
+                create_response = response.Response(
+                    data=data, status=status.HTTP_201_CREATED, content_type="application/json",
+                )
+                create_response["location"] = request.build_absolute_uri(
+                    f"/api/projects/{self.team.id}/exports/{export_request.id}"
+                )
+                return create_response
 
             query_result = self._query_events_list(filter, team, request, limit=limit)
 

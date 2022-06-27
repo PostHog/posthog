@@ -1,7 +1,9 @@
+import json
 import logging
 import os
 import time
 import uuid
+from typing import List
 
 import structlog
 from django.conf import settings
@@ -15,6 +17,7 @@ from webdriver_manager.utils import ChromeType
 
 from posthog.celery import app
 from posthog.internal_metrics import incr, timing
+from posthog.models import Filter
 from posthog.models.exported_asset import ExportedAsset
 from posthog.tasks.update_cache import update_insight_cache
 from posthog.utils import absolute_uri
@@ -120,6 +123,37 @@ def _export_to_png(exported_asset: ExportedAsset) -> None:
             driver.close()
 
 
+def _get_filter_by_day(filter: Filter) -> List[Filter]:
+    # split this filter in to multiple single day filters
+    # otherwise the data is too large for ClickHouse to handle
+    return []
+
+
+def stage_results_to_object_storage(day_filter: Filter) -> str:
+    # load results
+    # write them to object storage
+    # return the path of the new file
+    return "i am a path"
+
+
+def concat_results_in_object_storage(day_files: List[str]) -> None:
+    # each of the files can be loaded in order and concatenated
+    # to make one big CSV
+    # and then the asset updated?
+    pass
+
+
+def _export_to_csv(exported_asset: ExportedAsset) -> None:
+    export_context = json.loads(exported_asset.export_context)
+    if export_context.get("type", None) == "list_events":
+        filter = Filter(data=export_context.get("filter"))
+        day_files = []
+        for day_filter in _get_filter_by_day(filter):
+            day_files.append(stage_results_to_object_storage(day_filter))
+
+        concat_results_in_object_storage(day_files)
+
+
 @app.task()
 def export_task(exported_asset_id: int) -> None:
     exported_asset = ExportedAsset.objects.select_related("insight", "dashboard").get(pk=exported_asset_id)
@@ -130,5 +164,7 @@ def export_task(exported_asset_id: int) -> None:
 
     if exported_asset.export_format == "image/png":
         return _export_to_png(exported_asset)
+    elif exported_asset.export_format == "text/csv":
+        return _export_to_csv(exported_asset)
     else:
         raise NotImplementedError(f"Export to format {exported_asset.export_format} is not supported")
