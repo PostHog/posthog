@@ -43,7 +43,6 @@ export function EFFunnelsQuerySteps({ insightProps }: EditorFilterProps): JSX.El
 
             <ActionFilter
                 bordered
-                propertyFiltersPopover
                 filters={filters}
                 setFilters={setFilters}
                 typeKey={`EditFunnel-action`}

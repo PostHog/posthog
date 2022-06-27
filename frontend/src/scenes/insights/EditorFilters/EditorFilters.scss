@@ -19,8 +19,9 @@
             .EditorFilterGroup {
                 flex: 1;
             }
+
             > * + * {
-                margin-top: 0px;
+                margin-top: 0;
             }
         }
     }
@@ -30,6 +31,10 @@
         .EditorFilters {
             flex-direction: column;
             gap: 0rem;
+
+            > * + * {
+                margin-top: 1rem;
+            }
         }
     }
 
