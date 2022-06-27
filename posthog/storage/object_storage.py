@@ -30,14 +30,14 @@ class ObjectStorageClient(metaclass=abc.ABCMeta):
 
 
 class UnavailableStorage(ObjectStorageClient):
+    def head_bucket(self, bucket: str):
+        return False
+
     def read(self, bucket: str, key: str) -> Optional[str]:
         pass
 
     def write(self, bucket: str, key: str, content: Union[str, bytes]) -> None:
         pass
-
-    def head_bucket(self, bucket: str):
-        return False
 
 
 class ObjectStorage(ObjectStorageClient):
