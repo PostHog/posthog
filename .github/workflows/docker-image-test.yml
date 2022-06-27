@@ -12,6 +12,9 @@ jobs:
         name: Test image build
         runs-on: ubuntu-20.04
 
+        outputs:
+            docker_image: ghcr.io/posthog/posthog/posthog@${{ steps.docker_build.outputs.digest }}
+
         steps:
             - name: Checkout PR branch
               uses: actions/checkout@v2
@@ -157,6 +160,8 @@ jobs:
                   EOT
 
             - name: Boot PostHog
+              env:
+                  DOCKER_IMAGE: ${{ needs.build.outputs.docker_image }}
               run: |
                   mkdir -p /tmp/logs
 
