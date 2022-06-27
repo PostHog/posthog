@@ -155,6 +155,8 @@ export class KafkaQueue {
                 clearTimeout(this.sleepTimeout)
             }
             clearInterval(sleepHeartbeatInterval)
+            // Seek so that after resuming we start exactly where we left off (with the cutoff message)
+            // instead of skipping over messages left for later in the last batch
             this.consumer.seek({ topic: this.bufferTopic, partition, offset })
             this.resume(this.bufferTopic, partition)
         }, sleepMs)
