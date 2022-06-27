@@ -126,7 +126,7 @@ def _export_to_png(exported_asset: ExportedAsset) -> None:
 def _get_filter_by_day(filter: Filter) -> List[Filter]:
     # split this filter in to multiple single day filters
     # otherwise the data is too large for ClickHouse to handle
-    return []
+    return filter.split_by_day()
 
 
 def stage_results_to_object_storage(day_filter: Filter) -> str:
