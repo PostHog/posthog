@@ -62,8 +62,8 @@ export function SlackIntegration(): JSX.Element {
                             Disconnect
                         </LemonButton>
                     </div>
-                ) : addToSlackButtonUrl ? (
-                    <a href={addToSlackButtonUrl}>
+                ) : addToSlackButtonUrl() ? (
+                    <a href={addToSlackButtonUrl() || ''}>
                         <img
                             alt="Add to Slack"
                             height="40"

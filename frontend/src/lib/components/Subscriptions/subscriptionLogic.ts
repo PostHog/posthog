@@ -1,4 +1,4 @@
-import { afterMount, connect, kea, key, listeners, path, props } from 'kea'
+import { connect, kea, key, listeners, path, props } from 'kea'
 import { SubscriptionType } from '~/types'
 
 import api from 'lib/api'
@@ -8,7 +8,7 @@ import { forms } from 'kea-forms'
 import { isEmail, isURL } from 'lib/utils'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from '../lemonToast'
-import { beforeUnload, router } from 'kea-router'
+import { beforeUnload, router, urlToAction } from 'kea-router'
 import { subscriptionsLogic } from './subscriptionsLogic'
 
 import type { subscriptionLogicType } from './subscriptionLogicType'
@@ -80,7 +80,7 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                 memberOfSlackChannel:
                     target_type == 'slack'
                         ? !values.isMemberOfSlackChannel(target_value)
-                            ? 'Please add the PostHog App to the selected Slack channel'
+                            ? 'Please add the PostHog Slack App to the selected channel'
                             : undefined
                         : undefined,
             }),
@@ -95,7 +95,7 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
 
                 breakpoint()
 
-                const updatedSub =
+                const updatedSub: SubscriptionType =
                     props.id === 'new'
                         ? await api.subscriptions.create(payload)
                         : await api.subscriptions.update(props.id, payload)
@@ -147,5 +147,15 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
         },
     })),
 
-    afterMount(({ actions }) => actions.loadSubscription()),
+    urlToAction(({ actions }) => ({
+        '/*/*/subscriptions/new': (_, searchParams) => {
+            actions.loadSubscriptionSuccess({ ...NEW_SUBSCRIPTION })
+            if (searchParams.target_type) {
+                actions.setSubscriptionValue('target_type', searchParams.target_type)
+            }
+        },
+        '/*/*/subscriptions/:id': () => {
+            actions.loadSubscription()
+        },
+    })),
 ])
