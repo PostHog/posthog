@@ -45,7 +45,7 @@ SectionedOptions.args = {
         {
             label: (
                 <>
-                    <h5>I am a Custom label</h5>
+                    <h5>I am a Custom label!</h5>
                     <div className="text-muted mx-05">I can put whatever I want here</div>
                 </>
             ),
