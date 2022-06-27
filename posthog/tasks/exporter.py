@@ -3,9 +3,10 @@ import gzip
 import json
 import logging
 import os
+import tempfile
 import time
 import uuid
-from typing import Dict, List
+from typing import IO
 
 import structlog
 from django.conf import settings
@@ -19,7 +20,7 @@ from webdriver_manager.utils import ChromeType
 
 from posthog.celery import app
 from posthog.internal_metrics import incr, timing
-from posthog.models import Filter, Team
+from posthog.models import Filter
 from posthog.models.event.query_event_list import query_events_list
 from posthog.models.exported_asset import ExportedAsset
 from posthog.models.utils import UUIDT
@@ -139,41 +140,42 @@ class CleverJSONEncoder(json.JSONEncoder):
         return json.JSONEncoder.default(self, obj)
 
 
-def stage_results_to_object_storage(day_filter: Filter, context: Dict, team: Team) -> str:
+def stage_results_to_object_storage(day_filter: Filter, exported_asset: ExportedAsset, temporary_file: IO) -> None:
     # load results
     result = query_events_list(
         filter=day_filter,
-        team=team,
-        request_get_query_dict=context.get("request_get_query_dict"),
-        order_by=context.get("order_by"),
-        action_id=context.get("action_id"),
+        team=exported_asset.team,
+        request_get_query_dict=exported_asset.export_context.get("request_get_query_dict"),
+        order_by=exported_asset.export_context.get("order_by"),
+        action_id=exported_asset.export_context.get("action_id"),
         limit=100_000_000,  # what limit do we want?! None ¯\_(ツ)_/¯
     )
     # write them to object storage
-    object_path = f"/exports/csvs/team-{team.id}/{UUIDT()}"
-    # NB this isn't how you write a a CSV :)
-    object_storage.write(object_path, gzip.compress(json.dumps(result, cls=CleverJSONEncoder).encode("utf-8")))
-    # return the path of the new file
-    return object_path
+    # object_path = f"/exports/csvs/team-{exported_asset.team.id}/task-{exported_asset.id}/{UUIDT()}"
+    # NB this isn't how you write a CSV :)
+    temporary_file.write(gzip.compress(json.dumps(result, cls=CleverJSONEncoder).encode("utf-8")))
 
 
-def concat_results_in_object_storage(day_files: List[str]) -> None:
-    # each of the files can be loaded in order and concatenated
-    # to make one big CSV
-    # and then the asset updated?
-    pass
+def concat_results_in_object_storage(temporary_file: IO, exported_asset: ExportedAsset) -> None:
+    object_path = f"/exports/csvs/team-{exported_asset.team.id}/task-{exported_asset.id}/{UUIDT()}"
+    temporary_file.seek(0)
+    object_storage.write(object_path, temporary_file.read())
+
+
+def write_headers(temporary_file: IO) -> None:
+    temporary_file.write(gzip.compress("the, headers, for, the, csv".encode("utf-8")))
 
 
 def _export_to_csv(exported_asset: ExportedAsset) -> None:
     if exported_asset.export_context.get("type", None) == "list_events":
         filter = Filter(data=exported_asset.export_context.get("filter"))
-        day_files = []
-        for day_filter in filter.split_by_day():
-            day_files.append(
-                stage_results_to_object_storage(day_filter, exported_asset.export_context, exported_asset.team)
-            )
 
-        concat_results_in_object_storage(day_files)
+        with tempfile.TemporaryFile() as temporary_file:
+            write_headers(temporary_file)
+            for day_filter in filter.split_by_day():
+                stage_results_to_object_storage(day_filter, exported_asset, temporary_file)
+
+            concat_results_in_object_storage(temporary_file, exported_asset)
 
 
 @app.task()
