@@ -16,6 +16,7 @@ def get_default_access_token() -> str:
 
 
 class ExportedAsset(models.Model):
+    # deprecated
     class ExportType(models.TextChoices):
         DASHBOARD = "dashboard", "Dashboard"
         INSIGHT = "insight", "Insight"
