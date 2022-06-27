@@ -230,7 +230,7 @@ class TestFeatureFlagsWithOverrides(BaseTest, QueryMatchingTest):
     @classmethod
     def setUpTestData(cls):
         super().setUpTestData()
-        person = Person.objects.create(
+        Person.objects.create(
             team=cls.team,
             distinct_ids=["distinct_id", "another_id"],
             properties={"email": "tim@posthog.com", "team": "posthog"},

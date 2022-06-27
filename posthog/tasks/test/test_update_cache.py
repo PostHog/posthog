@@ -380,7 +380,7 @@ class TestUpdateCache(APIBaseTest):
             # This function will throw an exception every time which is what we want in production
             try:
                 update_cached_items()
-            except Exception as e:
+            except Exception:
                 pass
 
         _update_cached_items()
@@ -410,7 +410,7 @@ class TestUpdateCache(APIBaseTest):
 
         # If a user later comes back and manually refreshes we should reset refresh_attempt
         patch_calculate_by_filter.side_effect = None
-        data = self.client.get(f"/api/projects/{self.team.pk}/insights/{item_to_cache.pk}/?refresh=true")
+        self.client.get(f"/api/projects/{self.team.pk}/insights/{item_to_cache.pk}/?refresh=true")
         self.assertEqual(Insight.objects.get().refresh_attempt, 0)
         self.assertEqual(DashboardTile.objects.get().refresh_attempt, 0)
 
@@ -437,7 +437,7 @@ class TestUpdateCache(APIBaseTest):
             # This function will throw an exception every time which is what we want in production
             try:
                 update_cached_items()
-            except Exception as e:
+            except Exception:
                 pass
 
         _update_cached_items()
@@ -467,7 +467,7 @@ class TestUpdateCache(APIBaseTest):
 
         # If a user later comes back and manually refreshes we should reset refresh_attempt
         patch_calculate_by_filter.side_effect = None
-        data = self.client.get(
+        self.client.get(
             f"/api/projects/{self.team.pk}/insights/{item_to_cache.pk}/?refresh=true&from_dashboard={dashboard_to_cache.id}"
         )
         self.assertEqual(Insight.objects.get().refresh_attempt, None)

@@ -39,7 +39,7 @@ class TestCohort(BaseTest):
         person1 = Person.objects.create(
             distinct_ids=["person1"], team_id=self.team.pk, properties={"$some_prop": "something"}
         )
-        person2 = Person.objects.create(distinct_ids=["person2"], team_id=self.team.pk, properties={})
+        Person.objects.create(distinct_ids=["person2"], team_id=self.team.pk, properties={})
         person3 = Person.objects.create(
             distinct_ids=["person3"], team_id=self.team.pk, properties={"$some_prop": "something"}
         )
@@ -69,13 +69,9 @@ class TestCohort(BaseTest):
 
     @patch("time.sleep", return_value=None)
     def test_batch_delete_cohort_people(self, patch_sleep):
-        person1 = Person.objects.create(
-            distinct_ids=["person1"], team_id=self.team.pk, properties={"$some_prop": "something"}
-        )
-        person2 = Person.objects.create(distinct_ids=["person2"], team_id=self.team.pk, properties={})
-        person3 = Person.objects.create(
-            distinct_ids=["person3"], team_id=self.team.pk, properties={"$some_prop": "something"}
-        )
+        Person.objects.create(distinct_ids=["person1"], team_id=self.team.pk, properties={"$some_prop": "something"})
+        Person.objects.create(distinct_ids=["person2"], team_id=self.team.pk, properties={})
+        Person.objects.create(distinct_ids=["person3"], team_id=self.team.pk, properties={"$some_prop": "something"})
         cohort = Cohort.objects.create(
             team=self.team,
             groups=[{"properties": [{"key": "$some_prop", "value": "something", "type": "person"}]}],

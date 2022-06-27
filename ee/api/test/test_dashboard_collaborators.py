@@ -168,7 +168,6 @@ class TestDashboardCollaboratorsAPI(APILicensedTest):
             f"/api/projects/{self.test_dashboard.team_id}/dashboards/{self.test_dashboard.id}/collaborators/{other_user.uuid}",
             {"level": Dashboard.PrivilegeLevel.CAN_VIEW,},
         )
-        response_data = response.json()
 
         self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
 

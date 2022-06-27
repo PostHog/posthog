@@ -218,20 +218,18 @@ def paths_test_factory(paths):
             _create_person(team_id=self.team.pk, distinct_ids=["person_3"])
             _create_person(team_id=self.team.pk, distinct_ids=["person_4"])
 
-            events = [
-                _create_event(distinct_id="person_1", event="custom_event_1", team=self.team, properties={}),
-                _create_event(distinct_id="person_1", event="custom_event_3", team=self.team, properties={}),
-                _create_event(
-                    properties={"$current_url": "/"}, distinct_id="person_1", event="$pageview", team=self.team,
-                ),  # should be ignored,
-                _create_event(distinct_id="person_2", event="custom_event_1", team=self.team, properties={}),
-                _create_event(distinct_id="person_2", event="custom_event_2", team=self.team, properties={}),
-                _create_event(distinct_id="person_2", event="custom_event_3", team=self.team, properties={}),
-                _create_event(distinct_id="person_3", event="custom_event_2", team=self.team, properties={}),
-                _create_event(distinct_id="person_3", event="custom_event_1", team=self.team, properties={}),
-                _create_event(distinct_id="person_4", event="custom_event_1", team=self.team, properties={}),
-                _create_event(distinct_id="person_4", event="custom_event_2", team=self.team, properties={}),
-            ]
+            _create_event(distinct_id="person_1", event="custom_event_1", team=self.team, properties={}),
+            _create_event(distinct_id="person_1", event="custom_event_3", team=self.team, properties={}),
+            _create_event(
+                properties={"$current_url": "/"}, distinct_id="person_1", event="$pageview", team=self.team,
+            ),  # should be ignored,
+            _create_event(distinct_id="person_2", event="custom_event_1", team=self.team, properties={}),
+            _create_event(distinct_id="person_2", event="custom_event_2", team=self.team, properties={}),
+            _create_event(distinct_id="person_2", event="custom_event_3", team=self.team, properties={}),
+            _create_event(distinct_id="person_3", event="custom_event_2", team=self.team, properties={}),
+            _create_event(distinct_id="person_3", event="custom_event_1", team=self.team, properties={}),
+            _create_event(distinct_id="person_4", event="custom_event_1", team=self.team, properties={}),
+            _create_event(distinct_id="person_4", event="custom_event_2", team=self.team, properties={}),
 
             filter = PathFilter(data={"path_type": "custom_event"})
             response = paths(team=self.team, filter=filter).run(team=self.team, filter=filter)
@@ -257,35 +255,26 @@ def paths_test_factory(paths):
             _create_person(team_id=self.team.pk, distinct_ids=["person_2a", "person_2b"])
             _create_person(team_id=self.team.pk, distinct_ids=["person_3"])
             _create_person(team_id=self.team.pk, distinct_ids=["person_4"])
-            events = [
-                _create_event(
-                    properties={"$screen_name": "/"}, distinct_id="person_1", event="$screen", team=self.team,
-                ),
-                _create_event(
-                    properties={"$screen_name": "/about"}, distinct_id="person_1", event="$screen", team=self.team,
-                ),
-                _create_event(
-                    properties={"$screen_name": "/"}, distinct_id="person_2b", event="$screen", team=self.team,
-                ),
-                _create_event(
-                    properties={"$screen_name": "/pricing"}, distinct_id="person_2a", event="$screen", team=self.team,
-                ),
-                _create_event(
-                    properties={"$screen_name": "/about"}, distinct_id="person_2b", event="$screen", team=self.team,
-                ),
-                _create_event(
-                    properties={"$screen_name": "/pricing"}, distinct_id="person_3", event="$screen", team=self.team,
-                ),
-                _create_event(
-                    properties={"$screen_name": "/"}, distinct_id="person_3", event="$screen", team=self.team,
-                ),
-                _create_event(
-                    properties={"$screen_name": "/"}, distinct_id="person_4", event="$screen", team=self.team,
-                ),
-                _create_event(
-                    properties={"$screen_name": "/pricing"}, distinct_id="person_4", event="$screen", team=self.team,
-                ),
-            ]
+
+            _create_event(properties={"$screen_name": "/"}, distinct_id="person_1", event="$screen", team=self.team,),
+            _create_event(
+                properties={"$screen_name": "/about"}, distinct_id="person_1", event="$screen", team=self.team,
+            ),
+            _create_event(properties={"$screen_name": "/"}, distinct_id="person_2b", event="$screen", team=self.team,),
+            _create_event(
+                properties={"$screen_name": "/pricing"}, distinct_id="person_2a", event="$screen", team=self.team,
+            ),
+            _create_event(
+                properties={"$screen_name": "/about"}, distinct_id="person_2b", event="$screen", team=self.team,
+            ),
+            _create_event(
+                properties={"$screen_name": "/pricing"}, distinct_id="person_3", event="$screen", team=self.team,
+            ),
+            _create_event(properties={"$screen_name": "/"}, distinct_id="person_3", event="$screen", team=self.team,),
+            _create_event(properties={"$screen_name": "/"}, distinct_id="person_4", event="$screen", team=self.team,),
+            _create_event(
+                properties={"$screen_name": "/pricing"}, distinct_id="person_4", event="$screen", team=self.team,
+            ),
 
             filter = PathFilter(data={"path_type": "$screen"})
             response = paths(team=self.team, filter=filter).run(team=self.team, filter=filter)
@@ -311,50 +300,44 @@ def paths_test_factory(paths):
             _create_person(team_id=self.team.pk, distinct_ids=["person_3"])
             _create_person(team_id=self.team.pk, distinct_ids=["person_4"])
 
-            events = [
-                _create_event(
-                    properties={"$current_url": "/", "$browser": "Chrome"},
-                    distinct_id="person_1",
-                    event="$pageview",
-                    team=self.team,
-                ),
-                _create_event(
-                    properties={"$current_url": "/about", "$browser": "Chrome"},
-                    distinct_id="person_1",
-                    event="$pageview",
-                    team=self.team,
-                ),
-                _create_event(
-                    properties={"$current_url": "/", "$browser": "Chrome"},
-                    distinct_id="person_2",
-                    event="$pageview",
-                    team=self.team,
-                ),
-                _create_event(
-                    properties={"$current_url": "/pricing", "$browser": "Chrome"},
-                    distinct_id="person_2",
-                    event="$pageview",
-                    team=self.team,
-                ),
-                _create_event(
-                    properties={"$current_url": "/about", "$browser": "Chrome"},
-                    distinct_id="person_2",
-                    event="$pageview",
-                    team=self.team,
-                ),
-                _create_event(
-                    properties={"$current_url": "/pricing"}, distinct_id="person_3", event="$pageview", team=self.team,
-                ),
-                _create_event(
-                    properties={"$current_url": "/"}, distinct_id="person_3", event="$pageview", team=self.team,
-                ),
-                _create_event(
-                    properties={"$current_url": "/"}, distinct_id="person_4", event="$pageview", team=self.team,
-                ),
-                _create_event(
-                    properties={"$current_url": "/pricing"}, distinct_id="person_4", event="$pageview", team=self.team,
-                ),
-            ]
+            _create_event(
+                properties={"$current_url": "/", "$browser": "Chrome"},
+                distinct_id="person_1",
+                event="$pageview",
+                team=self.team,
+            ),
+            _create_event(
+                properties={"$current_url": "/about", "$browser": "Chrome"},
+                distinct_id="person_1",
+                event="$pageview",
+                team=self.team,
+            ),
+            _create_event(
+                properties={"$current_url": "/", "$browser": "Chrome"},
+                distinct_id="person_2",
+                event="$pageview",
+                team=self.team,
+            ),
+            _create_event(
+                properties={"$current_url": "/pricing", "$browser": "Chrome"},
+                distinct_id="person_2",
+                event="$pageview",
+                team=self.team,
+            ),
+            _create_event(
+                properties={"$current_url": "/about", "$browser": "Chrome"},
+                distinct_id="person_2",
+                event="$pageview",
+                team=self.team,
+            ),
+            _create_event(
+                properties={"$current_url": "/pricing"}, distinct_id="person_3", event="$pageview", team=self.team,
+            ),
+            _create_event(properties={"$current_url": "/"}, distinct_id="person_3", event="$pageview", team=self.team,),
+            _create_event(properties={"$current_url": "/"}, distinct_id="person_4", event="$pageview", team=self.team,),
+            _create_event(
+                properties={"$current_url": "/pricing"}, distinct_id="person_4", event="$pageview", team=self.team,
+            ),
 
             filter = PathFilter(data={"properties": [{"key": "$browser", "value": "Chrome", "type": "event"}]})
 
@@ -378,53 +361,41 @@ def paths_test_factory(paths):
             _create_person(team_id=self.team.pk, distinct_ids=["person_3"])
             _create_person(team_id=self.team.pk, distinct_ids=["person_4"])
             _create_person(team_id=self.team.pk, distinct_ids=["person_5a", "person_5b"])
-            events = [
-                _create_event(
-                    properties={"$current_url": "/"}, distinct_id="person_1", event="$pageview", team=self.team,
-                ),
-                _create_event(
-                    properties={"$current_url": "/about/"}, distinct_id="person_1", event="$pageview", team=self.team,
-                ),
-                _create_event(
-                    properties={"$current_url": "/"}, distinct_id="person_2", event="$pageview", team=self.team,
-                ),
-                _create_event(
-                    properties={"$current_url": "/pricing/"}, distinct_id="person_2", event="$pageview", team=self.team,
-                ),
-                _create_event(
-                    properties={"$current_url": "/about"}, distinct_id="person_2", event="$pageview", team=self.team,
-                ),
-                _create_event(
-                    properties={"$current_url": "/pricing"}, distinct_id="person_3", event="$pageview", team=self.team,
-                ),
-                _create_event(
-                    properties={"$current_url": "/"}, distinct_id="person_3", event="$pageview", team=self.team,
-                ),
-                _create_event(
-                    properties={"$current_url": "/about/"}, distinct_id="person_3", event="$pageview", team=self.team,
-                ),
-                _create_event(
-                    properties={"$current_url": "/"}, distinct_id="person_4", event="$pageview", team=self.team,
-                ),
-                _create_event(
-                    properties={"$current_url": "/pricing/"}, distinct_id="person_4", event="$pageview", team=self.team,
-                ),
-                _create_event(
-                    properties={"$current_url": "/pricing"}, distinct_id="person_5a", event="$pageview", team=self.team,
-                ),
-                _create_event(
-                    properties={"$current_url": "/about"}, distinct_id="person_5b", event="$pageview", team=self.team,
-                ),
-                _create_event(
-                    properties={"$current_url": "/pricing/"},
-                    distinct_id="person_5a",
-                    event="$pageview",
-                    team=self.team,
-                ),
-                _create_event(
-                    properties={"$current_url": "/help"}, distinct_id="person_5b", event="$pageview", team=self.team,
-                ),
-            ]
+
+            _create_event(properties={"$current_url": "/"}, distinct_id="person_1", event="$pageview", team=self.team,),
+            _create_event(
+                properties={"$current_url": "/about/"}, distinct_id="person_1", event="$pageview", team=self.team,
+            ),
+            _create_event(properties={"$current_url": "/"}, distinct_id="person_2", event="$pageview", team=self.team,),
+            _create_event(
+                properties={"$current_url": "/pricing/"}, distinct_id="person_2", event="$pageview", team=self.team,
+            ),
+            _create_event(
+                properties={"$current_url": "/about"}, distinct_id="person_2", event="$pageview", team=self.team,
+            ),
+            _create_event(
+                properties={"$current_url": "/pricing"}, distinct_id="person_3", event="$pageview", team=self.team,
+            ),
+            _create_event(properties={"$current_url": "/"}, distinct_id="person_3", event="$pageview", team=self.team,),
+            _create_event(
+                properties={"$current_url": "/about/"}, distinct_id="person_3", event="$pageview", team=self.team,
+            ),
+            _create_event(properties={"$current_url": "/"}, distinct_id="person_4", event="$pageview", team=self.team,),
+            _create_event(
+                properties={"$current_url": "/pricing/"}, distinct_id="person_4", event="$pageview", team=self.team,
+            ),
+            _create_event(
+                properties={"$current_url": "/pricing"}, distinct_id="person_5a", event="$pageview", team=self.team,
+            ),
+            _create_event(
+                properties={"$current_url": "/about"}, distinct_id="person_5b", event="$pageview", team=self.team,
+            ),
+            _create_event(
+                properties={"$current_url": "/pricing/"}, distinct_id="person_5a", event="$pageview", team=self.team,
+            ),
+            _create_event(
+                properties={"$current_url": "/help"}, distinct_id="person_5b", event="$pageview", team=self.team,
+            ),
 
             response = self.client.get(
                 f"/api/projects/{self.team.id}/insights/path/?type=%24pageview&start=%2Fpricing"
@@ -465,36 +436,34 @@ def paths_test_factory(paths):
         def test_paths_in_window(self):
             _create_person(team_id=self.team.pk, distinct_ids=["person_1"])
 
-            events = [
-                _create_event(
-                    properties={"$current_url": "/"},
-                    distinct_id="person_1",
-                    event="$pageview",
-                    team=self.team,
-                    timestamp="2020-04-14 03:25:34",
-                ),
-                _create_event(
-                    properties={"$current_url": "/about"},
-                    distinct_id="person_1",
-                    event="$pageview",
-                    team=self.team,
-                    timestamp="2020-04-14 03:30:34",
-                ),
-                _create_event(
-                    properties={"$current_url": "/"},
-                    distinct_id="person_1",
-                    event="$pageview",
-                    team=self.team,
-                    timestamp="2020-04-15 03:25:34",
-                ),
-                _create_event(
-                    properties={"$current_url": "/about"},
-                    distinct_id="person_1",
-                    event="$pageview",
-                    team=self.team,
-                    timestamp="2020-04-15 03:30:34",
-                ),
-            ]
+            _create_event(
+                properties={"$current_url": "/"},
+                distinct_id="person_1",
+                event="$pageview",
+                team=self.team,
+                timestamp="2020-04-14 03:25:34",
+            ),
+            _create_event(
+                properties={"$current_url": "/about"},
+                distinct_id="person_1",
+                event="$pageview",
+                team=self.team,
+                timestamp="2020-04-14 03:30:34",
+            ),
+            _create_event(
+                properties={"$current_url": "/"},
+                distinct_id="person_1",
+                event="$pageview",
+                team=self.team,
+                timestamp="2020-04-15 03:25:34",
+            ),
+            _create_event(
+                properties={"$current_url": "/about"},
+                distinct_id="person_1",
+                event="$pageview",
+                team=self.team,
+                timestamp="2020-04-15 03:30:34",
+            ),
 
             filter = PathFilter(data={"date_from": "2020-04-13"})
             response = paths(team=self.team, filter=filter).run(team=self.team, filter=filter)

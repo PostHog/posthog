@@ -143,12 +143,12 @@ class TestActionFormat(ClickhouseTestMixin, BaseTest):
         )
 
         action1 = Action.objects.create(team=self.team, name="action1")
-        step1 = ActionStep.objects.create(
+        ActionStep.objects.create(
             event="insight viewed",
             action=action1,
             properties=[{"key": "insight", "type": "event", "value": ["RETENTION"], "operator": "exact"}],
         )
-        step2 = ActionStep.objects.create(
+        ActionStep.objects.create(
             event="insight viewed",
             action=action1,
             properties=[{"key": "filters_count", "type": "event", "value": "1", "operator": "gt"}],
