@@ -147,8 +147,6 @@ export const authorizedUrlsLogic = kea<authorizedUrlsLogicType>([
                     } else {
                         actions.addUrl(url)
                     }
-                    actions.setEditUrlIndex(null)
-                    actions.resetProposedUrl()
                 }
             },
         },
@@ -227,6 +225,10 @@ export const authorizedUrlsLogic = kea<authorizedUrlsLogicType>([
             window.location.href = values.launchUrl(url)
         },
         cancelProposingUrl: () => {
+            actions.resetProposedUrl()
+        },
+        submitProposedUrlSuccess: () => {
+            actions.setEditUrlIndex(null)
             actions.resetProposedUrl()
         },
     })),
