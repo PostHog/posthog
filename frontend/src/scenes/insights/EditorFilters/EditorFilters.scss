@@ -10,14 +10,22 @@
     margin-bottom: 1rem;
 
     .EditorFilters {
-        display: flex;
-        gap: 2rem;
-        .EditorFilterGroup {
-            flex: 1;
+        > * + * {
+            margin-top: 1rem;
+        }
+        @media screen and (min-width: $md) {
+            display: flex;
+            gap: 2rem;
+            .EditorFilterGroup {
+                flex: 1;
+            }
+            > * + * {
+                margin-top: 0px;
+            }
         }
     }
 
-    &.EditorFiltersWrapper--funnels {
+    &.EditorFiltersWrapper--singlecolumn {
         margin-right: 1rem;
         .EditorFilters {
             flex-direction: column;
@@ -26,11 +34,11 @@
     }
 
     &.EditorFiltersWrapper--editorpanels,
-    &.EditorFiltersWrapper--funnels {
+    &.EditorFiltersWrapper--singlecolumn {
         border: none;
         padding: 0px;
 
-        @media screen and (min-width: $lg) {
+        @media screen and (min-width: $xl) {
             --editor-panel-width: max(25vw, 28rem);
 
             .EditorFilters {

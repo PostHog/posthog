@@ -253,7 +253,7 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
             <div
                 className={clsx('insight-wrapper', {
                     'insight-wrapper--editorpanels': usingEditorPanels,
-                    'insight-wrapper--funnels': !usingEditorPanels && filters.insight === InsightType.FUNNELS,
+                    'insight-wrapper--singlecolumn': !usingEditorPanels && filters.insight === InsightType.FUNNELS,
                 })}
             >
                 <EditorFilters insightProps={insightProps} showing={insightMode === ItemMode.Edit} />

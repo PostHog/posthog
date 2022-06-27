@@ -36,7 +36,6 @@ export function EFTrendsSteps({ insightProps }: EditorFilterProps): JSX.Element 
                 setFilters={(payload: Partial<FilterType>): void => setFilters(payload)}
                 typeKey={`trends_${InsightType.TRENDS}`}
                 buttonCopy="Add graph series"
-                propertyFiltersPopover
                 showSeriesIndicator
                 showNestedArrow
                 entitiesLimit={

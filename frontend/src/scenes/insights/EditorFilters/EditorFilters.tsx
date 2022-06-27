@@ -296,7 +296,7 @@ export function EditorFilters({ insightProps, showing }: EditorFiltersProps): JS
             <div
                 className={clsx('EditorFiltersWrapper', {
                     'EditorFiltersWrapper--editorpanels': usingEditorPanels,
-                    'EditorFiltersWrapper--funnels': !usingEditorPanels && isFunnels,
+                    'EditorFiltersWrapper--singlecolumn': !usingEditorPanels && isFunnels,
                 })}
             >
                 <div className="EditorFilters">

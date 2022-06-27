@@ -107,7 +107,7 @@
 
     .insight-wrapper {
         &.insight-wrapper--editorpanels,
-        &.insight-wrapper--funnels {
+        &.insight-wrapper--singlecolumn {
             position: relative;
             @media screen and (min-width: $xl) {
                 display: flex;
