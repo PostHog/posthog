@@ -62,7 +62,9 @@ def cached_function(f: Callable[[U, Request], T]) -> Callable[[U, Request], T]:
                 if filter:
                     Insight.objects.filter(team_id=team.pk, filters_hash=cache_key).update(last_refresh=now())
 
-                    DashboardTile.objects.filter(team_id=team.pk, filters_hash=cache_key).update(last_refresh=now())
+                    DashboardTile.objects.filter(insight__team_id=team.pk, filters_hash=cache_key).update(
+                        last_refresh=now()
+                    )
 
         return fresh_result_package
 
