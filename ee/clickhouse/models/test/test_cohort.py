@@ -280,7 +280,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
 
     def test_cohort_get_person_ids_by_cohort_id(self):
         user1 = _create_person(distinct_ids=["user1"], team_id=self.team.pk, properties={"$some_prop": "something"})
-        user2 = _create_person(distinct_ids=["user2"], team_id=self.team.pk, properties={"$some_prop": "another"})
+        _create_person(distinct_ids=["user2"], team_id=self.team.pk, properties={"$some_prop": "another"})
         user3 = _create_person(distinct_ids=["user3"], team_id=self.team.pk, properties={"$some_prop": "something"})
         cohort = Cohort.objects.create(
             team=self.team,
@@ -327,12 +327,12 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         self.assertEqual(len(results), 3)
 
     def test_cohortpeople_basic(self):
-        p1 = Person.objects.create(
+        Person.objects.create(
             team_id=self.team.pk,
             distinct_ids=["1"],
             properties={"$some_prop": "something", "$another_prop": "something"},
         )
-        p2 = Person.objects.create(
+        Person.objects.create(
             team_id=self.team.pk,
             distinct_ids=["2"],
             properties={"$some_prop": "something", "$another_prop": "something"},
@@ -384,7 +384,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
 
     def test_cohortpeople_action_basic(self):
         action = _create_action(team=self.team, name="$pageview")
-        p1 = Person.objects.create(
+        Person.objects.create(
             team_id=self.team.pk,
             distinct_ids=["1"],
             properties={"$some_prop": "something", "$another_prop": "something"},
@@ -398,7 +398,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
             timestamp=datetime.now() - timedelta(hours=12),
         )
 
-        p2 = Person.objects.create(
+        Person.objects.create(
             team_id=self.team.pk,
             distinct_ids=["2"],
             properties={"$some_prop": "something", "$another_prop": "something"},
@@ -426,7 +426,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
 
     def _setup_actions_with_different_counts(self):
         action = _create_action(team=self.team, name="$pageview")
-        p1 = Person.objects.create(
+        Person.objects.create(
             team_id=self.team.pk,
             distinct_ids=["1"],
             properties={"$some_prop": "something", "$another_prop": "something"},
@@ -447,7 +447,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
             timestamp=datetime.now() - timedelta(days=0, hours=12),
         )
 
-        p2 = Person.objects.create(
+        Person.objects.create(
             team_id=self.team.pk,
             distinct_ids=["2"],
             properties={"$some_prop": "something", "$another_prop": "something"},
@@ -469,7 +469,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
             timestamp=datetime.now() - timedelta(days=0, hours=12),
         )
 
-        p3 = Person.objects.create(
+        Person.objects.create(
             team_id=self.team.pk,
             distinct_ids=["3"],
             properties={"$some_prop": "something", "$another_prop": "something"},
@@ -483,13 +483,13 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
             timestamp=datetime.now() - timedelta(days=0, hours=12),
         )
 
-        p4 = Person.objects.create(
+        Person.objects.create(
             team_id=self.team.pk,
             distinct_ids=["4"],
             properties={"$some_prop": "something", "$another_prop": "something"},
         )
 
-        p5 = Person.objects.create(
+        Person.objects.create(
             team_id=self.team.pk,
             distinct_ids=["5"],
             properties={"$some_prop": "something", "$another_prop": "something"},
@@ -532,7 +532,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         self.assertEqual(len(results), 1)
 
     def test_cohortpeople_deleted_person(self):
-        p1 = Person.objects.create(
+        Person.objects.create(
             team_id=self.team.pk,
             distinct_ids=["1"],
             properties={"$some_prop": "something", "$another_prop": "something"},
@@ -661,8 +661,12 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
             self.assertQueryMatchesSnapshot(sql)
 
     def test_cohortpeople_with_valid_other_cohort_filter(self):
-        p1 = Person.objects.create(team_id=self.team.pk, distinct_ids=["1"], properties={"foo": "bar"},)
-        p2 = Person.objects.create(team_id=self.team.pk, distinct_ids=["2"], properties={"foo": "non"},)
+        Person.objects.create(
+            team_id=self.team.pk, distinct_ids=["1"], properties={"foo": "bar"},
+        )
+        Person.objects.create(
+            team_id=self.team.pk, distinct_ids=["2"], properties={"foo": "non"},
+        )
 
         cohort0: Cohort = Cohort.objects.create(
             team=self.team, groups=[{"properties": [{"key": "foo", "value": "bar", "type": "person"}]}], name="cohort0",
@@ -681,8 +685,12 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         self.assertEqual(len(res), 1)
 
     def test_cohortpeople_with_nonexistent_other_cohort_filter(self):
-        p1 = Person.objects.create(team_id=self.team.pk, distinct_ids=["1"], properties={"foo": "bar"},)
-        p2 = Person.objects.create(team_id=self.team.pk, distinct_ids=["2"], properties={"foo": "non"},)
+        Person.objects.create(
+            team_id=self.team.pk, distinct_ids=["1"], properties={"foo": "bar"},
+        )
+        Person.objects.create(
+            team_id=self.team.pk, distinct_ids=["2"], properties={"foo": "non"},
+        )
 
         cohort1: Cohort = Cohort.objects.create(
             team=self.team, groups=[{"properties": [{"key": "id", "type": "cohort", "value": 666}]}], name="cohort1",
@@ -695,8 +703,12 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
 
     def test_cohortpeople_with_cyclic_cohort_filter(self):
         # Getting in such a state shouldn't be possible anymore.
-        p1 = Person.objects.create(team_id=self.team.pk, distinct_ids=["1"], properties={"foo": "bar"},)
-        p2 = Person.objects.create(team_id=self.team.pk, distinct_ids=["2"], properties={"foo": "non"},)
+        Person.objects.create(
+            team_id=self.team.pk, distinct_ids=["1"], properties={"foo": "bar"},
+        )
+        Person.objects.create(
+            team_id=self.team.pk, distinct_ids=["2"], properties={"foo": "non"},
+        )
 
         cohort1: Cohort = Cohort.objects.create(
             team=self.team, groups=[], name="cohort1",
@@ -745,7 +757,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         )
 
         # doesn't satisfy action
-        p2 = Person.objects.create(
+        Person.objects.create(
             team_id=self.team.pk, distinct_ids=["p2"], properties={"name": "test", "email": "test@posthog.com"}
         )
         _create_event(
@@ -837,11 +849,15 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         self.assertCountEqual([p1.uuid, p3.uuid], [r[0] for r in result])
 
     def test_update_cohort(self):
-        p1 = Person.objects.create(team_id=self.team.pk, distinct_ids=["1"], properties={"$some_prop": "something"},)
-
-        p2 = Person.objects.create(team_id=self.team.pk, distinct_ids=["2"], properties={"$another_prop": "something"},)
-
-        p3 = Person.objects.create(team_id=self.team.pk, distinct_ids=["3"], properties={"$another_prop": "something"},)
+        Person.objects.create(
+            team_id=self.team.pk, distinct_ids=["1"], properties={"$some_prop": "something"},
+        )
+        Person.objects.create(
+            team_id=self.team.pk, distinct_ids=["2"], properties={"$another_prop": "something"},
+        )
+        Person.objects.create(
+            team_id=self.team.pk, distinct_ids=["3"], properties={"$another_prop": "something"},
+        )
 
         cohort1 = Cohort.objects.create(
             team=self.team,
@@ -872,11 +888,15 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         self.assertEqual(len(results), 1)
 
     def test_cohort_versioning(self):
-        p1 = Person.objects.create(team_id=self.team.pk, distinct_ids=["1"], properties={"$some_prop": "something"},)
-
-        p2 = Person.objects.create(team_id=self.team.pk, distinct_ids=["2"], properties={"$another_prop": "something"},)
-
-        p3 = Person.objects.create(team_id=self.team.pk, distinct_ids=["3"], properties={"$another_prop": "something"},)
+        Person.objects.create(
+            team_id=self.team.pk, distinct_ids=["1"], properties={"$some_prop": "something"},
+        )
+        Person.objects.create(
+            team_id=self.team.pk, distinct_ids=["2"], properties={"$another_prop": "something"},
+        )
+        Person.objects.create(
+            team_id=self.team.pk, distinct_ids=["3"], properties={"$another_prop": "something"},
+        )
 
         # start the cohort at some later version
         cohort1 = Cohort.objects.create(
