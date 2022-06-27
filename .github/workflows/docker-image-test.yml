@@ -159,13 +159,15 @@ jobs:
                   OBJECT_STORAGE_SECRET_ACCESS_KEY='object_storage_root_password'
                   EOT
 
+            - name: Wait for ClickHouse
+              run: ./bin/check_kafka_clickhouse_up
+
             - name: Boot PostHog
               env:
                   DOCKER_IMAGE: ${{ needs.build.outputs.docker_image }}
               run: |
                   mkdir -p /tmp/logs
 
-                  docker run --rm --network host --env-file .env $DOCKER_IMAGE ./bin/check_kafka_clickhouse_up
                   docker run --rm --network host --env-file .env $DOCKER_IMAGE ./bin/migrate
                   docker run --rm --network host --env-file .env $DOCKER_IMAGE python manage.py setup_dev
 
