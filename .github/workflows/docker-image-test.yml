@@ -119,26 +119,11 @@ jobs:
                   docker-compose -f docker-compose.dev.yml down
                   docker-compose -f docker-compose.dev.yml up -d db clickhouse zookeeper kafka redis object_storage &
 
-            # Get Cypress dependencies setup
-            - uses: actions/setup-node@v1
-              with:
-                  node-version: 16
+            - name: Wait for ClickHouse
+              run: ./bin/check_kafka_clickhouse_up
 
-            - uses: actions/cache@v2
-              id: cypress-node-modules-cache-3
-              with:
-                  path: |
-                      **/node_modules
-                      ~/.cache/Cypress
-                  key: ${{ runner.os }}-cypress-node-modules-3-${{ hashFiles('**/yarn.lock') }}
-                  restore-keys: |
-                      ${{ runner.os }}-cypress-node-modules-3-
-
-            - name: Yarn cypress deps
+            - name: Setup env
               run: |
-                  yarn add cypress@10.0.3 cypress-terminal-report@3.5.2
-
-            - run: |
                   cat <<EOT >> .env
                   SECRET_KEY=6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da
                   REDIS_URL=redis://localhost
@@ -159,9 +144,6 @@ jobs:
                   OBJECT_STORAGE_SECRET_ACCESS_KEY=object_storage_root_password
                   EOT
 
-            - name: Wait for ClickHouse
-              run: ./bin/check_kafka_clickhouse_up
-
             - name: Boot PostHog
               env:
                   DOCKER_IMAGE: ${{ needs.build.outputs.docker_image }}
@@ -178,11 +160,6 @@ jobs:
               uses: cypress-io/github-action@v2
               with:
                   config-file: cypress.e2e.config.ts
-                  # We're already installing cypress above
-                  # We have to install it separately otherwise the tests fail.
-                  install: false
-                  # We already install cypress separately, we don't need to install it again here
-                  install-command: echo "no"
                   spec: ${{ matrix.specs }}
 
             - name: Archive test screenshots
