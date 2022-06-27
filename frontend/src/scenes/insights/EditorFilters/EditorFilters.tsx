@@ -35,6 +35,7 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { EFInsightType } from './EFInsightType'
 import './EditorFilters.scss'
 import clsx from 'clsx'
+import { EFAttribution } from './EFAttribution'
 
 export interface EditorFiltersProps {
     insightProps: InsightLogicProps
@@ -70,6 +71,10 @@ export function EditorFilters({ insightProps, showing }: EditorFiltersProps): JS
         (isFunnels && filters.funnel_viz_type === FunnelVizType.Steps)
     const hasPropertyFilters = isTrends || isStickiness || isRetention || isPaths || isFunnels
     const hasPathsAdvanced = availableFeatures.includes(AvailableFeature.PATHS_ADVANCED)
+    const hasAttribution =
+        isFunnels &&
+        filters.funnel_viz_type === FunnelVizType.Steps &&
+        featureFlags[FEATURE_FLAGS.BREAKDOWN_ATTRIBUTION]
 
     const advancedOptionsCount = advancedOptionsUsedCount + (filters.formula ? 1 : 0)
     const advancedOptionsExpanded = !!advancedOptionsCount
@@ -192,6 +197,16 @@ export function EditorFilters({ insightProps, showing }: EditorFiltersProps): JS
                               </>
                           ),
                           component: EFTrendsBreakdown,
+                      }
+                    : null,
+                hasAttribution
+                    ? {
+                          key: 'attribution',
+                          label: 'Attribution type',
+                          position: 'right',
+
+                          tooltip: <>filler</>,
+                          component: EFAttribution,
                       }
                     : null,
             ]),

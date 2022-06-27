@@ -6,7 +6,7 @@ import { Tooltip } from 'lib/components/Tooltip'
 import { PlusCircleOutlined } from '@ant-design/icons'
 import { Button, Col, Row } from 'antd'
 import { CloseButton } from 'lib/components/CloseButton'
-import { Formula } from 'scenes/insights/InsightTabs/TrendTab/Formula'
+import { Formula } from 'scenes/insights/Filters/Formula'
 
 export function EFTrendsFormula({ filters, insightProps }: EditorFilterProps): JSX.Element {
     const { setFilters } = useActions(trendsLogic(insightProps))

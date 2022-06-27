@@ -1,0 +1,38 @@
+.EFLifecycleToggles {
+    text-transform: uppercase;
+    div {
+        font-size: 12px;
+        display: flex;
+        justify-content: space-between;
+        padding-bottom: 4px;
+        align-items: center;
+    }
+
+    .new {
+        .ant-checkbox-checked .ant-checkbox-inner {
+            border-color: var(--lifecycle-new);
+            background-color: var(--lifecycle-new);
+        }
+    }
+
+    .returning {
+        .ant-checkbox-checked .ant-checkbox-inner {
+            border-color: var(--lifecycle-returning);
+            background-color: var(--lifecycle-returning);
+        }
+    }
+
+    .resurrecting {
+        .ant-checkbox-checked .ant-checkbox-inner {
+            border-color: var(--lifecycle-resurrecting);
+            background-color: var(--lifecycle-resurrecting);
+        }
+    }
+
+    .dormant {
+        .ant-checkbox-checked .ant-checkbox-inner {
+            border-color: var(--lifecycle-dormant);
+            background-color: var(--lifecycle-dormant);
+        }
+    }
+}
