@@ -133,6 +133,7 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
             return response.Response({"next": next_url, "results": result})
         except Exception as ex:
             capture_exception(ex)
+            raise ex
 
     def _get_people(self, query_result: List[Dict], team: Team) -> Dict[str, Any]:
         distinct_ids = [event["distinct_id"] for event in query_result]
