@@ -140,23 +140,23 @@ jobs:
 
             - run: |
                   cat <<EOT >> .env
-                  SECRET_KEY='6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
-                  REDIS_URL='redis://localhost'
-                  DATABASE_URL='postgres://posthog:posthog@localhost:5432/posthog'
-                  KAFKA_URL='kafka://kafka:9092'
+                  SECRET_KEY=6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da
+                  REDIS_URL=redis://localhost
+                  DATABASE_URL=postgres://posthog:posthog@localhost:5432/posthog
+                  KAFKA_URL=kafka://kafka:9092
                   DISABLE_SECURE_SSL_REDIRECT=1
                   SECURE_COOKIES=0
                   OPT_OUT_CAPTURE=1
                   SELF_CAPTURE=0
                   E2E_TESTING=1
-                  EMAIL_HOST='email.test.posthog.net' # used to test password resets
-                  SITE_URL='http://localhost:8000' # used to test password resets
+                  EMAIL_HOST=email.test.posthog.net
+                  SITE_URL=http://localhost:8000
                   NO_RESTART_LOOP=1
                   CLICKHOUSE_SECURE=0
                   OBJECT_STORAGE_ENABLED=1
-                  OBJECT_STORAGE_ENDPOINT='http://localhost:19000'
-                  OBJECT_STORAGE_ACCESS_KEY_ID='object_storage_root_user'
-                  OBJECT_STORAGE_SECRET_ACCESS_KEY='object_storage_root_password'
+                  OBJECT_STORAGE_ENDPOINT=http://localhost:19000
+                  OBJECT_STORAGE_ACCESS_KEY_ID=object_storage_root_user
+                  OBJECT_STORAGE_SECRET_ACCESS_KEY=object_storage_root_password
                   EOT
 
             - name: Wait for ClickHouse
