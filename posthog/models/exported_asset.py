@@ -16,10 +16,6 @@ def get_default_access_token() -> str:
 
 
 class ExportedAsset(models.Model):
-    class ExportType(models.TextChoices):
-        DASHBOARD = "dashboard", "Dashboard"
-        INSIGHT = "insight", "Insight"
-
     class ExportFormat(models.TextChoices):
         PNG = "image/png", "image/png"
         PDF = "application/pdf", "application/pdf"
