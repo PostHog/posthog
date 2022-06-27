@@ -4,7 +4,6 @@ import { FunnelCanvasLabel } from 'scenes/funnels/FunnelCanvasLabel'
 import { ComputationTimeWithRefresh } from 'scenes/insights/ComputationTimeWithRefresh'
 import { ChartDisplayType, FunnelVizType, InsightType, ItemMode } from '~/types'
 import { TrendInsight } from 'scenes/trends/Trends'
-import { FunnelInsight } from 'scenes/insights/Views/FunnelInsight'
 import { RetentionContainer } from 'scenes/retention/RetentionContainer'
 import { Paths } from 'scenes/paths/Paths'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -32,7 +31,8 @@ import { IconExport } from 'lib/components/icons'
 import { FunnelStepsTable } from './Views/Funnels/FunnelStepsTable'
 import { Animation } from 'lib/components/Animation/Animation'
 import { AnimationType } from 'lib/animations/animations'
-import { FunnelCorrelation } from './Views/FunnelCorrelation'
+import { FunnelCorrelation } from './Views/Funnels/FunnelCorrelation'
+import { FunnelInsight } from './Views/Funnels/FunnelInsight'
 
 const VIEW_MAP = {
     [`${InsightType.TRENDS}`]: <TrendInsight view={InsightType.TRENDS} />,
