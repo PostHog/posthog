@@ -41,6 +41,7 @@ import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
 import { SubscriptionsModal, SubscribeButton } from 'lib/components/Subscriptions/SubscriptionsModal'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
+import { EmbedModal } from 'lib/components/EmbedModal/EmbedModal'
 
 export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): JSX.Element {
     const { insightMode, subscriptionId } = useValues(insightSceneLogic)
@@ -111,6 +112,13 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                     subscriptionId={subscriptionId}
                 />
             )}
+            {insightId !== 'new' && (
+                <EmbedModal
+                    visible={insightMode === ItemMode.Embed}
+                    closeModal={() => push(urls.insightView(insight.short_id as InsightShortId))}
+                    insightShortId={insightId}
+                />
+            )}
             <PageHeader
                 title={
                     <EditableField
@@ -165,6 +173,13 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                                                         <SubscribeButton insightShortId={insight.short_id} />
                                                     )}
                                                     <ExportButton insightShortId={insight.short_id} fullWidth />
+                                                    <LemonButton
+                                                        to={urls.insightEmbed(insight.short_id)}
+                                                        type="stealth"
+                                                        fullWidth
+                                                    >
+                                                        Embed
+                                                    </LemonButton>
                                                     <LemonDivider />
                                                 </>
                                             )}

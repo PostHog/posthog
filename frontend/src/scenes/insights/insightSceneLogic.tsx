@@ -111,7 +111,9 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             { method, initial } // "location changed" event payload
         ) => {
             const insightMode =
-                mode === 'subscriptions'
+                mode === 'embed'
+                    ? ItemMode.Embed
+                    : mode === 'subscriptions'
                     ? ItemMode.Subscriptions
                     : mode === 'edit' || shortId === 'new'
                     ? ItemMode.Edit
