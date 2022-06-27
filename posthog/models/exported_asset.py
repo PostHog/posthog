@@ -36,7 +36,7 @@ class ExportedAsset(models.Model):
     content: models.BinaryField = models.BinaryField(null=True)
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True, blank=True)
     # for example holds JSON to specify URL and filters for CSV exports
-    export_context: models.TextField = models.TextField(null=True, blank=True)
+    export_context: models.JSONField = models.JSONField(null=True, blank=True)
 
     # Token for accessing the /exporter page
     access_token: models.CharField = models.CharField(
