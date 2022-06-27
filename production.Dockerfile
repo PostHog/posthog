@@ -150,6 +150,8 @@ ENV CHROME_BIN=/usr/bin/chromium-browser \
     CHROME_PATH=/usr/lib/chromium/ \
     CHROMEDRIVER_BIN=/usr/bin/chromedriver
 
+COPY gunicorn.config.py ./
+
 # Expose container port and run entry point script
 EXPOSE 8000
 CMD ["./bin/docker"]
