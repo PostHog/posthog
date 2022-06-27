@@ -51,6 +51,11 @@ CONSTANCE_CONFIG = {
         "Whether to resume the migration, when celery worker crashed.",
         bool,
     ),
+    "ASYNC_MIGRATIONS_BLOCK_UPGRADE": (
+        get_from_env("ASYNC_MIGRATIONS_BLOCK_UPGRADE", True, type_cast=str_to_bool),
+        "(Advanced) Whether having an async migration running should prevent upgrades.",
+        bool,
+    ),
     "STRICT_CACHING_TEAMS": (
         get_from_env("STRICT_CACHING_TEAMS", ""),
         "Whether to always try to find cached data for historical intervals on trends",
@@ -128,6 +133,7 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "ASYNC_MIGRATIONS_ROLLBACK_TIMEOUT",
     "ASYNC_MIGRATIONS_DISABLE_AUTO_ROLLBACK",
     "ASYNC_MIGRATIONS_AUTO_CONTINUE",
+    "ASYNC_MIGRATIONS_BLOCK_UPGRADE",
     "EMAIL_ENABLED",
     "EMAIL_HOST",
     "EMAIL_PORT",
