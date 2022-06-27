@@ -19,6 +19,7 @@ class CanEditInsight(BasePermission):
     message = "This insight is on a dashboard that can only be edited by its owner, team members invited to editing the dashboard, and project admins."
 
     def has_object_permission(self, request: Request, view, insight: Insight) -> bool:
+
         if request.method in SAFE_METHODS:
             return True
         dashboards = list(insight.dashboards.all())

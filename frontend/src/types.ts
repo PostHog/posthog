@@ -1956,3 +1956,9 @@ export interface SlackChannelType {
     is_ext_shared: boolean
     is_member: boolean
 }
+
+export interface SharingConfigurationType {
+    enabled: boolean
+    access_token: string
+    created_at: string
+}

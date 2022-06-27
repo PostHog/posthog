@@ -10,10 +10,13 @@ import {
     EventType,
     FeatureFlagType,
     FilterType,
+    InsightModel,
+    InsightType,
     IntegrationType,
     LicenseType,
     PluginLogEntry,
     PropertyDefinition,
+    SharingConfigurationType,
     SlackChannelType,
     SubscriptionType,
     TeamType,
@@ -195,6 +198,10 @@ class ApiRequest {
         return this.dashboardsDetail(dashboardId, teamId).addPathComponent('collaborators')
     }
 
+    public dashboardSharing(dashboardId: DashboardType['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.dashboardsDetail(dashboardId, teamId).addPathComponent('sharing')
+    }
+
     public dashboardCollaboratorsDetail(
         dashboardId: DashboardType['id'],
         userUuid: UserType['uuid'],
@@ -247,12 +254,20 @@ class ApiRequest {
         return this.licenses().addPathComponent(id)
     }
 
-    public insights(teamId: TeamType['id']): ApiRequest {
+    public insights(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('insights')
     }
 
-    public insightsActivity(teamId: TeamType['id']): ApiRequest {
+    public insightsActivity(teamId?: TeamType['id']): ApiRequest {
         return this.insights(teamId).addPathComponent('activity')
+    }
+
+    public insight(id: InsightModel['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.insights(teamId).addPathComponent(id)
+    }
+
+    public insightSharing(id: InsightModel['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.insight(id, teamId).addPathComponent('sharing')
     }
 
     // # Subscriptions
@@ -599,6 +614,22 @@ const api = {
     person: {
         determineCSVUrl(filters: PersonFilters): string {
             return new ApiRequest().persons().withAction('.csv').withQueryString(toParams(filters)).assembleFullUrl()
+        },
+    },
+
+    sharing: {
+        async get({
+            dashboardId,
+            insightId,
+        }: {
+            dashboardId?: DashboardType['id']
+            insightId?: InsightModel['id']
+        }): Promise<SharingConfigurationType> {
+            return dashboardId
+                ? new ApiRequest().dashboardSharing(dashboardId).get()
+                : insightId
+                ? new ApiRequest().insightSharing(insightId).get()
+                : null
         },
     },
 

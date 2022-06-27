@@ -9,6 +9,7 @@ from django.utils.timezone import now
 from django.views.decorators.clickjacking import xframe_options_exempt
 from rest_framework import exceptions, mixins, response, serializers, viewsets
 from rest_framework.authentication import BaseAuthentication, BasicAuthentication, SessionAuthentication
+from rest_framework.decorators import action
 from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAuthenticated, OperandHolder, SingleOperandHolder
 from rest_framework.request import Request
 
@@ -16,12 +17,14 @@ from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.insight import InsightSerializer, InsightViewSet
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.api.sharing import SharingConfigurationSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.constants import INSIGHT_TRENDS
 from posthog.event_usage import report_user_action
 from posthog.helpers import create_dashboard_from_template
 from posthog.models import Dashboard, DashboardTile, Insight, Team
+from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.user import User
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.utils import render_template

@@ -29,6 +29,7 @@ from .plugin import Plugin, PluginAttachment, PluginConfig, PluginSourceFile
 from .property import Property
 from .property_definition import PropertyDefinition
 from .session_recording_event import SessionRecordingEvent
+from .sharing_configuration import SharingConfiguration
 from .subscription import Subscription
 from .tag import Tag
 from .tagged_item import TaggedItem
@@ -77,6 +78,7 @@ __all__ = [
     "PropertyDefinition",
     "RetentionFilter",
     "SessionRecordingEvent",
+    "SharingConfiguration",
     "Subscription",
     "Tag",
     "TaggedItem",
