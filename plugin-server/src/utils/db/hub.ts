@@ -196,12 +196,15 @@ export async function createHub(
         status.warn('🪣', `Object storage could not be created: ${e}`)
     }
 
+    const promiseManager = new PromiseManager(serverConfig, statsd)
+
     const db = new DB(
         postgres,
         redisPool,
         kafkaProducer,
         clickhouse,
         statsd,
+        promiseManager,
         serverConfig.PERSON_INFO_CACHE_TTL,
         new Set(serverConfig.PERSON_INFO_TO_REDIS_TEAMS.split(',').filter(String).map(Number))
     )
@@ -209,7 +212,6 @@ export async function createHub(
     const organizationManager = new OrganizationManager(db)
     const pluginsApiKeyManager = new PluginsApiKeyManager(db)
     const rootAccessManager = new RootAccessManager(db)
-    const promiseManager = new PromiseManager(serverConfig, statsd)
     const siteUrlManager = new SiteUrlManager(db, serverConfig.SITE_URL)
     const actionManager = new ActionManager(db, capabilities)
     await actionManager.prepare()
