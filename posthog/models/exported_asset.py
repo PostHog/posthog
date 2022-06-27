@@ -19,7 +19,6 @@ class ExportedAsset(models.Model):
     class ExportType(models.TextChoices):
         DASHBOARD = "dashboard", "Dashboard"
         INSIGHT = "insight", "Insight"
-        CSV = "csv", "CSV"
 
     class ExportFormat(models.TextChoices):
         PNG = "image/png", "image/png"
