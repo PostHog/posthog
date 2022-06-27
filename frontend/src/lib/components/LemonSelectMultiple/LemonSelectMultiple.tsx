@@ -1,7 +1,7 @@
-import { Select } from 'antd'
+import { Select, Skeleton } from 'antd'
+import { range } from 'lib/utils'
 import React from 'react'
 import { LemonSnack } from '../LemonSnack/LemonSnack'
-import { Spinner } from '../Spinner/Spinner'
 import './LemonSelectMultiple.scss'
 
 export interface LemonSelectMultipleOption {
@@ -70,9 +70,14 @@ export function LemonSelectMultiple({
                 placeholder={placeholder}
                 notFoundContent={
                     loading ? (
-                        <span className="flex justify-center">
-                            <Spinner size="sm" />
-                        </span>
+                        <div>
+                            {range(5).map((x) => (
+                                <div key={x} className="LemonSelectMultipleDropdown__skeleton">
+                                    <Skeleton.Avatar shape="circle" size="small" active />
+                                    <Skeleton paragraph={false} active />
+                                </div>
+                            ))}
+                        </div>
                     ) : null
                 }
                 filterOption={filterOption}

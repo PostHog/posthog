@@ -45,6 +45,7 @@ describe('subscriptionLogic', () => {
     })
 
     it('updates values depending on frequency', async () => {
+        await expectLogic(newLogic).toFinishListeners()
         expect(newLogic.values.subscription).toMatchObject({
             frequency: 'weekly',
             bysetpos: 1,

@@ -141,6 +141,21 @@ export const integrationsLogic = kea<integrationsLogicType>([
                 return integrations?.find((x) => x.kind == 'slack')
             },
         ],
+
+        isMemberOfSlackChannel: [
+            (s) => [s.slackChannels],
+            (slackChannels) => {
+                return (channel: string) => {
+                    if (!slackChannels) {
+                        return null
+                    }
+
+                    const [channelId] = channel.split('|')
+
+                    return slackChannels.find((x) => x.id === channelId)?.is_member
+                }
+            },
+        ],
         addToSlackButtonUrl: [
             (s) => [s.instanceSettings],
             (instanceSettings) => {

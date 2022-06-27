@@ -60,7 +60,8 @@ export function EditSubscription({
     })
 
     const { members, membersLoading } = useValues(membersLogic)
-    const { subscription, subscriptionLoading, isSubscriptionSubmitting, subscriptionChanged } = useValues(logic)
+    const { subscription, subscriptionLoading, isSubscriptionSubmitting, subscriptionChanged, isMemberOfSlackChannel } =
+        useValues(logic)
     const { preflight, siteUrlMisconfigured } = useValues(preflightLogic)
     const { deleteSubscription } = useActions(subscriptionslogic)
     const { slackChannels, slackChannelsLoading, slackIntegration, addToSlackButtonUrl } = useValues(integrationsLogic)
@@ -93,6 +94,11 @@ export function EditSubscription({
         () => getSlackChannelOptions(subscription?.target_value, slackChannels),
         [slackChannels, subscription?.target_value]
     )
+
+    const showSlackMembershipWarning =
+        subscription.target_value &&
+        subscription.target_type === 'slack' &&
+        !isMemberOfSlackChannel(subscription.target_value)
 
     return (
         <>
@@ -270,7 +276,6 @@ export function EditSubscription({
                                                         data-attr="select-slack-channel"
                                                         options={slackChannelOptions}
                                                         loading={slackChannelsLoading}
-                                                        placeholder={'Pick a Slack channel'}
                                                     />
                                                     <div className="text-small text-muted mt-05">
                                                         Private channels are only shown if you have{' '}
@@ -287,19 +292,32 @@ export function EditSubscription({
                                             )}
                                         </Field>
 
-                                        <AlertMessage type="info">
-                                            <>
-                                                Don't forget to add the <strong>PostHog App</strong> to the channel
-                                                otherwise Subscriptions will fail to be delivered.{' '}
-                                                <a
-                                                    href="https://posthog.com/docs/integrations/slack"
-                                                    target="_blank"
-                                                    rel="noopener"
-                                                >
-                                                    See the Docs for more information
-                                                </a>
-                                            </>
-                                        </AlertMessage>
+                                        {showSlackMembershipWarning ? (
+                                            <Field name={'memberOfSlackChannel'}>
+                                                <AlertMessage type="info">
+                                                    <div className="flex gap-05 items-center">
+                                                        <span>
+                                                            The PostHog App is not in this channel. Please add it to the
+                                                            channel otherwise Subscriptions will fail to be delivered.{' '}
+                                                            <a
+                                                                href="https://posthog.com/docs/integrations/slack"
+                                                                target="_blank"
+                                                                rel="noopener"
+                                                            >
+                                                                See the Docs for more information
+                                                            </a>
+                                                        </span>
+                                                        <LemonButton
+                                                            type="secondary"
+                                                            onClick={() => loadSlackChannels()}
+                                                            loading={slackChannelsLoading}
+                                                        >
+                                                            Check again
+                                                        </LemonButton>
+                                                    </div>
+                                                </AlertMessage>
+                                            </Field>
+                                        ) : null}
                                     </>
                                 )}
                             </>
