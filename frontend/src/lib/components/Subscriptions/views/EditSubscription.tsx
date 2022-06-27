@@ -284,7 +284,7 @@ export function EditSubscription({
                                                             target="_blank"
                                                             rel="noopener"
                                                         >
-                                                            added the PostHog App
+                                                            added the PostHog Slack App
                                                         </a>{' '}
                                                         to them
                                                     </div>
@@ -297,8 +297,9 @@ export function EditSubscription({
                                                 <AlertMessage type="info">
                                                     <div className="flex gap-05 items-center">
                                                         <span>
-                                                            The PostHog App is not in this channel. Please add it to the
-                                                            channel otherwise Subscriptions will fail to be delivered.{' '}
+                                                            The PostHog Slack App is not in this channel. Please add it
+                                                            to the channel otherwise Subscriptions will fail to be
+                                                            delivered.{' '}
                                                             <a
                                                                 href="https://posthog.com/docs/integrations/slack"
                                                                 target="_blank"
