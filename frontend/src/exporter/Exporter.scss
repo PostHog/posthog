@@ -1,6 +1,6 @@
 @import '../styles/breakpoints';
 
-html.in-posthog-image-export {
+html.export-type-image {
     // We don't want scrollbars to show in image captures
     ::-webkit-scrollbar {
         display: none;
@@ -10,6 +10,17 @@ html.in-posthog-image-export {
         // We hard-code a font so that rendered images are the same no matter which platform it is rendered on.
         font-family: 'Inter', 'Segoe UI', 'Roboto', Helvetica, Arial, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji',
             'Segoe UI Symbol';
+    }
+}
+
+html.export-type-embed {
+    .Exporter {
+        padding: 0;
+        height: 100vw;
+        max-height: 100vw;
+        .ExportedInsight {
+            height: 100%;
+        }
     }
 }
 

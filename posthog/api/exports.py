@@ -209,6 +209,9 @@ class ExportedPreviewPageViewSet(mixins.RetrieveModelMixin, StructuredViewSetMix
             insight_data = InsightSerializer(insight, many=False, context=context).data
             exported_data.update({"insight": insight_data})
 
+        if request.GET.get("whitelabel") == "true":
+            exported_data.update({"whitelabel": True})
+
         return embedded_response(
             request,
             render_template(
