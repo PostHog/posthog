@@ -20,6 +20,28 @@ interface AuthorizedUrlsTableInterface {
     actionId?: number
 }
 
+function EmptyState({
+    numberOfResults,
+    isSearching,
+}: {
+    numberOfResults: number
+    isSearching: boolean
+}): JSX.Element | null {
+    if (numberOfResults > 0) {
+        return null
+    }
+
+    return isSearching ? (
+        <LemonRow outlined fullWidth size="large" className={clsx('AuthorizedUrlRow')}>
+            There are no authorized URLs that match your search.
+        </LemonRow>
+    ) : (
+        <LemonRow outlined fullWidth size="large" className={clsx('AuthorizedUrlRow')}>
+            There are no authorized URLs or domains. Add one to get started.
+        </LemonRow>
+    )
+}
+
 function AuthorizedUrlForm({ actionId }: { actionId?: number }): JSX.Element {
     const logic = authorizedUrlsLogic({ actionId })
     const { isProposedUrlSubmitting, proposedUrlHasErrors, urlToEdit } = useValues(logic)
@@ -92,6 +114,7 @@ export function AuthorizedUrls({ pageKey, actionId }: AuthorizedUrlsTableInterfa
                             <AuthorizedUrlForm actionId={actionId} />
                         </LemonRow>
                     )}
+                    <EmptyState numberOfResults={appUrlsKeyed.length} isSearching={searchTerm.length > 0} />
                     {appUrlsKeyed.map((keyedAppURL, index) => {
                         return (
                             <LemonRow
@@ -160,17 +183,6 @@ export function AuthorizedUrls({ pageKey, actionId }: AuthorizedUrlsTableInterfa
                     })}
                 </>
             )}
-            {/*<LemonTable*/}
-            {/*    className="authorized-urls-table"*/}
-            {/*    columns={columns}*/}
-            {/*    dataSource={appUrlsKeyed}*/}
-            {/*    emptyState={*/}
-            {/*        searchTerm*/}
-            {/*            ? 'There are no authorized URLs that match your search.'*/}
-            {/*            : 'There are no authorized URLs or domains. Add one to get started.'*/}
-            {/*    }*/}
-            {/*    loading={suggestionsLoading}*/}
-            {/*/>*/}
         </div>
     )
 }
