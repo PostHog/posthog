@@ -338,7 +338,7 @@ export function EditSubscription({
 
                         <div>
                             <div className="ant-form-item-label">
-                                <label title="Recurrance">Recurrance</label>
+                                <label title="Recurrence">Recurrence</label>
                             </div>
                             <div className="flex gap-05 items-center border-all pa-05 flex-wrap">
                                 <span>Send every</span>

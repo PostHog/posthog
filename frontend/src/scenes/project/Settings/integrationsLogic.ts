@@ -13,9 +13,9 @@ import type { integrationsLogicType } from './integrationsLogicType'
 // NOTE: Slack enforces HTTPS urls so to aid local dev we change to https so the redirect works.
 // Just means we have to change it back to http once redirected.
 export const getSlackRedirectUri = (next: string = ''): string =>
-    `${window.location.origin.replace('http://', 'https://')}/integrations/slack/redirect?next=${encodeURIComponent(
-        next
-    )}`
+    `${window.location.origin.replace('http://', 'https://')}/integrations/slack/redirect${
+        next ? '?next=' + encodeURIComponent(next) : ''
+    }`
 
 // Modified version of https://app.slack.com/app-settings/TSS5W8YQZ/A03KWE2FJJ2/app-manifest to match current instance
 export const getSlackAppManifest = (): any => ({
