@@ -140,21 +140,24 @@ export class KafkaQueue {
         return await startPromise
     }
 
-    async bufferSleep(sleepMs: number, partition: number, heartbeat: () => Promise<void>): Promise<void> {
+    async bufferSleep(
+        sleepMs: number,
+        partition: number,
+        offset: string,
+        heartbeat: () => Promise<void>
+    ): Promise<void> {
         await this.pause(this.bufferTopic, partition)
         const sleepHeartbeatInterval = setInterval(async () => {
             await heartbeat() // Send a heartbeat once a second so that the broker knows we're still alive
         }, 1000)
-        return await new Promise((resolve) => {
-            this.sleepTimeout = setTimeout(() => {
-                if (this.sleepTimeout) {
-                    clearTimeout(this.sleepTimeout)
-                }
-                clearInterval(sleepHeartbeatInterval)
-                this.resume(this.bufferTopic, partition)
-                resolve()
-            }, sleepMs)
-        })
+        this.sleepTimeout = setTimeout(() => {
+            if (this.sleepTimeout) {
+                clearTimeout(this.sleepTimeout)
+            }
+            clearInterval(sleepHeartbeatInterval)
+            this.consumer.seek({ topic: this.bufferTopic, partition, offset })
+            this.resume(this.bufferTopic, partition)
+        }, sleepMs)
     }
 
     async pause(targetTopic: string, partition?: number): Promise<void> {
