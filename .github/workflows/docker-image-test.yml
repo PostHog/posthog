@@ -165,12 +165,12 @@ jobs:
               run: |
                   mkdir -p /tmp/logs
 
-                  docker run --rm $DOCKER_IMAGE --network host --env-file .env ./bin/check_kafka_clickhouse_up
-                  docker run --rm $DOCKER_IMAGE --network host --env-file .env ./bin/migrate
-                  docker run --rm $DOCKER_IMAGE --network host --env-file .env python manage.py setup_dev
+                  docker run --rm --network host --env-file .env $DOCKER_IMAGE ./bin/check_kafka_clickhouse_up
+                  docker run --rm --network host --env-file .env $DOCKER_IMAGE ./bin/migrate
+                  docker run --rm --network host --env-file .env $DOCKER_IMAGE python manage.py setup_dev
 
-                  docker run --rm $DOCKER_IMAGE --network host --env-file .env ./bin/docker-worker &> /tmp/logs/worker.txt &
-                  docker run --rm $DOCKER_IMAGE --network host --env-file .env ./bin/docker-server &> /tmp/logs/server.txt &
+                  docker run --rm --network host --env-file .env $DOCKER_IMAGE ./bin/docker-worker &> /tmp/logs/worker.txt &
+                  docker run --rm --network host --env-file .env $DOCKER_IMAGE ./bin/docker-server &> /tmp/logs/server.txt &
 
             - name: Cypress run
               uses: cypress-io/github-action@v2
