@@ -85,7 +85,7 @@ describe('E2E with buffer enabled', () => {
             await hub.kafkaProducer.flush()
 
             const bufferTopicMessages = await delayUntilBufferMessageProduced()
-            await delayUntilEventIngested(() => hub.db.fetchEvents())
+            await delayUntilEventIngested(() => hub.db.fetchEvents(), undefined, undefined, 200)
             const events = await hub.db.fetchEvents()
 
             expect(bufferTopicMessages.filter((message) => message.properties.uuid === uuid).length).toBe(1)

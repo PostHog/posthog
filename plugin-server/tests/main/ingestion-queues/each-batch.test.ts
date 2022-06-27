@@ -202,7 +202,7 @@ describe('eachBatchX', () => {
 
             await eachBatchBuffer(batch, queue)
 
-            expect(queue.bufferSleep).toHaveBeenCalledWith(60000, 0)
+            expect(queue.bufferSleep).toHaveBeenCalledWith(60000, 0, expect.any(Function))
 
             jest.clearAllTimers()
         })
