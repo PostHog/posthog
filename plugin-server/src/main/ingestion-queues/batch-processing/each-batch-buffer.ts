@@ -51,6 +51,7 @@ export async function eachBatchBuffer(
             }
         }
     }
+    await commitOffsetsIfNecessary()
     if (messagesCutoffIndex >= 0) {
         // Pause the consumer for this partition until we can process all unprocessed messages from this batch
         await queue.bufferSleep(consumerSleepMs, batch.partition, heartbeat)
