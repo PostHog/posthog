@@ -1,5 +1,5 @@
 import json
-from typing import Any, Dict, Optional, cast
+from typing import Any, Dict, Optional, Tuple, cast
 
 from django.core.serializers.json import DjangoJSONEncoder
 from django.views.decorators.clickjacking import xframe_options_exempt
@@ -13,6 +13,7 @@ from posthog.api.insight import InsightSerializer
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.models import SharingConfiguration
 from posthog.models.dashboard import Dashboard
+from posthog.models.exported_asset import ExportedAsset, asset_for_token, get_content_response
 from posthog.models.insight import Insight
 from posthog.permissions import TeamMemberAccessPermission
 from posthog.utils import render_template
@@ -93,24 +94,48 @@ class SharingConfigurationViewSet(
 
 
 class SharingViewerPageViewSet(mixins.RetrieveModelMixin, StructuredViewSetMixin, viewsets.GenericViewSet):
-    queryset = SharingConfiguration.objects.none()
     authentication_classes = []  # type: ignore
     permission_classes = []  # type: ignore
 
-    def get_object(self):
+    def get_object(self) -> Tuple[Optional[SharingConfiguration], Optional[ExportedAsset]]:
+        # JWT based access (ExportedAsset)
+        token = self.request.query_params.get("token")
+        if token:
+            asset = asset_for_token(token)
+            if asset:
+                return (None, asset)
+
+        # Path based access (SharingConfiguration only)
         access_token = self.kwargs.get("access_token")
-        sharing_configuration = SharingConfiguration.objects.get(access_token=access_token)
+        if access_token:
+            sharing_configuration = SharingConfiguration.objects.select_related("dashboard", "insight").get(
+                access_token=access_token
+            )
 
-        if sharing_configuration and sharing_configuration.enabled:
-            return sharing_configuration
+            if sharing_configuration and sharing_configuration.enabled:
+                return (sharing_configuration, None)
 
-        raise NotFound()
+        return (None, None)
 
     @xframe_options_exempt
     def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Any:
-        resource: SharingConfiguration = self.get_object()
+        sharing_configuration, asset = self.get_object()
+
+        resource = sharing_configuration or asset
+        if not resource:
+            raise NotFound()
+
         context = {"view": self, "request": request}
         exported_data: Dict[str, Any] = {"type": "embed" if "embedded" in request.GET else "scene"}
+
+        if asset:
+            if request.path.endswith(f".{asset.file_ext}"):
+                if not asset.content:
+                    raise serializers.NotFound()
+
+                return get_content_response(asset, request.query_params.get("download") == "true")
+
+            exported_data["type"] = "image"
 
         if resource.insight:
             insight_data = InsightSerializer(resource.insight, many=False, context=context).data

@@ -3,12 +3,14 @@ from datetime import timedelta
 from typing import Optional
 
 from django.db import models
+from django.http import HttpResponse
 from django.utils.text import slugify
 
 from posthog.jwt import PosthogJwtAudience, decode_jwt, encode_jwt
 from posthog.utils import absolute_uri
 
 PUBLIC_ACCESS_TOKEN_EXP_DAYS = 365
+MAX_AGE_CONTENT = 86400  # 1 day
 
 
 def get_default_access_token() -> str:
@@ -79,6 +81,16 @@ def get_public_access_token(asset: ExportedAsset, expiry_delta: Optional[timedel
 
 def asset_for_token(token: str) -> ExportedAsset:
     info = decode_jwt(token, audience=PosthogJwtAudience.EXPORTED_ASSET)
-    asset = ExportedAsset.objects.get(pk=info["id"])
+    asset = ExportedAsset.objects.select_related("dashboard", "insight").get(pk=info["id"])
 
     return asset
+
+
+def get_content_response(asset: ExportedAsset, download: bool = False):
+    res = HttpResponse(asset.content, content_type=asset.export_format)
+    if download:
+        res["Content-Disposition"] = f'attachment; filename="{asset.filename}"'
+
+    res["Cache-Control"] = f"max-age={MAX_AGE_CONTENT}"
+
+    return res

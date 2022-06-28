@@ -21,24 +21,12 @@ from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.event_usage import report_user_action
 from posthog.models import Insight
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
-from posthog.models.exported_asset import ExportedAsset, asset_for_token
+from posthog.models.exported_asset import ExportedAsset, asset_for_token, get_content_response
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.tasks import exporter
 from posthog.utils import render_template
 
 logger = structlog.get_logger(__name__)
-
-MAX_AGE_CONTENT = 86400  # 1 day
-
-
-def get_content_response(asset: ExportedAsset, download: bool = False):
-    res = HttpResponse(asset.content, content_type=asset.export_format)
-    if download:
-        res["Content-Disposition"] = f'attachment; filename="{asset.filename}"'
-
-    res["Cache-Control"] = f"max-age={MAX_AGE_CONTENT}"
-
-    return res
 
 
 class ExportedAssetSerializer(serializers.ModelSerializer):
