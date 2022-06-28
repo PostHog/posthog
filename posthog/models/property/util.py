@@ -39,6 +39,7 @@ from posthog.models.property import (
 )
 from posthog.models.utils import PersonPropertiesMode
 from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
+from posthog.queries.session_query import SessionQuery
 from posthog.utils import is_json, is_valid_regex
 
 # Property Groups Example:
@@ -718,10 +719,10 @@ def get_session_property_filter_statement(prop: Property, idx: int, prepend: str
             raise (exceptions.ValidationError(f"$session_duration value must be a number. Received '{prop.value}'"))
         if prop.operator == "gt":
             value = "session_duration_value{prepend}_{idx}"
-            return (f"sessions.session_duration > %({value})s", {value: duration})
+            return (f"{SessionQuery.SESSION_TABLE_ALIAS}.session_duration > %({value})s", {value: duration})
         if prop.operator == "lt":
             value = "session_duration_value{prepend}_{idx}"
-            return (f"sessions.session_duration < %({value})s", {value: duration})
+            return (f"{SessionQuery.SESSION_TABLE_ALIAS}.session_duration < %({value})s", {value: duration})
         else:
             raise exceptions.ValidationError(f"Operator '{prop.operator}' is not allowed in $session_duration filters.")
     else:
