@@ -18,7 +18,7 @@ const defaultEmbedConfig: EmbedConfig = {
     whitelabel: false,
 }
 
-interface EmbedModalLogicProps {
+export interface EmbedModalLogicProps {
     insightShortId: InsightShortId
 }
 
@@ -34,13 +34,24 @@ export const embedModalLogic = kea<embedModalLogicType>([
     selectors({
         insightShortId: [() => [(_, props) => props.insightShortId], (insightShortId) => insightShortId],
         siteUrl: [() => [preflightLogic.selectors.preflight], (preflight) => preflight?.site_url],
-        embedCode: [
+        iframeProperties: [
             (s) => [s.siteUrl, s.embedConfig, s.insightShortId],
-            (siteUrl, { width, height, whitelabel }, insightShortId) =>
-                `<iframe src="${siteUrl}${urls.exportPreview({
+            (siteUrl, { width, height, whitelabel }, insightShortId) => ({
+                src: `${siteUrl}${urls.exportPreview({
                     insight: insightShortId,
-                    whitelabel,
-                })}" width="${width}" height="${height}" frameborder="0"></iframe>`,
+                    ...(whitelabel ? { whitelabel: true } : {}),
+                })}`,
+                width,
+                height,
+                frameborder: 0,
+            }),
+        ],
+        embedCode: [
+            (s) => [s.iframeProperties],
+            (iframeProperties) =>
+                `<iframe ${Object.entries(iframeProperties)
+                    .map(([key, value]) => `${key}="${String(value).split('"').join('')}"`)
+                    .join(' ')}></iframe>`,
         ],
     }),
 ])

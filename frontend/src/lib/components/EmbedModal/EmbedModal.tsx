@@ -16,7 +16,7 @@ export interface ExportModalProps {
 }
 
 export function EmbedModal({ visible, closeModal, insightShortId }: ExportModalProps): JSX.Element {
-    const { embedCode } = useValues(embedModalLogic({ insightShortId }))
+    const { embedCode, iframeProperties } = useValues(embedModalLogic({ insightShortId }))
 
     return (
         <LemonModal onCancel={closeModal} afterClose={closeModal} visible={visible} width={650}>
@@ -41,7 +41,7 @@ export function EmbedModal({ visible, closeModal, insightShortId }: ExportModalP
                 <CodeSnippet wrap={true} language={Language.HTML}>
                     {embedCode}
                 </CodeSnippet>
-                <div dangerouslySetInnerHTML={{ __html: embedCode }} />
+                <iframe {...iframeProperties} />
             </VerticalForm>
         </LemonModal>
     )
