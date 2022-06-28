@@ -1,15 +1,13 @@
 import json
 import secrets
-from typing import Any, Dict, Sequence, Type, Union, cast
+from typing import Any, Dict, cast
 
 from django.db.models import Prefetch, QuerySet
-from django.http import HttpRequest
 from django.shortcuts import get_object_or_404
 from django.utils.timezone import now
-from django.views.decorators.clickjacking import xframe_options_exempt
-from rest_framework import exceptions, mixins, response, serializers, viewsets
-from rest_framework.authentication import BaseAuthentication, BasicAuthentication, SessionAuthentication
-from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAuthenticated, OperandHolder, SingleOperandHolder
+from rest_framework import exceptions, response, serializers, viewsets
+from rest_framework.authentication import BasicAuthentication, SessionAuthentication
+from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAuthenticated
 from rest_framework.request import Request
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
@@ -24,7 +22,6 @@ from posthog.helpers import create_dashboard_from_template
 from posthog.models import Dashboard, DashboardTile, Insight, Team
 from posthog.models.user import User
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
-from posthog.utils import render_template
 
 
 class CanEditDashboard(BasePermission):
@@ -280,37 +277,6 @@ class LegacyDashboardsViewSet(DashboardsViewSet):
         if not self.request.user.is_authenticated or "share_token" in self.request.GET:
             return {}
         return {"team_id": self.team_id}
-
-
-class SharedDashboardsViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSet):
-    queryset = Dashboard.objects.filter(is_shared=True)
-    serializer_class = DashboardSerializer
-    authentication_classes: Sequence[Type[BaseAuthentication]] = []
-    permission_classes: Sequence[Union[Type[BasePermission], OperandHolder, SingleOperandHolder]] = []
-    lookup_field = "share_token"
-
-
-@xframe_options_exempt
-def shared_dashboard(request: HttpRequest, share_token: str):
-    dashboard = get_object_or_404(
-        Dashboard.objects.select_related("team__organization"), is_shared=True, share_token=share_token
-    )
-
-    exported_data: Dict[str, Any] = {
-        "type": "embed" if "embedded" in request.GET else "scene",
-        "dashboard": {
-            "id": dashboard.id,
-            "share_token": dashboard.share_token,
-            "name": dashboard.name,
-            "description": dashboard.description,
-        },
-        "team": {"name": dashboard.team.name},
-    }
-
-    if "whitelabel" in request.GET and "white_labelling" in dashboard.team.organization.available_features:
-        exported_data.update({"whitelabel": True})
-
-    return render_template("exporter.html", request=request, context={"exported_data": json.dumps(exported_data)},)
 
 
 class LegacyInsightViewSet(InsightViewSet):

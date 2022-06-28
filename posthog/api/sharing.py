@@ -94,6 +94,14 @@ class SharingConfigurationViewSet(
 
 
 class SharingViewerPageViewSet(mixins.RetrieveModelMixin, StructuredViewSetMixin, viewsets.GenericViewSet):
+    """
+    NOTE: This ViewSet takes care of multiple rendering cases:
+    1. Shared Resources like Shared Dashboard or Insight
+    2. Embedded Resources (same as sharing but with slightly modified UI)
+    3. Export Rendering - used by the worker to load a webpage for taking an image screenshot of
+    4. Export downloading - used to download the actual content of an export if requested with the correct extension
+    """
+
     authentication_classes = []  # type: ignore
     permission_classes = []  # type: ignore
 
@@ -131,7 +139,7 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, StructuredViewSetMixin
         if asset:
             if request.path.endswith(f".{asset.file_ext}"):
                 if not asset.content:
-                    raise serializers.NotFound()
+                    raise NotFound()
 
                 return get_content_response(asset, request.query_params.get("download") == "true")
 

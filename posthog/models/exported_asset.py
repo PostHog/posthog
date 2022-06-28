@@ -33,11 +33,6 @@ class ExportedAsset(models.Model):
     content: models.BinaryField = models.BinaryField(null=True)
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True, blank=True)
 
-    # Token for accessing the /exporter page
-    access_token: models.CharField = models.CharField(
-        max_length=400, null=True, blank=True, default=get_default_access_token
-    )
-
     @property
     def has_content(self):
         return self.content is not None
@@ -63,10 +58,6 @@ class ExportedAsset(models.Model):
 
     def get_analytics_metadata(self):
         return {"export_format": self.export_format, "dashboard_id": self.dashboard_id, "insight_id": self.insight_id}
-
-    @property
-    def url(self):
-        return absolute_uri(f"/exporter/{self.access_token}")
 
     def get_public_content_url(self, expiry_delta: Optional[timedelta] = None):
         token = get_public_access_token(self, expiry_delta)
