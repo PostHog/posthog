@@ -41,7 +41,7 @@ export function Sharing({ dashboardId, insightShortId, insight }: SharingModalPr
     const resource = dashboardId ? 'dashboard' : 'insight'
 
     return (
-        <div className="mt-05">
+        <div>
             {dashboardId ? (
                 <div className="mb">
                     <h4>Collaboration settings</h4>
@@ -145,7 +145,7 @@ export function SharingModal(props: SharingModalProps): JSX.Element {
 
     return (
         <>
-            <LemonModal onCancel={closeModal} afterClose={closeModal} visible={visible}>
+            <LemonModal onCancel={closeModal} afterClose={closeModal} visible={visible} width={650}>
                 <Sharing {...props} />
             </LemonModal>
         </>
