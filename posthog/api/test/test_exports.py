@@ -282,8 +282,7 @@ class TestExports(APIBaseTest):
             attempt_count += 1
 
         if not response:
-            # hi mypy
-            self.fail("must have a response by this point")
+            self.fail("must have a response by this point")  # hi mypy
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertIsNotNone(response.content)
