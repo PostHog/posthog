@@ -1,12 +1,10 @@
 import './Insight.scss'
 import React, { useEffect } from 'react'
 import { useActions, useMountedLogic, useValues, BindLogic } from 'kea'
-import { Card } from 'antd'
-import { FunnelTab, PathTab, RetentionTab, TrendTab } from './InsightTabs'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { insightLogic } from './insightLogic'
 import { insightCommandLogic } from './insightCommandLogic'
-import { ItemMode, InsightType, AvailableFeature, InsightShortId, InsightModel } from '~/types'
+import { ItemMode, AvailableFeature, InsightShortId, InsightModel, InsightType } from '~/types'
 import { NPSPrompt } from 'lib/experimental/NPSPrompt'
 import { SaveCohortModal } from 'scenes/trends/SaveCohortModal'
 import { personsModalLogic } from 'scenes/trends/personsModalLogic'
@@ -28,8 +26,6 @@ import { InsightSkeleton } from 'scenes/insights/InsightSkeleton'
 import { LemonButton } from 'lib/components/LemonButton'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
-import useBreakpoint from 'antd/lib/grid/hooks/useBreakpoint'
-import { CSSTransition } from 'react-transition-group'
 import { EditorFilters } from './EditorFilters/EditorFilters'
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { More } from 'lib/components/LemonButton/More'
@@ -42,6 +38,7 @@ import { urls } from 'scenes/urls'
 import { SubscriptionsModal, SubscribeButton } from 'lib/components/Subscriptions/SubscriptionsModal'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 import { EmbedModal } from 'lib/components/EmbedModal/EmbedModal'
+import clsx from 'clsx'
 
 export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): JSX.Element {
     const { insightMode, subscriptionId } = useValues(insightSceneLogic)
@@ -57,7 +54,6 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
         filtersKnown,
         filters,
         canEditInsight,
-        activeView,
         insight,
         insightChanged,
         tagLoading,
@@ -78,7 +74,7 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
         reportInsightViewedForRecentInsights()
     }, [insightId])
 
-    const screens = useBreakpoint()
+    // const screens = useBreakpoint()
     const usingEditorPanels = featureFlags[FEATURE_FLAGS.INSIGHT_EDITOR_PANELS]
     const usingExportFeature = featureFlags[FEATURE_FLAGS.EXPORT_DASHBOARD_INSIGHTS]
     const usingSubscriptionFeature = featureFlags[FEATURE_FLAGS.INSIGHT_SUBSCRIPTIONS]
@@ -88,19 +84,6 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
     if (insightId !== 'new' && insightLoading && !filtersKnown) {
         return <InsightSkeleton />
     }
-
-    /* These are insight specific filters. They each have insight specific logics */
-    const insightTabFilters = {
-        [`${InsightType.TRENDS}`]: <TrendTab view={InsightType.TRENDS} />,
-        [`${InsightType.STICKINESS}`]: <TrendTab view={InsightType.STICKINESS} />,
-        [`${InsightType.LIFECYCLE}`]: <TrendTab view={InsightType.LIFECYCLE} />,
-        [`${InsightType.FUNNELS}`]: <FunnelTab />,
-        [`${InsightType.RETENTION}`]: <RetentionTab />,
-        [`${InsightType.PATHS}`]: <PathTab />,
-    }[activeView]
-
-    const isSmallScreen = !screens.xl
-    const verticalLayout = !isSmallScreen && activeView === InsightType.FUNNELS
 
     const insightScene = (
         <div className={'insights-page'}>
@@ -281,65 +264,17 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                 }
             />
 
-            {usingEditorPanels ? (
-                <div className="insights-wrapper">
-                    <CSSTransition
-                        in={insightMode === ItemMode.Edit}
-                        timeout={250}
-                        classNames="anim-"
-                        mountOnEnter
-                        unmountOnExit
-                    >
-                        <div className="insight-editor-area-wrapper">
-                            <div className="insight-editor-area">{<EditorFilters insightProps={insightProps} />}</div>
-                        </div>
-                    </CSSTransition>
-                    <div className="insights-container">
-                        <InsightContainer />
-                    </div>
-                </div>
-            ) : (
-                // Old View mode
-                <>
-                    {insightMode !== ItemMode.Edit ? (
-                        <InsightContainer />
-                    ) : (
-                        <>
-                            <InsightsNav />
-                            <div
-                                style={{
-                                    display: 'flex',
-                                    flexDirection: verticalLayout ? 'row' : 'column',
-                                    marginBottom: verticalLayout ? 64 : 0,
-                                }}
-                            >
-                                <div
-                                    style={{
-                                        width: verticalLayout ? 'min(28rem, 50%)' : 'unset',
-                                        marginRight: verticalLayout ? '1rem' : 0,
-                                    }}
-                                >
-                                    {verticalLayout ? (
-                                        insightTabFilters
-                                    ) : (
-                                        <Card className="insight-controls">
-                                            <div className="tabs-inner">{insightTabFilters}</div>
-                                        </Card>
-                                    )}
-                                </div>
-                                <div
-                                    style={{
-                                        flexGrow: 1,
-                                        width: verticalLayout ? 'calc(100% - min(28rem, 50%) - 1rem)' : 'unset',
-                                    }}
-                                >
-                                    <InsightContainer />
-                                </div>
-                            </div>
-                        </>
-                    )}
-                </>
-            )}
+            {!usingEditorPanels && insightMode === ItemMode.Edit && <InsightsNav />}
+
+            <div
+                className={clsx('insight-wrapper', {
+                    'insight-wrapper--editorpanels': usingEditorPanels,
+                    'insight-wrapper--singlecolumn': !usingEditorPanels && filters.insight === InsightType.FUNNELS,
+                })}
+            >
+                <EditorFilters insightProps={insightProps} showing={insightMode === ItemMode.Edit} />
+                <div className="insights-container">{<InsightContainer />}</div>
+            </div>
 
             {insightMode !== ItemMode.View ? (
                 <>

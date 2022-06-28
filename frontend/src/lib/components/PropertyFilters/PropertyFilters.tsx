@@ -80,7 +80,7 @@ export function PropertyFilters({
                                         disablePopover={disablePopover || orFiltering}
                                         selectProps={{
                                             delayBeforeAutoOpen: 150,
-                                            placement: pageKey === 'trends-filters' ? 'bottomLeft' : undefined,
+                                            placement: pageKey === 'insight-filters' ? 'bottomLeft' : undefined,
                                         }}
                                     />
                                 )}

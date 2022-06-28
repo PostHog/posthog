@@ -36,7 +36,7 @@ class TestExperimentCRUD(APILicensedTest):
                 },
             },
         )
-        non_archived_experiment = self.client.post(
+        self.client.post(
             f"/api/projects/{self.team.id}/experiments/",
             {
                 "name": "Test Experiment",
@@ -196,7 +196,7 @@ class TestExperimentCRUD(APILicensedTest):
     def test_draft_experiment_doesnt_have_FF_active(self):
         # Draft experiment
         ff_key = "a-b-tests"
-        response = self.client.post(
+        self.client.post(
             f"/api/projects/{self.team.id}/experiments/",
             {
                 "name": "Test Experiment",
@@ -208,8 +208,6 @@ class TestExperimentCRUD(APILicensedTest):
                 "filters": {"events": []},
             },
         )
-
-        id = response.json()["id"]
 
         created_ff = FeatureFlag.objects.get(key=ff_key)
         self.assertEqual(created_ff.key, ff_key)

@@ -73,7 +73,6 @@ def status_report(*, dry_run: bool = False) -> Dict[str, Any]:
 
     for team in Team.objects.exclude(organization__for_internal_metrics=True):
         try:
-            params = (team.id, report["period"]["start_inclusive"], report["period"]["end_inclusive"])
             team_report: Dict[str, Any] = {}
             # pull events stats from clickhouse
 

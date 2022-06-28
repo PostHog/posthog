@@ -76,15 +76,12 @@ export function Popup({
             shift(),
             size({
                 padding: 5,
-                apply({ rects, availableHeight, elements: { floating } }) {
+                apply({ rects, elements: { floating } }) {
                     if (sameWidth) {
                         Object.assign(floating.style, {
                             width: `${rects.reference.width}px`,
                         })
                     }
-                    Object.assign(floating.style, {
-                        maxHeight: `${Math.max(50, availableHeight)}px`,
-                    })
                 },
             }),
             ...(middleware ?? []),

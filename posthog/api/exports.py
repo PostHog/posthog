@@ -75,7 +75,7 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
         except celery.exceptions.TimeoutError:
             # If the rendering times out - fine, the frontend will poll instead for the response
             pass
-        except NotImplementedError as e:
+        except NotImplementedError:
             raise serializers.ValidationError(
                 {"export_format": ["This type of export is not supported for this resource."]}
             )
