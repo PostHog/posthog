@@ -15,7 +15,7 @@ const INSIGHT_TYPE_OPTIONS: LemonSelectOptions = Object.entries(INSIGHT_TYPES_ME
     }
 }, {})
 
-export function EFInsightType({ value }: EditorFilterProps): JSX.Element {
+export function InsightTypeSelector({ value }: EditorFilterProps): JSX.Element {
     const { setActiveView } = useActions(insightLogic)
 
     return (

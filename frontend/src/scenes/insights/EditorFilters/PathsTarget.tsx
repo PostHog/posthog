@@ -10,15 +10,15 @@ import { combineUrl, encodeParams, router } from 'kea-router'
 import { LemonButton, LemonButtonWithSideAction } from 'lib/components/LemonButton'
 import { IconClose } from 'lib/components/icons'
 
-export function EFPathsTargetStart(props: EditorFilterProps): JSX.Element {
-    return <EFPathsTarget position="start" {...props} />
+export function PathsTargetStart(props: EditorFilterProps): JSX.Element {
+    return <PathsTarget position="start" {...props} />
 }
 
-export function EFPathsTargetEnd(props: EditorFilterProps): JSX.Element {
-    return <EFPathsTarget position="end" {...props} />
+export function PathsTargetEnd(props: EditorFilterProps): JSX.Element {
+    return <PathsTarget position="end" {...props} />
 }
 
-export function EFPathsTarget({
+export function PathsTarget({
     insightProps,
     position,
 }: EditorFilterProps & {

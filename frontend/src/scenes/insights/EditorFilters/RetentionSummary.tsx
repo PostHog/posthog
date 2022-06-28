@@ -17,7 +17,7 @@ import { AggregationSelect } from 'scenes/insights/filters/AggregationSelect'
 import { groupsModel } from '~/models/groupsModel'
 import { MathAvailability } from '../filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 
-export function EFRetentionSummary({ insightProps }: EditorFilterProps): JSX.Element {
+export function RetentionSummary({ insightProps }: EditorFilterProps): JSX.Element {
     const { showGroupsOptions } = useValues(groupsModel)
     const { filters, actionFilterTargetEntity, actionFilterReturningEntity } = useValues(
         retentionTableLogic(insightProps)

@@ -6,7 +6,7 @@ import { pathsLogic } from 'scenes/paths/pathsLogic'
 import { PathItemFilters } from 'lib/components/PropertyFilters/PathItemFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
-export function EFPathsExclusions({ insightProps }: EditorFilterProps): JSX.Element {
+export function PathsExclusions({ insightProps }: EditorFilterProps): JSX.Element {
     const { filter, wildcards } = useValues(pathsLogic(insightProps))
     const { updateExclusions } = useActions(pathsLogic(insightProps))
 

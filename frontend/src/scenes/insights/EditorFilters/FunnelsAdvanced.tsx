@@ -9,7 +9,7 @@ import { funnelCommandLogic } from '../views/Funnels/funnelCommandLogic'
 import { LemonButton } from 'lib/components/LemonButton'
 import { EditorFilterItemTitle } from './EditorFilterItemTitle'
 
-export function EFFunnelsAdvanced({ filters, insightProps }: EditorFilterProps): JSX.Element {
+export function FunnelsAdvanced({ filters, insightProps }: EditorFilterProps): JSX.Element {
     const { aggregationTargetLabel, advancedOptionsUsedCount } = useValues(funnelLogic(insightProps))
     const { setFilters, setStepReference } = useActions(funnelLogic(insightProps))
     useMountedLogic(funnelCommandLogic)

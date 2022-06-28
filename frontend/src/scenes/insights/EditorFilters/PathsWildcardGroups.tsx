@@ -4,7 +4,7 @@ import { pathsLogic } from 'scenes/paths/pathsLogic'
 import { EditorFilterProps } from '~/types'
 import { LemonSelectMultiple } from 'lib/components/LemonSelectMultiple/LemonSelectMultiple'
 
-export function EFPathsWildcardGroups({ insightProps }: EditorFilterProps): JSX.Element {
+export function PathsWildcardGroups({ insightProps }: EditorFilterProps): JSX.Element {
     const { filter } = useValues(pathsLogic(insightProps))
     const { setFilter } = useActions(pathsLogic(insightProps))
 

@@ -8,7 +8,7 @@ import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { groupsModel } from '~/models/groupsModel'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
-export function EFTrendsGlobalAndOrFilters({ filters, insightProps }: EditorFilterProps): JSX.Element {
+export function TrendsGlobalAndOrFilters({ filters, insightProps }: EditorFilterProps): JSX.Element {
     const { setFilters } = useActions(trendsLogic(insightProps))
 
     const { allEventNames } = useValues(insightLogic)

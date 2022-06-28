@@ -8,34 +8,34 @@ import {
     InsightType,
 } from '~/types'
 import { CSSTransition } from 'react-transition-group'
-import { EFTrendsSteps } from 'scenes/insights/EditorFilters/EFTrendsSteps'
+import { TrendsSteps } from 'scenes/insights/EditorFilters/TrendsSteps'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { EFTrendsGlobalAndOrFilters } from 'scenes/insights/EditorFilters/EFTrendsGlobalAndOrFilters'
-import { EFTrendsFormula } from 'scenes/insights/EditorFilters/EFTrendsFormula'
-import { EFTrendsBreakdown } from 'scenes/insights/EditorFilters/EFTrendsBreakdown'
-import { EFLifecycleToggles } from 'scenes/insights/EditorFilters/EFLifecycleToggles'
-import { EFLifecycleGlobalFilters } from 'scenes/insights/EditorFilters/EFLifecycleGlobalFilters'
+import { TrendsGlobalAndOrFilters } from 'scenes/insights/EditorFilters/TrendsGlobalAndOrFilters'
+import { TrendsFormula } from 'scenes/insights/EditorFilters/TrendsFormula'
+import { TrendsBreakdown } from 'scenes/insights/EditorFilters/TrendsBreakdown'
+import { LifecycleToggles } from 'scenes/insights/EditorFilters/LifecycleToggles'
+import { LifecycleGlobalFilters } from 'scenes/insights/EditorFilters/LifecycleGlobalFilters'
 import React from 'react'
-import { EFRetentionSummary } from './EFRetentionSummary'
-import { EFPathsEventTypes } from './EFPathsEventTypes'
-import { EFPathsWildcardGroups } from './EFPathsWildcardGroups'
-import { EFPathsTargetEnd, EFPathsTargetStart } from './EFPathsTarget'
-import { EFPathsAdvanced } from './EFPathsAdvanced'
-import { EFFunnelsQuerySteps } from './EFFunnelsQuerySteps'
-import { EFFunnelsAdvanced } from './EFFunnelsAdvanced'
-import { EFPathsExclusions } from './EFPathsExclusions'
+import { RetentionSummary } from './RetentionSummary'
+import { PathsEventTypes } from './PathsEventTypes'
+import { PathsWildcardGroups } from './PathsWildcardGroups'
+import { PathsTargetEnd, PathsTargetStart } from './PathsTarget'
+import { PathsAdvanced } from './PathsAdvanced'
+import { FunnelsQuerySteps } from './FunnelsQuerySteps'
+import { FunnelsAdvanced } from './FunnelsAdvanced'
+import { PathsExclusions } from './PathsExclusions'
 import { EditorFilterGroup } from './EditorFilterGroup'
 import { useValues } from 'kea'
 import { userLogic } from 'scenes/userLogic'
 import { insightLogic } from '../insightLogic'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { EFPathsAdvancedPaywall } from './EFPathsAdvancedPaywall'
+import { PathsAdvancedPaywall } from './PathsAdvancedPaywall'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { EFInsightType } from './EFInsightType'
+import { InsightTypeSelector } from './InsightTypeSelector'
 import './EditorFilters.scss'
 import clsx from 'clsx'
-import { EFAttribution } from './EFAttribution'
+import { Attribution } from './AttributionFilter'
 
 export interface EditorFiltersProps {
     insightProps: InsightLogicProps
@@ -87,25 +87,25 @@ export function EditorFilters({ insightProps, showing }: EditorFiltersProps): JS
                     ? {
                           key: 'insight',
                           label: 'Type',
-                          component: EFInsightType,
+                          component: InsightTypeSelector,
                       }
                     : undefined,
                 isRetention && {
                     key: 'retention-summary',
                     label: 'Retention Summary',
-                    component: EFRetentionSummary,
+                    component: RetentionSummary,
                 },
                 ...(isPaths
                     ? filterFalsy([
                           {
                               key: 'event-types',
                               label: 'Event Types',
-                              component: EFPathsEventTypes,
+                              component: PathsEventTypes,
                           },
                           hasPathsAdvanced && {
                               key: 'wildcard-groups',
                               label: 'Wildcard Groups (optional)',
-                              component: EFPathsWildcardGroups,
+                              component: PathsWildcardGroups,
                               tooltip: (
                                   <>
                                       Use wildcard matching to group events by unique values in path item names. Use an
@@ -118,12 +118,12 @@ export function EditorFilters({ insightProps, showing }: EditorFiltersProps): JS
                           {
                               key: 'start-target',
                               label: 'Starts at',
-                              component: EFPathsTargetStart,
+                              component: PathsTargetStart,
                           },
                           hasPathsAdvanced && {
                               key: 'ends-target',
                               label: 'Ends at',
-                              component: EFPathsTargetEnd,
+                              component: PathsTargetEnd,
                           },
                       ])
                     : []),
@@ -132,7 +132,7 @@ export function EditorFilters({ insightProps, showing }: EditorFiltersProps): JS
                           {
                               key: 'query-steps',
                               //   label: 'Query Steps',
-                              component: EFFunnelsQuerySteps,
+                              component: FunnelsQuerySteps,
                           },
                       ])
                     : []),
@@ -144,7 +144,7 @@ export function EditorFilters({ insightProps, showing }: EditorFiltersProps): JS
             editorFilters: filterFalsy([
                 isTrendsLike && {
                     key: 'steps',
-                    component: EFTrendsSteps,
+                    component: TrendsSteps,
                 },
             ]),
         },
@@ -158,7 +158,7 @@ export function EditorFilters({ insightProps, showing }: EditorFiltersProps): JS
                           key: 'properties',
                           label: !usingEditorPanels ? 'Filters' : undefined,
                           position: 'right',
-                          component: EFLifecycleGlobalFilters,
+                          component: LifecycleGlobalFilters,
                       }
                     : null,
                 isLifecycle
@@ -166,7 +166,7 @@ export function EditorFilters({ insightProps, showing }: EditorFiltersProps): JS
                           key: 'toggles',
                           label: 'Lifecycle Toggles',
                           position: 'right',
-                          component: EFLifecycleToggles,
+                          component: LifecycleToggles,
                       }
                     : null,
                 hasPropertyFilters && filters.properties
@@ -174,7 +174,7 @@ export function EditorFilters({ insightProps, showing }: EditorFiltersProps): JS
                           key: 'properties',
                           label: !usingEditorPanels ? 'Filters' : undefined,
                           position: 'right',
-                          component: EFTrendsGlobalAndOrFilters,
+                          component: TrendsGlobalAndOrFilters,
                       }
                     : null,
             ]),
@@ -196,7 +196,7 @@ export function EditorFilters({ insightProps, showing }: EditorFiltersProps): JS
                                   give you the event volume for each URL your users have visited.
                               </>
                           ),
-                          component: EFTrendsBreakdown,
+                          component: TrendsBreakdown,
                       }
                     : null,
                 hasAttribution
@@ -206,7 +206,7 @@ export function EditorFilters({ insightProps, showing }: EditorFiltersProps): JS
                           position: 'right',
 
                           tooltip: <>filler</>,
-                          component: EFAttribution,
+                          component: Attribution,
                       }
                     : null,
             ]),
@@ -222,7 +222,7 @@ export function EditorFilters({ insightProps, showing }: EditorFiltersProps): JS
                     tooltip: (
                         <>Exclude events from Paths visualisation. You can use wildcard groups in exclusions as well.</>
                     ),
-                    component: EFPathsExclusions,
+                    component: PathsExclusions,
                 },
             ]),
         },
@@ -244,24 +244,24 @@ export function EditorFilters({ insightProps, showing }: EditorFiltersProps): JS
                                   <code>A / 100</code>)
                               </>
                           ),
-                          component: EFTrendsFormula,
+                          component: TrendsFormula,
                       }
                     : null,
                 isPaths &&
                     (hasPathsAdvanced
                         ? {
                               key: 'paths-advanced',
-                              component: EFPathsAdvanced,
+                              component: PathsAdvanced,
                           }
                         : !preflight?.instance_preferences?.disable_paid_fs
                         ? {
                               key: 'paths-paywall',
-                              component: EFPathsAdvancedPaywall,
+                              component: PathsAdvancedPaywall,
                           }
                         : undefined),
                 isFunnels && {
                     key: 'funnels-advanced',
-                    component: EFFunnelsAdvanced,
+                    component: FunnelsAdvanced,
                 },
             ]),
         },

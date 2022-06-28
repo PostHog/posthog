@@ -6,9 +6,8 @@ import { BreakdownFilter } from 'scenes/insights/filters/BreakdownFilter'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 
-export function EFTrendsBreakdown({ filters, insightProps }: EditorFilterProps): JSX.Element {
+export function TrendsBreakdown({ filters, insightProps }: EditorFilterProps): JSX.Element {
     const { setFilters } = useActions(trendsLogic(insightProps))
-
     const { featureFlags } = useValues(featureFlagLogic)
 
     const useMultiBreakdown =

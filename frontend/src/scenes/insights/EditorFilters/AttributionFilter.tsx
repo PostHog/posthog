@@ -5,7 +5,7 @@ import { BreakdownAttributionType, EditorFilterProps, StepOrderValue } from '~/t
 import { LemonSelect } from '@posthog/lemon-ui'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 
-export function EFAttribution({ filters, insightProps }: EditorFilterProps): JSX.Element {
+export function Attribution({ filters, insightProps }: EditorFilterProps): JSX.Element {
     const { setFilters } = useActions(trendsLogic(insightProps))
     const { breakdownAttributionStepOptions } = useValues(funnelLogic(insightProps))
 

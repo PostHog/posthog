@@ -10,7 +10,7 @@ import React from 'react'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
-export function EFTrendsSteps({ insightProps }: EditorFilterProps): JSX.Element {
+export function TrendsSteps({ insightProps }: EditorFilterProps): JSX.Element {
     const { setFilters } = useActions(trendsLogic(insightProps))
     const { filters } = useValues(trendsLogic(insightProps))
     const { groupsTaxonomicTypes } = useValues(groupsModel)

@@ -8,7 +8,7 @@ import { InputNumber, Tooltip } from 'antd'
 import { Link } from 'lib/components/Link'
 import { PathCleaningFilter } from '../filters/PathCleaningFilter'
 
-export function EFPathsAdvanced({ insightProps }: EditorFilterProps): JSX.Element {
+export function PathsAdvanced({ insightProps }: EditorFilterProps): JSX.Element {
     const { filter } = useValues(pathsLogic(insightProps))
     const { setFilter } = useActions(pathsLogic(insightProps))
     const [localEdgeParameters, setLocalEdgeParameters] = useState<PathEdgeParameters>({

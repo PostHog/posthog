@@ -5,7 +5,7 @@ import { EditorFilterProps } from '~/types'
 import { Checkbox } from 'antd'
 import { Tooltip } from 'lib/components/Tooltip'
 import { InfoCircleOutlined } from '@ant-design/icons'
-import './EFLifecycleToggles.scss'
+import './LifecycleToggles.scss'
 
 const lifecycles = [
     { name: 'new', tooltip: 'Users who were first seen on this period and did the activity during the period.' },
@@ -22,7 +22,7 @@ const lifecycles = [
     },
 ]
 
-export function EFLifecycleToggles({ insightProps }: EditorFilterProps): JSX.Element {
+export function LifecycleToggles({ insightProps }: EditorFilterProps): JSX.Element {
     const { toggleLifecycle } = useActions(trendsLogic(insightProps))
     return (
         <>
