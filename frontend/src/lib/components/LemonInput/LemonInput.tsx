@@ -12,11 +12,12 @@ export interface LemonInputProps
     > {
     ref?: React.Ref<HTMLInputElement>
     id?: string
-    value?: string
+    type?: string
+    value?: string | number
     defaultValue?: string
     placeholder?: string
-    onChange?: (newValue: string) => void
-    onPressEnter?: (newValue: string) => void
+    onChange?: (newValue: string | number) => void
+    onPressEnter?: (newValue: string | number) => void
     /** An embedded input has no border around it and no background. This way it blends better into other components. */
     embedded?: boolean
     /** Whether there should be a clear icon to the right allowing you to reset the input. The `suffix` prop will be ignored if clearing is allowed. */
@@ -41,6 +42,7 @@ export const LemonInput = React.forwardRef<HTMLInputElement, LemonInputProps>(fu
         allowClear = false,
         icon,
         sideIcon,
+        type,
         ...textProps
     },
     ref
@@ -95,7 +97,11 @@ export const LemonInput = React.forwardRef<HTMLInputElement, LemonInputProps>(fu
         className: 'LemonInput__input',
         type: 'text',
         onChange: (event) => {
-            onChange?.(event.currentTarget.value ?? '')
+            if (type === 'number') {
+                onChange?.(isNaN(event.currentTarget.valueAsNumber) ? '' : event.currentTarget.valueAsNumber)
+            } else {
+                onChange?.(event.currentTarget.value ?? '')
+            }
         },
         onFocus: (event) => {
             setFocused(true)
@@ -113,4 +119,11 @@ export const LemonInput = React.forwardRef<HTMLInputElement, LemonInputProps>(fu
             <input {...props} ref={inputRef} />
         </LemonRow>
     )
+})
+
+export const LemonNumericInput = React.forwardRef<HTMLInputElement, LemonInputProps>(function _LemonInput(
+    props,
+    ref
+): JSX.Element {
+    return <LemonInput type="number" {...props} ref={ref} />
 })

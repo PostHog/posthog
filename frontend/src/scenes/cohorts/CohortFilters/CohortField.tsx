@@ -3,7 +3,7 @@ import { LemonButton, LemonButtonWithPopup } from 'lib/components/LemonButton'
 import React, { useMemo } from 'react'
 import { cohortFieldLogic } from 'scenes/cohorts/CohortFilters/cohortFieldLogic'
 import { useActions, useValues } from 'kea'
-import { LemonNumericInput } from 'lib/components/LemonInput/LemonNumericInput'
+import { LemonNumericInput } from 'lib/components/LemonInput/LemonInput'
 import { TaxonomicFilterGroupType, TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
 import { LemonTaxonomicPopup } from 'lib/components/TaxonomicPopup/TaxonomicPopup'
 import {

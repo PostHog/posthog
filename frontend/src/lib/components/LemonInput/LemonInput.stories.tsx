@@ -42,3 +42,6 @@ Embedded.args = { embedded: true }
 
 export const Clearable = Template.bind({})
 Clearable.args = { allowClear: true }
+
+export const Numeric = Template.bind({})
+Numeric.args = { type: 'number', min: 0, step: 1 }
