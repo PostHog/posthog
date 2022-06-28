@@ -26,6 +26,8 @@ TEST_ROOT_BUCKET = "test_exports"
 
 
 class TestExports(APIBaseTest):
+    # add a comment to get python tests to run
+
     exported_asset: ExportedAsset = None  # type: ignore
     dashboard: Dashboard = None  # type: ignore
     insight: Insight = None  # type: ignore
