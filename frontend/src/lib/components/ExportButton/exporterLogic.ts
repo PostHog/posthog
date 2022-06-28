@@ -30,7 +30,7 @@ export const exporterLogic = kea<exporterLogicType>([
     actions({
         exportItem: (
             exportFormat: ExporterFormat,
-            exportContext: Record<string, any>,
+            exportContext?: Record<string, any>,
             successCallback?: () => void
         ) => ({ exportFormat, exportContext, successCallback }),
         exportItemSuccess: true,
@@ -65,7 +65,7 @@ export const exporterLogic = kea<exporterLogicType>([
                     export_format: exportFormat,
                     dashboard: props.dashboardId,
                     insight: props.insightId,
-                    ...exportContext,
+                    ...(exportContext || {}),
                 })
 
                 if (!exportedAsset.id) {
