@@ -6,7 +6,7 @@ import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import React, { useState } from 'react'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
-import { ActionFilter } from 'scenes/insights/ActionFilter/ActionFilter'
+import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import {
@@ -38,7 +38,7 @@ import { ExperimentPreview } from './ExperimentPreview'
 import { ExperimentImplementationDetails } from './ExperimentImplementationDetails'
 import { LemonButton } from 'lib/components/LemonButton'
 import { router } from 'kea-router'
-import { MathAvailability } from 'scenes/insights/ActionFilter/ActionFilterRow/ActionFilterRow'
+import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 
 export const scene: SceneExport = {
     component: Experiment,

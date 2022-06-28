@@ -1,9 +1,12 @@
+import datetime
 import json
-from typing import Callable, cast
+from typing import Callable, Optional, cast
 
+import pytz
 from django.db.models import Q
 
 from posthog.constants import FILTER_TEST_ACCOUNTS
+from posthog.datetime import end_of_day, start_of_day
 from posthog.models import Cohort, Filter, Person, Team
 from posthog.models.property import Property
 from posthog.queries.base import properties_to_Q
@@ -372,3 +375,58 @@ class TestDjangoPropertiesToQ(property_to_Q_test_factory(_filter_persons, _creat
     def test_group_property_filters_used(self):
         filter = Filter(data={"properties": [{"key": "some_prop", "value": 5, "type": "group", "group_type_index": 1}]})
         self.assertRaises(ValueError, lambda: properties_to_Q(filter.property_groups.flat, team_id=self.team.pk))
+
+    def test_split_filter_into_days(self) -> None:
+        now = datetime.datetime.now(pytz.utc)
+
+        query_date_from = now - datetime.timedelta(days=5)
+        starting_filter = self._filter_with_date_range(query_date_from)
+
+        actual = starting_filter.split_by_day()
+        expected = [
+            # the default date to in the filter has 5 9s microsecond value
+            self._filter_with_date_range(
+                date_from=start_of_day(now), date_to=end_of_day(now).replace(microsecond=99999)
+            ),
+            self._filter_with_date_range(
+                date_from=start_of_day(now - datetime.timedelta(days=1)),
+                date_to=end_of_day(now - datetime.timedelta(days=1)),
+            ),
+            self._filter_with_date_range(
+                date_from=start_of_day(now - datetime.timedelta(days=2)),
+                date_to=end_of_day(now - datetime.timedelta(days=2)),
+            ),
+            self._filter_with_date_range(
+                date_from=start_of_day(now - datetime.timedelta(days=3)),
+                date_to=end_of_day(now - datetime.timedelta(days=3)),
+            ),
+            self._filter_with_date_range(
+                date_from=start_of_day(now - datetime.timedelta(days=4)),
+                date_to=end_of_day(now - datetime.timedelta(days=4)),
+            ),
+            self._filter_with_date_range(
+                date_from=query_date_from, date_to=end_of_day(now - datetime.timedelta(days=5))
+            ),
+        ]
+
+        # properties = [f.property_groups for f in actual]
+        # all_properties_are_the_same = all([props == properties[0] for props in properties])
+        # self.assertTrue(all_properties_are_the_same)
+
+        actual_date_steps = [(f.date_from, f.date_to) for f in actual]
+        expected_date_steps = [(f.date_from, f.date_to) for f in expected]
+        self.assertEqual(
+            actual_date_steps, expected_date_steps,
+        )
+
+    def _filter_with_date_range(
+        self, date_from: datetime.datetime, date_to: Optional[datetime.datetime] = None
+    ) -> Filter:
+        data = {
+            "properties": [{"key": "some_prop", "value": 5, "type": "group", "group_type_index": 1,}],
+            "date_from": date_from,
+        }
+        if date_to:
+            data["date_to"] = date_to
+
+        return Filter(data=data)

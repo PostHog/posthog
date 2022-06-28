@@ -13,7 +13,7 @@ from posthog.test.base import APIBaseTest
 
 
 @patch("ee.tasks.subscriptions.subscription_utils.group")
-@patch("ee.tasks.subscriptions.subscription_utils.export_task")
+@patch("ee.tasks.subscriptions.subscription_utils.export_insight")
 class TestSubscriptionsTasksUtils(APIBaseTest):
     dashboard: Dashboard
     insight: Insight
