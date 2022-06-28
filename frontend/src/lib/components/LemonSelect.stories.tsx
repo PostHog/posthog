@@ -44,10 +44,10 @@ SectionedOptions.args = {
         },
         {
             label: (
-                <>
+                <div>
                     <h5>I am a Custom label!</h5>
-                    <div className="text-muted mx-05">I can put whatever I want here</div>
-                </>
+                    <div className="text-muted mx-05 mb-05">I can put whatever I want here</div>
+                </div>
             ),
             options: {
                 tomato: { label: 'Tomato??' },
