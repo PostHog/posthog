@@ -39,20 +39,17 @@ def stage_results_to_object_storage(
         limit=100_000_000,  # what limit do we want?! None ¯\_(ツ)_/¯
     )
     if write_headers:
-        temporary_file.write(gzip.compress(f"{','.join(result[0].keys())}\n".encode("utf-8")))
+        temporary_file.write(f"{','.join(result[0].keys())}\n".encode("utf-8"))
 
-    contents = []
     for values in [row.values() for row in result]:
         line = [encode(v) for v in values]
-        contents.append(",".join(line))
-
-    temporary_file.write(gzip.compress("\n".join(contents).encode("utf-8")))
+        temporary_file.write(",".join(line).encode("utf-8"))
 
 
 def concat_results_in_object_storage(temporary_file: IO, exported_asset: ExportedAsset) -> str:
     object_path = f"/exports/csvs/team-{exported_asset.team.id}/task-{exported_asset.id}/{UUIDT()}"
     temporary_file.seek(0)
-    object_storage.write(object_path, temporary_file.read())
+    object_storage.write(object_path, gzip.compress(temporary_file.read()))
     return object_path
 
 
