@@ -81,10 +81,10 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
             OpenApiParameter(
                 "event",
                 OpenApiTypes.STR,
-                description="Filter list by event. For example `user sign up` or `$pageview`.",
+                description="Filter events by event. For example `user sign up` or `$pageview`.",
             ),
-            OpenApiParameter("person_id", OpenApiTypes.INT, description="Filter list by person id."),
-            OpenApiParameter("distinct_id", OpenApiTypes.INT, description="Filter list by distinct id."),
+            OpenApiParameter("person_id", OpenApiTypes.INT, description="Filter events by person id."),
+            OpenApiParameter("distinct_id", OpenApiTypes.INT, description="Filter events by distinct id."),
             OpenApiParameter(
                 "before", OpenApiTypes.DATETIME, description="Only return events with a timestamp before this time."
             ),
