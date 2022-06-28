@@ -39,4 +39,17 @@ describe('the authorized urls logic', () => {
         router.actions.push(urls.toolbarLaunch())
         await expectLogic(logic).toNotHaveDispatchedActions(['newUrl'])
     })
+
+    describe('the proposed URL form', () => {
+        it('shows errors when the value is invalid', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setProposedUrlValue('url', 'not a domain or url')
+            }).toMatchValues({
+                proposedUrl: { url: 'not a domain or url' },
+                proposedUrlChanged: true,
+                proposedUrlHasErrors: true,
+                proposedUrlValidationErrors: { url: 'Please type a valid URL or domain.' },
+            })
+        })
+    })
 })
