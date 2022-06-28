@@ -174,12 +174,14 @@ class ExportedViewerPageViewSet(mixins.RetrieveModelMixin, StructuredViewSetMixi
         else:
             if settings.DEBUG:
                 # NOTE: To aid testing, DEBUG enables loading at any time.
-                asset = ExportedAsset.objects.get(access_token=access_token)
+                asset = ExportedAsset.objects.select_related("insight", "dashboard").get(access_token=access_token)
             else:
                 # Otherwise only assets that haven't been successfully rendered in the last 15 mins are accessible for security's sake
-                asset = ExportedAsset.objects.filter(
-                    content=None, created_at__gte=datetime.now() - timedelta(minutes=15)
-                ).get(access_token=access_token)
+                asset = (
+                    ExportedAsset.objects.select_related("insight", "dashboard")
+                    .filter(content=None, created_at__gte=datetime.now() - timedelta(minutes=15))
+                    .get(access_token=access_token)
+                )
 
         if not asset:
             raise serializers.NotFound()
@@ -197,15 +199,16 @@ class ExportedViewerPageViewSet(mixins.RetrieveModelMixin, StructuredViewSetMixi
 
             return get_content_response(asset, request.query_params.get("download") == "true")
 
-        if asset.dashboard:
+        # Both insight AND dashboard can be set. If both it is assumed we should render that
+        if asset.insight:
+            context["dashboard"] = asset.dashboard
+            insight_data = InsightSerializer(asset.insight, many=False, context=context).data
+            exported_data.update({"insight": insight_data})
+        elif asset.dashboard:
             dashboard_data = DashboardSerializer(asset.dashboard, context=context).data
             # We don't want the dashboard to be accidentally loaded via the shared endpoint
             dashboard_data["share_token"] = None
             exported_data.update({"dashboard": dashboard_data})
-
-        if asset.insight:
-            insight_data = InsightSerializer(asset.insight, many=False, context=context).data
-            exported_data.update({"insight": insight_data})
 
         return render_template(
             "exporter.html",
