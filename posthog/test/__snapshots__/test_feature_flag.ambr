@@ -45,8 +45,8 @@
                                                     "person_id",
                                                     "team_id",
                                                     "hash_key")
-  VALUES ('beta-feature', 2921, 757, 'example_id'),
-         ('multivariate-flag', 2921, 757, 'example_id') RETURNING "posthog_featureflaghashkeyoverride"."id"
+  VALUES ('beta-feature', 2921, 754, 'example_id'),
+         ('multivariate-flag', 2921, 754, 'example_id') RETURNING "posthog_featureflaghashkeyoverride"."id"
   '
 ---
 # name: TestFeatureFlagHashKeyOverrides.test_entire_flow_with_hash_key_override.5
