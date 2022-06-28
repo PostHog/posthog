@@ -1,7 +1,7 @@
 import React, { useState } from 'react'
 import { ComponentMeta } from '@storybook/react'
 import { Sharing, SharingModal, SharingModalProps } from './SharingModal'
-import { AvailableFeature, InsightModel, InsightShortId, InsightType, Realm } from '~/types'
+import { AvailableFeature, InsightModel, InsightShortId, InsightType } from '~/types'
 import { useStorybookMocks } from '~/mocks/browser'
 import { LemonButton } from '../LemonButton'
 import { useAvailableFeatures } from '~/mocks/features'
