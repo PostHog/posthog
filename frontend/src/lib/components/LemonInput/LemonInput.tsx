@@ -5,19 +5,14 @@ import clsx from 'clsx'
 import { LemonButton } from 'lib/components/LemonButton'
 import { IconClose } from 'lib/components/icons'
 
-export interface LemonInputProps
+interface LemonInputPropsBase
     extends Omit<
         React.InputHTMLAttributes<HTMLInputElement>,
         'value' | 'defaultValue' | 'onChange' | 'prefix' | 'suffix'
     > {
     ref?: React.Ref<HTMLInputElement>
     id?: string
-    type?: string
-    value?: string | number
-    defaultValue?: string
     placeholder?: string
-    onChange?: (newValue: string | number) => void
-    onPressEnter?: (newValue: string | number) => void
     /** An embedded input has no border around it and no background. This way it blends better into other components. */
     embedded?: boolean
     /** Whether there should be a clear icon to the right allowing you to reset the input. The `suffix` prop will be ignored if clearing is allowed. */
@@ -29,6 +24,24 @@ export interface LemonInputProps
     /** Whether input field is disabled */
     disabled?: boolean
 }
+
+interface LemonInputPropsText extends LemonInputPropsBase {
+    type?: 'text' | 'email'
+    value?: string
+    defaultValue?: string
+    onChange?: (newValue: string) => void
+    onPressEnter?: (newValue: string) => void
+}
+
+interface LemonInputPropsNumber extends LemonInputPropsBase {
+    type: 'number'
+    value?: number
+    defaultValue?: number
+    onChange?: (newValue: number) => void
+    onPressEnter?: (newValue: number) => void
+}
+
+export type LemonInputProps = LemonInputPropsText | LemonInputPropsNumber
 
 /** A `LemonRow`-based `input` component for single-line text. */
 export const LemonInput = React.forwardRef<HTMLInputElement, LemonInputProps>(function _LemonInput(
@@ -43,6 +56,7 @@ export const LemonInput = React.forwardRef<HTMLInputElement, LemonInputProps>(fu
         icon,
         sideIcon,
         type,
+        value,
         ...textProps
     },
     ref
@@ -76,7 +90,11 @@ export const LemonInput = React.forwardRef<HTMLInputElement, LemonInputProps>(fu
                 tooltip="Clear input"
                 onClick={(e) => {
                     e.stopPropagation()
-                    onChange?.('')
+                    if (type === 'number') {
+                        onChange?.(0)
+                    } else {
+                        onChange?.('')
+                    }
                     focus()
                 }}
             />
@@ -85,7 +103,11 @@ export const LemonInput = React.forwardRef<HTMLInputElement, LemonInputProps>(fu
         ),
         onKeyDown: (event) => {
             if (onPressEnter && event.key === 'Enter') {
-                onPressEnter(textProps.value?.toString() ?? '')
+                if (type === 'number') {
+                    onPressEnter(value ?? 0)
+                } else {
+                    onPressEnter(value?.toString() ?? '')
+                }
             }
         },
         onClick: () => {
@@ -94,11 +116,11 @@ export const LemonInput = React.forwardRef<HTMLInputElement, LemonInputProps>(fu
         outlined: !embedded,
     }
     const props: React.InputHTMLAttributes<HTMLInputElement> = {
+        ...textProps,
         className: 'LemonInput__input',
-        type: 'text',
         onChange: (event) => {
             if (type === 'number') {
-                onChange?.(isNaN(event.currentTarget.valueAsNumber) ? '' : event.currentTarget.valueAsNumber)
+                onChange?.(event.currentTarget.valueAsNumber)
             } else {
                 onChange?.(event.currentTarget.value ?? '')
             }
@@ -111,7 +133,8 @@ export const LemonInput = React.forwardRef<HTMLInputElement, LemonInputProps>(fu
             setFocused(false)
             onBlur?.(event)
         },
-        ...textProps,
+        value,
+        type: type || 'text',
     }
 
     return (
@@ -119,11 +142,4 @@ export const LemonInput = React.forwardRef<HTMLInputElement, LemonInputProps>(fu
             <input {...props} ref={inputRef} />
         </LemonRow>
     )
-})
-
-export const LemonNumericInput = React.forwardRef<HTMLInputElement, LemonInputProps>(function _LemonInput(
-    props,
-    ref
-): JSX.Element {
-    return <LemonInput type="number" {...props} ref={ref} />
 })
