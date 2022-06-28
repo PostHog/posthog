@@ -104,7 +104,7 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, StructuredViewSetMixin
         if sharing_configuration and sharing_configuration.enabled:
             return sharing_configuration
 
-        raise serializers.NotFound()
+        raise NotFound()
 
     @xframe_options_exempt
     def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Any:
@@ -121,7 +121,7 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, StructuredViewSetMixin
             dashboard_data["share_token"] = None
             exported_data.update({"dashboard": dashboard_data})
         else:
-            raise serializers.NotFound()
+            raise NotFound()
 
         if "whitelabel" in request.GET and "white_labelling" in resource.team.organization.available_features:
             exported_data.update({"whitelabel": True})
