@@ -26,7 +26,7 @@ export function LifecycleToggles({ insightProps }: EditorFilterProps): JSX.Eleme
     const { toggleLifecycle } = useActions(trendsLogic(insightProps))
     return (
         <>
-            <div className="EFLifecycleToggles">
+            <div className="LifecycleToggles">
                 {lifecycles.map((lifecycle, idx) => (
                     <div key={idx}>
                         {lifecycle.name}{' '}
