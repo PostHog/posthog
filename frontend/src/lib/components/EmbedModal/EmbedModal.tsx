@@ -1,3 +1,4 @@
+import './EmbedModal.scss'
 import { LemonModal } from 'lib/components/LemonModal'
 import React from 'react'
 import { InsightShortId } from '~/types'
@@ -5,7 +6,6 @@ import { useValues } from 'kea'
 import { embedModalLogic } from 'lib/components/EmbedModal/embedModalLogic'
 import { VerticalForm } from 'lib/forms/VerticalForm'
 import { Field } from 'lib/forms/Field'
-import { LemonInput } from 'lib/components/LemonInput/LemonInput'
 import { LemonCheckbox } from 'lib/components/LemonCheckbox'
 import { CodeSnippet, Language } from 'scenes/ingestion/frameworks/CodeSnippet'
 
@@ -19,30 +19,49 @@ export function EmbedModal({ visible, closeModal, insightShortId }: ExportModalP
     const { embedCode, iframeProperties } = useValues(embedModalLogic({ insightShortId }))
 
     return (
-        <LemonModal onCancel={closeModal} afterClose={closeModal} visible={visible} width={650}>
-            <VerticalForm logic={embedModalLogic} props={{ insightShortId }} formKey="embedConfig">
-                <Field name={'width'} label={'Width'}>
-                    <LemonInput />
-                </Field>
-                <Field name={'height'} label={'Height'}>
-                    <LemonInput />
-                </Field>
-                <Field name={'whitelabel'}>
-                    {({ value, onChange }) => (
-                        <LemonCheckbox
-                            id="continuity-checkbox"
-                            label={<div>Whitelabel</div>}
-                            onChange={() => onChange(!value)}
-                            rowProps={{ fullWidth: true }}
-                            checked={value}
-                        />
-                    )}
-                </Field>
+        <LemonModal
+            title="Embed Insight"
+            className="EmbedModal"
+            onCancel={closeModal}
+            afterClose={closeModal}
+            visible={visible}
+            width={650}
+        >
+            <div className="EmbedModal-split">
                 <CodeSnippet wrap={true} language={Language.HTML}>
                     {embedCode}
                 </CodeSnippet>
+                <VerticalForm
+                    logic={embedModalLogic}
+                    props={{ insightShortId }}
+                    formKey="embedConfig"
+                    className="EmbedModal-form"
+                >
+                    <Field name="whitelabel" noStyle>
+                        {({ value, onChange }) => (
+                            <LemonCheckbox
+                                label={<div>Show Logo</div>}
+                                onChange={() => onChange(!value)}
+                                rowProps={{ fullWidth: true }}
+                                checked={!value}
+                            />
+                        )}
+                    </Field>
+                    <Field name="legend" noStyle>
+                        {({ value, onChange }) => (
+                            <LemonCheckbox
+                                label={<div>Show Legend</div>}
+                                onChange={() => onChange(!value)}
+                                rowProps={{ fullWidth: true }}
+                                checked={value}
+                            />
+                        )}
+                    </Field>
+                </VerticalForm>
+            </div>
+            <div className="EmbedModal-preview">
                 <iframe {...iframeProperties} />
-            </VerticalForm>
+            </div>
         </LemonModal>
     )
 }

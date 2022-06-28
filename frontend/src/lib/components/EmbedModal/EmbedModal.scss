@@ -1,0 +1,21 @@
+.EmbedModal {
+    .EmbedModal-split {
+        display: flex;
+        gap: 1rem;
+        margin-bottom: 1rem;
+        .code-container {
+            width: 70%;
+            height: 100%;
+        }
+        .EmbedModal-form {
+            width: 30%;
+            height: 100%;
+        }
+    }
+    .EmbedModal-preview {
+        iframe {
+            display: block;
+            background: white;
+        }
+    }
+}

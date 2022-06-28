@@ -10,12 +10,14 @@ export interface EmbedConfig {
     width: string
     height: string
     whitelabel: boolean
+    legend: boolean
 }
 
 const defaultEmbedConfig: EmbedConfig = {
     width: '100%',
     height: '400',
     whitelabel: false,
+    legend: false,
 }
 
 export interface EmbedModalLogicProps {
@@ -36,10 +38,11 @@ export const embedModalLogic = kea<embedModalLogicType>([
         siteUrl: [() => [preflightLogic.selectors.preflight], (preflight) => preflight?.site_url],
         iframeProperties: [
             (s) => [s.siteUrl, s.embedConfig, s.insightShortId],
-            (siteUrl, { width, height, whitelabel }, insightShortId) => ({
+            (siteUrl, { width, height, whitelabel, legend }, insightShortId) => ({
                 src: `${siteUrl}${urls.exportPreview({
                     insight: insightShortId,
                     ...(whitelabel ? { whitelabel: true } : {}),
+                    ...(legend ? { legend: true } : {}),
                 })}`,
                 width,
                 height,
