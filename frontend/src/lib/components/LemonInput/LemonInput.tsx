@@ -12,7 +12,7 @@ export interface LemonInputProps
     > {
     ref?: React.Ref<HTMLInputElement>
     id?: string
-    value?: string | number
+    value?: string
     defaultValue?: string
     placeholder?: string
     onChange?: (newValue: string) => void
@@ -49,6 +49,13 @@ export const LemonInput = React.forwardRef<HTMLInputElement, LemonInputProps>(fu
     const textRef = ref || _ref
     const [focused, setFocused] = useState<boolean>(Boolean(textProps.autoFocus))
 
+    const focus = (): void => {
+        if (inputRef && 'current' in inputRef) {
+            inputRef.current?.focus()
+        }
+        setFocused(true)
+    }
+
     const rowProps: LemonRowProps<'span'> = {
         tag: 'span',
         className: clsx(
@@ -68,6 +75,7 @@ export const LemonInput = React.forwardRef<HTMLInputElement, LemonInputProps>(fu
                 onClick={(e) => {
                     e.stopPropagation()
                     onChange?.('')
+                    focus()
                 }}
             />
         ) : (
@@ -79,10 +87,7 @@ export const LemonInput = React.forwardRef<HTMLInputElement, LemonInputProps>(fu
             }
         },
         onClick: () => {
-            if (textRef && 'current' in textRef) {
-                textRef.current?.focus()
-            }
-            setFocused(true)
+            focus()
         },
         outlined: !embedded,
     }
