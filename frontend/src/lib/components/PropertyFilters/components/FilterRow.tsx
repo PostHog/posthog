@@ -88,68 +88,56 @@ export const FilterRow = React.memo(function FilterRow({
                         ))}
                 </>
             ) : (
-                <>
-                    <Popup
-                        className={'filter-row-popup'}
-                        visible={open}
-                        onClickOutside={() => handleVisibleChange(false)}
-                        overlay={filterComponent(() => setOpen(false))}
-                    >
-                        {({ ref }) => {
-                            return (
-                                <>
-                                    {isValidPropertyFilter(item) ? (
-                                        <PropertyFilterButton
-                                            onClick={() => setOpen(!open)}
-                                            onClose={() => onRemove(index)}
-                                            item={item}
-                                            ref={ref}
-                                        />
-                                    ) : isValidPathCleanFilter(item) ? (
-                                        <PropertyFilterButton
-                                            item={item}
-                                            onClick={() => setOpen(!open)}
-                                            onClose={() => onRemove(index)}
-                                            ref={ref}
-                                        >
-                                            {`${item['alias']}::${item['regex']}`}
-                                        </PropertyFilterButton>
-                                    ) : useLemonButton ? (
-                                        <LemonButton
-                                            ref={ref}
-                                            onClick={() => setOpen(!open)}
-                                            className="new-prop-filter"
-                                            data-attr={'new-prop-filter-' + pageKey}
-                                            type="secondary"
-                                            size="small"
-                                            icon={<IconPlus style={{ color: 'var(--primary)' }} />}
-                                        >
-                                            {label}
-                                        </LemonButton>
-                                    ) : (
-                                        <Button
-                                            ref={ref}
-                                            onClick={() => setOpen(!open)}
-                                            className="new-prop-filter"
-                                            data-attr={'new-prop-filter-' + pageKey}
-                                            style={{
-                                                color: 'var(--primary)',
-                                                border: 'none',
-                                                boxShadow: 'none',
-                                                paddingLeft: 0,
-                                                background: 'none',
-                                            }}
-                                            icon={<PlusCircleOutlined />}
-                                            type="default"
-                                        >
-                                            {label}
-                                        </Button>
-                                    )}
-                                </>
-                            )
-                        }}
-                    </Popup>
-                </>
+                <Popup
+                    className={'filter-row-popup'}
+                    visible={open}
+                    onClickOutside={() => handleVisibleChange(false)}
+                    overlay={filterComponent(() => setOpen(false))}
+                >
+                    {isValidPropertyFilter(item) ? (
+                        <PropertyFilterButton
+                            onClick={() => setOpen(!open)}
+                            onClose={() => onRemove(index)}
+                            item={item}
+                        />
+                    ) : isValidPathCleanFilter(item) ? (
+                        <PropertyFilterButton
+                            item={item}
+                            onClick={() => setOpen(!open)}
+                            onClose={() => onRemove(index)}
+                        >
+                            {`${item['alias']}::${item['regex']}`}
+                        </PropertyFilterButton>
+                    ) : useLemonButton ? (
+                        <LemonButton
+                            onClick={() => setOpen(!open)}
+                            className="new-prop-filter"
+                            data-attr={'new-prop-filter-' + pageKey}
+                            type="secondary"
+                            size="small"
+                            icon={<IconPlus style={{ color: 'var(--primary)' }} />}
+                        >
+                            {label}
+                        </LemonButton>
+                    ) : (
+                        <Button
+                            onClick={() => setOpen(!open)}
+                            className="new-prop-filter"
+                            data-attr={'new-prop-filter-' + pageKey}
+                            style={{
+                                color: 'var(--primary)',
+                                border: 'none',
+                                boxShadow: 'none',
+                                paddingLeft: 0,
+                                background: 'none',
+                            }}
+                            icon={<PlusCircleOutlined />}
+                            type="default"
+                        >
+                            {label}
+                        </Button>
+                    )}
+                </Popup>
             )}
             {key && showConditionBadge && index + 1 < totalCount && (
                 <span style={{ marginLeft: 16, right: 16, position: 'absolute' }} className="stateful-badge and">

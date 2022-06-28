@@ -45,7 +45,7 @@ class ClickhouseTestFunnelGroups(ClickhouseTestMixin, LicensedTestMixin, APIBase
                 },
             ],
         }
-        created_people = journeys_for(events_by_person, self.team)
+        journeys_for(events_by_person, self.team)
 
         params = FunnelRequest(
             events=json.dumps(
@@ -93,7 +93,7 @@ class ClickhouseTestFunnelGroups(ClickhouseTestMixin, LicensedTestMixin, APIBase
                 },
             ],
         }
-        created_people = journeys_for(events_by_person, self.team)
+        journeys_for(events_by_person, self.team)
 
         params = FunnelRequest(
             events=json.dumps(
