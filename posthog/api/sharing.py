@@ -147,7 +147,7 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, StructuredViewSetMixin
 
         if resource.insight:
             # Both insight AND dashboard can be set. If both it is assumed we should render that
-            context["dashboard"] = asset.dashboard
+            context["dashboard"] = resource.dashboard
             insight_data = InsightSerializer(resource.insight, many=False, context=context).data
             exported_data.update({"insight": insight_data})
         elif resource.dashboard:
