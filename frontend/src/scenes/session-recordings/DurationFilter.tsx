@@ -32,7 +32,7 @@ export function DurationFilter({ initialFilter, onChange, pageKey }: Props): JSX
                                 setOperator(newOperator)
                             }}
                         />
-                        <DurationPicker onChange={setValue} initialValue={value || 0} pageKey={pageKey} />
+                        <DurationPicker onChange={setValue} initialValue={value || 0} />
                     </Space>
                 </Row>
             }
