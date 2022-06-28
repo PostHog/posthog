@@ -13,7 +13,6 @@ from posthog.models.team import Team
 from posthog.test.base import APIBaseTest
 
 
-@patch("posthog.api.exports.exporter")
 class TestExports(APIBaseTest):
     exported_asset: ExportedAsset = None  # type: ignore
     dashboard: Dashboard = None  # type: ignore
@@ -36,7 +35,8 @@ class TestExports(APIBaseTest):
             team=cls.team, dashboard_id=cls.dashboard.id, export_format="image/png"
         )
 
-    def test_can_create_new_valid_export_dashboard(self, mock_exporter_task):
+    @patch("posthog.api.exports.exporter")
+    def test_can_create_new_valid_export_dashboard(self, mock_exporter_task) -> None:
         response = self.client.post(
             f"/api/projects/{self.team.id}/exports", {"export_format": "image/png", "dashboard": self.dashboard.id}
         )
@@ -56,8 +56,9 @@ class TestExports(APIBaseTest):
 
         mock_exporter_task.export_task.delay.assert_called_once_with(data["id"])
 
+    @patch("posthog.api.exports.exporter")
     @freeze_time("2021-08-25T22:09:14.252Z")
-    def test_can_create_new_valid_export_insight(self, mock_exporter_task):
+    def test_can_create_new_valid_export_insight(self, mock_exporter_task) -> None:
         response = self.client.post(
             f"/api/projects/{self.team.id}/exports", {"export_format": "application/pdf", "insight": self.insight.id}
         )
@@ -104,7 +105,7 @@ class TestExports(APIBaseTest):
 
         mock_exporter_task.export_task.delay.assert_called_once_with(data["id"])
 
-    def test_errors_if_missing_related_instance(self, mock_tasks):
+    def test_errors_if_missing_related_instance(self) -> None:
         response = self.client.post(f"/api/projects/{self.team.id}/exports", {"export_format": "image/png"})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
@@ -117,7 +118,7 @@ class TestExports(APIBaseTest):
             },
         )
 
-    def test_errors_if_bad_format(self, mock_tasks):
+    def test_errors_if_bad_format(self) -> None:
         response = self.client.post(f"/api/projects/{self.team.id}/exports", {"export_format": "not/allowed"})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
@@ -130,14 +131,16 @@ class TestExports(APIBaseTest):
             },
         )
 
-    def test_will_respond_even_if_task_timesout(self, mock_exporter_task):
+    @patch("posthog.api.exports.exporter")
+    def test_will_respond_even_if_task_timesout(self, mock_exporter_task) -> None:
         mock_exporter_task.export_task.delay.return_value.get.side_effect = celery.exceptions.TimeoutError("timed out")
         response = self.client.post(
             f"/api/projects/{self.team.id}/exports", {"export_format": "application/pdf", "insight": self.insight.id}
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
-    def test_will_error_if_export_unsupported(self, mock_exporter_task):
+    @patch("posthog.api.exports.exporter")
+    def test_will_error_if_export_unsupported(self, mock_exporter_task) -> None:
         mock_exporter_task.export_task.delay.return_value.get.side_effect = NotImplementedError("not implemented")
         response = self.client.post(
             f"/api/projects/{self.team.id}/exports", {"export_format": "application/pdf", "insight": self.insight.id}
@@ -153,7 +156,7 @@ class TestExports(APIBaseTest):
             },
         )
 
-    def test_will_error_if_dashboard_missing(self, mock_exporter_task):
+    def test_will_error_if_dashboard_missing(self) -> None:
         response = self.client.post(
             f"/api/projects/{self.team.id}/exports", {"export_format": "application/pdf", "dashboard": 54321}
         )
@@ -168,7 +171,7 @@ class TestExports(APIBaseTest):
             },
         )
 
-    def test_will_error_if_export_contains_other_team_dashboard(self, mock_exporter_task):
+    def test_will_error_if_export_contains_other_team_dashboard(self) -> None:
         other_team = Team.objects.create(
             organization=self.organization,
             api_token=self.CONFIG_API_TOKEN + "2",
@@ -195,7 +198,7 @@ class TestExports(APIBaseTest):
             },
         )
 
-    def test_will_error_if_export_contains_other_team_insight(self, mock_exporter_task):
+    def test_will_error_if_export_contains_other_team_insight(self) -> None:
         other_team = Team.objects.create(
             organization=self.organization,
             api_token=self.CONFIG_API_TOKEN + "2",
@@ -220,52 +223,6 @@ class TestExports(APIBaseTest):
                 "type": "validation_error",
             },
         )
-
-    @freeze_time("2021-08-25T22:09:14.252Z")
-    def test_can_create_new_valid_export_csv(self, mock_exporter_task):
-        response = self.client.post(f"/api/projects/{self.team.id}/exports", {"export_format": "text/csv"})
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        data = response.json()
-        self.assertEqual(
-            data,
-            {
-                "id": data["id"],
-                "created_at": data["created_at"],
-                "insight": self.insight.id,
-                "export_format": "text/csv",
-                "has_content": False,
-                "dashboard": None,
-            },
-        )
-
-        self._assert_logs_the_activity(
-            insight_id=self.insight.id,
-            expected=[
-                {
-                    "user": {"first_name": self.user.first_name, "email": self.user.email,},
-                    "activity": "exported",
-                    "created_at": "2021-08-25T22:09:14.252000Z",
-                    "scope": "Insight",
-                    "item_id": str(self.insight.id),
-                    "detail": {
-                        "changes": [
-                            {
-                                "action": "exported",
-                                "after": "application/pdf",
-                                "before": None,
-                                "field": "export_format",
-                                "type": "Insight",
-                            }
-                        ],
-                        "merge": None,
-                        "name": self.insight.name,
-                        "short_id": self.insight.short_id,
-                    },
-                }
-            ],
-        )
-
-        mock_exporter_task.export_task.delay.assert_called_once_with(data["id"])
 
     def _get_insight_activity(self, insight_id: int, expected_status: int = status.HTTP_200_OK):
         url = f"/api/projects/{self.team.id}/insights/{insight_id}/activity"

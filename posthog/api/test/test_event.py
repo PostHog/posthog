@@ -1,4 +1,5 @@
 import json
+import re
 from datetime import datetime
 from unittest.mock import patch
 from urllib.parse import unquote, urlencode
@@ -528,7 +529,7 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         response_invalid_token = self.client.get(f"/api/projects/{self.team.id}/events?token=invalid")
         self.assertEqual(response_invalid_token.status_code, 401)
 
-    @patch("posthog.api.event.query_with_columns")
+    @patch("posthog.models.event.query_event_list.query_with_columns")
     def test_optimize_query(self, patch_query_with_columns):
         #  For ClickHouse we normally only query the last day,
         # but if a user doesn't have many events we still want to return events that are older
@@ -686,3 +687,29 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(len(response["results"]), 1)
         self.assertEqual([r["event"] for r in response["results"]], ["should_be_included"])
+
+    @patch("posthog.api.event.exporter")
+    @freeze_time("2021-08-25T22:09:14.252Z")
+    def test_can_create_new_valid_export_csv(self, mock_exporter_task):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/events/csv",
+            {
+                "properties": [  # anything the list events end-point will accept
+                    {
+                        "key": "prop_that_is_a_unix_timestamp",
+                        "value": "2012-01-07 18:30:00",
+                        "operator": "is_date_after",
+                        "type": "event",
+                    }
+                ],
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        location_regex = rf"^http://testserver/api/projects/{self.team.id}/exports/(\d+)$"
+        self.assertRegex(response["location"], location_regex)
+
+        location_matches = re.match(location_regex, response["location"])
+        if not location_matches:
+            self.fail(f"must be able to find an export id in {response['location']}")
+        export_id = int(location_matches.group(1))
+        mock_exporter_task.export_task.delay.assert_called_once_with(export_id)

@@ -3,6 +3,7 @@ import urllib
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Union
 
+import celery
 from django.db.models.query import Prefetch
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter
@@ -28,6 +29,7 @@ from posthog.models.team import Team
 from posthog.models.utils import UUIDT
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.queries.property_values import get_property_values_for_key
+from posthog.tasks import exporter
 from posthog.utils import convert_property_value, flatten
 
 
@@ -92,45 +94,81 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
             PropertiesSerializer(required=False),
         ],
     )
+    @action(methods=["POST"], detail=False)
+    def csv(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+        """
+        Queues a background task to export events to CSV
+
+        Returns the location to poll for download in the location header, if the request is accepted
+        """
+        try:
+            filter = Filter(request=request, team=self.team)
+
+            export_request = ExportedAsset.objects.create(
+                team=self.team,
+                dashboard=None,
+                insight=None,
+                export_format=ExportedAsset.ExportFormat.CSV,
+                export_context={
+                    "type": "list_events",
+                    "filter": filter.to_dict(),
+                    "request_get_query_dict": request.GET.dict(),
+                    "order_by": self._parse_order_by(self.request),
+                    "action_id": request.GET.get("action_id"),
+                },
+            )
+
+            task = exporter.export_task.delay(export_request.id)
+            try:
+                task.delay()
+            except celery.exceptions.TimeoutError:
+                # If the rendering times out - fine, the frontend will poll instead for the response
+                pass
+            except NotImplementedError as e:
+                raise serializers.ValidationError(
+                    {"export_format": ["This type of export is not supported for this resource."]}
+                )
+
+            data = ExportedAssetSerializer(export_request, many=False).data
+            create_response = response.Response(
+                data=data, status=status.HTTP_201_CREATED, content_type="application/json",
+            )
+            create_response["location"] = request.build_absolute_uri(
+                f"/api/projects/{self.team.id}/exports/{export_request.id}"
+            )
+            return create_response
+
+        except Exception as ex:
+            capture_exception(ex)
+            raise ex
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "event",
+                OpenApiTypes.STR,
+                description="Filter list by event. For example `user sign up` or `$pageview`.",
+            ),
+            OpenApiParameter("person_id", OpenApiTypes.INT, description="Filter list by person id."),
+            OpenApiParameter("distinct_id", OpenApiTypes.INT, description="Filter list by distinct id."),
+            OpenApiParameter(
+                "before", OpenApiTypes.DATETIME, description="Only return events with a timestamp before this time."
+            ),
+            OpenApiParameter(
+                "after", OpenApiTypes.DATETIME, description="Only return events with a timestamp after this time."
+            ),
+            PropertiesSerializer(required=False),
+        ],
+    )
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         try:
-            is_csv_request = self.request.accepted_renderer.format == "csv"
-
             if self.request.GET.get("limit", None):
                 limit = int(self.request.GET.get("limit"))  # type: ignore
-            elif is_csv_request:
-                limit = self.CSV_EXPORT_DEFAULT_LIMIT
             else:
                 limit = 100
 
-            if is_csv_request:
-                limit = min(limit, self.CSV_EXPORT_MAXIMUM_LIMIT)
-
             team = self.team
             filter = Filter(request=request, team=self.team)
-
-            if is_csv_request:
-                export_request = ExportedAsset.objects.create(
-                    team=self.team,
-                    dashboard=None,
-                    insight=None,
-                    export_format=ExportedAsset.ExportFormat.CSV,
-                    export_context={
-                        "type": "list_events",
-                        "filter": filter.to_dict(),
-                        "request_get_query_dict": request.GET.dict(),
-                        "order_by": self._parse_order_by(self.request),
-                        "action_id": request.GET.get("action_id"),
-                    },
-                )
-                data = ExportedAssetSerializer(export_request, many=False).data
-                create_response = response.Response(
-                    data=data, status=status.HTTP_201_CREATED, content_type="application/json",
-                )
-                create_response["location"] = request.build_absolute_uri(
-                    f"/api/projects/{self.team.id}/exports/{export_request.id}"
-                )
-                return create_response
 
             query_result = query_events_list(
                 filter,
@@ -158,7 +196,7 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
             ).data
 
             next_url: Optional[str] = None
-            if not is_csv_request and len(query_result) > limit:
+            if len(query_result) > limit:
                 next_url = self._build_next_url(request, query_result[limit - 1]["timestamp"])
 
             return response.Response({"next": next_url, "results": result})

@@ -59,7 +59,11 @@ class ObjectStorage(ObjectStorageClient):
             return False
 
     def read(self, bucket: str, key: str) -> Optional[str]:
-        self.read_bytes(bucket, key).decode("utf-8")
+        object_bytes = self.read_bytes(bucket, key)
+        if object_bytes:
+            return object_bytes.decode("utf-8")
+        else:
+            return None
 
     def read_bytes(self, bucket: str, key: str) -> Optional[bytes]:
         s3_response = {}

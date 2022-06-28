@@ -128,7 +128,7 @@ def _export_to_png(exported_asset: ExportedAsset) -> None:
             driver.close()
 
 
-def encode(obj):
+def encode(obj: object) -> str:
     if isinstance(obj, uuid.UUID):
         return str(obj)
 
@@ -173,7 +173,7 @@ def concat_results_in_object_storage(temporary_file: IO, exported_asset: Exporte
 
 
 def _export_to_csv(exported_asset: ExportedAsset) -> None:
-    if exported_asset.export_context.get("type", None) == "list_events":
+    if exported_asset.export_context.get("file_export_type", None) == "list_events":
         filter = Filter(data=exported_asset.export_context.get("filter"))
 
         write_headers = True

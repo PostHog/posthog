@@ -49,7 +49,7 @@ def query_events_list(
     team: Team,
     request_get_query_dict: Dict,
     order_by: List[str],
-    action_id: Optional[int],
+    action_id: Optional[str],
     long_date_from: bool = False,
     limit: int = 100,
 ) -> List:
@@ -58,7 +58,7 @@ def query_events_list(
     order = "DESC" if order_by[0] == "-timestamp" else "ASC"
 
     conditions, condition_params = determine_event_conditions(
-        team.pk,
+        team,
         {
             "after": (now() - timedelta(days=1)).isoformat(),
             "before": (now() + timedelta(seconds=5)).isoformat(),
