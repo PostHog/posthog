@@ -1,7 +1,8 @@
-from typing import Dict, List
+from typing import Dict, List, Optional
 from unittest.mock import patch
 
 import celery
+from django.http import HttpResponse
 from freezegun import freeze_time
 from rest_framework import status
 
@@ -10,7 +11,8 @@ from posthog.models.exported_asset import ExportedAsset
 from posthog.models.filters.filter import Filter
 from posthog.models.insight import Insight
 from posthog.models.team import Team
-from posthog.test.base import APIBaseTest
+from posthog.tasks.exporter import export_task
+from posthog.test.base import APIBaseTest, _create_event, flush_persons_and_events
 
 
 class TestExports(APIBaseTest):
@@ -223,6 +225,51 @@ class TestExports(APIBaseTest):
                 "type": "validation_error",
             },
         )
+
+    def test_can_download_a_csv(self) -> None:
+        _create_event(
+            event="event_name", team=self.team, distinct_id="2", properties={"$browser": "Chrome"},
+        )
+        expected_event_id = _create_event(
+            event="event_name", team=self.team, distinct_id="2", properties={"$browser": "Safari"},
+        )
+        flush_persons_and_events()
+
+        instance = ExportedAsset.objects.create(
+            team=self.team,
+            dashboard=None,
+            insight=None,
+            export_format=ExportedAsset.ExportFormat.CSV,
+            export_context={
+                "file_export_type": "list_events",
+                "filter": {"properties": {"$browser": "Safari"}},
+                "request_get_query_dict": {},
+                "order_by": ["-timestamp"],
+                "action_id": None,
+            },
+        )
+        export_task(instance.id)
+
+        response: Optional[HttpResponse] = None
+        attempt_count = 0
+        while attempt_count < 10 and (not response or response.status_code == status.HTTP_409_CONFLICT):
+            response = self.client.get(f"/api/projects/{self.team.id}/exports/{instance.id}/content?download=true")
+            attempt_count += 1
+
+        if not response:
+            # hi mypy
+            self.fail("must have a response by this point")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIsNotNone(response.content)
+        file_content = response.content.decode("utf-8")
+        file_lines = file_content.split("\n")
+        # has a header row and at least one other row
+        # don't care if the DB hasn't been reset before the test
+        self.assertTrue(len(file_lines) > 1)
+        self.assertIn(expected_event_id, file_content)
+        for line in file_lines[1:]:  # every result has to match the filter though
+            self.assertIn('{"$browser": "Safari"}', line)
 
     def _get_insight_activity(self, insight_id: int, expected_status: int = status.HTTP_200_OK):
         url = f"/api/projects/{self.team.id}/insights/{insight_id}/activity"

@@ -7,12 +7,13 @@ import celery
 import structlog
 from django.core.serializers.json import DjangoJSONEncoder
 from django.http import HttpResponse
-from rest_framework import mixins, serializers, viewsets
+from rest_framework import mixins, serializers, status, viewsets
 from rest_framework.authentication import BasicAuthentication, SessionAuthentication
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
+from rest_framework.response import Response
 
 from posthog import settings
 from posthog.api.dashboard import DashboardSerializer
@@ -26,6 +27,7 @@ from posthog.models.exported_asset import ExportedAsset, asset_for_token
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.settings import DEBUG
 from posthog.storage import object_storage
+from posthog.storage.object_storage import ObjectStorageError
 from posthog.tasks import exporter
 from posthog.utils import render_template
 
@@ -143,9 +145,21 @@ class ExportedAssetViewSet(
     @action(methods=["GET"], detail=True)
     def content(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
         instance = self.get_object()
-        return get_content_response(
-            instance, content_for_asset(instance), request.query_params.get("download") == "true"
-        )
+        try:
+            return get_content_response(
+                instance, content_for_asset(instance), request.query_params.get("download") == "true"
+            )
+        except ObjectStorageError:
+            # this seems the closest status
+            # there is a conflict... the export exists but the download isn't ready
+            # generating a CSV might take many seconds
+            response = Response(status=status.HTTP_409_CONFLICT,)
+            response["location"] = request.build_absolute_uri()
+            # https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Retry-After
+            # help the client know how long to wait
+            # _could_ hook exponential back-off here
+            response["Retry-After"] = 5  # seconds
+            return response
 
 
 class ExportedViewerPageViewSet(mixins.RetrieveModelMixin, StructuredViewSetMixin, viewsets.GenericViewSet):

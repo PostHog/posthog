@@ -104,6 +104,7 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
         try:
             filter = Filter(request=request, team=self.team)
 
+            # to-do if a matching export already exists do we just re-use it
             export_request = ExportedAsset.objects.create(
                 team=self.team,
                 dashboard=None,
