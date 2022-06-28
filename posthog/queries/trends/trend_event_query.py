@@ -39,6 +39,12 @@ class TrendsEventQuery(EventQuery):
                 ]
             )
             + (f", {self.DISTINCT_ID_TABLE_ALIAS}.person_id as person_id" if self._should_join_distinct_ids else "")
+            + (
+                f", {self.SESSION_TABLE_ALIAS}.session_duration as session_duration"
+                if self._should_join_sessions
+                else ""
+            )
+            + (f", {self.SESSION_TABLE_ALIAS}.$session_id as $session_id" if self._should_join_sessions else "")
             + (f", {self.EVENT_TABLE_ALIAS}.distinct_id as distinct_id" if self._aggregate_users_by_distinct_id else "")
             + (f", {self.EVENT_TABLE_ALIAS}.person_id as person_id" if self._using_person_on_events else "")
             + (
@@ -171,8 +177,13 @@ class TrendsEventQuery(EventQuery):
         )
 
     def _determine_should_join_sessions(self) -> None:
+
+        if self._entity.math_property_type == "session":
+            self._should_join_sessions = True
+            return
+
         properties = self._entity.property_groups.flat + self._filter.property_groups.flat
         for property in properties:
             if property.type == "session":
                 self._should_join_sessions = True
-                break
+                return

@@ -13,6 +13,8 @@ from posthog.queries.trends.sql import (
     ACTIVE_USER_SQL,
     AGGREGATE_SQL,
     CUMULATIVE_SQL,
+    SESSION_DURATION_VOLUME_SQL,
+    SESSION_VOLUME_TOTAL_AGGREGATE_SQL,
     VOLUME_SQL,
     VOLUME_TOTAL_AGGREGATE_SQL,
 )
@@ -50,7 +52,11 @@ class TrendsTotalVolume:
         params = {**params, **math_params, **event_query_params}
 
         if filter.display in NON_TIME_SERIES_DISPLAY_TYPES:
-            content_sql = VOLUME_TOTAL_AGGREGATE_SQL.format(event_query=event_query, **content_sql_params)
+
+            if entity.math_property_type == "session":
+                content_sql = SESSION_VOLUME_TOTAL_AGGREGATE_SQL.format(event_query=event_query, **content_sql_params)
+            else:
+                content_sql = VOLUME_TOTAL_AGGREGATE_SQL.format(event_query=event_query, **content_sql_params)
 
             return (content_sql, params, self._parse_aggregate_volume_result(filter, entity, team.id))
         else:
@@ -68,6 +74,10 @@ class TrendsTotalVolume:
                 cumulative_sql = CUMULATIVE_SQL.format(event_query=event_query)
                 content_sql = VOLUME_SQL.format(
                     event_query=cumulative_sql, start_of_week_fix=start_of_week_fix(filter), **content_sql_params,
+                )
+            elif entity.math_property_type == "session":
+                content_sql = SESSION_DURATION_VOLUME_SQL.format(
+                    event_query=event_query, start_of_week_fix=start_of_week_fix(filter), **content_sql_params,
                 )
             else:
                 content_sql = VOLUME_SQL.format(
