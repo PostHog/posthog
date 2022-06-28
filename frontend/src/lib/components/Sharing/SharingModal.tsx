@@ -38,7 +38,6 @@ export function Sharing({ dashboardId, insightShortId, insight }: SharingModalPr
     const { setIsEnabled } = useActions(logic)
 
     const showNoLabelCheckbox = insight?.filters?.insight === InsightType.TRENDS
-    const name = insight?.name || insight?.derived_name
     const resource = dashboardId ? 'dashboard' : 'insight'
 
     return (
