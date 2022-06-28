@@ -23,10 +23,10 @@ export interface SharingModalProps extends SharingBaseProps {
 }
 
 export function Sharing({ dashboardId, insightShortId, insight }: SharingModalProps): JSX.Element {
-    const logic = sharingLogic({
+    const logicProps = {
         dashboardId,
         insightShortId,
-    })
+    }
     const {
         whitelabelAvailable,
         sharingConfiguration,
@@ -34,11 +34,10 @@ export function Sharing({ dashboardId, insightShortId, insight }: SharingModalPr
         embedCode,
         iframeProperties,
         shareLink,
-    } = useValues(logic)
-    const { setIsEnabled } = useActions(logic)
+    } = useValues(sharingLogic(logicProps))
+    const { setIsEnabled } = useActions(sharingLogic(logicProps))
 
     const showNoLabelCheckbox = insight?.filters?.insight === InsightType.TRENDS
-    const name = insight?.name || insight?.derived_name
     const resource = dashboardId ? 'dashboard' : 'insight'
 
     return (
@@ -94,7 +93,7 @@ export function Sharing({ dashboardId, insightShortId, insight }: SharingModalPr
                                 </CodeSnippet>
                                 <VerticalForm
                                     logic={sharingLogic}
-                                    props={{ insightShortId }}
+                                    props={logicProps}
                                     formKey="embedConfig"
                                     className="SharingModal-form"
                                 >
@@ -131,7 +130,7 @@ export function Sharing({ dashboardId, insightShortId, insight }: SharingModalPr
                                         </Field>
                                     )}
                                 </VerticalForm>
-                                <iframe style={{ display: 'block' }} {...iframeProperties} />
+                                {insight && <iframe style={{ display: 'block' }} {...iframeProperties} />}
                             </>
                         ) : null}
                     </div>
