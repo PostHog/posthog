@@ -28,7 +28,6 @@ from posthog.api.insight_serializers import (
 )
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.api.sharing import get_sharing_configuration
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.api.utils import format_paginated_url
 from posthog.constants import (
@@ -726,13 +725,6 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDestr
 
         activity_page = load_activity(scope="Insight", team_id=self.team_id, item_id=item_id, limit=limit, page=page)
         return self._return_activity_page(activity_page, limit, page, request)
-
-    @action(methods=["GET", "PUT"], detail=True)
-    def sharing(self, request: request.Request, *args: Any, **kwargs: Any):
-        instance = self.get_object()
-
-        if request.method == "GET":
-            return get_sharing_configuration(self, insight=instance)
 
     @staticmethod
     def _return_activity_page(activity_page: ActivityPage, limit: int, page: int, request: request.Request) -> Response:

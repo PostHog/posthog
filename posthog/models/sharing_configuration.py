@@ -2,7 +2,6 @@ import secrets
 
 from django.db import models
 
-
 PUBLIC_ACCESS_TOKEN_EXP_DAYS = 365
 
 

@@ -11,7 +11,6 @@ import {
     FeatureFlagType,
     FilterType,
     InsightModel,
-    InsightType,
     IntegrationType,
     LicenseType,
     PluginLogEntry,
@@ -624,11 +623,28 @@ const api = {
         }: {
             dashboardId?: DashboardType['id']
             insightId?: InsightModel['id']
-        }): Promise<SharingConfigurationType> {
+        }): Promise<SharingConfigurationType | null> {
             return dashboardId
                 ? new ApiRequest().dashboardSharing(dashboardId).get()
                 : insightId
                 ? new ApiRequest().insightSharing(insightId).get()
+                : null
+        },
+
+        async update(
+            {
+                dashboardId,
+                insightId,
+            }: {
+                dashboardId?: DashboardType['id']
+                insightId?: InsightModel['id']
+            },
+            data: Partial<SharingConfigurationType>
+        ): Promise<SharingConfigurationType | null> {
+            return dashboardId
+                ? new ApiRequest().dashboardSharing(dashboardId).update({ data })
+                : insightId
+                ? new ApiRequest().insightSharing(insightId).update({ data })
                 : null
         },
     },

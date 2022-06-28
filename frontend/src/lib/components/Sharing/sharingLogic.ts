@@ -11,6 +11,15 @@ export interface SharingLogicProps {
     dashboardId?: number
     insightShortId?: InsightShortId
 }
+
+const propsToApiParams = async (props: SharingLogicProps): Promise<{ dashboardId?: number; insightId?: number }> => {
+    const insightId = props.insightShortId ? await getInsightId(props.insightShortId) : undefined
+    return {
+        dashboardId: props.dashboardId,
+        insightId,
+    }
+}
+
 export const sharingLogic = kea<sharingLogicType>([
     path(['lib', 'components', 'Sharing', 'sharingLogic']),
     props({} as SharingLogicProps),
@@ -20,8 +29,10 @@ export const sharingLogic = kea<sharingLogicType>([
         sharingConfiguration: {
             __default: undefined as unknown as SharingConfigurationType,
             loadSharingConfiguration: async () => {
-                const insightId = props.insightShortId ? await getInsightId(props.insightShortId) : undefined
-                return await api.sharing.get({ dashboardId: props.dashboardId, insightId })
+                return await api.sharing.get(await propsToApiParams(props))
+            },
+            setIsEnabled: async (enabled: boolean) => {
+                return await api.sharing.update(await propsToApiParams(props), { enabled })
             },
         },
     })),

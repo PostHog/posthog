@@ -1,42 +1,78 @@
-from typing import Any, Dict, Sequence, Type, Union, cast
+from typing import Any, Dict
 
-from django.db.models import Prefetch, QuerySet
-from django.http import HttpRequest
-from django.shortcuts import get_object_or_404
-from django.utils.timezone import now
-from django.views.decorators.clickjacking import xframe_options_exempt
-from rest_framework import exceptions, mixins, response, serializers, viewsets, request
-from rest_framework.authentication import BaseAuthentication, BasicAuthentication, SessionAuthentication
-from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAuthenticated, OperandHolder, SingleOperandHolder
+from rest_framework import mixins, response, serializers, viewsets
+from rest_framework.exceptions import NotFound, ValidationError
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
-from posthog.api.routing import StructuredViewSetMixin
 
-from posthog.constants import INSIGHT_TRENDS
-from posthog.event_usage import report_user_action
-from posthog.helpers import create_dashboard_from_template
-from posthog.models import SharingConfiguration, sharing_configuration
+from posthog.api.routing import StructuredViewSetMixin
+from posthog.models import SharingConfiguration
 from posthog.models.dashboard import Dashboard
-from posthog.models.exported_asset import asset_for_token
 from posthog.models.insight import Insight
-from posthog.models.user import User
-from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
-from posthog.utils import render_template
+from posthog.permissions import TeamMemberAccessPermission
 
 
 class SharingConfigurationSerializer(serializers.ModelSerializer):
     class Meta:
         model = SharingConfiguration
-        fields = ["id", "dashboard", "insight", "created_at", "enabled", "access_token"]
-        read_only_fields = ["dashboard", "insight", "created_at", "access_token"]
+        fields = ["created_at", "enabled", "access_token"]
+        read_only_fields = ["created_at", "access_token"]
 
 
-def get_sharing_configuration(view: StructuredViewSetMixin, insight: Insight = None, dashboard: Dashboard = None):
-    sharing_configuration, created = SharingConfiguration.objects.get_or_create(
-        insight=insight, dashboard=dashboard, team_id=view.team_id
-    )
+class SharingConfigurationViewSet(
+    StructuredViewSetMixin, mixins.ListModelMixin, viewsets.GenericViewSet, mixins.UpdateModelMixin,
+):
+    permission_classes = [IsAuthenticated, TeamMemberAccessPermission]
+    pagination_class = None
+    queryset = SharingConfiguration.objects.select_related("dashboard", "insight")
+    serializer_class = SharingConfigurationSerializer
+    include_in_docs = False
 
-    serializer = SharingConfigurationSerializer(sharing_configuration, context={"view": view, "request": view.request})
-    return response.Response({"result": serializer.data})
+    def get_serializer_context(self) -> Dict[str, Any]:
+        context = super().get_serializer_context()
+
+        dashboard_id = context.get("dashboard_id")
+        insight_id = context.get("insight_id")
+
+        if not dashboard_id and not insight_id:
+            raise ValidationError("Either a dashboard or insight must be specified")
+
+        if dashboard_id:
+            try:
+                context["dashboard"] = Dashboard.objects.get(id=dashboard_id)
+            except Dashboard.DoesNotExist:
+                raise NotFound("Dashboard not found.")
+        if insight_id:
+            try:
+                context["insight"] = Insight.objects.get(id=insight_id)
+            except Insight.DoesNotExist:
+                raise NotFound("Insight not found.")
+
+        return context
+
+    def list(self, request: Request, *args: Any, **kwargs: Any) -> response.Response:
+        context = self.get_serializer_context()
+        instance, created = SharingConfiguration.objects.get_or_create(
+            insight_id=context.get("insight_id"), dashboard_id=context.get("dashboard_id"), team_id=self.team_id
+        )
+
+        serializer = self.get_serializer(instance, context)
+        serializer.is_valid(raise_exception=True)
+
+        return response.Response(serializer.data)
+
+    def patch(self, request: Request, *args: Any, **kwargs: Any) -> response.Response:
+        context = self.get_serializer_context()
+
+        instance, created = SharingConfiguration.objects.get_or_create(
+            insight_id=context.get("insight_id"), dashboard_id=context.get("dashboard_id"), team_id=self.team_id
+        )
+
+        serializer = self.get_serializer(instance, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+
+        return response.Response(serializer.data)
 
 
 # @xframe_options_exempt

@@ -88,4 +88,5 @@ export const urls = {
     deadLetterQueue: (): string => '/instance/dead_letter_queue',
     unsubscribe: (): string => '/unsubscribe',
     integrationsRedirect: (kind: string): string => `/integrations/${kind}/redirect`,
+    shared: (token: string): string => `/shared/${token}`,
 }
