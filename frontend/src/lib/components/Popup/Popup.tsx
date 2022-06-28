@@ -1,19 +1,26 @@
 import './Popup.scss'
-import React, { MouseEventHandler, ReactElement, useMemo, useState } from 'react'
+import React, { MouseEventHandler, MutableRefObject, ReactElement, useEffect, useMemo } from 'react'
 import ReactDOM from 'react-dom'
-import { usePopper } from 'react-popper'
 import { useOutsideClickHandler } from 'lib/hooks/useOutsideClickHandler'
-import { Modifier, Placement, detectOverflow } from '@popperjs/core'
 import clsx from 'clsx'
-import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { CSSTransition } from 'react-transition-group'
+import {
+    offset,
+    useFloating,
+    autoUpdate,
+    Middleware,
+    Placement,
+    shift,
+    flip,
+    size,
+} from '@floating-ui/react-dom-interactions'
 
 export interface PopupProps {
     visible?: boolean
     onClickOutside?: (event: Event) => void
     onClickInside?: MouseEventHandler<HTMLDivElement>
-    /** Popover trigger element. */
-    children: React.ReactChild | ((props: { setRef: (ref: HTMLElement | null) => void }) => JSX.Element)
+    /** Popover trigger element. If you pass one <Component/> child, it will get the `ref` prop automatically. */
+    children: React.ReactChild | ((props: { ref: MutableRefObject<HTMLElement | null> }) => JSX.Element)
     /** Content of the overlay. */
     overlay: React.ReactNode | React.ReactNode[]
     /** Where the popover should start relative to children. */
@@ -24,10 +31,9 @@ export interface PopupProps {
     actionable?: boolean
     /** Whether the popover's width should be synced with the children's width. */
     sameWidth?: boolean
-    maxWindowDimensions?: boolean
     maxContentWidth?: boolean
     className?: string
-    modifier?: Record<string, any>
+    middleware?: Middleware[]
 }
 
 /** 0 means no parent. */
@@ -35,29 +41,7 @@ export const PopupContext = React.createContext<number>(0)
 
 let uniqueMemoizedIndex = 1
 
-// NOTE: copied from https://github.com/atomiks/popper-max-size-modifier/blob/370d0df2567d6083728eeeebff76cbeaf095ca1d/index.js
-const maxSizeModifier: Modifier<any, any> = {
-    name: 'maxSize',
-    enabled: true,
-    phase: 'main',
-    requiresIfExists: ['offset', 'preventOverflow', 'flip'],
-    fn({ state, name }) {
-        const overflow = detectOverflow(state)
-        const { x, y } = state.modifiersData.preventOverflow || { x: 0, y: 0 }
-        const { width, height } = state.rects.popper
-        const [basePlacement] = state.placement.split('-')
-
-        const widthProp = basePlacement === 'left' ? 'left' : 'right'
-        const heightProp = basePlacement === 'top' ? 'top' : 'bottom'
-
-        state.modifiersData[name] = {
-            width: width - overflow[widthProp] - x,
-            height: height - overflow[heightProp] - y,
-        }
-    },
-}
-
-/** This is a custom popup control that uses `react-popper` to position DOM nodes.
+/** This is a custom popup control that uses `floating-ui` to position DOM nodes.
  *
  * Often used with buttons for various menu. If this is your intention, use `LemonButtonWithPopup`.
  */
@@ -68,73 +52,55 @@ export function Popup({
     onClickOutside,
     onClickInside,
     placement = 'bottom-start',
-    fallbackPlacements = ['bottom-end', 'top-start', 'top-end'],
+    fallbackPlacements = ['bottom-start', 'bottom-end', 'top-start', 'top-end'],
     className,
     actionable = false,
+    middleware,
     sameWidth = false,
     maxContentWidth = false,
-    maxWindowDimensions = false,
-    modifier = {},
 }: PopupProps): JSX.Element {
-    const [referenceElement, setReferenceElement] = useState<HTMLDivElement | null>(null)
-    const [popperElement, setPopperElement] = useState<HTMLDivElement | null>(null)
-
     const popupId = useMemo(() => uniqueMemoizedIndex++, [])
-    const localRefs = [popperElement, referenceElement]
-
-    useOutsideClickHandler(localRefs, (event) => visible && onClickOutside?.(event), [visible])
-
-    const modifiers = useMemo<Partial<Modifier<any, any>>[]>(
-        () => [
-            {
-                name: 'offset',
-                options: {
-                    offset: [0, 4],
+    const {
+        x,
+        y,
+        refs: { reference: referenceRef, floating: floatingRef },
+        strategy,
+        placement: floatingPlacement,
+        update,
+    } = useFloating<HTMLElement>({
+        placement,
+        strategy: 'fixed',
+        middleware: [
+            offset(4),
+            ...(fallbackPlacements ? [flip({ fallbackPlacements })] : []),
+            shift(),
+            size({
+                padding: 5,
+                apply({ rects, elements: { floating } }) {
+                    if (sameWidth) {
+                        Object.assign(floating.style, {
+                            width: `${rects.reference.width}px`,
+                        })
+                    }
                 },
-            },
-            maxWindowDimensions ? maxSizeModifier : {},
-            fallbackPlacements
-                ? {
-                      name: 'flip',
-                      options: {
-                          fallbackPlacements: fallbackPlacements,
-                      },
-                  }
-                : {},
-            sameWidth
-                ? {
-                      name: 'sameWidth',
-                      enabled: true,
-                      fn: ({ state }) => {
-                          state.styles.popper.width = `${state.rects.reference.width}px`
-                      },
-                      phase: 'beforeWrite',
-                      requires: ['computeStyles'],
-                  }
-                : {},
-            modifier,
+            }),
+            ...(middleware ?? []),
         ],
-        []
-    )
+    })
 
-    const { styles, attributes, update, state } = usePopper(referenceElement, popperElement, {
-        placement: placement,
-        modifiers,
-    })
-    useResizeObserver({
-        ref: popperElement,
-        onResize: () => update?.(), // When the element is resized, schedule a popper update to reposition
-    })
+    useOutsideClickHandler([floatingRef, referenceRef], (event) => visible && onClickOutside?.(event), [visible])
+
+    useEffect(() => {
+        if (visible && referenceRef?.current && floatingRef?.current) {
+            return autoUpdate(referenceRef.current, floatingRef.current, update)
+        }
+    }, [visible, referenceRef?.current, floatingRef?.current])
 
     const clonedChildren =
         typeof children === 'function'
-            ? children({
-                  setRef: setReferenceElement as (ref: HTMLElement | null) => void,
-              })
+            ? children({ ref: referenceRef })
             : React.Children.toArray(children).map((child) =>
-                  React.cloneElement(child as ReactElement, {
-                      ref: setReferenceElement,
-                  })
+                  React.cloneElement(child as ReactElement, { ref: referenceRef })
               )
 
     return (
@@ -142,30 +108,24 @@ export function Popup({
             {clonedChildren}
             {ReactDOM.createPortal(
                 <CSSTransition in={visible} timeout={100} classNames="Popup-" mountOnEnter unmountOnExit>
-                    <div
-                        className={clsx(
-                            'Popup',
-                            actionable && 'Popup--actionable',
-                            maxContentWidth && 'Popup--max-content-width',
-                            className
-                        )}
-                        ref={setPopperElement}
-                        style={styles.popper}
-                        onClick={onClickInside}
-                        {...attributes.popper}
-                    >
+                    <PopupContext.Provider value={popupId}>
                         <div
-                            className="Popup__box"
-                            style={{
-                                maxWidth: state?.modifiersData?.maxSize?.width,
-                                maxHeight: state?.modifiersData?.maxSize?.height,
-                            }}
+                            className={clsx(
+                                'Popup',
+                                actionable && 'Popup--actionable',
+                                maxContentWidth && 'Popup--max-content-width',
+                                className
+                            )}
+                            data-floating-placement={floatingPlacement}
+                            ref={floatingRef as MutableRefObject<HTMLDivElement>}
+                            style={{ position: strategy, top: y ?? 0, left: x ?? 0 }}
+                            onClick={onClickInside}
                         >
-                            <PopupContext.Provider value={popupId}>{overlay}</PopupContext.Provider>
+                            <div className="Popup__box">{overlay}</div>
                         </div>
-                    </div>
+                    </PopupContext.Provider>
                 </CSSTransition>,
-                document.querySelector('body') as HTMLElement
+                document.body
             )}
         </>
     )

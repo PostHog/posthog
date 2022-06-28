@@ -139,13 +139,13 @@ class TargetEventsMixin(BaseParamMixin):
     def target_events_to_dict(self) -> dict:
         result = {}
         if self.target_events:
-            result["target_events"] = self.target_events
+            result[PATHS_INCLUDE_EVENT_TYPES] = self.target_events
 
         if self.custom_events:
-            result["custom_events"] = self.custom_events
+            result[PATHS_INCLUDE_CUSTOM_EVENTS] = self.custom_events
 
         if self.exclude_events:
-            result["exclude_events"] = self.exclude_events
+            result[PATHS_EXCLUDE_EVENTS] = self.exclude_events
         return result
 
 

@@ -3,6 +3,7 @@ from datetime import datetime, timedelta
 from typing import Any, Dict
 
 import celery
+import structlog
 from django.core.serializers.json import DjangoJSONEncoder
 from django.http import HttpResponse
 from rest_framework import mixins, serializers, viewsets
@@ -18,10 +19,14 @@ from posthog.api.insight import InsightSerializer
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.event_usage import report_user_action
+from posthog.models import Insight
+from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.exported_asset import ExportedAsset, asset_for_token
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.tasks import exporter
 from posthog.utils import render_template
+
+logger = structlog.get_logger(__name__)
 
 MAX_AGE_CONTENT = 86400  # 1 day
 
@@ -69,7 +74,7 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
         except celery.exceptions.TimeoutError:
             # If the rendering times out - fine, the frontend will poll instead for the response
             pass
-        except NotImplementedError as e:
+        except NotImplementedError:
             raise serializers.ValidationError(
                 {"export_format": ["This type of export is not supported for this resource."]}
             )
@@ -79,6 +84,32 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
         )
 
         instance.refresh_from_db()
+
+        insight_id = instance.insight_id
+        dashboard_id = instance.dashboard_id
+        if insight_id and not dashboard_id:  # we don't log dashboard activity ¯\_(ツ)_/¯
+            try:
+                insight: Insight = Insight.objects.select_related("team__organization").get(id=insight_id)
+                log_activity(
+                    organization_id=insight.team.organization.id,
+                    team_id=self.context["team_id"],
+                    user=request.user,
+                    item_id=insight_id,  # Type: ignore
+                    scope="Insight",
+                    activity="exported",
+                    detail=Detail(
+                        name=insight.name if insight.name else insight.derived_name,
+                        short_id=insight.short_id,
+                        changes=[
+                            Change(
+                                type="Insight", action="exported", field="export_format", after=instance.export_format
+                            )
+                        ],
+                    ),
+                )
+            except Insight.DoesNotExist as ex:
+                logger.warn("insight_exports.unknown_insight", exception=ex, insight_id=insight_id)
+                pass
 
         return instance
 
@@ -118,12 +149,14 @@ class ExportedViewerPageViewSet(mixins.RetrieveModelMixin, StructuredViewSetMixi
         else:
             if settings.DEBUG:
                 # NOTE: To aid testing, DEBUG enables loading at any time.
-                asset = ExportedAsset.objects.get(access_token=access_token)
+                asset = ExportedAsset.objects.select_related("insight", "dashboard").get(access_token=access_token)
             else:
                 # Otherwise only assets that haven't been successfully rendered in the last 15 mins are accessible for security's sake
-                asset = ExportedAsset.objects.filter(
-                    content=None, created_at__gte=datetime.now() - timedelta(minutes=15)
-                ).get(access_token=access_token)
+                asset = (
+                    ExportedAsset.objects.select_related("insight", "dashboard")
+                    .filter(content=None, created_at__gte=datetime.now() - timedelta(minutes=15))
+                    .get(access_token=access_token)
+                )
 
         if not asset:
             raise serializers.NotFound()
@@ -141,15 +174,16 @@ class ExportedViewerPageViewSet(mixins.RetrieveModelMixin, StructuredViewSetMixi
 
             return get_content_response(asset, request.query_params.get("download") == "true")
 
-        if asset.dashboard:
+        # Both insight AND dashboard can be set. If both it is assumed we should render that
+        if asset.insight:
+            context["dashboard"] = asset.dashboard
+            insight_data = InsightSerializer(asset.insight, many=False, context=context).data
+            exported_data.update({"insight": insight_data})
+        elif asset.dashboard:
             dashboard_data = DashboardSerializer(asset.dashboard, context=context).data
             # We don't want the dashboard to be accidentally loaded via the shared endpoint
             dashboard_data["share_token"] = None
             exported_data.update({"dashboard": dashboard_data})
-
-        if asset.insight:
-            insight_data = InsightSerializer(asset.insight, many=False, context=context).data
-            exported_data.update({"insight": insight_data})
 
         return render_template(
             "exporter.html",

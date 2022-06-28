@@ -198,11 +198,11 @@ describe('eachBatchX', () => {
             jest.setSystemTime(systemDate)
 
             // the message is sent at the same time as the system, meaning we sleep for BUFFER_CONVERSION_SECONDS * 1000
-            const batch = createBatch(event, systemDate)
+            const batch = createBatch({ ...event, offset: '294' }, systemDate)
 
-            await expect(eachBatchBuffer(batch, queue)).rejects.toThrow()
+            await eachBatchBuffer(batch, queue)
 
-            expect(queue.bufferSleep).toHaveBeenCalledWith(60000, 0)
+            expect(queue.bufferSleep).toHaveBeenCalledWith(60000, 0, '294', expect.any(Function))
 
             jest.clearAllTimers()
         })

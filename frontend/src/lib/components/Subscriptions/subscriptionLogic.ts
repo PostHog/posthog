@@ -1,19 +1,20 @@
-import { afterMount, connect, kea, key, listeners, path, props } from 'kea'
+import { connect, kea, key, listeners, path, props } from 'kea'
 import { SubscriptionType } from '~/types'
 
 import api from 'lib/api'
 import { loaders } from 'kea-loaders'
 import { forms } from 'kea-forms'
 
-import { isEmail } from 'lib/utils'
+import { isEmail, isURL } from 'lib/utils'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from '../lemonToast'
-import { beforeUnload, router } from 'kea-router'
+import { beforeUnload, router, urlToAction } from 'kea-router'
 import { subscriptionsLogic } from './subscriptionsLogic'
 
 import type { subscriptionLogicType } from './subscriptionLogicType'
 import { getInsightId } from 'scenes/insights/utils'
 import { SubscriptionBaseProps, urlForSubscription } from './utils'
+import { integrationsLogic } from 'scenes/project/Settings/integrationsLogic'
 
 const NEW_SUBSCRIPTION: Partial<SubscriptionType> = {
     frequency: 'weekly',
@@ -33,11 +34,12 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
     key(({ id, insightShortId, dashboardId }) => `${insightShortId || dashboardId}-${id ?? 'new'}`),
     connect(({ insightShortId, dashboardId }: SubscriptionsLogicProps) => ({
         actions: [subscriptionsLogic({ insightShortId, dashboardId }), ['loadSubscriptions']],
+        values: [integrationsLogic, ['isMemberOfSlackChannel']],
     })),
 
     loaders(({ props }) => ({
         subscription: {
-            __default: {} as SubscriptionType,
+            __default: undefined as unknown as SubscriptionType,
             loadSubscription: async () => {
                 if (props.id && props.id !== 'new') {
                     return await api.subscriptions.get(props.id)
@@ -47,20 +49,38 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
         },
     })),
 
-    forms(({ props, actions }) => ({
+    forms(({ props, actions, values }) => ({
         subscription: {
-            defaults: { ...NEW_SUBSCRIPTION } as SubscriptionType,
+            defaults: {} as unknown as SubscriptionType,
             errors: ({ frequency, interval, target_value, target_type, title, start_date }) => ({
                 frequency: !frequency ? 'You need to set a schedule frequency' : undefined,
                 title: !title ? 'You need to give your subscription a name' : undefined,
                 interval: !interval ? 'You need to set an interval' : undefined,
                 start_date: !start_date ? 'You need to set a delivery time' : undefined,
-                target_value:
-                    target_type == 'email'
-                        ? !target_value
-                            ? 'At least one email is required'
-                            : !target_value.split(',').every((email) => isEmail(email))
-                            ? 'All emails must be valid'
+                target_type: !['slack', 'email', 'webhook'].includes(target_type)
+                    ? 'Unsupported target type'
+                    : undefined,
+                target_value: !target_value
+                    ? 'This field is required.'
+                    : target_type == 'email'
+                    ? !target_value
+                        ? 'At least one email is required'
+                        : !target_value.split(',').every((email) => isEmail(email))
+                        ? 'All emails must be valid'
+                        : undefined
+                    : target_type == 'slack'
+                    ? !target_value
+                        ? 'A channel is required'
+                        : undefined
+                    : target_type == 'webhook'
+                    ? !isURL(target_value)
+                        ? 'Must be a valid URL'
+                        : undefined
+                    : undefined,
+                memberOfSlackChannel:
+                    target_type == 'slack'
+                        ? !values.isMemberOfSlackChannel(target_value)
+                            ? 'Please add the PostHog Slack App to the selected channel'
                             : undefined
                         : undefined,
             }),
@@ -73,26 +93,24 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                     dashboard: props.dashboardId,
                 }
 
-                let subscriptionId = props.id
-
                 breakpoint()
 
-                if (subscriptionId === 'new') {
-                    const newSub = await api.subscriptions.create(payload)
-                    subscriptionId = newSub.id
-                } else {
-                    await api.subscriptions.update(subscriptionId, payload)
-                }
+                const updatedSub: SubscriptionType =
+                    props.id === 'new'
+                        ? await api.subscriptions.create(payload)
+                        : await api.subscriptions.update(props.id, payload)
 
                 actions.resetSubscription()
 
-                if (subscriptionId !== props.id) {
-                    router.actions.replace(urlForSubscription(subscriptionId, props))
+                if (updatedSub.id !== props.id) {
+                    router.actions.replace(urlForSubscription(updatedSub.id, props))
                 }
 
                 actions.loadSubscriptions()
-                actions.loadSubscription()
+                actions.loadSubscriptionSuccess(updatedSub)
                 lemonToast.success(`Subscription saved.`)
+
+                return updatedSub
             },
         },
     })),
@@ -113,6 +131,12 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                     })
                 }
             }
+
+            if (key === 'target_type') {
+                actions.setSubscriptionValues({
+                    target_value: '',
+                })
+            }
         },
     })),
     beforeUnload(({ actions, values }) => ({
@@ -123,5 +147,15 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
         },
     })),
 
-    afterMount(({ actions }) => actions.loadSubscription()),
+    urlToAction(({ actions }) => ({
+        '/*/*/subscriptions/new': (_, searchParams) => {
+            actions.loadSubscriptionSuccess({ ...NEW_SUBSCRIPTION })
+            if (searchParams.target_type) {
+                actions.setSubscriptionValue('target_type', searchParams.target_type)
+            }
+        },
+        '/*/*/subscriptions/:id': () => {
+            actions.loadSubscription()
+        },
+    })),
 ])

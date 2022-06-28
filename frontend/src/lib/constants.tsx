@@ -116,8 +116,10 @@ export const FEATURE_FLAGS = {
     BREAKDOWN_ATTRIBUTION: 'breakdown-attribution', // owner: @neilkakkar
     INSIGHT_SUBSCRIPTIONS: 'insight-subscriptions', // owner: @benjackwhite
     SIMPLIFY_ACTIONS: 'simplify-actions', // owner: @alexkim205,
+    SUBSCRIPTIONS_SLACK: 'subscriptions-slack', // owner: @benjackwhite
     SESSION_ANALYSIS: 'session-analysis', // owner: @rcmarron
     TOOLBAR_LAUNCH_SIDE_ACTION: 'toolbar-launch-side-action', // owner: @pauldambra,
+    FEATURE_FLAG_EXPERIENCE_CONTINUITY: 'feature-flag-experience-continuity', // owner: @neilkakkar
 }
 
 /** Which self-hosted plan's features are available with Cloud's "Standard" plan (aka card attached). */

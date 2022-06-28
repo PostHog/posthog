@@ -14,6 +14,7 @@ class EnterpriseEventDefinitionSerializer(TaggedItemSerializerMixin, serializers
     action_id = serializers.IntegerField(read_only=True)
     is_calculating = serializers.BooleanField(read_only=True)
     last_calculated_at = serializers.DateTimeField(read_only=True)
+    last_updated_at = serializers.DateTimeField(read_only=True)
     post_to_slack = serializers.BooleanField(default=False)
 
     class Meta:
@@ -30,6 +31,7 @@ class EnterpriseEventDefinitionSerializer(TaggedItemSerializerMixin, serializers
             "updated_at",
             "updated_by",
             "last_seen_at",
+            "last_updated_at",
             "verified",
             "verified_at",
             "verified_by",
@@ -49,6 +51,7 @@ class EnterpriseEventDefinitionSerializer(TaggedItemSerializerMixin, serializers
             "volume_30_day",
             "query_usage_30_day",
             "last_seen_at",
+            "last_updated_at",
             "verified_at",
             "verified_by",
             # Action fields

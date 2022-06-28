@@ -3,11 +3,10 @@ import { EachBatchPayload, KafkaMessage } from 'kafkajs'
 import { runInstrumentedFunction } from '../../utils'
 import { KafkaQueue } from '../kafka-queue'
 
-class DelayProcessing extends Error {}
-
 export async function eachMessageBuffer(
     message: KafkaMessage,
     resolveOffset: EachBatchPayload['resolveOffset'],
+    heartbeat: EachBatchPayload['heartbeat'],
     queue: KafkaQueue
 ): Promise<void> {
     const bufferEvent = JSON.parse(message.value!.toString())
@@ -19,10 +18,11 @@ export async function eachMessageBuffer(
         timeoutMessage: 'After 30 seconds still running runBufferEventPipeline',
     })
     resolveOffset(message.offset)
+    await heartbeat()
 }
 
 export async function eachBatchBuffer(
-    { batch, resolveOffset, commitOffsetsIfNecessary }: EachBatchPayload,
+    { batch, resolveOffset, heartbeat, commitOffsetsIfNecessary }: EachBatchPayload,
     queue: KafkaQueue
 ): Promise<void> {
     if (batch.messages.length === 0) {
@@ -30,32 +30,32 @@ export async function eachBatchBuffer(
     }
     const batchStartTimer = new Date()
 
+    /** First message to be processed post-sleep. Undefined means there's no sleep needed. */
+    let cutoffMessage: KafkaMessage | undefined
+    /** How long should we sleep for until we have a desired delay in processing. */
     let consumerSleepMs = 0
     for (const message of batch.messages) {
-        // kafka timestamps are unix timestamps in string format
+        // Kafka timestamps are Unix timestamps in string format
         const processAt = Number(message.timestamp) + queue.pluginsServer.BUFFER_CONVERSION_SECONDS * 1000
         const delayUntilTimeToProcess = processAt - Date.now()
 
-        if (delayUntilTimeToProcess < 0) {
-            await eachMessageBuffer(message, resolveOffset, queue)
+        if (delayUntilTimeToProcess <= 0 && !cutoffMessage) {
+            await eachMessageBuffer(message, resolveOffset, heartbeat, queue)
         } else {
-            consumerSleepMs = Math.max(consumerSleepMs, delayUntilTimeToProcess)
+            if (!cutoffMessage) {
+                cutoffMessage = message
+            }
+            if (delayUntilTimeToProcess > consumerSleepMs) {
+                consumerSleepMs = delayUntilTimeToProcess
+            }
         }
     }
-
-    // if consumerSleep > 0 it means we didn't process at least one message
-    if (consumerSleepMs > 0) {
-        // pause the consumer for this partition until we can process all unprocessed messages from this batch
-        await queue.bufferSleep(consumerSleepMs, batch.partition)
-
-        // we throw an error to prevent the non-processed message offsets from being committed
-        // from the kafkajs docs:
-        // > resolveOffset() is used to mark a message in the batch as processed.
-        // > In case of errors, the consumer will automatically commit the resolved offsets.
-        throw new DelayProcessing()
-    }
-
     await commitOffsetsIfNecessary()
+    if (cutoffMessage) {
+        // Pause the consumer for this partition until we can process all unprocessed messages from this batch
+        // This will also seek within the partition to the offset of the cutoff message
+        await queue.bufferSleep(consumerSleepMs, batch.partition, cutoffMessage.offset, heartbeat)
+    }
 
     queue.pluginsServer.statsd?.timing('kafka_queue.each_batch_buffer', batchStartTimer)
 }

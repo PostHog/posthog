@@ -245,7 +245,7 @@ describe('the activity log logic', () => {
                 const actual = logic.values.humanizedActivity
 
                 expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent(
-                    'merged into this person: User A,andUser C'
+                    'merged into this person: User A, and User C'
                 )
             })
 
@@ -263,7 +263,7 @@ describe('the activity log logic', () => {
                 const actual = logic.values.humanizedActivity
 
                 expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent(
-                    'split this person into a,andb'
+                    'split this person into a, and b'
                 )
             })
         })
@@ -503,7 +503,7 @@ describe('the activity log logic', () => {
                 const actual = logic.values.humanizedActivity
 
                 expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent(
-                    'changed rollout percentage to 36%,andchanged the description to "strawberry" on test flag'
+                    'changed rollout percentage to 36%, and changed the description to "strawberry" on test flag'
                 )
             })
 
@@ -562,7 +562,7 @@ describe('the activity log logic', () => {
                 const actual = logic.values.humanizedActivity
 
                 expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent(
-                    'changed the filter conditions to apply to 100% ofID 98,and100% ofID 411 on with cohort'
+                    'changed the filter conditions to apply to 100% ofID 98, and 100% ofID 411 on with cohort'
                 )
             })
 
@@ -723,7 +723,7 @@ describe('the activity log logic', () => {
                 const actual = logic.values.humanizedActivity
 
                 expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent(
-                    'changed the filter conditions to apply to 76% ofInitial Browser = Chrome ,and99% ofInitial Browser Version = 100 on with two changes'
+                    'changed the filter conditions to apply to 76% ofInitial Browser = Chrome , and 99% ofInitial Browser Version = 100 on with two changes'
                 )
             })
         })
@@ -1009,6 +1009,25 @@ describe('the activity log logic', () => {
                 expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent(
                     'removed from dashboard removed test insight'
                 )
+            })
+            const formats = ['png', 'pdf', 'csv']
+            formats.map((format) => {
+                it(`can handle export of insight to ${format}`, async () => {
+                    await insightTestSetup('test insight', 'exported', [
+                        {
+                            type: 'Insight',
+                            action: 'exported',
+                            field: 'export_format',
+                            before: undefined,
+                            after: `something/${format}`,
+                        },
+                    ])
+                    const actual = logic.values.humanizedActivity
+
+                    expect(keaRender(<>{actual[0].description}</>).container).toHaveTextContent(
+                        `exported the insight test insight as a ${format}`
+                    )
+                })
             })
         })
     })

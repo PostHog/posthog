@@ -152,6 +152,15 @@ const featureFlagActionsMapping: Record<keyof FeatureFlagType, (change?: Activit
         key: function onKey(change) {
             return { descriptions: [<>changed flag key from ${change?.before}</>], bareName: false }
         },
+        ensure_experience_continuity: function onExperienceContinuity(change) {
+            let isEnabled: boolean = !!change?.after
+            if (typeof change?.after === 'string') {
+                isEnabled = change?.after.toLowerCase() === 'true'
+            }
+            const describeChange: string = isEnabled ? 'enabled' : 'disabled'
+
+            return { descriptions: [<>{describeChange}</>], bareName: true }
+        },
         // fields that are excluded on the backend
         id: () => null,
         created_at: () => null,
@@ -214,7 +223,7 @@ interface SentenceListProps {
 export function SentenceList({ listParts, prefix = null, suffix = null }: SentenceListProps): JSX.Element {
     return (
         <div className="sentence-list">
-            {prefix && <div className="sentence-part">{prefix}&#32;</div>}
+            {prefix && <div className="sentence-part">{prefix} </div>}
             <>
                 {listParts
                     .filter((part) => !!part)
@@ -225,12 +234,12 @@ export function SentenceList({ listParts, prefix = null, suffix = null }: Senten
                         return [
                             isntFirst && (
                                 <div className="sentence-part" key={`${index}-a`}>
-                                    ,&#32;
+                                    ,{' '}
                                 </div>
                             ),
                             isLast && atLeastThree && (
                                 <div className="sentence-part" key={`${index}-b`}>
-                                    and&#32;
+                                    and{' '}
                                 </div>
                             ),
                             <div className="sentence-part" key={`${index}-c`}>
@@ -239,7 +248,7 @@ export function SentenceList({ listParts, prefix = null, suffix = null }: Senten
                         ]
                     })}
             </>
-            {suffix && <div className="sentence-part">&#32;{suffix}</div>}
+            {suffix && <div className="sentence-part"> {suffix}</div>}
         </div>
     )
 }

@@ -5,8 +5,8 @@ from posthog.client import sync_execute
 from posthog.models.action import Action
 from posthog.models.action.util import filter_event, format_action_filter
 from posthog.models.action_step import ActionStep
+from posthog.models.test.test_event_model import filter_by_actions_factory
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, _create_person
-from posthog.test.test_event_model import filter_by_actions_factory
 
 
 @dataclasses.dataclass
@@ -143,12 +143,12 @@ class TestActionFormat(ClickhouseTestMixin, BaseTest):
         )
 
         action1 = Action.objects.create(team=self.team, name="action1")
-        step1 = ActionStep.objects.create(
+        ActionStep.objects.create(
             event="insight viewed",
             action=action1,
             properties=[{"key": "insight", "type": "event", "value": ["RETENTION"], "operator": "exact"}],
         )
-        step2 = ActionStep.objects.create(
+        ActionStep.objects.create(
             event="insight viewed",
             action=action1,
             properties=[{"key": "filters_count", "type": "event", "value": "1", "operator": "gt"}],

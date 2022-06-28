@@ -14,6 +14,7 @@ from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.settings import api_settings
 from rest_framework_csv import renderers as csvrenderers
+from sentry_sdk import capture_exception
 
 from posthog.api.documentation import PropertiesSerializer, extend_schema
 from posthog.api.routing import StructuredViewSetMixin
@@ -99,36 +100,40 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
         ],
     )
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
-        is_csv_request = self.request.accepted_renderer.format == "csv"
+        try:
+            is_csv_request = self.request.accepted_renderer.format == "csv"
 
-        if self.request.GET.get("limit", None):
-            limit = int(self.request.GET.get("limit"))  # type: ignore
-        elif is_csv_request:
-            limit = self.CSV_EXPORT_DEFAULT_LIMIT
-        else:
-            limit = 100
+            if self.request.GET.get("limit", None):
+                limit = int(self.request.GET.get("limit"))  # type: ignore
+            elif is_csv_request:
+                limit = self.CSV_EXPORT_DEFAULT_LIMIT
+            else:
+                limit = 100
 
-        if is_csv_request:
-            limit = min(limit, self.CSV_EXPORT_MAXIMUM_LIMIT)
+            if is_csv_request:
+                limit = min(limit, self.CSV_EXPORT_MAXIMUM_LIMIT)
 
-        team = self.team
-        filter = Filter(request=request, team=self.team)
+            team = self.team
+            filter = Filter(request=request, team=self.team)
 
-        query_result = self._query_events_list(filter, team, request, limit=limit)
+            query_result = self._query_events_list(filter, team, request, limit=limit)
 
-        # Retry the query without the 1 day optimization
-        if len(query_result) < limit and not request.GET.get("after"):
-            query_result = self._query_events_list(filter, team, request, long_date_from=True, limit=limit)
+            # Retry the query without the 1 day optimization
+            if len(query_result) < limit and not request.GET.get("after"):
+                query_result = self._query_events_list(filter, team, request, long_date_from=True, limit=limit)
 
-        result = ClickhouseEventSerializer(
-            query_result[0:limit], many=True, context={"people": self._get_people(query_result, team),},
-        ).data
+            result = ClickhouseEventSerializer(
+                query_result[0:limit], many=True, context={"people": self._get_people(query_result, team),},
+            ).data
 
-        next_url: Optional[str] = None
-        if not is_csv_request and len(query_result) > limit:
-            next_url = self._build_next_url(request, query_result[limit - 1]["timestamp"])
+            next_url: Optional[str] = None
+            if not is_csv_request and len(query_result) > limit:
+                next_url = self._build_next_url(request, query_result[limit - 1]["timestamp"])
 
-        return response.Response({"next": next_url, "results": result})
+            return response.Response({"next": next_url, "results": result})
+        except Exception as ex:
+            capture_exception(ex)
+            raise ex
 
     def _get_people(self, query_result: List[Dict], team: Team) -> Dict[str, Any]:
         distinct_ids = [event["distinct_id"] for event in query_result]

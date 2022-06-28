@@ -156,8 +156,8 @@ User ID,
     def test_static_cohort_to_dynamic_cohort(self, patch_calculate_cohort, patch_calculate_cohort_from_list):
         self.team.app_urls = ["http://somewebsite.com"]
         self.team.save()
-        person = Person.objects.create(team=self.team, properties={"email": "email@example.org"})
-        person1 = Person.objects.create(team=self.team, distinct_ids=["123"])
+        Person.objects.create(team=self.team, properties={"email": "email@example.org"})
+        Person.objects.create(team=self.team, distinct_ids=["123"])
         Person.objects.create(team=self.team, distinct_ids=["456"])
 
         csv = SimpleUploadedFile(
@@ -205,13 +205,9 @@ email@example.org,
         self.assertEqual(response["results"][0]["created_by"]["id"], self.user.id)
 
     def test_csv_export(self):
-        person1 = Person.objects.create(
-            distinct_ids=["person1"], team_id=self.team.pk, properties={"$some_prop": "something"}
-        )
-        person2 = Person.objects.create(distinct_ids=["person2"], team_id=self.team.pk, properties={})
-        person3 = Person.objects.create(
-            distinct_ids=["person3"], team_id=self.team.pk, properties={"$some_prop": "something"}
-        )
+        Person.objects.create(distinct_ids=["person1"], team_id=self.team.pk, properties={"$some_prop": "something"})
+        Person.objects.create(distinct_ids=["person2"], team_id=self.team.pk, properties={})
+        Person.objects.create(distinct_ids=["person3"], team_id=self.team.pk, properties={"$some_prop": "something"})
         cohort = Cohort.objects.create(
             team=self.team,
             groups=[{"properties": [{"key": "$some_prop", "value": "something", "type": "person"}]}],

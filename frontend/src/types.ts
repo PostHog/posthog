@@ -258,6 +258,7 @@ export interface ActionType {
     id: number
     is_calculating?: boolean
     last_calculated_at?: string
+    last_updated_at?: string // alias for last_calculated_at to achieve event and action parity
     name: string | null
     description?: string
     post_to_slack?: boolean
@@ -1125,6 +1126,7 @@ export interface InsightEditorFilter {
     key: string
     label?: string
     tooltip?: JSX.Element
+    position?: 'left' | 'right'
     valueSelector?: (insight: Partial<InsightModel>) => any
     component?: (props: EditorFilterProps) => JSX.Element
 }
@@ -1385,6 +1387,7 @@ export interface FeatureFlagType {
     created_at: string | null
     is_simple_flag: boolean
     rollout_percentage: number | null
+    ensure_experience_continuity: boolean | null
 }
 
 export interface FeatureFlagOverrideType {
@@ -1513,6 +1516,7 @@ export interface EventDefinition {
     owner?: UserBasicType | null
     created_at?: string
     last_seen_at?: string
+    last_updated_at?: string // alias for last_seen_at to achieve event and action parity
     updated_at?: string
     updated_by?: UserBasicType | null
     verified?: boolean
@@ -1940,4 +1944,22 @@ export type SmallTimeUnit = 'hours' | 'minutes' | 'seconds'
 export type Duration = {
     timeValue: number
     unit: SmallTimeUnit
+}
+
+export type CombinedEvent = EventDefinition | ActionType
+
+export interface IntegrationType {
+    id: number
+    kind: 'slack'
+    config: any
+    created_by?: UserBasicType | null
+    created_at: string
+}
+
+export interface SlackChannelType {
+    id: string
+    name: string
+    is_private: boolean
+    is_ext_shared: boolean
+    is_member: boolean
 }

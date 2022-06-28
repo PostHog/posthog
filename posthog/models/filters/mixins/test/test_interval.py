@@ -31,5 +31,5 @@ def test_filter_interval_success(filter, expected_interval):
     ],
 )
 def test_filter_interval_errors(filter, expected_error_message):
-    with pytest.raises(ValueError, match=expected_error_message) as error:
+    with pytest.raises(ValueError, match=expected_error_message):
         filter.interval

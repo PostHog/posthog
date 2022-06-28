@@ -1,5 +1,5 @@
 import { actions, kea, key, listeners, path, props, reducers, selectors } from 'kea'
-import { AnyPropertyFilter, EventDefinition, PropertyDefinition } from '~/types'
+import { ActionType, AnyPropertyFilter, CombinedEvent, EventDefinition, PropertyDefinition } from '~/types'
 import type { eventDefinitionsTableLogicType } from './eventDefinitionsTableLogicType'
 import api, { PaginatedResponse } from 'lib/api'
 import { keyMappingKeys } from 'lib/components/PropertyKeyInfo'
@@ -7,8 +7,10 @@ import { actionToUrl, combineUrl, router, urlToAction } from 'kea-router'
 import { convertPropertyGroupToProperties, objectsEqual } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { loaders } from 'kea-loaders'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
-export interface EventDefinitionsPaginatedResponse extends PaginatedResponse<EventDefinition> {
+export interface EventDefinitionsPaginatedResponse extends PaginatedResponse<CombinedEvent> {
     current?: string
     count?: number
     page?: number
@@ -54,15 +56,34 @@ export function normalizePropertyDefinitionEndpointUrl(
     })
 }
 
-function normalizeEventDefinitionEndpointUrl(
-    url: string | null | undefined,
-    searchParams: Record<string, any> = {},
-    full: boolean = false
-): string | null {
+function normalizeEventDefinitionEndpointUrl({
+    url,
+    searchParams = {},
+    full = false,
+    shouldSimplifyActions = false,
+}: {
+    url?: string | null | undefined
+    searchParams?: Record<string, any>
+    full?: boolean
+    shouldSimplifyActions?: boolean
+}): string | null {
     if (!full && !url) {
         return null
     }
-    return api.eventDefinitions.determineListEndpoint({ ...(url ? combineUrl(url).searchParams : {}), ...searchParams })
+    const params = {
+        ...(url
+            ? {
+                  ...combineUrl(url).searchParams,
+                  ...(shouldSimplifyActions ? { include_actions: true } : {}),
+              }
+            : {}),
+        ...searchParams,
+    }
+    return api.eventDefinitions.determineListEndpoint(params)
+}
+
+export function isActionEvent(event: CombinedEvent): event is ActionType {
+    return 'is_action' in (event as ActionType) && !!event.is_action
 }
 
 export interface EventDefinitionsTableLogicProps {
@@ -110,34 +131,47 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
                 results: [],
             } as EventDefinitionsPaginatedResponse,
             {
-                loadEventDefinitions: async ({ url }, breakpoint) => {
+                loadEventDefinitions: async ({ url: _url }, breakpoint) => {
+                    let url = normalizeEventDefinitionEndpointUrl({
+                        url: _url,
+                        shouldSimplifyActions: values.shouldSimplifyActions,
+                    })
                     if (url && url in (cache.apiCache ?? {})) {
                         return cache.apiCache[url]
                     }
 
                     if (!url) {
-                        url = api.eventDefinitions.determineListEndpoint({})
+                        url = api.eventDefinitions.determineListEndpoint({
+                            ...(values.shouldSimplifyActions
+                                ? {
+                                      include_actions: true,
+                                  }
+                                : {}),
+                        })
                     }
                     await breakpoint(200)
                     cache.eventsStartTime = performance.now()
                     const response = await api.get(url)
                     breakpoint()
 
-                    const currentUrl = `${normalizeEventDefinitionEndpointUrl(url)}`
                     cache.apiCache = {
                         ...(cache.apiCache ?? {}),
-                        [currentUrl]: {
+                        [url]: {
                             ...response,
-                            previous: normalizeEventDefinitionEndpointUrl(response.previous),
-                            next: normalizeEventDefinitionEndpointUrl(response.next),
-                            current: currentUrl,
+                            previous: normalizeEventDefinitionEndpointUrl({
+                                url: response.previous,
+                                shouldSimplifyActions: values.shouldSimplifyActions,
+                            }),
+                            next: normalizeEventDefinitionEndpointUrl({
+                                url: response.next,
+                                shouldSimplifyActions: values.shouldSimplifyActions,
+                            }),
+                            current: url,
                             page:
-                                Math.floor(
-                                    (combineUrl(currentUrl).searchParams.offset ?? 0) / EVENT_DEFINITIONS_PER_PAGE
-                                ) + 1,
+                                Math.floor((combineUrl(url).searchParams.offset ?? 0) / EVENT_DEFINITIONS_PER_PAGE) + 1,
                         },
                     }
-                    return cache.apiCache[currentUrl]
+                    return cache.apiCache[url]
                 },
                 setLocalEventDefinition: ({ definition }) => {
                     if (!values.eventDefinitions.current) {
@@ -248,17 +282,22 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
         ],
     })),
     selectors(({ cache }) => ({
+        shouldSimplifyActions: [
+            () => [featureFlagLogic.selectors.featureFlags],
+            (flags) => !!flags[FEATURE_FLAGS.SIMPLIFY_ACTIONS],
+        ],
         // Expose for testing
         apiCache: [() => [], () => cache.apiCache],
     })),
     listeners(({ actions, values, cache }) => ({
         setFilters: () => {
             actions.loadEventDefinitions(
-                normalizeEventDefinitionEndpointUrl(
-                    values.eventDefinitions.current,
-                    { search: values.filters.event },
-                    true
-                )
+                normalizeEventDefinitionEndpointUrl({
+                    url: values.eventDefinitions.current,
+                    searchParams: { search: values.filters.event },
+                    full: true,
+                    shouldSimplifyActions: values.shouldSimplifyActions,
+                })
             )
         },
         loadEventDefinitionsSuccess: () => {
