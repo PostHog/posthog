@@ -3,7 +3,7 @@ import { LemonButton, LemonButtonWithPopup } from 'lib/components/LemonButton'
 import React, { useMemo } from 'react'
 import { cohortFieldLogic } from 'scenes/cohorts/CohortFilters/cohortFieldLogic'
 import { useActions, useValues } from 'kea'
-import { LemonNumericInput } from 'lib/components/LemonInput/LemonInput'
+import { LemonInput } from 'lib/components/LemonInput/LemonInput'
 import { TaxonomicFilterGroupType, TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
 import { LemonTaxonomicPopup } from 'lib/components/TaxonomicPopup/TaxonomicPopup'
 import {
@@ -180,7 +180,8 @@ export function CohortNumberField({
     const { onChange } = useActions(logic)
 
     return (
-        <LemonNumericInput
+        <LemonInput
+            type="number"
             value={(value as number) ?? undefined}
             onChange={(nextNumber) => {
                 onChange({ [fieldKey]: nextNumber })
