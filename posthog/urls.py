@@ -19,6 +19,7 @@ from posthog.api import (
     project_dashboards_router,
     projects_router,
     router,
+    sharing,
     signup,
     unsubscribe,
     user,
@@ -120,6 +121,7 @@ urlpatterns = [
     re_path(r"^api.+", api_not_found),
     path("authorize_and_redirect/", login_required(authorize_and_redirect)),
     path("shared_dashboard/<str:share_token>", dashboard.shared_dashboard),
+    path("shared/<str:access_token>", sharing.SharingViewerPageViewSet.as_view({"get": "retrieve"})),
     path("exporter/<str:access_token>", exports.ExportedViewerPageViewSet.as_view({"get": "retrieve"})),
     re_path(r"^demo.*", login_required(demo_route)),
     # ingestion

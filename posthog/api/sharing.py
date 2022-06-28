@@ -1,15 +1,21 @@
+import json
 from typing import Any, Dict
 
+from django.core.serializers.json import DjangoJSONEncoder
+from django.views.decorators.clickjacking import xframe_options_exempt
 from rest_framework import mixins, response, serializers, viewsets
 from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 
+from posthog.api.dashboard import DashboardSerializer
+from posthog.api.insight import InsightSerializer
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.models import SharingConfiguration
 from posthog.models.dashboard import Dashboard
 from posthog.models.insight import Insight
 from posthog.permissions import TeamMemberAccessPermission
+from posthog.utils import render_template
 
 
 class SharingConfigurationSerializer(serializers.ModelSerializer):
@@ -75,74 +81,44 @@ class SharingConfigurationViewSet(
         return response.Response(serializer.data)
 
 
-# @xframe_options_exempt
-# def shared_resource(request: HttpRequest, share_token: str):
-#     exported_data: Dict[str, Any] = {
-#         "type": "embed" if "embedded" in request.GET else "scene",
-#         "dashboard": {
-#             "id": dashboard.id,
-#             "share_token": dashboard.share_token,
-#             "name": dashboard.name,
-#             "description": dashboard.description,
-#         },
-#         "team": {"name": dashboard.team.name},
-#     }
+class SharingViewerPageViewSet(mixins.RetrieveModelMixin, StructuredViewSetMixin, viewsets.GenericViewSet):
+    queryset = SharingConfiguration.objects.none()
+    authentication_classes = []  # type: ignore
+    permission_classes = []  # type: ignore
 
-#     if "whitelabel" in request.GET and "white_labelling" in dashboard.team.organization.available_features:
-#         exported_data.update({"whitelabel": True})
+    def get_object(self):
+        access_token = self.kwargs.get("access_token")
+        sharing_configuration = SharingConfiguration.objects.get(access_token=access_token)
 
-#     return render_template("exporter.html", request=request, context={"exported_data": json.dumps(exported_data)},)
+        if sharing_configuration and sharing_configuration.enabled:
+            return sharing_configuration
 
+        raise serializers.NotFound()
 
-# class SharingViewerPageViewSet(mixins.RetrieveModelMixin, StructuredViewSetMixin, viewsets.GenericViewSet):
-#     queryset = SharingConfiguration.objects.none()
-#     authentication_classes = []  # type: ignore
-#     permission_classes = []  # type: ignore
+    @xframe_options_exempt
+    def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Any:
+        resource: SharingConfiguration = self.get_object()
+        context = {"view": self, "request": request}
+        exported_data: Dict[str, Any] = {"type": "embed" if "embedded" in request.GET else "scene"}
 
-#     def get_object(self):
-#         token = self.request.query_params.get("token")
-#         access_token = self.kwargs.get("access_token")
+        if resource.insight:
+            insight_data = InsightSerializer(resource.insight, many=False, context=context).data
+            exported_data.update({"insight": insight_data})
+        elif resource.dashboard:
+            dashboard_data = DashboardSerializer(resource.dashboard, context=context).data
+            # We don't want the dashboard to be accidentally loaded via the shared endpoint
+            dashboard_data["share_token"] = None
+            exported_data.update({"dashboard": dashboard_data})
+        else:
+            raise serializers.NotFound()
 
-#         resource = None
+        if "whitelabel" in request.GET and "white_labelling" in resource.team.organization.available_features:
+            exported_data.update({"whitelabel": True})
+        if "noLegend" in request.GET:
+            exported_data.update({"noLegend": True})
 
-#         if token:
-#             pass
-#             # TODO: Load resource based on token contents
-#             # asset = asset_for_token(token)
-#         else:
-#             sharing_configuration = SharingConfiguration.objects.get(access_token=access_token)
-
-#             if sharing_configuration and sharing_configuration.enabled:
-#                 resource = sharing_configuration.insight or sharing_configuration.dashboard
-
-#         if not resource:
-#             raise serializers.NotFound()
-
-#         return resource
-
-#     def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Any:
-#         resource = self.get_object()
-#         context = {"view": self, "request": request}
-#         exported_data: Dict[str, Any] = {"type": "image"}
-
-#         if request.path.endswith(f".{asset.file_ext}"):
-#             if not asset.content:
-#                 raise serializers.NotFound()
-
-#             return get_content_response(asset, request.query_params.get("download") == "true")
-
-#         if asset.dashboard:
-#             dashboard_data = DashboardSerializer(asset.dashboard, context=context).data
-#             # We don't want the dashboard to be accidentally loaded via the shared endpoint
-#             dashboard_data["share_token"] = None
-#             exported_data.update({"dashboard": dashboard_data})
-
-#         if asset.insight:
-#             insight_data = InsightSerializer(asset.insight, many=False, context=context).data
-#             exported_data.update({"insight": insight_data})
-
-#         return render_template(
-#             "exporter.html",
-#             request=request,
-#             context={"exported_data": json.dumps(exported_data, cls=DjangoJSONEncoder)},
-#         )
+        return render_template(
+            "exporter.html",
+            request=request,
+            context={"exported_data": json.dumps(exported_data, cls=DjangoJSONEncoder)},
+        )

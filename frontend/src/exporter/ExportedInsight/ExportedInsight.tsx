@@ -8,13 +8,14 @@ import { INSIGHT_TYPES_METADATA } from 'scenes/saved-insights/SavedInsights'
 import { dateFilterToText } from 'lib/utils'
 import { FriendlyLogo } from '~/toolbar/assets/FriendlyLogo'
 import { InsightLegend } from 'lib/components/InsightLegend/InsightLegend'
+import { ExportOptions } from '~/exporter/types'
 
 export function ExportedInsight({
     insight,
-    showLogo = true,
+    exportOptions: { whitelabel, noLegend },
 }: {
     insight: InsightModel
-    showLogo?: boolean
+    exportOptions: ExportOptions
 }): JSX.Element {
     const insightLogicProps: InsightLogicProps = {
         dashboardItemId: insight.short_id,
@@ -25,6 +26,7 @@ export function ExportedInsight({
     const { filters, name, derived_name, description } = insight
 
     const showLegend =
+        !noLegend &&
         filters.insight === InsightType.TRENDS &&
         filters.display !== ChartDisplayType.WorldMap &&
         filters.display !== ChartDisplayType.ActionsTable
@@ -46,7 +48,7 @@ export function ExportedInsight({
                         {description && <div className="ExportedInsight-header-description">{description}</div>}
                     </div>
 
-                    {showLogo && <FriendlyLogo style={{ fontSize: '1rem' }} />}
+                    {!whitelabel && <FriendlyLogo style={{ fontSize: '1rem' }} />}
                 </div>
 
                 <div className="ExportedInsight-content">
