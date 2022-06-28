@@ -10,6 +10,7 @@ import { copyToClipboard } from 'lib/utils'
 import { urls } from 'scenes/urls'
 import { IconCopy } from '../icons'
 import { CodeSnippet, Language } from 'scenes/ingestion/frameworks/CodeSnippet'
+import { DashboardCollaboration } from 'scenes/dashboard/DashboardCollaborators'
 
 export interface SharingModalProps extends SharingBaseProps {
     dashboardId?: number
@@ -36,12 +37,17 @@ export function Sharing(props: SharingModalProps): JSX.Element {
         : ''
 
     return (
-        <>
-            <header className="border-bottom pb-05">
-                <h4 className="mt-05">Share or embed {resource}</h4>
-            </header>
+        <div className="mt-05">
+            {dashboardId ? (
+                <div className="mb">
+                    <h4>Collaboration settings</h4>
+                    <DashboardCollaboration dashboardId={dashboardId} />
+                </div>
+            ) : undefined}
 
-            <section>
+            <h4>Share or embed {resource}</h4>
+
+            <div>
                 {!sharingConfiguration && sharingConfigurationLoading ? (
                     <Skeleton />
                 ) : !sharingConfiguration ? (
@@ -55,12 +61,11 @@ export function Sharing(props: SharingModalProps): JSX.Element {
                             loading={sharingConfigurationLoading}
                             data-attr="sharing-switch"
                             onChange={(active) => {
-                                console.log('CHANGED', active)
                                 setIsEnabled(active)
-                                // setIsSharedDashboard(dashboard.id, active)
                             }}
+                            fullWidth
                             type="primary"
-                            style={{ width: '100%', height: '3rem', fontWeight: 600 }}
+                            style={{ padding: '0.5rem 1rem' }}
                         />
 
                         {sharingConfiguration.enabled ? (
@@ -72,6 +77,7 @@ export function Sharing(props: SharingModalProps): JSX.Element {
                                         onClick={() => copyToClipboard(shareLink, 'link')}
                                         icon={<IconCopy />}
                                         fullWidth
+                                        style={{ padding: '0.5rem 1rem' }}
                                     >
                                         Copy shared dashboard link
                                     </LemonButton>
@@ -84,8 +90,8 @@ export function Sharing(props: SharingModalProps): JSX.Element {
                         ) : null}
                     </div>
                 )}
-            </section>
-        </>
+            </div>
+        </div>
     )
 }
 

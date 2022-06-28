@@ -784,10 +784,16 @@ export const dashboardLogic = kea<dashboardLogicType>({
                     : parseInt(subscriptionId, 10)
                 : undefined
             actions.setSubscriptionMode(true, id)
+            actions.setDashboardMode(null, null)
         },
 
         '/dashboard/:id': () => {
             actions.setSubscriptionMode(false, undefined)
+            actions.setDashboardMode(null, DashboardEventSource.Browser)
+        },
+        '/dashboard/:id/sharing': () => {
+            actions.setSubscriptionMode(false, undefined)
+            actions.setDashboardMode(DashboardMode.Sharing, null)
         },
     }),
 })

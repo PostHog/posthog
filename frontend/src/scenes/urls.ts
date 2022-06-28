@@ -16,7 +16,7 @@ export const urls = {
     dashboards: (): string => '/dashboard',
     dashboard: (id: string | number, highlightInsightId?: string): string =>
         combineUrl(`/dashboard/${id}`, highlightInsightId ? { highlightInsightId } : {}).url,
-
+    dashboardSharing: (id: string | number): string => `/dashboard/${id}/sharing`,
     dashboardSubcriptions: (id: string | number): string => `/dashboard/${id}/subscriptions`,
     dashboardSubcription: (id: string | number, subscriptionId: string): string =>
         `/dashboard/${id}/subscriptions/${subscriptionId}`,

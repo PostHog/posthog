@@ -12,6 +12,7 @@ from ee.clickhouse.queries.stickiness import ClickhouseStickiness
 from posthog.api.insight import InsightViewSet
 from posthog.decorators import cached_function
 from posthog.models import Insight, User
+from posthog.models.dashboard import Dashboard
 from posthog.models.filters import Filter
 
 
@@ -19,14 +20,10 @@ class CanEditInsight(BasePermission):
     message = "This insight is on a dashboard that can only be edited by its owner, team members invited to editing the dashboard, and project admins."
 
     def has_object_permission(self, request: Request, view, insight: Insight) -> bool:
-
         if request.method in SAFE_METHODS:
             return True
-        dashboards = list(insight.dashboards.all())
-        if not dashboards:
-            return True
-        edit_permissions = [d.can_user_edit(cast(User, request.user).id) for d in dashboards if d is not None]
-        return any(edit_permissions)
+
+        return insight.get_effective_privilege_level(cast(User, request.user).id) == Dashboard.PrivilegeLevel.CAN_EDIT
 
 
 class ClickhouseInsightsViewSet(InsightViewSet):
