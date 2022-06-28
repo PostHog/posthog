@@ -117,6 +117,10 @@
                     "value": "1"
                 },
                 {
+                    "name": "ASYNC_MIGRATIONS_RUNNING_BLOCK_UPGRADE",
+                    "value": "0"
+                },
+                {
                     "name": "UPDATE_CACHED_DASHBOARD_ITEMS_INTERVAL_SECONDS",
                     "value": "60"
                 },
