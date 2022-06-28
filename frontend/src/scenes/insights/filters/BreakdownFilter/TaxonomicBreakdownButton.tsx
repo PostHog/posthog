@@ -10,10 +10,10 @@ import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { useValues } from 'kea'
 import { groupsModel } from '~/models/groupsModel'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from '@posthog/lemon-ui'
 import { IconPlusMini } from 'lib/components/icons'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 export interface TaxonomicBreakdownButtonProps {
     breakdownType?: TaxonomicFilterGroupType
@@ -29,7 +29,7 @@ export function TaxonomicBreakdownButton({
     const [open, setOpen] = useState(false)
     const { allEventNames } = useValues(insightLogic)
     const { groupsTaxonomicTypes } = useValues(groupsModel)
-    const { featureFlags } = useValues(featureFlagsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const taxonomicGroupTypes = onlyCohorts
         ? [TaxonomicFilterGroupType.CohortsWithAllUsers]
@@ -40,6 +40,7 @@ export function TaxonomicBreakdownButton({
               TaxonomicFilterGroupType.CohortsWithAllUsers,
           ].concat(featureFlags[FEATURE_FLAGS.SESSION_ANALYSIS] ? [TaxonomicFilterGroupType.Sessions] : [])
 
+    console.log(taxonomicGroupTypes, featureFlags)
     return (
         <Popup
             overlay={
