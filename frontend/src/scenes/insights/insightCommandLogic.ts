@@ -6,7 +6,7 @@ import { RiseOutlined } from '@ant-design/icons'
 import { dateMapping } from 'lib/utils'
 import { InsightLogicProps } from '~/types'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
-import { insightDateFilterLogic } from 'scenes/insights/Filters/InsightDateFilter/insightDateFilterLogic'
+import { insightDateFilterLogic } from 'scenes/insights/filters/InsightDateFilter/insightDateFilterLogic'
 
 const INSIGHT_COMMAND_SCOPE = 'insights'
 

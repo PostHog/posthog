@@ -4,7 +4,7 @@ import clsx from 'clsx'
 import useSize from '@react-hook/size'
 import { hashCodeForString, humanFriendlyDuration } from 'lib/utils'
 import { funnelLogic } from './funnelLogic'
-import { Histogram } from 'scenes/insights/Views/Histogram'
+import { Histogram } from 'scenes/insights/views/Histogram'
 
 import './FunnelHistogram.scss'
 import { insightLogic } from 'scenes/insights/insightLogic'

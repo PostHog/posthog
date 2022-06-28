@@ -1,6 +1,6 @@
 import { histogramLogic } from './histogramLogic'
 import { initKeaTests } from '~/test/init'
-import { getConfig } from 'scenes/insights/Views/Histogram/histogramUtils'
+import { getConfig } from 'scenes/insights/views/Histogram/histogramUtils'
 import { FunnelLayout } from 'lib/constants'
 
 describe('histogramLogic', () => {

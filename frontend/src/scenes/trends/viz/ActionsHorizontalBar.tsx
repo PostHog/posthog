@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { LineGraph } from '../../insights/Views/LineGraph/LineGraph'
+import { LineGraph } from '../../insights/views/LineGraph/LineGraph'
 import { getSeriesColor } from 'lib/colors'
 import { useActions, useValues } from 'kea'
 import { trendsLogic } from 'scenes/trends/trendsLogic'

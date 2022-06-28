@@ -4,7 +4,7 @@ import { useActions } from 'kea'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { Tooltip } from 'lib/components/Tooltip'
 import { CloseButton } from 'lib/components/CloseButton'
-import { Formula } from 'scenes/insights/Filters/Formula'
+import { Formula } from 'scenes/insights/filters/Formula'
 import { LemonButton } from '@posthog/lemon-ui'
 import { IconPlusMini } from 'lib/components/icons'
 

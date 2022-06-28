@@ -10,7 +10,7 @@ import { PropertyFilters } from '../PropertyFilters/PropertyFilters'
 import { GlobalFiltersTitle } from 'scenes/insights/common'
 import { IconCopy, IconDelete, IconPlusMini } from '../icons'
 import { LemonButton } from '../LemonButton'
-import { TestAccountFilter } from 'scenes/insights/Filters/TestAccountFilter'
+import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
 import { LemonDivider } from '../LemonDivider'
 
 interface PropertyGroupFilters {

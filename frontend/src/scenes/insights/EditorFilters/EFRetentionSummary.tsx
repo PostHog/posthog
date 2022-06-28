@@ -11,11 +11,11 @@ import {
 import { Input, Select } from 'antd'
 import { EditorFilterProps, FilterType, RetentionType } from '~/types'
 import { IconOpenInNew } from 'lib/components/icons'
-import { ActionFilter } from '../Filters/ActionFilter/ActionFilter'
+import { ActionFilter } from '../filters/ActionFilter/ActionFilter'
 import { Tooltip } from 'lib/components/Tooltip'
-import { AggregationSelect } from 'scenes/insights/Filters/AggregationSelect'
+import { AggregationSelect } from 'scenes/insights/filters/AggregationSelect'
 import { groupsModel } from '~/models/groupsModel'
-import { MathAvailability } from '../Filters/ActionFilter/ActionFilterRow/ActionFilterRow'
+import { MathAvailability } from '../filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 
 export function EFRetentionSummary({ insightProps }: EditorFilterProps): JSX.Element {
     const { showGroupsOptions } = useValues(groupsModel)

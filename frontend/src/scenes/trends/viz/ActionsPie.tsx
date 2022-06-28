@@ -1,7 +1,7 @@
 import './ActionsPie.scss'
 import React, { useState, useEffect } from 'react'
 import { humanFriendlyNumber } from 'lib/utils'
-import { LineGraph } from '../../insights/Views/LineGraph/LineGraph'
+import { LineGraph } from '../../insights/views/LineGraph/LineGraph'
 import { getSeriesColor } from 'lib/colors'
 import { useValues, useActions } from 'kea'
 import { trendsLogic } from 'scenes/trends/trendsLogic'

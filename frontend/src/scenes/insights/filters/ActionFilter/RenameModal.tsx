@@ -1,10 +1,10 @@
 import { useActions, useValues } from 'kea'
-import { entityFilterLogic } from 'scenes/insights/Filters/ActionFilter/entityFilterLogic'
+import { entityFilterLogic } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 import React, { useEffect, useRef } from 'react'
 import { InsightType } from '~/types'
 import { Button, Input, Modal } from 'antd'
 import { getDisplayNameFromEntityFilter } from 'scenes/insights/utils'
-import { renameModalLogic } from 'scenes/insights/Filters/ActionFilter/renameModalLogic'
+import { renameModalLogic } from 'scenes/insights/filters/ActionFilter/renameModalLogic'
 import { InputFocusOptions } from 'antd/lib/input/Input'
 
 interface RenameModalProps {

@@ -5,13 +5,13 @@ import { ActionsPie, ActionsLineGraph, ActionsHorizontalBar } from './viz'
 import { SaveCohortModal } from './SaveCohortModal'
 import { trendsLogic } from './trendsLogic'
 import { ChartDisplayType, InsightType, ItemMode } from '~/types'
-import { InsightsTable } from 'scenes/insights/Views/InsightsTable'
+import { InsightsTable } from 'scenes/insights/views/InsightsTable'
 import { Button } from 'antd'
 import { personsModalLogic } from './personsModalLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
-import { WorldMap } from 'scenes/insights/Views/WorldMap'
+import { WorldMap } from 'scenes/insights/views/WorldMap'
 
 interface Props {
     view: InsightType

@@ -1,4 +1,4 @@
-import { onFilterChange } from 'scenes/insights/Filters/BreakdownFilter/taxonomicBreakdownFilterUtils'
+import { onFilterChange } from 'scenes/insights/filters/BreakdownFilter/taxonomicBreakdownFilterUtils'
 import { TaxonomicFilterGroup, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
 const taxonomicGroupFor = (

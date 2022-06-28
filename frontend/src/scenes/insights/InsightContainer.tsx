@@ -9,7 +9,7 @@ import { Paths } from 'scenes/paths/Paths'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { BindLogic, useValues } from 'kea'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
-import { InsightsTable } from 'scenes/insights/Views/InsightsTable'
+import { InsightsTable } from 'scenes/insights/views/InsightsTable'
 import React from 'react'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import {
@@ -28,11 +28,11 @@ import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { Tooltip } from 'lib/components/Tooltip'
 import { LemonButton } from 'lib/components/LemonButton'
 import { IconExport } from 'lib/components/icons'
-import { FunnelStepsTable } from './Views/Funnels/FunnelStepsTable'
+import { FunnelStepsTable } from './views/Funnels/FunnelStepsTable'
 import { Animation } from 'lib/components/Animation/Animation'
 import { AnimationType } from 'lib/animations/animations'
-import { FunnelCorrelation } from './Views/Funnels/FunnelCorrelation'
-import { FunnelInsight } from './Views/Funnels/FunnelInsight'
+import { FunnelCorrelation } from './views/Funnels/FunnelCorrelation'
+import { FunnelInsight } from './views/Funnels/FunnelInsight'
 
 const VIEW_MAP = {
     [`${InsightType.TRENDS}`]: <TrendInsight view={InsightType.TRENDS} />,

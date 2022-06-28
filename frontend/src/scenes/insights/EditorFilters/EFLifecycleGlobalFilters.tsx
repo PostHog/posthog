@@ -1,5 +1,5 @@
 import React from 'react'
-import { TestAccountFilter } from 'scenes/insights/Filters/TestAccountFilter'
+import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
 import { useActions } from 'kea'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { EditorFilterProps } from '~/types'

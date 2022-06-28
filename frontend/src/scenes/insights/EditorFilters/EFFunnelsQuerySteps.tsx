@@ -1,16 +1,16 @@
 import React from 'react'
 import { useValues, useActions, useMountedLogic } from 'kea'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
-import { ActionFilter } from '../Filters/ActionFilter/ActionFilter'
+import { ActionFilter } from '../filters/ActionFilter/ActionFilter'
 import { EditorFilterProps } from '~/types'
 import { groupsModel } from '~/models/groupsModel'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { ToggleButtonChartFilter } from '../Views/Funnels/ToggleButtonChartFilter'
-import { funnelCommandLogic } from '../Views/Funnels/funnelCommandLogic'
-import { MathAvailability } from 'scenes/insights/Filters/ActionFilter/ActionFilterRow/ActionFilterRow'
+import { ToggleButtonChartFilter } from '../views/Funnels/ToggleButtonChartFilter'
+import { funnelCommandLogic } from '../views/Funnels/funnelCommandLogic'
+import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { EditorFilterItemTitle } from './EditorFilterItemTitle'
-import { AggregationSelect } from '../Filters/AggregationSelect'
-import { FunnelConversionWindowFilter } from '../Views/Funnels/FunnelConversionWindowFilter'
+import { AggregationSelect } from '../filters/AggregationSelect'
+import { FunnelConversionWindowFilter } from '../views/Funnels/FunnelConversionWindowFilter'
 
 const FUNNEL_STEP_COUNT_LIMIT = 20
 

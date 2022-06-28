@@ -12,7 +12,7 @@ import { countryCodeToFlag, countryCodeToName } from './countryCodes'
 import { personsModalLogic, PersonsModalParams } from 'scenes/trends/personsModalLogic'
 import { countryVectors } from './countryVectors'
 import { groupsModel } from '~/models/groupsModel'
-import { toLocalFilters } from '../../Filters/ActionFilter/entityFilterLogic'
+import { toLocalFilters } from '../../filters/ActionFilter/entityFilterLogic'
 
 /** The saturation of a country is proportional to its value BUT the saturation has a floor to improve visibility. */
 const SATURATION_FLOOR = 0.2

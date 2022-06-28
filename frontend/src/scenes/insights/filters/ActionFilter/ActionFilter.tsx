@@ -12,7 +12,7 @@ import {
 } from '~/types'
 import { SortableActionFilterContainer, SortableActionFilterRow } from './ActionFilterRow/SortableActionFilterRow'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { RenameModal } from 'scenes/insights/Filters/ActionFilter/RenameModal'
+import { RenameModal } from 'scenes/insights/filters/ActionFilter/RenameModal'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { teamLogic } from '../../../teamLogic'
 import clsx from 'clsx'
