@@ -120,14 +120,15 @@ def _export_to_png(exported_asset: ExportedAsset) -> None:
 
 
 @app.task()
-def export_task(exported_asset_id: int) -> None:
+def export_insight(exported_asset_id: int) -> None:
     exported_asset = ExportedAsset.objects.select_related("insight", "dashboard").get(pk=exported_asset_id)
 
     if exported_asset.insight:
-        # NOTE: Dashboards are regularly updated but insights are not so we need to trigger a manual update to ensure the results are good
+        # NOTE: Dashboards are regularly updated but insights are not
+        # so, we need to trigger a manual update to ensure the results are good
         update_insight_cache(exported_asset.insight, dashboard=exported_asset.dashboard)
 
     if exported_asset.export_format == "image/png":
         return _export_to_png(exported_asset)
     else:
-        raise NotImplementedError(f"Export to format {exported_asset.export_format} is not supported")
+        raise NotImplementedError(f"Export to format {exported_asset.export_format} is not supported for insights")

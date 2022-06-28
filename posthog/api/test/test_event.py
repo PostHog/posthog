@@ -1,4 +1,5 @@
 import json
+import re
 from datetime import datetime
 from unittest.mock import patch
 from urllib.parse import unquote, urlencode
@@ -442,52 +443,6 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
             response = self.client.get(f"/api/projects/{self.team.id}/events/").json()
         self.assertEqual(len(response["results"]), 1)
 
-    @patch("posthog.api.event.EventViewSet.CSV_EXPORT_MAXIMUM_LIMIT", 10)
-    def test_events_csv_export_with_param_limit(self):
-        with freeze_time("2012-01-15T04:01:34.000Z"):
-            for _ in range(12):
-                _create_event(team=self.team, event="5th action", distinct_id="2", properties={"$os": "Windows 95"})
-            response = self.client.get(f"/api/projects/{self.team.id}/events.csv?limit=5")
-        self.assertEqual(
-            len(response.content.splitlines()), 6, "CSV export should return up to limit=5 events (+ headers row)",
-        )
-
-    @patch("posthog.api.event.EventViewSet.CSV_EXPORT_DEFAULT_LIMIT", 10)
-    def test_events_csv_export_default_limit(self):
-        with freeze_time("2012-01-15T04:01:34.000Z"):
-            for _ in range(12):
-                _create_event(team=self.team, event="5th action", distinct_id="2", properties={"$os": "Windows 95"})
-            response = self.client.get(f"/api/projects/{self.team.id}/events.csv")
-        self.assertEqual(
-            len(response.content.splitlines()),
-            11,
-            "CSV export should return up to CSV_EXPORT_MAXIMUM_LIMIT events (+ headers row)",
-        )
-
-    @patch("posthog.api.event.EventViewSet.CSV_EXPORT_MAXIMUM_LIMIT", 10)
-    def test_events_csv_export_maximum_limit(self):
-        with freeze_time("2012-01-15T04:01:34.000Z"):
-            for _ in range(12):
-                _create_event(team=self.team, event="5th action", distinct_id="2", properties={"$os": "Windows 95"})
-            response = self.client.get(f"/api/projects/{self.team.id}/events.csv")
-        self.assertEqual(
-            len(response.content.splitlines()),
-            11,
-            "CSV export should return up to CSV_EXPORT_MAXIMUM_LIMIT events (+ headers row)",
-        )
-
-    @patch("posthog.api.event.EventViewSet.CSV_EXPORT_MAXIMUM_LIMIT", 10)
-    def test_events_csv_export_over_maximum_limit(self):
-        with freeze_time("2012-01-15T04:01:34.000Z"):
-            for _ in range(12):
-                _create_event(team=self.team, event="5th action", distinct_id="2", properties={"$os": "Windows 95"})
-            response = self.client.get(f"/api/projects/{self.team.id}/events.csv?limit=100")
-        self.assertEqual(
-            len(response.content.splitlines()),
-            11,
-            "CSV export should return up to CSV_EXPORT_MAXIMUM_LIMIT events (+ headers row)",
-        )
-
     def test_get_event_by_id(self):
         _create_person(
             properties={"email": "someone@posthog.com"}, team=self.team, distinct_ids=["1"], is_identified=True,
@@ -574,7 +529,7 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         response_invalid_token = self.client.get(f"/api/projects/{self.team.id}/events?token=invalid")
         self.assertEqual(response_invalid_token.status_code, 401)
 
-    @patch("posthog.api.event.query_with_columns")
+    @patch("posthog.models.event.query_event_list.query_with_columns")
     def test_optimize_query(self, patch_query_with_columns):
         #  For ClickHouse we normally only query the last day,
         # but if a user doesn't have many events we still want to return events that are older
@@ -732,3 +687,29 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(len(response["results"]), 1)
         self.assertEqual([r["event"] for r in response["results"]], ["should_be_included"])
+
+    @patch("posthog.api.event.csv_exporter")
+    @freeze_time("2021-08-25T22:09:14.252Z")
+    def test_can_create_new_valid_export_csv(self, mock_exporter_task):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/events/csv",
+            {
+                "properties": [  # anything the list events end-point will accept
+                    {
+                        "key": "prop_that_is_a_unix_timestamp",
+                        "value": "2012-01-07 18:30:00",
+                        "operator": "is_date_after",
+                        "type": "event",
+                    }
+                ],
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        location_regex = rf"^http://testserver/api/projects/{self.team.id}/exports/(\d+)$"
+        self.assertRegex(response["location"], location_regex)
+
+        location_matches = re.match(location_regex, response["location"])
+        if not location_matches:
+            self.fail(f"must be able to find an export id in {response['location']}")
+        export_id = int(location_matches.group(1))
+        mock_exporter_task.export_csv.delay.assert_called_once_with(export_id)

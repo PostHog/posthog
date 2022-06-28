@@ -33,7 +33,7 @@ class TestInstanceStatus(APIBaseTest):
             object_storage_metrics, [{"key": "object_storage", "metric": "Object Storage enabled", "value": False}]
         )
 
-    @patch("posthog.storage.object_storage.s3_client")
+    @patch("posthog.storage.object_storage._client")
     def test_object_storage_when_enabled_but_unhealthy(self, patched_s3_client):
         patched_s3_client.head_bucket.return_value = False
 
@@ -50,7 +50,7 @@ class TestInstanceStatus(APIBaseTest):
                 ],
             )
 
-    @patch("posthog.storage.object_storage.s3_client")
+    @patch("posthog.storage.object_storage._client")
     def test_object_storage_when_enabled_and_healthy(self, patched_s3_client):
         patched_s3_client.head_bucket.return_value = True
 
