@@ -117,6 +117,7 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                     visible={insightMode === ItemMode.Embed}
                     closeModal={() => push(urls.insightView(insight.short_id as InsightShortId))}
                     insightShortId={insightId}
+                    insight={insight}
                 />
             )}
             <PageHeader
