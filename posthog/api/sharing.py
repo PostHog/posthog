@@ -1,5 +1,5 @@
 import json
-from typing import Any, Dict, cast
+from typing import Any, Dict, Optional, cast
 
 from django.core.serializers.json import DjangoJSONEncoder
 from django.views.decorators.clickjacking import xframe_options_exempt
@@ -81,8 +81,7 @@ class SharingConfigurationViewSet(
             insight_id=context.get("insight_id"), dashboard_id=context.get("dashboard_id"), team_id=self.team_id
         )
         instance = cast(SharingConfiguration, instance)
-
-        dashboard: Dashboard = context.get("dashboard")
+        dashboard = cast(Optional[Dashboard], context.get("dashboard"))
         if dashboard:
             # Ensure the legacy dashboard fields are in sync with the sharing configuration
             if dashboard.share_token and dashboard.share_token != instance.access_token:

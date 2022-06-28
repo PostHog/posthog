@@ -1,4 +1,3 @@
-import secrets
 from freezegun import freeze_time
 from rest_framework import status
 
@@ -53,13 +52,13 @@ class TestSharing(APIBaseTest):
         )
         data = response.json()
         assert response.status_code == status.HTTP_200_OK
-        assert data["enabled"] == True
+        assert data["enabled"]
 
     def test_should_update_to_match_existing_dashboard_sharing_token(self):
         response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{self.dashboard.id}/sharing")
         initial_token = response.json()["access_token"]
         assert initial_token
-        assert response.json()["enabled"] == False
+        assert response.json()["enabled"]
 
         self.dashboard.share_token = "my_test_token"
         self.dashboard.is_shared = True
@@ -68,7 +67,7 @@ class TestSharing(APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{self.dashboard.id}/sharing")
         data = response.json()
         assert data["access_token"] == "my_test_token"
-        assert data["enabled"] == True
+        assert data["enabled"]
 
         self.dashboard.share_token = None
         self.dashboard.is_shared = False
@@ -77,4 +76,4 @@ class TestSharing(APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{self.dashboard.id}/sharing")
         data = response.json()
         assert data["access_token"] == "my_test_token"
-        assert data["enabled"] == True
+        assert data["enabled"]
