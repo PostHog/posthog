@@ -418,7 +418,7 @@ def cors_response(request, response):
     allow_headers = request.META.get("HTTP_ACCESS_CONTROL_REQUEST_HEADERS", "").split(",")
     allow_headers = [header for header in allow_headers if header in ["traceparent", "request-id"]]
 
-    response["Access-Control-Allow-Headers"] = "X-Requested-With" + (
+    response["Access-Control-Allow-Headers"] = "X-Requested-With, Content-Type" + (
         "," + ",".join(allow_headers) if len(allow_headers) > 0 else ""
     )
     return response
