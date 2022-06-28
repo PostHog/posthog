@@ -10,9 +10,10 @@ import { copyToClipboard } from 'lib/utils'
 import { IconCopy, IconLock } from '../icons'
 import { CodeSnippet, Language } from 'scenes/ingestion/frameworks/CodeSnippet'
 import { DashboardCollaboration } from 'scenes/dashboard/DashboardCollaborators'
-import { VerticalForm } from 'lib/forms/VerticalForm'
 import { Field } from 'lib/forms/Field'
 import { Tooltip } from 'lib/components/Tooltip'
+import './SharingModal.scss'
+import { Form } from 'kea-forms'
 
 export interface SharingModalProps extends SharingBaseProps {
     dashboardId?: number
@@ -91,12 +92,7 @@ export function Sharing({ dashboardId, insightShortId, insight }: SharingModalPr
                                 <CodeSnippet wrap={true} language={Language.HTML}>
                                     {embedCode}
                                 </CodeSnippet>
-                                <VerticalForm
-                                    logic={sharingLogic}
-                                    props={logicProps}
-                                    formKey="embedConfig"
-                                    className="SharingModal-form"
-                                >
+                                <Form logic={sharingLogic} props={logicProps} formKey="embedConfig" className="flex">
                                     <Field name="whitelabel" noStyle>
                                         {({ value, onChange }) => (
                                             <LemonCheckbox
@@ -129,8 +125,13 @@ export function Sharing({ dashboardId, insightShortId, insight }: SharingModalPr
                                             )}
                                         </Field>
                                     )}
-                                </VerticalForm>
-                                {insight && <iframe style={{ display: 'block' }} {...iframeProperties} />}
+                                </Form>
+                                {insight && (
+                                    <div className="SharingPreview">
+                                        <h5 className="mb-05">PREVIEW</h5>
+                                        <iframe style={{ display: 'block' }} {...iframeProperties} />
+                                    </div>
+                                )}
                             </>
                         ) : null}
                     </div>
