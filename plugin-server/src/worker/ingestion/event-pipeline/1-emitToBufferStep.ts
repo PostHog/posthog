@@ -1,5 +1,4 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
-import { DateTime } from 'luxon'
 
 import { Hub, IngestionPersonData, TeamId } from '../../../types'
 import { EventPipelineRunner, StepResult } from './runner'
@@ -40,9 +39,7 @@ export function shouldSendEventToBuffer(
 ): boolean {
     const isAnonymousEvent =
         event.properties && event.properties['$device_id'] && event.distinct_id === event.properties['$device_id']
-    const isRecentPerson =
-        !person || DateTime.now().diff(person.created_at).as('seconds') < hub.BUFFER_CONVERSION_SECONDS
-    const sendToBuffer = !isAnonymousEvent && event.event !== '$identify' && isRecentPerson
+    const sendToBuffer = !person && !isAnonymousEvent && event.event !== '$identify'
 
     if (sendToBuffer) {
         hub.statsd?.increment('conversion_events_buffer_size', { teamId: event.team_id.toString() })
