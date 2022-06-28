@@ -93,13 +93,15 @@ export function DashboardCollaboration({ dashboardId }: { dashboardId: Dashboard
                                     </div>
                                 </>
                             )}
-                            {allCollaborators.map((collaborator) => (
-                                <CollaboratorRow
-                                    key={collaborator.user.uuid}
-                                    collaborator={collaborator}
-                                    deleteCollaborator={canEditDashboard ? deleteExplicitCollaborator : undefined}
-                                />
-                            ))}
+                            <div style={{ maxHeight: 300, overflowY: 'auto' }}>
+                                {allCollaborators.map((collaborator) => (
+                                    <CollaboratorRow
+                                        key={collaborator.user.uuid}
+                                        collaborator={collaborator}
+                                        deleteCollaborator={canEditDashboard ? deleteExplicitCollaborator : undefined}
+                                    />
+                                ))}
+                            </div>
                         </div>
                     )}
                 </PayGateMini>

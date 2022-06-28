@@ -46,7 +46,7 @@ export function Sharing({ dashboardId, insightShortId, insight }: SharingModalPr
 
     useEffect(() => {
         setIframeLoaded(false)
-    }, [iframeProperties.src])
+    }, [iframeProperties.src, sharingConfiguration?.enabled])
 
     return (
         <div>
