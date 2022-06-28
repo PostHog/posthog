@@ -223,7 +223,7 @@ interface SentenceListProps {
 export function SentenceList({ listParts, prefix = null, suffix = null }: SentenceListProps): JSX.Element {
     return (
         <div className="sentence-list">
-            {prefix && <div className="sentence-part">{prefix}&#32;</div>}
+            {prefix && <div className="sentence-part">{prefix} </div>}
             <>
                 {listParts
                     .filter((part) => !!part)
@@ -234,12 +234,12 @@ export function SentenceList({ listParts, prefix = null, suffix = null }: Senten
                         return [
                             isntFirst && (
                                 <div className="sentence-part" key={`${index}-a`}>
-                                    ,&#32;
+                                    ,{' '}
                                 </div>
                             ),
                             isLast && atLeastThree && (
                                 <div className="sentence-part" key={`${index}-b`}>
-                                    and&#32;
+                                    and{' '}
                                 </div>
                             ),
                             <div className="sentence-part" key={`${index}-c`}>
@@ -248,7 +248,7 @@ export function SentenceList({ listParts, prefix = null, suffix = null }: Senten
                         ]
                     })}
             </>
-            {suffix && <div className="sentence-part">&#32;{suffix}</div>}
+            {suffix && <div className="sentence-part"> {suffix}</div>}
         </div>
     )
 }
