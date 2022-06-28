@@ -1,5 +1,5 @@
 import json
-from typing import Any, Dict
+from typing import Any, Dict, Optional, cast
 
 from django.core.serializers.json import DjangoJSONEncoder
 from django.views.decorators.clickjacking import xframe_options_exempt
@@ -58,9 +58,7 @@ class SharingConfigurationViewSet(
 
     def list(self, request: Request, *args: Any, **kwargs: Any) -> response.Response:
         context = self.get_serializer_context()
-        instance, created = SharingConfiguration.objects.get_or_create(
-            insight_id=context.get("insight_id"), dashboard_id=context.get("dashboard_id"), team_id=self.team_id
-        )
+        instance = self._get_sharing_configuration()
 
         serializer = self.get_serializer(instance, context)
         serializer.is_valid(raise_exception=True)
@@ -68,17 +66,30 @@ class SharingConfigurationViewSet(
         return response.Response(serializer.data)
 
     def patch(self, request: Request, *args: Any, **kwargs: Any) -> response.Response:
-        context = self.get_serializer_context()
-
-        instance, created = SharingConfiguration.objects.get_or_create(
-            insight_id=context.get("insight_id"), dashboard_id=context.get("dashboard_id"), team_id=self.team_id
-        )
+        instance = self._get_sharing_configuration()
 
         serializer = self.get_serializer(instance, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         serializer.save()
 
         return response.Response(serializer.data)
+
+    def _get_sharing_configuration(self):
+        context = self.get_serializer_context()
+
+        instance, created = SharingConfiguration.objects.get_or_create(
+            insight_id=context.get("insight_id"), dashboard_id=context.get("dashboard_id"), team_id=self.team_id
+        )
+        instance = cast(SharingConfiguration, instance)
+        dashboard = cast(Optional[Dashboard], context.get("dashboard"))
+        if dashboard:
+            # Ensure the legacy dashboard fields are in sync with the sharing configuration
+            if dashboard.share_token and dashboard.share_token != instance.access_token:
+                instance.enabled = dashboard.is_shared
+                instance.access_token = dashboard.share_token
+                instance.save()
+
+        return instance
 
 
 class SharingViewerPageViewSet(mixins.RetrieveModelMixin, StructuredViewSetMixin, viewsets.GenericViewSet):
