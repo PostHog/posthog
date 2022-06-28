@@ -688,7 +688,7 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(response["results"]), 1)
         self.assertEqual([r["event"] for r in response["results"]], ["should_be_included"])
 
-    @patch("posthog.api.event.exporter")
+    @patch("posthog.api.event.csv_exporter")
     @freeze_time("2021-08-25T22:09:14.252Z")
     def test_can_create_new_valid_export_csv(self, mock_exporter_task):
         response = self.client.post(
@@ -712,4 +712,4 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         if not location_matches:
             self.fail(f"must be able to find an export id in {response['location']}")
         export_id = int(location_matches.group(1))
-        mock_exporter_task.export_task.delay.assert_called_once_with(export_id)
+        mock_exporter_task.export_csv.delay.assert_called_once_with(export_id)

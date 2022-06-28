@@ -3,7 +3,6 @@ import urllib
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Union
 
-import celery
 from django.db.models.query import Prefetch
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter
@@ -29,7 +28,7 @@ from posthog.models.team import Team
 from posthog.models.utils import UUIDT
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.queries.property_values import get_property_values_for_key
-from posthog.tasks import exporter
+from posthog.tasks.exports import csv_exporter
 from posthog.utils import convert_property_value, flatten
 
 
@@ -119,16 +118,7 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
                 },
             )
 
-            task = exporter.export_task.delay(export_request.id)
-            try:
-                task.delay()
-            except celery.exceptions.TimeoutError:
-                # If the rendering times out - fine, the frontend will poll instead for the response
-                pass
-            except NotImplementedError:
-                raise serializers.ValidationError(
-                    {"export_format": ["This type of export is not supported for this resource."]}
-                )
+            csv_exporter.export_csv.delay(export_request.id)
 
             data = ExportedAssetSerializer(export_request, many=False).data
             create_response = response.Response(

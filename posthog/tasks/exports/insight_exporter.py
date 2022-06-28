@@ -1,11 +1,7 @@
-import datetime
-import gzip
 import logging
 import os
-import tempfile
 import time
 import uuid
-from typing import IO
 
 import structlog
 from django.conf import settings
@@ -19,11 +15,7 @@ from webdriver_manager.utils import ChromeType
 
 from posthog.celery import app
 from posthog.internal_metrics import incr, timing
-from posthog.models import Filter
-from posthog.models.event.query_event_list import query_events_list
 from posthog.models.exported_asset import ExportedAsset
-from posthog.models.utils import UUIDT
-from posthog.storage import object_storage
 from posthog.tasks.update_cache import update_insight_cache
 from posthog.utils import absolute_uri
 
@@ -128,72 +120,16 @@ def _export_to_png(exported_asset: ExportedAsset) -> None:
             driver.close()
 
 
-def encode(obj: object) -> str:
-    if isinstance(obj, uuid.UUID):
-        return str(obj)
-
-    if isinstance(obj, datetime.datetime):
-        return obj.isoformat()
-
-    return str(obj)
-
-
-def stage_results_to_object_storage(
-    day_filter: Filter, exported_asset: ExportedAsset, temporary_file: IO, write_headers: bool
-) -> None:
-    # load results
-    result = query_events_list(
-        filter=day_filter,
-        team=exported_asset.team,
-        request_get_query_dict=exported_asset.export_context.get("request_get_query_dict"),
-        order_by=exported_asset.export_context.get("order_by"),
-        action_id=exported_asset.export_context.get("action_id"),
-        limit=100_000_000,  # what limit do we want?! None ¯\_(ツ)_/¯
-    )
-    if write_headers:
-        temporary_file.write(gzip.compress(f"{','.join(result[0].keys())}\n".encode("utf-8")))
-
-    contents = []
-    for values in [row.values() for row in result]:
-        line = [encode(v) for v in values]
-        contents.append(",".join(line))
-
-    temporary_file.write(gzip.compress("\n".join(contents).encode("utf-8")))
-
-
-def concat_results_in_object_storage(temporary_file: IO, exported_asset: ExportedAsset) -> str:
-    object_path = f"/exports/csvs/team-{exported_asset.team.id}/task-{exported_asset.id}/{UUIDT()}"
-    temporary_file.seek(0)
-    object_storage.write(object_path, temporary_file.read())
-    return object_path
-
-
-def _export_to_csv(exported_asset: ExportedAsset) -> None:
-    if exported_asset.export_context.get("file_export_type", None) == "list_events":
-        filter = Filter(data=exported_asset.export_context.get("filter"))
-
-        write_headers = True
-        with tempfile.TemporaryFile() as temporary_file:
-            for day_filter in filter.split_by_day():
-                stage_results_to_object_storage(day_filter, exported_asset, temporary_file, write_headers)
-                write_headers = False
-
-            object_path = concat_results_in_object_storage(temporary_file, exported_asset)
-            exported_asset.content_location = object_path
-            exported_asset.save(update_fields=["content_location", "export_context"])
-
-
 @app.task()
-def export_task(exported_asset_id: int) -> None:
+def export_insight(exported_asset_id: int) -> None:
     exported_asset = ExportedAsset.objects.select_related("insight", "dashboard").get(pk=exported_asset_id)
 
     if exported_asset.insight:
-        # NOTE: Dashboards are regularly updated but insights are not so we need to trigger a manual update to ensure the results are good
+        # NOTE: Dashboards are regularly updated but insights are not
+        # so, we need to trigger a manual update to ensure the results are good
         update_insight_cache(exported_asset.insight, dashboard=None)
 
     if exported_asset.export_format == "image/png":
         return _export_to_png(exported_asset)
-    elif exported_asset.export_format == "text/csv":
-        return _export_to_csv(exported_asset)
     else:
-        raise NotImplementedError(f"Export to format {exported_asset.export_format} is not supported")
+        raise NotImplementedError(f"Export to format {exported_asset.export_format} is not supported for insights")

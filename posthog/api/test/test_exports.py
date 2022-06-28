@@ -11,7 +11,7 @@ from posthog.models.exported_asset import ExportedAsset
 from posthog.models.filters.filter import Filter
 from posthog.models.insight import Insight
 from posthog.models.team import Team
-from posthog.tasks.exporter import export_task
+from posthog.tasks.exports.csv_exporter import export_csv
 from posthog.test.base import APIBaseTest, _create_event, flush_persons_and_events
 
 
@@ -37,7 +37,7 @@ class TestExports(APIBaseTest):
             team=cls.team, dashboard_id=cls.dashboard.id, export_format="image/png"
         )
 
-    @patch("posthog.api.exports.exporter")
+    @patch("posthog.api.exports.insight_exporter")
     def test_can_create_new_valid_export_dashboard(self, mock_exporter_task) -> None:
         response = self.client.post(
             f"/api/projects/{self.team.id}/exports", {"export_format": "image/png", "dashboard": self.dashboard.id}
@@ -56,9 +56,9 @@ class TestExports(APIBaseTest):
             },
         )
 
-        mock_exporter_task.export_task.delay.assert_called_once_with(data["id"])
+        mock_exporter_task.export_insight.delay.assert_called_once_with(data["id"])
 
-    @patch("posthog.api.exports.exporter")
+    @patch("posthog.api.exports.insight_exporter")
     @freeze_time("2021-08-25T22:09:14.252Z")
     def test_can_create_new_valid_export_insight(self, mock_exporter_task) -> None:
         response = self.client.post(
@@ -105,7 +105,7 @@ class TestExports(APIBaseTest):
             ],
         )
 
-        mock_exporter_task.export_task.delay.assert_called_once_with(data["id"])
+        mock_exporter_task.export_insight.delay.assert_called_once_with(data["id"])
 
     def test_errors_if_missing_related_instance(self) -> None:
         response = self.client.post(f"/api/projects/{self.team.id}/exports", {"export_format": "image/png"})
@@ -133,17 +133,19 @@ class TestExports(APIBaseTest):
             },
         )
 
-    @patch("posthog.api.exports.exporter")
+    @patch("posthog.api.exports.insight_exporter")
     def test_will_respond_even_if_task_timesout(self, mock_exporter_task) -> None:
-        mock_exporter_task.export_task.delay.return_value.get.side_effect = celery.exceptions.TimeoutError("timed out")
+        mock_exporter_task.export_insight.delay.return_value.get.side_effect = celery.exceptions.TimeoutError(
+            "timed out"
+        )
         response = self.client.post(
             f"/api/projects/{self.team.id}/exports", {"export_format": "application/pdf", "insight": self.insight.id}
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
-    @patch("posthog.api.exports.exporter")
+    @patch("posthog.api.exports.insight_exporter")
     def test_will_error_if_export_unsupported(self, mock_exporter_task) -> None:
-        mock_exporter_task.export_task.delay.return_value.get.side_effect = NotImplementedError("not implemented")
+        mock_exporter_task.export_insight.delay.return_value.get.side_effect = NotImplementedError("not implemented")
         response = self.client.post(
             f"/api/projects/{self.team.id}/exports", {"export_format": "application/pdf", "insight": self.insight.id}
         )
@@ -248,7 +250,7 @@ class TestExports(APIBaseTest):
                 "action_id": None,
             },
         )
-        export_task(instance.id)
+        export_csv(instance.id)
 
         response: Optional[HttpResponse] = None
         attempt_count = 0

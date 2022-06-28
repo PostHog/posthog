@@ -28,7 +28,7 @@ from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMembe
 from posthog.settings import DEBUG
 from posthog.storage import object_storage
 from posthog.storage.object_storage import ObjectStorageError
-from posthog.tasks import exporter
+from posthog.tasks.exports import insight_exporter
 from posthog.utils import render_template
 
 logger = structlog.get_logger(__name__)
@@ -78,7 +78,7 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
 
         instance: ExportedAsset = super().create(validated_data)
 
-        task = exporter.export_task.delay(instance.id)
+        task = insight_exporter.export_insight.delay(instance.id)
         try:
             task.get(timeout=10)
             instance.refresh_from_db()
