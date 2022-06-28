@@ -1,0 +1,88 @@
+@import '../../../styles/breakpoints';
+@import '../../../styles/mixins';
+
+.EditorFiltersWrapper {
+    flex-shrink: 0;
+
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 1rem;
+    margin-bottom: 1rem;
+
+    .EditorFilters {
+        > * + * {
+            margin-top: 1rem;
+        }
+        @media screen and (min-width: $md) {
+            display: flex;
+            gap: 2rem;
+            .EditorFilterGroup {
+                flex: 1;
+            }
+
+            > * + * {
+                margin-top: 0;
+            }
+        }
+    }
+
+    &.EditorFiltersWrapper--singlecolumn {
+        margin-right: 1rem;
+        .EditorFilters {
+            flex-direction: column;
+            gap: 0rem;
+
+            > * + * {
+                margin-top: 1rem;
+            }
+        }
+    }
+
+    &.EditorFiltersWrapper--editorpanels,
+    &.EditorFiltersWrapper--singlecolumn {
+        border: none;
+        padding: 0px;
+
+        @media screen and (min-width: $xl) {
+            --editor-panel-width: max(25vw, 28rem);
+
+            .EditorFilters {
+                width: var(--editor-panel-width);
+                display: block;
+                padding-right: 1rem;
+            }
+            &.anim--enter {
+                width: 0px;
+
+                .EditorFilters {
+                    transform: translateX(calc(-1 * var(--editor-panel-width)));
+                }
+            }
+
+            &.anim--enter-active {
+                width: var(--editor-panel-width);
+                transition: width 250ms;
+                .EditorFilters {
+                    transform: translateX(0px);
+                    transition: transform 250ms;
+                }
+            }
+
+            &.anim--exit {
+                width: var(--editor-panel-width);
+                .EditorFilters {
+                    transform: translateX(0px);
+                }
+            }
+
+            &.anim--exit-active {
+                width: 0px;
+                transition: width 250ms;
+                .EditorFilters {
+                    transform: translateX(calc(-1 * var(--editor-panel-width)));
+                    transition: transform 250ms;
+                }
+            }
+        }
+    }
+}
