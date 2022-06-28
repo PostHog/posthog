@@ -32,7 +32,9 @@ def generate_assets(
 
     # Create all the assets we need
     assets = [
-        ExportedAsset(team=subscription.team, export_format="image/png", insight=insight)
+        ExportedAsset(
+            team=subscription.team, export_format="image/png", insight=insight, dashboard=subscription.dashboard
+        )
         for insight in insights[:max_asset_count]
     ]
     ExportedAsset.objects.bulk_create(assets)
