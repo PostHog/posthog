@@ -3,9 +3,9 @@ import { Duration, SmallTimeUnit } from '~/types'
 
 import type { durationPickerLogicType } from './durationPickerLogicType'
 
-export interface DurationPickerProps {
+export interface DurationPickerLogicProps {
     onChange: (value_seconds: number) => void
-    key: string | undefined
+    pageKey: string | undefined
     initialValue?: number
 }
 
@@ -29,8 +29,8 @@ export const convertSecondsToDuration = (seconds: number): Duration => {
 
 export const durationPickerLogic = kea<durationPickerLogicType>({
     path: ['lib', 'components', 'DurationPicker', 'durationPickerLogic'],
-    key: (props) => props.key || 'global',
-    props: {} as DurationPickerProps,
+    key: (props) => props.pageKey || 'global',
+    props: {} as DurationPickerLogicProps,
     actions: {
         setTimeValue: (timeValue: number | null) => ({ timeValue }),
         setUnit: (unit: SmallTimeUnit) => ({ unit }),

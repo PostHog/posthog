@@ -1,23 +1,25 @@
 import React from 'react'
 import './DurationPicker.scss'
 import { SmallTimeUnit } from '~/types'
-import { durationPickerLogic } from './durationPickerLogic'
+import { durationPickerLogic, DurationPickerLogicProps } from './durationPickerLogic'
 import { useActions, useValues } from 'kea'
 import { Input, Select } from 'antd'
-import { capitalizeFirstLetter } from 'lib/utils'
 
-interface Props {
-    onChange: (value: number) => void
-    key: string
-    initialValue?: number
+interface DurationPickerProps extends DurationPickerLogicProps {
     autoFocus?: boolean
     style?: Partial<React.CSSProperties>
 }
 
 export const durationOptions: SmallTimeUnit[] = ['seconds', 'minutes', 'hours']
 
-export function DurationPicker({ initialValue, onChange, key, autoFocus, style }: Props): JSX.Element {
-    const durationFilterLogicInstance = durationPickerLogic({ initialValue, onChange, key })
+export function DurationPicker({
+    initialValue,
+    onChange,
+    pageKey,
+    autoFocus,
+    style,
+}: DurationPickerProps): JSX.Element {
+    const durationFilterLogicInstance = durationPickerLogic({ initialValue, onChange, pageKey })
     const { setTimeValue, setUnit } = useActions(durationFilterLogicInstance)
     const { unit, timeValue } = useValues(durationFilterLogicInstance)
     return (
@@ -44,7 +46,7 @@ export function DurationPicker({ initialValue, onChange, key, autoFocus, style }
             >
                 {durationOptions.map((value) => (
                     <Select.Option key={value} value={value}>
-                        {capitalizeFirstLetter(value)}
+                        {value}
                     </Select.Option>
                 ))}
             </Select>
