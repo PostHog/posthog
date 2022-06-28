@@ -206,6 +206,12 @@ export const authorizedUrlsLogic = kea<authorizedUrlsLogicType>([
         },
     })),
     listeners(({ sharedListeners, values, actions }) => ({
+        setEditUrlIndex: () => {
+            actions.setProposedUrlValue('url', values.urlToEdit)
+        },
+        newUrl: () => {
+            actions.setProposedUrlValue('url', NEW_URL)
+        },
         addUrl: [
             sharedListeners.saveAppUrls,
             async ({ url, launch }) => {
