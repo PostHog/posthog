@@ -40,7 +40,7 @@ const propsToApiParams = async (props: SharingLogicProps): Promise<{ dashboardId
 export const sharingLogic = kea<sharingLogicType>([
     path(['lib', 'components', 'Sharing', 'sharingLogic']),
     props({} as SharingLogicProps),
-    key(({ insightShortId, dashboardId }) => `sharing-${insightShortId}-${dashboardId}`),
+    key(({ insightShortId, dashboardId }) => `sharing-${insightShortId || ''}-${dashboardId || ''}`),
     connect([preflightLogic, userLogic]),
 
     loaders(({ props }) => ({

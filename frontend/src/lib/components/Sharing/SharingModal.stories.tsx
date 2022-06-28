@@ -1,12 +1,16 @@
-import React, { useRef, useState } from 'react'
+import React, { useState } from 'react'
 import { ComponentMeta } from '@storybook/react'
 import { Sharing, SharingModal, SharingModalProps } from './SharingModal'
-import { InsightShortId, Realm } from '~/types'
+import { InsightModel, InsightShortId, InsightType, Realm } from '~/types'
 import preflightJson from '~/mocks/fixtures/_preflight.json'
-import { uuid } from 'lib/utils'
 import { useStorybookMocks } from '~/mocks/browser'
 import { LemonButton } from '../LemonButton'
-import { createMockSubscription, mockIntegration, mockSlackChannels } from '~/test/mocks'
+
+const fakeInsight: Partial<InsightModel> = {
+    id: 123,
+    short_id: 'insight123' as InsightShortId,
+    filters: { insight: InsightType.TRENDS },
+}
 
 export default {
     title: 'Components/Sharing',
@@ -16,7 +20,6 @@ export default {
 
 const Template = (args: Partial<SharingModalProps> & { noIntegrations?: boolean }): JSX.Element => {
     const { noIntegrations = false, ...props } = args
-    const insightShortIdRef = useRef(props.insightShortId || (uuid() as InsightShortId))
     const [modalOpen, setModalOpen] = useState(false)
 
     useStorybookMocks({
@@ -27,30 +30,17 @@ const Template = (args: Partial<SharingModalProps> & { noIntegrations?: boolean 
                 email_service_available: !noIntegrations,
                 site_url: noIntegrations ? 'bad-value' : window.location.origin,
             },
-            '/api/projects/:id/Sharing': {
-                results:
-                    insightShortIdRef.current === 'empty'
-                        ? []
-                        : [
-                              createMockSubscription(),
-                              createMockSubscription({
-                                  title: 'Weekly C-level report',
-                                  target_value: 'james@posthog.com',
-                                  frequency: 'weekly',
-                                  interval: 1,
-                              }),
-                              createMockSubscription({
-                                  title: 'Daily Slack report',
-                                  target_type: 'slack',
-                                  target_value: 'C123|#general',
-                                  frequency: 'weekly',
-                                  interval: 1,
-                              }),
-                          ],
+            '/api/projects/:id/insights/:insight_id/sharing/': {
+                created_at: '2022-06-28T12:30:51.459746Z',
+                enabled: true,
+                access_token: '1AEQjQ2xNLGoiyI0UnNlLzOiBZWWMQ',
             },
-            '/api/projects/:id/Sharing/:subId': createMockSubscription(),
-            '/api/projects/:id/integrations': { results: !noIntegrations ? [mockIntegration] : [] },
-            '/api/projects/:id/integrations/:intId/channels': { channels: mockSlackChannels },
+            '/api/projects/:id/insights/': { results: [fakeInsight] },
+            '/api/projects/:id/dashboards/:dashboard_id/sharing/': {
+                created_at: '2022-06-28T12:30:51.459746Z',
+                enabled: true,
+                access_token: '1AEQjQ2xNLGoiyI0UnNlLzOiBZWWMQ',
+            },
         },
     })
 
@@ -58,12 +48,7 @@ const Template = (args: Partial<SharingModalProps> & { noIntegrations?: boolean 
         <div>
             <div className="LemonModal">
                 <div className="border-all ant-modal-body" style={{ width: 650, margin: '20px auto' }}>
-                    <Sharing
-                        {...(props as SharingModalProps)}
-                        closeModal={() => console.log('close')}
-                        insightShortId={insightShortIdRef.current}
-                        visible={true}
-                    />
+                    <Sharing {...(props as SharingModalProps)} closeModal={() => console.log('close')} visible={true} />
                 </div>
             </div>
 
@@ -76,17 +61,16 @@ const Template = (args: Partial<SharingModalProps> & { noIntegrations?: boolean 
             <SharingModal
                 {...(props as SharingModalProps)}
                 closeModal={() => setModalOpen(false)}
-                insightShortId={insightShortIdRef.current}
                 visible={modalOpen}
             />
         </div>
     )
 }
 
-export const Sharing_ = (): JSX.Element => {
-    return <Template />
+export const DashboardSharing = (): JSX.Element => {
+    return <Template dashboardId={123} />
 }
 
-export const SharingEmpty = (): JSX.Element => {
-    return <Template insightShortId={'empty' as InsightShortId} />
+export const InsightSharing = (): JSX.Element => {
+    return <Template insightShortId={fakeInsight.short_id} insight={fakeInsight} />
 }
