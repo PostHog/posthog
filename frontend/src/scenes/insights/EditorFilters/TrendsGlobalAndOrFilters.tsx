@@ -26,7 +26,7 @@ export function TrendsGlobalAndOrFilters({ filters, insightProps }: EditorFilter
                 TaxonomicFilterGroupType.Cohorts,
                 TaxonomicFilterGroupType.Elements,
             ]}
-            pageKey="trends-filters"
+            pageKey="insight-filters"
             eventNames={allEventNames}
             filters={filters}
             setTestFilters={(testFilters) => setFilters(testFilters)}

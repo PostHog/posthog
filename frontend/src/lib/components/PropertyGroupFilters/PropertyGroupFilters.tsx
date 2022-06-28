@@ -108,7 +108,7 @@ export function PropertyGroupFilters({
                                                     onChange={(properties) => {
                                                         setPropertyFilters(properties, propertyGroupIndex)
                                                     }}
-                                                    pageKey={`trends-filters-${propertyGroupIndex}`}
+                                                    pageKey={`insight-filters-${propertyGroupIndex}`}
                                                     taxonomicGroupTypes={taxonomicGroupTypes}
                                                     eventNames={eventNames}
                                                     propertyGroupType={group.type}
