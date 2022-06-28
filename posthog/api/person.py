@@ -207,21 +207,18 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     def destroy(self, request: request.Request, pk=None, **kwargs):  # type: ignore
         try:
             person = Person.objects.get(team=self.team, pk=pk)
-            person_id = person.id
 
-            delete_person(
-                person.uuid, person.properties, person.is_identified, delete_events=True, team_id=self.team.pk
-            )
+            delete_person(person=person)
             person.delete()
 
             log_activity(
                 organization_id=self.organization.id,
                 team_id=self.team_id,
                 user=request.user,  # type: ignore
-                item_id=person_id,
+                item_id=person.id,
                 scope="Person",
                 activity="deleted",
-                detail=Detail(name=str(person_id)),
+                detail=Detail(name=str(person.id)),
             )
 
             return response.Response(status=204)

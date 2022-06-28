@@ -2,7 +2,6 @@ import datetime
 import json
 from contextlib import ExitStack
 from typing import Dict, List, Optional, Union
-from uuid import UUID
 
 from django.db.models.query import QuerySet
 from django.db.models.signals import post_delete, post_save
@@ -13,6 +12,7 @@ from rest_framework import serializers
 from posthog.client import sync_execute
 from posthog.kafka_client.client import ClickhouseProducer
 from posthog.kafka_client.topics import KAFKA_PERSON, KAFKA_PERSON_DISTINCT_ID, KAFKA_PERSON_UNIQUE_ID
+from posthog.models.event.sql import EVENTS_DATA_TABLE
 from posthog.models.person import Person, PersonDistinctId
 from posthog.models.person.sql import (
     BULK_INSERT_PERSON_DISTINCT_ID2,
@@ -28,6 +28,7 @@ from posthog.models.team import Team
 from posthog.models.utils import UUIDT
 from posthog.queries.person_distinct_id_query import fetch_person_distinct_id2_ready
 from posthog.settings import TEST
+from posthog.settings.data_stores import CLICKHOUSE_CLUSTER
 
 if TEST:
     # :KLUDGE: Hooks are kept around for tests. All other code goes through plugin-server or the other methods explicitly
@@ -48,7 +49,7 @@ if TEST:
 
     @receiver(post_delete, sender=Person)
     def person_deleted(sender, instance: Person, **kwargs):
-        delete_person(instance.uuid, instance.properties, instance.is_identified, team_id=instance.team_id)
+        delete_person(person=instance)
 
     @receiver(post_delete, sender=PersonDistinctId)
     def person_distinct_id_deleted(sender, instance: PersonDistinctId, **kwargs):
@@ -148,25 +149,36 @@ def get_persons_by_uuids(team: Team, uuids: List[str]) -> QuerySet:
     return Person.objects.filter(team_id=team.pk, uuid__in=uuids)
 
 
-def delete_person(
-    person_id: UUID, properties: Dict, is_identified: bool, delete_events: bool = False, team_id: int = False
-) -> None:
+def delete_person(person: Person, delete_events: bool = False, delete_distinct_ids=False) -> None:
     timestamp = now()
 
     data = {
-        "id": person_id,
-        "team_id": team_id,
-        "properties": json.dumps(properties),
-        "is_identified": int(is_identified),
+        "id": person.uuid,
+        "team_id": person.team.id,
+        "properties": "{}",
+        "is_identified": int(person.is_identified),
         "created_at": timestamp.strftime("%Y-%m-%d %H:%M:%S"),
         "_timestamp": timestamp.strftime("%Y-%m-%d %H:%M:%S"),
+        "version": int(person.version or 0) + 100,  # keep in sync with deletePerson in plugin-server/src/utils/db/db.ts
     }
 
-    try:
-        if delete_events:
-            sync_execute(DELETE_PERSON_EVENTS_BY_ID, {"id": person_id, "team_id": team_id})
-    except:
-        pass  # cannot delete if the table is distributed
+    if delete_events:
+        sync_execute(
+            DELETE_PERSON_EVENTS_BY_ID.format(events_data_table=EVENTS_DATA_TABLE(), cluster=CLICKHOUSE_CLUSTER),
+            {"id": person.uuid, "team_id": person.team.id},
+            settings={"mutations_sync": 1 if TEST else 0},
+        )
+
+    if delete_distinct_ids:
+        distinct_id_inserts = []
+        for distinct_id in person.distinct_ids:
+            is_deleted = 1
+            version = 0
+            distinct_id_inserts.append(
+                f"('{distinct_id}', '{person.uuid}', {person.team_id}, {is_deleted}, {version}, now(), 0, 0)"
+            )
+
+        sync_execute(BULK_INSERT_PERSON_DISTINCT_ID2 + ", ".join(distinct_id_inserts), flush=False)
 
     sync_execute(DELETE_PERSON_BY_ID, data)
 

@@ -1,11 +1,21 @@
 import datetime
 import unittest
 from unittest import mock
+from uuid import uuid4
 
 import pytz
 
+from posthog.client import sync_execute
 from posthog.models import Action, ActionStep, Person
+from posthog.models.event.util import create_event
+from posthog.models.person.util import delete_person
 from posthog.test.base import BaseTest
+
+
+def _create_event(**kwargs):
+    pk = uuid4()
+    kwargs.update({"event_uuid": pk})
+    create_event(**kwargs)
 
 
 class TestPerson(BaseTest):
@@ -68,3 +78,43 @@ class TestPerson(BaseTest):
         person_anonymous = Person.objects.create(team=self.team)
         self.assertEqual(person_identified.is_identified, True)
         self.assertEqual(person_anonymous.is_identified, False)
+
+    def test_delete_person(self):
+        person = Person.objects.create(team=self.team)
+        delete_person(person)
+        ch_persons = sync_execute(
+            "SELECT version, is_deleted, properties FROM person FINAL WHERE team_id = %(team_id)s and id = %(uuid)s",
+            {"team_id": self.team.pk, "uuid": person.uuid},
+        )
+        self.assertEqual([(100, 1, "{}")], ch_persons)
+
+    def test_delete_person_and_ids(self):
+        person = Person.objects.create(team=self.team, distinct_ids=["distinct_id1"])
+
+        def get_ch_distinct_ids():
+            return sync_execute(
+                "SELECT version, is_deleted FROM person_distinct_id2 FINAL WHERE team_id = %(team_id)s and distinct_id = %(distinct_id)s",
+                {"team_id": self.team.pk, "distinct_id": "distinct_id1"},
+            )
+
+        ch_distinct_ids = get_ch_distinct_ids()
+        self.assertEqual(ch_distinct_ids, [(0, 0)])
+
+        delete_person(person, delete_distinct_ids=True)
+        ch_distinct_ids = get_ch_distinct_ids()
+        self.assertEqual(ch_distinct_ids, [(0, 1)])
+
+    def test_delete_person_and_events(self):
+        person = Person.objects.create(team=self.team, distinct_ids=["distinct_id1"])
+
+        _create_event(team=self.team, distinct_id="distinct_id1", event="$pageview")
+
+        def count_events():
+            return sync_execute("SELECT count(*) FROM events FINAL",)
+
+        event_count = count_events()
+        self.assertEqual(event_count[0][0], 1)
+
+        delete_person(person, delete_events=True)
+        event_count = count_events()
+        self.assertEqual(event_count[0][0], 0)
