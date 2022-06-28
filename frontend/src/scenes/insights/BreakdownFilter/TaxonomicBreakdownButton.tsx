@@ -13,6 +13,8 @@ import { useValues } from 'kea'
 import { groupsModel } from '~/models/groupsModel'
 import { ButtonType } from 'antd/lib/button'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 export interface TaxonomicBreakdownButtonProps {
     breakdownType?: TaxonomicFilterGroupType
@@ -30,6 +32,16 @@ export function TaxonomicBreakdownButton({
     const [open, setOpen] = useState(false)
     const { allEventNames } = useValues(insightLogic)
     const { groupsTaxonomicTypes } = useValues(groupsModel)
+    const { featureFlags } = useValues(featureFlagsLogic)
+
+    const taxonomicGroupTypes = onlyCohorts
+        ? [TaxonomicFilterGroupType.CohortsWithAllUsers]
+        : [
+              TaxonomicFilterGroupType.EventProperties,
+              TaxonomicFilterGroupType.PersonProperties,
+              ...groupsTaxonomicTypes,
+              TaxonomicFilterGroupType.CohortsWithAllUsers,
+          ].concat(featureFlags[FEATURE_FLAGS.SESSION_ANALYSIS] ? [TaxonomicFilterGroupType.Sessions] : [])
 
     return (
         <Popup
@@ -43,17 +55,7 @@ export function TaxonomicBreakdownButton({
                         }
                     }}
                     eventNames={allEventNames}
-                    taxonomicGroupTypes={
-                        onlyCohorts
-                            ? [TaxonomicFilterGroupType.CohortsWithAllUsers]
-                            : [
-                                  TaxonomicFilterGroupType.EventProperties,
-                                  TaxonomicFilterGroupType.PersonProperties,
-                                  TaxonomicFilterGroupType.Sessions,
-                                  ...groupsTaxonomicTypes,
-                                  TaxonomicFilterGroupType.CohortsWithAllUsers,
-                              ]
-                    }
+                    taxonomicGroupTypes={taxonomicGroupTypes}
                 />
             }
             visible={open}
