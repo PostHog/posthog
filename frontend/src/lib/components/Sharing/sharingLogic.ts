@@ -87,14 +87,14 @@ export const sharingLogic = kea<sharingLogicType>([
                 src: embedLink,
                 width,
                 height,
-                frameborder: 0,
+                frameBorder: 0,
             }),
         ],
         embedCode: [
             (s) => [s.iframeProperties],
             (iframeProperties) =>
                 `<iframe ${Object.entries(iframeProperties)
-                    .map(([key, value]) => `${key}="${String(value).split('"').join('')}"`)
+                    .map(([key, value]) => `${key.toLowerCase()}="${String(value).split('"').join('')}"`)
                     .join(' ')}></iframe>`,
         ],
     }),

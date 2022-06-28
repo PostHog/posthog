@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useEffect, useState } from 'react'
 import { LemonModal } from 'lib/components/LemonModal'
 import { SharingBaseProps } from './utils'
 import { InsightModel, InsightShortId, InsightType } from '~/types'
@@ -14,6 +14,7 @@ import { Field } from 'lib/forms/Field'
 import { Tooltip } from 'lib/components/Tooltip'
 import './SharingModal.scss'
 import { Form } from 'kea-forms'
+import { Spinner } from '../Spinner/Spinner'
 
 export interface SharingModalProps extends SharingBaseProps {
     dashboardId?: number
@@ -38,8 +39,14 @@ export function Sharing({ dashboardId, insightShortId, insight }: SharingModalPr
     } = useValues(sharingLogic(logicProps))
     const { setIsEnabled } = useActions(sharingLogic(logicProps))
 
+    const [iframeLoaded, setIframeLoaded] = useState(false)
+
     const showNoLabelCheckbox = insight?.filters?.insight === InsightType.TRENDS
     const resource = dashboardId ? 'dashboard' : 'insight'
+
+    useEffect(() => {
+        setIframeLoaded(false)
+    }, [iframeProperties.src])
 
     return (
         <div>
@@ -107,7 +114,6 @@ export function Sharing({ dashboardId, insightShortId, insight }: SharingModalPr
                                                     </>
                                                 }
                                                 onChange={() => onChange(!value)}
-                                                rowProps={{ fullWidth: true }}
                                                 checked={!value}
                                                 disabled={!whitelabelAvailable}
                                             />
@@ -119,7 +125,6 @@ export function Sharing({ dashboardId, insightShortId, insight }: SharingModalPr
                                                 <LemonCheckbox
                                                     label={<div>Show Legend</div>}
                                                     onChange={() => onChange(!value)}
-                                                    rowProps={{ fullWidth: true }}
                                                     checked={!value}
                                                 />
                                             )}
@@ -128,8 +133,16 @@ export function Sharing({ dashboardId, insightShortId, insight }: SharingModalPr
                                 </Form>
                                 {insight && (
                                     <div className="SharingPreview">
-                                        <h5 className="mb-05">PREVIEW</h5>
-                                        <iframe style={{ display: 'block' }} {...iframeProperties} />
+                                        <h5 className="space-between-items">
+                                            <span>PREVIEW</span> {!iframeLoaded ? <Spinner size="sm" /> : null}
+                                        </h5>
+
+                                        <iframe
+                                            className="mt-05"
+                                            style={{ display: 'block' }}
+                                            {...iframeProperties}
+                                            onLoad={() => setIframeLoaded(true)}
+                                        />
                                     </div>
                                 )}
                             </>
