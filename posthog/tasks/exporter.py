@@ -77,7 +77,6 @@ def _export_to_png(exported_asset: ExportedAsset) -> None:
             url_to_render = absolute_uri(f"/exporter/{exported_asset.access_token}")
             wait_for_css_selector = ".ExportedInsight"
             screenshot_width = 800
-
         elif exported_asset.dashboard is not None:
             url_to_render = absolute_uri(f"/exporter/{exported_asset.access_token}")
             wait_for_css_selector = ".InsightCard"
@@ -126,7 +125,7 @@ def export_task(exported_asset_id: int) -> None:
 
     if exported_asset.insight:
         # NOTE: Dashboards are regularly updated but insights are not so we need to trigger a manual update to ensure the results are good
-        update_insight_cache(exported_asset.insight, dashboard=None)
+        update_insight_cache(exported_asset.insight, dashboard=exported_asset.dashboard)
 
     if exported_asset.export_format == "image/png":
         return _export_to_png(exported_asset)
