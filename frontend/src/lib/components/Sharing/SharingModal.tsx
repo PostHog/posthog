@@ -1,44 +1,52 @@
 import React from 'react'
 import { LemonModal } from 'lib/components/LemonModal'
 import { SharingBaseProps } from './utils'
-import { InsightShortId } from '~/types'
+import { InsightModel, InsightShortId, InsightType } from '~/types'
 import { useActions, useValues } from 'kea'
 import { sharingLogic } from './sharingLogic'
 import { Skeleton } from 'antd'
-import { LemonButton, LemonSwitch } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, LemonSwitch } from '@posthog/lemon-ui'
 import { copyToClipboard } from 'lib/utils'
-import { urls } from 'scenes/urls'
-import { IconCopy } from '../icons'
+import { IconCopy, IconLock } from '../icons'
 import { CodeSnippet, Language } from 'scenes/ingestion/frameworks/CodeSnippet'
+import { VerticalForm } from 'lib/forms/VerticalForm'
+import { Field } from 'lib/forms/Field'
+import { Tooltip } from 'lib/components/Tooltip'
 
 export interface SharingModalProps extends SharingBaseProps {
     dashboardId?: number
     insightShortId?: InsightShortId
+    insight?: Partial<InsightModel>
     visible: boolean
     closeModal: () => void
 }
 
-export function Sharing(props: SharingModalProps): JSX.Element {
-    const { dashboardId, insightShortId } = props
-
+export function Sharing({ dashboardId, insightShortId, insight }: SharingModalProps): JSX.Element {
     const logic = sharingLogic({
         dashboardId,
         insightShortId,
     })
-
-    const { sharingConfiguration, sharingConfigurationLoading } = useValues(logic)
+    const {
+        whitelabelAvailable,
+        sharingConfiguration,
+        sharingConfigurationLoading,
+        embedCode,
+        iframeProperties,
+        shareLink,
+    } = useValues(logic)
     const { setIsEnabled } = useActions(logic)
 
+    const showNoLabelCheckbox = insight?.filters?.insight === InsightType.TRENDS
+    const name = insight?.name || insight?.derived_name
     const resource = dashboardId ? 'dashboard' : 'insight'
-
-    const shareLink = sharingConfiguration
-        ? window.location.origin + urls.shared(sharingConfiguration.access_token)
-        : ''
 
     return (
         <>
             <header className="border-bottom pb-05">
-                <h4 className="mt-05">Share or embed {resource}</h4>
+                <h4 className="mt-05">
+                    Share or embed {resource}
+                    {name ? ` ${name}` : ''}
+                </h4>
             </header>
 
             <section>
@@ -73,13 +81,54 @@ export function Sharing(props: SharingModalProps): JSX.Element {
                                         icon={<IconCopy />}
                                         fullWidth
                                     >
-                                        Copy shared dashboard link
+                                        Copy shared {resource} link
                                     </LemonButton>
                                 )}
-                                <div>Use this HTML snippet to embed the dashboard on your website:</div>
-                                <CodeSnippet language={Language.HTML}>
-                                    {`<iframe width="100%" height="100%" frameborder="0" src="${shareLink}?embedded" />`}
+                                <div>Use this HTML snippet to embed the {resource} on your website:</div>
+
+                                <CodeSnippet wrap={true} language={Language.HTML}>
+                                    {embedCode}
                                 </CodeSnippet>
+                                <VerticalForm
+                                    logic={sharingLogic}
+                                    props={{ insightShortId }}
+                                    formKey="embedConfig"
+                                    className="SharingModal-form"
+                                >
+                                    <Field name="whitelabel" noStyle>
+                                        {({ value, onChange }) => (
+                                            <LemonCheckbox
+                                                label={
+                                                    <>
+                                                        <span className="mr-05">Show Logo</span>
+                                                        {!whitelabelAvailable ? (
+                                                            <Tooltip title="Upgrade to an enterprise plan to hide the logo">
+                                                                <IconLock />
+                                                            </Tooltip>
+                                                        ) : null}
+                                                    </>
+                                                }
+                                                onChange={() => onChange(!value)}
+                                                rowProps={{ fullWidth: true }}
+                                                checked={!value}
+                                                disabled={!whitelabelAvailable}
+                                            />
+                                        )}
+                                    </Field>
+                                    {showNoLabelCheckbox && (
+                                        <Field name="noLegend" noStyle>
+                                            {({ value, onChange }) => (
+                                                <LemonCheckbox
+                                                    label={<div>Show Legend</div>}
+                                                    onChange={() => onChange(!value)}
+                                                    rowProps={{ fullWidth: true }}
+                                                    checked={!value}
+                                                />
+                                            )}
+                                        </Field>
+                                    )}
+                                </VerticalForm>
+                                <iframe style={{ display: 'block' }} {...iframeProperties} />
                             </>
                         ) : null}
                     </div>

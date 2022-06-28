@@ -1,5 +1,6 @@
 import { DashboardType, FilterType, InsightShortId } from '~/types'
 import { combineUrl } from 'kea-router'
+import { ExportOptions } from '~/exporter/types'
 
 /**
  * To add a new URL to the front end:
@@ -88,5 +89,17 @@ export const urls = {
     deadLetterQueue: (): string => '/instance/dead_letter_queue',
     unsubscribe: (): string => '/unsubscribe',
     integrationsRedirect: (kind: string): string => `/integrations/${kind}/redirect`,
-    shared: (token: string): string => `/shared/${token}`,
+    shared: (token: string, exportOptions?: ExportOptions): string =>
+        combineUrl(`/shared/${token}`, {
+            ...(exportOptions?.whitelabel ? { whitelabel: null } : {}),
+            ...(exportOptions?.noLegend ? { noLegend: null } : {}),
+        }).url,
+    embedded: (token: string, exportOptions?: ExportOptions): string => {
+        const {
+            pathname,
+            searchParams: { embedded: _discard, ...searchParams },
+            hashParams,
+        } = combineUrl(urls.shared(token, exportOptions))
+        return combineUrl(pathname, { embedded: null, ...searchParams }, hashParams).url
+    },
 }

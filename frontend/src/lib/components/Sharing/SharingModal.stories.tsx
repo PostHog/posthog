@@ -1,12 +1,10 @@
 import React, { useRef, useState } from 'react'
 import { ComponentMeta } from '@storybook/react'
 import { Sharing, SharingModal, SharingModalProps } from './SharingModal'
-import { AvailableFeature, InsightShortId, Realm } from '~/types'
+import { InsightShortId, Realm } from '~/types'
 import preflightJson from '~/mocks/fixtures/_preflight.json'
-import { useAvailableFeatures } from '~/mocks/features'
 import { uuid } from 'lib/utils'
-import { useFeatureFlags, useStorybookMocks } from '~/mocks/browser'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { useStorybookMocks } from '~/mocks/browser'
 import { LemonButton } from '../LemonButton'
 import { createMockSubscription, mockIntegration, mockSlackChannels } from '~/test/mocks'
 
@@ -26,7 +24,7 @@ const Template = (args: Partial<SharingModalProps> & { noIntegrations?: boolean 
             '/_preflight': {
                 ...preflightJson,
                 realm: Realm.Cloud,
-                email_service_available: noIntegrations ? false : true,
+                email_service_available: !noIntegrations,
                 site_url: noIntegrations ? 'bad-value' : window.location.origin,
             },
             '/api/projects/:id/Sharing': {
