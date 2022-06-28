@@ -150,7 +150,6 @@ class ExportedAssetViewSet(
                 instance, content_for_asset(instance), request.query_params.get("download") == "true"
             )
         except ObjectStorageError:
-            # this seems the closest status
             # generating a CSV might take many seconds
             # this isn't success... the file wasn't ready for reading from object storage
             # it isn't an error... the client can retry
