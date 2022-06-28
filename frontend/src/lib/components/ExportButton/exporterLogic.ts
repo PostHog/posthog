@@ -28,7 +28,11 @@ export const exporterLogic = kea<exporterLogicType>([
         return `dash:${dashboardId}::insight:${insightId}`
     }),
     actions({
-        exportItem: (exportFormat: ExporterFormat, successCallback?: () => void) => ({ exportFormat, successCallback }),
+        exportItem: (
+            exportFormat: ExporterFormat,
+            additionalData: Record<string, any>,
+            successCallback?: () => void
+        ) => ({ exportFormat, additionalData, successCallback }),
         exportItemSuccess: true,
         exportItemFailure: true,
     }),
@@ -45,7 +49,7 @@ export const exporterLogic = kea<exporterLogicType>([
     }),
 
     listeners(({ actions, props }) => ({
-        exportItem: async ({ exportFormat, successCallback }) => {
+        exportItem: async ({ exportFormat, additionalData, successCallback }) => {
             lemonToast.info(`Export started...`)
 
             const trackingProperties = {
@@ -61,6 +65,7 @@ export const exporterLogic = kea<exporterLogicType>([
                     export_format: exportFormat,
                     dashboard: props.dashboardId,
                     insight: props.insightId,
+                    ...additionalData,
                 })
 
                 if (!exportedAsset.id) {
@@ -74,7 +79,7 @@ export const exporterLogic = kea<exporterLogicType>([
                 while (attempts < MAX_POLL) {
                     attempts++
 
-                    if (exportedAsset.has_content) {
+                    if (exportedAsset.has_content || exportedAsset.export_format === ExporterFormat.CSV) {
                         actions.exportItemSuccess()
                         lemonToast.success(`Export complete.`)
                         successCallback?.()
