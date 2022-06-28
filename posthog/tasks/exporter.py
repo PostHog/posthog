@@ -152,14 +152,10 @@ def stage_results_to_object_storage(
     )
     if write_headers:
         temporary_file.write(gzip.compress(f"{','.join(result[0].keys())}\n".encode("utf-8")))
-    # each result item is a dict
-    contents = []
-    for dict in result:
-        values = dict.values()
-        line = []
-        for v in values:
-            line.append(encode(v))
 
+    contents = []
+    for values in [row.values() for row in result]:
+        line = [encode(v) for v in values]
         contents.append(",".join(line))
 
     temporary_file.write(gzip.compress("\n".join(contents).encode("utf-8")))
