@@ -1,5 +1,5 @@
 import { kea } from 'kea'
-import { convertSecondsToDuration } from 'lib/components/DurationPicker/durationPickerLogic'
+import { convertSecondsToDuration } from 'lib/components/DurationPicker/DurationPicker'
 import { PropertyOperator, RecordingDurationFilter } from '~/types'
 import type { durationFilterLogicType } from './durationFilterLogicType'
 
