@@ -18,7 +18,7 @@ class SessionQuery:
     _filter: Union[Filter, PathFilter, RetentionFilter, StickinessFilter]
     _team_id: int
 
-    def __init__(self, filter: Filter, team: Team,) -> None:
+    def __init__(self, filter: Union[Filter, PathFilter, RetentionFilter, StickinessFilter], team: Team,) -> None:
         self._filter = filter
         self._team = team
 
