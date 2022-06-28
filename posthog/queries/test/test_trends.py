@@ -636,7 +636,7 @@ def trend_test_factory(trends):
             self.assertEqual(daily_response[0]["aggregated_value"], weekly_response[0]["aggregated_value"])
 
         @snapshot_clickhouse_queries
-        def test_trends_breakdown_with_session_property_single_aggregate_math(self):
+        def test_trends_breakdown_with_session_property_single_aggregate_math_and_breakdown(self):
             _create_person(
                 team_id=self.team.pk, distinct_ids=["blabla", "anonymous_id"], properties={"$some_prop": "some_val"}
             )
