@@ -171,14 +171,17 @@ def delete_person(person: Person, delete_events: bool = False, delete_distinct_i
 
     if delete_distinct_ids:
         distinct_id_inserts = []
-        for distinct_id in person.distinct_ids:
+        distinct_id_map: Dict[str, str] = {}
+        for i, distinct_id in enumerate(person.distinct_ids):
             is_deleted = 1
             version = 0
+            distinct_id_key = f"distinct_id_{i}"
+            distinct_id_map[distinct_id_key] = distinct_id
             distinct_id_inserts.append(
-                f"('{distinct_id}', '{person.uuid}', {person.team_id}, {is_deleted}, {version}, now(), 0, 0)"
+                f"(%({distinct_id_key})s, '{person.uuid}', {person.team_id}, {is_deleted}, {version}, now(), 0, 0)"
             )
 
-        sync_execute(BULK_INSERT_PERSON_DISTINCT_ID2 + ", ".join(distinct_id_inserts), flush=False)
+        sync_execute(BULK_INSERT_PERSON_DISTINCT_ID2 + ", ".join(distinct_id_inserts), distinct_id_map, flush=False)
 
     sync_execute(DELETE_PERSON_BY_ID, data)
 
