@@ -79,7 +79,7 @@ export const exporterLogic = kea<exporterLogicType>([
                 while (attempts < MAX_POLL) {
                     attempts++
 
-                    if (exportedAsset.has_content || exportedAsset.export_format === ExporterFormat.CSV) {
+                    if (exportedAsset.has_content) {
                         actions.exportItemSuccess()
                         lemonToast.success(`Export complete.`)
                         successCallback?.()

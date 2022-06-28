@@ -48,7 +48,7 @@ class ExportedAsset(models.Model):
 
     @property
     def has_content(self):
-        return self.content is not None
+        return self.content is not None or self.content_location is not None
 
     @property
     def filename(self):
