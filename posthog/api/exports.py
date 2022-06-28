@@ -151,8 +151,10 @@ class ExportedAssetViewSet(
             )
         except ObjectStorageError:
             # this seems the closest status
-            # there is a conflict... the export exists but the download isn't ready
             # generating a CSV might take many seconds
+            # this isn't success... the file wasn't ready for reading from object storage
+            # it isn't an error... the client can retry
+            # there is a conflict... the export exists but the download isn't ready
             response = Response(status=status.HTTP_409_CONFLICT,)
             response["location"] = request.build_absolute_uri()
             # https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Retry-After
