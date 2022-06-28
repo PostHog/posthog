@@ -121,7 +121,7 @@ services:
             - object_storage
 
     object_storage:
-        image: minio/minio
+        image: minio/minio:RELEASE.2022-06-25T15-50-16Z
         restart: on-failure
         ports:
             - '19000:19000'
@@ -133,7 +133,7 @@ services:
         command: -c 'mkdir -p /data/posthog && minio server --address ":19000" --console-address ":19001" /data' # create the 'posthog' bucket before starting the service
 
     maildev:
-        image: maildev/maildev
+        image: maildev/maildev:2.0.5
         restart: on-failure
         ports:
             - '1080:1080'
