@@ -46,7 +46,7 @@ export const LemonInput = React.forwardRef<HTMLInputElement, LemonInputProps>(fu
     ref
 ): JSX.Element {
     const _ref = useRef<HTMLInputElement | null>(null)
-    const textRef = ref || _ref
+    const inputRef = ref || _ref
     const [focused, setFocused] = useState<boolean>(Boolean(textProps.autoFocus))
 
     const focus = (): void => {
@@ -110,7 +110,7 @@ export const LemonInput = React.forwardRef<HTMLInputElement, LemonInputProps>(fu
 
     return (
         <LemonRow {...rowProps}>
-            <input {...props} ref={textRef} />
+            <input {...props} ref={inputRef} />
         </LemonRow>
     )
 })
