@@ -26,7 +26,6 @@ TEST_ROOT_BUCKET = "test_exports"
 
 
 class TestExports(APIBaseTest):
-
     exported_asset: ExportedAsset = None  # type: ignore
     dashboard: Dashboard = None  # type: ignore
     insight: Insight = None  # type: ignore
