@@ -6,6 +6,7 @@ from typing import IO
 
 import structlog
 
+from posthog import settings
 from posthog.celery import app
 from posthog.models import Filter
 from posthog.models.event.query_event_list import query_events_list
@@ -46,14 +47,14 @@ def stage_results_to_object_storage(
         temporary_file.write(",".join(line).encode("utf-8"))
 
 
-def concat_results_in_object_storage(temporary_file: IO, exported_asset: ExportedAsset) -> str:
-    object_path = f"/exports/csvs/team-{exported_asset.team.id}/task-{exported_asset.id}/{UUIDT()}"
+def concat_results_in_object_storage(temporary_file: IO, exported_asset: ExportedAsset, root_bucket: str) -> str:
+    object_path = f"/{root_bucket}/csvs/team-{exported_asset.team.id}/task-{exported_asset.id}/{UUIDT()}"
     temporary_file.seek(0)
     object_storage.write(object_path, gzip.compress(temporary_file.read()))
     return object_path
 
 
-def _export_to_csv(exported_asset: ExportedAsset) -> None:
+def _export_to_csv(exported_asset: ExportedAsset, root_bucket: str) -> None:
     if exported_asset.export_context.get("file_export_type", None) == "list_events":
         filter = Filter(data=exported_asset.export_context.get("filter"))
 
@@ -63,16 +64,16 @@ def _export_to_csv(exported_asset: ExportedAsset) -> None:
                 stage_results_to_object_storage(day_filter, exported_asset, temporary_file, write_headers)
                 write_headers = False
 
-            object_path = concat_results_in_object_storage(temporary_file, exported_asset)
+            object_path = concat_results_in_object_storage(temporary_file, exported_asset, root_bucket)
             exported_asset.content_location = object_path
             exported_asset.save(update_fields=["content_location", "export_context"])
 
 
 @app.task()
-def export_csv(exported_asset_id: int) -> None:
+def export_csv(exported_asset_id: int, root_bucket: str = settings.OBJECT_STORAGE_EXPORTS_FOLDER) -> None:
     exported_asset = ExportedAsset.objects.get(pk=exported_asset_id)
 
     if exported_asset.export_format == "text/csv":
-        return _export_to_csv(exported_asset)
+        return _export_to_csv(exported_asset, root_bucket)
     else:
         raise NotImplementedError(f"Export to format {exported_asset.export_format} is not supported")

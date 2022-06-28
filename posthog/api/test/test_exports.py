@@ -2,6 +2,8 @@ from typing import Dict, List, Optional
 from unittest.mock import patch
 
 import celery
+from boto3 import resource
+from botocore.client import Config
 from django.http import HttpResponse
 from freezegun import freeze_time
 from rest_framework import status
@@ -11,14 +13,34 @@ from posthog.models.exported_asset import ExportedAsset
 from posthog.models.filters.filter import Filter
 from posthog.models.insight import Insight
 from posthog.models.team import Team
+from posthog.settings import (
+    OBJECT_STORAGE_ACCESS_KEY_ID,
+    OBJECT_STORAGE_BUCKET,
+    OBJECT_STORAGE_ENDPOINT,
+    OBJECT_STORAGE_SECRET_ACCESS_KEY,
+)
 from posthog.tasks.exports.csv_exporter import export_csv
 from posthog.test.base import APIBaseTest, _create_event, flush_persons_and_events
+
+TEST_ROOT_BUCKET = "test_exports"
 
 
 class TestExports(APIBaseTest):
     exported_asset: ExportedAsset = None  # type: ignore
     dashboard: Dashboard = None  # type: ignore
     insight: Insight = None  # type: ignore
+
+    def teardown_method(self, method) -> None:
+        s3 = resource(
+            "s3",
+            endpoint_url=OBJECT_STORAGE_ENDPOINT,
+            aws_access_key_id=OBJECT_STORAGE_ACCESS_KEY_ID,
+            aws_secret_access_key=OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            config=Config(signature_version="s3v4"),
+            region_name="us-east-1",
+        )
+        bucket = s3.Bucket(OBJECT_STORAGE_BUCKET)
+        bucket.objects.filter(Prefix=TEST_ROOT_BUCKET).delete()
 
     insight_filter_dict = {
         "events": [{"id": "$pageview"}],
@@ -250,7 +272,8 @@ class TestExports(APIBaseTest):
                 "action_id": None,
             },
         )
-        export_csv(instance.id)
+        # pass the root in because django/celery refused to override it otherwise
+        export_csv(instance.id, TEST_ROOT_BUCKET)
 
         response: Optional[HttpResponse] = None
         attempt_count = 0
