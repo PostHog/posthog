@@ -163,32 +163,39 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
     )
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         try:
+            is_csv_request = self.request.accepted_renderer.format == "csv"
+
             if self.request.GET.get("limit", None):
                 limit = int(self.request.GET.get("limit"))  # type: ignore
+            elif is_csv_request:
+                limit = self.CSV_EXPORT_DEFAULT_LIMIT
             else:
                 limit = 100
+
+            if is_csv_request:
+                limit = min(limit, self.CSV_EXPORT_MAXIMUM_LIMIT)
 
             team = self.team
             filter = Filter(request=request, team=self.team)
 
             query_result = query_events_list(
-                filter,
-                team,
+                filter=filter,
+                team=team,
                 limit=limit,
                 request_get_query_dict=request.GET.dict(),
-                order_by=self._parse_order_by(self.request),
+                order_by=self._parse_order_by(request),
                 action_id=request.GET.get("action_id"),
             )
 
             # Retry the query without the 1 day optimization
             if len(query_result) < limit and not request.GET.get("after"):
                 query_result = query_events_list(
-                    filter,
-                    team,
+                    filter=filter,
+                    team=team,
                     long_date_from=True,
                     limit=limit,
                     request_get_query_dict=request.GET.dict(),
-                    order_by=self._parse_order_by(self.request),
+                    order_by=self._parse_order_by(request),
                     action_id=request.GET.get("action_id"),
                 )
 
@@ -197,7 +204,7 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
             ).data
 
             next_url: Optional[str] = None
-            if len(query_result) > limit:
+            if not is_csv_request and len(query_result) > limit:
                 next_url = self._build_next_url(request, query_result[limit - 1]["timestamp"])
 
             return response.Response({"next": next_url, "results": result})
