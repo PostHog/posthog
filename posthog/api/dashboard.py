@@ -17,6 +17,7 @@ from posthog.api.insight import InsightSerializer, InsightViewSet
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
+from posthog.api.utils import get_export_options_from_url
 from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.constants import INSIGHT_TRENDS
 from posthog.event_usage import report_user_action
@@ -307,8 +308,7 @@ def shared_dashboard(request: HttpRequest, share_token: str):
         "team": {"name": dashboard.team.name},
     }
 
-    if "whitelabel" in request.GET and "white_labelling" in dashboard.team.organization.available_features:
-        exported_data.update({"whitelabel": True})
+    exported_data.update(get_export_options_from_url(request, dashboard.team.organization.available_features))
 
     return render_template("exporter.html", request=request, context={"exported_data": json.dumps(exported_data)},)
 

@@ -17,6 +17,7 @@ from posthog import settings
 from posthog.api.dashboard import DashboardSerializer
 from posthog.api.insight import InsightSerializer
 from posthog.api.routing import StructuredViewSetMixin
+from posthog.api.utils import get_export_options_from_url
 from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.event_usage import report_user_action
 from posthog.models import Insight
@@ -209,8 +210,9 @@ class ExportedPreviewPageViewSet(mixins.RetrieveModelMixin, StructuredViewSetMix
             insight_data = InsightSerializer(insight, many=False, context=context).data
             exported_data.update({"insight": insight_data})
 
-        if request.GET.get("whitelabel") == "true":
-            exported_data.update({"whitelabel": True})
+        exported_data.update(
+            get_export_options_from_url(request, self.request.user.team.organization.available_features)
+        )
 
         return embedded_response(
             request,

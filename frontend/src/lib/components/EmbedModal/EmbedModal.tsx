@@ -47,13 +47,13 @@ export function EmbedModal({ visible, closeModal, insightShortId }: ExportModalP
                             />
                         )}
                     </Field>
-                    <Field name="legend" noStyle>
+                    <Field name="noLegend" noStyle>
                         {({ value, onChange }) => (
                             <LemonCheckbox
                                 label={<div>Show Legend</div>}
                                 onChange={() => onChange(!value)}
                                 rowProps={{ fullWidth: true }}
-                                checked={value}
+                                checked={!value}
                             />
                         )}
                     </Field>

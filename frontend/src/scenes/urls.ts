@@ -89,5 +89,11 @@ export const urls = {
     deadLetterQueue: (): string => '/instance/dead_letter_queue',
     unsubscribe: (): string => '/unsubscribe',
     integrationsRedirect: (kind: string): string => `/integrations/${kind}/redirect`,
-    exportPreview: (params: ExportPreviewParams): string => combineUrl(`/exporter/preview/`, params).url,
+    exportPreview: ({ insight, whitelabel, noLegend, dashboardId }: ExportPreviewParams): string =>
+        combineUrl(`/exporter/preview/`, {
+            ...(insight ? { insight } : {}),
+            ...(dashboardId ? { dashboardId } : {}),
+            ...(whitelabel ? { whitelabel: null } : {}),
+            ...(noLegend ? { noLegend: null } : {}),
+        }).url,
 }

@@ -2,13 +2,15 @@ import json
 import re
 from dataclasses import dataclass
 from enum import Enum, auto
-from typing import Any, List, Optional, Tuple, Union, cast
+from typing import Any, Dict, List, Optional, Tuple, Union, cast
 
 from ratelimit import limits
 from rest_framework import request, status
+from rest_framework.request import Request
 from sentry_sdk import capture_exception
 from statshog.defaults.django import statsd
 
+from posthog.constants import AvailableFeature
 from posthog.exceptions import RequestParsingError, generate_exception_response
 from posthog.models import Action, Entity, EventDefinition
 from posthog.models.entity import MATH_TYPE
@@ -418,3 +420,12 @@ def create_event_definitions_sql(include_actions: bool, is_enterprise: bool = Fa
         {ordering}
     """
     )
+
+
+def get_export_options_from_url(request: Request, available_features: List[AvailableFeature]) -> Dict[str, Any]:
+    export_options: Dict[str, Any] = {}
+    if "whitelabel" in request.GET and "white_labelling" in available_features:
+        export_options.update({"whitelabel": True})
+    if "noLegend" in request.GET:
+        export_options.update({"noLegend": True})
+    return export_options

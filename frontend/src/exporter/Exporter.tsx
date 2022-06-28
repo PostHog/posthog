@@ -21,7 +21,8 @@ loadPostHogJS()
 initKea()
 
 function Exporter(): JSX.Element {
-    const { type, dashboard, insight, whitelabel, team } = exportedData
+    const { type, dashboard, insight, team, ...exportOptions } = exportedData
+    const { whitelabel } = exportOptions
 
     return (
         <div className="Exporter">
@@ -57,7 +58,7 @@ function Exporter(): JSX.Element {
             ) : null}
 
             {insight ? (
-                <ExportedInsight insight={insight} showLogo={!whitelabel} />
+                <ExportedInsight insight={insight} exportOptions={exportOptions ?? {}} />
             ) : dashboard ? (
                 <Dashboard
                     id={String(dashboard.id)}
