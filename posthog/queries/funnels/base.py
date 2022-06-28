@@ -367,7 +367,7 @@ class ClickhouseFunnelBase(ABC):
 
         conditions: List[str] = []
         for i in range(1, curr_index):
-            conditions.append(f"latest_{i - 1} < latest_{i }")
+            conditions.append(f"latest_{i - 1} <= latest_{i }")
             conditions.append(
                 f"latest_{i} <= latest_0 + INTERVAL {self._filter.funnel_window_interval} {self._filter.funnel_window_interval_unit_ch()}"
             )
