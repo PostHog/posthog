@@ -86,7 +86,7 @@ class TestPerson(BaseTest):
             "SELECT version, is_deleted, properties FROM person FINAL WHERE team_id = %(team_id)s and id = %(uuid)s",
             {"team_id": self.team.pk, "uuid": person.uuid},
         )
-        self.assertEqual([(100, 1, "{}")], ch_persons)
+        self.assertEqual(ch_persons, [(100, 1, "{}")])
 
     def test_delete_person_and_ids(self):
         person = Person.objects.create(team=self.team, distinct_ids=["distinct_id1"])
