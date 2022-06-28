@@ -1,27 +1,48 @@
-import React from 'react'
+import React, { useEffect, useState } from 'react'
 import './DurationPicker.scss'
-import { SmallTimeUnit } from '~/types'
-import { durationPickerLogic, DurationPickerLogicProps } from './durationPickerLogic'
-import { useActions, useValues } from 'kea'
+import { Duration, SmallTimeUnit } from '~/types'
 import { Input, Select } from 'antd'
 
-interface DurationPickerProps extends DurationPickerLogicProps {
-    autoFocus?: boolean
+interface DurationPickerProps {
+    onChange: (value_seconds: number) => void
+    initialValue?: number
     style?: Partial<React.CSSProperties>
+    autoFocus?: boolean
 }
 
 export const durationOptions: SmallTimeUnit[] = ['seconds', 'minutes', 'hours']
 
-export function DurationPicker({
-    initialValue,
-    onChange,
-    pageKey,
-    autoFocus,
-    style,
-}: DurationPickerProps): JSX.Element {
-    const durationFilterLogicInstance = durationPickerLogic({ initialValue, onChange, pageKey })
-    const { setTimeValue, setUnit } = useActions(durationFilterLogicInstance)
-    const { unit, timeValue } = useValues(durationFilterLogicInstance)
+const TIME_MULTIPLIERS: Record<SmallTimeUnit, number> = { seconds: 1, minutes: 60, hours: 3600 }
+
+export const convertSecondsToDuration = (seconds: number): Duration => {
+    const orderOfUnitsToTest: SmallTimeUnit[] = ['hours', 'minutes']
+    for (const unit of orderOfUnitsToTest) {
+        if (seconds / TIME_MULTIPLIERS[unit] >= 1 && seconds % TIME_MULTIPLIERS[unit] === 0) {
+            return {
+                timeValue: seconds / TIME_MULTIPLIERS[unit],
+                unit: unit,
+            }
+        }
+    }
+    return {
+        timeValue: seconds,
+        unit: 'seconds',
+    }
+}
+
+export function DurationPicker({ initialValue, onChange, autoFocus, style }: DurationPickerProps): JSX.Element {
+    const [timeValue, setTimeValue] = useState(convertSecondsToDuration(initialValue || 0).timeValue)
+    const [unit, setUnit] = useState(convertSecondsToDuration(initialValue || 0).unit)
+
+    useEffect(() => {
+        const timeValueToUse = timeValue || 0
+        const unitToUse = unit
+
+        const seconds = timeValueToUse * TIME_MULTIPLIERS[unitToUse]
+
+        onChange(seconds)
+    }, [timeValue, unit])
+
     return (
         <div className="DurationPicker" style={style}>
             <Input
