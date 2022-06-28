@@ -44,16 +44,6 @@ jobs:
                   push: true
                   tags: posthog/posthog:latest
 
-            - name: Build and push dev
-              id: docker-dev
-              if: github.repository == 'PostHog/posthog'
-              uses: docker/build-push-action@v2
-              with:
-                  context: .
-                  file: dev.Dockerfile
-                  push: true
-                  tags: posthog/posthog:dev
-
             - name: Image digests
               if: github.repository == 'PostHog/posthog'
               run: |
