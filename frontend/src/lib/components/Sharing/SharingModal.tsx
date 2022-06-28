@@ -5,7 +5,7 @@ import { InsightModel, InsightShortId, InsightType } from '~/types'
 import { useActions, useValues } from 'kea'
 import { sharingLogic } from './sharingLogic'
 import { Skeleton } from 'antd'
-import { LemonButton, LemonCheckbox, LemonSwitch } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, LemonDivider, LemonSwitch } from '@posthog/lemon-ui'
 import { copyToClipboard } from 'lib/utils'
 import { IconCopy, IconLock } from '../icons'
 import { CodeSnippet, Language } from 'scenes/ingestion/frameworks/CodeSnippet'
@@ -84,6 +84,7 @@ export function Sharing({ dashboardId, insightShortId, insight }: SharingModalPr
                             <>
                                 {sharingConfiguration.access_token && (
                                     <LemonButton
+                                        className="mb"
                                         data-attr="sharing-link-button"
                                         type="secondary"
                                         onClick={() => copyToClipboard(shareLink, 'link')}
@@ -94,6 +95,7 @@ export function Sharing({ dashboardId, insightShortId, insight }: SharingModalPr
                                         Copy shared {resource} link
                                     </LemonButton>
                                 )}
+                                <LemonDivider />
                                 <div>Use this HTML snippet to embed the {resource} on your website:</div>
 
                                 <CodeSnippet wrap={true} language={Language.HTML}>
