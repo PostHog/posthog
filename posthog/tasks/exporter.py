@@ -179,8 +179,8 @@ def _export_to_csv(exported_asset: ExportedAsset) -> None:
                 write_headers = False
 
             object_path = concat_results_in_object_storage(temporary_file, exported_asset)
-            exported_asset.export_context["storage_location"] = object_path
-            exported_asset.save(update_fields=["export_context"])
+            exported_asset.content_location = object_path
+            exported_asset.save(update_fields=["content_location", "export_context"])
 
 
 @app.task()

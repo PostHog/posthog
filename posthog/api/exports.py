@@ -36,7 +36,12 @@ logger = structlog.get_logger(__name__)
 MAX_AGE_CONTENT = 86400  # 1 day
 
 
-def get_content_response(asset: ExportedAsset, content: bytes, download: bool = False):
+def get_content_response(asset: ExportedAsset, download: bool = False):
+    content = asset.content
+    if not content and asset.content_location:
+        content_bytes = object_storage.read_bytes(asset.content_location)
+        content = gzip.decompress(content_bytes)
+
     res = HttpResponse(content, content_type=asset.export_format)
     if download:
         res["Content-Disposition"] = f'attachment; filename="{asset.filename}"'
@@ -120,15 +125,6 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
         return instance
 
 
-def content_for_asset(instance: ExportedAsset):
-    if instance.export_format != "text/csv":
-        return instance.content
-
-    storage_location = instance.export_context.get("storage_location", None)
-    content_bytes = object_storage.read_bytes(storage_location)
-    return gzip.decompress(content_bytes)
-
-
 class ExportedAssetViewSet(
     mixins.RetrieveModelMixin, mixins.CreateModelMixin, StructuredViewSetMixin, viewsets.GenericViewSet
 ):
@@ -146,11 +142,10 @@ class ExportedAssetViewSet(
     def content(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
         instance = self.get_object()
         try:
-            return get_content_response(
-                instance, content_for_asset(instance), request.query_params.get("download") == "true"
-            )
+            return get_content_response(instance, request.query_params.get("download") == "true")
         except ObjectStorageError:
-            # generating a CSV might take many seconds
+            # there might be a large gap between requesting an export be available in storage
+            # and it being available (e.g. generating a large events export)
             # this isn't success... the file wasn't ready for reading from object storage
             # it isn't an error... the client can retry
             # there is a conflict... the export exists but the download isn't ready
@@ -200,7 +195,7 @@ class ExportedViewerPageViewSet(mixins.RetrieveModelMixin, StructuredViewSetMixi
             if not asset.content:
                 raise serializers.NotFound()
 
-            return get_content_response(asset, content_for_asset(asset), request.query_params.get("download") == "true")
+            return get_content_response(asset, request.query_params.get("download") == "true")
 
         if asset.dashboard:
             dashboard_data = DashboardSerializer(asset.dashboard, context=context).data

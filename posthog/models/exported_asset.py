@@ -37,6 +37,9 @@ class ExportedAsset(models.Model):
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True, blank=True)
     # for example holds filters for CSV exports
     export_context: models.JSONField = models.JSONField(null=True, blank=True)
+    # path in object storage or some other location identifier for the asset
+    # 1000 characters would hold a 20 UUID forward slash separated path with space to spare
+    content_location: models.TextField = models.TextField(null=True, blank=True, max_length=1000)
 
     # Token for accessing the /exporter page
     access_token: models.CharField = models.CharField(
