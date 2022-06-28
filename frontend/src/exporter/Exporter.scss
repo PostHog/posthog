@@ -14,12 +14,25 @@ html.export-type-image {
 }
 
 html.export-type-embed {
+    overflow: hidden;
     .Exporter {
         padding: 0;
-        height: 100vw;
-        max-height: 100vw;
+        height: 100vh;
+        max-height: 100vh;
         .ExportedInsight {
-            height: 100%;
+            height: 100vh;
+            max-height: 100vh;
+            .ExportedInsight-content {
+                height: 100vh;
+                max-height: 100vh;
+                overflow: hidden;
+                display: flex;
+                flex-direction: column;
+                .InsightViz {
+                    min-height: auto;
+                    flex: 1;
+                }
+            }
         }
     }
 }
