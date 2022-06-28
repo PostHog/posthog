@@ -1,10 +1,10 @@
 import React, { useState } from 'react'
 import { ComponentMeta } from '@storybook/react'
 import { Sharing, SharingModal, SharingModalProps } from './SharingModal'
-import { InsightModel, InsightShortId, InsightType, Realm } from '~/types'
-import preflightJson from '~/mocks/fixtures/_preflight.json'
+import { AvailableFeature, InsightModel, InsightShortId, InsightType, Realm } from '~/types'
 import { useStorybookMocks } from '~/mocks/browser'
 import { LemonButton } from '../LemonButton'
+import { useAvailableFeatures } from '~/mocks/features'
 
 const fakeInsight: Partial<InsightModel> = {
     id: 123,
@@ -18,18 +18,14 @@ export default {
     parameters: { layout: 'fullscreen', options: { showPanel: false }, viewMode: 'canvas' },
 } as ComponentMeta<typeof Sharing>
 
-const Template = (args: Partial<SharingModalProps> & { noIntegrations?: boolean }): JSX.Element => {
-    const { noIntegrations = false, ...props } = args
+const Template = (args: Partial<SharingModalProps> & { licensed?: boolean }): JSX.Element => {
+    const { licensed = false, ...props } = args
     const [modalOpen, setModalOpen] = useState(false)
+
+    useAvailableFeatures(licensed ? [AvailableFeature.WHITE_LABELLING] : [])
 
     useStorybookMocks({
         get: {
-            '/_preflight': {
-                ...preflightJson,
-                realm: Realm.Cloud,
-                email_service_available: !noIntegrations,
-                site_url: noIntegrations ? 'bad-value' : window.location.origin,
-            },
             '/api/projects/:id/insights/:insight_id/sharing/': {
                 created_at: '2022-06-28T12:30:51.459746Z',
                 enabled: true,
@@ -40,6 +36,31 @@ const Template = (args: Partial<SharingModalProps> & { noIntegrations?: boolean 
                 created_at: '2022-06-28T12:30:51.459746Z',
                 enabled: true,
                 access_token: '1AEQjQ2xNLGoiyI0UnNlLzOiBZWWMQ',
+            },
+        },
+        patch: {
+            '/api/projects/:id/insights/:otherId/sharing/': (req: any) => {
+                return [
+                    200,
+                    {
+                        created_at: '2022-06-28T12:30:51.459746Z',
+                        enabled: true,
+                        access_token: '1AEQjQ2xNLGoiyI0UnNlLzOiBZWWMQ',
+                        ...(req.body as any),
+                    },
+                ]
+            },
+
+            '/api/projects/:id/dashboards/:otherId/sharing/': (req: any) => {
+                return [
+                    200,
+                    {
+                        created_at: '2022-06-28T12:30:51.459746Z',
+                        enabled: true,
+                        access_token: '1AEQjQ2xNLGoiyI0UnNlLzOiBZWWMQ',
+                        ...(req.body as any),
+                    },
+                ]
             },
         },
     })
@@ -71,6 +92,14 @@ export const DashboardSharing = (): JSX.Element => {
     return <Template dashboardId={123} />
 }
 
+export const DashboardSharingLicensed = (): JSX.Element => {
+    return <Template licensed dashboardId={123} />
+}
+
 export const InsightSharing = (): JSX.Element => {
     return <Template insightShortId={fakeInsight.short_id} insight={fakeInsight} />
+}
+
+export const InsightSharingLicensed = (): JSX.Element => {
+    return <Template insightShortId={fakeInsight.short_id} insight={fakeInsight} licensed />
 }
