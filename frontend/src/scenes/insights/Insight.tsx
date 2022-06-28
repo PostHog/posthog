@@ -248,7 +248,7 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                 }
             />
 
-            {!usingEditorPanels && <InsightsNav />}
+            {!usingEditorPanels && insightMode === ItemMode.Edit && <InsightsNav />}
 
             <div
                 className={clsx('insight-wrapper', {
