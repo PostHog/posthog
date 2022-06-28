@@ -14,7 +14,7 @@ import {
 import { ChartDisplayType, FilterType, FunnelVizType, InsightType } from '~/types'
 import { ANTD_TOOLTIP_PLACEMENTS } from 'lib/utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { toLocalFilters } from 'scenes/insights/ActionFilter/entityFilterLogic'
+import { toLocalFilters } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 import { Tooltip } from '../Tooltip'
 import { LemonTag } from '../LemonTag/LemonTag'
 

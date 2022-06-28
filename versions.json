@@ -1,5 +1,9 @@
 [
     {
+        "version": "1.37.0",
+        "release_date": "2022-06-22"
+    },
+    {
         "version": "1.36.1",
         "release_date": "2022-06-09"
     },

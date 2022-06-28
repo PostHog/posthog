@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import { retentionTableLogic } from './retentionTableLogic'
-import { LineGraph } from '../insights/LineGraph/LineGraph'
+import { LineGraph } from '../insights/views/LineGraph/LineGraph'
 import { useActions, useValues } from 'kea'
 import { InsightEmptyState } from '../insights/EmptyStates'
 import { GraphType, GraphDataset } from '~/types'

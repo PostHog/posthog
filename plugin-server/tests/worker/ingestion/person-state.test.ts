@@ -283,7 +283,7 @@ describe('PersonState.update()', () => {
         const distinctIds = await hub.db.fetchDistinctIdValues(persons[0])
         expect(distinctIds).toEqual(expect.arrayContaining(['new-user', 'old-user']))
 
-        const clickhousePersons = await delayUntilEventIngested(() => fetchPersonsRows({ final: true }), 2)
+        const clickhousePersons = await delayUntilEventIngested(() => fetchPersonsRows(), 2)
         expect(clickhousePersons.length).toEqual(2)
         expect(clickhousePersons).toEqual(
             expect.arrayContaining([
@@ -455,7 +455,7 @@ describe('PersonState.update()', () => {
         const distinctIds = await hub.db.fetchDistinctIdValues(persons[0])
         expect(distinctIds).toEqual(expect.arrayContaining(['new-user', 'old-user']))
 
-        const clickhousePersons = await delayUntilEventIngested(() => fetchPersonsRows({ final: true }), 2)
+        const clickhousePersons = await delayUntilEventIngested(() => fetchPersonsRows(), 2)
         expect(clickhousePersons.length).toEqual(2)
         expect(clickhousePersons).toEqual(
             expect.arrayContaining([

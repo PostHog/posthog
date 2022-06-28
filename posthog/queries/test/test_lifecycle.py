@@ -74,7 +74,7 @@ def lifecycle_test_factory(trends, event_factory, person_factory, action_factory
 
         def test_lifecycle_trend_prop_filtering(self):
 
-            p1 = person_factory(team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "p1"})
+            person_factory(team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "p1"})
             event_factory(
                 team=self.team,
                 event="$pageview",
@@ -121,7 +121,7 @@ def lifecycle_test_factory(trends, event_factory, person_factory, action_factory
                 properties={"$number": 1},
             )
 
-            p2 = person_factory(team_id=self.team.pk, distinct_ids=["p2"], properties={"name": "p2"})
+            person_factory(team_id=self.team.pk, distinct_ids=["p2"], properties={"name": "p2"})
             event_factory(
                 team=self.team, event="$pageview", distinct_id="p2", timestamp="2020-01-09T12:00:00Z",
             )
@@ -129,12 +129,12 @@ def lifecycle_test_factory(trends, event_factory, person_factory, action_factory
                 team=self.team, event="$pageview", distinct_id="p2", timestamp="2020-01-12T12:00:00Z",
             )
 
-            p3 = person_factory(team_id=self.team.pk, distinct_ids=["p3"], properties={"name": "p3"})
+            person_factory(team_id=self.team.pk, distinct_ids=["p3"], properties={"name": "p3"})
             event_factory(
                 team=self.team, event="$pageview", distinct_id="p3", timestamp="2020-01-12T12:00:00Z",
             )
 
-            p4 = person_factory(team_id=self.team.pk, distinct_ids=["p4"], properties={"name": "p4"})
+            person_factory(team_id=self.team.pk, distinct_ids=["p4"], properties={"name": "p4"})
             event_factory(
                 team=self.team, event="$pageview", distinct_id="p4", timestamp="2020-01-15T12:00:00Z",
             )
@@ -164,7 +164,7 @@ def lifecycle_test_factory(trends, event_factory, person_factory, action_factory
 
         def test_lifecycle_trends_distinct_id_repeat(self):
             with freeze_time("2020-01-12T12:00:00Z"):
-                p1 = person_factory(team_id=self.team.pk, distinct_ids=["p1", "another_p1"], properties={"name": "p1"})
+                person_factory(team_id=self.team.pk, distinct_ids=["p1", "another_p1"], properties={"name": "p1"})
 
             event_factory(
                 team=self.team, event="$pageview", distinct_id="p1", timestamp="2020-01-12T12:00:00Z",
@@ -533,7 +533,7 @@ def lifecycle_test_factory(trends, event_factory, person_factory, action_factory
             request_factory = APIRequestFactory()
             request = request_factory.get("/person/lifecycle")
 
-            dormant_result = trends().get_people(
+            trends().get_people(
                 Filter(
                     data={
                         "date_from": "2020-01-12T00:00:00Z",

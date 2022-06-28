@@ -2,7 +2,6 @@ import Piscina from '@posthog/piscina'
 import IORedis from 'ioredis'
 
 import { ONE_HOUR } from '../src/config/constants'
-import { KAFKA_EVENTS_PLUGIN_INGESTION } from '../src/config/kafka-topics'
 import { startPluginsServer } from '../src/main/pluginsServer'
 import { LogLevel, PluginsServerConfig } from '../src/types'
 import { Hub } from '../src/types'
@@ -22,8 +21,8 @@ jest.setTimeout(60000) // 60 sec timeout
 
 const extraServerConfig: Partial<PluginsServerConfig> = {
     WORKER_CONCURRENCY: 2,
-    KAFKA_CONSUMPTION_TOPIC: KAFKA_EVENTS_PLUGIN_INGESTION,
     LOG_LEVEL: LogLevel.Log,
+    CONVERSION_BUFFER_ENABLED: false,
 }
 
 const indexJs = `
@@ -65,7 +64,7 @@ export async function exportEvents(events) {
 export async function runEveryMinute() {}
 `
 
-describe('e2e', () => {
+describe('E2E', () => {
     let hub: Hub
     let stopServer: () => Promise<void>
     let posthog: DummyPostHog
@@ -93,7 +92,7 @@ describe('e2e', () => {
         await stopServer()
     })
 
-    describe('e2e clickhouse ingestion', () => {
+    describe('ClickHouse ingestion', () => {
         test('event captured, processed, ingested', async () => {
             expect((await hub.db.fetchEvents()).length).toBe(0)
 
@@ -105,7 +104,6 @@ describe('e2e', () => {
 
             await hub.kafkaProducer.flush()
             const events = await hub.db.fetchEvents()
-            await delay(1000)
 
             expect(events.length).toBe(1)
 
@@ -126,7 +124,6 @@ describe('e2e', () => {
 
             await hub.kafkaProducer.flush()
             const events = await hub.db.fetchSessionRecordingEvents()
-            await delay(1000)
 
             expect(events.length).toBe(1)
 
@@ -162,7 +159,7 @@ describe('e2e', () => {
 
     // TODO: we should enable this test again - they are enabled on self-hosted
     // historical exports are currently disabled
-    describe.skip('e2e export historical events', () => {
+    describe.skip('export historical events', () => {
         const awaitHistoricalEventLogs = async () =>
             await new Promise((resolve) => {
                 resolve(testConsole.read().filter((log) => log[0] === 'exported historical event'))

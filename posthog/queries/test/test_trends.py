@@ -130,7 +130,7 @@ def trend_test_factory(trends):
                     properties={"$some_property": "other_value"},
                 )
 
-            no_events = _create_action(team=self.team, name="no events")
+            _create_action(team=self.team, name="no events")
             sign_up_action = _create_action(team=self.team, name="sign up")
 
             return sign_up_action, person
@@ -143,7 +143,7 @@ def trend_test_factory(trends):
                     _create_event(
                         team=self.team, event="sign up", distinct_id="blabla", properties={"$some_property": i},
                     )
-            sign_up_action = _create_action(team=self.team, name="sign up")
+            _create_action(team=self.team, name="sign up")
 
         def test_trends_per_day(self):
             self._create_events()
@@ -161,7 +161,7 @@ def trend_test_factory(trends):
         # just make sure this doesn't error
         def test_no_props(self):
             with freeze_time("2020-01-04T13:01:01Z"):
-                event_response = trends().run(
+                trends().run(
                     Filter(
                         data={
                             "date_from": "-14d",
@@ -240,7 +240,7 @@ def trend_test_factory(trends):
 
         @test_with_materialized_columns(["$math_prop"])
         def test_trends_single_aggregate_math(self):
-            person = _create_person(
+            _create_person(
                 team_id=self.team.pk, distinct_ids=["blabla", "anonymous_id"], properties={"$some_prop": "some_val"}
             )
             with freeze_time("2020-01-01 00:06:34"):
@@ -297,9 +297,9 @@ def trend_test_factory(trends):
 
         @test_with_materialized_columns(person_properties=["name"], verify_no_jsonextract=False)
         def test_trends_breakdown_single_aggregate_cohorts(self):
-            person_1 = _create_person(team_id=self.team.pk, distinct_ids=["Jane"], properties={"name": "Jane"})
-            person_2 = _create_person(team_id=self.team.pk, distinct_ids=["John"], properties={"name": "John"})
-            person_3 = _create_person(team_id=self.team.pk, distinct_ids=["Jill"], properties={"name": "Jill"})
+            _create_person(team_id=self.team.pk, distinct_ids=["Jane"], properties={"name": "Jane"})
+            _create_person(team_id=self.team.pk, distinct_ids=["John"], properties={"name": "John"})
+            _create_person(team_id=self.team.pk, distinct_ids=["Jill"], properties={"name": "Jill"})
             cohort1 = _create_cohort(
                 team=self.team,
                 name="cohort1",
@@ -384,7 +384,7 @@ def trend_test_factory(trends):
                     self.assertEqual(result["aggregated_value"], 7)
 
         def test_trends_breakdown_single_aggregate(self):
-            person = _create_person(
+            _create_person(
                 team_id=self.team.pk, distinct_ids=["blabla", "anonymous_id"], properties={"$some_prop": "some_val"}
             )
             with freeze_time("2020-01-01 00:06:34"):
@@ -446,7 +446,7 @@ def trend_test_factory(trends):
                     self.assertEqual(result["aggregated_value"], 5)
 
         def test_trends_breakdown_single_aggregate_math(self):
-            person = _create_person(
+            _create_person(
                 team_id=self.team.pk, distinct_ids=["blabla", "anonymous_id"], properties={"$some_prop": "some_val"}
             )
             with freeze_time("2020-01-01 00:06:34"):
@@ -529,7 +529,7 @@ def trend_test_factory(trends):
 
             with freeze_time("2020-01-01 00:06:34"):
                 for i in range(20):
-                    person = _create_person(team_id=self.team.pk, distinct_ids=[f"person{i}"])
+                    _create_person(team_id=self.team.pk, distinct_ids=[f"person{i}"])
                     _create_event(
                         team=self.team,
                         event="sign up",
@@ -543,7 +543,7 @@ def trend_test_factory(trends):
                         properties={"$some_property": f"value_{i}", "$math_prop": 1},
                     )
 
-                person = _create_person(team_id=self.team.pk, distinct_ids=[f"person21"])
+                _create_person(team_id=self.team.pk, distinct_ids=[f"person21"])
                 _create_event(
                     team=self.team,
                     event="sign up",
@@ -622,7 +622,7 @@ def trend_test_factory(trends):
             self.assertEqual(no_compare_response[0]["data"][5], 1.0)
 
         def _test_events_with_dates(self, dates: List[str], result, query_time=None, **filter_params):
-            person1 = _create_person(team_id=self.team.pk, distinct_ids=["person_1"], properties={"name": "John"})
+            _create_person(team_id=self.team.pk, distinct_ids=["person_1"], properties={"name": "John"})
             for time in dates:
                 with freeze_time(time):
                     _create_event(
@@ -1345,16 +1345,16 @@ def trend_test_factory(trends):
 
         @test_with_materialized_columns(person_properties=["name"])
         def test_filter_events_by_cohort(self):
-            person1 = _create_person(team_id=self.team.pk, distinct_ids=["person_1"], properties={"name": "John"})
-            person2 = _create_person(team_id=self.team.pk, distinct_ids=["person_2"], properties={"name": "Jane"})
+            _create_person(team_id=self.team.pk, distinct_ids=["person_1"], properties={"name": "John"})
+            _create_person(team_id=self.team.pk, distinct_ids=["person_2"], properties={"name": "Jane"})
 
-            event1 = _create_event(
+            _create_event(
                 event="event_name", team=self.team, distinct_id="person_1", properties={"$browser": "Safari"},
             )
-            event2 = _create_event(
+            _create_event(
                 event="event_name", team=self.team, distinct_id="person_2", properties={"$browser": "Chrome"},
             )
-            event3 = _create_event(
+            _create_event(
                 event="event_name", team=self.team, distinct_id="person_2", properties={"$browser": "Safari"},
             )
 
@@ -1500,16 +1500,16 @@ def trend_test_factory(trends):
 
         @test_with_materialized_columns(person_properties=["email", "bar"])
         def test_trends_regression_filtering_by_action_with_person_properties(self):
-            person1 = _create_person(
+            _create_person(
                 team_id=self.team.pk, properties={"email": "foo@example.com", "bar": "aa"}, distinct_ids=["d1"]
             )
-            person2 = _create_person(
+            _create_person(
                 team_id=self.team.pk, properties={"email": "bar@example.com", "bar": "bb"}, distinct_ids=["d2"]
             )
-            person2 = _create_person(
+            _create_person(
                 team_id=self.team.pk, properties={"email": "efg@example.com", "bar": "ab"}, distinct_ids=["d3"]
             )
-            person3 = _create_person(team_id=self.team.pk, properties={"bar": "aa"}, distinct_ids=["d4"])
+            _create_person(team_id=self.team.pk, properties={"bar": "aa"}, distinct_ids=["d4"])
 
             with freeze_time("2020-01-02 16:34:34"):
                 _create_event(team=self.team, event="$pageview", distinct_id="d1")
@@ -1732,7 +1732,7 @@ def trend_test_factory(trends):
             self.assertEqual(response[0]["data"][5], 0)
 
         def test_breakdown_by_empty_cohort(self):
-            p1 = _create_person(team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "p1"})
+            _create_person(team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "p1"})
             _create_event(
                 team=self.team, event="$pageview", distinct_id="p1", timestamp="2020-01-04T12:00:00Z",
             )
@@ -1988,7 +1988,7 @@ def trend_test_factory(trends):
                 properties={"fake_prop": "value_1"},
             )
 
-            person4 = _create_person(team_id=self.team.pk, distinct_ids=["person4"], immediate=True)
+            _create_person(team_id=self.team.pk, distinct_ids=["person4"], immediate=True)
             _create_event(
                 team=self.team,
                 event="watched movie",
@@ -2174,7 +2174,7 @@ def trend_test_factory(trends):
         def test_trends_aggregate_by_distinct_id(self):
             # Stopgap until https://github.com/PostHog/meta/pull/39 is implemented
 
-            person = _create_person(
+            _create_person(
                 team_id=self.team.pk, distinct_ids=["blabla", "anonymous_id"], properties={"$some_prop": "some_val"}
             )
             _create_person(team_id=self.team.pk, distinct_ids=["third"])
@@ -2645,7 +2645,7 @@ def trend_test_factory(trends):
         # this ensures that the properties don't conflict when formatting params
         @test_with_materialized_columns(["$current_url"])
         def test_action_with_prop(self):
-            person = _create_person(
+            _create_person(
                 team_id=self.team.pk, distinct_ids=["blabla", "anonymous_id"], properties={"$some_prop": "some_val"}
             )
             sign_up_action = Action.objects.create(team=self.team, name="sign up")
@@ -2905,7 +2905,7 @@ def trend_test_factory(trends):
             self.assertEqual(response[0]["breakdown_value"], "test2@posthog.com")
 
         def _create_active_user_events(self):
-            p0 = _create_person(team_id=self.team.pk, distinct_ids=["p0"], properties={"name": "p1"})
+            _create_person(team_id=self.team.pk, distinct_ids=["p0"], properties={"name": "p1"})
             _create_event(
                 team=self.team,
                 event="$pageview",
@@ -2914,7 +2914,7 @@ def trend_test_factory(trends):
                 properties={"key": "val"},
             )
 
-            p1 = _create_person(team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "p1"})
+            _create_person(team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "p1"})
             _create_event(
                 team=self.team,
                 event="$pageview",
@@ -2937,7 +2937,7 @@ def trend_test_factory(trends):
                 properties={"key": "val"},
             )
 
-            p2 = _create_person(team_id=self.team.pk, distinct_ids=["p2"], properties={"name": "p2"})
+            _create_person(team_id=self.team.pk, distinct_ids=["p2"], properties={"name": "p2"})
             _create_event(
                 team=self.team,
                 event="$pageview",
@@ -2983,7 +2983,7 @@ def trend_test_factory(trends):
         @test_with_materialized_columns(["key"])
         def test_breakdown_active_user_math(self):
 
-            p1 = _create_person(team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "p1"})
+            _create_person(team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "p1"})
             _create_event(
                 team=self.team,
                 event="$pageview",
@@ -3006,7 +3006,7 @@ def trend_test_factory(trends):
                 properties={"key": "val"},
             )
 
-            p2 = _create_person(team_id=self.team.pk, distinct_ids=["p2"], properties={"name": "p2"})
+            _create_person(team_id=self.team.pk, distinct_ids=["p2"], properties={"name": "p2"})
             _create_event(
                 team=self.team,
                 event="$pageview",
@@ -3036,7 +3036,7 @@ def trend_test_factory(trends):
         @snapshot_clickhouse_queries
         def test_breakdown_active_user_math_with_actions(self):
 
-            p1 = _create_person(team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "p1"})
+            _create_person(team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "p1"})
             _create_event(
                 team=self.team,
                 event="$pageview",
@@ -3059,7 +3059,7 @@ def trend_test_factory(trends):
                 properties={"key": "val"},
             )
 
-            p2 = _create_person(team_id=self.team.pk, distinct_ids=["p2"], properties={"name": "p2"})
+            _create_person(team_id=self.team.pk, distinct_ids=["p2"], properties={"name": "p2"})
             _create_event(
                 team=self.team,
                 event="$pageview",
@@ -3075,7 +3075,7 @@ def trend_test_factory(trends):
                 properties={"key": "val"},
             )
 
-            p3 = _create_person(team_id=self.team.pk, distinct_ids=["p3"], properties={"name": "p3"})
+            _create_person(team_id=self.team.pk, distinct_ids=["p3"], properties={"name": "p3"})
             _create_event(
                 team=self.team,
                 event="$pageview",
@@ -3120,7 +3120,7 @@ def trend_test_factory(trends):
 
         @test_with_materialized_columns(event_properties=["key"], person_properties=["name"])
         def test_filter_test_accounts(self):
-            p1 = _create_person(team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "p1"})
+            _create_person(team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "p1"})
             _create_event(
                 team=self.team,
                 event="$pageview",
@@ -3129,7 +3129,7 @@ def trend_test_factory(trends):
                 properties={"key": "val"},
             )
 
-            p2 = _create_person(team_id=self.team.pk, distinct_ids=["p2"], properties={"name": "p2"})
+            _create_person(team_id=self.team.pk, distinct_ids=["p2"], properties={"name": "p2"})
             _create_event(
                 team=self.team,
                 event="$pageview",
@@ -3200,7 +3200,7 @@ def trend_test_factory(trends):
 
         @test_with_materialized_columns(person_properties=["key", "key_2"], verify_no_jsonextract=False)
         def test_breakdown_multiple_cohorts(self):
-            p1 = _create_person(team_id=self.team.pk, distinct_ids=["p1"], properties={"key": "value"})
+            _create_person(team_id=self.team.pk, distinct_ids=["p1"], properties={"key": "value"})
             _create_event(
                 team=self.team,
                 event="$pageview",
@@ -3209,7 +3209,7 @@ def trend_test_factory(trends):
                 properties={"key": "val"},
             )
 
-            p2 = _create_person(team_id=self.team.pk, distinct_ids=["p2"], properties={"key_2": "value_2"})
+            _create_person(team_id=self.team.pk, distinct_ids=["p2"], properties={"key_2": "value_2"})
             _create_event(
                 team=self.team,
                 event="$pageview",
@@ -3218,7 +3218,7 @@ def trend_test_factory(trends):
                 properties={"key": "val"},
             )
 
-            p3 = _create_person(team_id=self.team.pk, distinct_ids=["p3"], properties={"key_2": "value_2"})
+            _create_person(team_id=self.team.pk, distinct_ids=["p3"], properties={"key_2": "value_2"})
             _create_event(
                 team=self.team,
                 event="$pageview",
@@ -3261,7 +3261,7 @@ def trend_test_factory(trends):
 
         @test_with_materialized_columns(person_properties=["key", "key_2"], verify_no_jsonextract=False)
         def test_breakdown_single_cohort(self):
-            p1 = _create_person(team_id=self.team.pk, distinct_ids=["p1"], properties={"key": "value"})
+            _create_person(team_id=self.team.pk, distinct_ids=["p1"], properties={"key": "value"})
             _create_event(
                 team=self.team,
                 event="$pageview",
@@ -3270,7 +3270,7 @@ def trend_test_factory(trends):
                 properties={"key": "val"},
             )
 
-            p2 = _create_person(team_id=self.team.pk, distinct_ids=["p2"], properties={"key_2": "value_2"})
+            _create_person(team_id=self.team.pk, distinct_ids=["p2"], properties={"key_2": "value_2"})
             _create_event(
                 team=self.team,
                 event="$pageview",
@@ -3279,7 +3279,7 @@ def trend_test_factory(trends):
                 properties={"key": "val"},
             )
 
-            p3 = _create_person(team_id=self.team.pk, distinct_ids=["p3"], properties={"key_2": "value_2"})
+            _create_person(team_id=self.team.pk, distinct_ids=["p3"], properties={"key_2": "value_2"})
             _create_event(
                 team=self.team,
                 event="$pageview",
@@ -3362,7 +3362,7 @@ def trend_test_factory(trends):
             # test breakdown filtering
             with self.assertRaises(Exception):
                 with self.settings(TEST=False, DEBUG=False):
-                    response = trends().run(
+                    trends().run(
                         Filter(
                             data={"events": [{"id": "sign up", "name": "sign up", "type": "events", "order": 0,},],}
                         ),
@@ -3679,7 +3679,7 @@ def trend_test_factory(trends):
             # 2. Having multiple properties that filter on the same value
 
             with freeze_time("2020-01-04T13:01:01Z"):
-                event_response = trends().run(
+                trends().run(
                     Filter(
                         data={
                             "date_from": "-14d",

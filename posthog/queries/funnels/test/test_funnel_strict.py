@@ -215,7 +215,7 @@ class TestFunnelStrictSteps(ClickhouseTestMixin, APIBaseTest):
         _create_event(team=self.team, event="insight viewed", distinct_id="person7")
         _create_event(team=self.team, event="blaah blaa", distinct_id="person7")
 
-        person8_didnot_signup = _create_person(distinct_ids=["stopped_after_insightview6"], team_id=self.team.pk)
+        _create_person(distinct_ids=["stopped_after_insightview6"], team_id=self.team.pk)
         _create_event(team=self.team, event="insight viewed", distinct_id="stopped_after_insightview6")
         _create_event(team=self.team, event="$pageview", distinct_id="stopped_after_insightview6")
 
