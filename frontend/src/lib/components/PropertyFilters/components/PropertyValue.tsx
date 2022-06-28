@@ -252,7 +252,6 @@ export function PropertyValue({
                     autoFocus={autoFocus}
                     initialValue={value as number}
                     onChange={setValue}
-                    key={propertyKey}
                 />
             ) : (
                 <AutoComplete
