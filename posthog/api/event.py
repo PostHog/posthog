@@ -6,7 +6,7 @@ from typing import Any, Dict, List, Optional, Union
 from django.db.models.query import Prefetch
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter
-from rest_framework import mixins, request, response, serializers, status, viewsets
+from rest_framework import mixins, request, response, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound
 from rest_framework.pagination import LimitOffsetPagination
@@ -16,11 +16,10 @@ from rest_framework_csv import renderers as csvrenderers
 from sentry_sdk import capture_exception
 
 from posthog.api.documentation import PropertiesSerializer, extend_schema
-from posthog.api.exports import ExportedAssetSerializer
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.client import query_with_columns, sync_execute
-from posthog.models import Element, ExportedAsset, Filter, Person
-from posthog.models.event.query_event_list import query_events_list
+from posthog.models import Element, Filter, Person
+from posthog.models.event.query_event_list import parse_order_by, query_events_list
 from posthog.models.event.sql import GET_CUSTOM_EVENTS, SELECT_ONE_EVENT_SQL
 from posthog.models.event.util import ClickhouseEventSerializer
 from posthog.models.person.util import get_persons_by_distinct_ids
@@ -28,7 +27,6 @@ from posthog.models.team import Team
 from posthog.models.utils import UUIDT
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.queries.property_values import get_property_values_for_key
-from posthog.tasks.exports import csv_exporter
 from posthog.utils import convert_property_value, flatten
 
 
@@ -71,68 +69,6 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
             params["before"] = timestamp
         return request.build_absolute_uri(f"{request.path}?{urllib.parse.urlencode(params)}")
 
-    def _parse_order_by(self, request: request.Request) -> List[str]:
-        order_by_param = request.GET.get("orderBy")
-        return ["-timestamp"] if not order_by_param else list(json.loads(order_by_param))
-
-    @extend_schema(
-        parameters=[
-            OpenApiParameter(
-                "event",
-                OpenApiTypes.STR,
-                description="Filter events by event. For example `user sign up` or `$pageview`.",
-            ),
-            OpenApiParameter("person_id", OpenApiTypes.INT, description="Filter events by person id."),
-            OpenApiParameter("distinct_id", OpenApiTypes.INT, description="Filter events by distinct id."),
-            OpenApiParameter(
-                "before", OpenApiTypes.DATETIME, description="Only return events with a timestamp before this time."
-            ),
-            OpenApiParameter(
-                "after", OpenApiTypes.DATETIME, description="Only return events with a timestamp after this time."
-            ),
-            PropertiesSerializer(required=False),
-        ],
-    )
-    @action(methods=["POST"], detail=False)
-    def csv(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
-        """
-        Queues a background task to export events to CSV
-
-        Returns the location to poll for download in the location header, if the request is accepted
-        """
-        try:
-            filter = Filter(request=request, team=self.team)
-
-            # to-do if a matching export already exists do we just re-use it
-            export_request = ExportedAsset.objects.create(
-                team=self.team,
-                dashboard=None,
-                insight=None,
-                export_format=ExportedAsset.ExportFormat.CSV,
-                export_context={
-                    "type": "list_events",
-                    "filter": filter.to_dict(),
-                    "request_get_query_dict": request.GET.dict(),
-                    "order_by": self._parse_order_by(self.request),
-                    "action_id": request.GET.get("action_id"),
-                },
-            )
-
-            csv_exporter.export_csv.delay(export_request.id)
-
-            data = ExportedAssetSerializer(export_request, many=False).data
-            create_response = response.Response(
-                data=data, status=status.HTTP_201_CREATED, content_type="application/json",
-            )
-            create_response["location"] = request.build_absolute_uri(
-                f"/api/projects/{self.team.id}/exports/{export_request.id}"
-            )
-            return create_response
-
-        except Exception as ex:
-            capture_exception(ex)
-            raise ex
-
     @extend_schema(
         parameters=[
             OpenApiParameter(
@@ -173,7 +109,7 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
                 team=team,
                 limit=limit,
                 request_get_query_dict=request.GET.dict(),
-                order_by=self._parse_order_by(request),
+                order_by=parse_order_by(request.GET.get("orderBy")),
                 action_id=request.GET.get("action_id"),
             )
 
@@ -185,7 +121,7 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
                     long_date_from=True,
                     limit=limit,
                     request_get_query_dict=request.GET.dict(),
-                    order_by=self._parse_order_by(request),
+                    order_by=parse_order_by(request.GET.get("orderBy")),
                     action_id=request.GET.get("action_id"),
                 )
 

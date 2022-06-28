@@ -21,14 +21,15 @@ from posthog.api.insight import InsightSerializer
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.event_usage import report_user_action
-from posthog.models import Insight
+from posthog.models import Filter, Insight, Team
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
+from posthog.models.event.query_event_list import parse_order_by
 from posthog.models.exported_asset import ExportedAsset, asset_for_token
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.settings import DEBUG
 from posthog.storage import object_storage
 from posthog.storage.object_storage import ObjectStorageError
-from posthog.tasks.exports import insight_exporter
+from posthog.tasks.exports import csv_exporter, insight_exporter
 from posthog.utils import render_template
 
 logger = structlog.get_logger(__name__)
@@ -57,28 +58,62 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = ExportedAsset
-        fields = ["id", "dashboard", "insight", "export_format", "created_at", "has_content"]
-        read_only_fields = ["id", "created_at", "has_content"]
+        fields = ["id", "dashboard", "insight", "export_format", "created_at", "has_content", "export_context"]
+        read_only_fields = ["id", "created_at", "has_content", "export_context"]
 
     def validate(self, attrs):
-        if not attrs.get("dashboard") and not attrs.get("insight"):
-            raise ValidationError("Either dashboard or insight is required for an export.")
+        if not attrs.get("export_format"):
+            raise ValidationError("Must provide export format")
 
-        if attrs.get("dashboard") and attrs["dashboard"].team.id != self.context["team_id"]:
-            raise ValidationError({"dashboard": ["This dashboard does not belong to your team."]})
+        if attrs.get("export_format", None) != ExportedAsset.ExportFormat.CSV:
+            if not attrs.get("dashboard") and not attrs.get("insight"):
+                raise ValidationError("Either dashboard or insight is required for an export.")
 
-        if attrs.get("insight") and attrs["insight"].team.id != self.context["team_id"]:
-            raise ValidationError({"insight": ["This insight does not belong to your team."]})
+            if attrs.get("dashboard") and attrs["dashboard"].team.id != self.context["team_id"]:
+                raise ValidationError({"dashboard": ["This dashboard does not belong to your team."]})
+
+            if attrs.get("insight") and attrs["insight"].team.id != self.context["team_id"]:
+                raise ValidationError({"insight": ["This insight does not belong to your team."]})
 
         return attrs
 
+    # @extend_schema(
+    #     parameters=[
+    #         OpenApiParameter(
+    #             "event",
+    #             OpenApiTypes.STR,
+    #             description="Filter events by event. For example `user sign up` or `$pageview`.",
+    #         ),
+    #         OpenApiParameter("person_id", OpenApiTypes.INT, description="Filter events by person id."),
+    #         OpenApiParameter("distinct_id", OpenApiTypes.INT, description="Filter events by distinct id."),
+    #         OpenApiParameter(
+    #             "before", OpenApiTypes.DATETIME, description="Only return events with a timestamp before this time."
+    #         ),
+    #         OpenApiParameter(
+    #             "after", OpenApiTypes.DATETIME, description="Only return events with a timestamp after this time."
+    #         ),
+    #         PropertiesSerializer(required=False),
+    #     ],
+    # )
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> ExportedAsset:
         request = self.context["request"]
         validated_data["team_id"] = self.context["team_id"]
 
+        is_csv_export = validated_data.get("export_format") == ExportedAsset.ExportFormat.CSV
+        if is_csv_export:
+            validated_data["export_context"] = {
+                "file_export_type": "list_events",  # hard code to just this one for now
+                "filter": Filter(request=request, team=Team.objects.get(pk=validated_data["team_id"])).to_dict(),
+                "request_get_query_dict": request.GET.dict(),
+                "order_by": parse_order_by(request.GET.get("orderBy")),
+                "action_id": request.GET.get("action_id"),
+            }
         instance: ExportedAsset = super().create(validated_data)
 
-        task = insight_exporter.export_insight.delay(instance.id)
+        if is_csv_export:
+            task = csv_exporter.export_csv.delay(instance.id)
+        else:
+            task = insight_exporter.export_insight.delay(instance.id)
         try:
             task.get(timeout=10)
             instance.refresh_from_db()
