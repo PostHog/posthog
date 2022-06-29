@@ -135,7 +135,7 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, StructuredViewSetMixin
                 return (None, asset)
 
         # Path based access (SharingConfiguration only)
-        access_token = self.kwargs.get("access_token")
+        access_token = self.kwargs.get("access_token", "").split(".")[0]
         if access_token:
             sharing_configuration = None
             try:
@@ -187,7 +187,6 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, StructuredViewSetMixin
         elif resource.dashboard and not resource.dashboard.deleted:
             dashboard_data = DashboardSerializer(resource.dashboard, context=context).data
             # We don't want the dashboard to be accidentally loaded via the shared endpoint
-            dashboard_data["share_token"] = None
             exported_data.update({"dashboard": dashboard_data})
         else:
             raise NotFound()
@@ -196,6 +195,9 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, StructuredViewSetMixin
             exported_data.update({"whitelabel": True})
         if "noLegend" in request.GET:
             exported_data.update({"noLegend": True})
+
+        if request.path.endswith(f".json"):
+            return response.Response(exported_data)
 
         return render_template(
             "exporter.html",
