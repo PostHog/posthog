@@ -216,7 +216,10 @@ export function EditorFilters({ insightProps, showing }: EditorFiltersProps): JS
                                       <li>
                                           Any step: the property value must be seen on at least one step of the funnel.
                                       </li>
-                                      <a href="" target="_blank">
+                                      <a
+                                          href="https://posthog.com/docs/user-guides/funnels#choosing-breakdown-property-behaviour"
+                                          target="_blank"
+                                      >
                                           Read more in the docs.
                                       </a>
                                   </ul>
