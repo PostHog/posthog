@@ -80,7 +80,7 @@ export const dateFilterLogic = kea<dateFilterLogicType>({
             // when props change, automatically reset the Select key to reflect the change
             const { dateFrom, dateTo, defaultValue, dateOptions, isDateFormatted } = props
             let newValue = null
-            if (dateFrom && dayjs(dateFrom).isValid() && dayjs(dateTo).isValid()) {
+            if (dateFrom && dateTo && dayjs(dateFrom).isValid() && dayjs(dateTo).isValid()) {
                 newValue = `${dateFrom} - ${dateTo}`
             } else {
                 const currKey = dateFilterToText(dateFrom, dateTo, defaultValue, dateOptions, false)

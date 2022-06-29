@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, useRef, useEffect } from 'react'
 import { Button } from 'antd'
 import './DateFilterRangeExperiment.scss'
 import { dayjs } from 'lib/dayjs'
@@ -15,12 +15,34 @@ export function DateFilterRange(props: {
     rangeDateTo?: string | dayjs.Dayjs | null
     getPopupContainer?: (props: any) => HTMLElement
     disableBeforeYear?: number
-    pickerRef?: React.MutableRefObject<any>
 }): JSX.Element {
+    const dropdownRef = useRef<HTMLDivElement | null>(null)
     const [calendarOpen, setCalendarOpen] = useState(true)
 
+    const onClickOutside = (event: MouseEvent): void => {
+        const target = (event.composedPath?.()?.[0] || event.target) as HTMLElement
+
+        if (!target) {
+            return
+        }
+
+        const clickInPickerContainer = dropdownRef.current?.contains(target)
+
+        if (clickInPickerContainer && calendarOpen && target.tagName !== 'INPUT') {
+            setCalendarOpen(false)
+            return
+        }
+    }
+
+    useEffect(() => {
+        window.addEventListener('mousedown', onClickOutside)
+        return () => {
+            window.removeEventListener('mousedown', onClickOutside)
+        }
+    }, [calendarOpen])
+
     return (
-        <div>
+        <div ref={dropdownRef}>
             <a
                 style={{
                     margin: '0 1rem',
@@ -37,7 +59,6 @@ export function DateFilterRange(props: {
                 <label className="secondary">From date</label>
                 <br />
                 <DatePicker.RangePicker
-                    pickerRef={props.pickerRef}
                     dropdownClassName="datefilter-datepicker"
                     getPopupContainer={props.getPopupContainer}
                     defaultValue={[

@@ -17,6 +17,7 @@ export interface DateFilterProps {
     showRollingRangePicker?: boolean
     makeLabel?: (key: React.ReactNode) => React.ReactNode
     style?: React.CSSProperties
+    popupStyle?: React.CSSProperties
     onChange?: (fromDate: string, toDate: string) => void
     disabled?: boolean
     getPopupContainer?: (props: any) => HTMLElement
@@ -34,6 +35,7 @@ export function DateFilterExperiment({
     showCustom,
     showRollingRangePicker = true,
     style,
+    popupStyle,
     disabled,
     makeLabel,
     onChange,
@@ -51,7 +53,6 @@ export function DateFilterExperiment({
 
     const optionsRef = useRef<HTMLDivElement | null>(null)
     const rollingDateRangeRef = useRef<HTMLDivElement | null>(null)
-    const fixedDateRangeRef = useRef<HTMLDivElement | null>(null)
 
     function _onChange(v: string | number | null): void {
         if (!v) {
@@ -89,7 +90,6 @@ export function DateFilterExperiment({
             rangeDateFrom={rangeDateFrom}
             rangeDateTo={rangeDateTo}
             disableBeforeYear={2015}
-            pickerRef={fixedDateRangeRef}
         />
     ) : (
         <div ref={optionsRef} className="date-filter-options" onClick={(e) => e.stopPropagation()}>
@@ -138,9 +138,9 @@ export function DateFilterExperiment({
             onClick={isOpen ? close : open}
             value={value}
             disabled={disabled}
-            style={style}
+            style={{ ...style, border: '1px solid var(--border)' }} //TODO this is a css hack, so that this button aligns with others on the page who are still on antd
             size={'small'}
-            type={'secondary'}
+            type={'stealth'}
             popup={{
                 onClickOutside: close,
                 visible: isOpen || isDateRangeOpen,
@@ -148,7 +148,8 @@ export function DateFilterExperiment({
                 placement: 'bottom-start',
                 actionable: true,
                 closeOnClickInside: false,
-                additionalRefs: [fixedDateRangeRef, rollingDateRangeRef],
+                additionalRefs: [rollingDateRangeRef, '.datefilter-datepicker'],
+                style: popupStyle,
             }}
             icon={<CalendarOutlined />}
         >

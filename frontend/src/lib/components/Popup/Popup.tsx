@@ -35,8 +35,11 @@ export interface PopupProps {
     maxContentWidth?: boolean
     className?: string
     middleware?: Middleware[]
-    /** Any other refs that needs to be taken into account for handling outside clicks e.g. other nested popups */
-    additionalRefs?: React.MutableRefObject<HTMLDivElement | null>[]
+    /** Any other refs that needs to be taken into account for handling outside clicks e.g. other nested popups.
+     * Works also with strings, matching classnames or ids, for antd legacy components that don't support refs
+     * **/
+    additionalRefs?: (React.MutableRefObject<HTMLDivElement | null> | string)[]
+    style?: React.CSSProperties
 }
 
 /** 0 means no parent. */
@@ -64,6 +67,7 @@ export const Popup = React.forwardRef<HTMLDivElement, PopupProps>(
             sameWidth = false,
             maxContentWidth = false,
             additionalRefs = [],
+            style,
         },
         ref
     ): JSX.Element => {
@@ -130,7 +134,7 @@ export const Popup = React.forwardRef<HTMLDivElement, PopupProps>(
                                 )}
                                 data-floating-placement={floatingPlacement}
                                 ref={floatingRef as MutableRefObject<HTMLDivElement>}
-                                style={{ position: strategy, top: y ?? 0, left: x ?? 0 }}
+                                style={{ position: strategy, top: y ?? 0, left: x ?? 0, ...style }}
                                 onClick={onClickInside}
                             >
                                 <div ref={ref} className="Popup__box">

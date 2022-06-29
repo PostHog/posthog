@@ -398,11 +398,11 @@ export function SavedInsights(): JSX.Element {
                                     ))}
                                 </Select>
                             </Col>
-                            <Col>
+                            <div style={{ display: 'flex', alignItems: 'center' }}>
                                 Last modified:
                                 {dateFilterExperiment ? (
                                     <DateFilterExperiment
-                                        style={{ paddingLeft: 8 }}
+                                        style={{ marginLeft: 8 }}
                                         defaultValue="All time"
                                         dateFrom={dateFrom}
                                         dateTo={dateTo}
@@ -430,7 +430,7 @@ export function SavedInsights(): JSX.Element {
                                         }
                                     />
                                 )}
-                            </Col>
+                            </div>
                             {tab !== SavedInsightsTabs.Yours ? (
                                 <Col>
                                     Created by:
