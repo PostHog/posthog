@@ -493,6 +493,21 @@ class TestFiltering(
         self.assertEqual(events[0]["id"], event2_uuid)
         self.assertEqual(len(events), 1)
 
+    def test_is_not_set_and_is_set_with_missing_value(self):
+        event1_uuid = _create_event(team=self.team, event="$pageview", distinct_id="test",)
+        event2_uuid = _create_event(
+            team=self.team, event="$pageview", distinct_id="test", properties={"is_first_user": True}
+        )
+        filter = Filter(data={"properties": [{"key": "is_first_user", "operator": "is_not_set"}]})
+        events = _filter_events(filter, self.team)
+        self.assertEqual(events[0]["id"], event1_uuid)
+        self.assertEqual(len(events), 1)
+
+        filter = Filter(data={"properties": [{"key": "is_first_user", "operator": "is_set"}]})
+        events = _filter_events(filter, self.team)
+        self.assertEqual(events[0]["id"], event2_uuid)
+        self.assertEqual(len(events), 1)
+
     def test_true_false(self):
         _create_event(team=self.team, distinct_id="test", event="$pageview")
         event2_uuid = _create_event(
