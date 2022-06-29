@@ -62,7 +62,6 @@ function Exporter(): JSX.Element {
             ) : dashboard ? (
                 <Dashboard
                     id={String(dashboard.id)}
-                    shareToken={dashboard.share_token}
                     placement={type === ExportType.Image ? DashboardPlacement.Export : DashboardPlacement.Public}
                 />
             ) : (

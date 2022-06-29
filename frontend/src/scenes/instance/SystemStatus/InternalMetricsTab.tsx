@@ -31,11 +31,7 @@ export function InternalMetricsTab(): JSX.Element {
             <Collapse activeKey={openSections} onChange={(keys) => setOpenSections(keys as string[])}>
                 {dashboard ? (
                     <Collapse.Panel header="Dashboards" key="0">
-                        <Dashboard
-                            id={dashboard.id.toString()}
-                            shareToken={dashboard.share_token}
-                            placement={DashboardPlacement.InternalMetrics}
-                        />
+                        <Dashboard id={dashboard.id.toString()} placement={DashboardPlacement.InternalMetrics} />
                     </Collapse.Panel>
                 ) : null}
                 <Collapse.Panel header="PostgreSQL - currently running queries" key="1">

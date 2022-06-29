@@ -2,8 +2,6 @@ import secrets
 
 from django.db import models
 
-PUBLIC_ACCESS_TOKEN_EXP_DAYS = 365
-
 
 def get_default_access_token() -> str:
     return secrets.token_urlsafe(22)

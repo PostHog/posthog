@@ -21,23 +21,21 @@ import { FEATURE_FLAGS } from 'lib/constants'
 
 interface Props {
     id?: string
-    shareToken?: string
     placement?: DashboardPlacement
 }
 
 export const scene: SceneExport = {
     component: DashboardScene,
     logic: dashboardLogic,
-    paramsToProps: ({ params: { id, shareToken, placement } }: { params: Props }): DashboardLogicProps => ({
+    paramsToProps: ({ params: { id, placement } }: { params: Props }): DashboardLogicProps => ({
         id: id ? parseInt(id) : undefined,
-        shareToken,
         placement,
     }),
 }
 
-export function Dashboard({ id, shareToken, placement }: Props = {}): JSX.Element {
+export function Dashboard({ id, placement }: Props = {}): JSX.Element {
     return (
-        <BindLogic logic={dashboardLogic} props={{ id: id ? parseInt(id) : undefined, shareToken, placement }}>
+        <BindLogic logic={dashboardLogic} props={{ id: id ? parseInt(id) : undefined, placement }}>
             <DashboardScene />
         </BindLogic>
     )

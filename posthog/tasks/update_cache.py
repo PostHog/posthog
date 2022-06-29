@@ -131,6 +131,7 @@ def get_cache_type(filter: FilterType) -> CacheType:
 
 def update_cached_items() -> None:
     tasks = []
+    # TODO: Fix this is_shared reference
     items = (
         DashboardTile.objects.filter(
             Q(Q(dashboard__is_shared=True) | Q(dashboard__last_accessed_at__gt=timezone.now() - relativedelta(days=7)))

@@ -45,9 +45,9 @@ def _get_sharing_configuration(team_id: int, dashboard: Optional[Dashboard] = No
     instance = cast(SharingConfiguration, instance)
     if dashboard:
         # Ensure the legacy dashboard fields are in sync with the sharing configuration
-        if dashboard.share_token and dashboard.share_token != instance.access_token:
-            instance.enabled = dashboard.is_shared
-            instance.access_token = dashboard.share_token
+        if dashboard.deprecated_share_token and dashboard.deprecated_share_token != instance.access_token:
+            instance.enabled = dashboard.deprecated_is_shared
+            instance.access_token = dashboard.deprecated_share_token
             instance.save()
 
     return instance
@@ -146,7 +146,9 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, StructuredViewSetMixin
                 # It could be a legacy Dashboard sharing token so we can
                 # TOOD: This can be removed once we fully migrate the fields
                 try:
-                    dashboard: Dashboard = Dashboard.objects.get(is_shared=True, share_token=access_token)
+                    dashboard: Dashboard = Dashboard.objects.get(
+                        deprecated_is_shared=True, deprecated_share_token=access_token
+                    )
                     sharing_configuration = _get_sharing_configuration(dashboard.team_id, dashboard=dashboard)
                 except Dashboard.DoesNotExist:
                     raise NotFound()
@@ -177,12 +179,12 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, StructuredViewSetMixin
 
             exported_data["type"] = "image"
 
-        if resource.insight:
+        if resource.insight and not resource.insight.deleted:
             # Both insight AND dashboard can be set. If both it is assumed we should render that
             context["dashboard"] = resource.dashboard
             insight_data = InsightSerializer(resource.insight, many=False, context=context).data
             exported_data.update({"insight": insight_data})
-        elif resource.dashboard:
+        elif resource.dashboard and not resource.dashboard.deleted:
             dashboard_data = DashboardSerializer(resource.dashboard, context=context).data
             # We don't want the dashboard to be accidentally loaded via the shared endpoint
             dashboard_data["share_token"] = None

@@ -1,4 +1,4 @@
-import { afterMount, connect, kea, key, path, props, selectors } from 'kea'
+import { afterMount, connect, kea, key, listeners, path, props, selectors } from 'kea'
 import { AvailableFeature, InsightShortId, SharingConfigurationType } from '~/types'
 
 import api from 'lib/api'
@@ -11,6 +11,7 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { forms } from 'kea-forms'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 export interface SharingLogicProps {
     dashboardId?: number
@@ -56,6 +57,14 @@ export const sharingLogic = kea<sharingLogicType>([
             },
         ],
     })),
+    listeners(({ props }) => ({
+        setIsEnabled: (enabled) => {
+            if (props.dashboardId) {
+                eventUsageLogic.actions.reportDashboardShareToggled(enabled)
+            }
+        },
+    })),
+
     forms({
         embedConfig: {
             defaults: defaultEmbedConfig,

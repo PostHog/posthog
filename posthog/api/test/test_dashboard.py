@@ -104,7 +104,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.assertEqual(dashboard.name, "dashboard new name")
 
     def test_create_dashboard_item(self):
-        dashboard = Dashboard.objects.create(team=self.team, share_token="testtoken", name="public dashboard")
+        dashboard = Dashboard.objects.create(team=self.team, name="public dashboard")
         self._create_insight(
             {
                 "dashboards": [dashboard.pk],

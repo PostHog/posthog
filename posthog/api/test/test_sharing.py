@@ -1,11 +1,9 @@
 from freezegun import freeze_time
 from rest_framework import status
 
-from ee.models.dashboard_privilege import DashboardPrivilege
 from posthog.models.dashboard import Dashboard
 from posthog.models.filters.filter import Filter
 from posthog.models.insight import Insight
-from posthog.models.organization import OrganizationMembership
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.user import User
 from posthog.test.base import APIBaseTest
@@ -57,15 +55,19 @@ class TestSharing(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert data["enabled"]
 
+        response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{self.dashboard.id}")
+
+        assert response.json()["is_shared"]
+
     def test_should_update_to_match_existing_dashboard_sharing_token(self):
         dashboard = Dashboard.objects.create(team=self.team, name="example dashboard", created_by=self.user)
         response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard.id}/sharing")
         initial_token = response.json()["access_token"]
         assert initial_token
-        assert response.json()["enabled"] == False
+        assert not response.json()["enabled"]
 
-        dashboard.share_token = "my_test_token"
-        dashboard.is_shared = True
+        dashboard.deprecated_share_token = "my_test_token"
+        dashboard.deprecated_is_shared = True
         dashboard.save()
 
         response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard.id}/sharing")
@@ -73,8 +75,8 @@ class TestSharing(APIBaseTest):
         assert data["access_token"] == "my_test_token"
         assert data["enabled"]
 
-        dashboard.share_token = None
-        dashboard.is_shared = False
+        dashboard.deprecated_share_token = None
+        dashboard.deprecated_is_shared = False
         dashboard.save()
 
         response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard.id}/sharing")
@@ -83,8 +85,12 @@ class TestSharing(APIBaseTest):
         assert data["enabled"]
 
     def test_should_get_using_legacy_token(self):
-        dashboard = Dashboard.objects.create(
-            team=self.team, name="example dashboard", created_by=self.user, share_token="my_test_token", is_shared=True
+        Dashboard.objects.create(
+            team=self.team,
+            name="example dashboard",
+            created_by=self.user,
+            deprecated_share_token="my_test_token",
+            deprecated_is_shared=True,
         )
 
         response = self.client.get(f"/shared_dashboard/my_test_token")
@@ -105,3 +111,20 @@ class TestSharing(APIBaseTest):
         )
 
         assert response.status_code == 200
+
+    def test_should_not_get_deleted_item(self):
+        dashboard = Dashboard.objects.create(
+            team=self.team,
+            name="example dashboard",
+            created_by=self.user,
+            deprecated_share_token="my_test_token",
+            deprecated_is_shared=True,
+        )
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard.id}/sharing", {"enabled": True}
+        )
+        response = self.client.get(f"/shared_dashboard/my_test_token")
+        assert response.status_code == 200
+        response = self.client.patch(f"/api/projects/{self.team.id}/dashboards/{dashboard.id}", {"deleted": True})
+        response = self.client.get(f"/shared_dashboard/my_test_token")
+        assert response.status_code == 404
