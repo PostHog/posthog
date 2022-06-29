@@ -8,7 +8,7 @@ from posthog.models.dashboard_tile import get_tiles_ordered_by_position
 from posthog.models.exported_asset import ExportedAsset
 from posthog.models.insight import Insight
 from posthog.models.subscription import Subscription
-from posthog.tasks.exporter import export_task
+from posthog.tasks.exports.insight_exporter import export_insight
 
 logger = structlog.get_logger(__name__)
 
@@ -32,13 +32,15 @@ def generate_assets(
 
     # Create all the assets we need
     assets = [
-        ExportedAsset(team=subscription.team, export_format="image/png", insight=insight)
+        ExportedAsset(
+            team=subscription.team, export_format="image/png", insight=insight, dashboard=subscription.dashboard
+        )
         for insight in insights[:max_asset_count]
     ]
     ExportedAsset.objects.bulk_create(assets)
 
     # Wait for all assets to be exported
-    tasks = [export_task.s(asset.id) for asset in assets]
+    tasks = [export_insight.s(asset.id) for asset in assets]
     parallel_job = group(tasks).apply_async()
 
     max_wait = 30

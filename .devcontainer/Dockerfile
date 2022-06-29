@@ -7,15 +7,13 @@
 # experience as rich as possible. Perhaps later down the line it might be worth
 # rolling our own
 #
-# NOTE: I haven't tried to unify with `dev.Dockerfile` at this point. I want to
-# understand what leaning into codespaces looks like first.
 FROM mcr.microsoft.com/vscode/devcontainers/python:3.9-bullseye
 
 # Make sure all exit codes on pipes cause failures
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
 # Set up docker in docker as per
-# https://github.com/microsoft/vscode-dev-containers/blob/main/script-library/docs/docker-in-docker.md 
+# https://github.com/microsoft/vscode-dev-containers/blob/main/script-library/docs/docker-in-docker.md
 COPY .devcontainer/library-scripts /tmp/library-scripts
 
 ENV DOCKER_BUILDKIT=1
@@ -36,8 +34,6 @@ RUN apt-get update \
 # [Choice] Node.js version: none, lts/*, 16, 14, 12, 10
 ARG NODE_VERSION="16"
 RUN if [ "${NODE_VERSION}" != "none" ]; then su vscode -c "umask 0002 && . /usr/local/share/nvm/nvm.sh && nvm install ${NODE_VERSION} 2>&1"; fi
-
-# NOTE: the below is mostly just a copy of /dev.Dockerfile
 
 WORKDIR /workspace
 

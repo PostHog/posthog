@@ -21,9 +21,9 @@
         "prepublishOnly": "yarn build",
         "setup:dev:clickhouse": "cd .. && DEBUG=1 python manage.py migrate_clickhouse",
         "setup:test": "cd .. && TEST=1 python manage.py setup_test_environment",
-        "services:start": "cd .. && docker-compose -f docker-compose.dev.yml up zookeeper kafka clickhouse object_storage",
+        "services:start": "cd .. && docker-compose -f docker-compose.dev.yml up",
         "services:stop": "cd .. && docker-compose -f docker-compose.dev.yml down",
-        "services:clean": "cd .. && docker-compose -f docker-compose.dev.yml rm -v zookeeper kafka clickhouse object_storage",
+        "services:clean": "cd .. && docker-compose -f docker-compose.dev.yml rm -v",
         "services": "yarn services:stop && yarn services:clean && yarn services:start"
     },
     "bin": {
@@ -59,7 +59,7 @@
         "hot-shots": "^8.3.2",
         "ioredis": "^4.27.6",
         "jsonwebtoken": "^8.5.1",
-        "kafkajs": "^2.0.1",
+        "kafkajs": "^2.0.2",
         "lru-cache": "^6.0.0",
         "luxon": "^1.27.0",
         "node-fetch": "^2.6.1",
