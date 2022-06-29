@@ -13,17 +13,24 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.RenameField(model_name="dashboard", old_name="is_shared", new_name="deprecated_is_shared",),
-        migrations.RenameField(model_name="dashboard", old_name="share_token", new_name="deprecated_share_token",),
-        migrations.AlterField(
-            model_name="dashboard",
-            name="deprecated_is_shared",
-            field=models.BooleanField(db_column="is_shared", default=False),
-        ),
-        migrations.AlterField(
-            model_name="dashboard",
-            name="deprecated_share_token",
-            field=models.CharField(blank=True, db_column="share_token", max_length=400, null=True),
+        migrations.SeparateDatabaseAndState(
+            database_operations=[],
+            state_operations=[
+                migrations.RenameField(model_name="dashboard", old_name="is_shared", new_name="deprecated_is_shared"),
+                migrations.AlterField(
+                    model_name="dashboard",
+                    name="deprecated_is_shared",
+                    field=models.BooleanField(db_column="is_shared", default=False),
+                ),
+                migrations.RenameField(
+                    model_name="dashboard", old_name="share_token", new_name="deprecated_share_token"
+                ),
+                migrations.AlterField(
+                    model_name="dashboard",
+                    name="deprecated_share_token",
+                    field=models.CharField(blank=True, db_column="share_token", max_length=400, null=True),
+                ),
+            ],
         ),
         migrations.CreateModel(
             name="SharingConfiguration",
