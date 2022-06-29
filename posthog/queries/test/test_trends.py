@@ -565,7 +565,7 @@ def trend_test_factory(trends):
                 )
 
             breakdown_vals = [val["breakdown_value"] for val in daily_response]
-            self.assertTrue("value_21" in breakdown_vals)
+            self.assertIn("value_21", breakdown_vals)
 
         def test_trends_compare(self):
             self._create_events()

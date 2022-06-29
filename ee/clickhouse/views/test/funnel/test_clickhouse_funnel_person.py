@@ -91,7 +91,7 @@ class TestFunnelPerson(ClickhouseTestMixin, APIBaseTest):
         people = j["results"][0]["people"]
         next = j["next"]
         self.assertEqual(100, len(people))
-        self.assertNotEqual(None, next)
+        self.assertIsNotNone(next)
 
         response = self.client.get(next)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -99,7 +99,7 @@ class TestFunnelPerson(ClickhouseTestMixin, APIBaseTest):
         people = j["results"][0]["people"]
         next = j["next"]
         self.assertEqual(10, len(people))
-        self.assertEqual(None, j["next"])
+        self.assertIsNone(j["next"])
 
     def test_breakdown_basic_pagination(self):
         cache.clear()
@@ -136,7 +136,7 @@ class TestFunnelPerson(ClickhouseTestMixin, APIBaseTest):
         people = j["results"][0]["people"]
         next = j["next"]
         self.assertEqual(10, len(people))
-        self.assertEqual(None, j["next"])
+        self.assertIsNone(j["next"])
 
     @patch("posthog.models.person.util.delete_person")
     def test_basic_pagination_with_deleted(self, delete_person_patch):
@@ -241,7 +241,7 @@ class TestFunnelPerson(ClickhouseTestMixin, APIBaseTest):
 
         people = j["results"][0]["people"]
         self.assertEqual(1, len(people))
-        self.assertEqual(None, j["next"])
+        self.assertIsNone(j["next"])
 
         response = self.client.get("/api/person/funnel/", data={**request_data, "funnel_step_breakdown": "Safari"})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -249,7 +249,7 @@ class TestFunnelPerson(ClickhouseTestMixin, APIBaseTest):
 
         people = j["results"][0]["people"]
         self.assertEqual(2, len(people))
-        self.assertEqual(None, j["next"])
+        self.assertIsNone(j["next"])
 
 
 class TestFunnelCorrelationActors(ClickhouseTestMixin, APIBaseTest):
@@ -302,7 +302,7 @@ class TestFunnelCorrelationActors(ClickhouseTestMixin, APIBaseTest):
         people = j["results"][0]["people"]
         next = j["next"]
         self.assertEqual(4, len(people))
-        self.assertNotEqual(None, next)
+        self.assertIsNotNone(next)
 
         response = self.client.get(next)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -310,4 +310,4 @@ class TestFunnelCorrelationActors(ClickhouseTestMixin, APIBaseTest):
         people = j["results"][0]["people"]
         next = j["next"]
         self.assertEqual(2, len(people))
-        self.assertEqual(None, j["next"])
+        self.assertIsNone(j["next"])

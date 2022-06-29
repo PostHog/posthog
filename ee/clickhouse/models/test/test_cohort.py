@@ -306,7 +306,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         cohort = Cohort.objects.get()
         results = get_person_ids_by_cohort_id(self.team, cohort.id)
         self.assertEqual(len(results), 2)
-        self.assertEqual(cohort.is_calculating, False)
+        self.assertFalse(cohort.is_calculating)
 
         # test SQLi
         Person.objects.create(team_id=self.team.pk, distinct_ids=["'); truncate person_static_cohort; --"])

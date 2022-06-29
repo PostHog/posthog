@@ -12,6 +12,7 @@
 -c requirements.txt
 
 flake8>=3.8 # match minimum version to oldest Python version that PostHog currently supports
+flake8-assertive==2.1.0
 flake8-bugbear==20.1.4
 flake8-colors==0.1.6
 flake8-comprehensions==3.2.2

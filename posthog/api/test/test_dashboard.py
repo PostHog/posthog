@@ -436,7 +436,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/", {"refresh": False}
         ).json()
         first_tile_layouts = dashboard_json["items"][0]["layouts"]
-        self.assertTrue("lg" in first_tile_layouts)
+        self.assertIn("lg", first_tile_layouts)
 
     def test_dashboard_from_template(self):
         response = self.client.post(

@@ -157,7 +157,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         res = sync_execute(q, params)
 
         # Since all props should be pushed down here, there should be no full outer join!
-        self.assertTrue("FULL OUTER JOIN" not in q)
+        self.assertNotIn("FULL OUTER JOIN", q)
 
         self.assertEqual([p1.uuid], [r[0] for r in res])
 
@@ -733,7 +733,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         res = sync_execute(q, params)
 
         # Since all props should be pushed down here, there should be no full outer join!
-        self.assertTrue("FULL OUTER JOIN" not in q)
+        self.assertNotIn("FULL OUTER JOIN", q)
 
         self.assertCountEqual([p1.uuid, p2.uuid, p3.uuid], [r[0] for r in res])
 
@@ -941,7 +941,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         q, params = CohortQuery(filter=filter, team=self.team).get_query()
         sync_execute(q, params)
 
-        self.assertTrue("timestamp >= now() - INTERVAL 9 week" in (q % params))
+        self.assertIn("timestamp >= now() - INTERVAL 9 week", (q % params))
 
     def test_earliest_date_clause_removed_for_started_at_query(self):
         filter = Filter(
@@ -1431,7 +1431,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
             q, params = CohortQuery(filter=filter, team=self.team).get_query()
             # Precalculated cohorts should not be used as is
             # since we want cohort calculation with cohort properties to not be out of sync
-            self.assertTrue("cohortpeople" not in q)
+            self.assertNotIn("cohortpeople", q)
             res = sync_execute(q, params)
 
         self.assertEqual([p1.uuid], [r[0] for r in res])
@@ -1466,7 +1466,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
 
         with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):
             q, params = CohortQuery(filter=filter, team=self.team).get_query()
-            self.assertTrue("cohortpeople" not in q)
+            self.assertNotIn("cohortpeople", q)
             res = sync_execute(q, params)
 
         self.assertCountEqual([p1.uuid, p2.uuid], [r[0] for r in res])
@@ -2475,8 +2475,8 @@ class TestCohortNegationValidation(BaseTest):
         )
 
         has_pending_neg, has_reg = check_negation_clause(property_group)
-        self.assertEqual(has_pending_neg, False)
-        self.assertEqual(has_reg, True)
+        self.assertFalse(has_pending_neg)
+        self.assertTrue(has_reg)
 
     def test_valid_negation_tree_with_extra_layers(self):
 
@@ -2502,8 +2502,8 @@ class TestCohortNegationValidation(BaseTest):
         )
 
         has_pending_neg, has_reg = check_negation_clause(property_group)
-        self.assertEqual(has_pending_neg, False)
-        self.assertEqual(has_reg, True)
+        self.assertFalse(has_pending_neg)
+        self.assertTrue(has_reg)
 
     def test_invalid_negation_tree_with_extra_layers(self):
 
@@ -2530,8 +2530,8 @@ class TestCohortNegationValidation(BaseTest):
         )
 
         has_pending_neg, has_reg = check_negation_clause(property_group)
-        self.assertEqual(has_pending_neg, True)
-        self.assertEqual(has_reg, True)
+        self.assertTrue(has_pending_neg)
+        self.assertTrue(has_reg)
 
     def test_valid_negation_tree_with_extra_layers_recombining_at_top(self):
 
@@ -2558,8 +2558,8 @@ class TestCohortNegationValidation(BaseTest):
         )
 
         has_pending_neg, has_reg = check_negation_clause(property_group)
-        self.assertEqual(has_pending_neg, False)
-        self.assertEqual(has_reg, True)
+        self.assertFalse(has_pending_neg)
+        self.assertTrue(has_reg)
 
     def test_invalid_negation_tree_no_positive_filter(self):
 
@@ -2587,8 +2587,8 @@ class TestCohortNegationValidation(BaseTest):
         )
 
         has_pending_neg, has_reg = check_negation_clause(property_group)
-        self.assertEqual(has_pending_neg, True)
-        self.assertEqual(has_reg, False)
+        self.assertTrue(has_pending_neg)
+        self.assertFalse(has_reg)
 
     def test_empty_property_group(self):
 
@@ -2597,8 +2597,8 @@ class TestCohortNegationValidation(BaseTest):
         )
 
         has_pending_neg, has_reg = check_negation_clause(property_group)
-        self.assertEqual(has_pending_neg, False)
-        self.assertEqual(has_reg, False)
+        self.assertFalse(has_pending_neg)
+        self.assertFalse(has_reg)
 
     def test_basic_invalid_negation_tree(self):
 
@@ -2607,8 +2607,8 @@ class TestCohortNegationValidation(BaseTest):
         )
 
         has_pending_neg, has_reg = check_negation_clause(property_group)
-        self.assertEqual(has_pending_neg, True)
-        self.assertEqual(has_reg, False)
+        self.assertTrue(has_pending_neg)
+        self.assertFalse(has_reg)
 
     def test_basic_valid_negation_tree_with_no_negations(self):
 
@@ -2617,5 +2617,5 @@ class TestCohortNegationValidation(BaseTest):
         )
 
         has_pending_neg, has_reg = check_negation_clause(property_group)
-        self.assertEqual(has_pending_neg, False)
-        self.assertEqual(has_reg, True)
+        self.assertFalse(has_pending_neg)
+        self.assertTrue(has_reg)

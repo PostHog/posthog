@@ -373,7 +373,7 @@ class TestExperimentCRUD(APILicensedTest):
         created_ff = FeatureFlag.objects.get(key=ff_key)
 
         self.assertEqual(created_ff.key, ff_key)
-        self.assertEqual(created_ff.active, True)
+        self.assertTrue(created_ff.active)
         self.assertEqual(created_ff.filters["multivariate"]["variants"][0]["key"], "control")
         self.assertEqual(created_ff.filters["multivariate"]["variants"][1]["key"], "test_1")
         self.assertEqual(created_ff.filters["multivariate"]["variants"][2]["key"], "test_2")
@@ -499,7 +499,7 @@ class TestExperimentCRUD(APILicensedTest):
             Experiment.objects.get(pk=id)
 
         # soft deleted
-        self.assertEqual(FeatureFlag.objects.get(pk=created_ff.id).deleted, True)
+        self.assertTrue(FeatureFlag.objects.get(pk=created_ff.id).deleted)
 
         # can recreate new experiment with same FF key
         response = self.client.post(f"/api/projects/{self.team.id}/experiments/", data)
@@ -539,7 +539,7 @@ class TestExperimentCRUD(APILicensedTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         feature_flag_response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/{created_ff.pk}/")
-        self.assertEqual(feature_flag_response.json().get("deleted"), True)
+        self.assertTrue(feature_flag_response.json().get("deleted"))
 
         self.assertIsNotNone(Experiment.objects.get(pk=id))
 
@@ -636,7 +636,7 @@ class TestExperimentCRUD(APILicensedTest):
         self.assertEqual(created_ff.filters["multivariate"]["variants"][0]["key"], "control")
         self.assertEqual(created_ff.filters["multivariate"]["variants"][1]["key"], "test")
         self.assertEqual(created_ff.filters["groups"][0]["properties"][0]["key"], "$geoip_country_name")
-        self.assertEqual(created_ff.filters["aggregation_group_type_index"], None)
+        self.assertIsNone(created_ff.filters["aggregation_group_type_index"])
 
 
 @flaky(max_runs=10, min_passes=1)

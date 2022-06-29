@@ -261,7 +261,7 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
 
         response = self.client.get("/api/saml/metadata/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertTrue("/complete/saml/" in response.content.decode())
+        self.assertIn("/complete/saml/", response.content.decode())
 
     def test_need_to_be_authenticated_to_get_saml_metadata(self):
         response = self.client.get("/api/saml/metadata/")

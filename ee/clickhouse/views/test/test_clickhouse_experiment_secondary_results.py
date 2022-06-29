@@ -170,7 +170,7 @@ class ClickhouseTestExperimentSecondaryResults(ClickhouseTestMixin, APILicensedT
         self.assertEqual(len(response_data["result"].items()), 2)
 
         self.assertAlmostEqual(response_data["result"]["control"], 1)
-        self.assertEqual(response_data["result"]["test"], round(1 / 3, 3))
+        self.assertAlmostEqual(response_data["result"]["test"], 1 / 3, 3)
 
     def test_secondary_metric_results_for_multiple_variants(self):
         journeys_for(
@@ -334,6 +334,6 @@ class ClickhouseTestExperimentSecondaryResults(ClickhouseTestMixin, APILicensedT
         self.assertEqual(len(response_data["result"].items()), 4)
 
         self.assertAlmostEqual(response_data["result"]["control"], 1)
-        self.assertAlmostEqual(response_data["result"]["test"], round(1 / 3, 3))
-        self.assertAlmostEqual(response_data["result"]["test_1"], round(2 / 3, 3))
+        self.assertAlmostEqual(response_data["result"]["test"], 1 / 3, 3)
+        self.assertAlmostEqual(response_data["result"]["test_1"], 2 / 3, 3)
         self.assertAlmostEqual(response_data["result"]["test_2"], 1)

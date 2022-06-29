@@ -71,10 +71,13 @@ fakeredis==1.4.5
 flake8==3.9.2
     # via
     #   -r requirements-dev.in
+    #   flake8-assertive
     #   flake8-bugbear
     #   flake8-colors
     #   flake8-comprehensions
     #   flake8-print
+flake8-assertive==2.1.0
+    # via -r requirements-dev.in
 flake8-bugbear==20.1.4
     # via -r requirements-dev.in
 flake8-colors==0.1.6

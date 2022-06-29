@@ -147,7 +147,7 @@ class TestPathPerson(ClickhouseTestMixin, APIBaseTest):
         next = j["next"]
 
         self.assertEqual(15, len(people))
-        self.assertNotEqual(None, next)
+        self.assertIsNotNone(next)
 
         response = self.client.get(next)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -155,7 +155,7 @@ class TestPathPerson(ClickhouseTestMixin, APIBaseTest):
         people = j["results"][0]["people"]
         next = j["next"]
         self.assertEqual(5, len(people))
-        self.assertEqual(None, j["next"])
+        self.assertIsNone(j["next"])
 
     @patch("posthog.models.person.util.delete_person")
     def test_basic_pagination_with_deleted(self, delete_person_patch):

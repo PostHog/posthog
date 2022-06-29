@@ -165,7 +165,7 @@ class TestRunner(AsyncMigrationBaseTest):
         except Exception as e:
             exception = e
 
-        self.assertTrue('relation "test_async_migration" does not exist' in str(exception))
+        self.assertIn('relation "test_async_migration" does not exist', str(exception))
         self.assertEqual(sm.status, MigrationStatus.RolledBack)
         self.assertEqual(sm.progress, 0)
         self.assertEqual(self.migration.sec.side_effect_rollback_count, 2)  # checking we ran current index rollback too

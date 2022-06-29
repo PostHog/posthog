@@ -187,14 +187,14 @@ class TestColumnOptimizer(ClickhouseTestMixin, APIBaseTest):
             filter, self.team.id
         ).should_query_elements_chain_column
 
-        self.assertEqual(should_query_elements_chain_column(BASE_FILTER), False)
-        self.assertEqual(should_query_elements_chain_column(FILTER_WITH_PROPERTIES), True)
-        self.assertEqual(should_query_elements_chain_column(FILTER_WITH_GROUPS), True)
+        self.assertFalse(should_query_elements_chain_column(BASE_FILTER))
+        self.assertTrue(should_query_elements_chain_column(FILTER_WITH_PROPERTIES))
+        self.assertTrue(should_query_elements_chain_column(FILTER_WITH_GROUPS))
 
         filter = Filter(
             data={"events": [{"id": "$pageview", "type": "events", "order": 0, "properties": PROPERTIES_OF_ALL_TYPES,}]}
         )
-        self.assertEqual(should_query_elements_chain_column(filter), True)
+        self.assertTrue(should_query_elements_chain_column(filter))
 
     def test_should_query_element_chain_column_with_actions(self):
         action = Action.objects.create(team=self.team)
@@ -203,22 +203,16 @@ class TestColumnOptimizer(ClickhouseTestMixin, APIBaseTest):
         )
 
         filter = Filter(data={"actions": [{"id": action.id, "math": "dau"}]})
-        self.assertEqual(
-            EnterpriseColumnOptimizer(filter, self.team.id).should_query_elements_chain_column, False,
-        )
+        self.assertFalse(EnterpriseColumnOptimizer(filter, self.team.id).should_query_elements_chain_column)
 
         ActionStep.objects.create(
             action=action, event="$autocapture", tag_name="button", text="Pay $10",
         )
 
-        self.assertEqual(
-            EnterpriseColumnOptimizer(filter, self.team.id).should_query_elements_chain_column, True,
-        )
+        self.assertTrue(EnterpriseColumnOptimizer(filter, self.team.id).should_query_elements_chain_column)
 
         filter = BASE_FILTER.with_data({"exclusions": [{"id": action.id, "type": "actions"}]})
-        self.assertEqual(
-            EnterpriseColumnOptimizer(filter, self.team.id).should_query_elements_chain_column, True,
-        )
+        self.assertTrue(EnterpriseColumnOptimizer(filter, self.team.id).should_query_elements_chain_column)
 
     def test_group_types_to_query(self):
         group_types_to_query = lambda filter: EnterpriseColumnOptimizer(filter, self.team.id).group_types_to_query
