@@ -63,11 +63,9 @@ export function Plugins(): JSX.Element | null {
                         <InstalledTab />
                     </TabPane>
                     {canGloballyManagePlugins(user.organization) && (
-                        <>
-                            <TabPane tab="Repository" key={PluginTab.Repository}>
-                                <RepositoryTab />
-                            </TabPane>
-                        </>
+                        <TabPane tab="Repository" key={PluginTab.Repository}>
+                            <RepositoryTab />
+                        </TabPane>
                     )}
                     <TabPane tab="History" key={PluginTab.History}>
                         <ActivityLog scope={ActivityScope.PLUGIN} describer={pluginActivityDescriber} />
