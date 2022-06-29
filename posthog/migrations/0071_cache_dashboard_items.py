@@ -12,7 +12,7 @@ def forwards_func(apps, schema_editor):
     DashboardItem = apps.get_model("posthog", "DashboardItem")
     dashboards = Dashboard.objects.all()
     for dashboard in dashboards:
-        dashboard.deprecated_share_token = secrets.token_urlsafe(22)
+        dashboard.share_token = secrets.token_urlsafe(22)
         dashboard.save()
 
     items = DashboardItem.objects.filter(filters__isnull=False)

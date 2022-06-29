@@ -26,17 +26,13 @@ class FixingDashboardTilesTestCase(TestMigrations):
     def test_migrate_creates_sharing_configurations(self):
         Dashboards = self.apps.get_model("posthog", "Dashboard")  # type: ignore
 
-        for d in (
-            Dashboards.objects.prefetch_related("sharingconfiguration_set").filter(deprecated_is_shared=True).all()
-        ):
-            assert d.deprecated_is_shared
+        for d in Dashboards.objects.prefetch_related("sharingconfiguration_set").filter(is_shared=True).all():
+            assert d.is_shared
             assert d.sharingconfiguration_set.first().enabled
-            assert d.sharingconfiguration_set.first().access_token == d.deprecated_share_token
+            assert d.sharingconfiguration_set.first().access_token == d.share_token
 
-        for d in (
-            Dashboards.objects.prefetch_related("sharingconfiguration_set").filter(deprecated_is_shared=False).all()
-        ):
-            assert not d.deprecated_is_shared
+        for d in Dashboards.objects.prefetch_related("sharingconfiguration_set").filter(is_shared=False).all():
+            assert not d.is_shared
             assert not d.sharingconfiguration_set.first()
 
     def tearDown(self):

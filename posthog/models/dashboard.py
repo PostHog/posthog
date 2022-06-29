@@ -32,12 +32,6 @@ class Dashboard(models.Model):
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True, blank=True)
     created_by: models.ForeignKey = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)
     deleted: models.BooleanField = models.BooleanField(default=False)
-
-    # DEPRECATED: using the new "sharing" relation instead
-    deprecated_share_token: models.CharField = models.CharField(
-        max_length=400, null=True, blank=True, db_column="share_token"
-    )
-    deprecated_is_shared: models.BooleanField = models.BooleanField(default=False, db_column="is_shared")
     last_accessed_at: models.DateTimeField = models.DateTimeField(blank=True, null=True)
     filters: models.JSONField = models.JSONField(default=dict)
     creation_mode: models.CharField = models.CharField(max_length=16, default="default", choices=CreationMode.choices)
@@ -52,8 +46,13 @@ class Dashboard(models.Model):
         models.CharField(max_length=32), null=True, blank=True, default=None, db_column="tags"
     )
 
+    # DEPRECATED: using the new "sharing" relation instead
+    share_token: models.CharField = models.CharField(max_length=400, null=True, blank=True)
+    # DEPRECATED: using the new "sharing" relation instead
+    is_shared: models.BooleanField = models.BooleanField(default=False)
+
     @property
-    def is_shared(self):
+    def is_really_shared(self):
         # NOTE: This is lazy loaded and hence potentially pretty slow...
         sharing = self.sharingconfiguration_set.first()
         return sharing.enabled if sharing else False
@@ -118,7 +117,7 @@ class Dashboard(models.Model):
         return {
             "pinned": self.pinned,
             "item_count": self.insights.count(),
-            "is_shared": self.is_shared,
+            "is_shared": self.is_really_shared,
             "created_at": self.created_at,
             "has_description": self.description != "",
             "tags_count": self.tagged_items.count(),

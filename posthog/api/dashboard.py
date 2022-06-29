@@ -38,6 +38,7 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
     use_template = serializers.CharField(write_only=True, allow_blank=True, required=False)
     use_dashboard = serializers.IntegerField(write_only=True, allow_null=True, required=False)
     effective_privilege_level = serializers.SerializerMethodField()
+    is_shared = serializers.BooleanField(source="is_really_shared")
 
     class Meta:
         model = Dashboard
@@ -250,8 +251,10 @@ class DashboardsViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDe
             # Soft-deleted dashboards can be brought back with a PATCH request
             queryset = queryset.filter(deleted=False)
 
-        queryset = queryset.select_related("team__organization", "created_by").prefetch_related(
-            Prefetch("insights", queryset=Insight.objects.filter(deleted=False).order_by("order"),),
+        queryset = (
+            queryset.prefetch_related("sharingconfiguration_set")
+            .select_related("team__organization", "created_by")
+            .prefetch_related(Prefetch("insights", queryset=Insight.objects.filter(deleted=False).order_by("order"),),)
         )
         return queryset
 

@@ -9,19 +9,15 @@ import posthog.models.sharing_configuration
 def create_sharing_configurations(apps, _) -> None:
     Dashboard = apps.get_model("posthog", "Dashboard")
     SharingConfiguration = apps.get_model("posthog", "SharingConfiguration")
-    dashboards = (
-        Dashboard.objects.filter(deprecated_is_shared=True)
-        .values("id", "team_id", "deprecated_is_shared", "deprecated_share_token")
-        .all()
-    )
+    dashboards = Dashboard.objects.filter(is_shared=True).values("id", "team_id", "is_shared", "share_token").all()
 
     batch_size = 1_000
     sharing_configurations = [
         SharingConfiguration(
             team_id=dashboard["team_id"],
             dashboard_id=dashboard["id"],
-            enabled=dashboard["deprecated_is_shared"],
-            access_token=dashboard["deprecated_share_token"],
+            enabled=dashboard["is_shared"],
+            access_token=dashboard["share_token"],
         )
         for dashboard in dashboards
     ]
@@ -39,25 +35,6 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.SeparateDatabaseAndState(
-            database_operations=[],
-            state_operations=[
-                migrations.RenameField(model_name="dashboard", old_name="is_shared", new_name="deprecated_is_shared"),
-                migrations.AlterField(
-                    model_name="dashboard",
-                    name="deprecated_is_shared",
-                    field=models.BooleanField(db_column="is_shared", default=False),
-                ),
-                migrations.RenameField(
-                    model_name="dashboard", old_name="share_token", new_name="deprecated_share_token"
-                ),
-                migrations.AlterField(
-                    model_name="dashboard",
-                    name="deprecated_share_token",
-                    field=models.CharField(blank=True, db_column="share_token", max_length=400, null=True),
-                ),
-            ],
-        ),
         migrations.CreateModel(
             name="SharingConfiguration",
             fields=[

@@ -66,8 +66,8 @@ class TestSharing(APIBaseTest):
         assert initial_token
         assert not response.json()["enabled"]
 
-        dashboard.deprecated_share_token = "my_test_token"
-        dashboard.deprecated_is_shared = True
+        dashboard.share_token = "my_test_token"
+        dashboard.is_shared = True
         dashboard.save()
 
         response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard.id}/sharing")
@@ -75,8 +75,8 @@ class TestSharing(APIBaseTest):
         assert data["access_token"] == "my_test_token"
         assert data["enabled"]
 
-        dashboard.deprecated_share_token = None
-        dashboard.deprecated_is_shared = False
+        dashboard.share_token = None
+        dashboard.is_shared = False
         dashboard.save()
 
         response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard.id}/sharing")
@@ -86,11 +86,7 @@ class TestSharing(APIBaseTest):
 
     def test_should_get_using_legacy_token(self):
         Dashboard.objects.create(
-            team=self.team,
-            name="example dashboard",
-            created_by=self.user,
-            deprecated_share_token="my_test_token",
-            deprecated_is_shared=True,
+            team=self.team, name="example dashboard", created_by=self.user, share_token="my_test_token", is_shared=True
         )
 
         response = self.client.get(f"/shared_dashboard/my_test_token")
@@ -114,11 +110,7 @@ class TestSharing(APIBaseTest):
 
     def test_should_not_get_deleted_item(self):
         dashboard = Dashboard.objects.create(
-            team=self.team,
-            name="example dashboard",
-            created_by=self.user,
-            deprecated_share_token="my_test_token",
-            deprecated_is_shared=True,
+            team=self.team, name="example dashboard", created_by=self.user, share_token="my_test_token", is_shared=True,
         )
         response = self.client.patch(
             f"/api/projects/{self.team.id}/dashboards/{dashboard.id}/sharing", {"enabled": True}

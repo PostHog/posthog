@@ -12,6 +12,7 @@ import { forms } from 'kea-forms'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { dashboardsModel } from '~/models/dashboardsModel'
 
 export interface SharingLogicProps {
     dashboardId?: number
@@ -42,7 +43,7 @@ export const sharingLogic = kea<sharingLogicType>([
     path(['lib', 'components', 'Sharing', 'sharingLogic']),
     props({} as SharingLogicProps),
     key(({ insightShortId, dashboardId }) => `sharing-${insightShortId || ''}-${dashboardId || ''}`),
-    connect([preflightLogic, userLogic]),
+    connect([preflightLogic, userLogic, dashboardsModel]),
 
     loaders(({ props }) => ({
         sharingConfiguration: [
@@ -61,6 +62,7 @@ export const sharingLogic = kea<sharingLogicType>([
         setIsEnabled: (enabled) => {
             if (props.dashboardId) {
                 eventUsageLogic.actions.reportDashboardShareToggled(enabled)
+                dashboardsModel.actions.loadDashboards()
             }
         },
     })),
