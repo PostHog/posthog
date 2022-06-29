@@ -75,6 +75,7 @@ class TestExports(APIBaseTest):
                 "export_format": "image/png",
                 "has_content": False,
                 "insight": None,
+                "export_context": None,
             },
         )
 
@@ -97,6 +98,7 @@ class TestExports(APIBaseTest):
                 "export_format": "application/pdf",
                 "has_content": False,
                 "dashboard": None,
+                "export_context": None,
             },
         )
 
@@ -249,6 +251,30 @@ class TestExports(APIBaseTest):
                 "type": "validation_error",
             },
         )
+
+    @patch("posthog.api.exports.csv_exporter")
+    @freeze_time("2021-08-25T22:09:14.252Z")
+    def test_can_create_new_valid_export_csv(self, mock_exporter_task) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/exports",
+            {
+                "export_format": "text/csv",
+                "properties": [  # anything the list events end-point will accept
+                    {
+                        "key": "prop_that_is_a_unix_timestamp",
+                        "value": "2012-01-07 18:30:00",
+                        "operator": "is_date_after",
+                        "type": "event",
+                    }
+                ],
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        exported_instance = response.json()
+
+        self.assertEqual(exported_instance["export_context"]["file_export_type"], "list_events")
+
+        mock_exporter_task.export_csv.delay.assert_called_once_with(exported_instance["id"])
 
     def test_can_download_a_csv(self) -> None:
         _create_event(

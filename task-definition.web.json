@@ -35,10 +35,6 @@
                     "value": "True"
                 },
                 {
-                    "name": "CLICKHOUSE_ASYNC",
-                    "value": "False"
-                },
-                {
                     "name": "CLICKHOUSE_DATABASE",
                     "value": "posthog"
                 },

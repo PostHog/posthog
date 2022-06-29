@@ -47,7 +47,7 @@ from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.person.sql import GET_PERSON_PROPERTIES_COUNT
-from posthog.models.person.util import delete_person
+from posthog.models.person.util import delete_ch_distinct_ids, delete_person
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.queries.actor_base_query import ActorBaseQuery
 from posthog.queries.funnels import ClickhouseFunnelActors, ClickhouseFunnelTrendsActors
@@ -209,8 +209,9 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             person = Person.objects.get(team=self.team, pk=pk)
             person_id = person.id
 
-            delete_person(
-                person.uuid, person.properties, person.is_identified, delete_events=True, team_id=self.team.pk
+            delete_person(person=person)
+            delete_ch_distinct_ids(
+                person_uuid=str(person.uuid), distinct_ids=person.distinct_ids, team_id=person.team_id
             )
             person.delete()
 
