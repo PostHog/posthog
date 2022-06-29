@@ -114,7 +114,7 @@
                 },
                 {
                     "name": "CONVERSION_BUFFER_ENABLED_TEAMS",
-                    "value": "7964"
+                    "value": "7964,2"
                 }
             ],
             "secrets": [
