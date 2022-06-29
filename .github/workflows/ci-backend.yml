@@ -109,6 +109,11 @@ jobs:
             - uses: syphar/restore-pip-download-cache@v1
               if: steps.cache-backend-tests.outputs.cache-hit != 'true'
 
+            - name: Install SAML (python3-saml) dependencies
+              run: |
+                  sudo apt-get update
+                  sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
+
             - name: Install python dependencies
               if: steps.cache-backend-tests.outputs.cache-hit != 'true'
               run: |
@@ -157,6 +162,11 @@ jobs:
 
             - uses: syphar/restore-pip-download-cache@v1
               if: steps.cache-backend-tests.outputs.cache-hit != 'true'
+
+            - name: Install SAML (python3-saml) dependencies
+              run: |
+                  sudo apt-get update
+                  sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
 
             - name: Install python dependencies
               if: steps.cache-backend-tests.outputs.cache-hit != 'true'
@@ -327,7 +337,7 @@ jobs:
             - name: Stop/Start stack with Docker Compose
               run: |
                   docker-compose -f master/docker-compose.dev.yml down
-                  docker-compose -f master/docker-compose.dev.yml up -d db
+                  docker-compose -f master/docker-compose.dev.yml up -d
 
             - name: Set up Python 3.8.12
               uses: actions/setup-python@v2

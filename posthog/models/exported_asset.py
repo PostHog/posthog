@@ -1,3 +1,4 @@
+import gzip
 import secrets
 from datetime import timedelta
 from typing import Optional
@@ -7,6 +8,8 @@ from django.http import HttpResponse
 from django.utils.text import slugify
 
 from posthog.jwt import PosthogJwtAudience, decode_jwt, encode_jwt
+from posthog.settings import DEBUG
+from posthog.storage import object_storage
 from posthog.utils import absolute_uri
 
 PUBLIC_ACCESS_TOKEN_EXP_DAYS = 365
@@ -32,6 +35,11 @@ class ExportedAsset(models.Model):
     export_format: models.CharField = models.CharField(max_length=16, choices=ExportFormat.choices)
     content: models.BinaryField = models.BinaryField(null=True)
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True, blank=True)
+    # for example holds filters for CSV exports
+    export_context: models.JSONField = models.JSONField(null=True, blank=True)
+    # path in object storage or some other location identifier for the asset
+    # 1000 characters would hold a 20 UUID forward slash separated path with space to spare
+    content_location: models.TextField = models.TextField(null=True, blank=True, max_length=1000)
 
     # DEPRECATED: We now use JWT for accessing assets
     access_token: models.CharField = models.CharField(
@@ -40,7 +48,7 @@ class ExportedAsset(models.Model):
 
     @property
     def has_content(self):
-        return self.content is not None
+        return self.content is not None or self.content_location is not None
 
     @property
     def filename(self):
@@ -83,10 +91,16 @@ def asset_for_token(token: str) -> ExportedAsset:
 
 
 def get_content_response(asset: ExportedAsset, download: bool = False):
-    res = HttpResponse(asset.content, content_type=asset.export_format)
+    content = asset.content
+    if not content and asset.content_location:
+        content_bytes = object_storage.read_bytes(asset.content_location)
+        content = gzip.decompress(content_bytes)
+
+    res = HttpResponse(content, content_type=asset.export_format)
     if download:
         res["Content-Disposition"] = f'attachment; filename="{asset.filename}"'
 
-    res["Cache-Control"] = f"max-age={MAX_AGE_CONTENT}"
+    if not DEBUG:
+        res["Cache-Control"] = f"max-age={MAX_AGE_CONTENT}"
 
     return res
