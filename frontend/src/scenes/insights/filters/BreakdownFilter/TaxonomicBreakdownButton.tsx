@@ -40,7 +40,6 @@ export function TaxonomicBreakdownButton({
               TaxonomicFilterGroupType.CohortsWithAllUsers,
           ].concat(featureFlags[FEATURE_FLAGS.SESSION_ANALYSIS] ? [TaxonomicFilterGroupType.Sessions] : [])
 
-    console.log(taxonomicGroupTypes, featureFlags)
     return (
         <Popup
             overlay={
