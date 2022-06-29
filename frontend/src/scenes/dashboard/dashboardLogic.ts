@@ -40,6 +40,7 @@ const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 
 export interface DashboardLogicProps {
     id?: number
+    dashboard?: DashboardType
     placement?: DashboardPlacement
 }
 
@@ -543,8 +544,10 @@ export const dashboardLogic = kea<dashboardLogicType>({
                 const exportedDashboard = window.POSTHOG_EXPORTED_DATA?.dashboard
                 if (exportedDashboard && exportedDashboard.id === props.id && exportedDashboard.items) {
                     actions.loadExportedDashboard(exportedDashboard as DashboardType)
-                } else {
+                } else if (props.dashboard) {
                     // When the scene is initially loaded, the dashboard ID is undefined
+                    actions.loadExportedDashboard(props.dashboard)
+                } else {
                     actions.loadDashboardItems({
                         refresh: props.placement === DashboardPlacement.InternalMetrics,
                     })
