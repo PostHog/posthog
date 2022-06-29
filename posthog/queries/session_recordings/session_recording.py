@@ -39,7 +39,7 @@ class SessionRecording:
     _recording_snapshot_query = """
         SELECT session_id, window_id, distinct_id, timestamp, snapshot_data
         FROM session_recording_events
-        WHERE
+        PREWHERE
             team_id = %(team_id)s
             AND session_id = %(session_id)s
         ORDER BY timestamp
