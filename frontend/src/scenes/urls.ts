@@ -94,12 +94,9 @@ export const urls = {
             ...(exportOptions?.whitelabel ? { whitelabel: null } : {}),
             ...(exportOptions?.noLegend ? { noLegend: null } : {}),
         }).url,
-    embedded: (token: string, exportOptions?: ExportOptions): string => {
-        const {
-            pathname,
-            searchParams: { embedded: _discard, ...searchParams },
-            hashParams,
-        } = combineUrl(urls.shared(token, exportOptions))
-        return combineUrl(pathname, { embedded: null, ...searchParams }, hashParams).url
-    },
+    embedded: (token: string, exportOptions?: ExportOptions): string =>
+        combineUrl(`/embedded/${token}`, {
+            ...(exportOptions?.whitelabel ? { whitelabel: null } : {}),
+            ...(exportOptions?.noLegend ? { noLegend: null } : {}),
+        }).url,
 }

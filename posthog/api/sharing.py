@@ -145,8 +145,9 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, StructuredViewSetMixin
         if not resource:
             raise NotFound()
 
+        embedded = "embedded" in request.GET or "/embedded/" in request.path
         context = {"view": self, "request": request}
-        exported_data: Dict[str, Any] = {"type": "embed" if "embedded" in request.GET else "scene"}
+        exported_data: Dict[str, Any] = {"type": "embed" if embedded else "scene"}
 
         if asset:
             if request.path.endswith(f".{asset.file_ext}"):
