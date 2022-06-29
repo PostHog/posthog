@@ -119,34 +119,6 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         # Short ID is automatically generated
         self.assertRegex(dashboard_item.short_id, r"[0-9A-Za-z_-]{8}")
 
-    def test_sharing_lookup_is_shared_true(self):
-        _, other_team, _ = User.objects.bootstrap("X", "y@x.com", None)
-        dashboard = Dashboard.objects.create(team=other_team, name="public dashboard")
-        SharingConfiguration.objects.create(team=self.team, dashboard=dashboard, access_token="testtoken", enabled=True)
-
-        # Project-based endpoint while logged in, but not belonging to the same org
-        response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard.pk}/")
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
-        # Project-based endpoint while logged out
-        self.client.logout()
-        response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard.pk}/")
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
-        # Shared dashboards endpoint while logged out
-        response = self.client.get(f"/api/shared_dashboards/testtoken")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["name"], "public dashboard")
-
-    def test_share_token_lookup_is_shared_false(self):
-        _, other_team, _ = User.objects.bootstrap("X", "y@x.com", None)
-        dashboard = Dashboard.objects.create(team=other_team, name="public dashboard")
-        SharingConfiguration.objects.create(
-            team=self.team, dashboard=dashboard, access_token="testtoken", enabled=False
-        )
-
-        # Shared dashboards endpoint while logged out (dashboards should be unavailable as it's not shared)
-        response = self.client.get(f"/api/shared_dashboards/testtoken")
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
-
     def test_shared_dashboard(self):
         self.client.logout()
         dashboard = Dashboard.objects.create(team=self.team, name="public dashboard",)
@@ -154,15 +126,6 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
         response = self.client.get("/shared_dashboard/testtoken")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-    def test_share_dashboard(self):
-        dashboard = Dashboard.objects.create(team=self.team, name="dashboard")
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/dashboards/%s/" % dashboard.pk, {"name": "dashboard 2", "is_shared": True},
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        dashboard = Dashboard.objects.get(pk=dashboard.pk)
-        self.assertIsNotNone(dashboard.share_token)
 
     def test_return_cached_results_bleh(self):
         dashboard = Dashboard.objects.create(team=self.team, name="dashboard")

@@ -1,5 +1,4 @@
 import json
-import secrets
 from typing import Any, Dict, cast
 
 from django.db.models import Prefetch, QuerySet
@@ -51,7 +50,6 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
             "created_at",
             "created_by",
             "is_shared",
-            "share_token",
             "deleted",
             "creation_mode",
             "use_template",
@@ -152,9 +150,6 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
             )
 
         validated_data.pop("use_template", None)  # Remove attribute if present
-        if validated_data.get("is_shared") and not instance.share_token:
-            instance.share_token = secrets.token_urlsafe(22)
-
         instance = super().update(instance, validated_data)
 
         if validated_data.get("deleted", False):
