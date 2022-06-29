@@ -151,3 +151,30 @@
      OFFSET 0)
   '
 ---
+# name: TestBreakdownProps.test_breakdown_session_props
+  '
+  
+  SELECT groupArray(value)
+  FROM
+    (SELECT sessions.session_duration AS value,
+            count(*) as count
+     FROM events e
+     INNER JOIN
+       (SELECT $session_id,
+               dateDiff('second', min(timestamp), max(timestamp)) as session_duration
+        FROM events
+        WHERE $session_id != ''
+          AND team_id = 2
+          AND timestamp >= toDateTime('2020-01-02 00:00:00') - INTERVAL 24 HOUR
+          AND timestamp <= toDateTime('2020-01-12 23:59:59') + INTERVAL 24 HOUR
+        GROUP BY $session_id) AS sessions ON sessions.$session_id = e.$session_id
+     WHERE team_id = 2
+       AND event = '$pageview'
+       AND timestamp >= toDateTime('2020-01-02 00:00:00')
+       AND timestamp <= toDateTime('2020-01-12 23:59:59')
+     GROUP BY value
+     ORDER BY count DESC, value DESC
+     LIMIT 5
+     OFFSET 0)
+  '
+---
