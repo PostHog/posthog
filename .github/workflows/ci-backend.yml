@@ -109,11 +109,6 @@ jobs:
             - uses: syphar/restore-pip-download-cache@v1
               if: steps.cache-backend-tests.outputs.cache-hit != 'true'
 
-            - name: Install SAML (python3-saml) dependencies
-              run: |
-                  sudo apt-get update
-                  sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
-
             - name: Install python dependencies
               if: steps.cache-backend-tests.outputs.cache-hit != 'true'
               run: |
@@ -162,11 +157,6 @@ jobs:
 
             - uses: syphar/restore-pip-download-cache@v1
               if: steps.cache-backend-tests.outputs.cache-hit != 'true'
-
-            - name: Install SAML (python3-saml) dependencies
-              run: |
-                  sudo apt-get update
-                  sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
 
             - name: Install python dependencies
               if: steps.cache-backend-tests.outputs.cache-hit != 'true'
@@ -261,6 +251,8 @@ jobs:
                   fetch-depth: 1
                   repository: ${{ github.event.pull_request.head.repo.full_name }}
                   ref: ${{ github.event.pull_request.head.ref }}
+                  # Use PostHog Bot token when not on forks to enable proper snapshot updating
+                  token: ${{ github.event.pull_request.head.repo.full_name == github.repository && secrets.POSTHOG_BOT_GITHUB_TOKEN || github.token }}
 
             - uses: ./.github/actions/run-backend-tests
               with:
@@ -337,7 +329,7 @@ jobs:
             - name: Stop/Start stack with Docker Compose
               run: |
                   docker-compose -f master/docker-compose.dev.yml down
-                  docker-compose -f master/docker-compose.dev.yml up -d
+                  docker-compose -f master/docker-compose.dev.yml up -d db
 
             - name: Set up Python 3.8.12
               uses: actions/setup-python@v2
