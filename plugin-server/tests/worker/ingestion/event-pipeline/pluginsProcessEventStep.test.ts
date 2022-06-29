@@ -1,7 +1,7 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
-import { Person } from '../../../../src/types'
-import { pluginsProcessEventStep } from '../../../../src/worker/ingestion/event-pipeline/2-pluginsProcessEventStep'
+import { ForwardedPersonData } from '../../../../src/worker/ingestion/event-pipeline/2-processPersonsStep'
+import { pluginsProcessEventStep } from '../../../../src/worker/ingestion/event-pipeline/3-pluginsProcessEventStep'
 import { runProcessEvent } from '../../../../src/worker/plugins/run'
 
 jest.mock('../../../../src/worker/plugins/run')
@@ -18,9 +18,10 @@ const pluginEvent: PluginEvent = {
     uuid: '017ef865-19da-0000-3b60-1506093bf40f',
 }
 
-const person = {
-    id: 123,
-} as any as Person
+const forwardedPersonData: ForwardedPersonData = {
+    person: undefined,
+    personUpdateProperties: {},
+}
 
 describe('pluginsProcessEventStep()', () => {
     let runner: any
@@ -37,28 +38,28 @@ describe('pluginsProcessEventStep()', () => {
         }
     })
 
-    it('forwards processed plugin event to `processPersonsStep`', async () => {
+    it('forwards processed plugin event to `updatePersonIfTouchedByPlugins`', async () => {
         const processedEvent = { ...pluginEvent, event: 'processed' }
         jest.mocked(runProcessEvent).mockResolvedValue(processedEvent)
 
-        const response = await pluginsProcessEventStep(runner, pluginEvent, person)
+        const response = await pluginsProcessEventStep(runner, pluginEvent, forwardedPersonData)
 
-        expect(response).toEqual(['processPersonsStep', processedEvent, person])
+        expect(response).toEqual(['updatePersonIfTouchedByPlugins', processedEvent, forwardedPersonData])
     })
 
     it('automatically forwards `$snapshot` events', async () => {
         const event = { ...pluginEvent, event: '$snapshot' }
 
-        const response = await pluginsProcessEventStep(runner, event, person)
+        const response = await pluginsProcessEventStep(runner, event, forwardedPersonData)
 
         expect(runProcessEvent).not.toHaveBeenCalled()
-        expect(response).toEqual(['processPersonsStep', event, person])
+        expect(response).toEqual(['updatePersonIfTouchedByPlugins', event, forwardedPersonData])
     })
 
     it('does not forward but counts dropped events by plugins', async () => {
         jest.mocked(runProcessEvent).mockResolvedValue(null)
 
-        const response = await pluginsProcessEventStep(runner, pluginEvent, person)
+        const response = await pluginsProcessEventStep(runner, pluginEvent, forwardedPersonData)
 
         expect(response).toEqual(null)
         expect(runner.hub.statsd.increment).toHaveBeenCalledWith('kafka_queue.dropped_event', { teamID: '2' })

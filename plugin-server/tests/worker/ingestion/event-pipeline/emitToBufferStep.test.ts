@@ -60,10 +60,10 @@ describe('emitToBufferStep()', () => {
         expect(response).toEqual(null)
     })
 
-    it('calls `pluginsProcessEventStep` next if not buffering', async () => {
+    it('calls `createEventStep` next if not buffering', async () => {
         const response = await emitToBufferStep(runner, pluginEvent, () => false)
 
-        expect(response).toEqual(['pluginsProcessEventStep', pluginEvent, existingPerson])
+        expect(response).toEqual(['processPersonsStep', pluginEvent, existingPerson])
         expect(runner.hub.db.fetchPerson).toHaveBeenCalledWith(2, 'my_id')
         expect(runner.hub.eventsProcessor.produceEventToBuffer).not.toHaveBeenCalled()
     })
