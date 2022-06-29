@@ -291,15 +291,19 @@ class PluginViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
     def destroy(self, request: request.Request, *args, **kwargs) -> Response:
         instance = self.get_object()
+        instance_id = instance.id
         if instance.is_global:
             raise ValidationError("This plugin is marked as global! Make it local before uninstallation")
         self.perform_destroy(instance)
 
+        user = request.user
+
         log_activity(
             organization_id=instance.organization_id,
-            team_id=request.user.team.id,  # type: ignore
-            user=request.user,  # type: ignore
-            item_id=instance.id,
+            # Users in an org but not yet in a team can technically manage plugins via the API
+            team_id=user.team.id if user.team else 0,  # type: ignore
+            user=user,  # type: ignore
+            item_id=instance_id,
             scope="Plugin",
             activity="uninstalled",
             detail=Detail(name=instance.name),
@@ -314,7 +318,8 @@ class PluginViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
         log_activity(
             organization_id=serializer.instance.organization.id,
-            team_id=user.team.id,
+            # Users in an org but not yet in a team can technically manage plugins via the API
+            team_id=user.team.id if user.team else 0,
             user=user,
             item_id=serializer.instance.id,
             scope="Plugin",
