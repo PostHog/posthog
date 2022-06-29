@@ -89,14 +89,14 @@ describe('shouldSendEventToBuffer()', () => {
         expect(result).toEqual(false)
     })
 
-    it('returns true for recently created person', () => {
+    it('returns false for recently created person', () => {
         const person = {
             ...existingPerson,
             created_at: now.minus({ seconds: 5 }),
         }
 
         const result = shouldSendEventToBuffer(runner.hub, pluginEvent, person, 2)
-        expect(result).toEqual(true)
+        expect(result).toEqual(false)
     })
 
     it('returns false for anonymous person', () => {
