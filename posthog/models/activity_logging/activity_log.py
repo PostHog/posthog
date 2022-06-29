@@ -17,7 +17,7 @@ logger = structlog.get_logger(__name__)
 
 @dataclasses.dataclass(frozen=True)
 class Change:
-    type: Literal["FeatureFlag", "Person", "Insight"]
+    type: Literal["FeatureFlag", "Person", "Insight", "Plugin"]
     action: Literal["changed", "created", "deleted", "merged", "split", "exported"]
     field: Optional[str] = None
     before: Optional[Any] = None
@@ -184,6 +184,34 @@ def changes_between(
 
     return changes
 
+def dict_changes_between(
+    model_type: Literal["FeatureFlag", "Person", "Insight", "Plugin"],
+    previous: Dict[Any, Any],
+    new: Dict[Any, Any],
+) -> List[Change]:
+    """
+    Identifies changes between two dictionaries by comparing fields
+    """
+    changes: List[Change] = []
+
+    if previous == new:
+        return changes
+
+    if previous is not None:
+        fields = previous.keys() if new is not None else []
+
+        for field in fields:
+            left = getattr(previous, field, None)
+            right = getattr(new, field, None)
+
+            if left is None and right is not None:
+                changes.append(Change(type=model_type, field=field, action="created", after=right,))
+            elif right is None and left is not None:
+                changes.append(Change(type=model_type, field=field, action="deleted", before=left,))
+            elif left != right:
+                changes.append(Change(type=model_type, field=field, action="changed", before=left, after=right,))
+
+    return changes
 
 def log_activity(
     organization_id: UUIDT,

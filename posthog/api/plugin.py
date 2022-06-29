@@ -19,7 +19,7 @@ from rest_framework.response import Response
 
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.models import Plugin, PluginAttachment, PluginConfig, Team
-from posthog.models.activity_logging.activity_log import ActivityPage, Detail, load_activity, log_activity
+from posthog.models.activity_logging.activity_log import ActivityPage, Change, Detail, dict_changes_between, load_activity, log_activity
 from posthog.models.activity_logging.serializers import ActivityLogSerializer
 from posthog.models.organization import Organization
 from posthog.models.plugin import PluginSourceFile, update_validated_data_from_url
@@ -433,7 +433,21 @@ class PluginConfigSerializer(serializers.ModelSerializer):
                 if validated_data["config"].get(key) is None:  # explicitly checking None to allow ""
                     validated_data["config"][key] = plugin_config.config.get(key)
 
+        old_config = plugin_config.config
         response = super().update(plugin_config, validated_data)
+        
+        log_activity(
+            organization_id=plugin_config.team.organization.id,
+            # Users in an org but not yet in a team can technically manage plugins via the API
+            team_id=plugin_config.team.id,  
+            user=self.context["request"].user, # type: ignore
+            item_id=f"plugin_config_{plugin_config.id}", 
+            scope="Plugin", # use the type plugin so we can also provide unified history
+            activity="config_updated",
+            detail=Detail(name=plugin_config.plugin.name, changes=dict_changes_between("Plugin", old_config, plugin_config.config)),
+        )
+        
+        print(dict_changes_between("Plugin", old_config, plugin_config.config))
         _update_plugin_attachments(self.context["request"], plugin_config)
         return response
 
@@ -474,8 +488,20 @@ class PluginConfigViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         for plugin_id, order in orders.items():
             plugin_config = plugin_configs_dict.get(int(plugin_id), None)
             if plugin_config and plugin_config.order != order:
+                old_order = plugin_config.order
                 plugin_config.order = order
                 plugin_config.save()
+        
+                log_activity(
+                    organization_id=self.organization.id,
+                    # Users in an org but not yet in a team can technically manage plugins via the API
+                    team_id=self.team.id,  
+                    user=request.user, # type: ignore
+                    item_id=f"plugin_config_{plugin_config.id}", 
+                    scope="Plugin", # use the type plugin so we can also provide unified history
+                    activity="order_changed",
+                    detail=Detail(name=plugin_config.plugin.name, changes=[Change(type='Plugin', before=old_order, after=order, action="changed", field="order")]),
+                )
 
         return Response(PluginConfigSerializer(plugin_configs, many=True).data)
 
