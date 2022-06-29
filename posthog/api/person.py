@@ -47,7 +47,7 @@ from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.person.sql import GET_PERSON_PROPERTIES_COUNT
-from posthog.models.person.util import delete_person
+from posthog.models.person.util import delete_ch_distinct_ids, delete_person
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.queries.actor_base_query import ActorBaseQuery
 from posthog.queries.funnels import ClickhouseFunnelActors, ClickhouseFunnelTrendsActors
@@ -207,18 +207,22 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     def destroy(self, request: request.Request, pk=None, **kwargs):  # type: ignore
         try:
             person = Person.objects.get(team=self.team, pk=pk)
+            person_id = person.id
 
             delete_person(person=person)
+            delete_ch_distinct_ids(
+                person_uuid=str(person.uuid), distinct_ids=person.distinct_ids, team_id=person.team_id
+            )
             person.delete()
 
             log_activity(
                 organization_id=self.organization.id,
                 team_id=self.team_id,
                 user=request.user,  # type: ignore
-                item_id=person.id,
+                item_id=person_id,
                 scope="Person",
                 activity="deleted",
-                detail=Detail(name=str(person.id)),
+                detail=Detail(name=str(person_id)),
             )
 
             return response.Response(status=204)
