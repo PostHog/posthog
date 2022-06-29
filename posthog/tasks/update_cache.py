@@ -129,12 +129,15 @@ def get_cache_type(filter: FilterType) -> CacheType:
         return CacheType.TRENDS
 
 
-def update_cached_items() -> None:
+def update_cached_items() -> Tuple[int, int]:
     tasks = []
-    # TODO: Fix this is_shared reference
-    items = (
+
+    dashboard_tiles = (
         DashboardTile.objects.filter(
-            Q(Q(dashboard__is_shared=True) | Q(dashboard__last_accessed_at__gt=timezone.now() - relativedelta(days=7)))
+            Q(
+                Q(dashboard__sharingconfiguration__enabled=True)
+                | Q(dashboard__last_accessed_at__gt=timezone.now() - relativedelta(days=7))
+            )
         )
         .exclude(dashboard__deleted=True)
         .exclude(insight__deleted=True)
@@ -145,7 +148,7 @@ def update_cached_items() -> None:
         .order_by(F("last_refresh").asc(nulls_first=True), F("insight__last_refresh").asc(nulls_first=True))
     )
 
-    for dashboard_tile in items[0:PARALLEL_INSIGHT_CACHE]:
+    for dashboard_tile in dashboard_tiles[0:PARALLEL_INSIGHT_CACHE]:
         insight = dashboard_tile.insight
         try:
             cache_key, cache_type, payload = insight_update_task_params(insight, dashboard_tile.dashboard)
@@ -159,10 +162,34 @@ def update_cached_items() -> None:
 
             capture_exception(e)
 
+    # TODO: Do we need to filter this based on the lastviewed metric?
+    shared_insights = (
+        Insight.objects.filter(sharingconfiguration__enabled=True)
+        .exclude(deleted=True)
+        .exclude(filters={})
+        .exclude(refreshing=True)
+        .exclude(refresh_attempt__gt=2)
+        .order_by(F("last_refresh").asc(nulls_first=True))
+    )
+
+    REMAINING_TASK_COUNT = max(0, PARALLEL_INSIGHT_CACHE - len(tasks))
+
+    for insight in shared_insights[0:REMAINING_TASK_COUNT]:
+        try:
+            cache_key, cache_type, payload = insight_update_task_params(insight)
+            tasks.append(update_cache_item_task.s(cache_key, cache_type, payload))
+        except Exception as e:
+            insight.refresh_attempt = (insight.refresh_attempt or 0) + 1
+            insight.save(update_fields=["refresh_attempt"])
+            capture_exception(e)
+
     logger.info("Found {} items to refresh".format(len(tasks)))
     taskset = group(tasks)
     taskset.apply_async()
-    statsd.gauge("update_cache_queue_depth", items.count())
+    queue_depth = dashboard_tiles.count() + shared_insights.count()
+    statsd.gauge("update_cache_queue_depth", queue_depth)
+
+    return len(tasks), queue_depth
 
 
 def insight_update_task_params(insight: Insight, dashboard: Optional[Dashboard] = None) -> Tuple[str, CacheType, Dict]:
