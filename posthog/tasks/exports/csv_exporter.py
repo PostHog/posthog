@@ -82,6 +82,7 @@ def export_csv(exported_asset_id: int, root_bucket: str = settings.OBJECT_STORAG
             _export_to_csv(exported_asset, root_bucket)
             statsd.incr("csv_exporter.succeeded", tags={"team_id": exported_asset.team.id})
         else:
+            statsd.incr("csv_exporter.unknown_asset", tags={"team_id": exported_asset.team.id})
             raise NotImplementedError(f"Export to format {exported_asset.export_format} is not supported")
     except Exception as e:
         if exported_asset:
