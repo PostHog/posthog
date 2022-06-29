@@ -120,6 +120,7 @@ urlpatterns = [
     path("authorize_and_redirect/", login_required(authorize_and_redirect)),
     path("shared_dashboard/<str:access_token>", sharing.SharingViewerPageViewSet.as_view({"get": "retrieve"})),
     path("shared/<str:access_token>", sharing.SharingViewerPageViewSet.as_view({"get": "retrieve"})),
+    path("embedded/<str:access_token>", sharing.SharingViewerPageViewSet.as_view({"get": "retrieve"})),
     path("exporter", sharing.SharingViewerPageViewSet.as_view({"get": "retrieve"})),
     path("exporter/<str:access_token>", sharing.SharingViewerPageViewSet.as_view({"get": "retrieve"})),
     re_path(r"^demo.*", login_required(demo_route)),
