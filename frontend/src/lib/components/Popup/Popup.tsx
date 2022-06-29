@@ -35,7 +35,7 @@ export interface PopupProps {
     maxContentWidth?: boolean
     className?: string
     middleware?: Middleware[]
-    /** any other refs that needs to be taken into account for handling outside clicks e.g. other nested popups */
+    /** Any other refs that needs to be taken into account for handling outside clicks e.g. other nested popups */
     additionalRefs?: React.MutableRefObject<HTMLDivElement | null>[]
 }
 

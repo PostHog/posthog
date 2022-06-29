@@ -237,9 +237,7 @@ class InsightMixin(BaseParamMixin):
 
 class DisplayDerivedMixin(InsightMixin):
     @cached_property
-    def display(
-        self,
-    ) -> Literal[DISPLAY_TYPES]:
+    def display(self,) -> Literal[DISPLAY_TYPES]:
         return self._data.get(DISPLAY, INSIGHT_TO_DISPLAY[self.insight])
 
     @include_dict

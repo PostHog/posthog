@@ -91,15 +91,11 @@ def get_previous_week(at: Optional[datetime.datetime] = None) -> Tuple[datetime.
         at = timezone.now()
 
     period_end: datetime.datetime = datetime.datetime.combine(
-        at - datetime.timedelta(timezone.now().weekday() + 1),
-        datetime.time.max,
-        tzinfo=pytz.UTC,
+        at - datetime.timedelta(timezone.now().weekday() + 1), datetime.time.max, tzinfo=pytz.UTC,
     )  # very end of the previous Sunday
 
     period_start: datetime.datetime = datetime.datetime.combine(
-        period_end - datetime.timedelta(6),
-        datetime.time.min,
-        tzinfo=pytz.UTC,
+        period_end - datetime.timedelta(6), datetime.time.min, tzinfo=pytz.UTC,
     )  # very start of the previous Monday
 
     return (period_start, period_end)
@@ -115,15 +111,11 @@ def get_previous_day(at: Optional[datetime.datetime] = None) -> Tuple[datetime.d
         at = timezone.now()
 
     period_end: datetime.datetime = datetime.datetime.combine(
-        at - datetime.timedelta(days=1),
-        datetime.time.max,
-        tzinfo=pytz.UTC,
+        at - datetime.timedelta(days=1), datetime.time.max, tzinfo=pytz.UTC,
     )  # very end of the previous day
 
     period_start: datetime.datetime = datetime.datetime.combine(
-        period_end,
-        datetime.time.min,
-        tzinfo=pytz.UTC,
+        period_end, datetime.time.min, tzinfo=pytz.UTC,
     )  # very start of the previous day
 
     return (period_start, period_end)
@@ -406,8 +398,7 @@ def convert_property_value(input: Union[str, bool, dict, list, int, Optional[str
 
 
 def get_compare_period_dates(
-    date_from: datetime.datetime,
-    date_to: datetime.datetime,
+    date_from: datetime.datetime, date_to: datetime.datetime,
 ) -> Tuple[datetime.datetime, datetime.datetime]:
     new_date_to = date_from
     diff = date_to - date_from
@@ -730,9 +721,7 @@ def get_instance_available_sso_providers() -> Dict[str, bool]:
         license = License.objects.first_valid()
 
     if getattr(settings, "SOCIAL_AUTH_GOOGLE_OAUTH2_KEY", None) and getattr(
-        settings,
-        "SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET",
-        None,
+        settings, "SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET", None,
     ):
         if bypass_license or (license is not None and AvailableFeature.GOOGLE_LOGIN in license.available_features):
             output["google-oauth2"] = True
@@ -885,16 +874,7 @@ def str_to_bool(value: Any) -> bool:
 def print_warning(warning_lines: Sequence[str]):
     highlight_length = min(max(map(len, warning_lines)) // 2, shutil.get_terminal_size().columns)
     print(
-        "\n".join(
-            (
-                "",
-                "🔻" * highlight_length,
-                *warning_lines,
-                "🔺" * highlight_length,
-                "",
-            )
-        ),
-        file=sys.stderr,
+        "\n".join(("", "🔻" * highlight_length, *warning_lines, "🔺" * highlight_length, "",)), file=sys.stderr,
     )
 
 
@@ -1002,11 +982,7 @@ def get_crontab(schedule: Optional[str]) -> Optional[crontab]:
     try:
         minute, hour, day_of_month, month_of_year, day_of_week = schedule.strip().split(" ")
         return crontab(
-            minute=minute,
-            hour=hour,
-            day_of_month=day_of_month,
-            month_of_year=month_of_year,
-            day_of_week=day_of_week,
+            minute=minute, hour=hour, day_of_month=day_of_month, month_of_year=month_of_year, day_of_week=day_of_week,
         )
     except Exception as err:
         capture_exception(err)
