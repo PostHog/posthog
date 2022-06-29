@@ -83,6 +83,8 @@ export function InsightDisplayConfig({ filters, activeView, disableTable }: Insi
     const showPathOptions = activeView === InsightType.PATHS
     const { featureFlags } = useValues(featureFlagLogic)
 
+    const dateFilterExperiment = !!featureFlags[FEATURE_FLAGS.DATE_FILTER_EXPERIMENT]
+
     return (
         <div className="display-config-inner">
             <div className="display-config-inner-row">
@@ -90,7 +92,7 @@ export function InsightDisplayConfig({ filters, activeView, disableTable }: Insi
                     <span className="filter">
                         <span className="head-title-item">Date range</span>
                         <InsightDateFilter
-                            defaultValue="Last 7 days"
+                            defaultValue={dateFilterExperiment ? 'Last 30 days' : 'Last 7 days'}
                             disabled={showFunnelBarOptions && isFunnelEmpty(filters)}
                             bordered
                             makeLabel={(key) => (

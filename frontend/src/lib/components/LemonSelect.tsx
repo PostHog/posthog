@@ -30,6 +30,9 @@ export interface LemonSelectProps<O extends LemonSelectOptions>
     dropdownMaxContentWidth?: boolean
     dropdownPlacement?: PopupProps['placement']
     allowClear?: boolean
+    className?: string
+    popupClassName?: string
+    popupRef?: React.MutableRefObject<HTMLDivElement | null>
 }
 
 export function LemonSelect<O extends LemonSelectOptions>({
@@ -41,6 +44,9 @@ export function LemonSelect<O extends LemonSelectOptions>({
     dropdownMaxContentWidth = false,
     dropdownPlacement,
     allowClear = false,
+    className,
+    popupClassName,
+    popupRef,
     ...buttonProps
 }: LemonSelectProps<O>): JSX.Element {
     const [localValue, setLocalValue] = useState(value)
@@ -82,7 +88,9 @@ export function LemonSelect<O extends LemonSelectOptions>({
             onMouseLeave={() => setHover(false)}
         >
             <LemonButtonWithPopup
+                className={className}
                 popup={{
+                    ref: popupRef,
                     overlay: sections.map((section, i) => (
                         <>
                             {section.label ? (
@@ -121,6 +129,7 @@ export function LemonSelect<O extends LemonSelectOptions>({
                     sameWidth: dropdownMatchSelectWidth,
                     placement: dropdownPlacement,
                     actionable: true,
+                    className: popupClassName,
                     maxContentWidth: dropdownMaxContentWidth,
                 }}
                 icon={localValue && allOptions[localValue]?.icon}

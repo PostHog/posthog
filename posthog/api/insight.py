@@ -69,6 +69,7 @@ from posthog.queries.util import get_earliest_timestamp
 from posthog.settings import SITE_URL
 from posthog.tasks.update_cache import update_insight_cache
 from posthog.utils import (
+    DEFAULT_DATE_FROM_DAYS,
     format_query_params_absolute_url,
     get_safe_cache,
     relative_date_parse,
@@ -140,7 +141,15 @@ class InsightBasicSerializer(TaggedItemSerializerMixin, serializers.ModelSeriali
 
     def to_representation(self, instance):
         representation = super().to_representation(instance)
-        representation["filters"] = instance.dashboard_filters()
+        filters = instance.dashboard_filters()
+
+        if not filters.get("date_from"):
+            filters.update(
+                {
+                    "date_from": f"-{DEFAULT_DATE_FROM_DAYS}d",
+                }
+            )
+        representation["filters"] = filters
         return representation
 
 
@@ -414,7 +423,10 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDestr
             queryset = queryset.filter(deleted=False)
 
         queryset = queryset.prefetch_related(
-            "dashboards", "dashboards__created_by", "dashboards__team", "dashboards__team__organization",
+            "dashboards",
+            "dashboards__created_by",
+            "dashboards__team",
+            "dashboards__team__organization",
         )
         queryset = queryset.select_related("created_by", "last_modified_by", "team")
         if self.action == "list":
@@ -730,7 +742,10 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDestr
     def _return_activity_page(activity_page: ActivityPage, limit: int, page: int, request: request.Request) -> Response:
         return Response(
             {
-                "results": ActivityLogSerializer(activity_page.results, many=True,).data,
+                "results": ActivityLogSerializer(
+                    activity_page.results,
+                    many=True,
+                ).data,
                 "next": format_query_params_absolute_url(request, page + 1, limit, offset_alias="page")
                 if activity_page.has_next
                 else None,

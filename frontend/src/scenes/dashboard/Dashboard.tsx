@@ -3,6 +3,7 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { dashboardLogic, DashboardLogicProps } from 'scenes/dashboard/dashboardLogic'
 import { DashboardItems } from 'scenes/dashboard/DashboardItems'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
+import { DateFilterExperiment } from 'lib/components/DateFilter/DateFilterExperiment'
 import { CalendarOutlined } from '@ant-design/icons'
 import './Dashboard.scss'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
@@ -56,6 +57,8 @@ function DashboardScene(): JSX.Element {
     } = useValues(dashboardLogic)
     const { setDashboardMode, setDates, reportDashboardViewed, setProperties } = useActions(dashboardLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+
+    const dateFilterExperiment = !!featureFlags[FEATURE_FLAGS.DATE_FILTER_EXPERIMENT]
 
     useEffect(() => {
         reportDashboardViewed()
@@ -113,20 +116,37 @@ function DashboardScene(): JSX.Element {
                         <div className="flex pb border-bottom space-x">
                             <div className="flex-grow flex" style={{ height: 30 }}>
                                 <TZIndicator style={{ marginRight: 8, fontWeight: 'bold', lineHeight: '30px' }} />
-                                <DateFilter
-                                    defaultValue="Custom"
-                                    showCustom
-                                    dateFrom={dashboardFilters?.date_from ?? undefined}
-                                    dateTo={dashboardFilters?.date_to ?? undefined}
-                                    onChange={setDates}
-                                    disabled={!canEditDashboard}
-                                    makeLabel={(key) => (
-                                        <>
-                                            <CalendarOutlined />
-                                            <span className="hide-when-small"> {key}</span>
-                                        </>
-                                    )}
-                                />
+                                {dateFilterExperiment ? (
+                                    <DateFilterExperiment
+                                        defaultValue="Custom"
+                                        showCustom
+                                        dateFrom={dashboardFilters?.date_from ?? undefined}
+                                        dateTo={dashboardFilters?.date_to ?? undefined}
+                                        onChange={setDates}
+                                        disabled={!canEditDashboard}
+                                        makeLabel={(key) => (
+                                            <>
+                                                <CalendarOutlined />
+                                                <span className="hide-when-small"> {key}</span>
+                                            </>
+                                        )}
+                                    />
+                                ) : (
+                                    <DateFilter
+                                        defaultValue="Custom"
+                                        showCustom
+                                        dateFrom={dashboardFilters?.date_from ?? undefined}
+                                        dateTo={dashboardFilters?.date_to ?? undefined}
+                                        onChange={setDates}
+                                        disabled={!canEditDashboard}
+                                        makeLabel={(key) => (
+                                            <>
+                                                <CalendarOutlined />
+                                                <span className="hide-when-small"> {key}</span>
+                                            </>
+                                        )}
+                                    />
+                                )}
                             </div>
                             {(featureFlags[FEATURE_FLAGS.PROPERTY_FILTER_ON_DASHBOARD] ||
                                 dashboard?.filters.properties) && (

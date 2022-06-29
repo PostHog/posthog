@@ -16,6 +16,7 @@ import {
 } from '@floating-ui/react-dom-interactions'
 
 export interface PopupProps {
+    ref?: React.MutableRefObject<HTMLDivElement | null>
     visible?: boolean
     onClickOutside?: (event: Event) => void
     onClickInside?: MouseEventHandler<HTMLDivElement>
@@ -45,88 +46,95 @@ let uniqueMemoizedIndex = 1
  *
  * Often used with buttons for various menu. If this is your intention, use `LemonButtonWithPopup`.
  */
-export function Popup({
-    children,
-    overlay,
-    visible,
-    onClickOutside,
-    onClickInside,
-    placement = 'bottom-start',
-    fallbackPlacements = ['bottom-start', 'bottom-end', 'top-start', 'top-end'],
-    className,
-    actionable = false,
-    middleware,
-    sameWidth = false,
-    maxContentWidth = false,
-}: PopupProps): JSX.Element {
-    const popupId = useMemo(() => uniqueMemoizedIndex++, [])
-    const {
-        x,
-        y,
-        refs: { reference: referenceRef, floating: floatingRef },
-        strategy,
-        placement: floatingPlacement,
-        update,
-    } = useFloating<HTMLElement>({
-        placement,
-        strategy: 'fixed',
-        middleware: [
-            offset(4),
-            ...(fallbackPlacements ? [flip({ fallbackPlacements })] : []),
-            shift(),
-            size({
-                padding: 5,
-                apply({ rects, elements: { floating } }) {
-                    if (sameWidth) {
-                        Object.assign(floating.style, {
-                            width: `${rects.reference.width}px`,
-                        })
-                    }
-                },
-            }),
-            ...(middleware ?? []),
-        ],
-    })
+export const Popup = React.forwardRef<HTMLDivElement, PopupProps>(
+    (
+        {
+            children,
+            overlay,
+            visible,
+            onClickOutside,
+            onClickInside,
+            placement = 'bottom-start',
+            fallbackPlacements = ['bottom-start', 'bottom-end', 'top-start', 'top-end'],
+            className,
+            actionable = false,
+            middleware,
+            sameWidth = false,
+            maxContentWidth = false,
+        },
+        ref
+    ): JSX.Element => {
+        const popupId = useMemo(() => uniqueMemoizedIndex++, [])
+        const {
+            x,
+            y,
+            refs: { reference: referenceRef, floating: floatingRef },
+            strategy,
+            placement: floatingPlacement,
+            update,
+        } = useFloating<HTMLElement>({
+            placement,
+            strategy: 'fixed',
+            middleware: [
+                offset(4),
+                ...(fallbackPlacements ? [flip({ fallbackPlacements })] : []),
+                shift(),
+                size({
+                    padding: 5,
+                    apply({ rects, elements: { floating } }) {
+                        if (sameWidth) {
+                            Object.assign(floating.style, {
+                                width: `${rects.reference.width}px`,
+                            })
+                        }
+                    },
+                }),
+                ...(middleware ?? []),
+            ],
+        })
 
-    useOutsideClickHandler([floatingRef, referenceRef], (event) => visible && onClickOutside?.(event), [visible])
+        useOutsideClickHandler([floatingRef, referenceRef], (event) => visible && onClickOutside?.(event), [visible])
 
-    useEffect(() => {
-        if (visible && referenceRef?.current && floatingRef?.current) {
-            return autoUpdate(referenceRef.current, floatingRef.current, update)
-        }
-    }, [visible, referenceRef?.current, floatingRef?.current])
+        useEffect(() => {
+            if (visible && referenceRef?.current && floatingRef?.current) {
+                return autoUpdate(referenceRef.current, floatingRef.current, update)
+            }
+        }, [visible, referenceRef?.current, floatingRef?.current])
 
-    const clonedChildren =
-        typeof children === 'function'
-            ? children({ ref: referenceRef })
-            : React.Children.toArray(children).map((child) =>
-                  React.cloneElement(child as ReactElement, { ref: referenceRef })
-              )
+        const clonedChildren =
+            typeof children === 'function'
+                ? children({ ref: referenceRef })
+                : React.Children.toArray(children).map((child) =>
+                      React.cloneElement(child as ReactElement, { ref: referenceRef })
+                  )
 
-    return (
-        <>
-            {clonedChildren}
-            {ReactDOM.createPortal(
-                <CSSTransition in={visible} timeout={100} classNames="Popup-" mountOnEnter unmountOnExit>
-                    <PopupContext.Provider value={popupId}>
-                        <div
-                            className={clsx(
-                                'Popup',
-                                actionable && 'Popup--actionable',
-                                maxContentWidth && 'Popup--max-content-width',
-                                className
-                            )}
-                            data-floating-placement={floatingPlacement}
-                            ref={floatingRef as MutableRefObject<HTMLDivElement>}
-                            style={{ position: strategy, top: y ?? 0, left: x ?? 0 }}
-                            onClick={onClickInside}
-                        >
-                            <div className="Popup__box">{overlay}</div>
-                        </div>
-                    </PopupContext.Provider>
-                </CSSTransition>,
-                document.body
-            )}
-        </>
-    )
-}
+        return (
+            <>
+                {clonedChildren}
+                {ReactDOM.createPortal(
+                    <CSSTransition in={visible} timeout={100} classNames="Popup-" mountOnEnter unmountOnExit>
+                        <PopupContext.Provider value={popupId}>
+                            <div
+                                className={clsx(
+                                    'Popup',
+                                    actionable && 'Popup--actionable',
+                                    maxContentWidth && 'Popup--max-content-width',
+                                    className
+                                )}
+                                data-floating-placement={floatingPlacement}
+                                ref={floatingRef as MutableRefObject<HTMLDivElement>}
+                                style={{ position: strategy, top: y ?? 0, left: x ?? 0 }}
+                                onClick={onClickInside}
+                            >
+                                <div ref={ref} className="Popup__box">
+                                    {overlay}
+                                </div>
+                            </div>
+                        </PopupContext.Provider>
+                    </CSSTransition>,
+                    document.body
+                )}
+            </>
+        )
+    }
+)

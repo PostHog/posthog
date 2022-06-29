@@ -10,6 +10,7 @@ import { AppstoreFilled, StarFilled, StarOutlined, UnorderedListOutlined } from 
 import './SavedInsights.scss'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { membersLogic } from 'scenes/organization/Settings/membersLogic'
+import { DateFilterExperiment } from 'lib/components/DateFilter/DateFilterExperiment'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { PageHeader } from 'lib/components/PageHeader'
 import { SavedInsightsEmptyState } from 'scenes/insights/EmptyStates'
@@ -42,6 +43,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { insightActivityDescriber } from 'scenes/saved-insights/activityDescriptions'
+import { CalendarOutlined } from '@ant-design/icons'
 
 const { TabPane } = Tabs
 
@@ -327,6 +329,7 @@ export function SavedInsights(): JSX.Element {
 
     const { featureFlags } = useValues(featureFlagLogic)
     const showActivityLog = featureFlags[FEATURE_FLAGS.INSIGHT_ACTIVITY_LOG]
+    const dateFilterExperiment = !!featureFlags[FEATURE_FLAGS.DATE_FILTER_EXPERIMENT]
 
     return (
         <div className="saved-insights">
@@ -397,17 +400,36 @@ export function SavedInsights(): JSX.Element {
                             </Col>
                             <Col>
                                 Last modified:
-                                <DateFilter
-                                    style={{ paddingLeft: 8 }}
-                                    defaultValue="All time"
-                                    disabled={false}
-                                    bordered={true}
-                                    dateFrom={dateFrom}
-                                    dateTo={dateTo}
-                                    onChange={(fromDate, toDate) =>
-                                        setSavedInsightsFilters({ dateFrom: fromDate, dateTo: toDate })
-                                    }
-                                />
+                                {dateFilterExperiment ? (
+                                    <DateFilterExperiment
+                                        style={{ paddingLeft: 8 }}
+                                        defaultValue="All time"
+                                        dateFrom={dateFrom}
+                                        dateTo={dateTo}
+                                        isDateFormatted={true}
+                                        onChange={(fromDate, toDate) =>
+                                            setSavedInsightsFilters({ dateFrom: fromDate, dateTo: toDate })
+                                        }
+                                        makeLabel={(key) => (
+                                            <>
+                                                <CalendarOutlined />
+                                                <span className="hide-when-small"> {key}</span>
+                                            </>
+                                        )}
+                                    />
+                                ) : (
+                                    <DateFilter
+                                        style={{ paddingLeft: 8 }}
+                                        defaultValue="All time"
+                                        disabled={false}
+                                        bordered={true}
+                                        dateFrom={dateFrom}
+                                        dateTo={dateTo}
+                                        onChange={(fromDate, toDate) =>
+                                            setSavedInsightsFilters({ dateFrom: fromDate, dateTo: toDate })
+                                        }
+                                    />
+                                )}
                             </Col>
                             {tab !== SavedInsightsTabs.Yours ? (
                                 <Col>

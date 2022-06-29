@@ -50,7 +50,6 @@ from posthog.redis import get_client
 if TYPE_CHECKING:
     from django.contrib.auth.models import AbstractBaseUser, AnonymousUser
 
-
 DATERANGE_MAP = {
     "minute": datetime.timedelta(minutes=1),
     "hour": datetime.timedelta(hours=1),
@@ -59,6 +58,8 @@ DATERANGE_MAP = {
     "month": datetime.timedelta(days=31),
 }
 ANONYMOUS_REGEX = r"^([a-z0-9]+\-){4}([a-z0-9]+)$"
+
+DEFAULT_DATE_FROM_DAYS = 7
 
 # https://stackoverflow.com/questions/4060221/how-to-reliably-open-a-file-in-the-same-directory-as-a-python-script
 __location__ = os.path.realpath(os.path.join(os.getcwd(), os.path.dirname(__file__)))
@@ -90,11 +91,15 @@ def get_previous_week(at: Optional[datetime.datetime] = None) -> Tuple[datetime.
         at = timezone.now()
 
     period_end: datetime.datetime = datetime.datetime.combine(
-        at - datetime.timedelta(timezone.now().weekday() + 1), datetime.time.max, tzinfo=pytz.UTC,
+        at - datetime.timedelta(timezone.now().weekday() + 1),
+        datetime.time.max,
+        tzinfo=pytz.UTC,
     )  # very end of the previous Sunday
 
     period_start: datetime.datetime = datetime.datetime.combine(
-        period_end - datetime.timedelta(6), datetime.time.min, tzinfo=pytz.UTC,
+        period_end - datetime.timedelta(6),
+        datetime.time.min,
+        tzinfo=pytz.UTC,
     )  # very start of the previous Monday
 
     return (period_start, period_end)
@@ -110,11 +115,15 @@ def get_previous_day(at: Optional[datetime.datetime] = None) -> Tuple[datetime.d
         at = timezone.now()
 
     period_end: datetime.datetime = datetime.datetime.combine(
-        at - datetime.timedelta(days=1), datetime.time.max, tzinfo=pytz.UTC,
+        at - datetime.timedelta(days=1),
+        datetime.time.max,
+        tzinfo=pytz.UTC,
     )  # very end of the previous day
 
     period_start: datetime.datetime = datetime.datetime.combine(
-        period_end, datetime.time.min, tzinfo=pytz.UTC,
+        period_end,
+        datetime.time.min,
+        tzinfo=pytz.UTC,
     )  # very start of the previous day
 
     return (period_start, period_end)
@@ -170,7 +179,7 @@ def request_to_date_query(filters: Dict[str, Any], exact: Optional[bool]) -> Dic
         if filters["date_from"] == "all":
             date_from = None
     else:
-        date_from = datetime.datetime.today() - relativedelta(days=7)
+        date_from = datetime.datetime.today() - relativedelta(days=DEFAULT_DATE_FROM_DAYS)
         date_from = date_from.replace(hour=0, minute=0, second=0, microsecond=0)
 
     date_to = None
@@ -397,7 +406,8 @@ def convert_property_value(input: Union[str, bool, dict, list, int, Optional[str
 
 
 def get_compare_period_dates(
-    date_from: datetime.datetime, date_to: datetime.datetime,
+    date_from: datetime.datetime,
+    date_to: datetime.datetime,
 ) -> Tuple[datetime.datetime, datetime.datetime]:
     new_date_to = date_from
     diff = date_to - date_from
@@ -720,7 +730,9 @@ def get_instance_available_sso_providers() -> Dict[str, bool]:
         license = License.objects.first_valid()
 
     if getattr(settings, "SOCIAL_AUTH_GOOGLE_OAUTH2_KEY", None) and getattr(
-        settings, "SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET", None,
+        settings,
+        "SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET",
+        None,
     ):
         if bypass_license or (license is not None and AvailableFeature.GOOGLE_LOGIN in license.available_features):
             output["google-oauth2"] = True
@@ -873,7 +885,16 @@ def str_to_bool(value: Any) -> bool:
 def print_warning(warning_lines: Sequence[str]):
     highlight_length = min(max(map(len, warning_lines)) // 2, shutil.get_terminal_size().columns)
     print(
-        "\n".join(("", "🔻" * highlight_length, *warning_lines, "🔺" * highlight_length, "",)), file=sys.stderr,
+        "\n".join(
+            (
+                "",
+                "🔻" * highlight_length,
+                *warning_lines,
+                "🔺" * highlight_length,
+                "",
+            )
+        ),
+        file=sys.stderr,
     )
 
 
@@ -891,8 +912,8 @@ def format_query_params_absolute_url(
     offset_alias: Optional[str] = "offset",
     limit_alias: Optional[str] = "limit",
 ) -> Optional[str]:
-    OFFSET_REGEX = re.compile(fr"([&?]{offset_alias}=)(\d+)")
-    LIMIT_REGEX = re.compile(fr"([&?]{limit_alias}=)(\d+)")
+    OFFSET_REGEX = re.compile(rf"([&?]{offset_alias}=)(\d+)")
+    LIMIT_REGEX = re.compile(rf"([&?]{limit_alias}=)(\d+)")
 
     url_to_format = request.build_absolute_uri()
 
@@ -901,13 +922,13 @@ def format_query_params_absolute_url(
 
     if offset:
         if OFFSET_REGEX.search(url_to_format):
-            url_to_format = OFFSET_REGEX.sub(fr"\g<1>{offset}", url_to_format)
+            url_to_format = OFFSET_REGEX.sub(rf"\g<1>{offset}", url_to_format)
         else:
             url_to_format = url_to_format + ("&" if "?" in url_to_format else "?") + f"{offset_alias}={offset}"
 
     if limit:
         if LIMIT_REGEX.search(url_to_format):
-            url_to_format = LIMIT_REGEX.sub(fr"\g<1>{limit}", url_to_format)
+            url_to_format = LIMIT_REGEX.sub(rf"\g<1>{limit}", url_to_format)
         else:
             url_to_format = url_to_format + ("&" if "?" in url_to_format else "?") + f"{limit_alias}={limit}"
 
@@ -981,7 +1002,11 @@ def get_crontab(schedule: Optional[str]) -> Optional[crontab]:
     try:
         minute, hour, day_of_month, month_of_year, day_of_week = schedule.strip().split(" ")
         return crontab(
-            minute=minute, hour=hour, day_of_month=day_of_month, month_of_year=month_of_year, day_of_week=day_of_week,
+            minute=minute,
+            hour=hour,
+            day_of_month=day_of_month,
+            month_of_year=month_of_year,
+            day_of_week=day_of_week,
         )
     except Exception as err:
         capture_exception(err)

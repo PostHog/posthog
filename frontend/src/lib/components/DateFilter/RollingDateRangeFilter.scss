@@ -1,0 +1,47 @@
+.rolling-date-range-filter {
+    display: flex;
+    align-items: center;
+
+    .label {
+        flex-shrink: 0;
+        margin: 0 auto;
+    }
+
+    input::-webkit-outer-spin-button,
+    input::-webkit-inner-spin-button {
+        -webkit-appearance: none;
+        margin: 0;
+    }
+
+    /* Firefox */
+    input[type='number'] {
+        -moz-appearance: textfield;
+    }
+
+    .date-selector-input {
+        display: flex;
+        margin: 0;
+        height: 2rem;
+        border: 1px solid var(--border-light);
+        border-radius: 0.25rem;
+        box-sizing: border-box;
+        -moz-box-sizing: border-box;
+        -webkit-box-sizing: border-box;
+        margin-right: 0.25rem;
+        margin-left: 0.25rem;
+        line-height: 1.25rem;
+
+        .numeric-input {
+            width: 3rem;
+            text-align: center;
+        }
+    }
+
+    .date-options-selector {
+        width: 6rem;
+    }
+}
+
+.rolling-date-range-options-selector-popup {
+    z-index: 9999;
+}

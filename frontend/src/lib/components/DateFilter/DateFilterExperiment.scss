@@ -1,0 +1,21 @@
+.date-filter-options {
+    padding: 0.5rem;
+
+    .custom-range-button {
+        display: flex;
+        min-height: 2rem;
+        height: 2rem;
+        padding: 1.25rem 0.75rem;
+        align-items: center;
+        color: var(--text-default);
+        font-weight: normal;
+        font-size: 0.875rem;
+        line-height: 1.375em;
+        cursor: pointer;
+        transition: background 0.3s ease;
+    }
+
+    .custom-range-button:hover {
+        background-color: var(--bg-mid);
+    }
+}

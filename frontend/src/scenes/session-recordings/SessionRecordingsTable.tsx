@@ -11,6 +11,7 @@ import { LeftOutlined, RightOutlined } from '@ant-design/icons'
 import { DurationFilter } from './DurationFilter'
 import { PersonHeader } from 'scenes/persons/PersonHeader'
 import { RecordingWatchedSource, SessionRecordingFilterType } from 'lib/utils/eventUsageLogic'
+import { DateFilterExperiment } from 'lib/components/DateFilter/DateFilterExperiment'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { Tooltip } from 'lib/components/Tooltip'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -21,6 +22,8 @@ import { TZLabel } from 'lib/components/TimezoneAware'
 import { IconFilter } from 'lib/components/icons'
 import { LemonButton } from 'lib/components/LemonButton'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 interface SessionRecordingsTableProps {
     personUUID?: string
@@ -54,6 +57,9 @@ export function SessionRecordingsTable({ personUUID, isPersonPage = false }: Ses
         enableFilter,
         reportRecordingsListFilterAdded,
     } = useActions(sessionRecordingsTableLogicInstance)
+
+    const { featureFlags } = useValues(featureFlagLogic)
+    const dateFilterExperiment = !!featureFlags[FEATURE_FLAGS.DATE_FILTER_EXPERIMENT]
 
     const columns: LemonTableColumns<SessionRecordingType> = [
         {
@@ -171,28 +177,52 @@ export function SessionRecordingsTable({ personUUID, isPersonPage = false }: Ses
 
                 <Row className="time-filter-row">
                     <Row className="time-filter">
-                        <DateFilter
-                            makeLabel={(key) => (
-                                <>
-                                    <CalendarOutlined />
-                                    <span> {key}</span>
-                                </>
-                            )}
-                            defaultValue="Last 7 days"
-                            bordered={true}
-                            dateFrom={fromDate ?? undefined}
-                            dateTo={toDate ?? undefined}
-                            onChange={(changedDateFrom, changedDateTo) => {
-                                reportRecordingsListFilterAdded(SessionRecordingFilterType.DateRange)
-                                setDateRange(changedDateFrom, changedDateTo)
-                            }}
-                            dateOptions={{
-                                Custom: { values: [] },
-                                'Last 24 hours': { values: ['-24h'] },
-                                'Last 7 days': { values: ['-7d'] },
-                                'Last 21 days': { values: ['-21d'] },
-                            }}
-                        />
+                        {dateFilterExperiment ? (
+                            <DateFilterExperiment
+                                makeLabel={(key) => (
+                                    <>
+                                        <CalendarOutlined />
+                                        <span> {key}</span>
+                                    </>
+                                )}
+                                defaultValue="Last 7 days"
+                                dateFrom={fromDate ?? undefined}
+                                dateTo={toDate ?? undefined}
+                                onChange={(changedDateFrom, changedDateTo) => {
+                                    reportRecordingsListFilterAdded(SessionRecordingFilterType.DateRange)
+                                    setDateRange(changedDateFrom, changedDateTo)
+                                }}
+                                dateOptions={{
+                                    Custom: { values: [] },
+                                    'Last 24 hours': { values: ['-24h'] },
+                                    'Last 7 days': { values: ['-7d'] },
+                                    'Last 21 days': { values: ['-21d'] },
+                                }}
+                            />
+                        ) : (
+                            <DateFilter
+                                makeLabel={(key) => (
+                                    <>
+                                        <CalendarOutlined />
+                                        <span> {key}</span>
+                                    </>
+                                )}
+                                defaultValue="Last 7 days"
+                                bordered={true}
+                                dateFrom={fromDate ?? undefined}
+                                dateTo={toDate ?? undefined}
+                                onChange={(changedDateFrom, changedDateTo) => {
+                                    reportRecordingsListFilterAdded(SessionRecordingFilterType.DateRange)
+                                    setDateRange(changedDateFrom, changedDateTo)
+                                }}
+                                dateOptions={{
+                                    Custom: { values: [] },
+                                    'Last 24 hours': { values: ['-24h'] },
+                                    'Last 7 days': { values: ['-7d'] },
+                                    'Last 21 days': { values: ['-21d'] },
+                                }}
+                            />
+                        )}
                     </Row>
                     <Row className="time-filter">
                         <Typography.Text className="filter-label">Duration</Typography.Text>

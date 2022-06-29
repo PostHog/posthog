@@ -121,6 +121,7 @@ export const FEATURE_FLAGS = {
     TOOLBAR_LAUNCH_SIDE_ACTION: 'toolbar-launch-side-action', // owner: @pauldambra,
     FEATURE_FLAG_EXPERIENCE_CONTINUITY: 'feature-flag-experience-continuity', // owner: @neilkakkar
     ASYNC_EXPORT_CSV_FOR_LIVE_EVENTS: 'ASYNC_EXPORT_CSV_FOR_LIVE_EVENTS', // owner: @pauldambra
+    DATE_FILTER_EXPERIMENT: 'date-filter-experiment', // owner: @kappa90
 }
 
 /** Which self-hosted plan's features are available with Cloud's "Standard" plan (aka card attached). */

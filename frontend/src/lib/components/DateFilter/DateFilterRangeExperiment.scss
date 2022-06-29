@@ -1,0 +1,11 @@
+.date-filter-today {
+    display: inline-block;
+    position: relative;
+}
+
+.date-filter-today::before {
+    content: '•' !important;
+    top: 0.5rem !important;
+    border: 0 !important;
+    font-size: 0.625em;
+}

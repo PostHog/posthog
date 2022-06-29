@@ -39,6 +39,7 @@ import { cohortsModel } from '~/models/cohortsModel'
 import { mathsLogic } from 'scenes/trends/mathsLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { mergeWithDashboardTile } from 'scenes/insights/utils/dashboardTiles'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 const SHOW_TIMEOUT_MESSAGE_AFTER = 15000
@@ -247,6 +248,15 @@ export const insightLogic = kea<insightLogicType>({
                     cache.abortController = new AbortController()
 
                     const { filters } = values
+
+                    // for this experiment, we want to force all new insights to show a default of 30days
+                    if (
+                        !filters.date_from &&
+                        values.featureFlags &&
+                        values.featureFlags[FEATURE_FLAGS.DATE_FILTER_EXPERIMENT]
+                    ) {
+                        filters.date_from = '-30d'
+                    }
                     const insight = (filters.insight as InsightType | undefined) || InsightType.TRENDS
                     const params = { ...filters, ...(refresh ? { refresh: true } : {}) }
 

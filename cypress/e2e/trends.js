@@ -132,7 +132,7 @@ describe('Trends', () => {
         cy.get('[data-attr=date-filter]').click()
         cy.contains('Last 30 days').click()
 
-        cy.get('.ant-select-item').contains('Last 30 days')
+        cy.get('div').contains('Yesterday').click()
         cy.get('[data-attr=trend-line-graph]', { timeout: 10000 }).should('exist')
     })
 
