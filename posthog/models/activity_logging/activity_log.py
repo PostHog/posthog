@@ -236,7 +236,7 @@ class ActivityPage:
 
 
 def load_activity(
-    scope: Literal["FeatureFlag", "Person", "Insight"],
+    scope: Literal["FeatureFlag", "Person", "Insight", "Plugin"],
     team_id: int,
     item_id: Optional[int] = None,
     limit: int = 10,

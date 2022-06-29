@@ -12,6 +12,9 @@ import { AdvancedTab } from 'scenes/plugins/tabs/advanced/AdvancedTab'
 import { canGloballyManagePlugins, canInstallPlugins, canViewPlugins } from './access'
 import { userLogic } from 'scenes/userLogic'
 import { SceneExport } from 'scenes/sceneTypes'
+import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
+import { ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
+import { pluginActivityDescriber } from './pluginActivityDescriptions'
 
 export const scene: SceneExport = {
     component: Plugins,
@@ -60,10 +63,15 @@ export function Plugins(): JSX.Element | null {
                         <InstalledTab />
                     </TabPane>
                     {canGloballyManagePlugins(user.organization) && (
-                        <TabPane tab="Repository" key={PluginTab.Repository}>
-                            <RepositoryTab />
-                        </TabPane>
+                        <>
+                            <TabPane tab="Repository" key={PluginTab.Repository}>
+                                <RepositoryTab />
+                            </TabPane>
+                        </>
                     )}
+                    <TabPane tab="History" key={PluginTab.History}>
+                        <ActivityLog scope={ActivityScope.PLUGIN} describer={pluginActivityDescriber} />
+                    </TabPane>
                     <TabPane tab="Advanced" key={PluginTab.Advanced}>
                         <AdvancedTab />
                     </TabPane>
