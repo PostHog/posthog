@@ -1,3 +1,4 @@
+import json
 from datetime import timedelta
 from typing import Dict, List, Optional, Tuple, Union
 
@@ -95,3 +96,7 @@ def query_events_list(
             SELECT_EVENT_BY_TEAM_AND_CONDITIONS_SQL.format(conditions=conditions, limit=limit_sql, order=order),
             {"team_id": team.pk, "limit": limit, **condition_params},
         )
+
+
+def parse_order_by(order_by_param: Optional[str]) -> List[str]:
+    return ["-timestamp"] if not order_by_param else list(json.loads(order_by_param))

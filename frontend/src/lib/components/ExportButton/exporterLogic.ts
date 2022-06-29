@@ -28,7 +28,11 @@ export const exporterLogic = kea<exporterLogicType>([
         return `dash:${dashboardId}::insight:${insightId}`
     }),
     actions({
-        exportItem: (exportFormat: ExporterFormat, successCallback?: () => void) => ({ exportFormat, successCallback }),
+        exportItem: (
+            exportFormat: ExporterFormat,
+            exportContext?: Record<string, any>,
+            successCallback?: () => void
+        ) => ({ exportFormat, exportContext, successCallback }),
         exportItemSuccess: true,
         exportItemFailure: true,
     }),
@@ -45,7 +49,7 @@ export const exporterLogic = kea<exporterLogicType>([
     }),
 
     listeners(({ actions, props }) => ({
-        exportItem: async ({ exportFormat, successCallback }) => {
+        exportItem: async ({ exportFormat, exportContext, successCallback }) => {
             lemonToast.info(`Export started...`)
 
             const trackingProperties = {
@@ -61,6 +65,7 @@ export const exporterLogic = kea<exporterLogicType>([
                     export_format: exportFormat,
                     dashboard: props.dashboardId,
                     insight: props.insightId,
+                    ...(exportContext || {}),
                 })
 
                 if (!exportedAsset.id) {
