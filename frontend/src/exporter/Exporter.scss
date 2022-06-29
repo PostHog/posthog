@@ -20,24 +20,6 @@ html.export-type-embed {
         padding: 0;
         height: 100vh;
         max-height: 100vh;
-        .ExportedInsight {
-            height: 100vh;
-            max-height: 100vh;
-            .ExportedInsight-content {
-                height: 100%;
-                max-height: 100%;
-                overflow: hidden;
-                display: flex;
-                flex-direction: column;
-                .InsightViz {
-                    min-height: auto;
-                    flex: 1;
-                }
-                .FunnelBarChart {
-                    height: 100%;
-                }
-            }
-        }
     }
 }
 
