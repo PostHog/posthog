@@ -286,9 +286,7 @@ class TestTeamMembershipsAPI(APILicensedTest):
         new_org_membership: OrganizationMembership = OrganizationMembership.objects.get(
             user=new_user, organization=self.organization
         )
-        new_team_membership = ExplicitTeamMembership.objects.create(
-            team=self.team, parent_membership=new_org_membership
-        )
+        ExplicitTeamMembership.objects.create(team=self.team, parent_membership=new_org_membership)
 
         response = self.client.patch(
             f"/api/projects/@current/explicit_members/{new_user.uuid}", {"level": ExplicitTeamMembership.Level.ADMIN}
@@ -309,9 +307,7 @@ class TestTeamMembershipsAPI(APILicensedTest):
         new_org_membership: OrganizationMembership = OrganizationMembership.objects.get(
             user=new_user, organization=self.organization
         )
-        new_team_membership = ExplicitTeamMembership.objects.create(
-            team=self.team, parent_membership=new_org_membership
-        )
+        ExplicitTeamMembership.objects.create(team=self.team, parent_membership=new_org_membership)
 
         response = self.client.patch(
             f"/api/projects/@current/explicit_members/{new_user.uuid}", {"level": ExplicitTeamMembership.Level.ADMIN}
@@ -326,7 +322,7 @@ class TestTeamMembershipsAPI(APILicensedTest):
     def test_demote_yourself_as_org_member_and_project_admin_forbidden(self):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
-        self_team_membership = ExplicitTeamMembership.objects.create(
+        ExplicitTeamMembership.objects.create(
             team=self.team, parent_membership=self.organization_membership, level=ExplicitTeamMembership.Level.ADMIN
         )
 
@@ -343,7 +339,7 @@ class TestTeamMembershipsAPI(APILicensedTest):
     def test_set_level_of_member_to_admin_as_org_member_but_project_admin_allowed(self):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
-        self_team_membership = ExplicitTeamMembership.objects.create(
+        ExplicitTeamMembership.objects.create(
             team=self.team, parent_membership=self.organization_membership, level=ExplicitTeamMembership.Level.ADMIN
         )
 
@@ -351,9 +347,7 @@ class TestTeamMembershipsAPI(APILicensedTest):
         new_org_membership: OrganizationMembership = OrganizationMembership.objects.get(
             user=new_user, organization=self.organization
         )
-        new_team_membership = ExplicitTeamMembership.objects.create(
-            team=self.team, parent_membership=new_org_membership
-        )
+        ExplicitTeamMembership.objects.create(team=self.team, parent_membership=new_org_membership)
 
         response = self.client.patch(
             f"/api/projects/@current/explicit_members/{new_user.uuid}", {"level": ExplicitTeamMembership.Level.ADMIN}
@@ -374,9 +368,7 @@ class TestTeamMembershipsAPI(APILicensedTest):
         new_org_membership: OrganizationMembership = OrganizationMembership.objects.get(
             user=new_user, organization=self.organization
         )
-        new_team_membership = ExplicitTeamMembership.objects.create(
-            team=self.team, parent_membership=new_org_membership
-        )
+        ExplicitTeamMembership.objects.create(team=self.team, parent_membership=new_org_membership)
 
         response = self.client.delete(f"/api/projects/@current/explicit_members/{new_user.uuid}")
 
@@ -390,9 +382,7 @@ class TestTeamMembershipsAPI(APILicensedTest):
         new_org_membership: OrganizationMembership = OrganizationMembership.objects.get(
             user=new_user, organization=self.organization
         )
-        new_team_membership = ExplicitTeamMembership.objects.create(
-            team=self.team, parent_membership=new_org_membership
-        )
+        ExplicitTeamMembership.objects.create(team=self.team, parent_membership=new_org_membership)
 
         response = self.client.delete(f"/api/projects/@current/explicit_members/{new_user.uuid}")
 
@@ -401,7 +391,7 @@ class TestTeamMembershipsAPI(APILicensedTest):
     def test_remove_member_as_org_member_but_project_admin_allowed(self):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
-        self_team_membership = ExplicitTeamMembership.objects.create(
+        ExplicitTeamMembership.objects.create(
             team=self.team, parent_membership=self.organization_membership, level=ExplicitTeamMembership.Level.ADMIN
         )
 
@@ -409,9 +399,7 @@ class TestTeamMembershipsAPI(APILicensedTest):
         new_org_membership: OrganizationMembership = OrganizationMembership.objects.get(
             user=new_user, organization=self.organization
         )
-        new_team_membership = ExplicitTeamMembership.objects.create(
-            team=self.team, parent_membership=new_org_membership
-        )
+        ExplicitTeamMembership.objects.create(team=self.team, parent_membership=new_org_membership)
 
         response = self.client.delete(f"/api/projects/@current/explicit_members/{new_user.uuid}")
 
@@ -440,7 +428,7 @@ class TestTeamMembershipsAPI(APILicensedTest):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
 
-        explicit_team_membership = ExplicitTeamMembership.objects.create(
+        ExplicitTeamMembership.objects.create(
             team=self.team, parent_membership=self.organization_membership, level=ExplicitTeamMembership.Level.ADMIN
         )
 
@@ -451,7 +439,7 @@ class TestTeamMembershipsAPI(APILicensedTest):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
 
-        explicit_team_membership = ExplicitTeamMembership.objects.create(
+        ExplicitTeamMembership.objects.create(
             team=self.team, parent_membership=self.organization_membership, level=ExplicitTeamMembership.Level.MEMBER
         )
 
@@ -474,7 +462,7 @@ class TestTeamMembershipsAPI(APILicensedTest):
         ExplicitTeamMembership.objects.create(
             team=self.team, parent_membership=self.organization_membership, level=ExplicitTeamMembership.Level.ADMIN
         )
-        team2 = Team.objects.create(organization=self.organization)
+        Team.objects.create(organization=self.organization)
 
         new_user: User = User.objects.create_and_join(self.organization, "rookie@posthog.com", None)
 

@@ -16,6 +16,7 @@ def get_default_access_token() -> str:
 
 
 class ExportedAsset(models.Model):
+    # deprecated
     class ExportType(models.TextChoices):
         DASHBOARD = "dashboard", "Dashboard"
         INSIGHT = "insight", "Insight"
@@ -34,6 +35,11 @@ class ExportedAsset(models.Model):
     export_format: models.CharField = models.CharField(max_length=16, choices=ExportFormat.choices)
     content: models.BinaryField = models.BinaryField(null=True)
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True, blank=True)
+    # for example holds filters for CSV exports
+    export_context: models.JSONField = models.JSONField(null=True, blank=True)
+    # path in object storage or some other location identifier for the asset
+    # 1000 characters would hold a 20 UUID forward slash separated path with space to spare
+    content_location: models.TextField = models.TextField(null=True, blank=True, max_length=1000)
 
     # Token for accessing the /exporter page
     access_token: models.CharField = models.CharField(
@@ -42,7 +48,7 @@ class ExportedAsset(models.Model):
 
     @property
     def has_content(self):
-        return self.content is not None
+        return self.content is not None or self.content_location is not None
 
     @property
     def filename(self):

@@ -42,8 +42,7 @@ export function shouldSendEventToBuffer(
         event.properties && event.properties['$device_id'] && event.distinct_id === event.properties['$device_id']
     const isRecentPerson =
         !person || DateTime.now().diff(person.created_at).as('seconds') < hub.BUFFER_CONVERSION_SECONDS
-    const ingestEventDirectly = isAnonymousEvent || event.event === '$identify' || !isRecentPerson
-    const sendToBuffer = !ingestEventDirectly
+    const sendToBuffer = !isAnonymousEvent && event.event !== '$identify' && isRecentPerson
 
     if (sendToBuffer) {
         hub.statsd?.increment('conversion_events_buffer_size', { teamId: event.team_id.toString() })
