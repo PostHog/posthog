@@ -12,10 +12,10 @@ import { Dashboard } from 'scenes/dashboard/Dashboard'
 
 const exportedData: ExportedData = window.POSTHOG_EXPORTED_DATA
 
-if (exportedData.type === ExportType.Image) {
-    // Disable tracking for screenshot captures
-    window.JS_POSTHOG_API_KEY = null
-}
+// Disable tracking for all exports and embeds.
+// This is explicitly set as to not track our customers' customers data.
+// Without it, embeds of self-hosted iframes will log metrics to app.posthog.com.
+window.JS_POSTHOG_API_KEY = null
 
 loadPostHogJS()
 initKea()
