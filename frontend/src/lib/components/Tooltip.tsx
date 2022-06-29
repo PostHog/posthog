@@ -37,7 +37,11 @@ export function Tooltip({
     const child = React.isValidElement(children) ? children : <span>{children}</span>
 
     return props.title ? (
-        <AntdTooltip {...props} visible={isDefaultTooltip ? visible : localVisible && debouncedLocalVisible}>
+        <AntdTooltip
+            {...props}
+            visible={isDefaultTooltip ? visible : localVisible && debouncedLocalVisible}
+            color={'#2D2D2D'}
+        >
             {React.cloneElement(child, {
                 onMouseEnter: () => setVisible(true),
                 onMouseLeave: () => setVisible(false),

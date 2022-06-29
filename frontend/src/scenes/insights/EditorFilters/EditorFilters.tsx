@@ -205,7 +205,23 @@ export function EditorFilters({ insightProps, showing }: EditorFiltersProps): JS
                           label: 'Attribution type',
                           position: 'right',
 
-                          tooltip: <>filler</>,
+                          tooltip: (
+                              <div>
+                                  Attribution type determines which property value to use for the entire funnel.
+                                  <ul>
+                                      <li>First step: the first property value seen from all steps is chosen.</li>
+                                      <li>Last step: last property value seen from all steps is chosen.</li>
+                                      <li>Specific step: the property value seen at that specific step is chosen.</li>
+                                      <li>All steps: the property value must be seen in all steps.</li>
+                                      <li>
+                                          Any step: the property value must be seen on at least one step of the funnel.
+                                      </li>
+                                      <a href="" target="_blank">
+                                          Read more in the docs.
+                                      </a>
+                                  </ul>
+                              </div>
+                          ),
                           component: Attribution,
                       }
                     : null,
