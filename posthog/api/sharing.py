@@ -26,6 +26,21 @@ class SharingConfigurationSerializer(serializers.ModelSerializer):
         read_only_fields = ["created_at", "access_token"]
 
 
+def _get_sharing_configuration(team_id: int, dashboard: Optional[Dashboard] = None, insight: Optional[Insight] = None):
+    instance, created = SharingConfiguration.objects.get_or_create(
+        insight=insight, dashboard=dashboard, team_id=team_id
+    )
+    instance = cast(SharingConfiguration, instance)
+    if dashboard:
+        # Ensure the legacy dashboard fields are in sync with the sharing configuration
+        if dashboard.share_token and dashboard.share_token != instance.access_token:
+            instance.enabled = dashboard.is_shared
+            instance.access_token = dashboard.share_token
+            instance.save()
+
+    return instance
+
+
 class SharingConfigurationViewSet(
     StructuredViewSetMixin, mixins.ListModelMixin, viewsets.GenericViewSet, mixins.UpdateModelMixin,
 ):
@@ -59,7 +74,9 @@ class SharingConfigurationViewSet(
 
     def list(self, request: Request, *args: Any, **kwargs: Any) -> response.Response:
         context = self.get_serializer_context()
-        instance = self._get_sharing_configuration()
+        instance = _get_sharing_configuration(
+            self.team_id, dashboard=context.get("dashboard"), insight=context.get("insight")
+        )
 
         serializer = self.get_serializer(instance, context)
         serializer.is_valid(raise_exception=True)
@@ -67,30 +84,15 @@ class SharingConfigurationViewSet(
         return response.Response(serializer.data)
 
     def patch(self, request: Request, *args: Any, **kwargs: Any) -> response.Response:
-        instance = self._get_sharing_configuration()
-
+        context = self.get_serializer_context()
+        instance = _get_sharing_configuration(
+            self.team_id, dashboard=context.get("dashboard"), insight=context.get("insight")
+        )
         serializer = self.get_serializer(instance, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         serializer.save()
 
         return response.Response(serializer.data)
-
-    def _get_sharing_configuration(self):
-        context = self.get_serializer_context()
-
-        instance, created = SharingConfiguration.objects.get_or_create(
-            insight_id=context.get("insight_id"), dashboard_id=context.get("dashboard_id"), team_id=self.team_id
-        )
-        instance = cast(SharingConfiguration, instance)
-        dashboard = cast(Optional[Dashboard], context.get("dashboard"))
-        if dashboard:
-            # Ensure the legacy dashboard fields are in sync with the sharing configuration
-            if dashboard.share_token and dashboard.share_token != instance.access_token:
-                instance.enabled = dashboard.is_shared
-                instance.access_token = dashboard.share_token
-                instance.save()
-
-        return instance
 
 
 class SharingViewerPageViewSet(mixins.RetrieveModelMixin, StructuredViewSetMixin, viewsets.GenericViewSet):
@@ -116,12 +118,19 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, StructuredViewSetMixin
         # Path based access (SharingConfiguration only)
         access_token = self.kwargs.get("access_token")
         if access_token:
+            sharing_configuration = None
             try:
                 sharing_configuration = SharingConfiguration.objects.select_related("dashboard", "insight").get(
                     access_token=access_token
                 )
             except SharingConfiguration.DoesNotExist:
-                raise NotFound()
+                # It could be a legacy Dashboard sharing token so we can
+                # TOOD: This can be removed once we fully migrate the fields
+                try:
+                    dashboard: Dashboard = Dashboard.objects.get(is_shared=True, share_token=access_token)
+                    sharing_configuration = _get_sharing_configuration(dashboard.team_id, dashboard=dashboard)
+                except Dashboard.DoesNotExist:
+                    raise NotFound()
 
             if sharing_configuration and sharing_configuration.enabled:
                 return (sharing_configuration, None)

@@ -55,25 +55,35 @@ class TestSharing(APIBaseTest):
         assert data["enabled"]
 
     def test_should_update_to_match_existing_dashboard_sharing_token(self):
-        response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{self.dashboard.id}/sharing")
+        dashboard = Dashboard.objects.create(team=self.team, name="example dashboard", created_by=self.user)
+        response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard.id}/sharing")
         initial_token = response.json()["access_token"]
         assert initial_token
-        assert response.json()["enabled"]
+        assert response.json()["enabled"] == False
 
-        self.dashboard.share_token = "my_test_token"
-        self.dashboard.is_shared = True
-        self.dashboard.save()
+        dashboard.share_token = "my_test_token"
+        dashboard.is_shared = True
+        dashboard.save()
 
-        response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{self.dashboard.id}/sharing")
+        response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard.id}/sharing")
         data = response.json()
         assert data["access_token"] == "my_test_token"
         assert data["enabled"]
 
-        self.dashboard.share_token = None
-        self.dashboard.is_shared = False
-        self.dashboard.save()
+        dashboard.share_token = None
+        dashboard.is_shared = False
+        dashboard.save()
 
-        response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{self.dashboard.id}/sharing")
+        response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard.id}/sharing")
         data = response.json()
         assert data["access_token"] == "my_test_token"
         assert data["enabled"]
+
+    def test_should_get_using_legacy_token(self):
+        dashboard = Dashboard.objects.create(
+            team=self.team, name="example dashboard", created_by=self.user, share_token="my_test_token", is_shared=True
+        )
+
+        response = self.client.get(f"/shared_dashboard/my_test_token")
+
+        assert response.status_code == 200
