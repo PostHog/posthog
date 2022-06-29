@@ -7,6 +7,8 @@ import celery
 import structlog
 from django.core.serializers.json import DjangoJSONEncoder
 from django.http import HttpResponse
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter
 from rest_framework import mixins, serializers, status, viewsets
 from rest_framework.authentication import BasicAuthentication, SessionAuthentication
 from rest_framework.decorators import action
@@ -17,6 +19,7 @@ from rest_framework.response import Response
 
 from posthog import settings
 from posthog.api.dashboard import DashboardSerializer
+from posthog.api.documentation import PropertiesSerializer, extend_schema
 from posthog.api.insight import InsightSerializer
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.auth import PersonalAPIKeyAuthentication
@@ -77,24 +80,36 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
 
         return attrs
 
-    # @extend_schema(
-    #     parameters=[
-    #         OpenApiParameter(
-    #             "event",
-    #             OpenApiTypes.STR,
-    #             description="Filter events by event. For example `user sign up` or `$pageview`.",
-    #         ),
-    #         OpenApiParameter("person_id", OpenApiTypes.INT, description="Filter events by person id."),
-    #         OpenApiParameter("distinct_id", OpenApiTypes.INT, description="Filter events by distinct id."),
-    #         OpenApiParameter(
-    #             "before", OpenApiTypes.DATETIME, description="Only return events with a timestamp before this time."
-    #         ),
-    #         OpenApiParameter(
-    #             "after", OpenApiTypes.DATETIME, description="Only return events with a timestamp after this time."
-    #         ),
-    #         PropertiesSerializer(required=False),
-    #     ],
-    # )
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "event",
+                OpenApiTypes.STR,
+                description="If exporting an event query to CSV. Filter events by event. For example `user sign up` or `$pageview`.",
+            ),
+            OpenApiParameter(
+                "person_id",
+                OpenApiTypes.INT,
+                description="If exporting an event query to CSV. Filter events by person id.",
+            ),
+            OpenApiParameter(
+                "distinct_id",
+                OpenApiTypes.INT,
+                description="If exporting an event query to CSV. Filter events by distinct id.",
+            ),
+            OpenApiParameter(
+                "before",
+                OpenApiTypes.DATETIME,
+                description="If exporting an event query to CSV. Only return events with a timestamp before this time.",
+            ),
+            OpenApiParameter(
+                "after",
+                OpenApiTypes.DATETIME,
+                description="If exporting an event query to CSV. Only return events with a timestamp after this time.",
+            ),
+            PropertiesSerializer(required=False),
+        ],
+    )
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> ExportedAsset:
         request = self.context["request"]
         validated_data["team_id"] = self.context["team_id"]
