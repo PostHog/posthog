@@ -107,9 +107,9 @@ export function Sharing({ dashboardId, insightShortId, insight }: SharingModalPr
                                             <LemonCheckbox
                                                 label={
                                                     <>
-                                                        <span className="mr-05">Show Logo</span>
+                                                        <span className="mr-05">Show PostHog Logo</span>
                                                         {!whitelabelAvailable ? (
-                                                            <Tooltip title="Upgrade to an enterprise plan to hide the logo">
+                                                            <Tooltip title="Upgrade to PostHog Scale to hide the logo">
                                                                 <IconLock />
                                                             </Tooltip>
                                                         ) : null}
