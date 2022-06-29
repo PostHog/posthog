@@ -116,9 +116,12 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, StructuredViewSetMixin
         # Path based access (SharingConfiguration only)
         access_token = self.kwargs.get("access_token")
         if access_token:
-            sharing_configuration = SharingConfiguration.objects.select_related("dashboard", "insight").get(
-                access_token=access_token
-            )
+            try:
+                sharing_configuration = SharingConfiguration.objects.select_related("dashboard", "insight").get(
+                    access_token=access_token
+                )
+            except SharingConfiguration.DoesNotExist:
+                raise NotFound()
 
             if sharing_configuration and sharing_configuration.enabled:
                 return (sharing_configuration, None)

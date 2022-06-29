@@ -33,6 +33,11 @@ class ExportedAsset(models.Model):
     content: models.BinaryField = models.BinaryField(null=True)
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True, blank=True)
 
+    # DEPRECATED: We now use JWT for accessing assets
+    access_token: models.CharField = models.CharField(
+        max_length=400, null=True, blank=True, default=get_default_access_token
+    )
+
     @property
     def has_content(self):
         return self.content is not None
