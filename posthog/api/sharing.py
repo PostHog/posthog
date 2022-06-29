@@ -4,8 +4,8 @@ from typing import Any, Dict, Optional, Tuple, cast
 from django.core.serializers.json import DjangoJSONEncoder
 from django.views.decorators.clickjacking import xframe_options_exempt
 from rest_framework import mixins, response, serializers, viewsets
-from rest_framework.exceptions import NotFound, ValidationError
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
+from rest_framework.permissions import SAFE_METHODS, IsAuthenticated
 from rest_framework.request import Request
 
 from posthog.api.dashboard import DashboardSerializer
@@ -15,8 +15,20 @@ from posthog.models import SharingConfiguration
 from posthog.models.dashboard import Dashboard
 from posthog.models.exported_asset import ExportedAsset, asset_for_token, get_content_response
 from posthog.models.insight import Insight
-from posthog.permissions import TeamMemberAccessPermission
+from posthog.models.user import User
+from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.utils import render_template
+
+
+# NOTE: We can't use a standard permission system as we are using Detail view on a non-detail route
+def check_can_edit_sharing_configuration(request: Request, sharing: SharingConfiguration) -> bool:
+    if request.method in SAFE_METHODS:
+        return True
+
+    if sharing.dashboard and not sharing.dashboard.can_user_edit(cast(User, request.user).id):
+        raise PermissionDenied("You don't have edit permissions for this dashboard.")
+
+    return True
 
 
 class SharingConfigurationSerializer(serializers.ModelSerializer):
@@ -42,9 +54,13 @@ def _get_sharing_configuration(team_id: int, dashboard: Optional[Dashboard] = No
 
 
 class SharingConfigurationViewSet(
-    StructuredViewSetMixin, mixins.ListModelMixin, viewsets.GenericViewSet, mixins.UpdateModelMixin,
+    StructuredViewSetMixin, mixins.ListModelMixin, viewsets.GenericViewSet,
 ):
-    permission_classes = [IsAuthenticated, TeamMemberAccessPermission]
+    permission_classes = [
+        IsAuthenticated,
+        ProjectMembershipNecessaryPermissions,
+        TeamMemberAccessPermission,
+    ]
     pagination_class = None
     queryset = SharingConfiguration.objects.select_related("dashboard", "insight")
     serializer_class = SharingConfigurationSerializer
@@ -88,6 +104,9 @@ class SharingConfigurationViewSet(
         instance = _get_sharing_configuration(
             self.team_id, dashboard=context.get("dashboard"), insight=context.get("insight")
         )
+
+        check_can_edit_sharing_configuration(request, instance)
+
         serializer = self.get_serializer(instance, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         serializer.save()
