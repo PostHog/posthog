@@ -35,6 +35,8 @@ export interface PopupProps {
     maxContentWidth?: boolean
     className?: string
     middleware?: Middleware[]
+    /** any other refs that needs to be taken into account for handling outside clicks e.g. other nested popups */
+    additionalRefs?: React.MutableRefObject<HTMLDivElement | null>[]
 }
 
 /** 0 means no parent. */
@@ -61,6 +63,7 @@ export const Popup = React.forwardRef<HTMLDivElement, PopupProps>(
             middleware,
             sameWidth = false,
             maxContentWidth = false,
+            additionalRefs = [],
         },
         ref
     ): JSX.Element => {
@@ -93,7 +96,11 @@ export const Popup = React.forwardRef<HTMLDivElement, PopupProps>(
             ],
         })
 
-        useOutsideClickHandler([floatingRef, referenceRef], (event) => visible && onClickOutside?.(event), [visible])
+        useOutsideClickHandler(
+            [floatingRef, referenceRef, ...additionalRefs],
+            (event) => visible && onClickOutside?.(event),
+            [visible]
+        )
 
         useEffect(() => {
             if (visible && referenceRef?.current && floatingRef?.current) {

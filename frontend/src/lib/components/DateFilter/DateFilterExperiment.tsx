@@ -148,6 +148,7 @@ export function DateFilterExperiment({
                 placement: 'bottom-start',
                 actionable: true,
                 closeOnClickInside: false,
+                additionalRefs: [fixedDateRangeRef, rollingDateRangeRef],
             }}
             icon={<CalendarOutlined />}
         >
