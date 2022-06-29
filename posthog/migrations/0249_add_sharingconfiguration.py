@@ -6,6 +6,32 @@ from django.db import migrations, models
 import posthog.models.sharing_configuration
 
 
+def create_sharing_configurations(apps, _) -> None:
+    Dashboard = apps.get_model("posthog", "Dashboard")
+    SharingConfiguration = apps.get_model("posthog", "SharingConfiguration")
+    dashboards = (
+        Dashboard.objects.filter(deprecated_is_shared=True)
+        .values("id", "team_id", "deprecated_is_shared", "deprecated_share_token")
+        .all()
+    )
+
+    batch_size = 1_000
+    sharing_configurations = [
+        SharingConfiguration(
+            team_id=dashboard["team_id"],
+            dashboard_id=dashboard["id"],
+            enabled=dashboard["deprecated_is_shared"],
+            access_token=dashboard["deprecated_share_token"],
+        )
+        for dashboard in dashboards
+    ]
+    SharingConfiguration.objects.bulk_create(sharing_configurations, batch_size=batch_size)
+
+
+def reverse(apps, schema_editor):
+    pass
+
+
 class Migration(migrations.Migration):
 
     dependencies = [
@@ -59,4 +85,5 @@ class Migration(migrations.Migration):
                 ("team", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.team")),
             ],
         ),
+        migrations.RunPython(create_sharing_configurations, reverse),
     ]
