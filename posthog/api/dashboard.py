@@ -38,7 +38,7 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
     use_template = serializers.CharField(write_only=True, allow_blank=True, required=False)
     use_dashboard = serializers.IntegerField(write_only=True, allow_null=True, required=False)
     effective_privilege_level = serializers.SerializerMethodField()
-    is_shared = serializers.BooleanField(source="is_really_shared")
+    is_shared = serializers.BooleanField(source="is_sharing_enabled")
 
     class Meta:
         model = Dashboard

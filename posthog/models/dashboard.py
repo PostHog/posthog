@@ -48,12 +48,11 @@ class Dashboard(models.Model):
 
     # DEPRECATED: using the new "sharing" relation instead
     share_token: models.CharField = models.CharField(max_length=400, null=True, blank=True)
-    # DEPRECATED: using the new "sharing" relation instead
+    # DEPRECATED: using the new "is_sharing_enabled" relation instead
     is_shared: models.BooleanField = models.BooleanField(default=False)
 
     @property
-    def is_really_shared(self):
-        # NOTE: This is lazy loaded and hence potentially pretty slow...
+    def is_sharing_enabled(self):
         sharing = self.sharingconfiguration_set.first()
         return sharing.enabled if sharing else False
 
@@ -117,7 +116,7 @@ class Dashboard(models.Model):
         return {
             "pinned": self.pinned,
             "item_count": self.insights.count(),
-            "is_shared": self.is_really_shared,
+            "is_shared": self.is_sharing_enabled,
             "created_at": self.created_at,
             "has_description": self.description != "",
             "tags_count": self.tagged_items.count(),
