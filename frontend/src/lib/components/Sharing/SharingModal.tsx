@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from 'react'
 import { LemonModal } from 'lib/components/LemonModal'
-import { SharingBaseProps } from './utils'
 import { InsightModel, InsightShortId, InsightType } from '~/types'
 import { useActions, useValues } from 'kea'
 import { sharingLogic } from './sharingLogic'
@@ -16,7 +15,7 @@ import './SharingModal.scss'
 import { Form } from 'kea-forms'
 import { Spinner } from '../Spinner/Spinner'
 
-export interface SharingModalProps extends SharingBaseProps {
+export interface SharingModalProps {
     dashboardId?: number
     insightShortId?: InsightShortId
     insight?: Partial<InsightModel>
