@@ -174,7 +174,7 @@
        AND timestamp <= toDateTime('2020-01-12 23:59:59')
      GROUP BY value
      ORDER BY count DESC, value DESC
-     LIMIT 5
+     LIMIT 25
      OFFSET 0)
   '
 ---
