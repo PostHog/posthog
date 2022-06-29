@@ -49,7 +49,8 @@ from posthog.models.filters.mixins.utils import cached_property, include_dict, p
 from posthog.models.filters.utils import GroupTypeIndex, validate_group_type_index
 from posthog.utils import relative_date_parse
 
-ALLOWED_FORMULA_CHARACTERS = r"([a-zA-Z \-\*\^0-9\+\/\(\)]+)"
+# When updating this regex, remember to update the regex with the same name in TrendsFormula.tsx
+ALLOWED_FORMULA_CHARACTERS = r"([a-zA-Z \-\*\^0-9\+\/\(\)\.]+)"
 
 
 class SmoothingIntervalsMixin(BaseParamMixin):
