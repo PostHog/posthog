@@ -139,7 +139,7 @@ VALIDATE_BEHAVIORAL_PROP_TYPES = {
 class Property:
     key: str
     operator: Optional[OperatorType]
-    value: Optional[ValueT]
+    value: ValueT
     type: PropertyType
     group_type_index: Optional[GroupTypeIndex]
 
@@ -213,6 +213,8 @@ class Property:
 
         if value is None and self.operator in ["is_set", "is_not_set"]:
             self.value = self.operator
+        elif value is None:
+            raise ValueError(f"Value must be set for property type {self.type} and operator {self.operator}")
         else:
             self.value = value
 
