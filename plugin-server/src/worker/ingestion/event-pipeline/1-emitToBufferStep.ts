@@ -29,7 +29,7 @@ export async function emitToBufferStep(
 
 /** Returns whether the event should be delayed using the event buffer mechanism.
  *
- * Why? Non-anonymous non-$identify events with no exisitng person matching their distinct ID are sent to a buffer.
+ * Why? Non-anonymous non-$identify events with no existing person matching their distinct ID are sent to a buffer.
  * This is so that we can better handle the case where one client uses a fresh distinct ID before another client
  * has managed to send the $identify event aliasing an existing anonymous distinct ID to the fresh distinct ID.
  *
