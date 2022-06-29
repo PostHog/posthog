@@ -22,7 +22,7 @@ nc -z localhost 9092 || ( service_warning 'Kafka'; bin/check_kafka_clickhouse_up
 curl -s 'http://localhost:8123/ping' || ( service_warning 'ClickHouse'; bin/check_kafka_clickhouse_up )
 
 ./bin/start-worker &
-./bin/start-backend &
+#./bin/start-backend &
 ./bin/start-frontend &
 
 wait

@@ -2,6 +2,7 @@ import copy
 import threading
 from datetime import datetime, timedelta
 from itertools import accumulate
+
 from typing import (
     Any,
     Callable,
@@ -69,11 +70,11 @@ class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
     # Determine if the current timerange is present in the cache
     def is_present_timerange(self, cached_result: List[Dict[str, Any]], filter: Filter, team: Team) -> bool:
         if (
-            len(cached_result) > 0
-            and cached_result[0].get("days")
-            and cached_result[0].get("data")
-            and len(cached_result[0]["days"]) > 0
-            and len(cached_result[0]["days"]) == len(cached_result[0]["data"])
+                len(cached_result) > 0
+                and cached_result[0].get("days")
+                and cached_result[0].get("data")
+                and len(cached_result[0]["days"]) > 0
+                and len(cached_result[0]["days"]) == len(cached_result[0]["data"])
         ):
             latest_date = cached_result[0]["days"][len(cached_result[0]["days"]) - 1]
 
@@ -99,7 +100,7 @@ class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
         return new_filter, label_to_payload
 
     def merge_results(
-        self, result, cached_result: Optional[Dict[str, Any]], entity_order: int, filter: Filter, team: Team
+            self, result, cached_result: Optional[Dict[str, Any]], entity_order: int, filter: Filter, team: Team
     ):
         if cached_result and filter.display != TRENDS_CUMULATIVE:
             new_res = []
@@ -122,9 +123,35 @@ class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
         adjusted_filter, cached_result = self.adjusted_filter(filter, team)
         sql, params, parse_function = self._get_sql_for_entity(adjusted_filter, team, entity)
 
-        result = sync_execute(sql, params)
-        result = parse_function(result)
-        serialized_data = self._format_serialized(entity, result)
+        # we run query on each node
+        nodes = ["localhost"]
+        agg_result = []
+        for node in nodes:
+            result_each = sync_execute(sql, params)
+            agg_result.extend(result_each)
+
+        # aggregate each result together
+        data = []
+        date_with_dup_set = set()
+        for result in agg_result:
+
+            date_with_dup_set.add(result[1])
+        date = list(date_with_dup_set)
+        date.sort()
+
+        for d in date:
+            cnt = sum(x[0] for x in [x for x in agg_result if x[1] == d])
+            data.append(cnt)
+
+            
+        final_result_ = []
+        final_result_.append((date,data))
+
+
+
+        final_result = parse_function(final_result_)
+
+        serialized_data = self._format_serialized(entity, final_result)
         merged_results, cached_result = self.merge_results(
             serialized_data, cached_result, entity.order or entity.index, filter, team
         )
@@ -134,6 +161,8 @@ class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
                 merged_results.append(value)
 
         return merged_results
+
+    def f(x): return x % 2 != 0
 
     def _run_query_for_threading(self, result: List, index: int, sql, params):
         result[index] = sync_execute(sql, params)
@@ -148,7 +177,7 @@ class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
             adjusted_filter, cached_result = self.adjusted_filter(filter, team)
             sql, params, parse_function = self._get_sql_for_entity(adjusted_filter, team, entity)
             parse_functions[entity.index] = parse_function
-            thread = threading.Thread(target=self._run_query_for_threading, args=(result, entity.index, sql, params),)
+            thread = threading.Thread(target=self._run_query_for_threading, args=(result, entity.index, sql, params), )
             jobs.append(thread)
 
         # Start the threads (i.e. calculate the random number lists)
