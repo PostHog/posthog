@@ -235,3 +235,25 @@ class TestDashboardEnterpriseAPI(APILicensedTest):
         )
 
         self.assertListEqual(sorted(response.json()["tags"]), ["a", "b"])
+
+    def test_sharing_edits_limited_to_collaborators(self):
+        creator = User.objects.create_and_join(self.organization, "y@x.com", None)
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        dashboard = Dashboard.objects.create(
+            team=self.team,
+            name="example dashboard",
+            created_by=creator,
+            restriction_level=Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT,
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard.id}/sharing", {"enabled": True}
+        )
+
+        response_data = response.json()
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEquals(
+            response_data, self.permission_denied_response("You don't have edit permissions for this dashboard."),
+        )

@@ -1,10 +1,13 @@
 from freezegun import freeze_time
 from rest_framework import status
 
+from ee.models.dashboard_privilege import DashboardPrivilege
 from posthog.models.dashboard import Dashboard
 from posthog.models.filters.filter import Filter
 from posthog.models.insight import Insight
+from posthog.models.organization import OrganizationMembership
 from posthog.models.sharing_configuration import SharingConfiguration
+from posthog.models.user import User
 from posthog.test.base import APIBaseTest
 
 
@@ -85,5 +88,20 @@ class TestSharing(APIBaseTest):
         )
 
         response = self.client.get(f"/shared_dashboard/my_test_token")
+
+        assert response.status_code == 200
+
+    def test_should_not_be_affected_by_collaboration_rules(self):
+        other_user = User.objects.create_and_join(self.organization, "a@x.com", None)
+        dashboard = Dashboard.objects.create(
+            team=self.team,
+            name="example dashboard",
+            created_by=other_user,
+            restriction_level=Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT,
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard.id}/sharing", {"enabled": True}
+        )
 
         assert response.status_code == 200
