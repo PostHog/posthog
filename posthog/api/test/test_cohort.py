@@ -356,7 +356,8 @@ email@example.org,
         self.assertEqual(2, len(response.json()["results"]))
 
     @patch("posthog.api.cohort.report_user_action")
-    def test_creating_update_and_calculating_with_new_cohort_filters_is_set(self, patch_capture):
+    def test_cohort_with_is_set_filter_missing_value(self, patch_capture):
+        # regression test: Removing `value` was silently failing
 
         _create_person(distinct_ids=["p1"], team_id=self.team.pk, properties={"$some_prop": "something"})
         _create_person(distinct_ids=["p2"], team_id=self.team.pk, properties={"$some_prop": "not it"})
