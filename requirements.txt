@@ -4,16 +4,12 @@
 #
 #    pip-compile requirements.in
 #
-aioch==0.0.2
-    # via -r requirements.in
 amqp==2.5.2
     # via
     #   -r requirements.in
     #   kombu
 asgiref==3.3.2
-    # via
-    #   -r requirements.in
-    #   django
+    # via django
 async-generator==1.10
     # via
     #   trio
@@ -51,7 +47,6 @@ chardet==3.0.4
 clickhouse-driver==0.2.1
     # via
     #   -r requirements.in
-    #   aioch
     #   clickhouse-pool
 clickhouse-pool==0.5.3
     # via -r requirements.in
