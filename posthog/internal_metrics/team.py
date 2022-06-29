@@ -9,6 +9,7 @@ from sentry_sdk.api import capture_exception
 from posthog.models import DashboardTile
 from posthog.models.dashboard import Dashboard
 from posthog.models.insight import Insight
+from posthog.models.sharing_configuration import SharingConfiguration
 
 NAME = "PostHog Internal Metrics"
 CLICKHOUSE_DASHBOARD = {
@@ -399,6 +400,7 @@ def get_or_create_dashboard(team_id: int, definition: Dict) -> Dashboard:
         dashboard = Dashboard.objects.create(
             name=definition["name"], filters=definition["filters"], description=description, team_id=team_id
         )
+        SharingConfiguration.objects.create(team_id=team_id, dashboard=dashboard, enabled=True)
 
         for index, item in enumerate(definition["items"]):
             layouts = item.pop("layouts", {})
