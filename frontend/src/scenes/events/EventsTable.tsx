@@ -37,6 +37,7 @@ import { createActionFromEvent } from './createActionFromEvent'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { LemonTableConfig } from 'lib/components/ResizableTable/TableConfig'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { EventBufferNotice } from './EventBufferNotice'
 
 export interface FixedFilters {
     action_id?: ActionType['id']
@@ -460,7 +461,7 @@ export function EventsTable({
                         </div>
                     </div>
                 ) : null}
-
+                <EventBufferNotice extended />
                 <LemonTable
                     dataSource={eventsFormatted}
                     loading={isLoading}
