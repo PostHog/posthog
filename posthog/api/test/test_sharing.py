@@ -84,15 +84,6 @@ class TestSharing(APIBaseTest):
         assert data["access_token"] == "my_test_token"
         assert data["enabled"]
 
-    def test_should_get_using_legacy_token(self):
-        Dashboard.objects.create(
-            team=self.team, name="example dashboard", created_by=self.user, share_token="my_test_token", is_shared=True
-        )
-
-        response = self.client.get(f"/shared_dashboard/my_test_token")
-
-        assert response.status_code == 200
-
     def test_should_not_be_affected_by_collaboration_rules(self):
         other_user = User.objects.create_and_join(self.organization, "a@x.com", None)
         dashboard = Dashboard.objects.create(
