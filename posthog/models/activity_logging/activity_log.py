@@ -14,11 +14,14 @@ from posthog.models.utils import UUIDT, UUIDModel
 
 logger = structlog.get_logger(__name__)
 
+ActivityScope = Literal["FeatureFlag", "Person", "Insight", "Plugin", "PluginConfig"]
+ChangeAction = Literal["changed", "created", "deleted", "merged", "split", "exported"]
+
 
 @dataclasses.dataclass(frozen=True)
 class Change:
-    type: Literal["FeatureFlag", "Person", "Insight", "Plugin"]
-    action: Literal["changed", "created", "deleted", "merged", "split", "exported"]
+    type: ActivityScope
+    action: ChangeAction
     field: Optional[str] = None
     before: Optional[Any] = None
     after: Optional[Any] = None
@@ -184,11 +187,8 @@ def changes_between(
 
     return changes
 
-def dict_changes_between(
-    model_type: Literal["FeatureFlag", "Person", "Insight", "Plugin"],
-    previous: Dict[Any, Any],
-    new: Dict[Any, Any],
-) -> List[Change]:
+
+def dict_changes_between(model_type: ActivityScope, previous: Dict[Any, Any], new: Dict[Any, Any],) -> List[Change]:
     """
     Identifies changes between two dictionaries by comparing fields
     """
@@ -198,20 +198,23 @@ def dict_changes_between(
         return changes
 
     if previous is not None:
-        fields = previous.keys() if new is not None else []
+        fields = previous.keys() if previous is not None else []
 
         for field in fields:
-            left = getattr(previous, field, None)
-            right = getattr(new, field, None)
+            previous_value = previous.get(field, None)
+            new_value = new.get(field, None)
 
-            if left is None and right is not None:
-                changes.append(Change(type=model_type, field=field, action="created", after=right,))
-            elif right is None and left is not None:
-                changes.append(Change(type=model_type, field=field, action="deleted", before=left,))
-            elif left != right:
-                changes.append(Change(type=model_type, field=field, action="changed", before=left, after=right,))
+            if previous_value is None and new_value is not None:
+                changes.append(Change(type=model_type, field=field, action="created", after=new_value,))
+            elif new_value is None and previous_value is not None:
+                changes.append(Change(type=model_type, field=field, action="deleted", before=previous_value,))
+            elif previous_value != new_value:
+                changes.append(
+                    Change(type=model_type, field=field, action="changed", before=previous_value, after=new_value,)
+                )
 
     return changes
+
 
 def log_activity(
     organization_id: UUIDT,
@@ -263,22 +266,7 @@ class ActivityPage:
     results: List[ActivityLog]
 
 
-def load_activity(
-    scope: Literal["FeatureFlag", "Person", "Insight", "Plugin"],
-    team_id: int,
-    item_id: Optional[int] = None,
-    limit: int = 10,
-    page: int = 1,
-) -> ActivityPage:
-    # TODO in follow-up to posthog #8931 selecting specific fields into a return type from this query
-
-    activity_query = (
-        ActivityLog.objects.select_related("user").filter(team_id=team_id, scope=scope).order_by("-created_at")
-    )
-
-    if item_id is not None:
-        activity_query = activity_query.filter(item_id=item_id)
-
+def get_activity_page(activity_query: models.QuerySet, limit: int = 10, page: int = 1,) -> ActivityPage:
     paginator = Paginator(activity_query, limit)
     activity_page = paginator.page(page)
 
@@ -289,3 +277,26 @@ def load_activity(
         has_next=activity_page.has_next(),
         has_previous=activity_page.has_previous(),
     )
+
+
+def load_activity(
+    scope: ActivityScope, team_id: int, item_id: Optional[int] = None, limit: int = 10, page: int = 1,
+) -> ActivityPage:
+    # TODO in follow-up to posthog #8931 selecting specific fields into a return type from this query
+
+    activity_query = (
+        ActivityLog.objects.select_related("user").filter(team_id=team_id, scope=scope).order_by("-created_at")
+    )
+
+    if item_id is not None:
+        activity_query = activity_query.filter(item_id=item_id)
+
+    return get_activity_page(activity_query, limit, page)
+
+
+def load_all_activity(scope_list: List[ActivityScope], team_id: int, limit: int = 10, page: int = 1):
+    activity_query = (
+        ActivityLog.objects.select_related("user").filter(team_id=team_id, scope__in=scope_list).order_by("-created_at")
+    )
+
+    return get_activity_page(activity_query, limit, page)

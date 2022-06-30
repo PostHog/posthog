@@ -19,7 +19,16 @@ from rest_framework.response import Response
 
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.models import Plugin, PluginAttachment, PluginConfig, Team
-from posthog.models.activity_logging.activity_log import ActivityPage, Change, Detail, dict_changes_between, load_activity, log_activity
+from posthog.models.activity_logging.activity_log import (
+    ActivityPage,
+    Change,
+    Detail,
+    dict_changes_between,
+    load_activity,
+    load_all_activity,
+    log_activity,
+)
+from posthog.models.activity_logging.activity_page import return_activity_page
 from posthog.models.activity_logging.serializers import ActivityLogSerializer
 from posthog.models.organization import Organization
 from posthog.models.plugin import PluginSourceFile, update_validated_data_from_url
@@ -45,6 +54,42 @@ def _update_plugin_attachments(request: request.Request, plugin_config: PluginCo
         match = re.match(r"^remove_attachment\[([^]]+)\]$", key)
         if match:
             _update_plugin_attachment(plugin_config, match.group(1), None)
+
+
+def log_config_update_activity(
+    new_plugin_config: PluginConfig, old_config: Dict[str, Any], secret_fields: Set[str], old_enabled: bool, user: Any
+):
+    config_changes = dict_changes_between("Plugin", old_config, new_plugin_config.config)
+
+    for i, change in enumerate(config_changes):
+        if change.field in secret_fields:
+            config_changes[i] = Change(
+                type="PluginConfig", action=change.action, before=SECRET_FIELD_VALUE, after=SECRET_FIELD_VALUE
+            )
+
+    if len(config_changes) > 0:
+        log_activity(
+            organization_id=new_plugin_config.team.organization.id,
+            # Users in an org but not yet in a team can technically manage plugins via the API
+            team_id=new_plugin_config.team.id,
+            user=user,
+            item_id=new_plugin_config.id,
+            scope="PluginConfig",
+            activity="config_updated",
+            detail=Detail(name=new_plugin_config.plugin.name, changes=config_changes),
+        )
+
+    if old_enabled != new_plugin_config.enabled:
+        log_activity(
+            organization_id=new_plugin_config.team.organization.id,
+            # Users in an org but not yet in a team can technically manage plugins via the API
+            team_id=new_plugin_config.team.id,
+            user=user,
+            item_id=new_plugin_config.id,
+            scope="PluginConfig",
+            activity="enabled" if not old_enabled else "disabled",
+            detail=Detail(name=new_plugin_config.plugin.name),
+        )
 
 
 def _update_plugin_attachment(plugin_config: PluginConfig, key: str, file: Optional[UploadedFile]):
@@ -332,9 +377,9 @@ class PluginViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         limit = int(request.query_params.get("limit", "10"))
         page = int(request.query_params.get("page", "1"))
 
-        activity_page = load_activity(scope="Plugin", team_id=request.user.team.id, limit=limit, page=page)  # type: ignore
+        activity_page = load_all_activity(scope_list=["Plugin", "PluginConfig"], team_id=request.user.team.id, limit=limit, page=page)  # type: ignore
 
-        return self._return_activity_page(activity_page, limit, page, request)
+        return return_activity_page(activity_page, limit, page, request)
 
     @action(methods=["GET"], detail=True)
     def activity(self, request: request.Request, **kwargs):
@@ -348,7 +393,7 @@ class PluginViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         activity_page = load_activity(
             scope="Plugin", team_id=request.user.team.id, item_id=item_id, limit=limit, page=page  # type: ignore
         )
-        return self._return_activity_page(activity_page, limit, page, request)
+        return return_activity_page(activity_page, limit, page, request)
 
     @staticmethod
     def _return_activity_page(activity_page: ActivityPage, limit: int, page: int, request: request.Request) -> Response:
@@ -434,20 +479,17 @@ class PluginConfigSerializer(serializers.ModelSerializer):
                     validated_data["config"][key] = plugin_config.config.get(key)
 
         old_config = plugin_config.config
+        old_enabled = plugin_config.enabled
         response = super().update(plugin_config, validated_data)
-        
-        log_activity(
-            organization_id=plugin_config.team.organization.id,
-            # Users in an org but not yet in a team can technically manage plugins via the API
-            team_id=plugin_config.team.id,  
-            user=self.context["request"].user, # type: ignore
-            item_id=f"plugin_config_{plugin_config.id}", 
-            scope="Plugin", # use the type plugin so we can also provide unified history
-            activity="config_updated",
-            detail=Detail(name=plugin_config.plugin.name, changes=dict_changes_between("Plugin", old_config, plugin_config.config)),
+
+        log_config_update_activity(
+            new_plugin_config=plugin_config,
+            old_config=old_config or {},
+            old_enabled=old_enabled,
+            secret_fields=secret_fields,
+            user=self.context["request"].user,
         )
-        
-        print(dict_changes_between("Plugin", old_config, plugin_config.config))
+
         _update_plugin_attachments(self.context["request"], plugin_config)
         return response
 
@@ -491,16 +533,19 @@ class PluginConfigViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
                 old_order = plugin_config.order
                 plugin_config.order = order
                 plugin_config.save()
-        
+
                 log_activity(
                     organization_id=self.organization.id,
                     # Users in an org but not yet in a team can technically manage plugins via the API
-                    team_id=self.team.id,  
-                    user=request.user, # type: ignore
-                    item_id=f"plugin_config_{plugin_config.id}", 
-                    scope="Plugin", # use the type plugin so we can also provide unified history
+                    team_id=self.team.id,
+                    user=request.user,  # type: ignore
+                    item_id=plugin_config.id,
+                    scope="Plugin",  # use the type plugin so we can also provide unified history
                     activity="order_changed",
-                    detail=Detail(name=plugin_config.plugin.name, changes=[Change(type='Plugin', before=old_order, after=order, action="changed", field="order")]),
+                    detail=Detail(
+                        name=plugin_config.plugin.name,
+                        changes=[Change(type="Plugin", before=old_order, after=order, action="changed", field="order")],
+                    ),
                 )
 
         return Response(PluginConfigSerializer(plugin_configs, many=True).data)
@@ -516,7 +561,7 @@ class PluginConfigViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         if "type" not in job:
             raise ValidationError("The job type must be specified!")
 
-        # the plugin server uses "type" for job names but "name" makes for a more friendly API
+        # job_type = job name
         job_type = job.get("type")
         job_payload = job.get("payload", {})
         job_op = job.get("operation", "start")
@@ -537,6 +582,16 @@ class PluginConfigViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         except Exception as e:
             raise Exception(f"Failed to execute postgres sql={sql},\nparams={params},\nexception={str(e)}")
 
+        log_activity(
+            organization_id=self.team.organization.id,
+            # Users in an org but not yet in a team can technically manage plugins via the API
+            team_id=self.team.id,
+            user=request.user,  # type: ignore
+            item_id=plugin_config_id,
+            scope="PluginConfig",  # use the type plugin so we can also provide unified history
+            activity="job_triggered",
+            detail=Detail(name=self.get_object().plugin.name, changes=[Change(type="PluginConfig", action=job_type)]),
+        )
         return Response(status=200)
 
     @action(methods=["GET"], detail=True)

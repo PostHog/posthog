@@ -15,11 +15,18 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
 import { pluginActivityDescriber } from './pluginActivityDescriptions'
+import { LemonTag } from '@posthog/lemon-ui'
 
 export const scene: SceneExport = {
     component: Plugins,
     logic: pluginsLogic,
 }
+
+const BetaTag = (): JSX.Element => (
+    <LemonTag type="warning" style={{ verticalAlign: '0.125em', marginLeft: 6 }}>
+        BETA
+    </LemonTag>
+)
 
 export function Plugins(): JSX.Element | null {
     const { user } = useValues(userLogic)
@@ -67,7 +74,14 @@ export function Plugins(): JSX.Element | null {
                             <RepositoryTab />
                         </TabPane>
                     )}
-                    <TabPane tab="History" key={PluginTab.History}>
+                    <TabPane
+                        tab={
+                            <>
+                                History <BetaTag />{' '}
+                            </>
+                        }
+                        key={PluginTab.History}
+                    >
                         <ActivityLog scope={ActivityScope.PLUGIN} describer={pluginActivityDescriber} />
                     </TabPane>
                     <TabPane tab="Advanced" key={PluginTab.Advanced}>
