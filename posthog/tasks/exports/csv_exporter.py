@@ -39,7 +39,7 @@ def stage_results_to_object_storage(
         request_get_query_dict=exported_asset.export_context.get("request_get_query_dict"),
         order_by=exported_asset.export_context.get("order_by"),
         action_id=exported_asset.export_context.get("action_id"),
-        limit=100_000_000,  # what limit do we want?! None ¯\_(ツ)_/¯
+        limit=exported_asset.export_context.get("action_id", 10_000),
     )
     if write_headers:
         temporary_file.write(f"{','.join(result[0].keys())}\n".encode("utf-8"))
