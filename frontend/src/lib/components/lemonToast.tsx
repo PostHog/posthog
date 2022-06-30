@@ -1,7 +1,8 @@
 import React from 'react'
-import { toast, ToastOptions } from 'react-toastify'
+import { toast, ToastContentProps as ToastifyRenderProps, ToastOptions } from 'react-toastify'
 import { IconCheckmark, IconClose, IconErrorOutline, IconInfo, IconWarningAmber } from './icons'
 import { LemonButton } from './LemonButton'
+import { Spinner } from 'lib/components/Spinner/Spinner'
 
 export function ToastCloseButton({ closeToast }: { closeToast?: () => void }): JSX.Element {
     return <LemonButton type="tertiary" icon={<IconClose />} onClick={closeToast} data-attr="toast-close-button" />
@@ -91,6 +92,36 @@ export const lemonToast = {
                 icon: <IconErrorOutline />,
                 ...toastOptions,
             }
+        )
+    },
+    promise(
+        promise: Promise<any>,
+        messages: { pending: string | JSX.Element; success: string | JSX.Element; error: string | JSX.Element },
+        { button, ...toastOptions }: ToastOptionsWithButton = {}
+    ): Promise<any> {
+        toastOptions = ensureToastId(toastOptions)
+        // see https://fkhadra.github.io/react-toastify/promise
+        return toast.promise(
+            promise,
+            {
+                pending: {
+                    render: <ToastContent type={'info'} message={messages.pending} />,
+                    icon: <Spinner style={{ width: '1.5rem', height: '1.5rem' }} />,
+                },
+                success: {
+                    render({ data }: ToastifyRenderProps<string>) {
+                        return <ToastContent type={'success'} message={data || messages.success} />
+                    },
+                    icon: <IconCheckmark />,
+                },
+                error: {
+                    render({ data }: ToastifyRenderProps<Error>) {
+                        return <ToastContent type={'error'} message={data?.message || messages.error} />
+                    },
+                    icon: <IconErrorOutline />,
+                },
+            },
+            toastOptions
         )
     },
     dismiss(id?: number | string): void {
