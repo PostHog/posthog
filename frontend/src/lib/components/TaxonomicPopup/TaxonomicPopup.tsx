@@ -11,10 +11,9 @@ import { DownOutlined } from '@ant-design/icons'
 
 export interface TaxonomicPopupProps<ValueType = TaxonomicFilterValue>
     extends Omit<LemonButtonWithPopupProps, 'popup' | 'value' | 'onChange' | 'placeholder'> {
-    groupType: TaxonomicFilterGroupType
+    groupType?: TaxonomicFilterGroupType
     value?: ValueType
     onChange: (value: ValueType, groupType: TaxonomicFilterGroupType) => void
-
     groupTypes?: TaxonomicFilterGroupType[]
     renderValue?: (value: ValueType) => JSX.Element
     dataAttr?: string
@@ -60,7 +59,7 @@ export function TaxonomicPopup({
                         onChange?.(payload, type)
                         setVisible(false)
                     }}
-                    taxonomicGroupTypes={groupTypes ?? [groupType]}
+                    taxonomicGroupTypes={groupTypes ?? (groupType ? [groupType] : ([] as TaxonomicFilterGroupType[]))}
                     eventNames={eventNames}
                 />
             }
