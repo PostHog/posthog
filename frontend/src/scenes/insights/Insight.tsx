@@ -38,6 +38,7 @@ import { urls } from 'scenes/urls'
 import { SubscriptionsModal, SubscribeButton } from 'lib/components/Subscriptions/SubscriptionsModal'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 import clsx from 'clsx'
+import { SharingModal } from 'lib/components/Sharing/SharingModal'
 
 export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): JSX.Element {
     const { insightMode, subscriptionId } = useValues(insightSceneLogic)
@@ -76,6 +77,7 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
     // const screens = useBreakpoint()
     const usingEditorPanels = featureFlags[FEATURE_FLAGS.INSIGHT_EDITOR_PANELS]
     const usingExportFeature = featureFlags[FEATURE_FLAGS.EXPORT_DASHBOARD_INSIGHTS]
+    const usingEmbedFeature = featureFlags[FEATURE_FLAGS.EMBED_INSIGHTS]
     const usingSubscriptionFeature = featureFlags[FEATURE_FLAGS.INSIGHT_SUBSCRIPTIONS]
 
     // Show the skeleton if loading an insight for which we only know the id
@@ -87,12 +89,21 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
     const insightScene = (
         <div className={'insights-page'}>
             {insightId !== 'new' && (
-                <SubscriptionsModal
-                    visible={insightMode === ItemMode.Subscriptions}
-                    closeModal={() => push(urls.insightView(insight.short_id as InsightShortId))}
-                    insightShortId={insightId}
-                    subscriptionId={subscriptionId}
-                />
+                <>
+                    <SubscriptionsModal
+                        visible={insightMode === ItemMode.Subscriptions}
+                        closeModal={() => push(urls.insightView(insight.short_id as InsightShortId))}
+                        insightShortId={insightId}
+                        subscriptionId={subscriptionId}
+                    />
+
+                    <SharingModal
+                        visible={insightMode === ItemMode.Sharing}
+                        closeModal={() => push(urls.insightView(insight.short_id as InsightShortId))}
+                        insightShortId={insightId}
+                        insight={insight}
+                    />
+                </>
             )}
             <PageHeader
                 title={
@@ -142,6 +153,20 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                                                 {insight.favorited ? 'Remove from favorites' : 'Add to favorites'}
                                             </LemonButton>
                                             <LemonDivider />
+
+                                            {usingEmbedFeature && (
+                                                <LemonButton
+                                                    type="stealth"
+                                                    onClick={() =>
+                                                        insight.short_id
+                                                            ? push(urls.insightSharing(insight.short_id))
+                                                            : null
+                                                    }
+                                                    fullWidth
+                                                >
+                                                    Share or embed
+                                                </LemonButton>
+                                            )}
                                             {usingExportFeature && insight.short_id && (
                                                 <>
                                                     {usingSubscriptionFeature && (

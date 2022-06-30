@@ -12,16 +12,19 @@ import { Dashboard } from 'scenes/dashboard/Dashboard'
 
 const exportedData: ExportedData = window.POSTHOG_EXPORTED_DATA
 
-if (exportedData.type === ExportType.Image) {
-    // Disable tracking for screenshot captures
-    window.JS_POSTHOG_API_KEY = null
-}
+// Disable tracking for all exports and embeds.
+// This is explicitly set as to not track our customers' customers data.
+// Without it, embeds of self-hosted iframes will log metrics to app.posthog.com.
+window.JS_POSTHOG_API_KEY = null
 
 loadPostHogJS()
 initKea()
 
 function Exporter(): JSX.Element {
-    const { type, dashboard, insight, whitelabel, team } = exportedData
+    const { type, dashboard, insight, team, ...exportOptions } = exportedData
+    const { whitelabel } = exportOptions
+
+    exportOptions.fitScreen = exportOptions.fitScreen ?? type == ExportType.Embed
 
     return (
         <div className="Exporter">
@@ -57,11 +60,10 @@ function Exporter(): JSX.Element {
             ) : null}
 
             {insight ? (
-                <ExportedInsight insight={insight} showLogo={!whitelabel} />
+                <ExportedInsight insight={insight} exportOptions={exportOptions} />
             ) : dashboard ? (
                 <Dashboard
                     id={String(dashboard.id)}
-                    shareToken={dashboard.share_token}
                     placement={type === ExportType.Image ? DashboardPlacement.Export : DashboardPlacement.Public}
                 />
             ) : (
