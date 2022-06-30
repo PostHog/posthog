@@ -191,6 +191,9 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, StructuredViewSetMixin
         if request.path.endswith(f".json"):
             return response.Response(exported_data)
 
+        if request.GET.get("force_type"):
+            exported_data["type"] = request.GET.get("force_type")
+
         return render_template(
             "exporter.html",
             request=request,
