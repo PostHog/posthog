@@ -9,10 +9,11 @@ import { dateFilterToText } from 'lib/utils'
 import { FriendlyLogo } from '~/toolbar/assets/FriendlyLogo'
 import { InsightLegend } from 'lib/components/InsightLegend/InsightLegend'
 import { ExportOptions } from '~/exporter/types'
+import clsx from 'clsx'
 
 export function ExportedInsight({
     insight,
-    exportOptions: { whitelabel, noLegend },
+    exportOptions: { whitelabel, noLegend, fitScreen },
 }: {
     insight: InsightModel
     exportOptions: ExportOptions
@@ -33,7 +34,11 @@ export function ExportedInsight({
 
     return (
         <BindLogic logic={insightLogic} props={insightLogicProps}>
-            <div className="ExportedInsight">
+            <div
+                className={clsx('ExportedInsight', {
+                    'ExportedInsight--fit-screen': fitScreen,
+                })}
+            >
                 <div className="ExportedInsight-header">
                     <div>
                         <h5>

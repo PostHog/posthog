@@ -24,6 +24,8 @@ function Exporter(): JSX.Element {
     const { type, dashboard, insight, team, ...exportOptions } = exportedData
     const { whitelabel } = exportOptions
 
+    exportOptions.fitScreen = exportOptions.fitScreen ?? type == ExportType.Embed
+
     return (
         <div className="Exporter">
             {!whitelabel && dashboard ? (

@@ -9,6 +9,7 @@ export enum ExportType {
 export interface ExportOptions {
     whitelabel?: boolean
     noLegend?: boolean
+    fitScreen?: boolean
 }
 
 export interface ExportedData extends ExportOptions {
