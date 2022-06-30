@@ -4,10 +4,13 @@ import json
 import time
 from typing import Any
 
+import pytest
+
 from ee.api.test.base import APILicensedTest
 from posthog.models.instance_setting import set_instance_setting
 
 
+@pytest.mark.skip_on_multitenancy
 class TestIntegration(APILicensedTest):
     @classmethod
     def setUpTestData(cls):
