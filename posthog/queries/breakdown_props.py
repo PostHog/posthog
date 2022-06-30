@@ -1,5 +1,7 @@
 from typing import Any, Dict, List, Optional, Tuple, Union, cast
 
+from django.forms import ValidationError
+
 from posthog.client import sync_execute
 from posthog.constants import BREAKDOWN_TYPES, PropertyOperatorType
 from posthog.models.cohort import Cohort
@@ -20,6 +22,7 @@ from posthog.queries.column_optimizer.column_optimizer import ColumnOptimizer
 from posthog.queries.groups_join_query import GroupsJoinQuery
 from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
 from posthog.queries.person_query import PersonQuery
+from posthog.queries.session_query import SessionQuery
 from posthog.queries.trends.sql import TOP_ELEMENTS_ARRAY_OF_KEY_SQL
 from posthog.queries.util import parse_timestamps
 
@@ -57,6 +60,9 @@ def get_breakdown_prop_values(
     groups_join_clause = ""
     groups_join_params: Dict = {}
 
+    sessions_join_clause = ""
+    sessions_join_params: Dict = {}
+
     if person_properties_mode == PersonPropertiesMode.DIRECT_ON_EVENTS:
         outer_properties: Optional[PropertyGroup] = props_to_filter
         person_id_joined_alias = "e.person_id"
@@ -80,6 +86,11 @@ def get_breakdown_prop_values(
 
         groups_join_clause, groups_join_params = GroupsJoinQuery(filter, team.pk, column_optimizer).get_join_query()
 
+    if filter.breakdown_type == "session":
+        session_query, sessions_join_params = SessionQuery(filter=filter, team=team).get_query()
+        sessions_join_clause = f"""
+                INNER JOIN ({session_query}) AS {SessionQuery.SESSION_TABLE_ALIAS} ON {SessionQuery.SESSION_TABLE_ALIAS}.$session_id = e.$session_id
+        """
     prop_filters, prop_filter_params = parse_prop_grouped_clauses(
         team_id=team.pk,
         property_group=outer_properties,
@@ -121,6 +132,7 @@ def get_breakdown_prop_values(
         aggregate_operation=aggregate_operation,
         person_join_clauses=person_join_clauses,
         groups_join_clauses=groups_join_clause,
+        sessions_join_clauses=sessions_join_clause,
         **entity_format_params,
     )
 
@@ -136,6 +148,7 @@ def get_breakdown_prop_values(
             **entity_params,
             **person_join_params,
             **groups_join_params,
+            **sessions_join_params,
             **extra_params,
             **date_params,
         },
@@ -165,6 +178,11 @@ def _to_value_expression(
             else f"group_properties_{breakdown_group_type_index}",
         )
         return f"{value_expression} AS value"
+    elif breakdown_type == "session":
+        if breakdown == "$session_duration":
+            return f"{SessionQuery.SESSION_TABLE_ALIAS}.session_duration AS value"
+        else:
+            raise ValidationError(f'Invalid breakdown "{breakdown}" for breakdown type "session"')
     else:
         return get_single_or_multi_property_string_expr(
             breakdown, table="events", query_alias="value", column="properties"

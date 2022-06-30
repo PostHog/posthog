@@ -47,6 +47,7 @@ SELECT groupArray(value) FROM (
     FROM events e
     {person_join_clauses}
     {groups_join_clauses}
+    {sessions_join_clauses}
     WHERE
         team_id = %(team_id)s {entity_query} {parsed_date_from} {parsed_date_to} {prop_filters}
     GROUP BY value
@@ -127,6 +128,7 @@ SELECT
 FROM events e
 {person_join}
 {groups_join}
+{sessions_join}
 {breakdown_filter}
 GROUP BY day_start, breakdown_value
 """
@@ -150,6 +152,7 @@ FROM (
         events e
         {person_join}
         {groups_join}
+        {sessions_join}
         {breakdown_filter}
     )
     GROUP BY person_id, breakdown_value
@@ -168,6 +171,7 @@ FROM (
         FROM events e
         {person_join}
         {groups_join}
+        {sessions_join}
         {conditions}
         GROUP BY timestamp, person_id, breakdown_value
     ) e
@@ -183,6 +187,7 @@ SELECT {aggregate_operation} AS total, {breakdown_value} AS breakdown_value
 FROM events e
 {person_join}
 {groups_join}
+{sessions_join_condition}
 {breakdown_filter}
 GROUP BY breakdown_value
 ORDER BY breakdown_value
