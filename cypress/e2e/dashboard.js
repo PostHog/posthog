@@ -55,22 +55,22 @@ describe('Dashboard', () => {
         cy.get('[data-attr=sidebar-pinned-dashboards] div').should('contain', 'App Analytics')
     })
 
-    it('Share dashboard', (done) => {
+    it('Share dashboard', () => {
         createDashboardFromTemplate('to be shared')
 
         cy.get('.InsightCard').should('exist')
 
         cy.get('[data-attr=dashboard-share-button]').click()
         cy.get('[data-attr=sharing-switch]').click({ force: true })
-        cy.contains('Copy shared dashboard link').should('be.visible')
+
+        cy.contains('Embed dashboard').should('be.visible')
+        cy.get('[data-attr=copy-code-button]').click()
+        cy.window().its('navigator.clipboard').invoke('readText').should('contain', '<iframe')
+        cy.window().its('navigator.clipboard').invoke('readText').should('contain', '/embedded/')
+
+        cy.contains('Copy share link').should('be.visible')
         cy.get('[data-attr=sharing-link-button]').click()
-        cy.window().then((win) => {
-            win.navigator.clipboard.readText().then((linkFromClipboard) => {
-                cy.visit(linkFromClipboard)
-                cy.get('[data-attr=dashboard-item-title]').should('contain', 'to be shared')
-                done()
-            })
-        })
+        cy.window().its('navigator.clipboard').invoke('readText').should('contain', '/shared/')
     })
 
     it('Create an empty dashboard', () => {

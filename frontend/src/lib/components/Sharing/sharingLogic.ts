@@ -1,4 +1,4 @@
-import { afterMount, connect, kea, key, listeners, path, props, selectors } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { AvailableFeature, InsightShortId, SharingConfigurationType } from '~/types'
 
 import api from 'lib/api'
@@ -44,6 +44,13 @@ export const sharingLogic = kea<sharingLogicType>([
     props({} as SharingLogicProps),
     key(({ insightShortId, dashboardId }) => `sharing-${insightShortId || ''}-${dashboardId || ''}`),
     connect([preflightLogic, userLogic, dashboardsModel]),
+
+    actions({
+        togglePreview: true,
+    }),
+    reducers({
+        showPreview: [true, { togglePreview: (state) => !state }],
+    }),
 
     loaders(({ props }) => ({
         sharingConfiguration: [
@@ -95,10 +102,10 @@ export const sharingLogic = kea<sharingLogicType>([
         iframeProperties: [
             (s) => [s.embedLink, s.embedConfig],
             (embedLink, { width, height }) => ({
-                src: embedLink,
                 width,
                 height,
                 frameBorder: 0,
+                src: embedLink,
             }),
         ],
         embedCode: [
