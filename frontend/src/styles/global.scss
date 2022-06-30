@@ -1204,8 +1204,13 @@ body {
         }
     }
 
+    // Tooltip styles
+    .ant-tooltip-inner {
+        background-color: var(--bg-charcoal);
+    }
+
     .ant-tooltip {
-        background: var(--bg-charcoal);
+        max-width: 350px;
     }
 }
 
