@@ -1,13 +1,14 @@
 import base64
 import json
 from datetime import datetime
-from typing import Dict, cast
+from typing import Dict, List, cast
 from unittest import mock
 from unittest.mock import patch
 
 import pytz
 from django.core.files.uploadedfile import SimpleUploadedFile
 from freezegun import freeze_time
+from rest_framework import status
 from semantic_version import Version
 
 from posthog.models import Plugin, PluginAttachment, PluginConfig, PluginSourceFile
@@ -43,6 +44,21 @@ class TestPluginAPI(APIBaseTest):
         cls.organization.plugins_access_level = Organization.PluginsAccessLevel.ROOT
         cls.organization.save()
 
+    def _get_plugin_activity(self, expected_status: int = status.HTTP_200_OK):
+        activity = self.client.get(f"/api/organizations/@current/plugins/activity")
+        self.assertEqual(activity.status_code, expected_status)
+        return activity.json()
+
+    def assert_plugin_activity(self, expected: List[Dict]):
+        activity_response = self._get_plugin_activity()
+
+        activity: List[Dict] = activity_response["results"]
+        self.maxDiff = None
+        self.assertEqual(
+            activity, expected,
+        )
+
+    @freeze_time("2021-08-25T22:09:14.252Z")
     def test_create_plugin_auth(self, mock_get, mock_reload):
         repo_url = "https://github.com/PostHog/helloworldplugin"
 
@@ -58,6 +74,19 @@ class TestPluginAPI(APIBaseTest):
         self.organization.save()
         response = self.client.post("/api/organizations/@current/plugins/", {"url": repo_url})
         self.assertEqual(response.status_code, 201, "Did not manage to install plugin properly despite install access")
+
+        self.assert_plugin_activity(
+            [
+                {
+                    "user": {"first_name": "", "email": "user1@posthog.com",},
+                    "activity": "installed",
+                    "created_at": "2021-08-25T22:09:14.252000Z",
+                    "scope": "Plugin",
+                    "item_id": str(response.json()["id"]),
+                    "detail": {"name": "helloworldplugin", "changes": None, "merge": None, "short_id": None},
+                }
+            ],
+        )
 
         response = self.client.post("/api/organizations/@current/plugins/", {"url": repo_url})
         self.assertEqual(response.status_code, 400, "Did not reject already installed plugin properly")
@@ -231,10 +260,13 @@ class TestPluginAPI(APIBaseTest):
             self.assertEqual(response.status_code, 403)
             self.assertEqual(mock_sync_from_plugin_archive.call_count, 2)  # Not extracted on auth failure
 
+    @freeze_time("2021-08-25T22:09:14.252Z")
     def test_delete_plugin_auth(self, mock_get, mock_reload):
         repo_url = "https://github.com/PostHog/helloworldplugin"
         response = self.client.post("/api/organizations/@current/plugins/", {"url": repo_url})
         self.assertEqual(response.status_code, 201)
+
+        plugin_id = response.json()["id"]
 
         api_url = "/api/organizations/@current/plugins/{}".format(response.json()["id"])
 
@@ -248,6 +280,26 @@ class TestPluginAPI(APIBaseTest):
         self.organization.save()
         response = self.client.delete(api_url)
         self.assertEqual(response.status_code, 204)
+        self.assert_plugin_activity(
+            [
+                {
+                    "user": {"first_name": "", "email": "user1@posthog.com",},
+                    "activity": "installed",
+                    "created_at": "2021-08-25T22:09:14.252000Z",
+                    "scope": "Plugin",
+                    "item_id": str(plugin_id),
+                    "detail": {"name": "helloworldplugin", "changes": None, "merge": None, "short_id": None},
+                },
+                {
+                    "user": {"first_name": "", "email": "user1@posthog.com",},
+                    "activity": "uninstalled",
+                    "created_at": "2021-08-25T22:09:14.252000Z",
+                    "scope": "Plugin",
+                    "item_id": str(plugin_id),
+                    "detail": {"name": "helloworldplugin", "changes": None, "merge": None, "short_id": None},
+                },
+            ],
+        )
 
     def test_cannot_delete_of_other_orgs_plugin(self, mock_get, mock_reload):
         other_org = Organization.objects.create(
@@ -639,6 +691,7 @@ class TestPluginAPI(APIBaseTest):
         self.assertEqual(Plugin.objects.count(), 1)
 
         self.user.join(organization=other_org, level=OrganizationMembership.Level.OWNER)
+
         response = self.client.post(
             f"/api/organizations/{other_org.id}/plugins/", {"url": "https://github.com/PostHog/helloworldplugin"},
         )
