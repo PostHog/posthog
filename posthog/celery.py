@@ -79,7 +79,7 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
 
     sender.add_periodic_task(crontab(minute="*/15"), check_async_migration_health.s())
 
-    if getattr(settings, "MULTI_TENANCY", False):
+    if settings.INGESTION_LAG_METRIC_TEAM_IDS:
         sender.add_periodic_task(60, ingestion_lag.s(), name="ingestion lag")
     sender.add_periodic_task(120, clickhouse_lag.s(), name="clickhouse table lag")
     sender.add_periodic_task(120, clickhouse_row_count.s(), name="clickhouse events table row count")
@@ -273,8 +273,8 @@ def ingestion_lag():
         try:
             query = """
                 SELECT now() - max(parseDateTimeBestEffortOrNull(JSONExtractString(properties, '$timestamp')))
-                FROM events WHERE _timestamp > yesterday() AND event = %(event)s;"""
-            lag = sync_execute(query, {"event": event})[0][0]
+                FROM events WHERE team_id IN %(team_ids)s AND _timestamp > yesterday() AND event = %(event)s;"""
+            lag = sync_execute(query, {"team_ids": settings.INGESTION_LAG_METRIC_TEAM_IDS, "event": event})[0][0]
             gauge(f"posthog_celery_{metric}_lag_seconds_rough_minute_precision", lag)
         except:
             pass
