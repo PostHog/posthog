@@ -172,7 +172,9 @@
 # name: TestEventQuery.test_entity_filtered_by_multiple_session_duration_filters
   '
   
-  SELECT e.timestamp as timestamp
+  SELECT e.timestamp as timestamp,
+         sessions.session_duration as session_duration,
+         sessions.$session_id as $session_id
   FROM events e
   INNER JOIN
     (SELECT $session_id,
