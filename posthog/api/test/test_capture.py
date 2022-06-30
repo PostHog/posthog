@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, call, patch
 from urllib.parse import quote
 
 import lzstring
+import pytest
 from django.test.client import Client
 from django.utils import timezone
 from freezegun import freeze_time
@@ -843,6 +844,7 @@ class TestCapture(BaseTest):
         arguments = self._to_arguments(kafka_produce)
         self.assertEqual(arguments["data"]["properties"]["$active_feature_flags"], ["test-ff"])
 
+    @pytest.mark.skip(reason="Temporarily disabling overrides for feature flags")
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_add_feature_flags_with_overrides_if_missing(self, kafka_produce) -> None:
         feature_flag_instance = FeatureFlag.objects.create(
