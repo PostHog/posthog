@@ -24,7 +24,6 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>({
             const { posthog: clientPostHog } = toolbarLogic.values
             if (clientPostHog) {
                 const locallyOverrideFeatureFlags = clientPostHog.get_property('$override_feature_flags')
-                console.log('locallyOverrideFeatureFlags', locallyOverrideFeatureFlags)
                 actions.storeLocalOverrides(locallyOverrideFeatureFlags)
             }
         },
