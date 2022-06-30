@@ -53,7 +53,10 @@ class TestExports(APIBaseTest):
 
         cls.dashboard = Dashboard.objects.create(team=cls.team, name="example dashboard", created_by=cls.user)
         cls.insight = Insight.objects.create(
-            filters=Filter(data=cls.insight_filter_dict).to_dict(), team=cls.team, created_by=cls.user
+            filters=Filter(data=cls.insight_filter_dict).to_dict(),
+            team=cls.team,
+            created_by=cls.user,
+            name="example insight",
         )
         cls.exported_asset = ExportedAsset.objects.create(
             team=cls.team, dashboard_id=cls.dashboard.id, export_format="image/png"
@@ -73,6 +76,7 @@ class TestExports(APIBaseTest):
                 "created_at": data["created_at"],
                 "dashboard": self.dashboard.id,
                 "export_format": "image/png",
+                "filename": "export-example-dashboard.png",
                 "has_content": False,
                 "insight": None,
                 "export_context": None,
@@ -96,6 +100,7 @@ class TestExports(APIBaseTest):
                 "created_at": data["created_at"],
                 "insight": self.insight.id,
                 "export_format": "application/pdf",
+                "filename": "export-example-insight.png",
                 "has_content": False,
                 "dashboard": None,
                 "export_context": None,
@@ -117,6 +122,7 @@ class TestExports(APIBaseTest):
                                 "action": "exported",
                                 "after": "application/pdf",
                                 "before": None,
+                                "filename": "export-example-insight.pdf",
                                 "field": "export_format",
                                 "type": "Insight",
                             }
