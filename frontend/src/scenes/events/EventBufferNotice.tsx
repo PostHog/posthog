@@ -22,7 +22,9 @@ export function EventBufferNotice({ extended }: EventBufferNoticeProps): JSX.Ele
             Note that some events with a never-before-seen distinct ID are deliberately delayed by{' '}
             {pluralize(preflight?.buffer_conversion_seconds, 'second')}
             {extended ? ' – this helps ensure accuracy of insights grouped by unique users' : ''}.{' '}
-            <a href="TODO">Learn more about event buffering in PostHog Docs.</a>
+            <a href="https://posthog.com/docs/integrate/ingest-live-data/#event-ingestion-nuances">
+                Learn more about event buffering in PostHog Docs.
+            </a>
         </AlertMessage>
     )
 }
