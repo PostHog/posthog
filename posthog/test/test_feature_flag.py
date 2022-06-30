@@ -1,3 +1,4 @@
+import pytest
 from django.db import connection
 
 from posthog.models import Cohort, FeatureFlag, GroupTypeMapping, Person
@@ -224,6 +225,7 @@ class TestFeatureFlagMatcher(BaseTest):
 
 
 # Integration + performance tests for get_overridden_feature_flags
+@pytest.mark.skip(reason="Temporarily disabling overrides for feature flags")
 class TestFeatureFlagsWithOverrides(BaseTest, QueryMatchingTest):
     feature_flag: FeatureFlag
 
