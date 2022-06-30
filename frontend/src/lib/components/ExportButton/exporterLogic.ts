@@ -2,7 +2,7 @@ import { actions, kea, key, listeners, path, props, reducers } from 'kea'
 import api from 'lib/api'
 import { delay } from 'lib/utils'
 import posthog from 'posthog-js'
-import { teamLogic } from 'scenes/teamLogic'
+import { ExportedAssetType } from '~/types'
 import { lemonToast } from '../lemonToast'
 
 import type { exporterLogicType } from './exporterLogicType'
@@ -19,6 +19,20 @@ export enum ExporterFormat {
     PNG = 'image/png',
     CSV = 'text/csv',
     PDF = 'application/pdf',
+}
+
+async function downloadExportedAsset(asset: ExportedAssetType): Promise<void> {
+    const downloadUrl = api.exports.determineExportUrl(asset.id)
+    const res = await api.getRaw(downloadUrl)
+    const blobObject = await res.blob()
+    const blob = window.URL.createObjectURL(blobObject)
+    const anchor = document.createElement('a')
+    anchor.style.display = 'none'
+    anchor.href = blob
+    anchor.download = asset.filename
+    document.body.appendChild(anchor)
+    anchor.click()
+    window.URL.revokeObjectURL(blob)
 }
 
 export const exporterLogic = kea<exporterLogicType>([
@@ -61,7 +75,7 @@ export const exporterLogic = kea<exporterLogicType>([
             const startTime = performance.now()
 
             try {
-                let exportedAsset = await api.create(`api/projects/${teamLogic.values.currentTeamId}/exports`, {
+                let exportedAsset = await api.exports.create({
                     export_format: exportFormat,
                     dashboard: props.dashboardId,
                     insight: props.insightId,
@@ -71,8 +85,6 @@ export const exporterLogic = kea<exporterLogicType>([
                 if (!exportedAsset.id) {
                     throw new Error('Missing export_id from response')
                 }
-
-                const downloadUrl = api.exports.determineExportUrl(exportedAsset.id)
 
                 let attempts = 0
 
@@ -84,7 +96,9 @@ export const exporterLogic = kea<exporterLogicType>([
                         lemonToast.success(`Export complete.`)
                         successCallback?.()
 
-                        window.open(downloadUrl, '_blank')
+                        downloadExportedAsset(exportedAsset)
+
+                        // window.open(downloadUrl, '_blank')
 
                         trackingProperties.total_time_ms = performance.now() - startTime
                         posthog.capture('export succeeded', trackingProperties)
@@ -94,9 +108,7 @@ export const exporterLogic = kea<exporterLogicType>([
 
                     await delay(POLL_DELAY_MS)
 
-                    exportedAsset = await api.get(
-                        `api/projects/${teamLogic.values.currentTeamId}/exports/${exportedAsset.id}`
-                    )
+                    exportedAsset = await api.exports.get(exportedAsset.id)
                 }
 
                 throw new Error('Content not loaded in time...')
