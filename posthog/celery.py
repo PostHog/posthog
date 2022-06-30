@@ -262,6 +262,13 @@ def clickhouse_lag():
             pass
 
 
+HEARTBEAT_EVENT_TO_INGESTION_LAG_METRIC = {
+    "heartbeat": "ingestion",
+    "heartbeat_buffer": "ingestion_buffer",
+    "heartbeat_api": "ingestion_api",
+}
+
+
 @app.task(ignore_result=True)
 def ingestion_lag():
     from posthog.client import sync_execute
@@ -269,7 +276,7 @@ def ingestion_lag():
 
     # Requires https://github.com/PostHog/posthog-heartbeat-plugin to be enabled on team 2
     # Note that it runs every minute and we compare it with now(), so there's up to 60s delay
-    for event, metric in {"heartbeat": "ingestion", "heartbeat_api": "ingestion_api"}.items():
+    for event, metric in HEARTBEAT_EVENT_TO_INGESTION_LAG_METRIC.items():
         try:
             query = """
                 SELECT now() - max(parseDateTimeBestEffortOrNull(JSONExtractString(properties, '$timestamp')))
