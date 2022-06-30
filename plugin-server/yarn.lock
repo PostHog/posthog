@@ -2508,10 +2508,10 @@
   resolved "https://registry.yarnpkg.com/@posthog/plugin-contrib/-/plugin-contrib-0.0.5.tgz#6c55f39c39dd9dd8af558888558a69bc3fe19aff"
   integrity sha512-ic2JsfFUdLGF+fGYJPatWEB6gEFNoD89qz92FN1RE2QfLpr6YdyPNuMowzahya3hfC/jaLZ8QdPG/j5pSOgT7A==
 
-"@posthog/plugin-scaffold@1.1.0":
-  version "1.1.0"
-  resolved "https://registry.yarnpkg.com/@posthog/plugin-scaffold/-/plugin-scaffold-1.1.0.tgz#887ccbea34dcb6197dfa04104c8c6d4be72dfb06"
-  integrity sha512-sXHEju7iDSoameO8OiIljmtcuko+KjBobKU5V8mDVNFqO1+nm5NcipoQEPKPRnQVn4M1//U1CKpp5dbErd2qXw==
+"@posthog/plugin-scaffold@1.2.0":
+  version "1.2.0"
+  resolved "https://registry.yarnpkg.com/@posthog/plugin-scaffold/-/plugin-scaffold-1.2.0.tgz#482415697cd729877f0a91efadfa5f765053d545"
+  integrity sha512-z2LWsMsdRZXiN1wEy0yGE+lL2RaGnDgvVrqqAt2MDXSQ70LUTshYlfzcowWhQcrOvN3f+zyNfQ9S8p3Y9znj+A==
   dependencies:
     "@maxmind/geoip2-node" "^3.0.0"
 
@@ -6648,7 +6648,7 @@ jsonwebtoken@^8.5.1:
     ms "^2.1.1"
     semver "^5.6.0"
 
-jsprim@1.4.2, jsprim@^1.2.2, jsprim@^1.4.0:
+jsprim@^1.2.2, jsprim@^1.4.0:
   version "1.4.2"
   resolved "https://registry.yarnpkg.com/jsprim/-/jsprim-1.4.2.tgz#712c65533a15c878ba59e9ed5f0e26d5b77c5feb"
   integrity sha512-P2bSOMAc/ciLz6DzgjVlGJP9+BrJWu5UDGK70C2iweC5QBIeFf0ZXRvGjEj2uYgrY2MkAAhsSWHDWlFtEroZWw==
