@@ -16,6 +16,7 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
+from statshog.defaults.django import statsd
 
 from posthog import settings
 from posthog.api.dashboard import DashboardSerializer
@@ -127,8 +128,10 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
 
         if is_csv_export:
             task = csv_exporter.export_csv.delay(instance.id)
+            statsd.incr("csv_exporter.queued", tags={"team_id": self.context["team_id"]})
         else:
             task = insight_exporter.export_insight.delay(instance.id)
+            statsd.incr("insight_exporter.queued", tags={"team_id": self.context["team_id"]})
         try:
             task.get(timeout=10)
             instance.refresh_from_db()
