@@ -329,7 +329,7 @@ export function SavedInsights(): JSX.Element {
 
     const { featureFlags } = useValues(featureFlagLogic)
     const showActivityLog = featureFlags[FEATURE_FLAGS.INSIGHT_ACTIVITY_LOG]
-    const dateFilterExperiment = !!featureFlags[FEATURE_FLAGS.DATE_FILTER_EXPERIMENT]
+    const dateFilterExperiment = featureFlags[FEATURE_FLAGS.DATE_FILTER_EXPERIMENT] === 'test'
 
     return (
         <div className="saved-insights">

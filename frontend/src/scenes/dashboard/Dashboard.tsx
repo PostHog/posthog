@@ -58,7 +58,7 @@ function DashboardScene(): JSX.Element {
     const { setDashboardMode, setDates, reportDashboardViewed, setProperties } = useActions(dashboardLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
-    const dateFilterExperiment = !!featureFlags[FEATURE_FLAGS.DATE_FILTER_EXPERIMENT]
+    const dateFilterExperiment = featureFlags[FEATURE_FLAGS.DATE_FILTER_EXPERIMENT] === 'test'
 
     useEffect(() => {
         reportDashboardViewed()

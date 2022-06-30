@@ -83,7 +83,7 @@ export function InsightDisplayConfig({ filters, activeView, disableTable }: Insi
     const showPathOptions = activeView === InsightType.PATHS
     const { featureFlags } = useValues(featureFlagLogic)
 
-    const dateFilterExperiment = !!featureFlags[FEATURE_FLAGS.DATE_FILTER_EXPERIMENT]
+    const dateFilterExperiment = featureFlags[FEATURE_FLAGS.DATE_FILTER_EXPERIMENT] === 'test'
 
     return (
         <div className="display-config-inner">

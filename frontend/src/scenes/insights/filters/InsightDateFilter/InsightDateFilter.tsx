@@ -14,7 +14,7 @@ export function InsightDateFilter(props: DateFilterProps): JSX.Element {
     } = useValues(insightDateFilterLogic(insightProps))
     const { setDates } = useActions(insightDateFilterLogic(insightProps))
     const { featureFlags } = useValues(featureFlagLogic)
-    const dateFilterExperiment = !!featureFlags[FEATURE_FLAGS.DATE_FILTER_EXPERIMENT]
+    const dateFilterExperiment = featureFlags[FEATURE_FLAGS.DATE_FILTER_EXPERIMENT] === 'test'
 
     return dateFilterExperiment ? (
         <DateFilterExperiment

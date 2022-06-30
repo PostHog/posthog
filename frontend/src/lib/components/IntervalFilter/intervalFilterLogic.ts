@@ -27,7 +27,7 @@ export const intervalFilterLogic = kea<intervalFilterLogicType>({
             }
         },
         setFilters: ({ filters }, _, __, previousState) => {
-            if (!values.featureFlags[FEATURE_FLAGS.DATE_FILTER_EXPERIMENT]) {
+            if (values.featureFlags[FEATURE_FLAGS.DATE_FILTER_EXPERIMENT] === 'control') {
                 return
             }
 

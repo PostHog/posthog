@@ -59,7 +59,7 @@ export function SessionRecordingsTable({ personUUID, isPersonPage = false }: Ses
     } = useActions(sessionRecordingsTableLogicInstance)
 
     const { featureFlags } = useValues(featureFlagLogic)
-    const dateFilterExperiment = !!featureFlags[FEATURE_FLAGS.DATE_FILTER_EXPERIMENT]
+    const dateFilterExperiment = featureFlags[FEATURE_FLAGS.DATE_FILTER_EXPERIMENT] === 'test'
 
     const columns: LemonTableColumns<SessionRecordingType> = [
         {

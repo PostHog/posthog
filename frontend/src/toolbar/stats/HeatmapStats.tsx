@@ -20,7 +20,7 @@ export function HeatmapStats(): JSX.Element {
     const { setWildcardHref } = useActions(currentPageLogic)
 
     const { featureFlags } = useValues(featureFlagLogic)
-    const dateFilterExperiment = !!featureFlags[FEATURE_FLAGS.DATE_FILTER_EXPERIMENT]
+    const dateFilterExperiment = featureFlags[FEATURE_FLAGS.DATE_FILTER_EXPERIMENT] === 'test'
 
     return (
         <div style={{ margin: 8 }}>
