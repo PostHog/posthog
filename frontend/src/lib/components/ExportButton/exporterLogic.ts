@@ -95,10 +95,7 @@ export const exporterLogic = kea<exporterLogicType>([
                         actions.exportItemSuccess()
                         lemonToast.success(`Export complete.`)
                         successCallback?.()
-
-                        downloadExportedAsset(exportedAsset)
-
-                        // window.open(downloadUrl, '_blank')
+                        await downloadExportedAsset(exportedAsset)
 
                         trackingProperties.total_time_ms = performance.now() - startTime
                         posthog.capture('export succeeded', trackingProperties)
