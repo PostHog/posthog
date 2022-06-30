@@ -19,6 +19,8 @@ from rest_framework.response import Response
 
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.models import Plugin, PluginAttachment, PluginConfig, Team
+from posthog.models.activity_logging.activity_log import ActivityPage, Detail, load_activity, log_activity
+from posthog.models.activity_logging.serializers import ActivityLogSerializer
 from posthog.models.organization import Organization
 from posthog.models.plugin import PluginSourceFile, update_validated_data_from_url
 from posthog.permissions import (
@@ -28,6 +30,7 @@ from posthog.permissions import (
 )
 from posthog.plugins import can_configure_plugins, can_install_plugins, parse_url
 from posthog.plugins.access import can_globally_manage_plugins
+from posthog.utils import format_query_params_absolute_url
 
 # Keep this in sync with: frontend/scenes/plugins/utils.ts
 SECRET_FIELD_VALUE = "**************** POSTHOG SECRET FIELD ****************"
@@ -146,7 +149,9 @@ class PluginSerializer(serializers.ModelSerializer):
         validated_data["updated_at"] = now()
         if validated_data.get("is_global") and not can_globally_manage_plugins(validated_data["organization_id"]):
             raise PermissionDenied("This organization can't manage global plugins!")
+
         plugin = Plugin.objects.install(**validated_data)
+
         return plugin
 
     def update(self, plugin: Plugin, validated_data: Dict, *args: Any, **kwargs: Any) -> Plugin:  # type: ignore
@@ -286,10 +291,80 @@ class PluginViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
     def destroy(self, request: request.Request, *args, **kwargs) -> Response:
         instance = self.get_object()
+        instance_id = instance.id
         if instance.is_global:
             raise ValidationError("This plugin is marked as global! Make it local before uninstallation")
         self.perform_destroy(instance)
+
+        user = request.user
+
+        log_activity(
+            organization_id=instance.organization_id,
+            # Users in an org but not yet in a team can technically manage plugins via the API
+            team_id=user.team.id if user.team else 0,  # type: ignore
+            user=user,  # type: ignore
+            item_id=instance_id,
+            scope="Plugin",
+            activity="uninstalled",
+            detail=Detail(name=instance.name),
+        )
+
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+    def perform_create(self, serializer):
+        serializer.save()
+
+        user = serializer.context["request"].user
+
+        log_activity(
+            organization_id=serializer.instance.organization.id,
+            # Users in an org but not yet in a team can technically manage plugins via the API
+            team_id=user.team.id if user.team else 0,
+            user=user,
+            item_id=serializer.instance.id,
+            scope="Plugin",
+            activity="installed",
+            detail=Detail(name=serializer.instance.name),
+        )
+
+    @action(methods=["GET"], url_path="activity", detail=False)
+    def all_activity(self, request: request.Request, **kwargs):
+        limit = int(request.query_params.get("limit", "10"))
+        page = int(request.query_params.get("page", "1"))
+
+        activity_page = load_activity(scope="Plugin", team_id=request.user.team.id, limit=limit, page=page)  # type: ignore
+
+        return self._return_activity_page(activity_page, limit, page, request)
+
+    @action(methods=["GET"], detail=True)
+    def activity(self, request: request.Request, **kwargs):
+        limit = int(request.query_params.get("limit", "10"))
+        page = int(request.query_params.get("page", "1"))
+
+        item_id = kwargs["pk"]
+        if not Plugin.objects.filter(id=item_id, team_id=request.user.team.id).exists():  # type: ignore
+            return Response("", status=status.HTTP_404_NOT_FOUND)
+
+        activity_page = load_activity(
+            scope="Plugin", team_id=request.user.team.id, item_id=item_id, limit=limit, page=page  # type: ignore
+        )
+        return self._return_activity_page(activity_page, limit, page, request)
+
+    @staticmethod
+    def _return_activity_page(activity_page: ActivityPage, limit: int, page: int, request: request.Request) -> Response:
+        return Response(
+            {
+                "results": ActivityLogSerializer(activity_page.results, many=True,).data,
+                "next": format_query_params_absolute_url(request, page + 1, limit, offset_alias="page")
+                if activity_page.has_next
+                else None,
+                "previous": format_query_params_absolute_url(request, page - 1, limit, offset_alias="page")
+                if activity_page.has_previous
+                else None,
+                "total_count": activity_page.total_count,
+            },
+            status=status.HTTP_200_OK,
+        )
 
 
 class PluginConfigSerializer(serializers.ModelSerializer):

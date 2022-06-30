@@ -241,6 +241,7 @@ export const redirects: Record<string, string | ((params: Params) => string)> = 
 export const routes: Record<string, Scene> = {
     [urls.dashboards()]: Scene.Dashboards,
     [urls.dashboard(':id')]: Scene.Dashboard,
+    [urls.dashboardSharing(':id')]: Scene.Dashboard,
     [urls.dashboardSubcriptions(':id')]: Scene.Dashboard,
     [urls.dashboardSubcription(':id', ':subscriptionId')]: Scene.Dashboard,
     [urls.createAction()]: Scene.Action,
@@ -250,6 +251,7 @@ export const routes: Record<string, Scene> = {
     [urls.insightView(':shortId' as InsightShortId)]: Scene.Insight,
     [urls.insightSubcriptions(':shortId' as InsightShortId)]: Scene.Insight,
     [urls.insightSubcription(':shortId' as InsightShortId, ':subscriptionId')]: Scene.Insight,
+    [urls.insightSharing(':shortId' as InsightShortId)]: Scene.Insight,
     [urls.savedInsights()]: Scene.SavedInsights,
     [urls.actions()]: Scene.Actions, // TODO: remove when "simplify-actions" FF is released
     [urls.eventDefinitions()]: Scene.EventDefinitions,

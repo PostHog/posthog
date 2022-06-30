@@ -1,13 +1,14 @@
 @import '../../styles/mixins';
 
 $label_position_offset: 8px;
-$series_container_width: 3rem;
+$series_container_width: 2rem;
 $glyph_margin_top: 10px;
 $glyph_height: 22px;
 
 .funnel-bar-graph {
     background-color: var(--funnel-canvas-background);
     min-height: 100%;
+    padding: 1rem;
 
     .ant-popover {
         .ant-popover-content {
