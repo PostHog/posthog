@@ -2904,10 +2904,10 @@
     chartjs-color "^2.1.0"
     moment "^2.10.2"
 
-"@posthog/plugin-scaffold@1.1.0":
-  version "1.1.0"
-  resolved "https://registry.yarnpkg.com/@posthog/plugin-scaffold/-/plugin-scaffold-1.1.0.tgz#887ccbea34dcb6197dfa04104c8c6d4be72dfb06"
-  integrity sha512-sXHEju7iDSoameO8OiIljmtcuko+KjBobKU5V8mDVNFqO1+nm5NcipoQEPKPRnQVn4M1//U1CKpp5dbErd2qXw==
+"@posthog/plugin-scaffold@1.2.0":
+  version "1.2.0"
+  resolved "https://registry.yarnpkg.com/@posthog/plugin-scaffold/-/plugin-scaffold-1.2.0.tgz#482415697cd729877f0a91efadfa5f765053d545"
+  integrity sha512-z2LWsMsdRZXiN1wEy0yGE+lL2RaGnDgvVrqqAt2MDXSQ70LUTshYlfzcowWhQcrOvN3f+zyNfQ9S8p3Y9znj+A==
   dependencies:
     "@maxmind/geoip2-node" "^3.0.0"
 
