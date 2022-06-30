@@ -51,7 +51,7 @@ def _handle_slack_event(event_payload: Any) -> None:
                     access_token=share_token, enabled=True
                 )
             except SharingConfiguration.DoesNotExist:
-                logger.info("No SharingConfig found")
+                logger.info("No SharingConfiguration found")
                 continue
 
             team_id = sharing_config.team_id
