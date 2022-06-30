@@ -132,6 +132,7 @@ def get_cache_type(filter: FilterType) -> CacheType:
 def update_cached_items() -> Tuple[int, int]:
     tasks = []
 
+    # TODO: According to the metrics, on Cloud this is a huge list and needs to be improved
     dashboard_tiles = (
         DashboardTile.objects.filter(
             Q(
@@ -162,7 +163,6 @@ def update_cached_items() -> Tuple[int, int]:
 
             capture_exception(e)
 
-    # TODO: Do we need to filter this based on the lastviewed metric?
     shared_insights = (
         Insight.objects.filter(sharingconfiguration__enabled=True)
         .exclude(deleted=True)
@@ -172,9 +172,7 @@ def update_cached_items() -> Tuple[int, int]:
         .order_by(F("last_refresh").asc(nulls_first=True))
     )
 
-    REMAINING_TASK_COUNT = max(0, PARALLEL_INSIGHT_CACHE - len(tasks))
-
-    for insight in shared_insights[0:REMAINING_TASK_COUNT]:
+    for insight in shared_insights[0:PARALLEL_INSIGHT_CACHE]:
         try:
             cache_key, cache_type, payload = insight_update_task_params(insight)
             tasks.append(update_cache_item_task.s(cache_key, cache_type, payload))
