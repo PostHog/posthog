@@ -2,9 +2,11 @@ import datetime
 import gzip
 import tempfile
 import uuid
-from typing import IO
+from typing import IO, Optional
 
 import structlog
+from sentry_sdk import capture_exception
+from statshog.defaults.django import statsd
 
 from posthog import settings
 from posthog.celery import app
@@ -71,9 +73,23 @@ def _export_to_csv(exported_asset: ExportedAsset, root_bucket: str) -> None:
 
 @app.task()
 def export_csv(exported_asset_id: int, root_bucket: str = settings.OBJECT_STORAGE_EXPORTS_FOLDER) -> None:
-    exported_asset = ExportedAsset.objects.get(pk=exported_asset_id)
+    timer = statsd.timer("csv_exporter").start()
 
-    if exported_asset.export_format == "text/csv":
-        return _export_to_csv(exported_asset, root_bucket)
-    else:
-        raise NotImplementedError(f"Export to format {exported_asset.export_format} is not supported")
+    exported_asset: Optional[ExportedAsset] = None
+    try:
+        exported_asset = ExportedAsset.objects.get(pk=exported_asset_id)
+        if exported_asset.export_format == "text/csv":
+            _export_to_csv(exported_asset, root_bucket)
+            statsd.incr("csv_exporter.succeeded", tags={"team_id": exported_asset.team.id})
+        else:
+            statsd.incr("csv_exporter.unknown_asset", tags={"team_id": exported_asset.team.id})
+            raise NotImplementedError(f"Export to format {exported_asset.export_format} is not supported")
+    except Exception as e:
+        if exported_asset:
+            team_id = str(exported_asset.team.id)
+        else:
+            team_id = "unknown"
+        capture_exception(e)
+        statsd.incr("csv_exporter.failed", tags={"team_id": team_id})
+    finally:
+        timer.stop()
