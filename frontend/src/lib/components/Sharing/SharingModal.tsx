@@ -6,7 +6,7 @@ import { sharingLogic } from './sharingLogic'
 import { Skeleton } from 'antd'
 import { LemonButton, LemonDivider, LemonSwitch } from '@posthog/lemon-ui'
 import { copyToClipboard } from 'lib/utils'
-import { IconGlobeLock, IconInfo, IconLink, IconLock, IconUnfoldLess, IconUnfoldMore } from '../icons'
+import { IconGlobeLock, IconInfo, IconLink, IconLockLemon, IconUnfoldLess, IconUnfoldMore } from '../icons'
 import { CodeSnippet, Language } from 'scenes/ingestion/frameworks/CodeSnippet'
 import { DashboardCollaboration } from 'scenes/dashboard/DashboardCollaborators'
 import { Field } from 'lib/forms/Field'
@@ -50,9 +50,9 @@ export function Sharing({ dashboardId, insightShortId, insight, closeModal }: Sh
     }, [iframeProperties.src, sharingConfiguration?.enabled, showPreview])
 
     return (
-        <div className="space-y-05">
+        <div className="space-y">
             <h3>{dashboardId ? 'Dashboard' : 'Insight'} permissions</h3>
-            <LemonDivider />
+            <LemonDivider large />
 
             {dashboardId ? <DashboardCollaboration dashboardId={dashboardId} /> : undefined}
 
@@ -75,70 +75,76 @@ export function Sharing({ dashboardId, insightShortId, insight, closeModal }: Sh
                         fullWidth
                         type="primary"
                     />
+
                     {sharingConfiguration.enabled && sharingConfiguration.access_token ? (
                         <>
-                            <LemonDivider />
-                            <div className="space-between-items">
-                                <TitleWithIcon
-                                    icon={
-                                        <Tooltip
-                                            title={`Use this HTML snippet to embed the ${resource} on your website`}
-                                        >
-                                            <IconInfo />
-                                        </Tooltip>
-                                    }
-                                >
-                                    <>Embed {resource}</>
-                                </TitleWithIcon>
-                                <LemonButton
-                                    data-attr="sharing-link-button"
-                                    size={'small'}
-                                    onClick={() => copyToClipboard(shareLink, 'link')}
-                                    icon={<IconLink />}
-                                >
-                                    Copy share link
-                                </LemonButton>
-                            </div>
-                            <CodeSnippet language={Language.HTML}>{embedCode}</CodeSnippet>
-
-                            {insight && (
-                                <div className="border-all">
-                                    <LemonButton
-                                        fullWidth
-                                        type="stealth"
-                                        sideIcon={showPreview ? <IconUnfoldLess /> : <IconUnfoldMore />}
-                                        onClick={togglePreview}
+                            <LemonDivider large />
+                            <div className="space-y-05">
+                                <div className="space-between-items">
+                                    <TitleWithIcon
+                                        icon={
+                                            <Tooltip
+                                                title={`Use this HTML snippet to embed the ${resource} on your website`}
+                                            >
+                                                <IconInfo />
+                                            </Tooltip>
+                                        }
                                     >
-                                        Preview
-                                        {showPreview && !iframeLoaded ? <Spinner size="sm" className="ml-05" /> : null}
+                                        <strong>Embed {resource}</strong>
+                                    </TitleWithIcon>
+                                    <LemonButton
+                                        data-attr="sharing-link-button"
+                                        size={'small'}
+                                        onClick={() => copyToClipboard(shareLink, 'link')}
+                                        icon={<IconLink />}
+                                    >
+                                        Copy share link
                                     </LemonButton>
-                                    {showPreview && (
-                                        <div className="SharingPreview border-top">
-                                            <iframe
-                                                style={{ display: 'block' }}
-                                                {...iframeProperties}
-                                                onLoad={() => setIframeLoaded(true)}
-                                            />
-                                        </div>
-                                    )}
                                 </div>
-                            )}
+                                <CodeSnippet language={Language.HTML}>{embedCode}</CodeSnippet>
+                            </div>
 
                             <Form logic={sharingLogic} props={logicProps} formKey="embedConfig" className="space-y-05">
+                                {insight && (
+                                    <div className="border-all">
+                                        <LemonButton
+                                            fullWidth
+                                            type="stealth"
+                                            sideIcon={showPreview ? <IconUnfoldLess /> : <IconUnfoldMore />}
+                                            onClick={togglePreview}
+                                        >
+                                            Preview
+                                            {showPreview && !iframeLoaded ? (
+                                                <Spinner size="sm" className="ml-05" />
+                                            ) : null}
+                                        </LemonButton>
+                                        {showPreview && (
+                                            <div className="SharingPreview border-top">
+                                                <iframe
+                                                    style={{ display: 'block' }}
+                                                    {...iframeProperties}
+                                                    onLoad={() => setIframeLoaded(true)}
+                                                />
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
                                 <Field name="whitelabel" noStyle>
                                     {({ value, onChange }) => (
                                         <LemonSwitch
                                             fullWidth
                                             type="primary"
                                             label={
-                                                <>
-                                                    <span className="mr-05">Show PostHog branding</span>
+                                                <div className="flex">
+                                                    <div className="mr-05" style={{ lineHeight: '1.5rem' }}>
+                                                        Show PostHog branding
+                                                    </div>
                                                     {!whitelabelAvailable ? (
                                                         <Tooltip title="Upgrade to PostHog Scale to hide PostHog branding">
-                                                            <IconLock />
+                                                            <IconLockLemon />
                                                         </Tooltip>
                                                     ) : null}
-                                                </>
+                                                </div>
                                             }
                                             onChange={() => onChange(!value)}
                                             checked={!value}
@@ -152,7 +158,7 @@ export function Sharing({ dashboardId, insightShortId, insight, closeModal }: Sh
                                             <LemonSwitch
                                                 fullWidth
                                                 type="primary"
-                                                label={<div>Show Legend</div>}
+                                                label={<div>Show legend</div>}
                                                 onChange={() => onChange(!value)}
                                                 checked={!value}
                                             />
@@ -164,7 +170,7 @@ export function Sharing({ dashboardId, insightShortId, insight, closeModal }: Sh
                     ) : null}
                 </>
             )}
-            <LemonDivider />
+            <LemonDivider large />
             <div className="page-buttons">
                 <LemonButton type="secondary" onClick={closeModal}>
                     Done
@@ -179,7 +185,7 @@ export function SharingModal(props: SharingModalProps): JSX.Element {
 
     return (
         <>
-            <LemonModal onCancel={closeModal} afterClose={closeModal} visible={visible} width={440}>
+            <LemonModal onCancel={closeModal} afterClose={closeModal} visible={visible} width={480}>
                 <Sharing {...props} />
             </LemonModal>
         </>
