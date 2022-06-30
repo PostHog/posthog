@@ -8,6 +8,7 @@ import {
     DashboardType,
     EventDefinition,
     EventType,
+    ExportedAssetType,
     FeatureFlagType,
     FilterType,
     InsightModel,
@@ -317,6 +318,10 @@ class ApiRequest {
         return await api.get(this.assembleFullUrl(), options?.signal)
     }
 
+    public async getRaw(options?: { signal?: AbortSignal }): Promise<Response> {
+        return await api.getRaw(this.assembleFullUrl(), options?.signal)
+    }
+
     public async update(options?: { data: any }): Promise<any> {
         return await api.update(this.assembleFullUrl(), options?.data)
     }
@@ -441,6 +446,17 @@ const api = {
                 .withAction('content')
                 .withQueryString('download=true')
                 .assembleFullUrl(true)
+        },
+
+        async create(
+            data: Partial<ExportedAssetType>,
+            teamId: TeamType['id'] = getCurrentTeamId()
+        ): Promise<ExportedAssetType> {
+            return new ApiRequest().exports(teamId).create({ data })
+        },
+
+        async get(id: number, teamId: TeamType['id'] = getCurrentTeamId()): Promise<ExportedAssetType> {
+            return new ApiRequest().export(id, teamId).get()
         },
     },
 
@@ -766,6 +782,11 @@ const api = {
     },
 
     async get(url: string, signal?: AbortSignal): Promise<any> {
+        const res = await api.getRaw(url, signal)
+        return await getJSONOrThrow(res)
+    },
+
+    async getRaw(url: string, signal?: AbortSignal): Promise<Response> {
         url = normalizeUrl(url)
         ensureProjectIdNotInvalid(url)
         let response
@@ -781,7 +802,7 @@ const api = {
             const data = await getJSONOrThrow(response)
             throw { status: response.status, ...data }
         }
-        return await getJSONOrThrow(response)
+        return response
     },
 
     async update(url: string, data: any): Promise<any> {

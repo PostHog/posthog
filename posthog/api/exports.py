@@ -31,8 +31,17 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = ExportedAsset
-        fields = ["id", "dashboard", "insight", "export_format", "created_at", "has_content", "export_context"]
-        read_only_fields = ["id", "created_at", "has_content", "export_context"]
+        fields = [
+            "id",
+            "dashboard",
+            "insight",
+            "export_format",
+            "created_at",
+            "has_content",
+            "export_context",
+            "filename",
+        ]
+        read_only_fields = ["id", "created_at", "has_content", "export_context", "filename"]
 
     def validate(self, attrs):
         if not attrs.get("export_format"):

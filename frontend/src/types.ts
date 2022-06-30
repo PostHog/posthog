@@ -23,6 +23,7 @@ import { LogLevel } from 'rrweb'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { BehavioralFilterKey, BehavioralFilterType } from 'scenes/cohorts/CohortFilters/types'
 import { LogicWrapper } from 'kea'
+import { ExporterFormat } from 'lib/components/ExportButton/exporterLogic'
 
 export type Optional<T, K extends string | number | symbol> = Omit<T, K> & { [K in keyof T]?: T[K] }
 
@@ -1958,4 +1959,14 @@ export interface SharingConfigurationType {
     enabled: boolean
     access_token: string
     created_at: string
+}
+
+export interface ExportedAssetType {
+    id: number
+    export_format: ExporterFormat
+    dashboard?: number
+    insight?: number
+    exportContext?: any
+    has_content: boolean
+    filename: string
 }
