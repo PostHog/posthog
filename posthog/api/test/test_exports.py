@@ -275,50 +275,49 @@ class TestExports(APIBaseTest):
         mock_exporter_task.export_asset.delay.assert_called_once_with(exported_instance["id"])
 
     def test_can_download_a_csv(self) -> None:
-        with self.settings(OBJECT_STORAGE_EXPORTS_FOLDER=TEST_ROOT_BUCKET):
-            _create_event(
-                event="event_name", team=self.team, distinct_id="2", properties={"$browser": "Chrome"},
-            )
-            expected_event_id = _create_event(
-                event="event_name", team=self.team, distinct_id="2", properties={"$browser": "Safari"},
-            )
-            flush_persons_and_events()
+        _create_event(
+            event="event_name", team=self.team, distinct_id="2", properties={"$browser": "Chrome"},
+        )
+        expected_event_id = _create_event(
+            event="event_name", team=self.team, distinct_id="2", properties={"$browser": "Safari"},
+        )
+        flush_persons_and_events()
 
-            instance = ExportedAsset.objects.create(
-                team=self.team,
-                dashboard=None,
-                insight=None,
-                export_format=ExportedAsset.ExportFormat.CSV,
-                export_context={
-                    "file_export_type": "list_events",
-                    "filter": {"properties": {"$browser": "Safari"}},
-                    "request_get_query_dict": {},
-                    "order_by": ["-timestamp"],
-                    "action_id": None,
-                },
-            )
-            # pass the root in because django/celery refused to override it otherwise
-            exporter.export_asset(instance.id)
+        instance = ExportedAsset.objects.create(
+            team=self.team,
+            dashboard=None,
+            insight=None,
+            export_format=ExportedAsset.ExportFormat.CSV,
+            export_context={
+                "file_export_type": "list_events",
+                "filter": {"properties": {"$browser": "Safari"}},
+                "request_get_query_dict": {},
+                "order_by": ["-timestamp"],
+                "action_id": None,
+            },
+        )
+        # pass the root in because django/celery refused to override it otherwise
+        exporter.export_asset(instance.id, TEST_ROOT_BUCKET)
 
-            response: Optional[HttpResponse] = None
-            attempt_count = 0
-            while attempt_count < 10 and (not response or response.status_code == status.HTTP_409_CONFLICT):
-                response = self.client.get(f"/api/projects/{self.team.id}/exports/{instance.id}/content?download=true")
-                attempt_count += 1
+        response: Optional[HttpResponse] = None
+        attempt_count = 0
+        while attempt_count < 10 and (not response or response.status_code == status.HTTP_409_CONFLICT):
+            response = self.client.get(f"/api/projects/{self.team.id}/exports/{instance.id}/content?download=true")
+            attempt_count += 1
 
-            if not response:
-                self.fail("must have a response by this point")  # hi mypy
+        if not response:
+            self.fail("must have a response by this point")  # hi mypy
 
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
-            self.assertIsNotNone(response.content)
-            file_content = response.content.decode("utf-8")
-            file_lines = file_content.split("\n")
-            # has a header row and at least one other row
-            # don't care if the DB hasn't been reset before the test
-            self.assertTrue(len(file_lines) > 1)
-            self.assertIn(expected_event_id, file_content)
-            for line in file_lines[1:]:  # every result has to match the filter though
-                self.assertIn('{"$browser": "Safari"}', line)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIsNotNone(response.content)
+        file_content = response.content.decode("utf-8")
+        file_lines = file_content.split("\n")
+        # has a header row and at least one other row
+        # don't care if the DB hasn't been reset before the test
+        self.assertTrue(len(file_lines) > 1)
+        self.assertIn(expected_event_id, file_content)
+        for line in file_lines[1:]:  # every result has to match the filter though
+            self.assertIn('{"$browser": "Safari"}', line)
 
     def _get_insight_activity(self, insight_id: int, expected_status: int = status.HTTP_200_OK):
         url = f"/api/projects/{self.team.id}/insights/{insight_id}/activity"
