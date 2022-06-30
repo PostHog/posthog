@@ -19,7 +19,7 @@ beforeEach(() => {
         req.reply(
             decideResponse({
                 'toolbar-launch-side-action': true,
-                'date-filter-experiment': true,
+                'date-filter-experiment': 'test',
             })
         )
     )
