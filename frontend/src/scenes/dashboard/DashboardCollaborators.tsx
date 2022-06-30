@@ -39,7 +39,7 @@ export function DashboardCollaboration({ dashboardId }: { dashboardId: Dashboard
     return (
         dashboard && (
             <>
-                <PayGateMini feature={AvailableFeature.DASHBOARD_PERMISSIONING} style={{ marginTop: '0.75rem' }}>
+                <PayGateMini feature={AvailableFeature.DASHBOARD_PERMISSIONING}>
                     {(!canEditDashboard || !canRestrictDashboard) && (
                         <AlertMessage type="info">
                             {canEditDashboard
@@ -58,10 +58,7 @@ export function DashboardCollaboration({ dashboardId }: { dashboardId: Dashboard
                         loading={dashboardLoading}
                         type="stealth"
                         outlined
-                        style={{
-                            height: '3rem',
-                            width: '100%',
-                        }}
+                        fullWidth
                         disabled={!canRestrictDashboard}
                     />
                     {dashboard.restriction_level > DashboardRestrictionLevel.EveryoneInProjectCanEdit && (

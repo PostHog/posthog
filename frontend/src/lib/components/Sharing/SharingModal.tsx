@@ -50,19 +50,15 @@ export function Sharing({ dashboardId, insightShortId, insight, closeModal }: Sh
     }, [iframeProperties.src, sharingConfiguration?.enabled, showPreview])
 
     return (
-        <div>
-            {dashboardId ? (
-                <div className="mb">
-                    <DashboardCollaboration dashboardId={dashboardId} />
-                </div>
-            ) : undefined}
+        <div className="space-y-05">
+            {dashboardId ? <DashboardCollaboration dashboardId={dashboardId} /> : undefined}
 
             {!sharingConfiguration && sharingConfigurationLoading ? (
                 <Skeleton />
             ) : !sharingConfiguration ? (
                 <p>Something went wrong...</p>
             ) : (
-                <div className="space-y-05">
+                <>
                     <LemonSwitch
                         id="sharing-switch"
                         label={`Share ${resource} publicly`}
@@ -76,7 +72,6 @@ export function Sharing({ dashboardId, insightShortId, insight, closeModal }: Sh
                         fullWidth
                         type="primary"
                     />
-
                     {sharingConfiguration.enabled && sharingConfiguration.access_token ? (
                         <>
                             <LemonDivider />
@@ -164,7 +159,7 @@ export function Sharing({ dashboardId, insightShortId, insight, closeModal }: Sh
                             </Form>
                         </>
                     ) : null}
-                </div>
+                </>
             )}
             <LemonDivider />
             <div className="page-buttons">
