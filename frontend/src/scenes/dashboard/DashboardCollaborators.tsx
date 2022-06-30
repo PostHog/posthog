@@ -65,32 +65,41 @@ export function DashboardCollaboration({ dashboardId }: { dashboardId: Dashboard
                         <div className="mt">
                             <h4>Collaborators</h4>
                             {canEditDashboard && (
-                                <>
-                                    <div className="flex gap-05">
-                                        <div style={{ flex: 1 }}>
-                                            <LemonSelectMultiple
-                                                placeholder="Search for team members to add…"
-                                                value={explicitCollaboratorsToBeAdded}
-                                                loading={explicitCollaboratorsLoading}
-                                                onChange={(newValues) => setExplicitCollaboratorsToBeAdded(newValues)}
-                                                filterOption={false}
-                                                mode="multiple"
-                                                data-attr="subscribed-emails"
-                                                options={usersLemonSelectOptions(addableMembers)}
-                                            />
-                                        </div>
-                                        <LemonButton
-                                            type="primary"
+                                <div className="flex gap-05">
+                                    <div style={{ flex: 1 }}>
+                                        <LemonSelectMultiple
+                                            placeholder="Search for team members to add…"
+                                            value={explicitCollaboratorsToBeAdded}
                                             loading={explicitCollaboratorsLoading}
-                                            disabled={explicitCollaboratorsToBeAdded.length === 0}
-                                            onClick={() => addExplicitCollaborators()}
-                                        >
-                                            Add
-                                        </LemonButton>
+                                            onChange={(newValues) => setExplicitCollaboratorsToBeAdded(newValues)}
+                                            filterOption={false}
+                                            mode="multiple"
+                                            data-attr="subscribed-emails"
+                                            options={usersLemonSelectOptions(addableMembers)}
+                                        />
                                     </div>
-                                </>
+                                    <LemonButton
+                                        type="primary"
+                                        loading={explicitCollaboratorsLoading}
+                                        disabled={explicitCollaboratorsToBeAdded.length === 0}
+                                        onClick={() => addExplicitCollaborators()}
+                                    >
+                                        Add
+                                    </LemonButton>
+                                </div>
                             )}
-                            <div style={{ maxHeight: 300, overflowY: 'auto' }}>
+                            <h5 style={{ marginTop: '1rem' }}>Project members with access</h5>
+                            <div
+                                className="mt-05"
+                                style={{
+                                    maxHeight: 300,
+                                    overflowY: 'auto',
+                                    background: 'var(--bg-side)',
+                                    paddingBottom: '0.5rem',
+                                    paddingRight: '0.5rem',
+                                    borderRadius: 4,
+                                }}
+                            >
                                 {allCollaborators.map((collaborator) => (
                                     <CollaboratorRow
                                         key={collaborator.user.uuid}
