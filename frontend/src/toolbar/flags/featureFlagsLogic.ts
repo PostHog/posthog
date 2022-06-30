@@ -1,5 +1,5 @@
 import { kea } from 'kea'
-import { CombinedFeatureFlagAndOverrideType } from '~/types'
+import { CombinedFeatureFlagAndValueType } from '~/types'
 import type { featureFlagsLogicType } from './featureFlagsLogicType'
 import { toolbarFetch } from '~/toolbar/utils'
 import { toolbarLogic } from '~/toolbar/toolbarLogic'
@@ -12,15 +12,46 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>({
     path: ['toolbar', 'flags', 'featureFlagsLogic'],
     actions: {
         getUserFlags: true,
-        setOverriddenUserFlag: (flagId: number, overrideValue: string | boolean) => ({ flagId, overrideValue }),
-        deleteOverriddenUserFlag: (overrideId: number) => ({ overrideId }),
-        setShowLocalFeatureFlagWarning: (showWarning: boolean) => ({ showWarning }),
+        setOverriddenUserFlag: (flagKey: string, overrideValue: string | boolean) => ({ flagKey, overrideValue }),
+        deleteOverriddenUserFlag: (flagKey: string) => ({ flagKey }),
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
+        checkLocalOverrides: true,
+        storeLocalOverrides: (localOverrides: Record<string, string | boolean>) => ({ localOverrides }),
     },
     connect: () => [toolbarLogic],
-    loaders: ({ values }) => ({
+    listeners: ({ actions, values }) => ({
+        checkLocalOverrides: () => {
+            const { posthog: clientPostHog } = toolbarLogic.values
+            if (clientPostHog) {
+                const locallyOverrideFeatureFlags = clientPostHog.get_property('$override_feature_flags')
+                console.log('locallyOverrideFeatureFlags', locallyOverrideFeatureFlags)
+                actions.storeLocalOverrides(locallyOverrideFeatureFlags)
+            }
+        },
+        setOverriddenUserFlag: ({ flagKey, overrideValue }) => {
+            const { posthog: clientPostHog } = toolbarLogic.values
+            if (clientPostHog) {
+                clientPostHog.featureFlags.override({ [flagKey]: overrideValue, ...values.localOverrides })
+                posthog.capture('toolbar feature flag overridden')
+                actions.checkLocalOverrides()
+                toolbarLogic.values.posthog?.featureFlags.reloadFeatureFlags()
+            }
+        },
+        deleteOverriddenUserFlag: async ({ flagKey }) => {
+            const { posthog: clientPostHog } = toolbarLogic.values
+            if (clientPostHog) {
+                const updatedFlags = { ...values.localOverrides }
+                delete updatedFlags[flagKey]
+                clientPostHog.featureFlags.override({ ...updatedFlags })
+                posthog.capture('toolbar feature flag override removed')
+                actions.checkLocalOverrides()
+                toolbarLogic.values.posthog?.featureFlags.reloadFeatureFlags()
+            }
+        },
+    }),
+    loaders: () => ({
         userFlags: [
-            [] as CombinedFeatureFlagAndOverrideType[],
+            [] as CombinedFeatureFlagAndValueType[],
             {
                 getUserFlags: async (_, breakpoint) => {
                     const params = {
@@ -41,105 +72,61 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>({
                     }
                     return await response.json()
                 },
-                setOverriddenUserFlag: async ({ flagId, overrideValue }, breakpoint) => {
-                    const response = await toolbarFetch(
-                        '/api/projects/@current/feature_flag_overrides/my_overrides',
-                        'POST',
-                        {
-                            feature_flag: flagId,
-                            override_value: overrideValue,
-                        }
-                    )
-                    breakpoint()
-                    if (!response.ok) {
-                        return []
-                    }
-                    const results = await response.json()
-
-                    posthog.capture('toolbar feature flag overridden')
-                    toolbarLogic.values.posthog?.featureFlags.reloadFeatureFlags()
-                    return [...values.userFlags].map((userFlag) =>
-                        userFlag.feature_flag.id === results.feature_flag
-                            ? { ...userFlag, override: results }
-                            : userFlag
-                    )
-                },
-                deleteOverriddenUserFlag: async ({ overrideId }, breakpoint) => {
-                    const response = await toolbarFetch(
-                        `/api/projects/@current/feature_flag_overrides/${overrideId}`,
-                        'DELETE'
-                    )
-                    breakpoint()
-                    if (!response.ok) {
-                        return []
-                    }
-
-                    posthog.capture('toolbar feature flag override removed')
-                    toolbarLogic.values.posthog?.featureFlags.reloadFeatureFlags()
-                    return [...values.userFlags].map((userFlag) =>
-                        userFlag?.override?.id === overrideId ? { ...userFlag, override: null } : userFlag
-                    )
-                },
             },
         ],
     }),
     reducers: {
+        localOverrides: [
+            {} as Record<string, string | boolean>,
+            {
+                storeLocalOverrides: (_, { localOverrides }) => localOverrides,
+            },
+        ],
         searchTerm: [
             '',
             {
                 setSearchTerm: (_, { searchTerm }) => searchTerm,
             },
         ],
-        showLocalFeatureFlagWarning: [
-            false,
-            {
-                setShowLocalFeatureFlagWarning: (_, { showWarning }) => showWarning,
-            },
-        ],
     },
     selectors: {
-        userFlagsWithCalculatedInfo: [
-            (s) => [s.userFlags],
-            (userFlags) => {
+        userFlagsWithOverrideInfo: [
+            (s) => [s.userFlags, s.localOverrides],
+            (userFlags, localOverrides) => {
                 return userFlags.map((flag) => {
                     const hasVariants = (flag.feature_flag.filters?.multivariate?.variants?.length || 0) > 0
-                    const currentValue = flag.override
-                        ? flag.override.override_value
-                        : flag.value_for_user_without_override
+
+                    const currentValue =
+                        flag.feature_flag.key in localOverrides ? localOverrides[flag.feature_flag.key] : flag.value
 
                     return {
                         ...flag,
                         hasVariants,
                         currentValue,
+                        hasOverride: flag.feature_flag.key in localOverrides,
                     }
                 })
             },
         ],
         filteredFlags: [
-            (s) => [s.searchTerm, s.userFlagsWithCalculatedInfo],
-            (searchTerm, userFlagsWithCalculatedInfo) => {
+            (s) => [s.searchTerm, s.userFlagsWithOverrideInfo],
+            (searchTerm, userFlagsWithOverrideInfo) => {
                 return searchTerm
-                    ? new Fuse(userFlagsWithCalculatedInfo, {
+                    ? new Fuse(userFlagsWithOverrideInfo, {
                           threshold: 0.3,
                           keys: ['feature_flag.key', 'feature_flag.name'],
                       })
                           .search(searchTerm)
                           .map(({ item }) => item)
-                    : userFlagsWithCalculatedInfo
+                    : userFlagsWithOverrideInfo
             },
         ],
-        countFlagsOverridden: [(s) => [s.userFlags], (userFlags) => userFlags.filter((flag) => !!flag.override).length],
+        countFlagsOverridden: [(s) => [s.localOverrides], (localOverrides) => Object.keys(localOverrides).length],
     },
     events: ({ actions }) => ({
-        afterMount: () => {
-            actions.getUserFlags()
-            const { posthog: clientPostHog } = toolbarLogic.values
-            if (clientPostHog) {
-                const locallyOverrideFeatureFlags = clientPostHog.get_property('$override_feature_flags')
-                if (locallyOverrideFeatureFlags) {
-                    actions.setShowLocalFeatureFlagWarning(true)
-                }
-            }
+        afterMount: async () => {
+            await actions.getUserFlags()
+            actions.checkLocalOverrides()
         },
     }),
 })
