@@ -1,6 +1,5 @@
 .ExportedInsight {
     position: relative;
-    min-height: 60vw;
     min-width: 0;
     max-width: 100%;
     border-radius: var(--radius);
@@ -25,14 +24,40 @@
     .ExportedInsight-content {
         flex: 1;
         position: relative;
+        .FunnelBarChart {
+            min-height: 50vw;
+        }
 
         .InsightViz {
             position: relative;
-            min-height: 50vw;
             display: flex;
+            min-height: 50vw;
 
             > * {
                 flex: 1;
+            }
+        }
+    }
+
+    &.ExportedInsight--fit-screen {
+        height: 100vh;
+        max-height: 100vh;
+
+        .ExportedInsight-content {
+            display: flex;
+            flex-direction: column;
+
+            .FunnelBarChart {
+                height: 100%;
+                max-height: 100%;
+                min-height: auto;
+                flex: 1;
+            }
+
+            .InsightViz {
+                flex: 1;
+                min-height: 100px;
+                max-height: 100%;
             }
         }
     }

@@ -2,6 +2,7 @@ import logging
 import os
 import time
 import uuid
+from datetime import timedelta
 
 import structlog
 from django.conf import settings
@@ -15,7 +16,7 @@ from webdriver_manager.utils import ChromeType
 
 from posthog.celery import app
 from posthog.internal_metrics import incr, timing
-from posthog.models.exported_asset import ExportedAsset
+from posthog.models.exported_asset import ExportedAsset, get_public_access_token
 from posthog.tasks.update_cache import update_insight_cache
 from posthog.utils import absolute_uri
 
@@ -73,12 +74,14 @@ def _export_to_png(exported_asset: ExportedAsset) -> None:
         if not os.path.exists(TMP_DIR):
             os.makedirs(TMP_DIR)
 
+        access_token = get_public_access_token(exported_asset, timedelta(minutes=15))
+
         if exported_asset.insight is not None:
-            url_to_render = absolute_uri(f"/exporter/{exported_asset.access_token}")
+            url_to_render = absolute_uri(f"/exporter?token={access_token}")
             wait_for_css_selector = ".ExportedInsight"
             screenshot_width = 800
         elif exported_asset.dashboard is not None:
-            url_to_render = absolute_uri(f"/exporter/{exported_asset.access_token}")
+            url_to_render = absolute_uri(f"/exporter?token={access_token}")
             wait_for_css_selector = ".InsightCard"
             screenshot_width = 1920
         else:

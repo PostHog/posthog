@@ -169,7 +169,6 @@
         "email": "marius@posthog.com"
     },
     "is_shared": false,
-    "share_token": null,
     "deleted": false,
     "creation_mode": "default",
     "filters": {},

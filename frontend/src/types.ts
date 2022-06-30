@@ -828,7 +828,6 @@ export interface DashboardType {
     created_at: string
     created_by: UserBasicType | null
     is_shared: boolean
-    share_token: string
     deleted: boolean
     filters: Record<string, any>
     creation_mode: 'default' | 'template' | 'duplicate'
@@ -1148,10 +1147,7 @@ export interface SystemStatusRow {
 export interface SystemStatus {
     overview: SystemStatusRow[]
     internal_metrics: {
-        clickhouse?: {
-            id: number
-            share_token: string
-        }
+        clickhouse?: DashboardType
     }
 }
 
@@ -1452,13 +1448,14 @@ export enum ItemMode { // todo: consolidate this and dashboardmode
     Edit = 'edit',
     View = 'view',
     Subscriptions = 'subscriptions',
+    Sharing = 'sharing',
 }
 
 export enum DashboardPlacement {
     Dashboard = 'dashboard', // When on the standard dashboard page
     InternalMetrics = 'internal-metrics', // When embedded in /instance/status
     ProjectHomepage = 'project-homepage', // When embedded on the project homepage
-    Public = 'public', // When viewing the dashboard publicly via a shareToken
+    Public = 'public', // When viewing the dashboard publicly
     Export = 'export', // When the dashboard is being exported (alike to being printed)
 }
 
@@ -1956,6 +1953,12 @@ export interface SlackChannelType {
     is_private: boolean
     is_ext_shared: boolean
     is_member: boolean
+}
+
+export interface SharingConfigurationType {
+    enabled: boolean
+    access_token: string
+    created_at: string
 }
 
 export interface ExportedAssetType {

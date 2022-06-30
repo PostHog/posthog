@@ -1,5 +1,4 @@
 import random
-import secrets
 
 from dateutil.relativedelta import relativedelta
 from django.utils.timezone import now
@@ -38,9 +37,7 @@ class AppDataGenerator(DataGenerator):
         watched_movie_action = Action.objects.create(team=self.team, name="Watched Movie")
         ActionStep.objects.create(action=watched_movie_action, event="watched_movie")
 
-        dashboard = Dashboard.objects.create(
-            name="App Analytics", pinned=True, team=self.team, share_token=secrets.token_urlsafe(22)
-        )
+        dashboard = Dashboard.objects.create(name="App Analytics", pinned=True, team=self.team)
         insight = Insight.objects.create(
             team=self.team,
             name="Installed App -> Rated App -> Rated App 5 Stars",

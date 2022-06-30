@@ -40,13 +40,12 @@ export function LemonSwitch({
     return (
         <LemonRow
             outlined={type === 'primary'}
-            className={clsx(
-                'LemonSwitch',
-                checked && 'LemonSwitch--checked',
-                !disabled && isActive && 'LemonSwitch--active',
-                alt && 'LemonSwitch--alt',
-                className
-            )}
+            className={clsx('LemonSwitch', className, {
+                'LemonSwitch--checked': checked,
+                'LemonSwitch--active': !disabled && isActive,
+                'LemonSwitch--alt': alt,
+                'LemonSwitch--full-width': rowProps.fullWidth,
+            })}
             disabled={disabled}
             sideIcon={
                 <button
