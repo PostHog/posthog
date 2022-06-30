@@ -4,7 +4,7 @@ from typing import Any, Dict, List, Optional, Union
 
 from django.core.cache import cache
 from django.db import models
-from django.db.models.expressions import ExpressionWrapper, RawSQL, Subquery
+from django.db.models.expressions import ExpressionWrapper, RawSQL
 from django.db.models.fields import BooleanField
 from django.db.models.query import QuerySet
 from django.db.models.signals import pre_delete
@@ -18,7 +18,6 @@ from posthog.models.group import Group
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.property import GroupTypeIndex, GroupTypeName
 from posthog.models.signals import mutable_receiver
-from posthog.models.user import User
 from posthog.queries.base import properties_to_Q
 
 from .filters import Filter
@@ -406,20 +405,6 @@ def get_overridden_feature_flags(
 
     # TODO: Go down the override code path only when /decide requests for overrides
     # Get a user's feature flag overrides from any distinct_id (not just the canonical one)
-    distinct_ids = PersonDistinctId.objects.filter(person_id__in=Subquery(person)).values_list("distinct_id")
-    user_id = User.objects.filter(distinct_id__in=Subquery(distinct_ids))[:1].values_list("id")
-    feature_flag_overrides = FeatureFlagOverride.objects.filter(
-        user_id__in=Subquery(user_id), team_id=team_id,
-    ).select_related("feature_flag")
-    feature_flag_overrides = feature_flag_overrides.only("override_value", "feature_flag__key")
-
-    for feature_flag_override in feature_flag_overrides:
-        key = feature_flag_override.feature_flag.key
-        value = feature_flag_override.override_value
-        if value is False and key in feature_flags:
-            del feature_flags[key]
-        else:
-            feature_flags[key] = value
 
     return feature_flags
 

@@ -1,6 +1,6 @@
 @import '../styles/breakpoints';
 
-html.in-posthog-image-export {
+html.export-type-image {
     // We don't want scrollbars to show in image captures
     ::-webkit-scrollbar {
         display: none;
@@ -13,8 +13,17 @@ html.in-posthog-image-export {
     }
 }
 
+html.export-type-embed {
+    overflow: hidden;
+    overflow-y: auto;
+    .Exporter {
+        padding: 0;
+        height: 100vh;
+        max-height: 100vh;
+    }
+}
+
 .Exporter {
-    min-height: 100vh;
     padding: 1rem;
 
     .SharedDashboard-header {

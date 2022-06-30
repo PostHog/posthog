@@ -1,3 +1,4 @@
+import pytest
 from django.db import connection
 
 from posthog.models import Cohort, FeatureFlag, GroupTypeMapping, Person
@@ -224,6 +225,7 @@ class TestFeatureFlagMatcher(BaseTest):
 
 
 # Integration + performance tests for get_overridden_feature_flags
+@pytest.mark.skip(reason="Temporarily disabling overrides for feature flags")
 class TestFeatureFlagsWithOverrides(BaseTest, QueryMatchingTest):
     feature_flag: FeatureFlag
 
@@ -437,7 +439,6 @@ class TestFeatureFlagHashKeyOverrides(BaseTest, QueryMatchingTest):
             self.assertEqual(len(res), 3)
             self.assertEqual(set([var[0] for var in res]), set([hash_key]))
 
-    @snapshot_postgres_queries(search_clauses=["SELECT", "INSERT"])
     def test_entire_flow_with_hash_key_override(self):
         # get feature flags for 'other_id', with an override for 'example_id'
         flags = get_overridden_feature_flags(self.team.pk, "other_id", {}, "example_id")

@@ -32,8 +32,6 @@ class Dashboard(models.Model):
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True, blank=True)
     created_by: models.ForeignKey = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)
     deleted: models.BooleanField = models.BooleanField(default=False)
-    share_token: models.CharField = models.CharField(max_length=400, null=True, blank=True)
-    is_shared: models.BooleanField = models.BooleanField(default=False)
     last_accessed_at: models.DateTimeField = models.DateTimeField(blank=True, null=True)
     filters: models.JSONField = models.JSONField(default=dict)
     creation_mode: models.CharField = models.CharField(max_length=16, default="default", choices=CreationMode.choices)
@@ -47,6 +45,16 @@ class Dashboard(models.Model):
     deprecated_tags_v2: ArrayField = ArrayField(
         models.CharField(max_length=32), null=True, blank=True, default=None, db_column="tags"
     )
+
+    # DEPRECATED: using the new "sharing" relation instead
+    share_token: models.CharField = models.CharField(max_length=400, null=True, blank=True)
+    # DEPRECATED: using the new "is_sharing_enabled" relation instead
+    is_shared: models.BooleanField = models.BooleanField(default=False)
+
+    @property
+    def is_sharing_enabled(self):
+        sharing = self.sharingconfiguration_set.first()
+        return sharing.enabled if sharing else False
 
     @property
     def url(self):
@@ -108,7 +116,7 @@ class Dashboard(models.Model):
         return {
             "pinned": self.pinned,
             "item_count": self.insights.count(),
-            "is_shared": self.is_shared,
+            "is_shared": self.is_sharing_enabled,
             "created_at": self.created_at,
             "has_description": self.description != "",
             "tags_count": self.tagged_items.count(),
