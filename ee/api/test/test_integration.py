@@ -15,7 +15,7 @@ class TestIntegration(APILicensedTest):
 
         set_instance_setting("SLACK_APP_SIGNING_SECRET", "not-so-secret")
 
-    def _headers_for_paylod(self, payload: Any):
+    def _headers_for_payload(self, payload: Any):
         slack_time = time.time()
         sig_basestring = f"v0:{slack_time}:{json.dumps(payload, separators=(',', ':'))}"
 
@@ -33,14 +33,14 @@ class TestIntegration(APILicensedTest):
 
     def test_validates_payload(self):
         body = {"type": "url_verification", "challenge": "to-a-duel!"}
-        headers = self._headers_for_paylod(body)
+        headers = self._headers_for_payload(body)
         res = self.client.post(f"/api/integrations/slack/events", body, **headers)
 
         assert res.json() == {"challenge": "to-a-duel!"}
 
     def test_ignores_invalid_payload(self):
         body = {"type": "url_verification", "challenge": "to-a-duel!"}
-        headers = self._headers_for_paylod(body)
+        headers = self._headers_for_payload(body)
 
         body["challenge"] = "intercepted!"
         res = self.client.post(f"/api/integrations/slack/events", body, **headers)
