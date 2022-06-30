@@ -9,13 +9,12 @@ from django.core.serializers.json import DjangoJSONEncoder
 from django.http import HttpResponse
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter
-from rest_framework import mixins, serializers, status, viewsets
+from rest_framework import mixins, serializers, viewsets
 from rest_framework.authentication import BasicAuthentication, SessionAuthentication
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
-from rest_framework.response import Response
 
 from posthog import settings
 from posthog.api.dashboard import DashboardSerializer
@@ -31,7 +30,6 @@ from posthog.models.exported_asset import ExportedAsset, asset_for_token
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.settings import DEBUG
 from posthog.storage import object_storage
-from posthog.storage.object_storage import ObjectStorageError
 from posthog.tasks.exports import csv_exporter, insight_exporter
 from posthog.utils import render_template
 
@@ -191,21 +189,7 @@ class ExportedAssetViewSet(
     @action(methods=["GET"], detail=True)
     def content(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
         instance = self.get_object()
-        try:
-            return get_content_response(instance, request.query_params.get("download") == "true")
-        except ObjectStorageError:
-            # there might be a large gap between requesting an export be available in storage
-            # and it being available (e.g. generating a large events export)
-            # this isn't success... the file wasn't ready for reading from object storage
-            # it isn't an error... the client can retry
-            # there is a conflict... the export exists but the download isn't ready
-            response = Response(status=status.HTTP_409_CONFLICT,)
-            response["location"] = request.build_absolute_uri()
-            # https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Retry-After
-            # help the client know how long to wait
-            # _could_ hook exponential back-off here
-            response["Retry-After"] = 5  # seconds
-            return response
+        return get_content_response(instance, request.query_params.get("download") == "true")
 
 
 class ExportedViewerPageViewSet(mixins.RetrieveModelMixin, StructuredViewSetMixin, viewsets.GenericViewSet):
