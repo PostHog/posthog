@@ -112,7 +112,7 @@ def status_report(*, dry_run: bool = False) -> Dict[str, Any]:
             team_report["dashboards_count"] = team_dashboards.count()
             instance_usage_summary["dashboards_count"] += team_report["dashboards_count"]
             team_report["dashboards_template_count"] = team_dashboards.filter(creation_mode="template").count()
-            team_report["dashboards_shared_count"] = team_dashboards.filter(is_shared=True).count()
+            team_report["dashboards_shared_count"] = team_dashboards.filter(sharingconfiguration__enabled=True).count()
             team_report["dashboards_tagged_count"] = team_dashboards.exclude(tagged_items__isnull=True).count()
 
             # Feature Flags

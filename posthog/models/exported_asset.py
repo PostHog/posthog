@@ -1,14 +1,19 @@
+import gzip
 import secrets
 from datetime import timedelta
 from typing import Optional
 
 from django.db import models
+from django.http import HttpResponse
 from django.utils.text import slugify
 
 from posthog.jwt import PosthogJwtAudience, decode_jwt, encode_jwt
+from posthog.settings import DEBUG
+from posthog.storage import object_storage
 from posthog.utils import absolute_uri
 
 PUBLIC_ACCESS_TOKEN_EXP_DAYS = 365
+MAX_AGE_CONTENT = 86400  # 1 day
 
 
 def get_default_access_token() -> str:
@@ -16,11 +21,6 @@ def get_default_access_token() -> str:
 
 
 class ExportedAsset(models.Model):
-    # deprecated
-    class ExportType(models.TextChoices):
-        DASHBOARD = "dashboard", "Dashboard"
-        INSIGHT = "insight", "Insight"
-
     class ExportFormat(models.TextChoices):
         PNG = "image/png", "image/png"
         PDF = "application/pdf", "application/pdf"
@@ -41,7 +41,7 @@ class ExportedAsset(models.Model):
     # 1000 characters would hold a 20 UUID forward slash separated path with space to spare
     content_location: models.TextField = models.TextField(null=True, blank=True, max_length=1000)
 
-    # Token for accessing the /exporter page
+    # DEPRECATED: We now use JWT for accessing assets
     access_token: models.CharField = models.CharField(
         max_length=400, null=True, blank=True, default=get_default_access_token
     )
@@ -72,10 +72,6 @@ class ExportedAsset(models.Model):
     def get_analytics_metadata(self):
         return {"export_format": self.export_format, "dashboard_id": self.dashboard_id, "insight_id": self.insight_id}
 
-    @property
-    def url(self):
-        return absolute_uri(f"/exporter/{self.access_token}")
-
     def get_public_content_url(self, expiry_delta: Optional[timedelta] = None):
         token = get_public_access_token(self, expiry_delta)
         return absolute_uri(f"/exporter/{self.filename}?token={token}")
@@ -89,6 +85,22 @@ def get_public_access_token(asset: ExportedAsset, expiry_delta: Optional[timedel
 
 def asset_for_token(token: str) -> ExportedAsset:
     info = decode_jwt(token, audience=PosthogJwtAudience.EXPORTED_ASSET)
-    asset = ExportedAsset.objects.get(pk=info["id"])
+    asset = ExportedAsset.objects.select_related("dashboard", "insight").get(pk=info["id"])
 
     return asset
+
+
+def get_content_response(asset: ExportedAsset, download: bool = False):
+    content = asset.content
+    if not content and asset.content_location:
+        content_bytes = object_storage.read_bytes(asset.content_location)
+        content = gzip.decompress(content_bytes)
+
+    res = HttpResponse(content, content_type=asset.export_format)
+    if download:
+        res["Content-Disposition"] = f'attachment; filename="{asset.filename}"'
+
+    if not DEBUG:
+        res["Cache-Control"] = f"max-age={MAX_AGE_CONTENT}"
+
+    return res
