@@ -1075,30 +1075,28 @@
                          toStartOfWeek(toDateTime('2019-12-28 00:00:00'), 0, 'UTC')
         UNION ALL SELECT quantile(0.50)(session_duration) as data, date
         FROM
-          (SELECT date, session_duration
+          (SELECT toStartOfWeek(toDateTime(timestamp), 0, 'UTC') as date,
+                  any(session_duration) as session_duration
            FROM
-             (SELECT toStartOfWeek(toDateTime(timestamp), 0, 'UTC') as date,
-                     any(session_duration) as session_duration
-              FROM
-                (SELECT e.timestamp as timestamp,
-                        e."properties" as "properties",
-                        sessions.session_duration as session_duration,
-                        sessions.$session_id as $session_id
-                 FROM events e
-                 INNER JOIN
-                   (SELECT $session_id,
-                           dateDiff('second', min(timestamp), max(timestamp)) as session_duration
-                    FROM events
-                    WHERE $session_id != ''
-                      AND team_id = 2
-                      AND timestamp >= toDateTime('2019-12-28 00:00:00') - INTERVAL 24 HOUR
-                      AND timestamp <= toDateTime('2020-01-04 23:59:59') + INTERVAL 24 HOUR
-                    GROUP BY $session_id) as sessions ON sessions.$session_id = e.$session_id
-                 WHERE team_id = 2
-                   AND event = 'sign up'
-                   AND timestamp >= toStartOfWeek(toDateTime('2019-12-28 00:00:00'), 0, 'UTC')
-                   AND timestamp <= toDateTime('2020-01-04 23:59:59') )
-              GROUP BY $session_id, date))
+             (SELECT e.timestamp as timestamp,
+                     e."properties" as "properties",
+                     sessions.session_duration as session_duration,
+                     sessions.$session_id as $session_id
+              FROM events e
+              INNER JOIN
+                (SELECT $session_id,
+                        dateDiff('second', min(timestamp), max(timestamp)) as session_duration
+                 FROM events
+                 WHERE $session_id != ''
+                   AND team_id = 2
+                   AND timestamp >= toDateTime('2019-12-28 00:00:00') - INTERVAL 24 HOUR
+                   AND timestamp <= toDateTime('2020-01-04 23:59:59') + INTERVAL 24 HOUR
+                 GROUP BY $session_id) as sessions ON sessions.$session_id = e.$session_id
+              WHERE team_id = 2
+                AND event = 'sign up'
+                AND timestamp >= toStartOfWeek(toDateTime('2019-12-28 00:00:00'), 0, 'UTC')
+                AND timestamp <= toDateTime('2020-01-04 23:59:59') )
+           GROUP BY $session_id, date)
         GROUP BY date)
      group by day_start
      order by day_start SETTINGS allow_experimental_window_functions = 1) SETTINGS timeout_before_checking_execution_speed = 60
@@ -1120,30 +1118,28 @@
                          toStartOfDay(toDateTime('2019-12-28 00:00:00'), 'UTC')
         UNION ALL SELECT quantile(0.50)(session_duration) as data, date
         FROM
-          (SELECT date, session_duration
+          (SELECT toStartOfDay(toDateTime(timestamp), 'UTC') as date,
+                  any(session_duration) as session_duration
            FROM
-             (SELECT toStartOfDay(toDateTime(timestamp), 'UTC') as date,
-                     any(session_duration) as session_duration
-              FROM
-                (SELECT e.timestamp as timestamp,
-                        e."properties" as "properties",
-                        sessions.session_duration as session_duration,
-                        sessions.$session_id as $session_id
-                 FROM events e
-                 INNER JOIN
-                   (SELECT $session_id,
-                           dateDiff('second', min(timestamp), max(timestamp)) as session_duration
-                    FROM events
-                    WHERE $session_id != ''
-                      AND team_id = 2
-                      AND timestamp >= toDateTime('2019-12-28 00:00:00') - INTERVAL 24 HOUR
-                      AND timestamp <= toDateTime('2020-01-04 23:59:59') + INTERVAL 24 HOUR
-                    GROUP BY $session_id) as sessions ON sessions.$session_id = e.$session_id
-                 WHERE team_id = 2
-                   AND event = 'sign up'
-                   AND timestamp >= toStartOfDay(toDateTime('2019-12-28 00:00:00'), 'UTC')
-                   AND timestamp <= toDateTime('2020-01-04 23:59:59') )
-              GROUP BY $session_id, date))
+             (SELECT e.timestamp as timestamp,
+                     e."properties" as "properties",
+                     sessions.session_duration as session_duration,
+                     sessions.$session_id as $session_id
+              FROM events e
+              INNER JOIN
+                (SELECT $session_id,
+                        dateDiff('second', min(timestamp), max(timestamp)) as session_duration
+                 FROM events
+                 WHERE $session_id != ''
+                   AND team_id = 2
+                   AND timestamp >= toDateTime('2019-12-28 00:00:00') - INTERVAL 24 HOUR
+                   AND timestamp <= toDateTime('2020-01-04 23:59:59') + INTERVAL 24 HOUR
+                 GROUP BY $session_id) as sessions ON sessions.$session_id = e.$session_id
+              WHERE team_id = 2
+                AND event = 'sign up'
+                AND timestamp >= toStartOfDay(toDateTime('2019-12-28 00:00:00'), 'UTC')
+                AND timestamp <= toDateTime('2020-01-04 23:59:59') )
+           GROUP BY $session_id, date)
         GROUP BY date)
      group by day_start
      order by day_start SETTINGS allow_experimental_window_functions = 1) SETTINGS timeout_before_checking_execution_speed = 60
