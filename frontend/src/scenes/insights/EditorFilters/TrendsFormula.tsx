@@ -8,6 +8,9 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { IconPlusMini } from 'lib/components/icons'
 import { Input } from 'antd'
 
+// When updating this regex, remember to update the regex with the same name in mixins/common.py
+const ALLOWED_FORMULA_CHARACTERS = /^[a-zA-Z\ \-\*\^0-9\+\/\(\)\.]+$/
+
 function Formula({
     filters,
     onChange,
@@ -37,7 +40,7 @@ function Formula({
                     // Only allow typing of allowed characters
                     changedValue = changedValue
                         .split('')
-                        .filter((d) => /^[a-zA-Z\ \-\*\^0-9\+\/\(\)]+$/g.test(d))
+                        .filter((d) => ALLOWED_FORMULA_CHARACTERS.test(d))
                         .join('')
                     setValue(changedValue)
                 }}

@@ -716,11 +716,10 @@ def get_session_property_filter_statement(prop: Property, idx: int, prepend: str
             duration = int(prop.value)  # type: ignore
         except ValueError:
             raise (exceptions.ValidationError(f"$session_duration value must be a number. Received '{prop.value}'"))
+        value = f"session_duration_value{prepend}_{idx}"
         if prop.operator == "gt":
-            value = "session_duration_value{prepend}_{idx}"
             return (f"sessions.session_duration > %({value})s", {value: duration})
         if prop.operator == "lt":
-            value = "session_duration_value{prepend}_{idx}"
             return (f"sessions.session_duration < %({value})s", {value: duration})
         else:
             raise exceptions.ValidationError(f"Operator '{prop.operator}' is not allowed in $session_duration filters.")

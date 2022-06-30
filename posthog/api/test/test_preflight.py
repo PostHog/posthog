@@ -89,7 +89,7 @@ class TestPreflight(APIBaseTest):
             )
             self.assertDictContainsSubset({"Europe/Moscow": 3, "UTC": 0}, available_timezones)
 
-    @patch("posthog.storage.object_storage.s3_client")
+    @patch("posthog.storage.object_storage._client")
     def test_preflight_request_with_object_storage_available(self, patched_s3_client):
         patched_s3_client.head_bucket.return_value = True
 
