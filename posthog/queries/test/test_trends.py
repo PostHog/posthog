@@ -371,14 +371,7 @@ def trend_test_factory(trends):
                         data={
                             "display": TRENDS_TABLE,
                             "interval": "week",
-                            "events": [
-                                {
-                                    "id": "sign up",
-                                    "math": "median",
-                                    "math_property": "$session_duration",
-                                    "math_property_type": "session",
-                                }
-                            ],
+                            "events": [{"id": "sign up", "math": "median", "math_property": "$session_duration",}],
                         }
                     ),
                     self.team,
@@ -390,14 +383,7 @@ def trend_test_factory(trends):
                         data={
                             "display": TRENDS_TABLE,
                             "interval": "day",
-                            "events": [
-                                {
-                                    "id": "sign up",
-                                    "math": "median",
-                                    "math_property": "$session_duration",
-                                    "math_property_type": "session",
-                                }
-                            ],
+                            "events": [{"id": "sign up", "math": "median", "math_property": "$session_duration",}],
                         }
                     ),
                     self.team,
@@ -687,7 +673,14 @@ def trend_test_factory(trends):
                 properties={"$session_id": 3},
                 timestamp="2020-01-01 00:06:45",
             )
-            # Third session lasted 0 seconds
+            _create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="blabla",
+                properties={"$session_id": 3},
+                timestamp="2020-01-01 00:06:46",
+            )
+            # Third session lasted 1 seconds
 
             _create_event(
                 team=self.team,
@@ -695,6 +688,13 @@ def trend_test_factory(trends):
                 distinct_id="blabla",
                 properties={"$session_id": 4, "$some_property": "value2"},
                 timestamp="2020-01-02 00:06:30",
+            )
+            _create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="blabla",
+                properties={"$session_id": 4, "$some_property": "value2"},
+                timestamp="2020-01-02 00:06:35",
             )
             _create_event(
                 team=self.team,
@@ -712,18 +712,17 @@ def trend_test_factory(trends):
                             "display": TRENDS_TABLE,
                             "interval": "week",
                             "breakdown": "$some_property",
-                            "events": [
-                                {
-                                    "id": "sign up",
-                                    "math": "median",
-                                    "math_property": "$session_duration",
-                                    "math_property_type": "session",
-                                }
-                            ],
+                            "events": [{"id": "sign up", "math": "median", "math_property": "$session_duration",}],
                         }
                     ),
                     self.team,
                 )
+
+            # value1 has: 5 seconds, 10 seconds, 15 seconds
+            # value2 has: 10 seconds, 15 seconds (aggregated by session, so 15 is not double counted)
+            # empty has: 1 seconds
+            self.assertEqual([resp["breakdown_value"] for resp in daily_response], ["", "value1", "value2"])
+            self.assertEqual([resp["aggregated_value"] for resp in daily_response], [1, 10, 12.5])
 
             with freeze_time("2020-01-04T13:00:01Z"):
                 weekly_response = trends().run(
@@ -732,23 +731,20 @@ def trend_test_factory(trends):
                             "display": TRENDS_TABLE,
                             "interval": "day",
                             "breakdown": "$some_property",
-                            "events": [
-                                {
-                                    "id": "sign up",
-                                    "math": "median",
-                                    "math_property": "$session_duration",
-                                    "math_property_type": "session",
-                                }
-                            ],
+                            "events": [{"id": "sign up", "math": "median", "math_property": "$session_duration",}],
                         }
                     ),
                     self.team,
                 )
 
-            # TODO: Split values based on breakdown result
-            # print(daily_response)
-            self.assertEqual(daily_response[0]["aggregated_value"], 7.5)
-            self.assertEqual(daily_response[0]["aggregated_value"], weekly_response[0]["aggregated_value"])
+            self.assertEqual(
+                [resp["breakdown_value"] for resp in daily_response],
+                [resp["breakdown_value"] for resp in weekly_response],
+            )
+            self.assertEqual(
+                [resp["aggregated_value"] for resp in daily_response],
+                [resp["aggregated_value"] for resp in weekly_response],
+            )
 
         @test_with_materialized_columns(["$math_prop", "$some_property"])
         def test_trends_breakdown_with_math_func(self):
@@ -1660,14 +1656,7 @@ def trend_test_factory(trends):
                     Filter(
                         data={
                             "interval": "week",
-                            "events": [
-                                {
-                                    "id": "sign up",
-                                    "math": "median",
-                                    "math_property": "$session_duration",
-                                    "math_property_type": "session",
-                                }
-                            ],
+                            "events": [{"id": "sign up", "math": "median", "math_property": "$session_duration",}],
                         }
                     ),
                     self.team,
@@ -1678,14 +1667,7 @@ def trend_test_factory(trends):
                     Filter(
                         data={
                             "interval": "day",
-                            "events": [
-                                {
-                                    "id": "sign up",
-                                    "math": "median",
-                                    "math_property": "$session_duration",
-                                    "math_property_type": "session",
-                                }
-                            ],
+                            "events": [{"id": "sign up", "math": "median", "math_property": "$session_duration",}],
                         }
                     ),
                     self.team,
@@ -1801,14 +1783,7 @@ def trend_test_factory(trends):
                         data={
                             "breakdown": "$some_property",
                             "interval": "week",
-                            "events": [
-                                {
-                                    "id": "sign up",
-                                    "math": "median",
-                                    "math_property": "$session_duration",
-                                    "math_property_type": "session",
-                                }
-                            ],
+                            "events": [{"id": "sign up", "math": "median", "math_property": "$session_duration",}],
                         }
                     ),
                     self.team,
@@ -1820,22 +1795,20 @@ def trend_test_factory(trends):
                         data={
                             "breakdown": "$some_property",
                             "interval": "day",
-                            "events": [
-                                {
-                                    "id": "sign up",
-                                    "math": "median",
-                                    "math_property": "$session_duration",
-                                    "math_property_type": "session",
-                                }
-                            ],
+                            "events": [{"id": "sign up", "math": "median", "math_property": "$session_duration",}],
                         }
                     ),
                     self.team,
                 )
 
+            # value1 has 0,5,10 seconds (in second interval)
+            # value2 has 5,10,15 seconds (in second interval)
+            self.assertEqual([resp["breakdown_value"] for resp in daily_response], ["value1", "value2"])
             self.assertCountEqual(daily_response[0]["labels"], ["22-Dec-2019", "29-Dec-2019"])
             self.assertCountEqual(daily_response[0]["data"], [0, 5])
+            self.assertCountEqual(daily_response[1]["data"], [0, 10])
 
+            self.assertEqual([resp["breakdown_value"] for resp in weekly_response], ["value1", "value2"])
             self.assertCountEqual(
                 weekly_response[0]["labels"],
                 [
@@ -1849,7 +1822,8 @@ def trend_test_factory(trends):
                     "4-Jan-2020",
                 ],
             )
-            self.assertCountEqual(weekly_response[0]["data"], [0, 0, 0, 0, 5, 10, 0, 0])
+            self.assertCountEqual(weekly_response[0]["data"], [0, 0, 0, 0, 5, 5, 0, 0])
+            self.assertCountEqual(weekly_response[1]["data"], [0, 0, 0, 0, 7.5, 15, 0, 0])
 
         def test_trends_with_session_property_total_volume_math_with_sessions_spanning_multiple_intervals(self):
             _create_person(
@@ -1900,14 +1874,7 @@ def trend_test_factory(trends):
                     Filter(
                         data={
                             "interval": "day",
-                            "events": [
-                                {
-                                    "id": "sign up",
-                                    "math": "median",
-                                    "math_property": "$session_duration",
-                                    "math_property_type": "session",
-                                }
-                            ],
+                            "events": [{"id": "sign up", "math": "median", "math_property": "$session_duration",}],
                         }
                     ),
                     self.team,

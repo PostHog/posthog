@@ -47,7 +47,7 @@ def process_math(
         if entity.math_property is None:
             raise ValidationError({"math_property": "This field is required when `math` is set."}, code="required")
 
-        if entity.math_property_type == "session" and entity.math_property == "$session_duration":
+        if entity.math_property == "$session_duration":
             aggregate_operation = f"{MATH_FUNCTIONS[entity.math]}(session_duration)"
         else:
             key = f"e_{entity.index}_math_prop"

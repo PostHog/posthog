@@ -178,7 +178,7 @@ class TrendsEventQuery(EventQuery):
 
     def _determine_should_join_sessions(self) -> None:
 
-        if self._entity.math_property_type == "session":
+        if self._entity.math_property == "$session_duration":
             self._should_join_sessions = True
             return
 

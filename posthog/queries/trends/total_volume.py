@@ -53,7 +53,9 @@ class TrendsTotalVolume:
 
         if filter.display in NON_TIME_SERIES_DISPLAY_TYPES:
 
-            if entity.math_property_type == "session":
+            if entity.math_property == "$session_duration":
+                # TODO: When we add more person/group properties to math_property,
+                # generalise this query to work for everything, not just sessions.
                 content_sql = SESSION_VOLUME_TOTAL_AGGREGATE_SQL.format(event_query=event_query, **content_sql_params)
             else:
                 content_sql = VOLUME_TOTAL_AGGREGATE_SQL.format(event_query=event_query, **content_sql_params)
@@ -75,7 +77,9 @@ class TrendsTotalVolume:
                 content_sql = VOLUME_SQL.format(
                     event_query=cumulative_sql, start_of_week_fix=start_of_week_fix(filter), **content_sql_params,
                 )
-            elif entity.math_property_type == "session":
+            elif entity.math_property == "$session_duration":
+                # TODO: When we add more person/group properties to math_property,
+                # generalise this query to work for everything, not just sessions.
                 content_sql = SESSION_DURATION_VOLUME_SQL.format(
                     event_query=event_query, start_of_week_fix=start_of_week_fix(filter), **content_sql_params,
                 )
