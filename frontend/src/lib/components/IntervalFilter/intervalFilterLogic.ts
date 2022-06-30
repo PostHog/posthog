@@ -27,40 +27,39 @@ export const intervalFilterLogic = kea<intervalFilterLogicType>({
             }
         },
         setFilters: ({ filters }, _, __, previousState) => {
-            if (values.featureFlags[FEATURE_FLAGS.DATE_FILTER_EXPERIMENT] === 'control') {
-                return
-            }
-
-            const { date_from, date_to } = filters
-            const previousFilters = selectors.filters(previousState)
-            if (
-                !date_from ||
-                (objectsEqual(date_from, previousFilters.date_from) && objectsEqual(date_to, previousFilters.date_to))
-            ) {
-                return
-            }
-
-            // automatically set an interval for fixed date ranges
-            if (date_from && date_to && dayjs(filters.date_from).isValid() && dayjs(filters.date_to).isValid()) {
-                if (dayjs(date_to).diff(dayjs(date_from), 'day') <= 3) {
-                    actions.setInterval('hour')
-                } else if (dayjs(date_to).diff(dayjs(date_from), 'month') <= 3) {
-                    actions.setInterval('day')
-                } else {
-                    actions.setInterval('month')
+            if (values.featureFlags[FEATURE_FLAGS.DATE_FILTER_EXPERIMENT] === 'test') {
+                const { date_from, date_to } = filters
+                const previousFilters = selectors.filters(previousState)
+                if (
+                    !date_from ||
+                    (objectsEqual(date_from, previousFilters.date_from) &&
+                        objectsEqual(date_to, previousFilters.date_to))
+                ) {
+                    return
                 }
-                return
-            }
-            // get a defaultInterval for dateOptions that have a default value
-            let interval: IntervalType = 'day'
-            Object.entries(dateMapping).map(([key, { values, defaultInterval }]) => {
-                if (values[0] === date_from && values[1] === (date_to || undefined) && key !== 'Custom') {
-                    if (defaultInterval) {
-                        interval = defaultInterval
+
+                // automatically set an interval for fixed date ranges
+                if (date_from && date_to && dayjs(filters.date_from).isValid() && dayjs(filters.date_to).isValid()) {
+                    if (dayjs(date_to).diff(dayjs(date_from), 'day') <= 3) {
+                        actions.setInterval('hour')
+                    } else if (dayjs(date_to).diff(dayjs(date_from), 'month') <= 3) {
+                        actions.setInterval('day')
+                    } else {
+                        actions.setInterval('month')
                     }
+                    return
                 }
-            })[0]
-            actions.setInterval(interval)
+                // get a defaultInterval for dateOptions that have a default value
+                let interval: IntervalType = 'day'
+                Object.entries(dateMapping).map(([key, { values, defaultInterval }]) => {
+                    if (values[0] === date_from && values[1] === (date_to || undefined) && key !== 'Custom') {
+                        if (defaultInterval) {
+                            interval = defaultInterval
+                        }
+                    }
+                })[0]
+                actions.setInterval(interval)
+            }
         },
     }),
     selectors: {
