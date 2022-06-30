@@ -1938,6 +1938,13 @@ export interface ChangeDescriptions {
     bareName: boolean
 }
 
+export type SmallTimeUnit = 'hours' | 'minutes' | 'seconds'
+
+export type Duration = {
+    timeValue: number
+    unit: SmallTimeUnit
+}
+
 export type CombinedEvent = EventDefinition | ActionType
 
 export interface IntegrationType {
