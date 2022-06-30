@@ -253,7 +253,7 @@ export const insightLogic = kea<insightLogicType>({
                     if (
                         !filters.date_from &&
                         values.featureFlags &&
-                        featureFlags[FEATURE_FLAGS.DATE_FILTER_EXPERIMENT] === 'test'
+                        values.featureFlags[FEATURE_FLAGS.DATE_FILTER_EXPERIMENT] === 'test'
                     ) {
                         filters.date_from = '-30d'
                     }
