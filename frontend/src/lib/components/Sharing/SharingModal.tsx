@@ -51,6 +51,9 @@ export function Sharing({ dashboardId, insightShortId, insight, closeModal }: Sh
 
     return (
         <div className="space-y-05">
+            <h3>{dashboardId ? 'Dashboard' : 'Insight'} permissions</h3>
+            <LemonDivider />
+
             {dashboardId ? <DashboardCollaboration dashboardId={dashboardId} /> : undefined}
 
             {!sharingConfiguration && sharingConfigurationLoading ? (
@@ -176,13 +179,7 @@ export function SharingModal(props: SharingModalProps): JSX.Element {
 
     return (
         <>
-            <LemonModal
-                onCancel={closeModal}
-                afterClose={closeModal}
-                visible={visible}
-                width={440}
-                title={`${props.dashboardId ? 'Dashboard' : 'Insight'} permissions`}
-            >
+            <LemonModal onCancel={closeModal} afterClose={closeModal} visible={visible} width={440}>
                 <Sharing {...props} />
             </LemonModal>
         </>
