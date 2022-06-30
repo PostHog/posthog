@@ -11,7 +11,6 @@ from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
-from statshog.defaults.django import statsd
 
 from posthog.api.documentation import PropertiesSerializer, extend_schema
 from posthog.api.routing import StructuredViewSetMixin
@@ -22,7 +21,7 @@ from posthog.models.activity_logging.activity_log import Change, Detail, log_act
 from posthog.models.event.query_event_list import parse_order_by
 from posthog.models.exported_asset import ExportedAsset, get_content_response
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
-from posthog.tasks.exports import csv_exporter, insight_exporter
+from posthog.tasks import exporter
 
 logger = structlog.get_logger(__name__)
 
@@ -96,19 +95,15 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
             }
         instance: ExportedAsset = super().create(validated_data)
 
-        if is_csv_export:
-            task = csv_exporter.export_csv.delay(instance.id)
-            statsd.incr("csv_exporter.queued", tags={"team_id": self.context["team_id"]})
-        else:
-            task = insight_exporter.export_insight.delay(instance.id)
-            statsd.incr("insight_exporter.queued", tags={"team_id": self.context["team_id"]})
+        task = exporter.export_asset.delay(instance.id)
         try:
             task.get(timeout=10)
             instance.refresh_from_db()
         except celery.exceptions.TimeoutError:
             # If the rendering times out - fine, the frontend will poll instead for the response
             pass
-        except NotImplementedError:
+        except NotImplementedError as ex:
+            logger.error("exporters.unsupported_export_type", exception=ex)
             raise serializers.ValidationError(
                 {"export_format": ["This type of export is not supported for this resource."]}
             )

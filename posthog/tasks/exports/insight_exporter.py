@@ -14,7 +14,6 @@ from selenium.webdriver.support.wait import WebDriverWait
 from webdriver_manager.chrome import ChromeDriverManager
 from webdriver_manager.utils import ChromeType
 
-from posthog.celery import app
 from posthog.internal_metrics import incr, timing
 from posthog.models.exported_asset import ExportedAsset, get_public_access_token
 from posthog.tasks.update_cache import update_insight_cache
@@ -23,6 +22,7 @@ from posthog.utils import absolute_uri
 logger = structlog.get_logger(__name__)
 
 TMP_DIR = "/tmp"  # NOTE: Externalise this to ENV var
+
 
 # NOTE: We purporsefully DONT re-use the driver. It would be slightly faster but would keep an in-memory browser
 # window permanently around which is unnecessary
@@ -122,10 +122,7 @@ def _export_to_png(exported_asset: ExportedAsset) -> None:
             driver.close()
 
 
-@app.task()
-def export_insight(exported_asset_id: int) -> None:
-    exported_asset = ExportedAsset.objects.select_related("insight", "dashboard").get(pk=exported_asset_id)
-
+def export_insight(exported_asset: ExportedAsset) -> None:
     if exported_asset.insight:
         # NOTE: Dashboards are regularly updated but insights are not
         # so, we need to trigger a manual update to ensure the results are good

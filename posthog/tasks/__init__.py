@@ -1,5 +1,4 @@
 # Make tasks ready for celery autoimport
-from posthog.tasks.exports import csv_exporter, insight_exporter
 
 from . import (
     async_migrations,
@@ -8,6 +7,7 @@ from . import (
     check_clickhouse_schema_drift,
     delete_clickhouse_data,
     email,
+    exporter,
     split_person,
     status_report,
     sync_all_organization_available_features,
@@ -22,8 +22,7 @@ __all__ = [
     "check_clickhouse_schema_drift",
     "delete_clickhouse_data",
     "email",
-    "csv_exporter",
-    "insight_exporter",
+    "exporter",
     "split_person",
     "status_report",
     "sync_all_organization_available_features",
