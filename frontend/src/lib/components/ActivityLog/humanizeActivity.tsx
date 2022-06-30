@@ -31,6 +31,7 @@ export enum ActivityScope {
     FEATURE_FLAG = 'FeatureFlag',
     PERSON = 'Person',
     INSIGHT = 'Insight',
+    PLUGIN = 'Plugin',
 }
 
 export interface ActivityLogItem {

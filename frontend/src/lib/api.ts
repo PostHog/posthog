@@ -112,6 +112,18 @@ class ApiRequest {
 
     // API-aware endpoint composition
 
+    // # Organizations
+
+    public organizations(): ApiRequest {
+        return this.addPathComponent('organizations')
+    }
+
+    // # Current
+
+    public current(): ApiRequest {
+        return this.addPathComponent('@current')
+    }
+
     // # Projects
     public projects(): ApiRequest {
         return this.addPathComponent('projects')
@@ -122,6 +134,10 @@ class ApiRequest {
     }
 
     // # Plugins
+    public plugins(): ApiRequest {
+        return this.addPathComponent('plugins')
+    }
+
     public pluginLogs(pluginConfigId: number): ApiRequest {
         return this.addPathComponent('plugin_configs').addPathComponent(pluginConfigId).addPathComponent('logs')
     }
@@ -269,6 +285,10 @@ class ApiRequest {
         return this.insight(id, teamId).addPathComponent('sharing')
     }
 
+    public pluginsActivity(): ApiRequest {
+        return this.organizations().current().plugins().addPathComponent('activity')
+    }
+
     // # Subscriptions
     public subscriptions(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('subscriptions')
@@ -401,6 +421,9 @@ const api = {
                 },
                 [ActivityScope.INSIGHT]: () => {
                     return new ApiRequest().insightsActivity(teamId)
+                },
+                [ActivityScope.PLUGIN]: () => {
+                    return new ApiRequest().pluginsActivity()
                 },
             }
 
