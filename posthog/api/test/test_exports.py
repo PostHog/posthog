@@ -100,7 +100,7 @@ class TestExports(APIBaseTest):
                 "created_at": data["created_at"],
                 "insight": self.insight.id,
                 "export_format": "application/pdf",
-                "filename": "export-example-insight.png",
+                "filename": "export-example-insight.pdf",
                 "has_content": False,
                 "dashboard": None,
                 "export_context": None,
@@ -122,7 +122,6 @@ class TestExports(APIBaseTest):
                                 "action": "exported",
                                 "after": "application/pdf",
                                 "before": None,
-                                "filename": "export-example-insight.pdf",
                                 "field": "export_format",
                                 "type": "Insight",
                             }
