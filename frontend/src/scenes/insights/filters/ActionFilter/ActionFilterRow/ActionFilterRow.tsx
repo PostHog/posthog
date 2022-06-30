@@ -319,6 +319,7 @@ export function ActionFilterRow({
                                     {mathDefinitions[math || '']?.onProperty && (
                                         <div className="col">
                                             <TaxonomicStringPopup
+                                                groupType={TaxonomicFilterGroupType.NumericalEventProperties}
                                                 groupTypes={[TaxonomicFilterGroupType.NumericalEventProperties].concat(
                                                     featureFlags[FEATURE_FLAGS.SESSION_ANALYSIS]
                                                         ? [TaxonomicFilterGroupType.Sessions]
