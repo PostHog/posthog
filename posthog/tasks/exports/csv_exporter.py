@@ -5,7 +5,7 @@ import uuid
 from typing import IO
 
 import structlog
-from sentry_sdk import capture_exception
+from sentry_sdk import capture_exception, push_scope
 from statshog.defaults.django import statsd
 
 from posthog import settings
@@ -47,11 +47,14 @@ def stage_results_to_object_storage(
         line = [encode(v) for v in values]
         temporary_file.write(",".join(line).encode("utf-8"))
 
+    logger.info("csv_exporter.wrote_day_to_temp_file", day=day_filter.date_from)
+
 
 def concat_results_in_object_storage(temporary_file: IO, exported_asset: ExportedAsset, root_bucket: str) -> str:
     object_path = f"/{root_bucket}/csvs/team-{exported_asset.team.id}/task-{exported_asset.id}/{UUIDT()}"
     temporary_file.seek(0)
     object_storage.write(object_path, gzip.compress(temporary_file.read()))
+    logger.info("csv_exporter.wrote_to_object_storage", object_path=object_path)
     return object_path
 
 
@@ -85,7 +88,12 @@ def export_csv(exported_asset: ExportedAsset, root_bucket: str = settings.OBJECT
             team_id = str(exported_asset.team.id)
         else:
             team_id = "unknown"
-        capture_exception(e)
+
+        with push_scope() as scope:
+            scope.set_tag("celery_task", "csv_export")
+            capture_exception(e)
+
+        logger.error("csv_exporter.failed", exception=e)
         statsd.incr("csv_exporter.failed", tags={"team_id": team_id})
     finally:
         timer.stop()
