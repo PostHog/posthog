@@ -68,7 +68,7 @@ def _export_to_csv(exported_asset: ExportedAsset, root_bucket: str) -> None:
 
             object_path = concat_results_in_object_storage(temporary_file, exported_asset, root_bucket)
             exported_asset.content_location = object_path
-            exported_asset.save(update_fields=["content_location", "export_context"])
+            exported_asset.save(update_fields=["content_location"])
 
 
 @app.task()
