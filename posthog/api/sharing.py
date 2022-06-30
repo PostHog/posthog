@@ -143,13 +143,7 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, StructuredViewSetMixin
                     access_token=access_token
                 )
             except SharingConfiguration.DoesNotExist:
-                # It could be a legacy Dashboard sharing token so we can
-                # TOOD: This can be removed once we fully migrate the fields
-                try:
-                    dashboard: Dashboard = Dashboard.objects.get(is_shared=True, share_token=access_token)
-                    sharing_configuration = _get_sharing_configuration(dashboard.team_id, dashboard=dashboard)
-                except Dashboard.DoesNotExist:
-                    raise NotFound()
+                raise NotFound()
 
             if sharing_configuration and sharing_configuration.enabled:
                 return (sharing_configuration, None)
