@@ -8,6 +8,9 @@ import { AnyPropertyFilter, EventsTableRowItem, EventType, PropertyFilter, Prope
 import { teamLogic } from '../teamLogic'
 import { dayjs, now } from 'lib/dayjs'
 import { lemonToast } from 'lib/components/lemonToast'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { ExporterFormat, exporterLogic } from 'lib/components/ExportButton/exporterLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 const DAYS_FIRST_FETCH = 5
 const DAYS_SECOND_FETCH = 365
@@ -69,7 +72,8 @@ export const eventsTableLogic = kea<eventsTableLogicType>({
             .filter((keyPart) => !!keyPart)
             .join('-'),
     connect: {
-        values: [teamLogic, ['currentTeamId']],
+        values: [teamLogic, ['currentTeamId'], featureFlagLogic, ['featureFlags']],
+        actions: [exporterLogic, ['exportItem']],
     },
     actions: {
         setPollingActive: (pollingActive: boolean) => ({
@@ -213,22 +217,19 @@ export const eventsTableLogic = kea<eventsTableLogicType>({
             () => [selectors.events, selectors.newEvents],
             (events, newEvents) => formatEvents(events, newEvents),
         ],
+        exportParams: [
+            () => [selectors.eventFilter, selectors.orderBy, selectors.properties, selectors.minimumQueryDate],
+            (eventFilter, orderBy, properties, minimumQueryDate) => ({
+                ...(props.fixedFilters || {}),
+                properties: [...properties, ...(props.fixedFilters?.properties || [])],
+                ...(eventFilter ? { event: eventFilter } : {}),
+                orderBy: [orderBy],
+                after: minimumQueryDate,
+            }),
+        ],
         exportUrl: [
-            () => [
-                selectors.currentTeamId,
-                selectors.eventFilter,
-                selectors.orderBy,
-                selectors.properties,
-                selectors.minimumQueryDate,
-            ],
-            (teamId, eventFilter, orderBy, properties, minimumQueryDate) =>
-                `/api/projects/${teamId}/events.csv?${toParams({
-                    ...(props.fixedFilters || {}),
-                    properties: [...properties, ...(props.fixedFilters?.properties || [])],
-                    ...(eventFilter ? { event: eventFilter } : {}),
-                    orderBy: [orderBy],
-                    after: minimumQueryDate,
-                })}`,
+            () => [selectors.currentTeamId, selectors.exportParams],
+            (teamId, exportParams) => `/api/projects/${teamId}/events.csv?${toParams(exportParams)}`,
         ],
         months: [() => [(_, prop) => prop.fetchMonths], (months) => months || 12],
         minimumQueryDate: [() => [selectors.months], (months) => now().subtract(months, 'months').toISOString()],
@@ -279,8 +280,12 @@ export const eventsTableLogic = kea<eventsTableLogicType>({
 
     listeners: ({ actions, values, props }) => ({
         startDownload: () => {
-            lemonToast.success('The export is starting. It should finish soon')
-            window.location.href = values.exportUrl
+            if (!!values.featureFlags[FEATURE_FLAGS.ASYNC_EXPORT_CSV_FOR_LIVE_EVENTS]) {
+                actions.exportItem(ExporterFormat.CSV, values.exportParams)
+            } else {
+                lemonToast.success('The export is starting. It should finish soon')
+                window.location.href = values.exportUrl
+            }
         },
         setProperties: () => actions.fetchEvents(),
         setEventFilter: () => actions.fetchEvents(),

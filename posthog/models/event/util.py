@@ -1,6 +1,6 @@
 import json
 import uuid
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Union
 
 import pytz
 from dateutil.parser import isoparse
@@ -281,36 +281,6 @@ class ClickhouseEventSerializer(serializers.Serializer):
 
     def get_elements_chain(self, event):
         return event["elements_chain"]
-
-
-def determine_event_conditions(
-    team: Team, conditions: Dict[str, Union[str, List[str]]], long_date_from: bool
-) -> Tuple[str, Dict]:
-    result = ""
-    params: Dict[str, Union[str, List[str]]] = {}
-    for idx, (k, v) in enumerate(conditions.items()):
-        if not isinstance(v, str):
-            continue
-        if k == "after" and not long_date_from:
-            timestamp = isoparse(v).strftime("%Y-%m-%d %H:%M:%S.%f")
-            result += "AND timestamp > %(after)s"
-            params.update({"after": timestamp})
-        elif k == "before":
-            timestamp = isoparse(v).strftime("%Y-%m-%d %H:%M:%S.%f")
-            result += "AND timestamp < %(before)s"
-            params.update({"before": timestamp})
-        elif k == "person_id":
-            result += """AND distinct_id IN (%(distinct_ids)s)"""
-            person = Person.objects.filter(pk=v, team_id=team.pk).first()
-            distinct_ids = person.distinct_ids if person is not None else []
-            params.update({"distinct_ids": list(map(str, distinct_ids))})
-        elif k == "distinct_id":
-            result += "AND distinct_id = %(distinct_id)s"
-            params.update({"distinct_id": v})
-        elif k == "event":
-            result += "AND event = %(event)s"
-            params.update({"event": v})
-    return result, params
 
 
 def get_event_count_for_team_and_period(

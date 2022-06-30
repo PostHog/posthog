@@ -3,6 +3,7 @@ from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 import pytz
+from django.forms import ValidationError
 
 from posthog.constants import (
     MONTHLY_ACTIVE,
@@ -31,6 +32,7 @@ from posthog.queries.column_optimizer.column_optimizer import ColumnOptimizer
 from posthog.queries.groups_join_query import GroupsJoinQuery
 from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
 from posthog.queries.person_query import PersonQuery
+from posthog.queries.session_query import SessionQuery
 from posthog.queries.trends.sql import (
     BREAKDOWN_ACTIVE_USER_CONDITIONS_SQL,
     BREAKDOWN_ACTIVE_USER_INNER_SQL,
@@ -164,7 +166,8 @@ class TrendsBreakdown:
 
         person_join_condition, person_join_params = self._person_join_condition()
         groups_join_condition, groups_join_params = self._groups_join_condition()
-        self.params = {**self.params, **_params, **person_join_params, **groups_join_params}
+        sessions_join_condition, sessions_join_params = self._sessions_join_condition()
+        self.params = {**self.params, **_params, **person_join_params, **groups_join_params, **sessions_join_params}
         breakdown_filter_params = {**breakdown_filter_params, **_breakdown_filter_params}
 
         if self.filter.display in NON_TIME_SERIES_DISPLAY_TYPES:
@@ -173,6 +176,7 @@ class TrendsBreakdown:
                 breakdown_filter=breakdown_filter,
                 person_join=person_join_condition,
                 groups_join=groups_join_condition,
+                sessions_join_condition=sessions_join_condition,
                 aggregate_operation=aggregate_operation,
                 breakdown_value=breakdown_value,
             )
@@ -197,6 +201,7 @@ class TrendsBreakdown:
                     breakdown_filter=breakdown_filter,
                     person_join=person_join_condition,
                     groups_join=groups_join_condition,
+                    sessions_join=sessions_join_condition,
                     person_id_alias=self.DISTINCT_ID_TABLE_ALIAS if not self.using_person_on_events else "e",
                     aggregate_operation=aggregate_operation,
                     interval_annotation=interval_annotation,
@@ -211,6 +216,7 @@ class TrendsBreakdown:
                     breakdown_filter=breakdown_filter,
                     person_join=person_join_condition,
                     groups_join=groups_join_condition,
+                    sessions_join=sessions_join_condition,
                     person_id_alias=self.DISTINCT_ID_TABLE_ALIAS if not self.using_person_on_events else "e",
                     aggregate_operation=aggregate_operation,
                     interval_annotation=interval_annotation,
@@ -223,6 +229,7 @@ class TrendsBreakdown:
                     breakdown_filter=breakdown_filter,
                     person_join=person_join_condition,
                     groups_join=groups_join_condition,
+                    sessions_join=sessions_join_condition,
                     aggregate_operation=aggregate_operation,
                     interval_annotation=interval_annotation,
                     breakdown_value=breakdown_value,
@@ -272,6 +279,12 @@ class TrendsBreakdown:
         )
 
     def _get_breakdown_value(self, breakdown: str):
+
+        if self.filter.breakdown_type == "session":
+            if breakdown == "$session_duration":
+                return f"{SessionQuery.SESSION_TABLE_ALIAS}.session_duration"
+            else:
+                raise ValidationError(f'Invalid breakdown "{breakdown}" for breakdown type "session"')
 
         if self.using_person_on_events:
             if self.filter.breakdown_type == "person":
@@ -437,3 +450,15 @@ class TrendsBreakdown:
         return GroupsJoinQuery(
             self.filter, self.team_id, self.column_optimizer, using_person_on_events=self.using_person_on_events
         ).get_join_query()
+
+    def _sessions_join_condition(self) -> Tuple[str, Dict]:
+        if self.filter.breakdown_type == "session":
+            session_query, session_params = SessionQuery(filter=self.filter, team=self.team).get_query()
+            return (
+                f"""
+                    INNER JOIN ({session_query}) {SessionQuery.SESSION_TABLE_ALIAS}
+                    ON {SessionQuery.SESSION_TABLE_ALIAS}.$session_id = e.$session_id
+                """,
+                session_params,
+            )
+        return "", {}

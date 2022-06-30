@@ -176,7 +176,7 @@ class Property:
     def __init__(
         self,
         key: str,
-        value: ValueT,
+        value: Optional[ValueT] = None,
         operator: Optional[OperatorType] = None,
         type: Optional[PropertyType] = None,
         # Only set for `type` == `group`
@@ -196,7 +196,6 @@ class Property:
         **kwargs,
     ) -> None:
         self.key = key
-        self.value = value
         self.operator = operator
         self.type = type if type else "event"
         self.group_type_index = validate_group_type_index("group_type_index", group_type_index)
@@ -211,6 +210,13 @@ class Property:
         self.seq_time_value = seq_time_value
         self.seq_time_interval = seq_time_interval
         self.negation = None if negation is None else str_to_bool(negation)
+
+        if value is None and self.operator in ["is_set", "is_not_set"]:
+            self.value = self.operator
+        elif value is None:
+            raise ValueError(f"Value must be set for property type {self.type} & operator {self.operator}")
+        else:
+            self.value = value
 
         if self.type not in VALIDATE_PROP_TYPES.keys():
             raise ValueError(f"Invalid property type: {self.type}")

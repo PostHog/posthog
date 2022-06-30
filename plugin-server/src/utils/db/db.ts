@@ -1058,7 +1058,7 @@ export class DB {
                     person.team_id,
                     person.is_identified,
                     person.uuid,
-                    Number(result.rows[0].version || 0) + 100,
+                    Number(result.rows[0].version || 0) + 100, // keep in sync with delete_person in posthog/models/person/util.py
                     1
                 ),
             ]
@@ -1340,7 +1340,7 @@ export class DB {
 
     // Event
 
-    public async fetchEvents(): Promise<Event[] | ClickHouseEvent[]> {
+    public async fetchEvents(): Promise<ClickHouseEvent[]> {
         const events = (await this.clickhouseQuery(`SELECT * FROM events ORDER BY timestamp ASC`))
             .data as ClickHouseEvent[]
         return (
