@@ -19,7 +19,7 @@ from posthog.settings import (
     OBJECT_STORAGE_ENDPOINT,
     OBJECT_STORAGE_SECRET_ACCESS_KEY,
 )
-from posthog.tasks.exports.csv_exporter import export_csv
+from posthog.tasks import exporter
 from posthog.test.base import APIBaseTest, _create_event, flush_persons_and_events
 
 TEST_ROOT_BUCKET = "test_exports"
@@ -59,7 +59,7 @@ class TestExports(APIBaseTest):
             team=cls.team, dashboard_id=cls.dashboard.id, export_format="image/png"
         )
 
-    @patch("posthog.api.exports.insight_exporter")
+    @patch("posthog.api.exports.exporter")
     def test_can_create_new_valid_export_dashboard(self, mock_exporter_task) -> None:
         response = self.client.post(
             f"/api/projects/{self.team.id}/exports", {"export_format": "image/png", "dashboard": self.dashboard.id}
@@ -79,9 +79,9 @@ class TestExports(APIBaseTest):
             },
         )
 
-        mock_exporter_task.export_insight.delay.assert_called_once_with(data["id"])
+        mock_exporter_task.export_asset.delay.assert_called_once_with(data["id"])
 
-    @patch("posthog.api.exports.insight_exporter")
+    @patch("posthog.api.exports.exporter")
     @freeze_time("2021-08-25T22:09:14.252Z")
     def test_can_create_new_valid_export_insight(self, mock_exporter_task) -> None:
         response = self.client.post(
@@ -129,7 +129,7 @@ class TestExports(APIBaseTest):
             ],
         )
 
-        mock_exporter_task.export_insight.delay.assert_called_once_with(data["id"])
+        mock_exporter_task.export_asset.delay.assert_called_once_with(data["id"])
 
     def test_errors_if_missing_related_instance(self) -> None:
         response = self.client.post(f"/api/projects/{self.team.id}/exports", {"export_format": "image/png"})
@@ -157,19 +157,17 @@ class TestExports(APIBaseTest):
             },
         )
 
-    @patch("posthog.api.exports.insight_exporter")
+    @patch("posthog.api.exports.exporter")
     def test_will_respond_even_if_task_timesout(self, mock_exporter_task) -> None:
-        mock_exporter_task.export_insight.delay.return_value.get.side_effect = celery.exceptions.TimeoutError(
-            "timed out"
-        )
+        mock_exporter_task.export_asset.delay.return_value.get.side_effect = celery.exceptions.TimeoutError("timed out")
         response = self.client.post(
             f"/api/projects/{self.team.id}/exports", {"export_format": "application/pdf", "insight": self.insight.id}
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
-    @patch("posthog.api.exports.insight_exporter")
+    @patch("posthog.api.exports.exporter")
     def test_will_error_if_export_unsupported(self, mock_exporter_task) -> None:
-        mock_exporter_task.export_insight.delay.return_value.get.side_effect = NotImplementedError("not implemented")
+        mock_exporter_task.export_asset.delay.return_value.get.side_effect = NotImplementedError("not implemented")
         response = self.client.post(
             f"/api/projects/{self.team.id}/exports", {"export_format": "application/pdf", "insight": self.insight.id}
         )
@@ -252,7 +250,7 @@ class TestExports(APIBaseTest):
             },
         )
 
-    @patch("posthog.api.exports.csv_exporter")
+    @patch("posthog.api.exports.exporter")
     @freeze_time("2021-08-25T22:09:14.252Z")
     def test_can_create_new_valid_export_csv(self, mock_exporter_task) -> None:
         response = self.client.post(
@@ -274,52 +272,53 @@ class TestExports(APIBaseTest):
 
         self.assertEqual(exported_instance["export_context"]["file_export_type"], "list_events")
 
-        mock_exporter_task.export_csv.delay.assert_called_once_with(exported_instance["id"])
+        mock_exporter_task.export_asset.delay.assert_called_once_with(exported_instance["id"])
 
     def test_can_download_a_csv(self) -> None:
-        _create_event(
-            event="event_name", team=self.team, distinct_id="2", properties={"$browser": "Chrome"},
-        )
-        expected_event_id = _create_event(
-            event="event_name", team=self.team, distinct_id="2", properties={"$browser": "Safari"},
-        )
-        flush_persons_and_events()
+        with self.settings(OBJECT_STORAGE_EXPORTS_FOLDER=TEST_ROOT_BUCKET):
+            _create_event(
+                event="event_name", team=self.team, distinct_id="2", properties={"$browser": "Chrome"},
+            )
+            expected_event_id = _create_event(
+                event="event_name", team=self.team, distinct_id="2", properties={"$browser": "Safari"},
+            )
+            flush_persons_and_events()
 
-        instance = ExportedAsset.objects.create(
-            team=self.team,
-            dashboard=None,
-            insight=None,
-            export_format=ExportedAsset.ExportFormat.CSV,
-            export_context={
-                "file_export_type": "list_events",
-                "filter": {"properties": {"$browser": "Safari"}},
-                "request_get_query_dict": {},
-                "order_by": ["-timestamp"],
-                "action_id": None,
-            },
-        )
-        # pass the root in because django/celery refused to override it otherwise
-        export_csv(instance.id, TEST_ROOT_BUCKET)
+            instance = ExportedAsset.objects.create(
+                team=self.team,
+                dashboard=None,
+                insight=None,
+                export_format=ExportedAsset.ExportFormat.CSV,
+                export_context={
+                    "file_export_type": "list_events",
+                    "filter": {"properties": {"$browser": "Safari"}},
+                    "request_get_query_dict": {},
+                    "order_by": ["-timestamp"],
+                    "action_id": None,
+                },
+            )
+            # pass the root in because django/celery refused to override it otherwise
+            exporter.export_asset(instance.id)
 
-        response: Optional[HttpResponse] = None
-        attempt_count = 0
-        while attempt_count < 10 and (not response or response.status_code == status.HTTP_409_CONFLICT):
-            response = self.client.get(f"/api/projects/{self.team.id}/exports/{instance.id}/content?download=true")
-            attempt_count += 1
+            response: Optional[HttpResponse] = None
+            attempt_count = 0
+            while attempt_count < 10 and (not response or response.status_code == status.HTTP_409_CONFLICT):
+                response = self.client.get(f"/api/projects/{self.team.id}/exports/{instance.id}/content?download=true")
+                attempt_count += 1
 
-        if not response:
-            self.fail("must have a response by this point")  # hi mypy
+            if not response:
+                self.fail("must have a response by this point")  # hi mypy
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertIsNotNone(response.content)
-        file_content = response.content.decode("utf-8")
-        file_lines = file_content.split("\n")
-        # has a header row and at least one other row
-        # don't care if the DB hasn't been reset before the test
-        self.assertTrue(len(file_lines) > 1)
-        self.assertIn(expected_event_id, file_content)
-        for line in file_lines[1:]:  # every result has to match the filter though
-            self.assertIn('{"$browser": "Safari"}', line)
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertIsNotNone(response.content)
+            file_content = response.content.decode("utf-8")
+            file_lines = file_content.split("\n")
+            # has a header row and at least one other row
+            # don't care if the DB hasn't been reset before the test
+            self.assertTrue(len(file_lines) > 1)
+            self.assertIn(expected_event_id, file_content)
+            for line in file_lines[1:]:  # every result has to match the filter though
+                self.assertIn('{"$browser": "Safari"}', line)
 
     def _get_insight_activity(self, insight_id: int, expected_status: int = status.HTTP_200_OK):
         url = f"/api/projects/{self.team.id}/insights/{insight_id}/activity"

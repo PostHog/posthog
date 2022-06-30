@@ -2,14 +2,13 @@ import datetime
 import gzip
 import tempfile
 import uuid
-from typing import IO, Optional
+from typing import IO
 
 import structlog
 from sentry_sdk import capture_exception
 from statshog.defaults.django import statsd
 
 from posthog import settings
-from posthog.celery import app
 from posthog.models import Filter
 from posthog.models.event.query_event_list import query_events_list
 from posthog.models.exported_asset import ExportedAsset
@@ -71,13 +70,10 @@ def _export_to_csv(exported_asset: ExportedAsset, root_bucket: str) -> None:
             exported_asset.save(update_fields=["content_location", "export_context"])
 
 
-@app.task()
-def export_csv(exported_asset_id: int, root_bucket: str = settings.OBJECT_STORAGE_EXPORTS_FOLDER) -> None:
+def export_csv(exported_asset: ExportedAsset, root_bucket: str = settings.OBJECT_STORAGE_EXPORTS_FOLDER) -> None:
     timer = statsd.timer("csv_exporter").start()
 
-    exported_asset: Optional[ExportedAsset] = None
     try:
-        exported_asset = ExportedAsset.objects.get(pk=exported_asset_id)
         if exported_asset.export_format == "text/csv":
             _export_to_csv(exported_asset, root_bucket)
             statsd.incr("csv_exporter.succeeded", tags={"team_id": exported_asset.team.id})
