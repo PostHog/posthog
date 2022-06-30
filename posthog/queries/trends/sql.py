@@ -53,7 +53,6 @@ SELECT groupArray(value) FROM (
 
 
 BREAKDOWN_QUERY_SQL = """
-SELECT groupArray(day_start) as date, groupArray(count) as data, breakdown_value FROM (
     SELECT SUM(total) as count, day_start, breakdown_value FROM (
         SELECT * FROM (
             -- Create a table with 1 row for each interval for the requested date range
@@ -109,10 +108,7 @@ SELECT groupArray(day_start) as date, groupArray(count) as data, breakdown_value
         )
     )
     GROUP BY day_start, breakdown_value
-    ORDER BY breakdown_value, day_start
-)
-GROUP BY breakdown_value
-ORDER BY breakdown_value
+
 """
 
 BREAKDOWN_INNER_SQL = """

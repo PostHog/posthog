@@ -31,7 +31,7 @@ from posthog.queries.trends.formula import TrendsFormula
 from posthog.queries.trends.lifecycle import Lifecycle
 from posthog.queries.trends.total_volume import TrendsTotalVolume
 from posthog.utils import generate_cache_key, get_safe_cache
-
+from collections import defaultdict
 
 class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
     def _get_sql_for_entity(self, filter: Filter, team: Team, entity: Entity) -> Tuple[str, Dict, Callable]:
@@ -130,22 +130,47 @@ class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
             result_each = sync_execute(sql, params)
             agg_result.extend(result_each)
 
-        # aggregate each result together
-        data = []
-        date_with_dup_set = set()
-        for result in agg_result:
+        #xxx
+        if filter.breakdown:
+            group_with_dup_set = set()
+            for result in agg_result:
+                group_with_dup_set.add(result[2])
+            group = list(group_with_dup_set)
+            group.sort()
 
-            date_with_dup_set.add(result[1])
-        date = list(date_with_dup_set)
-        date.sort()
 
-        for d in date:
-            cnt = sum(x[0] for x in [x for x in agg_result if x[1] == d])
-            data.append(cnt)
+            result_dict  = defaultdict(lambda:defaultdict(int))
+            for breakdown in group:
+                for x in agg_result:
+                    if(x[2] == breakdown):
+                        result_dict[breakdown][x[1]] += x[0]
 
-            
-        final_result_ = []
-        final_result_.append((date,data))
+            final_result_ = []
+            for breakdown in group:
+                items = list(result_dict[breakdown].items())
+                items.sort()
+                each_date = [x[0] for x in items]
+                each_data = [x[1] for x in items]
+                final_result_.append((each_date,each_data,breakdown))
+
+        elif filter.shown_as == TRENDS_LIFECYCLE:
+            pass
+        else:
+
+            # aggregate each result together
+            data = []
+            date_with_dup_set = set()
+            for result_ in agg_result:
+                date_with_dup_set.add(result_[1])
+            date = list(date_with_dup_set)
+            date.sort()
+
+            for d in date:
+                cnt = sum(x[0] for x in [x for x in agg_result if x[1] == d])
+                data.append(cnt)
+
+            final_result_ = []
+            final_result_.append((date,data))
 
 
 
@@ -162,10 +187,59 @@ class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
 
         return merged_results
 
-    def f(x): return x % 2 != 0
+    def _run_query_for_threading(self, result: List, index: int, sql, params, filter: Filter):
+        nodes = ["localhost"]
+        agg_result = []
+        for node in nodes:
+            result_each = sync_execute(sql, params)
+            agg_result.extend(result_each)
 
-    def _run_query_for_threading(self, result: List, index: int, sql, params):
-        result[index] = sync_execute(sql, params)
+        # xxx
+        if filter.breakdown:
+
+            group_with_dup_set = set()
+            for result_ in agg_result:
+                group_with_dup_set.add(result_[2])
+            group = list(group_with_dup_set)
+            group.sort()
+
+            result_dict = defaultdict(lambda: defaultdict(int))
+            for breakdown in group:
+                for x in agg_result:
+                    if (x[2] == breakdown):
+                        result_dict[breakdown][x[1]] += x[0]
+
+            final_result_ = []
+            for breakdown in group:
+                items = list(result_dict[breakdown].items())
+                items.sort()
+                each_date = [x[0] for x in items]
+                each_data = [x[1] for x in items]
+                final_result_.append((each_date, each_data, breakdown))
+
+
+        elif filter.shown_as == TRENDS_LIFECYCLE:
+            pass
+        else:
+            # aggregate each result together
+            data = []
+            date_with_dup_set = set()
+            for result_ in agg_result:
+                date_with_dup_set.add(result_[1])
+            date = list(date_with_dup_set)
+            date.sort()
+
+            for d in date:
+                cnt = sum(x[0] for x in [x for x in agg_result if x[1] == d])
+                data.append(cnt)
+
+            final_result_ = []
+            final_result_.append((date, data))
+
+        result[index] = final_result_
+
+
+
 
     def _run_parallel(self, filter: Filter, team: Team) -> List[Dict[str, Any]]:
         result: List[Union[None, List[Dict[str, Any]]]] = [None] * len(filter.entities)
@@ -177,7 +251,7 @@ class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
             adjusted_filter, cached_result = self.adjusted_filter(filter, team)
             sql, params, parse_function = self._get_sql_for_entity(adjusted_filter, team, entity)
             parse_functions[entity.index] = parse_function
-            thread = threading.Thread(target=self._run_query_for_threading, args=(result, entity.index, sql, params), )
+            thread = threading.Thread(target=self._run_query_for_threading, args=(result, entity.index, sql, params, filter), )
             jobs.append(thread)
 
         # Start the threads (i.e. calculate the random number lists)
@@ -187,6 +261,7 @@ class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
         # Ensure all of the threads have finished
         for j in jobs:
             j.join()
+
 
         # Parse results for each thread
         for entity in filter.entities:
