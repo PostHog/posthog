@@ -12,7 +12,6 @@
             "created_at": "2022-03-11T13:03:32.412546Z",
             "created_by": null,
             "is_shared": false,
-            "share_token": null,
             "deleted": false,
             "creation_mode": "default",
             "filters": {
@@ -39,7 +38,6 @@
                 "email": "marius@posthog.com"
             },
             "is_shared": false,
-            "share_token": null,
             "deleted": false,
             "creation_mode": "default",
             "filters": {},

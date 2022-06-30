@@ -61,9 +61,9 @@ describe('Dashboard', () => {
         cy.get('.InsightCard').should('exist')
 
         cy.get('[data-attr=dashboard-share-button]').click()
-        cy.get('[data-attr=share-dashboard-switch]').click({ force: true })
+        cy.get('[data-attr=sharing-switch]').click({ force: true })
         cy.contains('Copy shared dashboard link').should('be.visible')
-        cy.get('[data-attr=share-dashboard-link-button]').click()
+        cy.get('[data-attr=sharing-link-button]').click()
         cy.window().then((win) => {
             win.navigator.clipboard.readText().then((linkFromClipboard) => {
                 cy.visit(linkFromClipboard)

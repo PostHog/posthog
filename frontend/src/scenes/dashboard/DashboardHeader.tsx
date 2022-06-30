@@ -9,12 +9,12 @@ import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { PageHeader } from 'lib/components/PageHeader'
 import { humanFriendlyDetailedTime } from 'lib/utils'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
-import React, { useState } from 'react'
+import React from 'react'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { AvailableFeature, DashboardMode, DashboardType } from '~/types'
 import { dashboardLogic } from './dashboardLogic'
 import { dashboardsLogic } from './dashboardsLogic'
-import { DASHBOARD_RESTRICTION_OPTIONS, ShareModal } from './ShareModal'
+import { DASHBOARD_RESTRICTION_OPTIONS } from './DashboardCollaborators'
 import { userLogic } from 'scenes/userLogic'
 import { FEATURE_FLAGS, privilegeLevelToName } from 'lib/constants'
 import { ProfileBubbles } from 'lib/components/ProfilePicture/ProfileBubbles'
@@ -26,6 +26,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { SubscriptionsModal, SubscribeButton } from 'lib/components/Subscriptions/SubscriptionsModal'
 import { router } from 'kea-router'
+import { SharingModal } from 'lib/components/Sharing/SharingModal'
 
 export function DashboardHeader(): JSX.Element | null {
     const { dashboard, allItemsLoading, dashboardMode, canEditDashboard, showSubscriptions, subscriptionId } =
@@ -37,8 +38,6 @@ export function DashboardHeader(): JSX.Element | null {
     const { dashboardLoading } = useValues(dashboardsModel)
     const { hasAvailableFeature } = useValues(userLogic)
 
-    const [isShareModalVisible, setIsShareModalVisible] = useState(false)
-
     const { featureFlags } = useValues(featureFlagLogic)
     const usingExportFeature = featureFlags[FEATURE_FLAGS.EXPORT_DASHBOARD_INSIGHTS]
     const usingSubscriptionFeature = featureFlags[FEATURE_FLAGS.INSIGHT_SUBSCRIPTIONS]
@@ -49,15 +48,20 @@ export function DashboardHeader(): JSX.Element | null {
             {dashboardMode === DashboardMode.Fullscreen && (
                 <FullScreen onExit={() => setDashboardMode(null, DashboardEventSource.Browser)} />
             )}
-            {dashboard && <ShareModal onCancel={() => setIsShareModalVisible(false)} visible={isShareModalVisible} />}
-
             {dashboard && (
-                <SubscriptionsModal
-                    visible={showSubscriptions}
-                    closeModal={() => push(urls.dashboard(dashboard.id))}
-                    dashboardId={dashboard.id}
-                    subscriptionId={subscriptionId}
-                />
+                <>
+                    <SubscriptionsModal
+                        visible={showSubscriptions}
+                        closeModal={() => push(urls.dashboard(dashboard.id))}
+                        dashboardId={dashboard.id}
+                        subscriptionId={subscriptionId}
+                    />
+                    <SharingModal
+                        visible={dashboardMode === DashboardMode.Sharing}
+                        closeModal={() => push(urls.dashboard(dashboard.id))}
+                        dashboardId={dashboard.id}
+                    />
+                </>
             )}
 
             <PageHeader
@@ -213,18 +217,20 @@ export function DashboardHeader(): JSX.Element | null {
                             />
                             <LemonDivider vertical />
                             {dashboard && (
-                                <CollaboratorBubbles
-                                    dashboard={dashboard}
-                                    onClick={() => setIsShareModalVisible((state) => !state)}
-                                />
+                                <>
+                                    <CollaboratorBubbles
+                                        dashboard={dashboard}
+                                        onClick={() => push(urls.dashboardSharing(dashboard.id))}
+                                    />
+                                    <LemonButton
+                                        type="secondary"
+                                        data-attr="dashboard-share-button"
+                                        onClick={() => push(urls.dashboardSharing(dashboard.id))}
+                                    >
+                                        Share
+                                    </LemonButton>
+                                </>
                             )}
-                            <LemonButton
-                                type="secondary"
-                                data-attr="dashboard-share-button"
-                                onClick={() => setIsShareModalVisible((state) => !state)}
-                            >
-                                Share
-                            </LemonButton>
                             {canEditDashboard && (
                                 <Link to={urls.insightNew(undefined, dashboard?.id)}>
                                     <LemonButton type="primary" data-attr="dashboard-add-graph-header">
