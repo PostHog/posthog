@@ -45,6 +45,7 @@ LOGGING = {
     },
 }
 
+
 structlog.configure(
     processors=[
         structlog.stdlib.filter_by_level,
