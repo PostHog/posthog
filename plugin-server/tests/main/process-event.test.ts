@@ -412,7 +412,7 @@ test('capture new person', async () => {
     expect(distinctIds).toEqual(['2'])
     expect(event.event).toEqual('$autocapture')
 
-    const elements = await hub.db.fetchElements(event)
+    const elements = event.elements_chain!
     expect(elements[0].tag_name).toEqual('a')
     expect(elements[0].attr_class).toEqual(['btn', 'btn-sm'])
     expect(elements[1].order).toEqual(1)
@@ -909,8 +909,8 @@ test('long htext', async () => {
         new UUIDT().toString()
     )
 
-    const [event] = (await hub.db.fetchEvents()) as Event[]
-    const [element] = await hub.db.fetchElements(event)
+    const [event] = await hub.db.fetchEvents()
+    const [element] = event.elements_chain!
     expect(element.href?.length).toEqual(2048)
     expect(element.text?.length).toEqual(400)
 })
@@ -951,9 +951,9 @@ test('capture first team event', async () => {
     team = await getFirstTeam(hub)
     expect(team.ingested_event).toEqual(true)
 
-    const [event] = (await hub.db.fetchEvents()) as Event[]
+    const [event] = await hub.db.fetchEvents()
 
-    const elements = await hub.db.fetchElements(event)
+    const elements = event.elements_chain!
     expect(elements.length).toEqual(1)
 })
 

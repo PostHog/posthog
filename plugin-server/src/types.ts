@@ -522,7 +522,6 @@ interface BaseEvent {
     event: string
     team_id: number
     distinct_id: string
-    elements_chain: string
     /** Person UUID. */
     person_id?: string
 }
@@ -532,6 +531,7 @@ export interface RawEvent extends BaseEvent {
     timestamp: string
     created_at: string
     properties?: string
+    elements_chain: string
     person_created_at?: string
     person_properties?: string
     group0_properties?: string
@@ -546,6 +546,7 @@ export interface Event extends BaseEvent {
     timestamp: DateTime
     created_at: DateTime
     properties: Record<string, any>
+    elements_chain: Element[] | null
     person_created_at: DateTime | null
     person_properties: Record<string, any>
     group0_properties: Record<string, any>

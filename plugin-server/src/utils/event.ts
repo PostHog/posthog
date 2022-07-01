@@ -28,6 +28,7 @@ export function convertToParsedEvent(rawEvent: RawEvent): Event {
         timestamp: clickHouseTimestampToDateTime(rawEvent.timestamp),
         created_at: clickHouseTimestampToDateTime(rawEvent.created_at),
         properties: rawEvent.properties ? JSON.parse(rawEvent.properties) : {},
+        elements_chain: rawEvent.elements_chain ? chainToElements(rawEvent.elements_chain) : null,
         person_created_at: rawEvent.person_created_at
             ? clickHouseTimestampToDateTime(rawEvent.person_created_at)
             : null,
