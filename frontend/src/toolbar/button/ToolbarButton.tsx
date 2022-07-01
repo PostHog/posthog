@@ -10,7 +10,6 @@ import { toolbarLogic } from '~/toolbar/toolbarLogic'
 import { getShadowRoot, getShadowRootPopupContainer } from '~/toolbar/utils'
 import { elementsLogic } from '~/toolbar/elements/elementsLogic'
 import { useLongPress } from 'lib/hooks/useLongPress'
-import { Flag } from '~/toolbar/button/icons/Flag'
 import { Fire } from '~/toolbar/button/icons/Fire'
 import { Magnifier } from '~/toolbar/button/icons/Magnifier'
 import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
@@ -34,18 +33,9 @@ export function ToolbarButton(): JSX.Element {
         heatmapExtensionPercentage,
         actionsExtensionPercentage,
         actionsInfoVisible,
-        featureFlagsExtensionPercentage,
-        flagsVisible,
     } = useValues(toolbarButtonLogic)
-    const {
-        setExtensionPercentage,
-        showHeatmapInfo,
-        hideHeatmapInfo,
-        showActionsInfo,
-        hideActionsInfo,
-        showFlags,
-        hideFlags,
-    } = useActions(toolbarButtonLogic)
+    const { setExtensionPercentage, showHeatmapInfo, hideHeatmapInfo, showActionsInfo, hideActionsInfo } =
+        useActions(toolbarButtonLogic)
     const { buttonActionsVisible, showActionsTooltip } = useValues(actionsTabLogic)
     const { hideButtonActions, showButtonActions } = useActions(actionsTabLogic)
     const { actionCount, allActionsLoading } = useValues(actionsLogic)
@@ -315,30 +305,6 @@ export function ToolbarButton(): JSX.Element {
                             />
                         ) : null}
                     </Circle>
-                    <Circle
-                        width={buttonWidth}
-                        x={side === 'left' ? 80 : -80}
-                        y={toolbarListVerticalPadding + n++ * 60}
-                        extensionPercentage={featureFlagsExtensionPercentage}
-                        rotationFixer={(r) => (side === 'right' && r < 0 ? 360 : 0)}
-                        label="Feature Flags"
-                        labelPosition={side === 'left' ? 'right' : 'left'}
-                        labelStyle={{
-                            opacity:
-                                featureFlagsExtensionPercentage > 0.8
-                                    ? (featureFlagsExtensionPercentage - 0.8) / 0.2
-                                    : 0,
-                        }}
-                        content={<Flag style={{ height: 29 }} engaged={flagsVisible} />}
-                        zIndex={1}
-                        onClick={flagsVisible ? hideFlags : showFlags}
-                        style={{
-                            cursor: 'pointer',
-                            transform: `scale(${0.2 + 0.8 * featureFlagsExtensionPercentage})`,
-                            background: flagsVisible ? '#94D674' : '#D6EBCC',
-                            borderRadius,
-                        }}
-                    />
                 </>
             ) : null}
         </Circle>

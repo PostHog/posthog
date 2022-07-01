@@ -3,7 +3,8 @@ from unittest.mock import MagicMock, patch
 
 from posthog.models.dashboard import Dashboard
 from posthog.models.exported_asset import ExportedAsset
-from posthog.tasks.exports.insight_exporter import export_insight, get_driver
+from posthog.tasks import exporter
+from posthog.tasks.exports.insight_exporter import get_driver
 from posthog.test.base import APIBaseTest
 
 
@@ -28,7 +29,7 @@ class TestExporterTask(APIBaseTest):
     def test_exporter_runs(self, mock_get_driver: MagicMock, mock_uuid: MagicMock) -> None:
         mock_uuid.uuid4.return_value = "posthog_test_exporter"
         assert self.exported_asset.content is None
-        export_insight(self.exported_asset.id)
+        exporter.export_asset(self.exported_asset.id)
         self.exported_asset.refresh_from_db()
         assert self.exported_asset.content is not None
 

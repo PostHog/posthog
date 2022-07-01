@@ -23,6 +23,7 @@ import { LogLevel } from 'rrweb'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { BehavioralFilterKey, BehavioralFilterType } from 'scenes/cohorts/CohortFilters/types'
 import { LogicWrapper } from 'kea'
+import { ExporterFormat } from 'lib/components/ExportButton/exporterLogic'
 
 export type Optional<T, K extends string | number | symbol> = Omit<T, K> & { [K in keyof T]?: T[K] }
 
@@ -827,7 +828,6 @@ export interface DashboardType {
     created_at: string
     created_by: UserBasicType | null
     is_shared: boolean
-    share_token: string
     deleted: boolean
     filters: Record<string, any>
     creation_mode: 'default' | 'template' | 'duplicate'
@@ -1147,10 +1147,7 @@ export interface SystemStatusRow {
 export interface SystemStatus {
     overview: SystemStatusRow[]
     internal_metrics: {
-        clickhouse?: {
-            id: number
-            share_token: string
-        }
+        clickhouse?: DashboardType
     }
 }
 
@@ -1451,13 +1448,14 @@ export enum ItemMode { // todo: consolidate this and dashboardmode
     Edit = 'edit',
     View = 'view',
     Subscriptions = 'subscriptions',
+    Sharing = 'sharing',
 }
 
 export enum DashboardPlacement {
     Dashboard = 'dashboard', // When on the standard dashboard page
     InternalMetrics = 'internal-metrics', // When embedded in /instance/status
     ProjectHomepage = 'project-homepage', // When embedded on the project homepage
-    Public = 'public', // When viewing the dashboard publicly via a shareToken
+    Public = 'public', // When viewing the dashboard publicly
     Export = 'export', // When the dashboard is being exported (alike to being printed)
 }
 
@@ -1939,6 +1937,13 @@ export interface ChangeDescriptions {
     bareName: boolean
 }
 
+export type SmallTimeUnit = 'hours' | 'minutes' | 'seconds'
+
+export type Duration = {
+    timeValue: number
+    unit: SmallTimeUnit
+}
+
 export type CombinedEvent = EventDefinition | ActionType
 
 export interface IntegrationType {
@@ -1955,4 +1960,20 @@ export interface SlackChannelType {
     is_private: boolean
     is_ext_shared: boolean
     is_member: boolean
+}
+
+export interface SharingConfigurationType {
+    enabled: boolean
+    access_token: string
+    created_at: string
+}
+
+export interface ExportedAssetType {
+    id: number
+    export_format: ExporterFormat
+    dashboard?: number
+    insight?: number
+    exportContext?: any
+    has_content: boolean
+    filename: string
 }

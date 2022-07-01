@@ -1,5 +1,5 @@
 from time import sleep
-from typing import List, Tuple
+from typing import List, Tuple, Union
 
 import structlog
 from celery import group
@@ -7,8 +7,9 @@ from celery import group
 from posthog.models.dashboard_tile import get_tiles_ordered_by_position
 from posthog.models.exported_asset import ExportedAsset
 from posthog.models.insight import Insight
+from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.subscription import Subscription
-from posthog.tasks.exports.insight_exporter import export_insight
+from posthog.tasks import exporter
 
 logger = structlog.get_logger(__name__)
 
@@ -18,29 +19,27 @@ DEFAULT_MAX_ASSET_COUNT = 6
 
 
 def generate_assets(
-    subscription: Subscription, max_asset_count: int = DEFAULT_MAX_ASSET_COUNT
+    resource: Union[Subscription, SharingConfiguration], max_asset_count: int = DEFAULT_MAX_ASSET_COUNT
 ) -> Tuple[List[Insight], List[ExportedAsset]]:
     insights = []
 
-    if subscription.dashboard:
-        tiles = get_tiles_ordered_by_position(subscription.dashboard)
+    if resource.dashboard:
+        tiles = get_tiles_ordered_by_position(resource.dashboard)
         insights = [tile.insight for tile in tiles]
-    elif subscription.insight:
-        insights = [subscription.insight]
+    elif resource.insight:
+        insights = [resource.insight]
     else:
         raise Exception("There are no insights to be sent for this Subscription")
 
     # Create all the assets we need
     assets = [
-        ExportedAsset(
-            team=subscription.team, export_format="image/png", insight=insight, dashboard=subscription.dashboard
-        )
+        ExportedAsset(team=resource.team, export_format="image/png", insight=insight, dashboard=resource.dashboard)
         for insight in insights[:max_asset_count]
     ]
     ExportedAsset.objects.bulk_create(assets)
 
     # Wait for all assets to be exported
-    tasks = [export_insight.s(asset.id) for asset in assets]
+    tasks = [exporter.export_asset.s(asset.id) for asset in assets]
     parallel_job = group(tasks).apply_async()
 
     max_wait = 30

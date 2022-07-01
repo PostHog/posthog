@@ -24,6 +24,7 @@ from . import (
     plugin,
     plugin_log_entry,
     property_definition,
+    sharing,
     team,
     user,
 )
@@ -99,7 +100,6 @@ router.register(r"users", user.UserViewSet)
 router.register(r"personal_api_keys", personal_api_key.PersonalAPIKeyViewSet, "personal_api_keys")
 router.register(r"instance_status", instance_status.InstanceStatusViewSet, "instance_status")
 router.register(r"dead_letter_queue", dead_letter_queue.DeadLetterQueueViewSet, "dead_letter_queue")
-router.register(r"shared_dashboards", dashboard.SharedDashboardsViewSet)
 router.register(r"async_migrations", async_migration.AsyncMigrationsViewset, "async_migrations")
 router.register(r"instance_settings", instance_settings.InstanceSettingsViewset, "instance_settings")
 router.register(r"kafka_inspector", kafka_inspector.KafkaInspectorViewSet, "kafka_inspector")
@@ -138,10 +138,21 @@ if EE_AVAILABLE:
     projects_router.register(r"experiments", ClickhouseExperimentsViewSet, "project_experiments", ["team_id"])
     projects_router.register(r"groups", ClickhouseGroupsView, "project_groups", ["team_id"])
     projects_router.register(r"groups_types", ClickhouseGroupsTypesView, "project_groups_types", ["team_id"])
-    projects_router.register(r"insights", ClickhouseInsightsViewSet, "project_insights", ["team_id"])
+    project_insights_router = projects_router.register(
+        r"insights", ClickhouseInsightsViewSet, "project_insights", ["team_id"]
+    )
     projects_router.register(r"persons", EnterprisePersonViewSet, "project_persons", ["team_id"])
     router.register(r"person", LegacyEnterprisePersonViewSet, basename="person")
 else:
-    projects_router.register(r"insights", InsightViewSet, "project_insights", ["team_id"])
+    project_insights_router = projects_router.register(r"insights", InsightViewSet, "project_insights", ["team_id"])
     projects_router.register(r"persons", PersonViewSet, "project_persons", ["team_id"])
     router.register(r"person", LegacyPersonViewSet, basename="person")
+
+
+project_dashboards_router.register(
+    r"sharing", sharing.SharingConfigurationViewSet, "project_dashboard_sharing", ["team_id", "dashboard_id"],
+)
+
+project_insights_router.register(
+    r"sharing", sharing.SharingConfigurationViewSet, "project_insight_sharing", ["team_id", "insight_id"],
+)
