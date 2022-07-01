@@ -92,11 +92,11 @@ export const urls = {
     shared: (token: string, exportOptions?: ExportOptions): string =>
         combineUrl(`/shared/${token}`, {
             ...(exportOptions?.whitelabel ? { whitelabel: null } : {}),
-            ...(exportOptions?.noLegend ? { noLegend: null } : {}),
+            ...(exportOptions?.legend ? { legend: null } : {}),
         }).url,
     embedded: (token: string, exportOptions?: ExportOptions): string =>
         combineUrl(`/embedded/${token}`, {
             ...(exportOptions?.whitelabel ? { whitelabel: null } : {}),
-            ...(exportOptions?.noLegend ? { noLegend: null } : {}),
+            ...(exportOptions?.legend ? { legend: null } : {}),
         }).url,
 }

@@ -42,7 +42,7 @@ export function Sharing({ dashboardId, insightShortId, insight, closeModal }: Sh
 
     const [iframeLoaded, setIframeLoaded] = useState(false)
 
-    const showNoLegendCheckbox = insight?.filters?.insight === InsightType.TRENDS
+    const showLegendCheckbox = insight?.filters?.insight === InsightType.TRENDS
     const resource = dashboardId ? 'dashboard' : 'insight'
 
     useEffect(() => {
@@ -152,15 +152,15 @@ export function Sharing({ dashboardId, insightShortId, insight, closeModal }: Sh
                                         />
                                     )}
                                 </Field>
-                                {showNoLegendCheckbox && (
-                                    <Field name="noLegend" noStyle>
+                                {showLegendCheckbox && (
+                                    <Field name="legend" noStyle>
                                         {({ value, onChange }) => (
                                             <LemonSwitch
                                                 fullWidth
                                                 type="primary"
                                                 label={<div>Show legend</div>}
                                                 onChange={() => onChange(!value)}
-                                                checked={!value}
+                                                checked={value}
                                             />
                                         )}
                                     </Field>

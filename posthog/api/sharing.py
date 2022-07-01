@@ -185,8 +185,8 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, StructuredViewSetMixin
 
         if "whitelabel" in request.GET and "white_labelling" in resource.team.organization.available_features:
             exported_data.update({"whitelabel": True})
-        if "noLegend" in request.GET:
-            exported_data.update({"noLegend": True})
+        if "legend" in request.GET:
+            exported_data.update({"legend": True})
 
         if request.path.endswith(f".json"):
             return response.Response(exported_data)

@@ -13,7 +13,7 @@ import clsx from 'clsx'
 
 export function ExportedInsight({
     insight,
-    exportOptions: { whitelabel, noLegend, fitScreen },
+    exportOptions: { whitelabel, legend, fitScreen },
 }: {
     insight: InsightModel
     exportOptions: ExportOptions
@@ -27,7 +27,7 @@ export function ExportedInsight({
     const { filters, name, derived_name, description } = insight
 
     const showLegend =
-        !noLegend &&
+        legend &&
         filters.insight === InsightType.TRENDS &&
         filters.display !== ChartDisplayType.WorldMap &&
         filters.display !== ChartDisplayType.ActionsTable

@@ -28,7 +28,7 @@ const defaultEmbedConfig: EmbedConfig = {
     width: '100%',
     height: '400',
     whitelabel: false,
-    noLegend: false,
+    legend: false,
 }
 
 const propsToApiParams = async (props: SharingLogicProps): Promise<{ dashboardId?: number; insightId?: number }> => {
@@ -87,16 +87,16 @@ export const sharingLogic = kea<sharingLogicType>([
         ],
         shareLink: [
             (s) => [s.siteUrl, s.sharingConfiguration, s.embedConfig],
-            (siteUrl, sharingConfiguration, { whitelabel, noLegend }) =>
+            (siteUrl, sharingConfiguration, { whitelabel, legend }) =>
                 sharingConfiguration
-                    ? siteUrl + urls.shared(sharingConfiguration.access_token, { whitelabel, noLegend })
+                    ? siteUrl + urls.shared(sharingConfiguration.access_token, { whitelabel, legend })
                     : '',
         ],
         embedLink: [
             (s) => [s.siteUrl, s.sharingConfiguration, s.embedConfig],
-            (siteUrl, sharingConfiguration, { whitelabel, noLegend }) =>
+            (siteUrl, sharingConfiguration, { whitelabel, legend }) =>
                 sharingConfiguration
-                    ? siteUrl + urls.embedded(sharingConfiguration.access_token, { whitelabel, noLegend })
+                    ? siteUrl + urls.embedded(sharingConfiguration.access_token, { whitelabel, legend })
                     : '',
         ],
         iframeProperties: [
