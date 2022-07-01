@@ -1,3 +1,4 @@
+import json
 import urllib.parse
 from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
@@ -299,14 +300,15 @@ class TrendsBreakdown:
         assert isinstance(self.filter.breakdown, str)
 
         breakdown_value = self._get_breakdown_value(self.filter.breakdown)
-
+        numeric_property_filter = ""
         if self.filter.using_histogram:
+            numeric_property_filter = f"AND {breakdown_value} is not null"
             breakdown_value, values_arr = self._get_histogram_breakdown_values(breakdown_value, values_arr)
 
         return (
             {"values": values_arr},
             BREAKDOWN_PROP_JOIN_SQL if not self.filter.using_histogram else BREAKDOWN_HISTOGRAM_PROP_JOIN_SQL,
-            {"breakdown_value_expr": breakdown_value},
+            {"breakdown_value_expr": breakdown_value, "numeric_property_filter": numeric_property_filter},
             breakdown_value,
         )
 
@@ -314,7 +316,9 @@ class TrendsBreakdown:
 
         if self.filter.breakdown_type == "session":
             if breakdown == "$session_duration":
-                breakdown_value = f"{SessionQuery.SESSION_TABLE_ALIAS}.session_duration"
+                # Return the session duration expression right away because it's already an number,
+                # so it doesn't need casting for the histogram case (like the other properties)
+                return f"{SessionQuery.SESSION_TABLE_ALIAS}.session_duration"
             else:
                 raise ValidationError(f'Invalid breakdown "{breakdown}" for breakdown type "session"')
 
@@ -350,13 +354,18 @@ class TrendsBreakdown:
             multi_if_conditionals.append(
                 f"{raw_breakdown_value} >= {buckets[i]} AND {raw_breakdown_value} {'<=' if last_bucket else '<'} {buckets[i+1]}"
             )
-            multi_if_conditionals.append(f"'{buckets[i]},{buckets[i+1]}'")
-            values_arr.append(f"{buckets[i]},{buckets[i+1]}")
+            multi_if_conditionals.append(f"'[{buckets[i]},{buckets[i+1]}]'")
+            values_arr.append(f"[{buckets[i]},{buckets[i+1]}]")
 
         # else condition
         multi_if_conditionals.append(f"','")
 
         return f"multiIf({','.join(multi_if_conditionals)})", values_arr
+
+    def breakdown_sort_function(self, value):
+        if self.filter.using_histogram:
+            return json.loads(value.get("breakdown_value"))[0]
+        return 0 if value.get("breakdown_value") != "all" else 1
 
     def _parse_single_aggregate_result(
         self, filter: Filter, entity: Entity, additional_values: Dict[str, Any]
@@ -384,8 +393,7 @@ class TrendsBreakdown:
                     **additional_values,
                 }
                 parsed_results.append(parsed_result)
-
-            return parsed_results
+            return sorted(parsed_results, key=lambda x: self.breakdown_sort_function(x))
 
         return _parse
 
@@ -404,7 +412,7 @@ class TrendsBreakdown:
                 )
                 parsed_results.append(parsed_result)
                 parsed_result.update({"filter": filter.to_dict()})
-            return sorted(parsed_results, key=lambda x: 0 if x.get("breakdown_value") != "all" else 1)
+            return sorted(parsed_results, key=lambda x: self.breakdown_sort_function(x))
 
         return _parse
 

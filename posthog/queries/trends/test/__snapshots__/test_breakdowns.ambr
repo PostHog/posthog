@@ -1,9 +1,74 @@
+# name: TestBreakdowns.test_breakdown_by_event_property_with_bucketing
+  '
+  
+  SELECT quantiles(0.00, 0.33, 0.67, 1.00)(value)
+  FROM
+    (SELECT toFloat64OrNull(replaceRegexpAll(JSONExtractRaw(properties, 'movie_length'), '^"|"$', '')) AS value,
+            count(*) as count
+     FROM events e
+     WHERE team_id = 2
+       AND event = 'watched movie'
+       AND timestamp >= toDateTime('2020-01-02 00:00:00')
+       AND timestamp <= toDateTime('2020-01-12 23:59:59')
+     GROUP BY value)
+  '
+---
+# name: TestBreakdowns.test_breakdown_by_event_property_with_bucketing.1
+  '
+  
+  SELECT groupArray(day_start) as date,
+         groupArray(count) as data,
+         breakdown_value
+  FROM
+    (SELECT SUM(total) as count,
+            day_start,
+            breakdown_value
+     FROM
+       (SELECT *
+        FROM
+          (SELECT toUInt16(0) AS total,
+                  ticks.day_start as day_start,
+                  breakdown_value
+           FROM
+             (SELECT toStartOfDay(toDateTime('2020-01-12 23:59:59', 'UTC') - number * 86400) as day_start
+              FROM numbers(11)
+              UNION ALL SELECT toStartOfDay(toDateTime('2020-01-02 00:00:00', 'UTC')) as day_start) as ticks
+           CROSS JOIN
+             (SELECT breakdown_value
+              FROM
+                (SELECT ['[25.0,66.25]', '[66.25,98.375]', '[98.375,1000.0]'] as breakdown_value
+                      ) ARRAY JOIN breakdown_value
+                  ) as sec
+              ORDER BY breakdown_value, day_start
+              UNION ALL
+  
+  SELECT
+      count(*) as total,
+      toStartOfDay(timestamp,  'UTC') as day_start,
+      multiIf(toFloat64OrNull(replaceRegexpAll(JSONExtractRaw(properties, 'movie_length'), '^"|"$', '')) >= 25.0 AND toFloat64OrNull(replaceRegexpAll(JSONExtractRaw(properties, 'movie_length'), '^"|"$', '')) < 66.25,'[25.0,66.25]',toFloat64OrNull(replaceRegexpAll(JSONExtractRaw(properties, 'movie_length'), '^"|"$', '')) >= 66.25 AND toFloat64OrNull(replaceRegexpAll(JSONExtractRaw(properties, 'movie_length'), '^"|"$', '')) < 98.375,'[66.25,98.375]',toFloat64OrNull(replaceRegexpAll(JSONExtractRaw(properties, 'movie_length'), '^"|"$', '')) >= 98.375 AND toFloat64OrNull(replaceRegexpAll(JSONExtractRaw(properties, 'movie_length'), '^"|"$', '')) <= 1000.0,'[98.375,1000.0]',',
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  ') as breakdown_value
+  FROM events e
+  
+  
+  
+  
+  WHERE e.team_id = 2 AND event = 'watched movie'  AND timestamp >= toStartOfDay(toDateTime('2020-01-02 00:00:00'), 'UTC') AND timestamp <= toDateTime('2020-01-12 23:59:59') AND toFloat64OrNull(replaceRegexpAll(JSONExtractRaw(properties, 'movie_length'), '^"|"$', '')) is not null
+           GROUP BY day_start,
+                    breakdown_value))
+     GROUP BY day_start,
+              breakdown_value
+     ORDER BY breakdown_value,
+              day_start)
+  GROUP BY breakdown_value
+  ORDER BY breakdown_value
+  '
+---
 # name: TestBreakdowns.test_breakdown_by_session_duration_of_events
   '
   
   SELECT groupArray(value)
   FROM
-    (SELECT sessions.session_duration AS value,
+    (SELECT sessions.session_duration as value,
             count(*) as count
      FROM events e
      INNER JOIN
@@ -48,7 +113,7 @@
            CROSS JOIN
              (SELECT breakdown_value
               FROM
-                (SELECT [180, 60, 91, 0] as breakdown_value) ARRAY
+                (SELECT [180, 120, 60, 91, 0] as breakdown_value) ARRAY
               JOIN breakdown_value) as sec
            ORDER BY breakdown_value,
                     day_start
@@ -69,7 +134,7 @@
              AND event = 'watched movie'
              AND timestamp >= toStartOfDay(toDateTime('2020-01-02 00:00:00'), 'UTC')
              AND timestamp <= toDateTime('2020-01-12 23:59:59')
-             AND sessions.session_duration in ([180, 60, 91, 0])
+             AND sessions.session_duration in ([180, 120, 60, 91, 0])
            GROUP BY day_start,
                     breakdown_value))
      GROUP BY day_start,
@@ -83,9 +148,9 @@
 # name: TestBreakdowns.test_breakdown_by_session_duration_of_events_single_aggregate
   '
   
-  SELECT arrayMap(x -> round(x), quantiles(0.00, 0.33, 0.67, 1.00)(value))
+  SELECT quantiles(0.00, 0.33, 0.67, 1.00)(value)
   FROM
-    (SELECT sessions.session_duration AS value,
+    (SELECT sessions.session_duration as value,
             count(*) as count
      FROM events e
      INNER JOIN
@@ -109,9 +174,9 @@
   
   SELECT count(*) AS total,
          multiIf(sessions.session_duration >= 0.0
-                 AND sessions.session_duration < 59.0, '0.0,59.0', sessions.session_duration >= 59.0
-                 AND sessions.session_duration < 92.0, '59.0,92.0', sessions.session_duration >= 92.0
-                 AND sessions.session_duration <= 180.0, '92.0,180.0', ',') AS breakdown_value
+                 AND sessions.session_duration < 69.92, '[0.0,69.92]', sessions.session_duration >= 69.92
+                 AND sessions.session_duration < 110.72000000000001, '[69.92,110.72000000000001]', sessions.session_duration >= 110.72000000000001
+                 AND sessions.session_duration <= 180.0, '[110.72000000000001,180.0]', ',') AS breakdown_value
   FROM events e
   INNER JOIN
     (SELECT $session_id,
@@ -126,6 +191,7 @@
     AND event = 'watched movie'
     AND timestamp >= toStartOfDay(toDateTime('2020-01-02 00:00:00'), 'UTC')
     AND timestamp <= toDateTime('2020-01-12 23:59:59')
+    AND sessions.session_duration is not null
   GROUP BY breakdown_value
   ORDER BY breakdown_value
   '
@@ -133,9 +199,9 @@
 # name: TestBreakdowns.test_breakdown_by_session_duration_of_events_with_bucketing
   '
   
-  SELECT arrayMap(x -> round(x), quantiles(0.00, 0.33, 0.67, 1.00)(value))
+  SELECT quantiles(0.00, 0.33, 0.67, 1.00)(value)
   FROM
-    (SELECT sessions.session_duration AS value,
+    (SELECT sessions.session_duration as value,
             count(*) as count
      FROM events e
      INNER JOIN
@@ -160,47 +226,56 @@
   SELECT groupArray(day_start) as date,
          groupArray(count) as data,
          breakdown_value
+  FROM (
+  SELECT SUM(total) as count,
+         day_start,
+         breakdown_value
   FROM
-    (SELECT SUM(total) as count,
-            day_start,
-            breakdown_value
+    (SELECT *
      FROM
-       (SELECT *
+       (SELECT toUInt16(0) AS total,
+               ticks.day_start as day_start,
+               breakdown_value
         FROM
-          (SELECT toUInt16(0) AS total,
-                  ticks.day_start as day_start,
-                  breakdown_value
+          (SELECT toStartOfDay(toDateTime('2020-01-12 23:59:59', 'UTC') - number * 86400) as day_start
+           FROM numbers(11)
+           UNION ALL SELECT toStartOfDay(toDateTime('2020-01-02 00:00:00', 'UTC')) as day_start) as ticks
+        CROSS JOIN
+          (SELECT breakdown_value
            FROM
-             (SELECT toStartOfDay(toDateTime('2020-01-12 23:59:59', 'UTC') - number * 86400) as day_start
-              FROM numbers(11)
-              UNION ALL SELECT toStartOfDay(toDateTime('2020-01-02 00:00:00', 'UTC')) as day_start) as ticks
-           CROSS JOIN
-             (SELECT breakdown_value
-              FROM
-                (SELECT ['0.0,59.0', '59.0,92.0', '92.0,180.0'] as breakdown_value) ARRAY
-              JOIN breakdown_value) as sec
-           ORDER BY breakdown_value,
-                    day_start
-           UNION ALL SELECT count(*) as total,
-                            toStartOfDay(timestamp, 'UTC') as day_start,
-                            multiIf(sessions.session_duration >= 0.0
-                                    AND sessions.session_duration < 59.0, '0.0,59.0', sessions.session_duration >= 59.0
-                                    AND sessions.session_duration < 92.0, '59.0,92.0', sessions.session_duration >= 92.0
-                                    AND sessions.session_duration <= 180.0, '92.0,180.0', ',') as breakdown_value
-           FROM events e
-           INNER JOIN
-             (SELECT $session_id,
-                     dateDiff('second', min(timestamp), max(timestamp)) as session_duration
-              FROM events
-              WHERE $session_id != ''
-                AND team_id = 2
-                AND timestamp >= toDateTime('2020-01-02 00:00:00') - INTERVAL 24 HOUR
-                AND timestamp <= toDateTime('2020-01-12 23:59:59') + INTERVAL 24 HOUR
-              GROUP BY $session_id) sessions ON sessions.$session_id = e.$session_id
-           WHERE e.team_id = 2
-             AND event = 'watched movie'
-             AND timestamp >= toStartOfDay(toDateTime('2020-01-02 00:00:00'), 'UTC')
-             AND timestamp <= toDateTime('2020-01-12 23:59:59')
+             (SELECT ['[0.0,69.92]', '[69.92,110.72000000000001]', '[110.72000000000001,180.0]'] as breakdown_value
+                      ) ARRAY JOIN breakdown_value
+                  ) as sec
+              ORDER BY breakdown_value, day_start
+              UNION ALL
+  
+  SELECT
+      count(*) as total,
+      toStartOfDay(timestamp,  'UTC') as day_start,
+      multiIf(sessions.session_duration >= 0.0 AND sessions.session_duration < 69.92,'[0.0,69.92]',sessions.session_duration >= 69.92 AND sessions.session_duration < 110.72000000000001,'[69.92,110.72000000000001]',sessions.session_duration >= 110.72000000000001 AND sessions.session_duration <= 180.0,'[110.72000000000001,180.0]',',
+                                                                                                                                                                                                                                                                                                                                        ') as breakdown_value
+  FROM events e
+  
+  
+  
+                      INNER JOIN (
+                  SELECT
+                      $session_id,
+                      dateDiff('second',min(timestamp), max(timestamp)) as session_duration
+                  FROM
+                      events
+                  WHERE
+                      $session_id != ''
+                      AND team_id = 2
+                      AND timestamp >= toDateTime('2020-01-02 00:00:00') - INTERVAL 24 HOUR
+                      AND timestamp <= toDateTime('2020-01-12 23:59:59') + INTERVAL 24 HOUR
+                  GROUP BY $session_id
+              ) sessions
+                      ON sessions.$session_id = e.$session_id
+  
+  
+  WHERE e.team_id = 2 AND event = 'watched movie'  AND timestamp >= toStartOfDay(toDateTime('2020-01-02 00:00:00'), 'UTC') AND timestamp <= toDateTime('2020-01-12 23:59:59')
+           AND sessions.session_duration is not null
            GROUP BY day_start,
                     breakdown_value))
      GROUP BY day_start,
@@ -216,7 +291,7 @@
   
   SELECT groupArray(value)
   FROM
-    (SELECT sessions.session_duration AS value,
+    (SELECT sessions.session_duration as value,
             count(DISTINCT $session_id) as count
      FROM events e
      INNER JOIN
@@ -261,7 +336,7 @@
            CROSS JOIN
              (SELECT breakdown_value
               FROM
-                (SELECT [180, 91, 60, 0] as breakdown_value) ARRAY
+                (SELECT [180, 120, 91, 60, 0] as breakdown_value) ARRAY
               JOIN breakdown_value) as sec
            ORDER BY breakdown_value,
                     day_start
@@ -282,7 +357,7 @@
              AND event = 'watched movie'
              AND timestamp >= toStartOfDay(toDateTime('2020-01-02 00:00:00'), 'UTC')
              AND timestamp <= toDateTime('2020-01-12 23:59:59')
-             AND sessions.session_duration in ([180, 91, 60, 0])
+             AND sessions.session_duration in ([180, 120, 91, 60, 0])
            GROUP BY day_start,
                     breakdown_value))
      GROUP BY day_start,
@@ -296,9 +371,9 @@
 # name: TestBreakdowns.test_breakdown_by_session_duration_of_unique_sessions_with_bucketing
   '
   
-  SELECT arrayMap(x -> round(x), quantiles(0.00, 0.33, 0.67, 1.00)(value))
+  SELECT quantiles(0.00, 0.33, 0.67, 1.00)(value)
   FROM
-    (SELECT sessions.session_duration AS value,
+    (SELECT sessions.session_duration as value,
             count(DISTINCT $session_id) as count
      FROM events e
      INNER JOIN
@@ -323,47 +398,56 @@
   SELECT groupArray(day_start) as date,
          groupArray(count) as data,
          breakdown_value
+  FROM (
+  SELECT SUM(total) as count,
+         day_start,
+         breakdown_value
   FROM
-    (SELECT SUM(total) as count,
-            day_start,
-            breakdown_value
+    (SELECT *
      FROM
-       (SELECT *
+       (SELECT toUInt16(0) AS total,
+               ticks.day_start as day_start,
+               breakdown_value
         FROM
-          (SELECT toUInt16(0) AS total,
-                  ticks.day_start as day_start,
-                  breakdown_value
+          (SELECT toStartOfDay(toDateTime('2020-01-12 23:59:59', 'UTC') - number * 86400) as day_start
+           FROM numbers(11)
+           UNION ALL SELECT toStartOfDay(toDateTime('2020-01-02 00:00:00', 'UTC')) as day_start) as ticks
+        CROSS JOIN
+          (SELECT breakdown_value
            FROM
-             (SELECT toStartOfDay(toDateTime('2020-01-12 23:59:59', 'UTC') - number * 86400) as day_start
-              FROM numbers(11)
-              UNION ALL SELECT toStartOfDay(toDateTime('2020-01-02 00:00:00', 'UTC')) as day_start) as ticks
-           CROSS JOIN
-             (SELECT breakdown_value
-              FROM
-                (SELECT ['0.0,59.0', '59.0,92.0', '92.0,180.0'] as breakdown_value) ARRAY
-              JOIN breakdown_value) as sec
-           ORDER BY breakdown_value,
-                    day_start
-           UNION ALL SELECT count(DISTINCT $session_id) as total,
-                            toStartOfDay(timestamp, 'UTC') as day_start,
-                            multiIf(sessions.session_duration >= 0.0
-                                    AND sessions.session_duration < 59.0, '0.0,59.0', sessions.session_duration >= 59.0
-                                    AND sessions.session_duration < 92.0, '59.0,92.0', sessions.session_duration >= 92.0
-                                    AND sessions.session_duration <= 180.0, '92.0,180.0', ',') as breakdown_value
-           FROM events e
-           INNER JOIN
-             (SELECT $session_id,
-                     dateDiff('second', min(timestamp), max(timestamp)) as session_duration
-              FROM events
-              WHERE $session_id != ''
-                AND team_id = 2
-                AND timestamp >= toDateTime('2020-01-02 00:00:00') - INTERVAL 24 HOUR
-                AND timestamp <= toDateTime('2020-01-12 23:59:59') + INTERVAL 24 HOUR
-              GROUP BY $session_id) sessions ON sessions.$session_id = e.$session_id
-           WHERE e.team_id = 2
-             AND event = 'watched movie'
-             AND timestamp >= toStartOfDay(toDateTime('2020-01-02 00:00:00'), 'UTC')
-             AND timestamp <= toDateTime('2020-01-12 23:59:59')
+             (SELECT ['[0.0,69.92]', '[69.92,110.72000000000001]', '[110.72000000000001,180.0]'] as breakdown_value
+                      ) ARRAY JOIN breakdown_value
+                  ) as sec
+              ORDER BY breakdown_value, day_start
+              UNION ALL
+  
+  SELECT
+      count(DISTINCT $session_id) as total,
+      toStartOfDay(timestamp,  'UTC') as day_start,
+      multiIf(sessions.session_duration >= 0.0 AND sessions.session_duration < 69.92,'[0.0,69.92]',sessions.session_duration >= 69.92 AND sessions.session_duration < 110.72000000000001,'[69.92,110.72000000000001]',sessions.session_duration >= 110.72000000000001 AND sessions.session_duration <= 180.0,'[110.72000000000001,180.0]',',
+                                                                                                                                                                                                                                                                                                                                        ') as breakdown_value
+  FROM events e
+  
+  
+  
+                      INNER JOIN (
+                  SELECT
+                      $session_id,
+                      dateDiff('second',min(timestamp), max(timestamp)) as session_duration
+                  FROM
+                      events
+                  WHERE
+                      $session_id != ''
+                      AND team_id = 2
+                      AND timestamp >= toDateTime('2020-01-02 00:00:00') - INTERVAL 24 HOUR
+                      AND timestamp <= toDateTime('2020-01-12 23:59:59') + INTERVAL 24 HOUR
+                  GROUP BY $session_id
+              ) sessions
+                      ON sessions.$session_id = e.$session_id
+  
+  
+  WHERE e.team_id = 2 AND event = 'watched movie'  AND timestamp >= toStartOfDay(toDateTime('2020-01-02 00:00:00'), 'UTC') AND timestamp <= toDateTime('2020-01-12 23:59:59')
+           AND sessions.session_duration is not null
            GROUP BY day_start,
                     breakdown_value))
      GROUP BY day_start,

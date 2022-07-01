@@ -17,7 +17,7 @@ class TestBreakdowns(ClickhouseTestMixin, APIBaseTest):
                 {
                     "event": "watched movie",
                     "timestamp": datetime(2020, 1, 2, 12, 1),
-                    "properties": {"$session_id": "1"},
+                    "properties": {"$session_id": "1", "movie_length": 100},
                 },
             ],
             # Duration 60 seconds, with 2 events in 1 session
@@ -25,12 +25,12 @@ class TestBreakdowns(ClickhouseTestMixin, APIBaseTest):
                 {
                     "event": "watched movie",
                     "timestamp": datetime(2020, 1, 2, 12, 1),
-                    "properties": {"$session_id": "2"},
+                    "properties": {"$session_id": "2", "movie_length": 50},
                 },
                 {
                     "event": "watched movie",
                     "timestamp": datetime(2020, 1, 2, 12, 2),
-                    "properties": {"$session_id": "2"},
+                    "properties": {"$session_id": "2", "movie_length": 75},
                 },
             ],
             # Duration 90 seconds, but session spans query boundary, so only a single event is counted
@@ -43,7 +43,7 @@ class TestBreakdowns(ClickhouseTestMixin, APIBaseTest):
                 {
                     "event": "watched movie",
                     "timestamp": datetime(2020, 1, 2, 0, 0, 0),
-                    "properties": {"$session_id": "3"},
+                    "properties": {"$session_id": "3", "movie_length": 25},
                 },
                 {
                     "event": "finished movie",
@@ -52,16 +52,16 @@ class TestBreakdowns(ClickhouseTestMixin, APIBaseTest):
                 },
             ],
             # Duration 120 seconds, with 2 events counted
-            "person4": [
+            "person5": [
                 {
                     "event": "watched movie",
                     "timestamp": datetime(2020, 1, 5, 12, 1),
-                    "properties": {"$session_id": "4"},
+                    "properties": {"$session_id": "4", "movie_length": "25"},
                 },
                 {
                     "event": "watched movie",
                     "timestamp": datetime(2020, 1, 5, 12, 3),
-                    "properties": {"$session_id": "4"},
+                    "properties": {"$session_id": "4", "movie_length": "not a number"},
                 },
             ],
             # Duration 180 seconds, with 2 events counted, each in a different day bucket
@@ -69,12 +69,12 @@ class TestBreakdowns(ClickhouseTestMixin, APIBaseTest):
                 {
                     "event": "watched movie",
                     "timestamp": datetime(2020, 1, 4, 23, 59),
-                    "properties": {"$session_id": "4"},
+                    "properties": {"$session_id": "5", "movie_length": 1000},
                 },
                 {
                     "event": "watched movie",
                     "timestamp": datetime(2020, 1, 5, 0, 2),
-                    "properties": {"$session_id": "4"},
+                    "properties": {"$session_id": "5", "movie_length": 97.5},
                 },
             ],
         }
@@ -105,6 +105,7 @@ class TestBreakdowns(ClickhouseTestMixin, APIBaseTest):
                 (0, 1.0, [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
                 (60, 2.0, [2.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
                 (91, 1.0, [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
+                (120, 2.0, [0.0, 0.0, 0.0, 2.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
                 (180, 2.0, [0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
             ],
         )
@@ -118,9 +119,9 @@ class TestBreakdowns(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(
             [(item["breakdown_value"], item["count"], item["data"]) for item in response],
             [
-                ("0.0,59.0", 1.0, [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
-                ("59.0,92.0", 3.0, [3.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
-                ("92.0,180.0", 2.0, [0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
+                ("[0.0,69.92]", 3.0, [3.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
+                ("[69.92,110.72000000000001]", 1.0, [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
+                ("[110.72000000000001,180.0]", 4.0, [0.0, 0.0, 1.0, 3.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
             ],
         )
 
@@ -138,7 +139,7 @@ class TestBreakdowns(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(
             [(item["breakdown_value"], item["aggregated_value"]) for item in response],
-            [("0.0,59.0", 1), ("59.0,92.0", 3), ("92.0,180.0", 2),],
+            [("[0.0,69.92]", 3), ("[69.92,110.72000000000001]", 1), ("[110.72000000000001,180.0]", 4)],
         )
 
     @snapshot_clickhouse_queries
@@ -153,6 +154,7 @@ class TestBreakdowns(ClickhouseTestMixin, APIBaseTest):
                 (0, 1.0, [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
                 (60, 1.0, [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
                 (91, 1.0, [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
+                (120, 1.0, [0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
                 (180, 2.0, [0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
             ],
         )
@@ -166,8 +168,23 @@ class TestBreakdowns(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(
             [(item["breakdown_value"], item["count"], item["data"]) for item in response],
             [
-                ("0.0,59.0", 1.0, [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
-                ("59.0,92.0", 2.0, [2.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
-                ("92.0,180.0", 2.0, [0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
+                ("[0.0,69.92]", 2.0, [2.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
+                ("[69.92,110.72000000000001]", 1.0, [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
+                ("[110.72000000000001,180.0]", 3.0, [0.0, 0.0, 1.0, 2.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
+            ],
+        )
+
+    @snapshot_clickhouse_queries
+    def test_breakdown_by_event_property_with_bucketing(self):
+        response = self._run(
+            {"breakdown": "movie_length", "breakdown_type": "event", "breakdown_histogram_bin_count": 3}
+        )
+
+        self.assertEqual(
+            [(item["breakdown_value"], item["count"], item["data"]) for item in response],
+            [
+                ("[25.0,66.25]", 3.0, [2.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
+                ("[66.25,98.375]", 2.0, [1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
+                ("[98.375,1000.0]", 2.0, [1.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
             ],
         )

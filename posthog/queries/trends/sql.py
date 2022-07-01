@@ -269,7 +269,7 @@ WHERE e.team_id = %(team_id)s {event_filter} {filters} {parsed_date_from} {parse
 """
 
 BREAKDOWN_HISTOGRAM_PROP_JOIN_SQL = """
-WHERE e.team_id = %(team_id)s {event_filter} {filters} {parsed_date_from} {parsed_date_to}
+WHERE e.team_id = %(team_id)s {event_filter} {filters} {parsed_date_from} {parsed_date_to} {numeric_property_filter}
   {actions_query}
 """
 

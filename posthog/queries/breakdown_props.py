@@ -180,7 +180,14 @@ def _to_value_expression(
     direct_on_events: bool = False,
     cast_as_float: bool = False,
 ) -> str:
-    if breakdown_type == "person":
+    if breakdown_type == "session":
+        if breakdown == "$session_duration":
+            # Return the session duration expression right away because it's already an number,
+            # so it doesn't need casting for the histogram case (like the other properties)
+            return f"{SessionQuery.SESSION_TABLE_ALIAS}.session_duration as value"
+        else:
+            raise ValidationError(f'Invalid breakdown "{breakdown}" for breakdown type "session"')
+    elif breakdown_type == "person":
         value_expression = get_single_or_multi_property_string_expr(
             breakdown,
             query_alias=None,
@@ -196,11 +203,6 @@ def _to_value_expression(
             if direct_on_events
             else f"group_properties_{breakdown_group_type_index}",
         )
-    elif breakdown_type == "session":
-        if breakdown == "$session_duration":
-            value_expression = f"{SessionQuery.SESSION_TABLE_ALIAS}.session_duration AS value"
-        else:
-            raise ValidationError(f'Invalid breakdown "{breakdown}" for breakdown type "session"')
     else:
         value_expression = get_single_or_multi_property_string_expr(
             breakdown, table="events", query_alias=None, column="properties"
@@ -222,8 +224,7 @@ def _to_bucketing_expression(bin_count: int) -> str:
     for i in range(bin_count + 1):
         quantiles.append(i * bin_size)
 
-    # TODO: consider cases where rounding destroys the bucket boundaries
-    return f"arrayMap(x -> round(x), quantiles({','.join([f'{quantile:.2f}' for quantile in quantiles])})(value))"
+    return f"quantiles({','.join([f'{quantile:.2f}' for quantile in quantiles])})(value)"
 
 
 def _format_all_query(team: Team, filter: Filter, **kwargs) -> Tuple[str, Dict]:
