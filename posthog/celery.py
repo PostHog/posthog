@@ -1,19 +1,23 @@
-import logging
+# import logging
 import os
 import time
 from random import randrange
 
 from celery import Celery
 from celery.schedules import crontab
-from celery.signals import setup_logging, task_postrun, task_prerun
+from celery.signals import task_postrun, task_prerun
 from django.conf import settings
 from django.db import connection
 from django.utils import timezone
-from django_structlog.celery.steps import DjangoStructLogInitStep
 
 from posthog.redis import get_client
-from posthog.settings import logs
+
+# from posthog.settings import logs
 from posthog.utils import get_crontab
+
+# from django_structlog.celery.steps import DjangoStructLogInitStep
+
+
 
 # set the default Django settings module for the 'celery' program.
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "posthog.settings")
@@ -33,7 +37,7 @@ app.autodiscover_tasks()
 # https://stackoverflow.com/questions/47106592/redis-connections-not-being-released-after-celery-task-is-complete
 app.conf.broker_pool_limit = 0
 
-app.steps["worker"].add(DjangoStructLogInitStep)
+# app.steps["worker"].add(DjangoStructLogInitStep)
 
 # How frequently do we want to calculate action -> event relationships if async is enabled
 ACTION_EVENT_MAPPING_INTERVAL_SECONDS = settings.ACTION_EVENT_MAPPING_INTERVAL_SECONDS
@@ -46,11 +50,11 @@ UPDATE_CACHED_DASHBOARD_ITEMS_INTERVAL_SECONDS = settings.UPDATE_CACHED_DASHBOAR
 
 
 # following instructions from here https://django-structlog.readthedocs.io/en/latest/celery.html
-@setup_logging.connect
-def receiver_setup_logging(loglevel, logfile, format, colorize, **kwargs):  # pragma: no cover
-    # mypy thinks logging doesn't have `.config` but it does ¯\_(ツ)_/¯
-    logging.config.dictConfig(logs.LOGGING)  # type:ignore
-    logs.configure_structlog()
+# @setup_logging.connect
+# def receiver_setup_logging(loglevel, logfile, format, colorize, **kwargs):  # pragma: no cover
+#     # mypy thinks logging doesn't have `.config` but it does ¯\_(ツ)_/¯
+#     logging.config.dictConfig(logs.LOGGING)  # type:ignore
+#     logs.configure_structlog()
 
 
 @app.on_after_configure.connect
