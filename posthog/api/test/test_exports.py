@@ -286,6 +286,9 @@ class TestExports(APIBaseTest):
         expected_event_id = _create_event(
             event="event_name", team=self.team, distinct_id="2", properties={"$browser": "Safari"},
         )
+        second_expected_event_id = _create_event(
+            event="event_name", team=self.team, distinct_id="2", properties={"$browser": "Safari"},
+        )
         flush_persons_and_events()
 
         instance = ExportedAsset.objects.create(
@@ -317,12 +320,14 @@ class TestExports(APIBaseTest):
         self.assertIsNotNone(response.content)
         file_content = response.content.decode("utf-8")
         file_lines = file_content.split("\n")
-        # has a header row and at least one other row
+        # has a header row and at least two other rows
         # don't care if the DB hasn't been reset before the test
-        self.assertTrue(len(file_lines) > 1)
+        self.assertTrue(len(file_lines) > 2)
         self.assertIn(expected_event_id, file_content)
+        self.assertIn(second_expected_event_id, file_content)
         for line in file_lines[1:]:  # every result has to match the filter though
-            self.assertIn('{"$browser": "Safari"}', line)
+            if line != "":  # skip the final empty line of the file
+                self.assertIn('"{""$browser"": ""Safari""}"', line)
 
     def _get_insight_activity(self, insight_id: int, expected_status: int = status.HTTP_200_OK):
         url = f"/api/projects/{self.team.id}/insights/{insight_id}/activity"
