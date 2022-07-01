@@ -10,6 +10,9 @@ class TeatActivityLog(TestCase):
             previous={"change_field": "foo", "delete_field": "foo"},
             new={"change_field": "bar", "new_field": "bar"},
         )
+
+        self.assertEqual(len(changes), 3)
+
         self.assertContains(
             changes, Change(type="Plugin", action="created", field="new_field", before=None, after="bar")
         )
