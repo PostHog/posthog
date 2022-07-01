@@ -15,7 +15,7 @@ from posthog.event_usage import report_user_action
 from posthog.mixins import AnalyticsDestroyModelMixin
 from posthog.models import FeatureFlag
 from posthog.models.activity_logging.activity_log import Detail, changes_between, load_activity, log_activity
-from posthog.models.activity_logging.activity_page import return_activity_page
+from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.cohort import Cohort
 from posthog.models.feature_flag import FeatureFlagOverride
 from posthog.models.property import Property
@@ -237,7 +237,7 @@ class FeatureFlagViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.Mo
 
         activity_page = load_activity(scope="FeatureFlag", team_id=self.team_id, limit=limit, page=page)
 
-        return return_activity_page(activity_page, limit, page, request)
+        return activity_page_response(activity_page, limit, page, request)
 
     @action(methods=["GET"], detail=True)
     def activity(self, request: request.Request, **kwargs):
@@ -251,7 +251,7 @@ class FeatureFlagViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.Mo
         activity_page = load_activity(
             scope="FeatureFlag", team_id=self.team_id, item_id=item_id, limit=limit, page=page
         )
-        return return_activity_page(activity_page, limit, page, request)
+        return activity_page_response(activity_page, limit, page, request)
 
     def perform_create(self, serializer):
         serializer.save()

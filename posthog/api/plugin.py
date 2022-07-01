@@ -28,7 +28,7 @@ from posthog.models.activity_logging.activity_log import (
     load_all_activity,
     log_activity,
 )
-from posthog.models.activity_logging.activity_page import return_activity_page
+from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.activity_logging.serializers import ActivityLogSerializer
 from posthog.models.organization import Organization
 from posthog.models.plugin import PluginSourceFile, update_validated_data_from_url
@@ -379,7 +379,7 @@ class PluginViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
         activity_page = load_all_activity(scope_list=["Plugin", "PluginConfig"], team_id=request.user.team.id, limit=limit, page=page)  # type: ignore
 
-        return return_activity_page(activity_page, limit, page, request)
+        return activity_page_response(activity_page, limit, page, request)
 
     @action(methods=["GET"], detail=True)
     def activity(self, request: request.Request, **kwargs):
@@ -393,10 +393,12 @@ class PluginViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         activity_page = load_activity(
             scope="Plugin", team_id=request.user.team.id, item_id=item_id, limit=limit, page=page  # type: ignore
         )
-        return return_activity_page(activity_page, limit, page, request)
+        return activity_page_response(activity_page, limit, page, request)
 
     @staticmethod
-    def _return_activity_page(activity_page: ActivityPage, limit: int, page: int, request: request.Request) -> Response:
+    def _activity_page_response(
+        activity_page: ActivityPage, limit: int, page: int, request: request.Request
+    ) -> Response:
         return Response(
             {
                 "results": ActivityLogSerializer(activity_page.results, many=True,).data,

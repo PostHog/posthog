@@ -34,7 +34,7 @@ from posthog.constants import CSV_EXPORT_LIMIT, INSIGHT_FUNNELS, INSIGHT_PATHS, 
 from posthog.decorators import cached_function
 from posthog.models import Cohort, Filter, Person, User
 from posthog.models.activity_logging.activity_log import Change, Detail, Merge, load_activity, log_activity
-from posthog.models.activity_logging.activity_page import return_activity_page
+from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.cohort.util import get_all_cohort_ids_by_person_uuid
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.retention_filter import RetentionFilter
@@ -554,7 +554,7 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         page = int(request.query_params.get("page", "1"))
 
         activity_page = load_activity(scope="Person", team_id=self.team_id, limit=limit, page=page)
-        return return_activity_page(activity_page, limit, page, request)
+        return activity_page_response(activity_page, limit, page, request)
 
     @action(methods=["GET"], detail=True)
     def activity(self, request: request.Request, **kwargs):
@@ -565,7 +565,7 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             return Response("", status=status.HTTP_404_NOT_FOUND)
 
         activity_page = load_activity(scope="Person", team_id=self.team_id, item_id=item_id, limit=limit, page=page)
-        return return_activity_page(activity_page, limit, page, request)
+        return activity_page_response(activity_page, limit, page, request)
 
     def update(self, request, *args, **kwargs):
         instance = self.get_queryset().get(pk=kwargs["pk"])

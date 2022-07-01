@@ -5,7 +5,7 @@ from posthog.models.activity_logging.serializers import ActivityLogSerializer
 from posthog.utils import format_query_params_absolute_url
 
 
-def return_activity_page(
+def activity_page_response(
     activity_page: ActivityPage, limit: int, page: int, request: request.Request
 ) -> response.Response:
     return response.Response(
