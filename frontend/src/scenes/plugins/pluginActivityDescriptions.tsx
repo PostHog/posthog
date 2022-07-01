@@ -4,7 +4,7 @@ import React from 'react'
 import { SECRET_FIELD_VALUE } from './utils'
 
 export function pluginActivityDescriber(logItem: ActivityLogItem): string | JSX.Element | null {
-    if (logItem.scope !== ActivityScope.PLUGIN && logItem.scope !== ActivityScope.PLUGIN_CONFIG) {
+    if (logItem.scope !== ActivityScope.PLUGIN) {
         console.error('plugin describer received a non-plugin activity')
         return null
     }

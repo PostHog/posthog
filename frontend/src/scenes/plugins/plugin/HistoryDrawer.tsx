@@ -19,7 +19,7 @@ export function HistoryDrawer(): JSX.Element {
             destroyOnClose
         >
             <ActivityLog
-                scope="PluginConfig"
+                scope="Plugin"
                 id={showingHistoryPlugin?.pluginConfig.id}
                 describer={pluginActivityDescriber}
             />

@@ -11,7 +11,7 @@ import { PaginationControl, usePagination } from 'lib/components/PaginationContr
 export interface ActivityLogProps {
     scope: ActivityScope
     // if no id is provided, the list is not scoped by id and shows all activity ordered by time
-    id?: number | string
+    id?: number
     describer?: Describer
     startingPage?: number
     caption?: string | JSX.Element
