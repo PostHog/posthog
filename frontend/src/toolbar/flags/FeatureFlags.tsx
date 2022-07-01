@@ -17,9 +17,7 @@ export function FeatureFlags(): JSX.Element {
     return (
         <div className="toolbar-block">
             <div className="local-feature-flag-override-note">
-                <Typography.Text>
-                    Note, overriding feature flags below will only impact the experience within this browser.
-                </Typography.Text>
+                <Typography.Text>Note, overriding feature flags below will only affect this browser.</Typography.Text>
             </div>
             <>
                 <Input.Search
