@@ -91,6 +91,8 @@ class TestSlackSubscriptionsTasks(APIBaseTest):
                     ]
                 }
             },
-            "channel": "Cxxxxxx",
-            "ts": "123456789.9875",
+            "unfurl_id": "C123456.123456789.987501.1b90fa1278528ce6e2f6c5c2bfa1abc9a41d57d02b29d173f40399c9ffdecf4b",
+            "source": "conversations_history",
+            "channel": "",
+            "ts": "",
         }
