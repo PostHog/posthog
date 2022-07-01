@@ -14,7 +14,7 @@ export interface ExportOptions {
 
 export interface ExportedData extends ExportOptions {
     type: ExportType
-    dashboard?: Partial<DashboardType>
+    dashboard?: DashboardType
     insight?: InsightModel
     team?: Partial<TeamType>
 }
