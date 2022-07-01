@@ -30,6 +30,8 @@ import { IconCopy, IconDelete, IconEdit, IconFilter, IconWithCount } from 'lib/c
 import { SortableHandle as sortableHandle } from 'react-sortable-hoc'
 import { SortableDragIcon } from 'lib/components/icons'
 import { LemonButton } from 'lib/components/LemonButton'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 const DragHandle = sortableHandle(() => (
     <span className="ActionFilterRowDragHandle">
@@ -121,6 +123,7 @@ export function ActionFilterRow({
     } = useActions(logic)
     const { actions } = useValues(actionsModel)
     const { mathDefinitions } = useValues(mathsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const propertyFiltersVisible = typeof filter.order === 'number' ? entityFilterVisible[filter.order] : false
 
@@ -317,6 +320,11 @@ export function ActionFilterRow({
                                         <div className="col">
                                             <TaxonomicStringPopup
                                                 groupType={TaxonomicFilterGroupType.NumericalEventProperties}
+                                                groupTypes={[TaxonomicFilterGroupType.NumericalEventProperties].concat(
+                                                    featureFlags[FEATURE_FLAGS.SESSION_ANALYSIS]
+                                                        ? [TaxonomicFilterGroupType.Sessions]
+                                                        : []
+                                                )}
                                                 value={mathProperty}
                                                 onChange={(currentValue) => onMathPropertySelect(index, currentValue)}
                                                 eventNames={name ? [name] : []}
