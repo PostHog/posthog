@@ -3,7 +3,7 @@ import { Plugin } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 import { Client } from 'pg'
 
-import { ClickHouseEvent, Element, TimestampFormat } from '../../../../types'
+import { Element, Event, TimestampFormat } from '../../../../types'
 import { DB } from '../../../../utils/db/db'
 import { chainToElements } from '../../../../utils/db/elements-chain'
 import { castTimestampToClickhouseFormat } from '../../../../utils/utils'
@@ -119,13 +119,13 @@ export const fetchEventsForInterval = async (
 
     return clickhouseFetchEventsResult.data.map((event) =>
         convertClickhouseEventToPluginEvent({
-            ...(event as ClickHouseEvent),
+            ...(event as Event),
             properties: JSON.parse(event.properties || '{}'),
         })
     )
 }
 
-export const convertClickhouseEventToPluginEvent = (event: ClickHouseEvent): HistoricalExportEvent => {
+export const convertClickhouseEventToPluginEvent = (event: Event): HistoricalExportEvent => {
     const { event: eventName, properties, timestamp, team_id, distinct_id, created_at, uuid, elements_chain } = event
     if (eventName === '$autocapture' && elements_chain) {
         properties['$elements'] = convertDatabaseElementsToRawElements(chainToElements(elements_chain))
@@ -136,12 +136,12 @@ export const convertClickhouseEventToPluginEvent = (event: ClickHouseEvent): His
         team_id,
         distinct_id,
         properties,
-        timestamp,
+        timestamp: timestamp.toISO(),
         now: DateTime.now().toISO(),
         event: eventName || '',
         ip: properties?.['$ip'] || '',
         site_url: '',
-        sent_at: created_at,
+        sent_at: created_at.toISO(),
     }
     return addHistoricalExportEventProperties(parsedEvent)
 }

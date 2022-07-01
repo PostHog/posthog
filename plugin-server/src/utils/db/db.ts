@@ -7,6 +7,7 @@ import Redis from 'ioredis'
 import { ProducerRecord } from 'kafkajs'
 import { DateTime } from 'luxon'
 import { Pool, PoolClient, QueryResult, QueryResultRow } from 'pg'
+import { parseEventRow } from 'utils/event'
 
 import { CELERY_DEFAULT_QUEUE } from '../../config/constants'
 import {
@@ -18,7 +19,6 @@ import {
 import {
     Action,
     ActionStep,
-    ClickHouseEvent,
     ClickhouseGroup,
     ClickHousePerson,
     ClickHousePersonDistinctId,
@@ -27,7 +27,6 @@ import {
     CohortPeople,
     Database,
     DeadLetterQueueEvent,
-    Element,
     Event,
     EventDefinitionType,
     EventPropertyType,
@@ -51,6 +50,7 @@ import {
     PropertiesLastUpdatedAt,
     PropertyDefinitionType,
     RawAction,
+    RawEvent,
     RawGroup,
     RawOrganization,
     RawPerson,
@@ -62,7 +62,6 @@ import {
 import { instrumentQuery } from '../metrics'
 import {
     castTimestampOrNow,
-    clickHouseTimestampToISO,
     escapeClickHouseString,
     RaceConditionError,
     sanitizeSqlIdentifier,
@@ -72,7 +71,6 @@ import {
 } from '../utils'
 import { OrganizationPluginsAccessLevel } from './../../types'
 import { PromiseManager } from './../../worker/vm/promise-manager'
-import { chainToElements } from './elements-chain'
 import { KafkaProducerWrapper } from './kafka-producer-wrapper'
 import {
     generateKafkaPersonUpdateMessage,
@@ -248,14 +246,17 @@ export class DB {
 
     // ClickHouse
 
-    public clickhouseQuery(
+    public clickhouseQuery<R extends Record<string, any> = Record<string, any>>(
         query: string,
         options?: ClickHouse.QueryOptions
-    ): Promise<ClickHouse.QueryResult<Record<string, any>>> {
+    ): Promise<ClickHouse.ObjectQueryResult<R>> {
         return instrumentQuery(this.statsd, 'query.clickhouse', undefined, async () => {
             const timeout = timeoutGuard('ClickHouse slow query warning after 30 sec', { query })
             try {
-                return await this.clickhouse.querying(query, options)
+                const queryResult = await this.clickhouse.querying(query, options)
+                // This is annoying to type, because the result depends on contructor and query options provided
+                // at runtime. However, with our options we can safely assume ObjectQueryResult<R>
+                return queryResult as unknown as ClickHouse.ObjectQueryResult<R>
             } finally {
                 clearTimeout(timeout)
             }
@@ -1338,41 +1339,11 @@ export class DB {
         )
     }
 
-    // Event
+    // Event (NOTE: not a Django model, stored in ClickHouse table `events`)
 
-    public async fetchEvents(): Promise<ClickHouseEvent[]> {
-        const events = (await this.clickhouseQuery(`SELECT * FROM events ORDER BY timestamp ASC`))
-            .data as ClickHouseEvent[]
-        return (
-            events?.map(
-                (event) =>
-                    ({
-                        ...event,
-                        ...(typeof event['properties'] === 'string'
-                            ? { properties: JSON.parse(event.properties) }
-                            : {}),
-                        ...(!!event['person_properties'] && typeof event['person_properties'] === 'string'
-                            ? { person_properties: JSON.parse(event.person_properties) }
-                            : {}),
-                        ...(!!event['group0_properties'] && typeof event['group0_properties'] === 'string'
-                            ? { group0_properties: JSON.parse(event.group0_properties) }
-                            : {}),
-                        ...(!!event['group1_properties'] && typeof event['group1_properties'] === 'string'
-                            ? { group1_properties: JSON.parse(event.group1_properties) }
-                            : {}),
-                        ...(!!event['group2_properties'] && typeof event['group2_properties'] === 'string'
-                            ? { group2_properties: JSON.parse(event.group2_properties) }
-                            : {}),
-                        ...(!!event['group3_properties'] && typeof event['group3_properties'] === 'string'
-                            ? { group3_properties: JSON.parse(event.group3_properties) }
-                            : {}),
-                        ...(!!event['group4_properties'] && typeof event['group4_properties'] === 'string'
-                            ? { group4_properties: JSON.parse(event.group4_properties) }
-                            : {}),
-                        timestamp: clickHouseTimestampToISO(event.timestamp),
-                    } as ClickHouseEvent)
-            ) || []
-        )
+    public async fetchEvents(): Promise<Event[]> {
+        const queryResult = await this.clickhouseQuery<RawEvent>(`SELECT * FROM events ORDER BY timestamp ASC`)
+        return queryResult.data.map(parseEventRow)
     }
 
     public async fetchDeadLetterQueueEvents(): Promise<DeadLetterQueueEvent[]> {
@@ -1395,19 +1366,7 @@ export class DB {
         return events
     }
 
-    // Element
-
-    public async fetchElements(event?: Event): Promise<Element[]> {
-        const events = (
-            await this.clickhouseQuery(
-                `SELECT elements_chain FROM events WHERE uuid='${escapeClickHouseString((event as any).uuid)}'`
-            )
-        ).data as ClickHouseEvent[]
-        const chain = events?.[0]?.elements_chain
-        return chain ? chainToElements(chain) : []
-    }
-
-    // PluginLogEntry (NOTE: not a Django model anymore, stored in ClickHouse table `plugin_log_entries`)
+    // PluginLogEntry (NOTE: not a Django model, stored in ClickHouse table `plugin_log_entries`)
 
     public async fetchPluginLogEntries(): Promise<PluginLogEntry[]> {
         const queryResult = await this.clickhouseQuery(`SELECT * FROM plugin_log_entries`)

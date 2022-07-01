@@ -11,7 +11,6 @@ import {
     IngestionEvent,
     IngestionPersonData,
     PostgresSessionRecordingEvent,
-    PreIngestionEvent,
     SessionRecordingEvent,
     Team,
     TimestampFormat,
@@ -62,7 +61,7 @@ export class EventsProcessor {
         timestamp: DateTime,
         eventUuid: string,
         person: IngestionPersonData | undefined = undefined
-    ): Promise<PreIngestionEvent | null> {
+    ): Promise<IngestionEvent | null> {
         if (!UUID.validateString(eventUuid, false)) {
             throw new Error(`Not a valid UUID: "${eventUuid}"`)
         }
@@ -71,7 +70,7 @@ export class EventsProcessor {
             event: JSON.stringify(data),
         })
 
-        let result: PreIngestionEvent | null = null
+        let result: IngestionEvent | null = null
         try {
             // We know `normalizeEvent` has been called here.
             const properties: Properties = data.properties!
@@ -149,7 +148,7 @@ export class EventsProcessor {
         properties: Properties,
         timestamp: DateTime,
         person: IngestionPersonData | undefined
-    ): Promise<PreIngestionEvent> {
+    ): Promise<IngestionEvent> {
         event = sanitizeEventName(event)
         const elements: Record<string, any>[] | undefined = properties['$elements']
         let elementsList: Element[] = []
@@ -194,7 +193,7 @@ export class EventsProcessor {
         return res
     }
 
-    async createEvent(preIngestionEvent: PreIngestionEvent): Promise<IngestionEvent> {
+    async createEvent(preIngestionEvent: IngestionEvent): Promise<IngestionEvent> {
         const {
             eventUuid: uuid,
             event,
@@ -289,7 +288,7 @@ export class EventsProcessor {
         snapshot_data: Record<any, any>,
         properties: Properties,
         ip: string | null
-    ): Promise<PreIngestionEvent> {
+    ): Promise<IngestionEvent> {
         const timestampString = castTimestampOrNow(
             timestamp,
             this.kafkaProducer ? TimestampFormat.ClickHouse : TimestampFormat.ISO

@@ -516,28 +516,39 @@ export interface Element {
     group_id?: number
 }
 
-/** Usable Event model. */
-export interface Event {
-    id: number
+/** Properties shared by RawEvent and Event. */
+interface BaseEvent {
+    uuid: string
     event?: string
-    properties: Record<string, any>
-    elements?: Element[]
-    timestamp: string
     team_id: number
     distinct_id: string
-    elements_hash: string
+    elements_chain?: string
+}
+
+/** Raw event row from ClickHouse. */
+export interface RawEvent extends BaseEvent {
+    timestamp: string
     created_at: string
+    properties?: string
+    person_properties?: string
+    group0_properties?: string
+    group1_properties?: string
+    group2_properties?: string
+    group3_properties?: string
+    group4_properties?: string
+}
+
+/** Parsed event row. */
+export interface Event extends BaseEvent {
+    timestamp: DateTime
+    created_at: DateTime
+    properties: Record<string, any>
     person_properties: Record<string, any>
     group0_properties: Record<string, any>
     group1_properties: Record<string, any>
     group2_properties: Record<string, any>
     group3_properties: Record<string, any>
     group4_properties: Record<string, any>
-}
-
-export interface ClickHouseEvent extends Omit<Event, 'id' | 'elements' | 'elements_hash'> {
-    uuid: string
-    elements_chain: string | undefined
 }
 
 // Clickhouse event as read from kafka
@@ -551,6 +562,18 @@ export interface ClickhouseEventKafka {
     elements_chain: string
     properties: string
     person_properties: string | null
+}
+
+export interface IngestionEvent {
+    eventUuid: string
+    event: string
+    ip: string | null
+    teamId: TeamId
+    distinctId: string
+    properties: Properties
+    timestamp: DateTime | string
+    elementsList: Element[]
+    person?: IngestionPersonData | undefined
 }
 
 export interface DeadLetterQueueEvent {
@@ -845,7 +868,7 @@ export interface JobQueueConsumerControl {
 }
 
 export type IngestEventResponse =
-    | { success: true; actionMatches: Action[]; preIngestionEvent: PreIngestionEvent | null }
+    | { success: true; actionMatches: Action[]; preIngestionEvent: IngestionEvent | null }
     | { success: false; error: string }
 
 export interface EventDefinitionType {
@@ -920,17 +943,3 @@ export enum OrganizationMembershipLevel {
     Admin = 8,
     Owner = 15,
 }
-
-export interface PreIngestionEvent {
-    eventUuid: string
-    event: string
-    ip: string | null
-    teamId: TeamId
-    distinctId: string
-    properties: Properties
-    timestamp: DateTime | string
-    elementsList: Element[]
-    person?: IngestionPersonData | undefined
-}
-
-export type IngestionEvent = PreIngestionEvent

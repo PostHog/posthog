@@ -234,6 +234,9 @@ export function castTimestampOrNow(
     return castTimestampToClickhouseFormat(timestamp, timestampFormat)
 }
 
+const DATETIME_FORMAT_CLICKHOUSE_SECOND_PRECISION = 'yyyy-MM-dd HH:mm:ss'
+const DATETIME_FORMAT_CLICKHOUSE = 'yyyy-MM-dd HH:mm:ss.u'
+
 export function castTimestampToClickhouseFormat(
     timestamp: DateTime,
     timestampFormat: TimestampFormat = TimestampFormat.ISO
@@ -241,9 +244,9 @@ export function castTimestampToClickhouseFormat(
     timestamp = timestamp.toUTC()
     switch (timestampFormat) {
         case TimestampFormat.ClickHouseSecondPrecision:
-            return timestamp.toFormat('yyyy-MM-dd HH:mm:ss')
+            return timestamp.toFormat(DATETIME_FORMAT_CLICKHOUSE_SECOND_PRECISION)
         case TimestampFormat.ClickHouse:
-            return timestamp.toFormat('yyyy-MM-dd HH:mm:ss.u')
+            return timestamp.toFormat(DATETIME_FORMAT_CLICKHOUSE)
         case TimestampFormat.ISO:
             return timestamp.toUTC().toISO()
         default:
@@ -251,8 +254,12 @@ export function castTimestampToClickhouseFormat(
     }
 }
 
+export function clickHouseTimestampToDateTime(timestamp: string): DateTime {
+    return DateTime.fromFormat(timestamp, DATETIME_FORMAT_CLICKHOUSE, { zone: 'UTC' })
+}
+
 export function clickHouseTimestampToISO(timestamp: string): string {
-    return DateTime.fromFormat(timestamp, 'yyyy-MM-dd HH:mm:ss.u', { zone: 'UTC' }).toISO()
+    return clickHouseTimestampToDateTime(timestamp).toISO()
 }
 
 export function delay(ms: number): Promise<void> {

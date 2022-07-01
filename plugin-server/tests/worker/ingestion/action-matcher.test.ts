@@ -6,8 +6,8 @@ import {
     ActionStepUrlMatching,
     Element,
     Hub,
+    IngestionEvent,
     Person,
-    PreIngestionEvent,
     PropertyOperator,
     RawAction,
 } from '../../../src/types'
@@ -77,7 +77,7 @@ describe('ActionMatcher', () => {
     }
 
     /** Return a test event created on a common base using provided property overrides. */
-    function createTestEvent(overrides: Partial<PreIngestionEvent> = {}): PreIngestionEvent {
+    function createTestEvent(overrides: Partial<IngestionEvent> = {}): IngestionEvent {
         const url: string = overrides.properties?.$current_url ?? 'http://example.com/foo/'
         return {
             eventUuid: 'uuid1',

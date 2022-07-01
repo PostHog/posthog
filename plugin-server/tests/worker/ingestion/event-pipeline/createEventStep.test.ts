@@ -1,9 +1,9 @@
-import { PreIngestionEvent } from '../../../../src/types'
+import { IngestionEvent } from '../../../../src/types'
 import { createEventStep } from '../../../../src/worker/ingestion/event-pipeline/5-createEventStep'
 
 jest.mock('../../../../src/worker/plugins/run')
 
-const preIngestionEvent: PreIngestionEvent = {
+const preIngestionEvent: IngestionEvent = {
     eventUuid: 'uuid1',
     distinctId: 'my_id',
     ip: '127.0.0.1',
