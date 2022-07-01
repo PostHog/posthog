@@ -16,6 +16,7 @@ from posthog.models.utils import PersonPropertiesMode
 from posthog.queries.column_optimizer.column_optimizer import ColumnOptimizer
 from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
 from posthog.queries.person_query import PersonQuery
+from posthog.queries.session_query import SessionQuery
 from posthog.queries.util import parse_timestamps
 
 
@@ -163,28 +164,16 @@ class EventQuery(metaclass=ABCMeta):
 
     def _get_sessions_query(self) -> Tuple[str, Dict]:
         if self._should_join_sessions:
-            params = {"team_id": self._team_id}
-            parsed_date_from, parsed_date_to, date_params = parse_timestamps(filter=self._filter, team=self._team)
-            params.update(date_params)
+            session_query, session_params = SessionQuery(filter=self._filter, team=self._team).get_query()
 
             return (
                 f"""
                     INNER JOIN (
-                        SELECT
-                            $session_id,
-                            dateDiff('second',min(timestamp), max(timestamp)) as session_duration
-                        FROM
-                            events
-                        WHERE
-                            $session_id != ''
-                            AND team_id = %(team_id)s
-                            {parsed_date_from} - INTERVAL 24 HOUR
-                            {parsed_date_to} + INTERVAL 24 HOUR
-                        GROUP BY $session_id
-                    ) as {self.SESSION_TABLE_ALIAS}
-                    ON {self.SESSION_TABLE_ALIAS}.$session_id = {self.EVENT_TABLE_ALIAS}.$session_id
+                        {session_query}
+                    ) as {SessionQuery.SESSION_TABLE_ALIAS}
+                    ON {SessionQuery.SESSION_TABLE_ALIAS}.$session_id = {self.EVENT_TABLE_ALIAS}.$session_id
                 """,
-                params,
+                session_params,
             )
         return "", {}
 

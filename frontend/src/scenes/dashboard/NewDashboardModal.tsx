@@ -6,11 +6,11 @@ import { LemonButton } from 'lib/components/LemonButton'
 import { AvailableFeature } from '~/types'
 import { LemonSelect } from 'lib/components/LemonSelect'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
-import { DASHBOARD_RESTRICTION_OPTIONS } from './ShareModal'
 import { VerticalForm } from 'lib/forms/VerticalForm'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 import { LemonInput } from 'lib/components/LemonInput/LemonInput'
 import { LemonTextArea } from 'lib/components/LemonTextArea/LemonTextArea'
+import { DASHBOARD_RESTRICTION_OPTIONS } from './DashboardCollaborators'
 
 export function NewDashboardModal(): JSX.Element {
     const { hideNewDashboardModal } = useActions(newDashboardLogic)

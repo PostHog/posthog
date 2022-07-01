@@ -10,8 +10,10 @@ import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { useValues } from 'kea'
 import { groupsModel } from '~/models/groupsModel'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from '@posthog/lemon-ui'
 import { IconPlusMini } from 'lib/components/icons'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 export interface TaxonomicBreakdownButtonProps {
     breakdownType?: TaxonomicFilterGroupType
@@ -27,6 +29,16 @@ export function TaxonomicBreakdownButton({
     const [open, setOpen] = useState(false)
     const { allEventNames } = useValues(insightLogic)
     const { groupsTaxonomicTypes } = useValues(groupsModel)
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    const taxonomicGroupTypes = onlyCohorts
+        ? [TaxonomicFilterGroupType.CohortsWithAllUsers]
+        : [
+              TaxonomicFilterGroupType.EventProperties,
+              TaxonomicFilterGroupType.PersonProperties,
+              ...groupsTaxonomicTypes,
+              TaxonomicFilterGroupType.CohortsWithAllUsers,
+          ].concat(featureFlags[FEATURE_FLAGS.SESSION_ANALYSIS] ? [TaxonomicFilterGroupType.Sessions] : [])
 
     return (
         <Popup
@@ -40,16 +52,7 @@ export function TaxonomicBreakdownButton({
                         }
                     }}
                     eventNames={allEventNames}
-                    taxonomicGroupTypes={
-                        onlyCohorts
-                            ? [TaxonomicFilterGroupType.CohortsWithAllUsers]
-                            : [
-                                  TaxonomicFilterGroupType.EventProperties,
-                                  TaxonomicFilterGroupType.PersonProperties,
-                                  ...groupsTaxonomicTypes,
-                                  TaxonomicFilterGroupType.CohortsWithAllUsers,
-                              ]
-                    }
+                    taxonomicGroupTypes={taxonomicGroupTypes}
                 />
             }
             visible={open}

@@ -89,7 +89,8 @@ export const activityLogLogic = kea<activityLogLogicType>({
             const shouldPage =
                 (pageScope === ActivityScope.PERSON && hashParams['activeTab'] === 'history') ||
                 (pageScope === ActivityScope.FEATURE_FLAG && searchParams['tab'] === 'history') ||
-                (pageScope === ActivityScope.INSIGHT && searchParams['tab'] === 'history')
+                (pageScope === ActivityScope.INSIGHT && searchParams['tab'] === 'history') ||
+                pageScope === ActivityScope.PLUGIN
 
             if (shouldPage && pageInURL && pageInURL !== values.page && pageScope === props.scope) {
                 actions.setPage(pageInURL)
@@ -101,6 +102,8 @@ export const activityLogLogic = kea<activityLogLogicType>({
                 onPageChange(searchParams, hashParams, ActivityScope.FEATURE_FLAG),
             [urls.savedInsights()]: ({}, searchParams, hashParams) =>
                 onPageChange(searchParams, hashParams, ActivityScope.INSIGHT),
+            [urls.projectApps()]: ({}, searchParams, hashParams) =>
+                onPageChange(searchParams, hashParams, ActivityScope.PLUGIN),
         }
     },
     events: ({ actions }) => ({

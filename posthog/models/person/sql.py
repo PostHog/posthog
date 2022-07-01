@@ -337,16 +337,9 @@ INSERT INTO person_distinct_id2 (distinct_id, person_id, team_id, is_deleted, ve
 """
 
 DELETE_PERSON_BY_ID = """
-INSERT INTO person (id, created_at, team_id, properties, is_identified, _timestamp, _offset, is_deleted) SELECT %(id)s, %(created_at)s, %(team_id)s, %(properties)s, %(is_identified)s, %(_timestamp)s, 0, 1
+INSERT INTO person (id, created_at, team_id, properties, is_identified, _timestamp, version, _offset, is_deleted) SELECT %(id)s, %(created_at)s, %(team_id)s, %(properties)s, %(is_identified)s, %(_timestamp)s, %(version)s, 0, 1
 """
 
-DELETE_PERSON_EVENTS_BY_ID = """
-ALTER TABLE events DELETE
-WHERE distinct_id IN (
-    SELECT distinct_id FROM person_distinct_id WHERE person_id=%(id)s AND team_id = %(team_id)s
-)
-AND team_id = %(team_id)s
-"""
 
 INSERT_COHORT_ALL_PEOPLE_THROUGH_PERSON_ID = """
 INSERT INTO {cohort_table} SELECT generateUUIDv4(), actor_id, %(cohort_id)s, %(team_id)s, %(_timestamp)s, 0 FROM (

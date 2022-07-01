@@ -43,15 +43,8 @@ from posthog.constants import (
 from posthog.decorators import cached_function
 from posthog.helpers.multi_property_breakdown import protect_old_clients_from_multi_property_default
 from posthog.models import DashboardTile, Filter, Insight, Team, User
-from posthog.models.activity_logging.activity_log import (
-    ActivityPage,
-    Change,
-    Detail,
-    changes_between,
-    load_activity,
-    log_activity,
-)
-from posthog.models.activity_logging.serializers import ActivityLogSerializer
+from posthog.models.activity_logging.activity_log import Change, Detail, changes_between, load_activity, log_activity
+from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.dashboard import Dashboard
 from posthog.models.filters import RetentionFilter
 from posthog.models.filters.path_filter import PathFilter
@@ -68,14 +61,7 @@ from posthog.queries.trends.trends import Trends
 from posthog.queries.util import get_earliest_timestamp
 from posthog.settings import SITE_URL
 from posthog.tasks.update_cache import update_insight_cache
-from posthog.utils import (
-    DEFAULT_DATE_FROM_DAYS,
-    format_query_params_absolute_url,
-    get_safe_cache,
-    relative_date_parse,
-    should_refresh,
-    str_to_bool,
-)
+from posthog.utils import DEFAULT_DATE_FROM_DAYS, get_safe_cache, relative_date_parse, should_refresh, str_to_bool
 
 logger = structlog.get_logger(__name__)
 
@@ -719,7 +705,7 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDestr
         page = int(request.query_params.get("page", "1"))
 
         activity_page = load_activity(scope="Insight", team_id=self.team_id, limit=limit, page=page)
-        return self._return_activity_page(activity_page, limit, page, request)
+        return activity_page_response(activity_page, limit, page, request)
 
     @action(methods=["GET"], detail=True)
     def activity(self, request: request.Request, **kwargs):
@@ -731,23 +717,7 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDestr
             return Response("", status=status.HTTP_404_NOT_FOUND)
 
         activity_page = load_activity(scope="Insight", team_id=self.team_id, item_id=item_id, limit=limit, page=page)
-        return self._return_activity_page(activity_page, limit, page, request)
-
-    @staticmethod
-    def _return_activity_page(activity_page: ActivityPage, limit: int, page: int, request: request.Request) -> Response:
-        return Response(
-            {
-                "results": ActivityLogSerializer(activity_page.results, many=True,).data,
-                "next": format_query_params_absolute_url(request, page + 1, limit, offset_alias="page")
-                if activity_page.has_next
-                else None,
-                "previous": format_query_params_absolute_url(request, page - 1, limit, offset_alias="page")
-                if activity_page.has_previous
-                else None,
-                "total_count": activity_page.total_count,
-            },
-            status=status.HTTP_200_OK,
-        )
+        return activity_page_response(activity_page, limit, page, request)
 
 
 class LegacyInsightViewSet(InsightViewSet):

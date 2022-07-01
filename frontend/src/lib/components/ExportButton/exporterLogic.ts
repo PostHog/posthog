@@ -2,7 +2,7 @@ import { actions, kea, key, listeners, path, props, reducers } from 'kea'
 import api from 'lib/api'
 import { delay } from 'lib/utils'
 import posthog from 'posthog-js'
-import { teamLogic } from 'scenes/teamLogic'
+import { ExportedAssetType } from '~/types'
 import { lemonToast } from '../lemonToast'
 
 import type { exporterLogicType } from './exporterLogicType'
@@ -21,6 +21,20 @@ export enum ExporterFormat {
     PDF = 'application/pdf',
 }
 
+async function downloadExportedAsset(asset: ExportedAssetType): Promise<void> {
+    const downloadUrl = api.exports.determineExportUrl(asset.id)
+    const res = await api.getRaw(downloadUrl)
+    const blobObject = await res.blob()
+    const blob = window.URL.createObjectURL(blobObject)
+    const anchor = document.createElement('a')
+    anchor.style.display = 'none'
+    anchor.href = blob
+    anchor.download = asset.filename
+    document.body.appendChild(anchor)
+    anchor.click()
+    window.URL.revokeObjectURL(blob)
+}
+
 export const exporterLogic = kea<exporterLogicType>([
     path(['lib', 'components', 'ExportButton', 'ExporterLogic']),
     props({} as ExporterLogicProps),
@@ -31,8 +45,9 @@ export const exporterLogic = kea<exporterLogicType>([
         exportItem: (
             exportFormat: ExporterFormat,
             exportContext?: Record<string, any>,
+            exportParams?: Record<string, any>,
             successCallback?: () => void
-        ) => ({ exportFormat, exportContext, successCallback }),
+        ) => ({ exportFormat, exportContext, exportParams, successCallback }),
         exportItemSuccess: true,
         exportItemFailure: true,
     }),
@@ -49,63 +64,67 @@ export const exporterLogic = kea<exporterLogicType>([
     }),
 
     listeners(({ actions, props }) => ({
-        exportItem: async ({ exportFormat, exportContext, successCallback }) => {
-            lemonToast.info(`Export started...`)
-
-            const trackingProperties = {
-                export_format: exportFormat,
-                dashboard: props.dashboardId,
-                insight: props.insightId,
-                total_time_ms: 0,
-            }
-            const startTime = performance.now()
-
-            try {
-                let exportedAsset = await api.create(`api/projects/${teamLogic.values.currentTeamId}/exports`, {
+        exportItem: async ({ exportFormat, exportContext, exportParams, successCallback }) => {
+            const poller = new Promise(async (resolve, reject) => {
+                const trackingProperties = {
                     export_format: exportFormat,
                     dashboard: props.dashboardId,
                     insight: props.insightId,
-                    ...(exportContext || {}),
-                })
-
-                if (!exportedAsset.id) {
-                    throw new Error('Missing export_id from response')
+                    total_time_ms: 0,
                 }
+                const startTime = performance.now()
 
-                const downloadUrl = api.exports.determineExportUrl(exportedAsset.id)
+                try {
+                    let exportedAsset = await api.exports.create(
+                        {
+                            export_format: exportFormat,
+                            dashboard: props.dashboardId,
+                            insight: props.insightId,
+                            ...(exportContext || {}),
+                        },
+                        exportParams
+                    )
 
-                let attempts = 0
-
-                while (attempts < MAX_POLL) {
-                    attempts++
-
-                    if (exportedAsset.has_content) {
-                        actions.exportItemSuccess()
-                        lemonToast.success(`Export complete.`)
-                        successCallback?.()
-
-                        window.open(downloadUrl, '_blank')
-
-                        trackingProperties.total_time_ms = performance.now() - startTime
-                        posthog.capture('export succeeded', trackingProperties)
-
+                    if (!exportedAsset.id) {
+                        reject('Missing export_id from response')
                         return
                     }
 
-                    await delay(POLL_DELAY_MS)
+                    let attempts = 0
 
-                    exportedAsset = await api.get(
-                        `api/projects/${teamLogic.values.currentTeamId}/exports/${exportedAsset.id}`
-                    )
+                    while (attempts < MAX_POLL) {
+                        attempts++
+
+                        if (exportedAsset.has_content) {
+                            actions.exportItemSuccess()
+                            successCallback?.()
+                            await downloadExportedAsset(exportedAsset)
+
+                            trackingProperties.total_time_ms = performance.now() - startTime
+                            posthog.capture('export succeeded', trackingProperties)
+
+                            resolve('Export complete')
+                            return
+                        }
+
+                        await delay(POLL_DELAY_MS)
+
+                        exportedAsset = await api.exports.get(exportedAsset.id)
+                    }
+
+                    reject('Content not loaded in time...')
+                } catch (e: any) {
+                    actions.exportItemFailure()
+                    trackingProperties.total_time_ms = performance.now() - startTime
+                    posthog.capture('export failed', trackingProperties)
+                    reject(`Export failed: ${JSON.stringify(e)}`)
                 }
-
-                throw new Error('Content not loaded in time...')
-            } catch (e: any) {
-                actions.exportItemFailure()
-                trackingProperties.total_time_ms = performance.now() - startTime
-                posthog.capture('export failed', trackingProperties)
-                lemonToast.error(`Export failed: ${JSON.stringify(e)}`)
-            }
+            })
+            await lemonToast.promise(poller, {
+                pending: 'Export started...',
+                success: 'Export complete!',
+                error: 'Export failed!',
+            })
         },
     })),
 ])

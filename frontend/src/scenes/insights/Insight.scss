@@ -253,13 +253,8 @@
 }
 
 .funnel-insights-container {
-    padding: 24px;
     background-color: var(--funnel-canvas-background);
     border-radius: 0 0 var(--radius) var(--radius);
-
-    &.no-padding {
-        padding: 0;
-    }
 
     &.non-empty-state {
         min-height: 26rem;

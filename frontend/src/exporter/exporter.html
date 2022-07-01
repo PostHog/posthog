@@ -4,9 +4,9 @@
     <meta name="robots" content="noindex">
     <script>
       window.POSTHOG_EXPORTED_DATA = {{exported_data|safe}}
-      if (window.POSTHOG_EXPORTED_DATA.type === 'image') {
+      if (window.POSTHOG_EXPORTED_DATA.type) {
         var root = document.documentElement
-        root.className += ' in-posthog-image-export'
+        root.className += ' export-type-' + window.POSTHOG_EXPORTED_DATA.type
       }
     </script>
     {% include "head.html" %}

@@ -79,7 +79,7 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
 
     sender.add_periodic_task(crontab(minute="*/15"), check_async_migration_health.s())
 
-    if getattr(settings, "MULTI_TENANCY", False):
+    if settings.INGESTION_LAG_METRIC_TEAM_IDS:
         sender.add_periodic_task(60, ingestion_lag.s(), name="ingestion lag")
     sender.add_periodic_task(120, clickhouse_lag.s(), name="clickhouse table lag")
     sender.add_periodic_task(120, clickhouse_row_count.s(), name="clickhouse events table row count")
@@ -191,7 +191,7 @@ def pg_table_cache_hit_rate():
             )
             tables = cursor.fetchall()
             for row in tables:
-                gauge("pg_table_cache_hit_rate", row[1], tags={"table": row[0]})
+                gauge("pg_table_cache_hit_rate", float(row[1]), tags={"table": row[0]})
         except:
             # if this doesn't work keep going
             pass
@@ -262,6 +262,13 @@ def clickhouse_lag():
             pass
 
 
+HEARTBEAT_EVENT_TO_INGESTION_LAG_METRIC = {
+    "heartbeat": "ingestion",
+    "heartbeat_buffer": "ingestion_buffer",
+    "heartbeat_api": "ingestion_api",
+}
+
+
 @app.task(ignore_result=True)
 def ingestion_lag():
     from posthog.client import sync_execute
@@ -269,10 +276,12 @@ def ingestion_lag():
 
     # Requires https://github.com/PostHog/posthog-heartbeat-plugin to be enabled on team 2
     # Note that it runs every minute and we compare it with now(), so there's up to 60s delay
-    for event, metric in {"heartbeat": "ingestion", "heartbeat_api": "ingestion_api"}.items():
+    for event, metric in HEARTBEAT_EVENT_TO_INGESTION_LAG_METRIC.items():
         try:
-            query = """select now() - max(parseDateTimeBestEffortOrNull(JSONExtractString(properties, '$timestamp'))) from events where team_id = 2 and _timestamp > yesterday() and event = %(event)s;"""
-            lag = sync_execute(query, {"event": event})[0][0]
+            query = """
+                SELECT now() - max(parseDateTimeBestEffortOrNull(JSONExtractString(properties, '$timestamp')))
+                FROM events WHERE team_id IN %(team_ids)s AND _timestamp > yesterday() AND event = %(event)s;"""
+            lag = sync_execute(query, {"team_ids": settings.INGESTION_LAG_METRIC_TEAM_IDS, "event": event})[0][0]
             gauge(f"posthog_celery_{metric}_lag_seconds_rough_minute_precision", lag)
         except:
             pass
