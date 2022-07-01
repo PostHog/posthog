@@ -1,11 +1,13 @@
 import React from 'react'
+import './SentenceList.scss'
 
-interface SentenceListProps {
+export interface SentenceListProps {
     listParts: (string | JSX.Element | null)[]
     prefix?: string | JSX.Element | null
     suffix?: string | JSX.Element | null
 }
 
+/** Transforms a list of phrases into a cohesive English sentence using commas and the word 'and' where appropriate */
 export function SentenceList({ listParts, prefix = null, suffix = null }: SentenceListProps): JSX.Element {
     return (
         <div className="sentence-list">
