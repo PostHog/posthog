@@ -710,164 +710,183 @@ export function determineDifferenceType(
 
 const DATE_FORMAT = 'D MMM YYYY'
 
-export const dateMapping: Record<string, dateMappingOption> = {
-    Custom: { values: [] },
-    Today: {
+export const dateMapping: dateMappingOption[] = [
+    { key: 'Custom', values: [] },
+    {
+        key: 'Today',
         values: ['dStart'],
         getFormattedDate: (date: dayjs.Dayjs, format: string): string => date.startOf('d').format(format),
     },
-    Yesterday: {
+    {
+        key: 'Yesterday',
         values: ['-1d', '-1d'],
         getFormattedDate: (date: dayjs.Dayjs, format: string): string => date.subtract(1, 'd').format(format),
     },
-    'Last 24 hours': {
+    {
+        key: 'Last 24 hours',
         values: ['-24h'],
         getFormattedDate: (date: dayjs.Dayjs, format: string): string =>
             `${date.subtract(24, 'h').format(format)} - ${date.endOf('d').format(format)}`,
     },
-    'Last 48 hours': {
+    {
+        key: 'Last 48 hours',
         values: ['-48h'],
         getFormattedDate: (date: dayjs.Dayjs, format: string): string =>
             `${date.subtract(48, 'h').format(format)} - ${date.endOf('d').format(format)}`,
         inactive: true,
     },
-    'Last 3 days': {
+    {
+        key: 'Last 3 days',
         values: ['-3d'],
         getFormattedDate: (date: dayjs.Dayjs, format: string): string =>
             `${date.subtract(3, 'd').format(format)} - ${date.endOf('d').format(format)}`,
     },
-    'Last 7 days': {
+    {
+        key: 'Last 7 days',
         values: ['-7d'],
         getFormattedDate: (date: dayjs.Dayjs, format: string): string =>
             `${date.subtract(7, 'd').format(format)} - ${date.endOf('d').format(format)}`,
     },
-    'Last 14 days': {
+    {
+        key: 'Last 14 days',
         values: ['-14d'],
         getFormattedDate: (date: dayjs.Dayjs, format: string): string =>
             `${date.subtract(14, 'd').format(format)} - ${date.endOf('d').format(format)}`,
     },
-    'Last 30 days': {
+    {
+        key: 'Last 30 days',
         values: ['-30d'],
         getFormattedDate: (date: dayjs.Dayjs, format: string): string =>
             `${date.subtract(30, 'd').format(format)} - ${date.endOf('d').format(format)}`,
     },
-    'Last 90 days': {
+    {
+        key: 'Last 90 days',
         values: ['-90d'],
         getFormattedDate: (date: dayjs.Dayjs, format: string): string =>
             `${date.subtract(90, 'd').format(format)} - ${date.endOf('d').format(format)}`,
     },
-    'Last 180 days': {
+    {
+        key: 'Last 180 days',
         values: ['-180d'],
         getFormattedDate: (date: dayjs.Dayjs, format: string): string =>
             `${date.subtract(180, 'd').format(format)} - ${date.endOf('d').format(format)}`,
     },
-    'This month': {
+    {
+        key: 'This month',
         values: ['mStart'],
         getFormattedDate: (date: dayjs.Dayjs, format: string): string =>
             `${date.subtract(1, 'm').format(format)} - ${date.endOf('d').format(format)}`,
         inactive: true,
     },
-    'Previous month': {
+    {
+        key: 'Previous month',
         values: ['-1mStart', '-1mEnd'],
         getFormattedDate: (date: dayjs.Dayjs, format: string): string =>
             `${date.subtract(1, 'm').startOf('M').format(format)} - ${date.subtract(1, 'm').endOf('M').format(format)}`,
         inactive: true,
     },
-    'Year to date': {
+    {
+        key: 'Year to date',
         values: ['yStart'],
         getFormattedDate: (date: dayjs.Dayjs, format: string): string =>
             `${date.startOf('y').format(format)} - ${date.endOf('d').format(format)}`,
     },
-    'All time': { values: ['all'] },
-}
+    { key: 'All time', values: ['all'] },
+]
 
-export const dateMappingExperiment: Record<string, dateMappingOption> = {
-    Custom: { values: [] },
-    Today: {
+export const dateMappingExperiment: dateMappingOption[] = [
+    { key: 'Custom', values: [] },
+    {
+        key: 'Today',
         values: ['dStart'],
         getFormattedDate: (date: dayjs.Dayjs, format: string): string => date.startOf('d').format(format),
         defaultInterval: 'hour',
     },
-    Yesterday: {
+    {
+        key: 'Yesterday',
         values: ['-1d'],
         getFormattedDate: (date: dayjs.Dayjs, format: string): string => date.subtract(1, 'd').format(format),
         defaultInterval: 'hour',
     },
-    'Last 24 hours': {
+    {
+        key: 'Last 24 hours',
         values: ['-24h'],
         getFormattedDate: (date: dayjs.Dayjs, format: string): string =>
             `${date.subtract(24, 'h').format(format)} - ${date.endOf('d').format(format)}`,
         defaultInterval: 'hour',
     },
-    'Last 48 hours': {
+    {
+        key: 'Last 48 hours',
         values: ['-48h'],
         getFormattedDate: (date: dayjs.Dayjs, format: string): string =>
             `${date.subtract(48, 'h').format(format)} - ${date.endOf('d').format(format)}`,
         inactive: true,
         defaultInterval: 'hour',
     },
-    'Last 3 days': {
-        values: ['-3d'],
-        getFormattedDate: (date: dayjs.Dayjs, format: string): string =>
-            `${date.subtract(3, 'd').format(format)} - ${date.endOf('d').format(format)}`,
-        defaultInterval: 'hour',
-        inactive: true, // disabled because present as default option in the fixed date range picker
-    },
-    'Last 7 days': {
+    {
+        key: 'Last 7 days',
         values: ['-7d'],
         getFormattedDate: (date: dayjs.Dayjs, format: string): string =>
             `${date.subtract(7, 'd').format(format)} - ${date.endOf('d').format(format)}`,
         defaultInterval: 'day',
     },
-    'Last 14 days': {
+    {
+        key: 'Last 14 days',
         values: ['-14d'],
         getFormattedDate: (date: dayjs.Dayjs, format: string): string =>
             `${date.subtract(14, 'd').format(format)} - ${date.endOf('d').format(format)}`,
         defaultInterval: 'day',
     },
-    'Last 30 days': {
+    {
+        key: 'Last 30 days',
         values: ['-30d'],
         getFormattedDate: (date: dayjs.Dayjs, format: string): string =>
             `${date.subtract(30, 'd').format(format)} - ${date.endOf('d').format(format)}`,
         defaultInterval: 'day',
     },
-    'Last 90 days': {
+    {
+        key: 'Last 90 days',
         values: ['-90d'],
         getFormattedDate: (date: dayjs.Dayjs, format: string): string =>
             `${date.subtract(90, 'd').format(format)} - ${date.endOf('d').format(format)}`,
         defaultInterval: 'day',
     },
-    'Last 180 days': {
+    {
+        key: 'Last 180 days',
         values: ['-180d'],
         getFormattedDate: (date: dayjs.Dayjs, format: string): string =>
             `${date.subtract(180, 'd').format(format)} - ${date.endOf('d').format(format)}`,
         defaultInterval: 'month',
     },
-    'This month': {
+    {
+        key: 'This month',
         values: ['mStart'],
         getFormattedDate: (date: dayjs.Dayjs, format: string): string =>
             `${date.subtract(1, 'm').format(format)} - ${date.endOf('d').format(format)}`,
         inactive: true,
         defaultInterval: 'day',
     },
-    'Previous month': {
+    {
+        key: 'Previous month',
         values: ['-1mStart', '-1mEnd'],
         getFormattedDate: (date: dayjs.Dayjs, format: string): string =>
             `${date.subtract(1, 'm').startOf('M').format(format)} - ${date.subtract(1, 'm').endOf('M').format(format)}`,
         inactive: true,
         defaultInterval: 'day',
     },
-    'Year to date': {
+    {
+        key: 'Year to date',
         values: ['yStart'],
         getFormattedDate: (date: dayjs.Dayjs, format: string): string =>
             `${date.startOf('y').format(format)} - ${date.endOf('d').format(format)}`,
         defaultInterval: 'month',
     },
-    'All time': {
+    {
+        key: 'All time',
         values: ['all'],
         defaultInterval: 'month',
     },
-}
+]
 
 export const isDate = /([0-9]{4}-[0-9]{2}-[0-9]{2})/
 
@@ -875,11 +894,18 @@ export function getFormattedLastWeekDate(lastDay: dayjs.Dayjs = dayjs()): string
     return `${lastDay.subtract(7, 'week').format(DATE_FORMAT)} - ${lastDay.endOf('d').format(DATE_FORMAT)}`
 }
 
+const dateOptionsMap = {
+    q: 'quarter',
+    m: 'month',
+    w: 'week',
+    d: 'day',
+}
+
 export function dateFilterToText(
     dateFrom: string | dayjs.Dayjs | null | undefined,
     dateTo: string | dayjs.Dayjs | null | undefined,
     defaultValue: string,
-    dateOptions: Record<string, dateMappingOption> = dateMapping,
+    dateOptions: dateMappingOption[] = dateMapping,
     isDateFormatted: boolean = false,
     dateFormat: string = DATE_FORMAT
 ): string {
@@ -911,13 +937,40 @@ export function dateFilterToText(
         }
     }
 
-    let name = defaultValue
-    Object.entries(dateOptions).map(([key, { values, getFormattedDate }]) => {
+    for (const { key, values, getFormattedDate } of dateOptions) {
         if (values[0] === dateFrom && values[1] === dateTo && key !== 'Custom') {
-            name = isDateFormatted && getFormattedDate ? getFormattedDate(dayjs(), dateFormat) : key
+            return isDateFormatted && getFormattedDate ? getFormattedDate(dayjs(), dateFormat) : key
         }
-    })[0]
-    return name
+    }
+
+    if (dateFrom) {
+        const dateOption = dateOptionsMap[dateFrom.slice(-1)]
+        const counter = parseInt(dateFrom.slice(1, -1))
+        if (dateOption && counter) {
+            let date = null
+            switch (dateOption) {
+                case 'quarter':
+                    date = dayjs().subtract(counter * 3, 'M')
+                    break
+                case 'months':
+                    date = dayjs().subtract(counter, 'M')
+                    break
+                case 'weeks':
+                    date = dayjs().subtract(counter * 7, 'd')
+                    break
+                default:
+                    date = dayjs().subtract(counter, 'd')
+                    break
+            }
+            if (isDateFormatted) {
+                return `${date.format('YYYY-MM-DD')} - ${dayjs().endOf('d').format('YYYY-MM-DD')}`
+            } else {
+                return `Last ${counter} ${dateOption}${counter > 1 ? 's' : ''}`
+            }
+        }
+    }
+
+    return defaultValue
 }
 
 export function copyToClipboard(value: string, description: string = 'text'): boolean {

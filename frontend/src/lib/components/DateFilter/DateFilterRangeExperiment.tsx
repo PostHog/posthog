@@ -5,7 +5,7 @@ import { dayjs } from 'lib/dayjs'
 import { DatePicker } from '../DatePicker'
 import clsx from 'clsx'
 
-export function DateFilterRange(props: {
+export function DateFilterRangeExperiment(props: {
     onClickOutside: () => void
     onClick: (e: React.MouseEvent) => void
     onDateFromChange: (date?: dayjs.Dayjs) => void
@@ -94,7 +94,7 @@ export function DateFilterRange(props: {
                         return (
                             <div
                                 className={clsx('ant-picker-cell-inner', {
-                                    ['date-filter-today']:
+                                    ['DateFilterToday']:
                                         current.date() === today.date() &&
                                         current.month() === today.month() &&
                                         current.year() === today.year(),

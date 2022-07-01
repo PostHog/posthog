@@ -1,9 +1,9 @@
-.date-filter-today {
+.DateFilterToday {
     display: inline-block;
     position: relative;
 }
 
-.date-filter-today::before {
+.DateFilterToday::before {
     content: '•' !important;
     top: 0.5rem !important;
     border: 0 !important;

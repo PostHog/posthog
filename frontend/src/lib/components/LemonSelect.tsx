@@ -92,7 +92,7 @@ export function LemonSelect<O extends LemonSelectOptions>({
                 popup={{
                     ref: popupRef,
                     overlay: sections.map((section, i) => (
-                        <>
+                        <div key={i}>
                             {section.label ? (
                                 typeof section.label === 'string' ? (
                                     <h5>{section.label}</h5>
@@ -124,7 +124,7 @@ export function LemonSelect<O extends LemonSelectOptions>({
                                 </LemonButton>
                             ))}
                             {i < sections.length - 1 ? <LemonDivider /> : null}
-                        </>
+                        </div>
                     )),
                     sameWidth: dropdownMatchSelectWidth,
                     placement: dropdownPlacement,

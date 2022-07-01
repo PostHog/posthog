@@ -5,12 +5,9 @@ import { heatmapLogic } from '~/toolbar/elements/heatmapLogic'
 import { elementsLogic } from '~/toolbar/elements/elementsLogic'
 import { getShadowRootPopupContainer } from '~/toolbar/utils'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
-import { DateFilterExperiment } from 'lib/components/DateFilter/DateFilterExperiment'
 import { Spinner } from 'lib/components/Spinner/Spinner'
 import { LemonInput } from 'lib/components/LemonInput/LemonInput'
 import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 
 export function HeatmapStats(): JSX.Element {
     const { countedElements, clickCount, heatmapEnabled, heatmapLoading, heatmapFilter } = useValues(heatmapLogic)
@@ -18,9 +15,6 @@ export function HeatmapStats(): JSX.Element {
     const { setHighlightElement, setSelectedElement } = useActions(elementsLogic)
     const { wildcardHref } = useValues(currentPageLogic)
     const { setWildcardHref } = useActions(currentPageLogic)
-
-    const { featureFlags } = useValues(featureFlagLogic)
-    const dateFilterExperiment = featureFlags[FEATURE_FLAGS.DATE_FILTER_EXPERIMENT] === 'test'
 
     return (
         <div style={{ margin: 8 }}>
@@ -31,24 +25,15 @@ export function HeatmapStats(): JSX.Element {
                         <div style={{ color: '#888' }}>Use * as a wildcard</div>
                     </div>
                     <div style={{ marginBottom: 10 }} className="flex-center">
-                        {dateFilterExperiment ? (
-                            <DateFilterExperiment
-                                defaultValue="Last 7 days"
-                                dateFrom={heatmapFilter.date_from}
-                                dateTo={heatmapFilter.date_to}
-                                onChange={(date_from, date_to) => setHeatmapFilter({ date_from, date_to })}
-                                getPopupContainer={getShadowRootPopupContainer}
-                                popupStyle={{ zIndex: 9999999999 }}
-                            />
-                        ) : (
-                            <DateFilter
-                                defaultValue="Last 7 days"
-                                dateFrom={heatmapFilter.date_from}
-                                dateTo={heatmapFilter.date_to}
-                                onChange={(date_from, date_to) => setHeatmapFilter({ date_from, date_to })}
-                                getPopupContainer={getShadowRootPopupContainer}
-                            />
-                        )}
+                        <DateFilter
+                            defaultValue="Last 7 days"
+                            dateFrom={heatmapFilter.date_from}
+                            dateTo={heatmapFilter.date_to}
+                            onChange={(date_from, date_to) => setHeatmapFilter({ date_from, date_to })}
+                            getPopupContainer={getShadowRootPopupContainer}
+                            popupStyle={{ zIndex: 9999999999 }}
+                        />
+
                         {heatmapLoading ? <Spinner size="sm" style={{ marginLeft: 8 }} /> : null}
                     </div>
                     <div style={{ marginTop: 20, marginBottom: 10 }}>

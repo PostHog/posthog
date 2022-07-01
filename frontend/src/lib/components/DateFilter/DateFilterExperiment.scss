@@ -1,7 +1,7 @@
-.date-filter-options {
+.DateFilterOptions {
     padding: 0.5rem;
 
-    .custom-range-button {
+    .DateFilterOptions__button {
         display: flex;
         min-height: 2rem;
         height: 2rem;
@@ -15,7 +15,7 @@
         transition: background 0.3s ease;
     }
 
-    .custom-range-button:hover {
+    .DateFilterOptions__button:hover {
         background-color: var(--bg-mid);
     }
 }

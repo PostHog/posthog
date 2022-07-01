@@ -51,13 +51,14 @@ export const intervalFilterLogic = kea<intervalFilterLogicType>({
                 }
                 // get a defaultInterval for dateOptions that have a default value
                 let interval: IntervalType = 'day'
-                Object.entries(dateMapping).map(([key, { values, defaultInterval }]) => {
+                for (const { key, values, defaultInterval } of dateMapping) {
                     if (values[0] === date_from && values[1] === (date_to || undefined) && key !== 'Custom') {
                         if (defaultInterval) {
                             interval = defaultInterval
+                            break
                         }
                     }
-                })[0]
+                }
                 actions.setInterval(interval)
             }
         },

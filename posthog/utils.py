@@ -155,6 +155,9 @@ def relative_date_parse(input: str) -> datetime.datetime:
             date -= relativedelta(day=1)
         if match.group("position") == "End":
             date -= relativedelta(day=31)
+    elif match.group("type") == "q":
+        if match.group("number"):
+            date -= relativedelta(weeks=13 * int(match.group("number")))
     elif match.group("type") == "y":
         if match.group("number"):
             date -= relativedelta(years=int(match.group("number")))

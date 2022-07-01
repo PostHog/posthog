@@ -110,7 +110,7 @@ export const Popup = React.forwardRef<HTMLDivElement, PopupProps>(
             if (visible && referenceRef?.current && floatingRef?.current) {
                 return autoUpdate(referenceRef.current, floatingRef.current, update)
             }
-        }, [visible, referenceRef?.current, floatingRef?.current])
+        }, [visible, referenceRef?.current, floatingRef?.current, ...additionalRefs])
 
         const clonedChildren =
             typeof children === 'function'

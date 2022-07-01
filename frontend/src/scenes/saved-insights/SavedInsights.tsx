@@ -10,7 +10,6 @@ import { AppstoreFilled, StarFilled, StarOutlined, UnorderedListOutlined } from 
 import './SavedInsights.scss'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { membersLogic } from 'scenes/organization/Settings/membersLogic'
-import { DateFilterExperiment } from 'lib/components/DateFilter/DateFilterExperiment'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { PageHeader } from 'lib/components/PageHeader'
 import { SavedInsightsEmptyState } from 'scenes/insights/EmptyStates'
@@ -329,7 +328,6 @@ export function SavedInsights(): JSX.Element {
 
     const { featureFlags } = useValues(featureFlagLogic)
     const showActivityLog = featureFlags[FEATURE_FLAGS.INSIGHT_ACTIVITY_LOG]
-    const dateFilterExperiment = featureFlags[FEATURE_FLAGS.DATE_FILTER_EXPERIMENT] === 'test'
 
     return (
         <div className="saved-insights">
@@ -400,36 +398,23 @@ export function SavedInsights(): JSX.Element {
                             </Col>
                             <div style={{ display: 'flex', alignItems: 'center' }}>
                                 Last modified:
-                                {dateFilterExperiment ? (
-                                    <DateFilterExperiment
-                                        style={{ marginLeft: 8 }}
-                                        defaultValue="All time"
-                                        dateFrom={dateFrom}
-                                        dateTo={dateTo}
-                                        isDateFormatted={true}
-                                        onChange={(fromDate, toDate) =>
-                                            setSavedInsightsFilters({ dateFrom: fromDate, dateTo: toDate })
-                                        }
-                                        makeLabel={(key) => (
-                                            <>
-                                                <CalendarOutlined />
-                                                <span className="hide-when-small"> {key}</span>
-                                            </>
-                                        )}
-                                    />
-                                ) : (
-                                    <DateFilter
-                                        style={{ paddingLeft: 8 }}
-                                        defaultValue="All time"
-                                        disabled={false}
-                                        bordered={true}
-                                        dateFrom={dateFrom}
-                                        dateTo={dateTo}
-                                        onChange={(fromDate, toDate) =>
-                                            setSavedInsightsFilters({ dateFrom: fromDate, dateTo: toDate })
-                                        }
-                                    />
-                                )}
+                                <DateFilter
+                                    style={{ marginLeft: 8 }}
+                                    defaultValue="All time"
+                                    disabled={false}
+                                    bordered={true}
+                                    dateFrom={dateFrom}
+                                    dateTo={dateTo}
+                                    onChange={(fromDate, toDate) =>
+                                        setSavedInsightsFilters({ dateFrom: fromDate, dateTo: toDate })
+                                    }
+                                    makeLabel={(key) => (
+                                        <>
+                                            <CalendarOutlined />
+                                            <span className="hide-when-small"> {key}</span>
+                                        </>
+                                    )}
+                                />
                             </div>
                             {tab !== SavedInsightsTabs.Yours ? (
                                 <Col>
