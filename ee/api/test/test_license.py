@@ -126,8 +126,8 @@ class TestLicenseAPI(APILicensedTest):
 
         self.assertEqual(Team.objects.count(), 4)
         self.assertEqual(
-            [team.id for team in Team.objects.all()],
-            [self.team.pk, to_be_deleted.pk, not_to_be_deleted.pk, from_another_organisation.pk],
+            sorted([team.id for team in Team.objects.all()]),
+            sorted([self.team.pk, to_be_deleted.pk, not_to_be_deleted.pk, from_another_organisation.pk]),
         )
 
         mock = Mock()
@@ -137,7 +137,7 @@ class TestLicenseAPI(APILicensedTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
         self.assertEqual(Team.objects.count(), 2)  # deleted two teams
         self.assertEqual(
-            [team.id for team in Team.objects.all()], [self.team.pk, not_to_be_deleted.pk],
+            sorted([team.id for team in Team.objects.all()]), sorted([self.team.pk, not_to_be_deleted.pk]),
         )
         self.assertEqual(Organization.objects.count(), 1)
 
