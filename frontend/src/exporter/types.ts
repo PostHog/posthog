@@ -8,6 +8,7 @@ export enum ExportType {
 
 export interface ExportOptions {
     whitelabel?: boolean
+    noHeader?: boolean
     legend?: boolean
     fitScreen?: boolean
 }

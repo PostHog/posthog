@@ -152,6 +152,19 @@ export function Sharing({ dashboardId, insightShortId, insight, closeModal }: Sh
                                         />
                                     )}
                                 </Field>
+                                {insight && (
+                                    <Field name="noHeader" noStyle>
+                                        {({ value, onChange }) => (
+                                            <LemonSwitch
+                                                fullWidth
+                                                type="primary"
+                                                label={<div>Show title and description</div>}
+                                                onChange={() => onChange(!value)}
+                                                checked={!value}
+                                            />
+                                        )}
+                                    </Field>
+                                )}
                                 {showLegendCheckbox && (
                                     <Field name="legend" noStyle>
                                         {({ value, onChange }) => (

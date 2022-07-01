@@ -93,10 +93,12 @@ export const urls = {
         combineUrl(`/shared/${token}`, {
             ...(exportOptions?.whitelabel ? { whitelabel: null } : {}),
             ...(exportOptions?.legend ? { legend: null } : {}),
+            ...(exportOptions?.noHeader ? { legend: null } : {}),
         }).url,
     embedded: (token: string, exportOptions?: ExportOptions): string =>
         combineUrl(`/embedded/${token}`, {
             ...(exportOptions?.whitelabel ? { whitelabel: null } : {}),
             ...(exportOptions?.legend ? { legend: null } : {}),
+            ...(exportOptions?.noHeader ? { noHeader: null } : {}),
         }).url,
 }
