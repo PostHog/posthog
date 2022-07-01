@@ -48,7 +48,8 @@ UPDATE_CACHED_DASHBOARD_ITEMS_INTERVAL_SECONDS = settings.UPDATE_CACHED_DASHBOAR
 # following instructions from here https://django-structlog.readthedocs.io/en/latest/celery.html
 @setup_logging.connect
 def receiver_setup_logging(loglevel, logfile, format, colorize, **kwargs):  # pragma: no cover
-    logging.config.dictConfig(logs.LOGGING)
+    # mypy thinks logging doesn't have `.config` but it does ¯\_(ツ)_/¯
+    logging.config.dictConfig(logs.LOGGING)  # type:ignore
     logs.configure_structlog()
 
 
