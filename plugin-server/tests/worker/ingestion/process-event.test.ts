@@ -74,18 +74,18 @@ describe('EventsProcessor#createEvent()', () => {
                 uuid: eventUuid,
                 event: '$pageview',
                 properties: { event: 'property' },
-                timestamp: timestamp,
+                timestamp,
                 team_id: 2,
                 distinct_id: 'my_id',
-                elements_chain: '',
-                created_at: expect.any(String),
+                elements_chain: null,
+                created_at: expect.any(DateTime),
                 person_id: personUuid,
                 person_properties: { foo: 'bar' },
-                group0_properties: '',
-                group1_properties: '',
-                group2_properties: '',
-                group3_properties: '',
-                group4_properties: '',
+                group0_properties: {},
+                group1_properties: {},
+                group2_properties: {},
+                group3_properties: {},
+                group4_properties: {},
                 $group_0: '',
                 $group_1: '',
                 $group_2: '',
@@ -123,10 +123,10 @@ describe('EventsProcessor#createEvent()', () => {
                 group0_properties: {
                     group_prop: 'value',
                 },
-                group1_properties: '',
-                group2_properties: '',
-                group3_properties: '',
-                group4_properties: '',
+                group1_properties: {},
+                group2_properties: {},
+                group3_properties: {},
+                group4_properties: {},
             })
         )
     })
@@ -188,7 +188,7 @@ describe('EventsProcessor#createEvent()', () => {
                 uuid: eventUuid,
                 distinct_id: 'my_id',
                 person_id: '00000000-0000-0000-0000-000000000000',
-                person_properties: '',
+                person_properties: {},
             })
         )
 
