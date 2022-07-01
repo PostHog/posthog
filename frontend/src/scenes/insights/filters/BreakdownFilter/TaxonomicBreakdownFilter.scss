@@ -28,4 +28,23 @@
             color: var(--bg-depth);
         }
     }
+
+    .property-key-info {
+        display: flex;
+        white-space: unset;
+        align-items: center;
+        font-size: 1rem;
+        line-height: 1.25rem;
+
+        .property-key-info-logo {
+            height: 1rem;
+            margin-right: 0.25rem;
+        }
+    }
+}
+.histogram-bin-input {
+    width: 60px;
+    margin: 0 0.5rem;
+    padding: 0.25rem;
+    background-color: var(--bg-light);
 }
