@@ -11,6 +11,7 @@ import {
     IngestionEvent,
     IngestionPersonData,
     PostgresSessionRecordingEvent,
+    RawEvent,
     SessionRecordingEvent,
     Team,
     TimestampFormat,
@@ -213,7 +214,7 @@ export class EventsProcessor {
         const groupsProperties = await this.db.getPropertiesForGroups(teamId, groupIdentifiers)
         const groupsCreatedAt = await this.db.getCreatedAtForGroups(teamId, groupIdentifiers)
 
-        let eventPersonProperties: string | null = null
+        let eventPersonProperties: string | undefined
         let personInfo = preIngestionEvent.person
 
         if (personInfo) {
@@ -229,7 +230,8 @@ export class EventsProcessor {
             }
         }
 
-        const eventPayload: IEvent = {
+        /** Base event payload which should fit both IEvent (verbatim) and RawEvent (with some additions). */
+        const eventPayload = {
             uuid,
             event: safeClickhouseString(event),
             properties: JSON.stringify(properties ?? {}),
@@ -241,21 +243,23 @@ export class EventsProcessor {
         }
 
         const useExternalSchemas = this.clickhouseExternalSchemasEnabled(teamId)
-        // proto ingestion is deprecated and we won't support new additions to the schema
-        const message = useExternalSchemas
-            ? (EventProto.encodeDelimited(EventProto.create(eventPayload)).finish() as Buffer)
-            : Buffer.from(
-                  JSON.stringify({
-                      ...eventPayload,
-                      person_id: personInfo?.uuid,
-                      person_properties: eventPersonProperties,
-                      person_created_at: personInfo
-                          ? castTimestampOrNow(personInfo?.created_at, TimestampFormat.ClickHouseSecondPrecision)
-                          : null,
-                      ...groupsProperties,
-                      ...groupsCreatedAt,
-                  })
-              )
+        let message: Buffer
+        if (useExternalSchemas) {
+            // Proto ingestion, which is deprecated - we won't support new additions to the schema
+            message = EventProto.encodeDelimited(EventProto.create(eventPayload as IEvent)).finish() as Buffer
+        } else {
+            const rawEvent: RawEvent = {
+                ...eventPayload,
+                person_id: personInfo?.uuid,
+                person_properties: eventPersonProperties,
+                person_created_at: personInfo
+                    ? castTimestampOrNow(personInfo?.created_at, TimestampFormat.ClickHouseSecondPrecision)
+                    : undefined,
+                ...groupsProperties,
+                ...groupsCreatedAt,
+            }
+            message = Buffer.from(JSON.stringify(rawEvent))
+        }
 
         await this.kafkaProducer.queueMessage({
             topic: useExternalSchemas ? KAFKA_EVENTS : this.pluginsServer.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC,

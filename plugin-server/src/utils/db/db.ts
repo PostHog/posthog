@@ -7,7 +7,7 @@ import Redis from 'ioredis'
 import { ProducerRecord } from 'kafkajs'
 import { DateTime } from 'luxon'
 import { Pool, PoolClient, QueryResult, QueryResultRow } from 'pg'
-import { parseEventRow } from 'utils/event'
+import { convertToParsedEvent } from 'utils/event'
 
 import { CELERY_DEFAULT_QUEUE } from '../../config/constants'
 import {
@@ -1343,7 +1343,7 @@ export class DB {
 
     public async fetchEvents(): Promise<Event[]> {
         const queryResult = await this.clickhouseQuery<RawEvent>(`SELECT * FROM events ORDER BY timestamp ASC`)
-        return queryResult.data.map(parseEventRow)
+        return queryResult.data.map(convertToParsedEvent)
     }
 
     public async fetchDeadLetterQueueEvents(): Promise<DeadLetterQueueEvent[]> {

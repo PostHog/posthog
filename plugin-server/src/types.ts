@@ -519,10 +519,12 @@ export interface Element {
 /** Properties shared by RawEvent and Event. */
 interface BaseEvent {
     uuid: string
-    event?: string
+    event: string
     team_id: number
     distinct_id: string
-    elements_chain?: string
+    elements_chain: string
+    /** Person UUID. */
+    person_id?: string
 }
 
 /** Raw event row from ClickHouse. */
@@ -530,6 +532,7 @@ export interface RawEvent extends BaseEvent {
     timestamp: string
     created_at: string
     properties?: string
+    person_created_at?: string
     person_properties?: string
     group0_properties?: string
     group1_properties?: string
@@ -543,25 +546,13 @@ export interface Event extends BaseEvent {
     timestamp: DateTime
     created_at: DateTime
     properties: Record<string, any>
+    person_created_at: DateTime | null
     person_properties: Record<string, any>
     group0_properties: Record<string, any>
     group1_properties: Record<string, any>
     group2_properties: Record<string, any>
     group3_properties: Record<string, any>
     group4_properties: Record<string, any>
-}
-
-// Clickhouse event as read from kafka
-export interface ClickhouseEventKafka {
-    event: string
-    timestamp: string
-    team_id: number
-    distinct_id: string
-    created_at: string
-    uuid: string
-    elements_chain: string
-    properties: string
-    person_properties: string | null
 }
 
 export interface IngestionEvent {
