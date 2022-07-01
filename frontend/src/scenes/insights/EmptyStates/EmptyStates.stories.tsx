@@ -12,7 +12,7 @@ import { App } from 'scenes/App'
 // some metadata and optional parameters
 export default {
     title: 'Scenes-App/Insights/Error states',
-    parameters: { layout: 'fullscreen', options: { showPanel: false }, viewMode: 'canvas' },
+    parameters: { layout: 'fullscreen', options: { showPanel: false }, viewMode: 'story' },
 } as Meta
 
 export function EmptyState(): JSX.Element {
