@@ -5,7 +5,7 @@ from posthog.models.feature_flag import (
     FeatureFlagHashKeyOverride,
     FeatureFlagMatch,
     FeatureFlagMatcher,
-    get_overridden_feature_flags,
+    get_feature_flags,
     hash_key_overrides,
     set_feature_flag_hash_key_overrides,
 )
@@ -324,5 +324,5 @@ class TestFeatureFlagHashKeyOverrides(BaseTest, QueryMatchingTest):
 
     def test_entire_flow_with_hash_key_override(self):
         # get feature flags for 'other_id', with an override for 'example_id'
-        flags = get_overridden_feature_flags(self.team.pk, "other_id", {}, "example_id")
+        flags = get_feature_flags(self.team.pk, "other_id", {}, "example_id")
         self.assertEqual(flags, {"beta-feature": True, "multivariate-flag": "first-variant", "default-flag": True,})

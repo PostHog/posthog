@@ -332,8 +332,8 @@ def _get_active_feature_flags(
     return flags_enabled
 
 
-# Return feature flags with per-user overrides
-def get_overridden_feature_flags(
+# Return feature flags
+def get_feature_flags(
     team_id: int, distinct_id: str, groups: Dict[GroupTypeName, str] = {}, hash_key_override: Optional[str] = None
 ) -> Dict[str, Union[bool, str, None]]:
 
@@ -345,49 +345,42 @@ def get_overridden_feature_flags(
         feature_flag.ensure_experience_continuity for feature_flag in all_feature_flags
     )
 
-    person = PersonDistinctId.objects.filter(distinct_id=distinct_id, team_id=team_id).values_list("person_id")[:1]
+    if not flags_have_experience_continuity_enabled:
+        return _get_active_feature_flags(all_feature_flags, team_id, distinct_id, groups=groups)
 
-    if flags_have_experience_continuity_enabled:
-        try:
-            person_id = person[0][0]
-        except IndexError:
-            person_id = None
+    person_id = (
+        PersonDistinctId.objects.filter(distinct_id=distinct_id, team_id=team_id)
+        .values_list("person_id", flat=True)
+        .first()
+    )
 
-        if hash_key_override is not None:
-            # setting overrides only when we get an override
-            if person_id is None:
-                # :TRICKY: Some ingestion delays may mean that `$identify` hasn't yet created
-                # the new person on which decide was called.
-                # In this case, we can try finding the person_id for the old distinct id.
-                # This is safe, since once `$identify` is processed, it would only add the distinct_id to this
-                # existing person. If, because of race conditions, a person merge is called for later,
-                # then https://github.com/PostHog/posthog/blob/master/plugin-server/src/worker/ingestion/person-state.ts#L421
-                # will take care of it^.
-                person_id = (
-                    PersonDistinctId.objects.filter(distinct_id=hash_key_override, team_id=team_id)
-                    .values_list("person_id", flat=True)
-                    .first()
-                )
-                # If even this old person doesn't exist yet, we're facing severe ingestion delays
-                # and there's not much we can do, since all person properties based feature flags
-                # would fail server side anyway.
+    if hash_key_override is not None:
+        # setting overrides only when we get an override
+        if person_id is None:
+            # :TRICKY: Some ingestion delays may mean that `$identify` hasn't yet created
+            # the new person on which decide was called.
+            # In this case, we can try finding the person_id for the old distinct id.
+            # This is safe, since once `$identify` is processed, it would only add the distinct_id to this
+            # existing person. If, because of race conditions, a person merge is called for later,
+            # then https://github.com/PostHog/posthog/blob/master/plugin-server/src/worker/ingestion/person-state.ts#L421
+            # will take care of it^.
+            person_id = (
+                PersonDistinctId.objects.filter(distinct_id=hash_key_override, team_id=team_id)
+                .values_list("person_id", flat=True)
+                .first()
+            )
+            # If even this old person doesn't exist yet, we're facing severe ingestion delays
+            # and there's not much we can do, since all person properties based feature flags
+            # would fail server side anyway.
 
-            if person_id is not None:
-                set_feature_flag_hash_key_overrides(all_feature_flags, team_id, person_id, hash_key_override)
+        if person_id is not None:
+            set_feature_flag_hash_key_overrides(all_feature_flags, team_id, person_id, hash_key_override)
 
-        # :TRICKY: Consistency matters only when personIDs exist
-        # as overrides are stored on personIDs.
-        # We can optimise by not going down this path when person_id doesn't exist, or
-        # no flags have experience continuity enabled
-        feature_flags = _get_active_feature_flags(all_feature_flags, team_id, distinct_id, person_id, groups=groups)
-
-    else:
-        feature_flags = _get_active_feature_flags(all_feature_flags, team_id, distinct_id, groups=groups)
-
-    # TODO: Go down the override code path only when /decide requests for overrides
-    # Get a user's feature flag overrides from any distinct_id (not just the canonical one)
-
-    return feature_flags
+    # :TRICKY: Consistency matters only when personIDs exist
+    # as overrides are stored on personIDs.
+    # We can optimise by not going down this path when person_id doesn't exist, or
+    # no flags have experience continuity enabled
+    return _get_active_feature_flags(all_feature_flags, team_id, distinct_id, person_id, groups=groups)
 
 
 def set_feature_flag_hash_key_overrides(
