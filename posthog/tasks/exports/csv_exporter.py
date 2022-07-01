@@ -47,7 +47,7 @@ def stage_results_to_object_storage(
 
     for values in [row.values() for row in result]:
         line = [encode(v) for v in values]
-        temporary_file.write(",".join(line).encode("utf-8"))
+        temporary_file.write(f'{",".join(line)}\n'.encode("utf-8"))
 
     logger.info("csv_exporter.wrote_day_to_temp_file", day=day_filter.date_from)
 
