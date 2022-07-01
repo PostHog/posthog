@@ -3,7 +3,6 @@ import os
 import time
 from random import randrange
 
-import structlog
 from celery import Celery
 from celery.schedules import crontab
 from celery.signals import setup_logging, task_postrun, task_prerun
@@ -13,6 +12,7 @@ from django.utils import timezone
 from django_structlog.celery.steps import DjangoStructLogInitStep
 
 from posthog.redis import get_client
+from posthog.settings import logs
 from posthog.utils import get_crontab
 
 # set the default Django settings module for the 'celery' program.
@@ -48,66 +48,8 @@ UPDATE_CACHED_DASHBOARD_ITEMS_INTERVAL_SECONDS = settings.UPDATE_CACHED_DASHBOAR
 # following instructions from here https://django-structlog.readthedocs.io/en/latest/celery.html
 @setup_logging.connect
 def receiver_setup_logging(loglevel, logfile, format, colorize, **kwargs):  # pragma: no cover
-    logging.config.dictConfig(
-        {
-            "version": 1,
-            "disable_existing_loggers": False,
-            "formatters": {
-                "json_formatter": {
-                    "()": structlog.stdlib.ProcessorFormatter,
-                    "processor": structlog.processors.JSONRenderer(),
-                },
-                "plain_console": {
-                    "()": structlog.stdlib.ProcessorFormatter,
-                    "processor": structlog.dev.ConsoleRenderer(),
-                },
-                "key_value": {
-                    "()": structlog.stdlib.ProcessorFormatter,
-                    "processor": structlog.processors.KeyValueRenderer(
-                        key_order=["timestamp", "level", "event", "logger"]
-                    ),
-                },
-            },
-            "handlers": {
-                "console": {"class": "logging.StreamHandler", "formatter": "plain_console",},
-                "json_file": {
-                    "class": "logging.handlers.WatchedFileHandler",
-                    "filename": "logs/json.log",
-                    "formatter": "json_formatter",
-                },
-                "flat_line_file": {
-                    "class": "logging.handlers.WatchedFileHandler",
-                    "filename": "logs/flat_line.log",
-                    "formatter": "key_value",
-                },
-            },
-            "loggers": {
-                "django_structlog": {"handlers": ["console", "flat_line_file", "json_file"], "level": "INFO",},
-                "django_structlog_demo_project": {
-                    "handlers": ["console", "flat_line_file", "json_file"],
-                    "level": "INFO",
-                },
-            },
-        }
-    )
-
-    structlog.configure(
-        processors=[
-            structlog.stdlib.filter_by_level,
-            structlog.processors.TimeStamper(fmt="iso"),
-            structlog.stdlib.add_logger_name,
-            structlog.stdlib.add_log_level,
-            structlog.stdlib.PositionalArgumentsFormatter(),
-            structlog.processors.StackInfoRenderer(),
-            structlog.processors.format_exc_info,
-            structlog.processors.UnicodeDecoder(),
-            structlog.stdlib.ProcessorFormatter.wrap_for_formatter,
-        ],
-        context_class=structlog.threadlocal.wrap_dict(dict),
-        logger_factory=structlog.stdlib.LoggerFactory(),
-        wrapper_class=structlog.stdlib.BoundLogger,
-        cache_logger_on_first_use=True,
-    )
+    logging.config.dictConfig(logs.LOGGING)
+    logs.configure_structlog()
 
 
 @app.on_after_configure.connect
