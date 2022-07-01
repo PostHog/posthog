@@ -2,7 +2,7 @@
     display: flex;
     min-height: 2rem;
     height: 2rem;
-    padding: 1.25rem 0.75rem;
+    padding: 1.25rem 0.5rem;
     align-items: center;
     color: var(--text-default);
     font-weight: normal;
@@ -15,7 +15,7 @@
         background-color: var(--bg-mid);
     }
 
-    .RollingDateRangeFilter--selected & {
+    &.RollingDateRangeFilter--selected {
         background: var(--primary-bg-hover);
         color: var(--text-default);
     }

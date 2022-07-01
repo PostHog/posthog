@@ -233,7 +233,7 @@ function DateFilterExperiment({
     ) : (
         <div ref={optionsRef} className="DateFilter" onClick={(e) => e.stopPropagation()}>
             {[
-                ...dateOptions.map(({ key, values, inactive }) => {
+                dateOptions.map(({ key, values, inactive }) => {
                     if (key === 'Custom' && !showCustom) {
                         return null
                     }

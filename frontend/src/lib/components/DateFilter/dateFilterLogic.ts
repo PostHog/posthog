@@ -100,7 +100,7 @@ export const dateFilterLogic = kea<dateFilterLogicType>([
     })),
     listeners(({ props }) => ({
         setDate: ({ dateFrom, dateTo }) => {
-            props.onChange && props.onChange(dateFrom, dateTo)
+            props.onChange?.(dateFrom, dateTo)
         },
     })),
     events(({ actions, values }) => ({

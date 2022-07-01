@@ -1,4 +1,4 @@
-import { actions, props, kea, listeners, path, reducers, selectors, defaults } from 'kea'
+import { actions, props, kea, listeners, path, reducers, selectors } from 'kea'
 import type { rollingDateRangeFilterLogicType } from './rollingDateRangeFilterLogicType'
 import { Dayjs } from 'lib/dayjs'
 import './RollingDateRangeFilter.scss'
@@ -17,6 +17,26 @@ export type RollingDateFilterLogicPropsType = {
     dateFrom?: Dayjs | string | null
 }
 
+const counterDefault = (selected: boolean | undefined, dateFrom: Dayjs | string | null | undefined): number => {
+    if (selected && dateFrom && typeof dateFrom === 'string') {
+        const counter = parseInt(dateFrom.slice(1, -1))
+        if (counter) {
+            return counter
+        }
+    }
+    return 3
+}
+
+const dateOptionDefault = (selected: boolean | undefined, dateFrom: Dayjs | string | null | undefined): string => {
+    if (selected && dateFrom && typeof dateFrom === 'string') {
+        const dateOption = dateOptionsMap[dateFrom.slice(-1)]
+        if (dateOption) {
+            return dateOption
+        }
+    }
+    return 'days'
+}
+
 export const rollingDateRangeFilterLogic = kea<rollingDateRangeFilterLogicType>([
     path(['lib', 'components', 'DateFilter', 'RollingDateRangeFilterLogic']),
     actions({
@@ -28,13 +48,9 @@ export const rollingDateRangeFilterLogic = kea<rollingDateRangeFilterLogicType>(
         select: true,
     }),
     props({} as RollingDateFilterLogicPropsType),
-    defaults(({ selectors }) => (_, props) => ({
-        dateOption: selectors.dateOptionDefault(_, props),
-        counter: selectors.counterDefault(_, props),
-    })),
-    reducers(() => ({
+    reducers(({ props }) => ({
         counter: [
-            3 as number | null | undefined,
+            counterDefault(props.selected, props.dateFrom) as number | null,
             {
                 increaseCounter: (state) => (state ? state + 1 : 1),
                 decreaseCounter: (state) => {
@@ -47,7 +63,7 @@ export const rollingDateRangeFilterLogic = kea<rollingDateRangeFilterLogicType>(
             },
         ],
         dateOption: [
-            'days',
+            dateOptionDefault(props.selected, props.dateFrom),
             {
                 setDateOption: (_, { option }) => option,
             },
@@ -84,34 +100,10 @@ export const rollingDateRangeFilterLogic = kea<rollingDateRangeFilterLogicType>(
                 return dateFilterToText(value, undefined, 'Custom rolling range', [], true)
             },
         ],
-        dateOptionDefault: [
-            () => [(_, props) => props.selected, (_, props) => props.dateFrom],
-            (selected: boolean, dateFrom: Dayjs | string | null): string => {
-                if (selected && dateFrom && typeof dateFrom === 'string') {
-                    const dateOption = dateOptionsMap[dateFrom.slice(-1)]
-                    if (dateOption) {
-                        return dateOption
-                    }
-                }
-                return 'days'
-            },
-        ],
-        counterDefault: [
-            () => [(_, props) => props.selected, (_, props) => props.dateFrom],
-            (selected: boolean, dateFrom: Dayjs | string | null): number => {
-                if (selected && dateFrom && typeof dateFrom === 'string') {
-                    const counter = parseInt(dateFrom.slice(1, -1))
-                    if (counter) {
-                        return counter
-                    }
-                }
-                return 3
-            },
-        ],
     })),
     listeners(({ props, values }) => ({
         select: () => {
-            props.onChange && props.onChange(values.value)
+            props.onChange?.(values.value)
         },
     })),
 ])

@@ -399,7 +399,7 @@ export function SavedInsights(): JSX.Element {
                             <div style={{ display: 'flex', alignItems: 'center' }}>
                                 Last modified:
                                 <DateFilter
-                                    style={{ marginLeft: 8 }}
+                                    style={{ marginLeft: '0.5rem' }}
                                     defaultValue="All time"
                                     disabled={false}
                                     bordered={true}
