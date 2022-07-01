@@ -32,7 +32,7 @@ def _block_for_asset(asset: ExportedAsset) -> Dict:
 def _handle_slack_event(event_payload: Any) -> None:
     slack_team_id = event_payload.get("team_id")
     channel = event_payload.get("event").get("channel")
-    thread_ts = event_payload.get("event").get("thread_ts")
+    message_ts = event_payload.get("event").get("message_ts")
     links_to_unfurl = event_payload.get("event").get("links")
 
     unfurls = {}
@@ -81,7 +81,7 @@ def _handle_slack_event(event_payload: Any) -> None:
                 }
 
     if unfurls:
-        slack_integration.client.chat_unfurl(unfurls=unfurls, channel=channel, ts=thread_ts)
+        slack_integration.client.chat_unfurl(unfurls=unfurls, channel=channel, ts=message_ts)
 
 
 @app.task()
