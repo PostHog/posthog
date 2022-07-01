@@ -301,7 +301,7 @@ class TrendsBreakdown:
         breakdown_value = self._get_breakdown_value(self.filter.breakdown)
 
         if self.filter.using_histogram:
-            breakdown_value = self._get_histogram_breakdown_value(breakdown_value, values_arr)
+            breakdown_value, values_arr = self._get_histogram_breakdown_values(breakdown_value, values_arr)
 
         return (
             {"values": values_arr},
@@ -340,9 +340,10 @@ class TrendsBreakdown:
 
             return breakdown_value
 
-    def _get_histogram_breakdown_value(self, raw_breakdown_value: str, buckets: List[int]):
+    def _get_histogram_breakdown_values(self, raw_breakdown_value: str, buckets: List[int]):
 
         multi_if_conditionals = []
+        values_arr = []
 
         for i in range(len(buckets) - 1):
             last_bucket = i == len(buckets) - 2
@@ -351,13 +352,12 @@ class TrendsBreakdown:
                 f"{raw_breakdown_value} >= {buckets[i]} AND {raw_breakdown_value} {'<=' if last_bucket else '<'} {buckets[i+1]}"
             )
             multi_if_conditionals.append(f"'{buckets[i]},{buckets[i+1]}'")
+            values_arr.append(f"{buckets[i]},{buckets[i+1]}")
 
         # else condition
         multi_if_conditionals.append(f"','")
 
-        return f"""
-            multiIf({','.join(multi_if_conditionals)})
-        """
+        return f"multiIf({','.join(multi_if_conditionals)})", values_arr
 
     def _parse_single_aggregate_result(
         self, filter: Filter, entity: Entity, additional_values: Dict[str, Any]
