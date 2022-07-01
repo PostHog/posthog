@@ -4,7 +4,7 @@ import { Exporter } from './Exporter'
 import { insight, dashboard } from '~/exporter/__mocks__/Exporter.mocks'
 
 export default {
-    title: 'Exporter/Insight',
+    title: 'Exporter/Exporter',
     component: Exporter,
     args: {
         type: 'embed',
