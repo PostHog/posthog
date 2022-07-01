@@ -1,10 +1,10 @@
 import * as Sentry from '@sentry/node'
 import { StatsD } from 'hot-shots'
 import { Consumer, Kafka } from 'kafkajs'
-import { KafkaProducerWrapper } from 'utils/db/kafka-producer-wrapper'
 
 import { KAFKA_HEALTHCHECK, prefix as KAFKA_PREFIX } from '../config/kafka-topics'
 import { Hub } from '../types'
+import { KafkaProducerWrapper } from '../utils/db/kafka-producer-wrapper'
 import { timeoutGuard } from '../utils/db/utils'
 import { status } from '../utils/status'
 import { delay } from '../utils/utils'

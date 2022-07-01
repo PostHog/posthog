@@ -7,7 +7,6 @@ import Redis from 'ioredis'
 import { ProducerRecord } from 'kafkajs'
 import { DateTime } from 'luxon'
 import { Pool, PoolClient, QueryResult, QueryResultRow } from 'pg'
-import { convertToParsedEvent } from 'utils/event'
 
 import { CELERY_DEFAULT_QUEUE } from '../../config/constants'
 import {
@@ -59,6 +58,7 @@ import {
     TeamId,
     TimestampFormat,
 } from '../../types'
+import { convertToParsedEvent } from '../event'
 import { instrumentQuery } from '../metrics'
 import {
     castTimestampOrNow,
