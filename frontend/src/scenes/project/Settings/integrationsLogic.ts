@@ -29,7 +29,7 @@ export const getSlackAppManifest = (): any => ({
     },
     features: {
         app_home: {
-            home_tab_enabled: true,
+            home_tab_enabled: false,
             messages_tab_enabled: false,
             messages_tab_read_only_enabled: true,
         },

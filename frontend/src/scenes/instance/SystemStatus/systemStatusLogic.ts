@@ -52,6 +52,7 @@ const EDITABLE_INSTANCE_SETTINGS = [
     'STRICT_CACHING_TEAMS',
     'SLACK_APP_CLIENT_ID',
     'SLACK_APP_CLIENT_SECRET',
+    'SLACK_APP_SIGNING_SECRET',
 ]
 
 export const systemStatusLogic = kea<systemStatusLogicType>({
