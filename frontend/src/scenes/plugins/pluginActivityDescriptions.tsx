@@ -4,7 +4,7 @@ import React from 'react'
 import { SECRET_FIELD_VALUE } from './utils'
 
 export function pluginActivityDescriber(logItem: ActivityLogItem): string | JSX.Element | null {
-    if (logItem.scope !== ActivityScope.PLUGIN) {
+    if (logItem.scope !== ActivityScope.PLUGIN && logItem.scope !== ActivityScope.PLUGIN_CONFIG) {
         console.error('plugin describer received a non-plugin activity')
         return null
     }
@@ -26,10 +26,25 @@ export function pluginActivityDescriber(logItem: ActivityLogItem): string | JSX.
     }
 
     if (logItem.activity == 'enabled') {
+        const changes: (string | JSX.Element)[] = []
+        for (const change of logItem.detail.changes || []) {
+            const newValue = change.after === SECRET_FIELD_VALUE ? '<secret_value>' : change.after
+            changes.push(
+                <>
+                    field <code>{change.field}</code> set to <code>{newValue}</code>
+                </>
+            )
+        }
         return (
-            <>
-                enabled the app: <b>{logItem.detail.name}</b> with config ID {logItem.item_id}.
-            </>
+            <SentenceList
+                listParts={changes}
+                prefix={
+                    <>
+                        enabled the app: <b>{logItem.detail.name}</b> with config ID {logItem.item_id}
+                        {changes.length > 0 ? ', with' : '.'}
+                    </>
+                }
+            />
         )
     }
 

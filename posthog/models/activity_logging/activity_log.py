@@ -197,21 +197,23 @@ def dict_changes_between(model_type: ActivityScope, previous: Dict[Any, Any], ne
     if previous == new:
         return changes
 
-    if previous is not None:
-        fields = previous.keys() if previous is not None else []
+    previous = previous or {}
+    new = new or {}
 
-        for field in fields:
-            previous_value = previous.get(field, None)
-            new_value = new.get(field, None)
+    fields = set(list(previous.keys()) + list(new.keys()))
 
-            if previous_value is None and new_value is not None:
-                changes.append(Change(type=model_type, field=field, action="created", after=new_value,))
-            elif new_value is None and previous_value is not None:
-                changes.append(Change(type=model_type, field=field, action="deleted", before=previous_value,))
-            elif previous_value != new_value:
-                changes.append(
-                    Change(type=model_type, field=field, action="changed", before=previous_value, after=new_value,)
-                )
+    for field in fields:
+        previous_value = previous.get(field, None)
+        new_value = new.get(field, None)
+
+        if previous_value is None and new_value is not None:
+            changes.append(Change(type=model_type, field=field, action="created", after=new_value,))
+        elif new_value is None and previous_value is not None:
+            changes.append(Change(type=model_type, field=field, action="deleted", before=previous_value,))
+        elif previous_value != new_value:
+            changes.append(
+                Change(type=model_type, field=field, action="changed", before=previous_value, after=new_value,)
+            )
 
     return changes
 

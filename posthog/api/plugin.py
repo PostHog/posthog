@@ -1,6 +1,6 @@
 import json
 import re
-from typing import Any, Dict, Optional, Set, cast
+from typing import Any, Dict, List, Optional, Set, cast
 
 import requests
 from dateutil.relativedelta import relativedelta
@@ -24,7 +24,6 @@ from posthog.models.activity_logging.activity_log import (
     Change,
     Detail,
     dict_changes_between,
-    load_activity,
     load_all_activity,
     log_activity,
 )
@@ -45,6 +44,7 @@ from posthog.utils import format_query_params_absolute_url
 SECRET_FIELD_VALUE = "**************** POSTHOG SECRET FIELD ****************"
 
 
+# TODO: Log activity for plugin attachments
 def _update_plugin_attachments(request: request.Request, plugin_config: PluginConfig):
     for key, file in request.FILES.items():
         match = re.match(r"^add_attachment\[([^]]+)\]$", key)
@@ -56,16 +56,38 @@ def _update_plugin_attachments(request: request.Request, plugin_config: PluginCo
             _update_plugin_attachment(plugin_config, match.group(1), None)
 
 
-def log_config_update_activity(
-    new_plugin_config: PluginConfig, old_config: Dict[str, Any], secret_fields: Set[str], old_enabled: bool, user: Any
-):
-    config_changes = dict_changes_between("Plugin", old_config, new_plugin_config.config)
+def get_plugin_config_changes(old_config: Dict[str, Any], new_config: Dict[str, Any], secret_fields=[]) -> List[Change]:
+    config_changes = dict_changes_between("Plugin", old_config, new_config)
 
     for i, change in enumerate(config_changes):
         if change.field in secret_fields:
             config_changes[i] = Change(
                 type="PluginConfig", action=change.action, before=SECRET_FIELD_VALUE, after=SECRET_FIELD_VALUE
             )
+
+    return config_changes
+
+
+def log_enabled_change_activity(new_plugin_config: PluginConfig, old_enabled: bool, user: Any, changes=[]):
+    if old_enabled != new_plugin_config.enabled:
+        log_activity(
+            organization_id=new_plugin_config.team.organization.id,
+            # Users in an org but not yet in a team can technically manage plugins via the API
+            team_id=new_plugin_config.team.id,
+            user=user,
+            item_id=new_plugin_config.id,
+            scope="PluginConfig",
+            activity="enabled" if not old_enabled else "disabled",
+            detail=Detail(name=new_plugin_config.plugin.name, changes=changes),
+        )
+
+
+def log_config_update_activity(
+    new_plugin_config: PluginConfig, old_config: Dict[str, Any], secret_fields: Set[str], old_enabled: bool, user: Any
+):
+    config_changes = get_plugin_config_changes(
+        old_config=old_config, new_config=new_plugin_config.config, secret_fields=secret_fields
+    )
 
     if len(config_changes) > 0:
         log_activity(
@@ -79,17 +101,7 @@ def log_config_update_activity(
             detail=Detail(name=new_plugin_config.plugin.name, changes=config_changes),
         )
 
-    if old_enabled != new_plugin_config.enabled:
-        log_activity(
-            organization_id=new_plugin_config.team.organization.id,
-            # Users in an org but not yet in a team can technically manage plugins via the API
-            team_id=new_plugin_config.team.id,
-            user=user,
-            item_id=new_plugin_config.id,
-            scope="PluginConfig",
-            activity="enabled" if not old_enabled else "disabled",
-            detail=Detail(name=new_plugin_config.plugin.name),
-        )
+    log_enabled_change_activity(new_plugin_config=new_plugin_config, old_enabled=old_enabled, user=user)
 
 
 def _update_plugin_attachment(plugin_config: PluginConfig, key: str, file: Optional[UploadedFile]):
@@ -381,20 +393,6 @@ class PluginViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
         return activity_page_response(activity_page, limit, page, request)
 
-    @action(methods=["GET"], detail=True)
-    def activity(self, request: request.Request, **kwargs):
-        limit = int(request.query_params.get("limit", "10"))
-        page = int(request.query_params.get("page", "1"))
-
-        item_id = kwargs["pk"]
-        if not Plugin.objects.filter(id=item_id, team_id=request.user.team.id).exists():  # type: ignore
-            return Response("", status=status.HTTP_404_NOT_FOUND)
-
-        activity_page = load_activity(
-            scope="Plugin", team_id=request.user.team.id, item_id=item_id, limit=limit, page=page  # type: ignore
-        )
-        return activity_page_response(activity_page, limit, page, request)
-
     @staticmethod
     def _activity_page_response(
         activity_page: ActivityPage, limit: int, page: int, request: request.Request
@@ -464,7 +462,19 @@ class PluginConfigSerializer(serializers.ModelSerializer):
         existing_config = PluginConfig.objects.filter(team=validated_data["team"], plugin_id=validated_data["plugin"])
         if existing_config.exists():
             return self.update(existing_config.first(), validated_data)  # type: ignore
+
         plugin_config = super().create(validated_data)
+        log_enabled_change_activity(
+            new_plugin_config=plugin_config,
+            old_enabled=False,
+            changes=get_plugin_config_changes(
+                old_config={},
+                new_config=plugin_config.config,
+                secret_fields=_get_secret_fields_for_plugin(plugin_config.plugin),
+            ),
+            user=self.context["request"].user,
+        )
+
         _update_plugin_attachments(self.context["request"], plugin_config)
         return plugin_config
 
