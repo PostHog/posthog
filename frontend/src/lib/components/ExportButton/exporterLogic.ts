@@ -65,60 +65,66 @@ export const exporterLogic = kea<exporterLogicType>([
 
     listeners(({ actions, props }) => ({
         exportItem: async ({ exportFormat, exportContext, exportParams, successCallback }) => {
-            lemonToast.info(`Export started...`)
-
-            const trackingProperties = {
-                export_format: exportFormat,
-                dashboard: props.dashboardId,
-                insight: props.insightId,
-                total_time_ms: 0,
-            }
-            const startTime = performance.now()
-
-            try {
-                let exportedAsset = await api.exports.create(
-                    {
-                        export_format: exportFormat,
-                        dashboard: props.dashboardId,
-                        insight: props.insightId,
-                        ...(exportContext || {}),
-                    },
-                    exportParams
-                )
-
-                if (!exportedAsset.id) {
-                    throw new Error('Missing export_id from response')
+            const poller = new Promise(async (resolve, reject) => {
+                const trackingProperties = {
+                    export_format: exportFormat,
+                    dashboard: props.dashboardId,
+                    insight: props.insightId,
+                    total_time_ms: 0,
                 }
+                const startTime = performance.now()
 
-                let attempts = 0
+                try {
+                    let exportedAsset = await api.exports.create(
+                        {
+                            export_format: exportFormat,
+                            dashboard: props.dashboardId,
+                            insight: props.insightId,
+                            ...(exportContext || {}),
+                        },
+                        exportParams
+                    )
 
-                while (attempts < MAX_POLL) {
-                    attempts++
-
-                    if (exportedAsset.has_content) {
-                        actions.exportItemSuccess()
-                        lemonToast.success(`Export complete.`)
-                        successCallback?.()
-                        await downloadExportedAsset(exportedAsset)
-
-                        trackingProperties.total_time_ms = performance.now() - startTime
-                        posthog.capture('export succeeded', trackingProperties)
-
+                    if (!exportedAsset.id) {
+                        reject('Missing export_id from response')
                         return
                     }
 
-                    await delay(POLL_DELAY_MS)
+                    let attempts = 0
 
-                    exportedAsset = await api.exports.get(exportedAsset.id)
+                    while (attempts < MAX_POLL) {
+                        attempts++
+
+                        if (exportedAsset.has_content) {
+                            actions.exportItemSuccess()
+                            successCallback?.()
+                            await downloadExportedAsset(exportedAsset)
+
+                            trackingProperties.total_time_ms = performance.now() - startTime
+                            posthog.capture('export succeeded', trackingProperties)
+
+                            resolve('Export complete')
+                            return
+                        }
+
+                        await delay(POLL_DELAY_MS)
+
+                        exportedAsset = await api.exports.get(exportedAsset.id)
+                    }
+
+                    reject('Content not loaded in time...')
+                } catch (e: any) {
+                    actions.exportItemFailure()
+                    trackingProperties.total_time_ms = performance.now() - startTime
+                    posthog.capture('export failed', trackingProperties)
+                    reject(`Export failed: ${JSON.stringify(e)}`)
                 }
-
-                throw new Error('Content not loaded in time...')
-            } catch (e: any) {
-                actions.exportItemFailure()
-                trackingProperties.total_time_ms = performance.now() - startTime
-                posthog.capture('export failed', trackingProperties)
-                lemonToast.error(`Export failed: ${JSON.stringify(e)}`)
-            }
+            })
+            await lemonToast.promise(poller, {
+                pending: 'Export started...',
+                success: 'Export complete!',
+                error: 'Export failed!',
+            })
         },
     })),
 ])
