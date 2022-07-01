@@ -128,25 +128,6 @@ def delete_experiment_flags(sender, instance, **kwargs):
     FeatureFlag.objects.filter(experiment=instance).update(deleted=True)
 
 
-class FeatureFlagOverride(models.Model):
-    class Meta:
-        constraints = [
-            models.UniqueConstraint(
-                fields=["user", "feature_flag", "team"], name="unique feature flag for a user/team combo",
-            ),
-        ]
-
-    feature_flag: models.ForeignKey = models.ForeignKey("FeatureFlag", on_delete=models.CASCADE)
-    user: models.ForeignKey = models.ForeignKey("User", on_delete=models.CASCADE)
-    override_value: models.JSONField = models.JSONField()
-    team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
-
-    def get_analytics_metadata(self) -> Dict:
-        return {
-            "override_value_type": type(self.override_value).__name__,
-        }
-
-
 class FeatureFlagHashKeyOverride(models.Model):
     class Meta:
         constraints = [
@@ -429,3 +410,18 @@ def set_feature_flag_hash_key_overrides(
 
     if new_overrides:
         FeatureFlagHashKeyOverride.objects.bulk_create(new_overrides)
+
+
+# DEPRECATED: This model is no longer used, but it's not deleted to avoid downtime
+class FeatureFlagOverride(models.Model):
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["user", "feature_flag", "team"], name="unique feature flag for a user/team combo",
+            ),
+        ]
+
+    feature_flag: models.ForeignKey = models.ForeignKey("FeatureFlag", on_delete=models.CASCADE)
+    user: models.ForeignKey = models.ForeignKey("User", on_delete=models.CASCADE)
+    override_value: models.JSONField = models.JSONField()
+    team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)

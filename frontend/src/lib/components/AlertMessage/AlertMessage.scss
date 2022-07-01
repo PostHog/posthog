@@ -1,5 +1,4 @@
 .AlertMessage {
-    background-color: var(--radius-light);
     border-radius: var(--radius);
     padding: 0.5rem 0.75rem;
     color: var(--primary-alt);
@@ -7,13 +6,6 @@
     display: flex;
     align-items: center;
     text-align: left;
-
-    .AlertMessage__icon {
-        line-height: 0;
-        flex-shrink: 0;
-        font-size: 1.5rem;
-        margin: 0.25rem 0.75rem 0.25rem 0;
-    }
 
     &.info {
         background-color: var(--depr-rgba-primary_alt-0-09);
@@ -32,4 +24,19 @@
     p {
         margin-bottom: 0.25em;
     }
+}
+
+.AlertMessage__icon {
+    line-height: 0;
+    flex-shrink: 0;
+    font-size: 1.5rem;
+    margin: 0.25rem 0.75rem 0.25rem 0;
+}
+
+.AlertMessage__text {
+    flex-grow: 1;
+}
+
+.AlertMessage__close {
+    margin-left: 0.5rem;
 }
