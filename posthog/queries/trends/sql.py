@@ -241,19 +241,6 @@ ORDER BY breakdown_value
 """
 
 
-BREAKDOWN_HISTOGRAM_AGGREGATE_QUERY_SQL = """
-SELECT histogram(%(bin_count)s)({aggregate_operation}) AS histogram
-SELECT {aggregate_operation} AS total, {breakdown_value} AS breakdown_value
-FROM events e
-{person_join}
-{groups_join}
-{sessions_join_condition}
-{breakdown_filter}
-GROUP BY breakdown_value
-ORDER BY breakdown_value
-"""
-
-
 SESSION_MATH_BREAKDOWN_AGGREGATE_QUERY_SQL = """
 SELECT {aggregate_operation} AS total, breakdown_value
 FROM (

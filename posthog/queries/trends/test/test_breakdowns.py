@@ -156,3 +156,18 @@ class TestBreakdowns(ClickhouseTestMixin, APIBaseTest):
                 (180, 2.0, [0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
             ],
         )
+
+    @snapshot_clickhouse_queries
+    def test_breakdown_by_session_duration_of_unique_sessions_with_bucketing(self):
+        response = self._run(
+            {"breakdown": "$session_duration", "breakdown_type": "session", "breakdown_histogram_bin_count": 3},
+            events_extra={"math": "unique_session"},
+        )
+        self.assertEqual(
+            [(item["breakdown_value"], item["count"], item["data"]) for item in response],
+            [
+                ("0.0,59.0", 1.0, [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
+                ("59.0,92.0", 2.0, [2.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
+                ("92.0,180.0", 2.0, [0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
+            ],
+        )
