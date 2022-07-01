@@ -430,6 +430,9 @@ const api = {
                 [ActivityScope.PLUGIN]: () => {
                     return new ApiRequest().pluginsActivity()
                 },
+                [ActivityScope.PLUGIN_CONFIG]: () => {
+                    return new ApiRequest().pluginsActivity()
+                },
             }
 
             const pagingParameters = { page: page || 1, limit: ACTIVITY_PAGE_SIZE }

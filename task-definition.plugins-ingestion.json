@@ -113,8 +113,8 @@
                     "value": "0 5 * * SUN"
                 },
                 {
-                    "name": "CONVERSION_BUFFER_ENABLED",
-                    "value": "True"
+                    "name": "CONVERSION_BUFFER_ENABLED_TEAMS",
+                    "value": "7964,2"
                 }
             ],
             "secrets": [

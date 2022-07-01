@@ -22,7 +22,12 @@ export function AlertMessage({ type, onClose, children, style }: AlertMessagePro
             </div>
             <div className="AlertMessage__text">{children}</div>
             {onClose && (
-                <LemonButton type="tertiary" className="ml-05" icon={<IconClose />} onClick={() => onClose()} />
+                <LemonButton
+                    type="tertiary"
+                    className="AlertMessage__close"
+                    icon={<IconClose />}
+                    onClick={() => onClose()}
+                />
             )}
         </div>
     )

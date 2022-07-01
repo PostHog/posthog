@@ -1203,6 +1203,15 @@ body {
             margin-bottom: 0;
         }
     }
+
+    // Tooltip styles
+    .ant-tooltip-inner {
+        background-color: var(--bg-charcoal);
+    }
+
+    .ant-tooltip {
+        max-width: 350px;
+    }
 }
 
 .loading-overlay {
