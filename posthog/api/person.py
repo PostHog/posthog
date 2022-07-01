@@ -32,6 +32,7 @@ from posthog.api.utils import format_paginated_url, get_target_entity
 from posthog.client import sync_execute
 from posthog.constants import CSV_EXPORT_LIMIT, INSIGHT_FUNNELS, INSIGHT_PATHS, LIMIT, TRENDS_TABLE, FunnelVizType
 from posthog.decorators import cached_function
+from posthog.logging.timing import timed
 from posthog.models import Cohort, Filter, Person, User
 from posthog.models.activity_logging.activity_log import (
     ActivityPage,
@@ -347,20 +348,7 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         value = request.GET.get("value")
         flattened = []
         if key:
-            timer = statsd.timer("get_person_property_values_for_key_timer").start()
-            try:
-                result = get_person_property_values_for_key(key, self.team, value)
-                statsd.incr(
-                    "get_person_property_values_for_key_success", tags={"team_id": self.team.id},
-                )
-            except Exception as e:
-                statsd.incr(
-                    "get_person_property_values_for_key_error",
-                    tags={"error": str(e), "key": key, "value": value, "team_id": self.team.id},
-                )
-                raise e
-            finally:
-                timer.stop()
+            result = self._get_person_property_values_for_key(key, value)
 
             for (value, count) in result:
                 try:
@@ -369,6 +357,22 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
                 except json.decoder.JSONDecodeError:
                     flattened.append({"name": convert_property_value(value), "count": count})
         return response.Response(flattened)
+
+    @timed("get_person_property_values_for_key_timer")
+    def _get_person_property_values_for_key(self, key, value):
+        try:
+            result = get_person_property_values_for_key(key, self.team, value)
+            statsd.incr(
+                "get_person_property_values_for_key_success", tags={"team_id": self.team.id},
+            )
+        except Exception as e:
+            statsd.incr(
+                "get_person_property_values_for_key_error",
+                tags={"error": str(e), "key": key, "value": value, "team_id": self.team.id},
+            )
+            raise e
+
+        return result
 
     @action(methods=["POST"], detail=True)
     def merge(self, request: request.Request, pk=None, **kwargs) -> response.Response:
