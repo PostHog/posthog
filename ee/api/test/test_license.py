@@ -119,18 +119,26 @@ class TestLicenseAPI(APILicensedTest):
     @pytest.mark.skip_on_multitenancy
     @patch("ee.api.license.requests.post")
     def test_can_cancel_license(self, patch_post):
-        Team.objects.create(organization=self.organization)
-        Team.objects.create(organization=self.organization, is_demo=True)  # don't delete
+        to_be_deleted = Team.objects.create(organization=self.organization)
+        not_to_be_deleted = Team.objects.create(organization=self.organization, is_demo=True)  # don't delete
         other_org = Organization.objects.create()
-        Team.objects.create(organization=other_org)
+        from_another_organisation = Team.objects.create(organization=other_org)
+
+        self.assertEqual(Team.objects.count(), 4)
+        self.assertEqual(
+            [team.id for team in Team.objects.all()],
+            [self.team.pk, to_be_deleted.pk, not_to_be_deleted.pk, from_another_organisation.pk],
+        )
 
         mock = Mock()
         mock.json.return_value = {"ok": True}
         patch_post.return_value = mock
         response = self.client.delete(f"/api/license/{self.license.pk}/")
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
-        self.assertEqual(Team.objects.count(), 2)
-        self.assertEqual(Team.objects.all()[0].pk, self.team.pk)
+        self.assertEqual(Team.objects.count(), 2)  # deleted two teams
+        self.assertEqual(
+            [team.id for team in Team.objects.all()], [self.team.pk, not_to_be_deleted.pk],
+        )
         self.assertEqual(Organization.objects.count(), 1)
 
     @pytest.mark.skip_on_multitenancy
