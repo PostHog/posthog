@@ -16,6 +16,8 @@ import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
 import { pluginActivityDescriber } from './pluginActivityDescriptions'
 import { LemonTag } from '@posthog/lemon-ui'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 export const scene: SceneExport = {
     component: Plugins,
@@ -32,6 +34,8 @@ export function Plugins(): JSX.Element | null {
     const { user } = useValues(userLogic)
     const { pluginTab } = useValues(pluginsLogic)
     const { setPluginTab } = useActions(pluginsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+
     const { TabPane } = Tabs
 
     useEffect(() => {
@@ -69,21 +73,24 @@ export function Plugins(): JSX.Element | null {
                     <TabPane tab="Installed" key={PluginTab.Installed}>
                         <InstalledTab />
                     </TabPane>
-                    {canGloballyManagePlugins(user.organization) && (
+                    {canGloballyManagePlugins(user.organization) ? (
                         <TabPane tab="Repository" key={PluginTab.Repository}>
                             <RepositoryTab />
                         </TabPane>
-                    )}
-                    <TabPane
-                        tab={
-                            <>
-                                History <BetaTag />{' '}
-                            </>
-                        }
-                        key={PluginTab.History}
-                    >
-                        <ActivityLog scope={ActivityScope.PLUGIN} describer={pluginActivityDescriber} />
-                    </TabPane>
+                    ) : null}
+                    {featureFlags[FEATURE_FLAGS.PLUGINS_HISTORY] ? (
+                        <TabPane
+                            tab={
+                                <>
+                                    History <BetaTag />{' '}
+                                </>
+                            }
+                            key={PluginTab.History}
+                        >
+                            <ActivityLog scope={ActivityScope.PLUGIN} describer={pluginActivityDescriber} />
+                        </TabPane>
+                    ) : null}
+
                     <TabPane tab="Advanced" key={PluginTab.Advanced}>
                         <AdvancedTab />
                     </TabPane>
