@@ -1,9 +1,9 @@
-.DateFilterToday {
+.DateFilterRange__calendartoday {
     display: inline-block;
     position: relative;
 }
 
-.DateFilterToday::before {
+.DateFilterRange__calendartoday::before {
     content: '•' !important;
     top: 0.5rem !important;
     border: 0 !important;

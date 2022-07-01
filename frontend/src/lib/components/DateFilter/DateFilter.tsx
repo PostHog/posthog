@@ -231,7 +231,7 @@ function DateFilterExperiment({
             disableBeforeYear={2015}
         />
     ) : (
-        <div ref={optionsRef} className="date-filter-options" onClick={(e) => e.stopPropagation()}>
+        <div ref={optionsRef} className="DateFilter" onClick={(e) => e.stopPropagation()}>
             {[
                 ...dateOptions.map(({ key, values, inactive }) => {
                     if (key === 'Custom' && !showCustom) {

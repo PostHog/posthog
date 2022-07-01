@@ -1,21 +1,3 @@
-.DateFilterOptions {
+.DateFilter {
     padding: 0.5rem;
-
-    .DateFilterOptions__button {
-        display: flex;
-        min-height: 2rem;
-        height: 2rem;
-        padding: 1.25rem 0.75rem;
-        align-items: center;
-        color: var(--text-default);
-        font-weight: normal;
-        font-size: 0.875rem;
-        line-height: 1.375em;
-        cursor: pointer;
-        transition: background 0.3s ease;
-    }
-
-    .DateFilterOptions__button:hover {
-        background-color: var(--bg-mid);
-    }
 }

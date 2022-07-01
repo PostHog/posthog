@@ -94,7 +94,7 @@ export function DateFilterRangeExperiment(props: {
                         return (
                             <div
                                 className={clsx('ant-picker-cell-inner', {
-                                    ['DateFilterToday']:
+                                    ['DateFilterRange__calendartoday']:
                                         current.date() === today.date() &&
                                         current.month() === today.month() &&
                                         current.year() === today.year(),
