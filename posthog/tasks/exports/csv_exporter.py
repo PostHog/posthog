@@ -2,7 +2,7 @@ import datetime
 import gzip
 import tempfile
 import uuid
-from typing import IO
+from typing import IO, List
 
 import structlog
 from sentry_sdk import capture_exception, push_scope
@@ -18,14 +18,23 @@ from posthog.storage import object_storage
 logger = structlog.get_logger(__name__)
 
 
+def quote(s: str) -> str:
+    escaped = s.replace('"', '""')
+    return f'"{escaped}"'
+
+
 def encode(obj: object) -> str:
     if isinstance(obj, uuid.UUID):
-        return str(obj)
+        return quote(str(obj))
 
     if isinstance(obj, datetime.datetime):
-        return obj.isoformat()
+        return quote(obj.isoformat())
 
-    return str(obj)
+    return quote(str(obj))
+
+
+def join_to_csv_line(items: List[str]) -> str:
+    return f"{','.join(items)}\n"
 
 
 def stage_results_to_object_storage(
@@ -43,11 +52,12 @@ def stage_results_to_object_storage(
     logger.info("csv_exporter.read_from_clickhouse", number_of_results=len(result))
 
     if write_headers:
-        temporary_file.write(f"{','.join(result[0].keys())}\n".encode("utf-8"))
+        temporary_file.write(join_to_csv_line(result[0].keys()).encode("utf-8"))
 
     for values in [row.values() for row in result]:
         line = [encode(v) for v in values]
-        temporary_file.write(f'{",".join(line)}\n'.encode("utf-8"))
+        comma_separated_line = join_to_csv_line(line)
+        temporary_file.write(comma_separated_line.encode("utf-8"))
 
     logger.info("csv_exporter.wrote_day_to_temp_file", day=day_filter.date_from)
 
