@@ -4,6 +4,7 @@ import { pluginsLogic } from '../pluginsLogic'
 import { Drawer } from 'antd'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { pluginActivityDescriber } from '../pluginActivityDescriptions'
+import { ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
 
 export function HistoryDrawer(): JSX.Element {
     const { showingHistoryPlugin } = useValues(pluginsLogic)
@@ -19,7 +20,7 @@ export function HistoryDrawer(): JSX.Element {
             destroyOnClose
         >
             <ActivityLog
-                scope="Plugin"
+                scope={ActivityScope.PLUGIN}
                 id={showingHistoryPlugin?.pluginConfig.id}
                 describer={pluginActivityDescriber}
             />
