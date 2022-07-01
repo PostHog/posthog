@@ -13,12 +13,6 @@ class TeatActivityLog(TestCase):
 
         self.assertEqual(len(changes), 3)
 
-        self.assertContains(
-            changes, Change(type="Plugin", action="created", field="new_field", before=None, after="bar")
-        )
-        self.assertContains(
-            changes, Change(type="Plugin", action="changed", field="change_field", before="foo", after="bar")
-        )
-        self.assertContains(
-            changes, Change(type="Plugin", action="deleted", field="delete_field", before="foo", after=None)
-        )
+        self.assertIn(Change(type="Plugin", action="changed", field="change_field", before="foo", after="bar"), changes)
+        self.assertIn(Change(type="Plugin", action="created", field="new_field", before=None, after="bar"), changes)
+        self.assertIn(Change(type="Plugin", action="deleted", field="delete_field", before="foo", after=None), changes)
