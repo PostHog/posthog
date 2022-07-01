@@ -333,7 +333,7 @@ def _get_active_feature_flags(
 
 
 # Return feature flags
-def get_feature_flags(
+def get_active_feature_flags(
     team_id: int, distinct_id: str, groups: Dict[GroupTypeName, str] = {}, hash_key_override: Optional[str] = None
 ) -> Dict[str, Union[bool, str, None]]:
 
