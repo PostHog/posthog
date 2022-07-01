@@ -95,5 +95,6 @@ def export_csv(exported_asset: ExportedAsset, root_bucket: str = settings.OBJECT
 
         logger.error("csv_exporter.failed", exception=e)
         statsd.incr("csv_exporter.failed", tags={"team_id": team_id})
+        raise e
     finally:
         timer.stop()
