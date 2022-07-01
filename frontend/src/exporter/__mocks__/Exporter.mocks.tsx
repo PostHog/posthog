@@ -1,9 +1,15 @@
-export const insight = {
+import { InsightModel, InsightShortId, InsightType } from '~/types'
+
+export const insight: InsightModel = {
     id: 1,
-    short_id: 'Bhtk8tjh',
+    short_id: 'Bhtk8tjh' as InsightShortId,
     name: 'Daily active users (DAUs)',
     derived_name: null,
-    filters: { events: [{ id: '$pageview', math: 'dau', type: 'events' }], insight: 'TRENDS', interval: 'day' },
+    filters: {
+        events: [{ id: '$pageview', math: 'dau', type: 'events' }],
+        insight: InsightType.TRENDS,
+        interval: 'day',
+    },
     filters_hash: 'cache_60da01cbc38f11c52af35debe7e16c02',
     order: null,
     deleted: false,
@@ -171,4 +177,6 @@ export const insight = {
     effective_privilege_level: 37,
     timezone: null,
     tags: [],
+    layouts: {},
+    color: null,
 }
