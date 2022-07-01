@@ -86,7 +86,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: KAFKA_EVENTS_JSON,
         CONVERSION_BUFFER_ENABLED: false,
         CONVERSION_BUFFER_ENABLED_TEAMS: '',
-        BUFFER_CONVERSION_SECONDS: 60, // KEEP IN SYNC WITH posthog/settings/ingestion.py
+        BUFFER_CONVERSION_SECONDS: 60,
         PERSON_INFO_TO_REDIS_TEAMS: '',
         PERSON_INFO_CACHE_TTL: 5 * 60, // 5 min
         KAFKA_HEALTHCHECK_SECONDS: 20,

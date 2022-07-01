@@ -10,7 +10,6 @@ import { PanelSupport } from './PanelComponents'
 import './Panels.scss'
 import { IconCheckCircleOutline } from 'lib/components/icons'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { EventBufferNotice } from 'scenes/events/EventBufferNotice'
 
 export function VerificationPanel(): JSX.Element {
     const { loadCurrentTeam } = useActions(teamLogic)
@@ -37,7 +36,6 @@ export function VerificationPanel(): JSX.Element {
                                 Once you have integrated the snippet and sent an event, we will verify it was properly
                                 received and continue.
                             </p>
-                            <EventBufferNotice />
                             <LemonButton
                                 fullWidth
                                 center

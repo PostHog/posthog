@@ -1077,6 +1077,44 @@ class TestPluginAPI(APIBaseTest):
             # make sure we didn't emit a signal to reload plugins again
             self.assertEqual(mock_reload.call_count, 1)
 
+    @freeze_time("2021-08-25T22:09:14.252Z")
+    def test_get_all_activity(self, _, mock_reload):
+        self.organization.plugins_access_level = Organization.PluginsAccessLevel.INSTALL
+        self.organization.save()
+        response = self.client.post(
+            "/api/organizations/@current/plugins/", {"url": "https://github.com/PostHog/helloworldplugin"}
+        )
+        self.assertEqual(response.status_code, 201)
+
+        plugin_id = response.json()["id"]
+        response = self.client.post(
+            "/api/plugin_config/",
+            {"plugin": plugin_id, "enabled": True, "order": 0, "config": json.dumps({"bar": "moop"})},
+        )
+        plugin_config_id = response.json()["id"]
+
+        # We should get back activity for both Plugin and PluginConfig scopes
+        self.assert_plugin_activity(
+            [
+                {
+                    "activity": "installed",
+                    "created_at": "2021-08-25T22:09:14.252000Z",
+                    "detail": {"changes": None, "merge": None, "name": "helloworldplugin", "short_id": None},
+                    "item_id": str(plugin_id),
+                    "scope": "Plugin",
+                    "user": {"email": "user1@posthog.com", "first_name": ""},
+                },
+                {
+                    "activity": "enabled",
+                    "created_at": "2021-08-25T22:09:14.252000Z",
+                    "detail": {"changes": [], "merge": None, "name": "helloworldplugin", "short_id": None},
+                    "item_id": str(plugin_config_id),
+                    "scope": "PluginConfig",
+                    "user": {"email": "user1@posthog.com", "first_name": ""},
+                },
+            ],
+        )
+
 
 class TestPluginsAccessLevelAPI(APIBaseTest):
     def test_root_check(self):

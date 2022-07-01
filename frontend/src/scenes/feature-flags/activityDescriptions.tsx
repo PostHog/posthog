@@ -5,6 +5,7 @@ import { ChangeDescriptions, FeatureFlagFilters, FeatureFlagGroupType, FeatureFl
 import React from 'react'
 import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/PropertyFiltersDisplay'
 import { pluralize } from 'lib/utils'
+import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 
 const nameOrLinkToFlag = (item: ActivityLogItem): string | JSX.Element => {
     const name = item.detail.name || '(empty string)'
@@ -211,44 +212,4 @@ export function flagActivityDescriber(logItem: ActivityLogItem): string | JSX.El
     }
 
     return null
-}
-
-interface SentenceListProps {
-    listParts: (string | JSX.Element | null)[]
-    prefix?: string | JSX.Element | null
-    suffix?: string | JSX.Element | null
-}
-
-// TODO this should be a component. and needs the height of parts sorting out
-export function SentenceList({ listParts, prefix = null, suffix = null }: SentenceListProps): JSX.Element {
-    return (
-        <div className="sentence-list">
-            {prefix && <div className="sentence-part">{prefix} </div>}
-            <>
-                {listParts
-                    .filter((part) => !!part)
-                    .flatMap((part, index, all) => {
-                        const isntFirst = index > 0
-                        const isLast = index === all.length - 1
-                        const atLeastThree = all.length >= 2
-                        return [
-                            isntFirst && (
-                                <div className="sentence-part" key={`${index}-a`}>
-                                    ,{' '}
-                                </div>
-                            ),
-                            isLast && atLeastThree && (
-                                <div className="sentence-part" key={`${index}-b`}>
-                                    and{' '}
-                                </div>
-                            ),
-                            <div className="sentence-part" key={`${index}-c`}>
-                                {part}
-                            </div>,
-                        ]
-                    })}
-            </>
-            {suffix && <div className="sentence-part"> {suffix}</div>}
-        </div>
-    )
 }

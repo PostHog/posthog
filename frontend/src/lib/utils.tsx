@@ -1040,7 +1040,7 @@ export function pluralize(count: number, singular: string, plural?: string, incl
         plural = singular + 's'
     }
     const form = count === 1 ? singular : plural
-    return includeNumber ? `${humanFriendlyNumber(count)} ${form}` : form
+    return includeNumber ? `${humanFriendlyNumber(count)} ${form}` : form
 }
 
 /** Return a number in a compact format, with a SI suffix if applicable.

@@ -33,15 +33,15 @@ export async function emitToBufferStep(
  * This is so that we can better handle the case where one client uses a fresh distinct ID before another client
  * has managed to send the $identify event aliasing an existing anonymous distinct ID to the fresh distinct ID.
  *
- * This is easier to see with an example scenario:
+ * See this example scenario:
  * 1. User visits signup page,
  *    in turn frontend captures anonymous `$pageview` for distinct ID `XYZ` (anonymous distinct ID = device ID).
  *    This event gets person ID A.
  * 2. User click signup button, initiating in a backend request,
- *    in turn frontend captures anonymous `$autocapture` (click) for distinct ID `XYZ`.
+ *    in turn frontend captures anonymous `$autocapture` (click) for distinct ID `XYZ`
  *    This event gets person ID A.
  * 3. Signup request is processed in the backend,
- *    in turn backend captures identified `signup` for distinct ID `alice@example.com`.
+ *    in turn backend captures identified `signup` for distinct ID `alice@example.com`,
  *    OOPS! We haven't seen `alice@example.com` before, so this event gets person ID B.
  * 4. Signup request finishes successfully,
  *    in turn frontend captures identified `$identify` aliasing distinct ID `XYZ` to `alice@example.com`.
