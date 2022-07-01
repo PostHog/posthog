@@ -10,7 +10,6 @@ export interface ExportOptions {
     whitelabel?: boolean
     noHeader?: boolean
     legend?: boolean
-    fitScreen?: boolean
 }
 
 export interface ExportedData extends ExportOptions {

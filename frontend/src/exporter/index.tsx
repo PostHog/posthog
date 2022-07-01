@@ -17,4 +17,4 @@ initKea()
 
 const exportedData: ExportedData = window.POSTHOG_EXPORTED_DATA
 
-ReactDOM.render(<Exporter exportedData={exportedData} />, document.getElementById('root'))
+ReactDOM.render(<Exporter {...exportedData} />, document.getElementById('root'))

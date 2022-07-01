@@ -8,15 +8,17 @@ import { INSIGHT_TYPES_METADATA } from 'scenes/saved-insights/SavedInsights'
 import { dateFilterToText } from 'lib/utils'
 import { FriendlyLogo } from '~/toolbar/assets/FriendlyLogo'
 import { InsightLegend } from 'lib/components/InsightLegend/InsightLegend'
-import { ExportOptions } from '~/exporter/types'
+import { ExportOptions, ExportType } from '~/exporter/types'
 import clsx from 'clsx'
 
 export function ExportedInsight({
     insight,
-    exportOptions: { whitelabel, noHeader, legend, fitScreen },
+    exportOptions: { whitelabel, noHeader, legend },
+    type,
 }: {
     insight: InsightModel
     exportOptions: ExportOptions
+    type: ExportType
 }): JSX.Element {
     const insightLogicProps: InsightLogicProps = {
         dashboardItemId: insight.short_id,
@@ -37,7 +39,7 @@ export function ExportedInsight({
         <BindLogic logic={insightLogic} props={insightLogicProps}>
             <div
                 className={clsx('ExportedInsight', {
-                    'ExportedInsight--fit-screen': fitScreen,
+                    'ExportedInsight--fit-screen': type === ExportType.Embed,
                 })}
             >
                 {!noHeader && (

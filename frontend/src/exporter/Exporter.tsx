@@ -7,15 +7,9 @@ import { ExportedInsight } from '~/exporter/ExportedInsight/ExportedInsight'
 import { FriendlyLogo } from '~/toolbar/assets/FriendlyLogo'
 import { Dashboard } from 'scenes/dashboard/Dashboard'
 
-export interface ExporterProps {
-    exportedData: ExportedData
-}
-
-export function Exporter({ exportedData }: ExporterProps): JSX.Element {
-    const { type, dashboard, insight, team, ...exportOptions } = exportedData
+export function Exporter(props: ExportedData): JSX.Element {
+    const { type, dashboard, insight, team, ...exportOptions } = props
     const { whitelabel } = exportOptions
-
-    exportOptions.fitScreen = exportOptions.fitScreen ?? type == ExportType.Embed
 
     return (
         <div className="Exporter">
@@ -51,7 +45,7 @@ export function Exporter({ exportedData }: ExporterProps): JSX.Element {
             ) : null}
 
             {insight ? (
-                <ExportedInsight insight={insight} exportOptions={exportOptions} />
+                <ExportedInsight type={type} insight={insight} exportOptions={exportOptions} />
             ) : dashboard ? (
                 <Dashboard
                     id={String(dashboard.id)}
