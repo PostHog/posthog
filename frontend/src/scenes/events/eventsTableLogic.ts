@@ -281,7 +281,7 @@ export const eventsTableLogic = kea<eventsTableLogicType>({
     listeners: ({ actions, values, props }) => ({
         startDownload: () => {
             if (!!values.featureFlags[FEATURE_FLAGS.ASYNC_EXPORT_CSV_FOR_LIVE_EVENTS]) {
-                actions.exportItem(ExporterFormat.CSV, values.exportParams)
+                actions.exportItem(ExporterFormat.CSV, {}, values.exportParams)
             } else {
                 lemonToast.success('The export is starting. It should finish soon')
                 window.location.href = values.exportUrl
