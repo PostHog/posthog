@@ -1,26 +1,17 @@
 import '~/styles'
 import './Exporter.scss'
 import React from 'react'
-import ReactDOM from 'react-dom'
-import { loadPostHogJS } from '~/loadPostHogJS'
-import { initKea } from '~/initKea'
 import { ExportedData, ExportType } from '~/exporter/types'
 import { DashboardPlacement } from '~/types'
 import { ExportedInsight } from '~/exporter/ExportedInsight/ExportedInsight'
 import { FriendlyLogo } from '~/toolbar/assets/FriendlyLogo'
 import { Dashboard } from 'scenes/dashboard/Dashboard'
 
-const exportedData: ExportedData = window.POSTHOG_EXPORTED_DATA
+export interface ExporterProps {
+    exportedData: ExportedData
+}
 
-// Disable tracking for all exports and embeds.
-// This is explicitly set as to not track our customers' customers data.
-// Without it, embeds of self-hosted iframes will log metrics to app.posthog.com.
-window.JS_POSTHOG_API_KEY = null
-
-loadPostHogJS()
-initKea()
-
-function Exporter(): JSX.Element {
+export function Exporter({ exportedData }: ExporterProps): JSX.Element {
     const { type, dashboard, insight, team, ...exportOptions } = exportedData
     const { whitelabel } = exportOptions
 
@@ -88,5 +79,3 @@ function Exporter(): JSX.Element {
         </div>
     )
 }
-
-ReactDOM.render(<Exporter />, document.getElementById('root'))
