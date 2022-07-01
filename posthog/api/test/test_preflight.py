@@ -12,8 +12,6 @@ from posthog.version import VERSION
 
 
 class TestPreflight(APIBaseTest):
-    maxDiff = 2000
-
     def instance_preferences(self, **kwargs):
         return {
             "debug_queries": False,
@@ -87,7 +85,6 @@ class TestPreflight(APIBaseTest):
                     "can_create_org": False,
                     "instance_preferences": {"debug_queries": True, "disable_paid_fs": False,},
                     "object_storage": False,
-                    "buffer_conversion_seconds": 60,
                 },
             )
             self.assertDictContainsSubset({"Europe/Moscow": 3, "UTC": 0}, available_timezones)
@@ -131,7 +128,6 @@ class TestPreflight(APIBaseTest):
                     "can_create_org": False,
                     "instance_preferences": {"debug_queries": True, "disable_paid_fs": False,},
                     "object_storage": True,
-                    "buffer_conversion_seconds": 60,
                 },
             )
             self.assertDictContainsSubset({"Europe/Moscow": 3, "UTC": 0}, available_timezones)
@@ -200,7 +196,6 @@ class TestPreflight(APIBaseTest):
                     "can_create_org": True,
                     "instance_preferences": {"debug_queries": False, "disable_paid_fs": False,},
                     "object_storage": False,
-                    "buffer_conversion_seconds": 60,
                 },
             )
             self.assertDictContainsSubset({"Europe/Moscow": 3, "UTC": 0}, available_timezones)
@@ -246,7 +241,6 @@ class TestPreflight(APIBaseTest):
                     "can_create_org": True,
                     "instance_preferences": {"debug_queries": False, "disable_paid_fs": True,},
                     "object_storage": False,
-                    "buffer_conversion_seconds": 60,
                 },
             )
             self.assertDictContainsSubset({"Europe/Moscow": 3, "UTC": 0}, available_timezones)
