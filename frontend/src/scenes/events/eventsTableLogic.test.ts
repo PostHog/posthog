@@ -47,6 +47,7 @@ const secondEvent = makeEvent('1', '2023-05-05T00:00:00.000Z')
 
 const beforeLastEventsTimestamp = '2023-05-05T00:00:00.000Z'
 const afterTheFirstEvent = 'the first timestamp'
+const afterOneMonthAgo = '2021-04-05T00:00:00.000Z'
 const afterOneYearAgo = '2020-05-05T00:00:00.000Z'
 const fiveDaysAgo = '2021-04-30T00:00:00.000Z'
 const orderByTimestamp = '["-timestamp"]'
@@ -410,7 +411,7 @@ describe('eventsTableLogic', () => {
                     expect(getUrlParameters(logic.values.exportUrl)).toEqual({
                         properties: emptyProperties,
                         orderBy: orderByTimestamp,
-                        after: afterOneYearAgo,
+                        after: afterOneMonthAgo,
                     })
                 })
 
@@ -423,7 +424,7 @@ describe('eventsTableLogic', () => {
                     expect(getUrlParameters(logic.values.exportUrl)).toEqual({
                         properties: propertiesWithFilterValue,
                         orderBy: orderByTimestamp,
-                        after: afterOneYearAgo,
+                        after: afterOneMonthAgo,
                     })
                 })
 

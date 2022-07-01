@@ -450,9 +450,10 @@ const api = {
 
         async create(
             data: Partial<ExportedAssetType>,
+            params: Record<string, any> = {},
             teamId: TeamType['id'] = getCurrentTeamId()
         ): Promise<ExportedAssetType> {
-            return new ApiRequest().exports(teamId).create({ data })
+            return new ApiRequest().exports(teamId).withQueryString(toParams(params)).create({ data })
         },
 
         async get(id: number, teamId: TeamType['id'] = getCurrentTeamId()): Promise<ExportedAssetType> {

@@ -45,8 +45,9 @@ export const exporterLogic = kea<exporterLogicType>([
         exportItem: (
             exportFormat: ExporterFormat,
             exportContext?: Record<string, any>,
+            exportParams?: Record<string, any>,
             successCallback?: () => void
-        ) => ({ exportFormat, exportContext, successCallback }),
+        ) => ({ exportFormat, exportContext, exportParams, successCallback }),
         exportItemSuccess: true,
         exportItemFailure: true,
     }),
@@ -63,7 +64,7 @@ export const exporterLogic = kea<exporterLogicType>([
     }),
 
     listeners(({ actions, props }) => ({
-        exportItem: async ({ exportFormat, exportContext, successCallback }) => {
+        exportItem: async ({ exportFormat, exportContext, exportParams, successCallback }) => {
             const poller = new Promise(async (resolve, reject) => {
                 const trackingProperties = {
                     export_format: exportFormat,
@@ -74,12 +75,15 @@ export const exporterLogic = kea<exporterLogicType>([
                 const startTime = performance.now()
 
                 try {
-                    let exportedAsset = await api.exports.create({
-                        export_format: exportFormat,
-                        dashboard: props.dashboardId,
-                        insight: props.insightId,
-                        ...(exportContext || {}),
-                    })
+                    let exportedAsset = await api.exports.create(
+                        {
+                            export_format: exportFormat,
+                            dashboard: props.dashboardId,
+                            insight: props.insightId,
+                            ...(exportContext || {}),
+                        },
+                        exportParams
+                    )
 
                     if (!exportedAsset.id) {
                         reject('Missing export_id from response')
