@@ -117,7 +117,8 @@ class SlackIntegration(object):
         if not slack_config["SLACK_APP_SIGNING_SECRET"] or not slack_signature or not slack_time:
             raise SlackIntegrationError("Invalid")
 
-        if time.time() - float(slack_time) > 60 * 5:
+        # Check the token is not older than 5mins
+        if time.time() - float(slack_time) > 300:
             raise SlackIntegrationError("Expired")
 
         sig_basestring = f"v0:{slack_time}:{request.body.decode('utf-8')}"
