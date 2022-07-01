@@ -1387,17 +1387,9 @@ export interface FeatureFlagType {
     ensure_experience_continuity: boolean | null
 }
 
-export interface FeatureFlagOverrideType {
-    id: number
-    feature_flag: number
-    user: number
-    override_value: boolean | string
-}
-
-export interface CombinedFeatureFlagAndOverrideType {
+export interface CombinedFeatureFlagAndValueType {
     feature_flag: FeatureFlagType
-    value_for_user_without_override: boolean | string
-    override: FeatureFlagOverrideType | null
+    value: boolean | string
 }
 
 export interface PrevalidatedInvite {
