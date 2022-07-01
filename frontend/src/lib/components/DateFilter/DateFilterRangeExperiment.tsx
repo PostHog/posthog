@@ -1,9 +1,10 @@
-import React, { useState, useRef, useEffect } from 'react'
+import React, { useState, useRef } from 'react'
 import { Button } from 'antd'
 import './DateFilterRangeExperiment.scss'
 import { dayjs } from 'lib/dayjs'
 import { DatePicker } from '../DatePicker'
 import clsx from 'clsx'
+import { useOutsideClickHandler } from 'lib/hooks/useOutsideClickHandler'
 
 export function DateFilterRangeExperiment(props: {
     onClickOutside: () => void
@@ -19,27 +20,16 @@ export function DateFilterRangeExperiment(props: {
     const dropdownRef = useRef<HTMLDivElement | null>(null)
     const [calendarOpen, setCalendarOpen] = useState(true)
 
-    const onClickOutside = (event: MouseEvent): void => {
-        const target = (event.composedPath?.()?.[0] || event.target) as HTMLElement
-
-        if (!target) {
-            return
-        }
-
-        const clickInPickerContainer = dropdownRef.current?.contains(target)
-
-        if (clickInPickerContainer && calendarOpen && target.tagName !== 'INPUT') {
-            setCalendarOpen(false)
-            return
-        }
-    }
-
-    useEffect(() => {
-        window.addEventListener('mousedown', onClickOutside)
-        return () => {
-            window.removeEventListener('mousedown', onClickOutside)
-        }
-    }, [calendarOpen])
+    useOutsideClickHandler(
+        '.datefilter-datepicker',
+        () => {
+            if (calendarOpen) {
+                setCalendarOpen(false)
+            }
+        },
+        [calendarOpen],
+        ['INPUT']
+    )
 
     return (
         <div ref={dropdownRef}>
