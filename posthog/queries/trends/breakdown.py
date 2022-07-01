@@ -310,15 +310,15 @@ class TrendsBreakdown:
             breakdown_value,
         )
 
-    def _get_breakdown_value(self, breakdown: str):
+    def _get_breakdown_value(self, breakdown: str) -> str:
 
         if self.filter.breakdown_type == "session":
             if breakdown == "$session_duration":
-                return f"{SessionQuery.SESSION_TABLE_ALIAS}.session_duration"
+                breakdown_value = f"{SessionQuery.SESSION_TABLE_ALIAS}.session_duration"
             else:
                 raise ValidationError(f'Invalid breakdown "{breakdown}" for breakdown type "session"')
 
-        if self.using_person_on_events:
+        elif self.using_person_on_events:
             if self.filter.breakdown_type == "person":
                 breakdown_value, _ = get_property_string_expr("events", breakdown, "%(key)s", "person_properties")
             elif self.filter.breakdown_type == "group":
@@ -326,9 +326,6 @@ class TrendsBreakdown:
                 breakdown_value, _ = get_property_string_expr("events", breakdown, "%(key)s", properties_field)
             else:
                 breakdown_value, _ = get_property_string_expr("events", breakdown, "%(key)s", "properties")
-
-            return breakdown_value
-
         else:
             if self.filter.breakdown_type == "person":
                 breakdown_value, _ = get_property_string_expr("person", breakdown, "%(key)s", "person_props")
@@ -338,7 +335,9 @@ class TrendsBreakdown:
             else:
                 breakdown_value, _ = get_property_string_expr("events", breakdown, "%(key)s", "properties")
 
-            return breakdown_value
+        if self.filter.using_histogram:
+            return f"toFloat64OrNull({breakdown_value})"
+        return breakdown_value
 
     def _get_histogram_breakdown_values(self, raw_breakdown_value: str, buckets: List[int]):
 

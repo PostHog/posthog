@@ -124,6 +124,7 @@ def get_breakdown_prop_values(
         filter.breakdown,
         filter.breakdown_group_type_index,
         direct_on_events=True if person_properties_mode == PersonPropertiesMode.DIRECT_ON_EVENTS else False,
+        cast_as_float=filter.using_histogram,
     )
 
     if filter.using_histogram:
@@ -177,12 +178,13 @@ def _to_value_expression(
     breakdown: Union[str, List[Union[str, int]], None],
     breakdown_group_type_index: Optional[GroupTypeIndex],
     direct_on_events: bool = False,
+    cast_as_float: bool = False,
 ) -> str:
     if breakdown_type == "person":
-        return get_single_or_multi_property_string_expr(
+        value_expression = get_single_or_multi_property_string_expr(
             breakdown,
+            query_alias=None,
             table="events" if direct_on_events else "person",
-            query_alias="value",
             column="person_properties" if direct_on_events else "person_props",
         )
     elif breakdown_type == "group":
@@ -194,16 +196,19 @@ def _to_value_expression(
             if direct_on_events
             else f"group_properties_{breakdown_group_type_index}",
         )
-        return f"{value_expression} AS value"
     elif breakdown_type == "session":
         if breakdown == "$session_duration":
-            return f"{SessionQuery.SESSION_TABLE_ALIAS}.session_duration AS value"
+            value_expression = f"{SessionQuery.SESSION_TABLE_ALIAS}.session_duration AS value"
         else:
             raise ValidationError(f'Invalid breakdown "{breakdown}" for breakdown type "session"')
     else:
-        return get_single_or_multi_property_string_expr(
-            breakdown, table="events", query_alias="value", column="properties"
+        value_expression = get_single_or_multi_property_string_expr(
+            breakdown, table="events", query_alias=None, column="properties"
         )
+
+    if cast_as_float:
+        value_expression = f"toFloat64OrNull({value_expression})"
+    return f"{value_expression} AS value"
 
 
 def _to_bucketing_expression(bin_count: int) -> str:
