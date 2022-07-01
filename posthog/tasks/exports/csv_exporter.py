@@ -40,6 +40,8 @@ def stage_results_to_object_storage(
         action_id=exported_asset.export_context.get("action_id"),
         limit=exported_asset.export_context.get("limit", 10_000),
     )
+    logger.info("csv_exporter.read_from_clickhouse", number_of_results=len(result))
+
     if write_headers:
         temporary_file.write(f"{','.join(result[0].keys())}\n".encode("utf-8"))
 
@@ -61,6 +63,7 @@ def concat_results_in_object_storage(temporary_file: IO, exported_asset: Exporte
 def _export_to_csv(exported_asset: ExportedAsset, root_bucket: str) -> None:
     if exported_asset.export_context.get("file_export_type", None) == "list_events":
         filter = Filter(data=exported_asset.export_context.get("filter"))
+        logger.info("csv_exporter.built_filter_from_context", filter=filter.to_dict())
 
         write_headers = True
         with tempfile.TemporaryFile() as temporary_file:
