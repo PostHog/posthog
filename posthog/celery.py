@@ -1,4 +1,4 @@
-# import logging
+import logging
 import os
 import time
 from random import randrange
@@ -12,8 +12,7 @@ from django.utils import timezone
 from django_structlog.celery.steps import DjangoStructLogInitStep
 
 from posthog.redis import get_client
-
-# from posthog.settings import logs
+from posthog.settings import logs
 from posthog.utils import get_crontab
 
 # set the default Django settings module for the 'celery' program.
@@ -50,9 +49,7 @@ UPDATE_CACHED_DASHBOARD_ITEMS_INTERVAL_SECONDS = settings.UPDATE_CACHED_DASHBOAR
 @setup_logging.connect
 def receiver_setup_logging(loglevel, logfile, format, colorize, **kwargs):  # pragma: no cover
     # mypy thinks logging doesn't have `.config` but it does ¯\_(ツ)_/¯
-    # logging.config.dictConfig(logs.LOGGING)  # type:ignore
-    # logs.configure_structlog()
-    pass
+    logging.config.dictConfig(logs.LOGGING)  # type:ignore
 
 
 @app.on_after_configure.connect
