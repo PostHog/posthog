@@ -83,6 +83,7 @@ export const exporterLogic = kea<exporterLogicType>([
 
                     if (!exportedAsset.id) {
                         reject('Missing export_id from response')
+                        return
                     }
 
                     let attempts = 0
@@ -99,7 +100,7 @@ export const exporterLogic = kea<exporterLogicType>([
                             posthog.capture('export succeeded', trackingProperties)
 
                             resolve('Export complete')
-                            break
+                            return
                         }
 
                         await delay(POLL_DELAY_MS)
