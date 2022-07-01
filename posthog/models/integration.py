@@ -118,8 +118,11 @@ class SlackIntegration(object):
             raise SlackIntegrationError("Invalid")
 
         # Check the token is not older than 5mins
-        if time.time() - float(slack_time) > 300:
-            raise SlackIntegrationError("Expired")
+        try:
+            if time.time() - float(slack_time) > 300:
+                raise SlackIntegrationError("Expired")
+        except ValueError:
+            raise SlackIntegrationError("Invalid")
 
         sig_basestring = f"v0:{slack_time}:{request.body.decode('utf-8')}"
 

@@ -49,3 +49,12 @@ class TestIntegration(APILicensedTest):
         res = self.client.post(f"/api/integrations/slack/events", body, **headers)
 
         assert res.status_code == 403
+
+    def test_ignores_bad_timing_headers(self):
+        body = {"type": "url_verification", "challenge": "to-a-duel!"}
+        headers = self._headers_for_payload(body)
+        headers["HTTP_X_SLACK_REQUEST_TIMESTAMP"] = "not-a-time"
+
+        res = self.client.post(f"/api/integrations/slack/events", body, **headers)
+
+        assert res.status_code == 403
