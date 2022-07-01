@@ -31,7 +31,7 @@ class TestIntegration(APILicensedTest):
 
         return {
             "HTTP_X_SLACK_SIGNATURE": signature,
-            "HTTP_X_SLACK_REQUEST_TIMESTAMP": slack_time,
+            "HTTP_X_SLACK_REQUEST_TIMESTAMP": str(slack_time),
         }
 
     def test_validates_payload(self):
