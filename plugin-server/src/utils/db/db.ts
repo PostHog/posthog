@@ -44,7 +44,6 @@ import {
     PluginLogEntryType,
     PluginLogLevel,
     PluginSourceFileStatus,
-    PostgresSessionRecordingEvent,
     PropertiesLastOperation,
     PropertiesLastUpdatedAt,
     PropertyDefinitionType,
@@ -53,7 +52,7 @@ import {
     RawGroup,
     RawOrganization,
     RawPerson,
-    SessionRecordingEvent,
+    RawSessionRecordingEvent,
     Team,
     TeamId,
     TimestampFormat,
@@ -1354,10 +1353,10 @@ export class DB {
 
     // SessionRecordingEvent
 
-    public async fetchSessionRecordingEvents(): Promise<PostgresSessionRecordingEvent[] | SessionRecordingEvent[]> {
+    public async fetchSessionRecordingEvents(): Promise<RawSessionRecordingEvent[]> {
         const events = (
-            (await this.clickhouseQuery(`SELECT * FROM session_recording_events`)).data as SessionRecordingEvent[]
-        ).map((event) => {
+            await this.clickhouseQuery<RawSessionRecordingEvent>(`SELECT * FROM session_recording_events`)
+        ).data.map((event) => {
             return {
                 ...event,
                 snapshot_data: event.snapshot_data ? JSON.parse(event.snapshot_data) : null,

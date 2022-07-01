@@ -10,9 +10,8 @@ import {
     Hub,
     IngestionEvent,
     IngestionPersonData,
-    PostgresSessionRecordingEvent,
     RawEvent,
-    SessionRecordingEvent,
+    RawSessionRecordingEvent,
     Team,
     TimestampFormat,
 } from '../../types'
@@ -28,7 +27,7 @@ import { upsertGroup } from './properties-updater'
 import { TeamManager } from './team-manager'
 
 export interface EventProcessingResult {
-    event: IEvent | SessionRecordingEvent | PostgresSessionRecordingEvent
+    event: IEvent | RawSessionRecordingEvent
     eventId?: number
     elements?: Element[]
 }
@@ -298,7 +297,7 @@ export class EventsProcessor {
             this.kafkaProducer ? TimestampFormat.ClickHouse : TimestampFormat.ISO
         )
 
-        const data: SessionRecordingEvent = {
+        const data: RawSessionRecordingEvent = {
             uuid,
             team_id: team_id,
             distinct_id: distinct_id,

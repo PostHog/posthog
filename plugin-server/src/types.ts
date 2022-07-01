@@ -822,7 +822,8 @@ export interface Action extends RawAction {
     hooks: Hook[]
 }
 
-export interface SessionRecordingEvent {
+/** Raw session recording event row from ClickHouse. */
+export interface RawSessionRecordingEvent {
     uuid: string
     timestamp: string
     team_id: number
@@ -831,10 +832,6 @@ export interface SessionRecordingEvent {
     window_id: string
     snapshot_data: string
     created_at: string
-}
-
-export interface PostgresSessionRecordingEvent extends Omit<SessionRecordingEvent, 'uuid'> {
-    id: string
 }
 
 export enum TimestampFormat {
