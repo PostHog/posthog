@@ -166,6 +166,7 @@ jobs:
               with:
                   config-file: cypress.e2e.config.ts
                   spec: ${{ matrix.specs }}
+                  browser: chrome
 
             - name: Archive test screenshots
               uses: actions/upload-artifact@v3
