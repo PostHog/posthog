@@ -31,7 +31,6 @@ export function HeatmapStats(): JSX.Element {
                             dateTo={heatmapFilter.date_to}
                             onChange={(date_from, date_to) => setHeatmapFilter({ date_from, date_to })}
                             getPopupContainer={getShadowRootPopupContainer}
-                            popupStyle={{ zIndex: 2147483020 }}
                         />
 
                         {heatmapLoading ? <Spinner size="sm" style={{ marginLeft: 8 }} /> : null}

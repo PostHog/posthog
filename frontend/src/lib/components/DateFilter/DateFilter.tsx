@@ -23,10 +23,9 @@ export interface DateFilterProps {
     showRollingRangePicker?: boolean // experimental
     makeLabel?: (key: React.ReactNode) => React.ReactNode
     style?: React.CSSProperties
-    popupStyle?: React.CSSProperties // experimental
     onChange?: (fromDate: string, toDate: string) => void
     disabled?: boolean
-    getPopupContainer?: (props: any) => HTMLElement
+    getPopupContainer?: () => HTMLElement
     dateOptions?: dateMappingOption[]
     isDateFormatted?: boolean
     selectProps?: SelectProps<any> // remove if experiment is successful
@@ -185,7 +184,6 @@ function DateFilterExperiment({
     showCustom,
     showRollingRangePicker = true,
     style,
-    popupStyle,
     disabled,
     makeLabel,
     onChange,
@@ -299,7 +297,7 @@ function DateFilterExperiment({
                 actionable: true,
                 closeOnClickInside: false,
                 additionalRefs: [rollingDateRangeRef, '.datefilter-datepicker'],
-                style: popupStyle,
+                getPopupContainer,
             }}
             icon={<CalendarOutlined />}
         >

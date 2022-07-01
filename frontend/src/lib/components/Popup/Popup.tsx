@@ -40,6 +40,7 @@ export interface PopupProps {
      * **/
     additionalRefs?: (React.MutableRefObject<HTMLDivElement | null> | string)[]
     style?: React.CSSProperties
+    getPopupContainer?: () => HTMLElement
 }
 
 /** 0 means no parent. */
@@ -68,6 +69,7 @@ export const Popup = React.forwardRef<HTMLDivElement, PopupProps>(
             maxContentWidth = false,
             additionalRefs = [],
             style,
+            getPopupContainer,
         },
         ref
     ): JSX.Element => {
@@ -143,7 +145,7 @@ export const Popup = React.forwardRef<HTMLDivElement, PopupProps>(
                             </div>
                         </PopupContext.Provider>
                     </CSSTransition>,
-                    document.body
+                    getPopupContainer ? getPopupContainer() : document.body
                 )}
             </>
         )
