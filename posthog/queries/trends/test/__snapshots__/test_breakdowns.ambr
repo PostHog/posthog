@@ -69,6 +69,7 @@
              AND event = 'watched movie'
              AND timestamp >= toStartOfDay(toDateTime('2020-01-02 00:00:00'), 'UTC')
              AND timestamp <= toDateTime('2020-01-12 23:59:59')
+             AND sessions.session_duration in ([180, 60, 91, 0])
            GROUP BY day_start,
                     breakdown_value))
      GROUP BY day_start,
