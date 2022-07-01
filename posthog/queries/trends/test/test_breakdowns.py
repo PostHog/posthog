@@ -1,6 +1,7 @@
 from datetime import datetime
 from typing import Dict
 
+from posthog.constants import TRENDS_TABLE
 from posthog.models import Filter
 from posthog.queries.trends.trends import Trends
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, snapshot_clickhouse_queries
@@ -96,7 +97,9 @@ class TestBreakdowns(ClickhouseTestMixin, APIBaseTest):
 
     @snapshot_clickhouse_queries
     def test_breakdown_by_session_duration_of_events(self):
-        response = self._run({"breakdown": "$session_duration", "breakdown_type": "session",})
+        response = self._run(
+            {"breakdown": "$session_duration", "breakdown_type": "session", "breakdown_histogram_bin_count": 3}
+        )
 
         self.assertEqual(
             [(item["breakdown_value"], item["count"], item["data"]) for item in response],
@@ -106,6 +109,23 @@ class TestBreakdowns(ClickhouseTestMixin, APIBaseTest):
                 (91, 1.0, [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
                 (180, 2.0, [0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
             ],
+        )
+
+    @snapshot_clickhouse_queries
+    def test_breakdown_by_session_duration_of_events_single_aggregate(self):
+        with self.settings(SHELL_PLUS_PRINT_SQL=True):
+            response = self._run(
+                {
+                    "breakdown": "$session_duration",
+                    "breakdown_type": "session",
+                    "breakdown_histogram_bin_count": 3,
+                    "display": TRENDS_TABLE,
+                }
+            )
+
+        self.assertEqual(
+            [(item["breakdown_value"], item["aggregated_value"]) for item in response],
+            [("0.0,59.0", 1), ("59.0,92.0", 3), ("92.0,180.0", 2),],
         )
 
     @snapshot_clickhouse_queries

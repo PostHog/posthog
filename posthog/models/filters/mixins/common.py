@@ -14,6 +14,7 @@ from posthog.constants import (
     BREAKDOWN_ATTRIBUTION_TYPE,
     BREAKDOWN_ATTRIBUTION_VALUE,
     BREAKDOWN_GROUP_TYPE_INDEX,
+    BREAKDOWN_HISTOGRAM_BIN_COUNT,
     BREAKDOWN_LIMIT,
     BREAKDOWN_TYPE,
     BREAKDOWN_VALUE,
@@ -180,6 +181,14 @@ class BreakdownMixin(BaseParamMixin):
             else BREAKDOWN_VALUES_LIMIT
         )
 
+    @cached_property
+    def using_histogram(self) -> bool:
+        return self.breakdown_historgam_bin_count is not None
+
+    @cached_property
+    def breakdown_historgam_bin_count(self) -> Optional[int]:
+        return self._data.get(BREAKDOWN_HISTOGRAM_BIN_COUNT)
+
     @include_dict
     def breakdown_to_dict(self):
         result: Dict = {}
@@ -193,7 +202,8 @@ class BreakdownMixin(BaseParamMixin):
             result[BREAKDOWN_ATTRIBUTION_TYPE] = self.breakdown_attribution_type
         if self.breakdown_attribution_value is not None:
             result[BREAKDOWN_ATTRIBUTION_VALUE] = self.breakdown_attribution_value
-
+        if self.breakdown_historgam_bin_count is not None:
+            result[BREAKDOWN_HISTOGRAM_BIN_COUNT] = self.breakdown_historgam_bin_count
         return result
 
     @cached_property
@@ -249,6 +259,8 @@ class SessionMixin(BaseParamMixin):
     @cached_property
     def session(self) -> Optional[str]:
         return self._data.get(SESSION, None)
+
+    # TODO: unused, remove?
 
     @include_dict
     def session_to_dict(self):

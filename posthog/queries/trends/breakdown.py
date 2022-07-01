@@ -39,11 +39,12 @@ from posthog.queries.trends.sql import (
     BREAKDOWN_AGGREGATE_QUERY_SQL,
     BREAKDOWN_COHORT_JOIN_SQL,
     BREAKDOWN_CUMULATIVE_INNER_SQL,
+    BREAKDOWN_HISTOGRAM_PROP_JOIN_SQL,
     BREAKDOWN_INNER_SQL,
     BREAKDOWN_PROP_JOIN_SQL,
     BREAKDOWN_QUERY_SQL,
-    SESSION_BREAKDOWN_AGGREGATE_QUERY_SQL,
     SESSION_BREAKDOWN_INNER_SQL,
+    SESSION_MATH_BREAKDOWN_AGGREGATE_QUERY_SQL,
 )
 from posthog.queries.trends.util import enumerate_time_range, get_active_user_params, parse_response, process_math
 from posthog.queries.util import date_from_clause, get_time_diff, get_trunc_func_ch, parse_timestamps, start_of_week_fix
@@ -178,7 +179,7 @@ class TrendsBreakdown:
             if self.entity.math_property == "$session_duration":
                 # TODO: When we add more person/group properties to math_property,
                 # generalise this query to work for everything, not just sessions.
-                content_sql = SESSION_BREAKDOWN_AGGREGATE_QUERY_SQL.format(
+                content_sql = SESSION_MATH_BREAKDOWN_AGGREGATE_QUERY_SQL.format(
                     breakdown_filter=breakdown_filter,
                     person_join=person_join_condition,
                     groups_join=groups_join_condition,
@@ -299,9 +300,12 @@ class TrendsBreakdown:
 
         breakdown_value = self._get_breakdown_value(self.filter.breakdown)
 
+        if self.filter.using_histogram:
+            breakdown_value = self._get_histogram_breakdown_value(breakdown_value, values_arr)
+
         return (
             {"values": values_arr},
-            BREAKDOWN_PROP_JOIN_SQL,
+            BREAKDOWN_PROP_JOIN_SQL if not self.filter.using_histogram else BREAKDOWN_HISTOGRAM_PROP_JOIN_SQL,
             {"breakdown_value_expr": breakdown_value},
             breakdown_value,
         )
@@ -335,6 +339,25 @@ class TrendsBreakdown:
                 breakdown_value, _ = get_property_string_expr("events", breakdown, "%(key)s", "properties")
 
             return breakdown_value
+
+    def _get_histogram_breakdown_value(self, raw_breakdown_value: str, buckets: List[int]):
+
+        multi_if_conditionals = []
+
+        for i in range(len(buckets) - 1):
+            last_bucket = i == len(buckets) - 2
+
+            multi_if_conditionals.append(
+                f"{raw_breakdown_value} >= {buckets[i]} AND {raw_breakdown_value} {'<=' if last_bucket else '<'} {buckets[i+1]}"
+            )
+            multi_if_conditionals.append(f"'{buckets[i]},{buckets[i+1]}'")
+
+        # else condition
+        multi_if_conditionals.append(f"','")
+
+        return f"""
+            multiIf({','.join(multi_if_conditionals)})
+        """
 
     def _parse_single_aggregate_result(
         self, filter: Filter, entity: Entity, additional_values: Dict[str, Any]

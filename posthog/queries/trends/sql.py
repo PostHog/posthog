@@ -70,6 +70,21 @@ SELECT groupArray(value) FROM (
 )
 """
 
+HISTOGRAM_ELEMENTS_ARRAY_OF_KEY_SQL = """
+SELECT {bucketing_expression} FROM (
+    SELECT
+        {value_expression},
+        {aggregate_operation} as count
+    FROM events e
+    {person_join_clauses}
+    {groups_join_clauses}
+    {sessions_join_clauses}
+    WHERE
+        team_id = %(team_id)s {entity_query} {parsed_date_from} {parsed_date_to} {prop_filters}
+    GROUP BY value
+)
+"""
+
 
 BREAKDOWN_QUERY_SQL = """
 SELECT groupArray(day_start) as date, groupArray(count) as data, breakdown_value FROM (
@@ -226,7 +241,20 @@ ORDER BY breakdown_value
 """
 
 
-SESSION_BREAKDOWN_AGGREGATE_QUERY_SQL = """
+BREAKDOWN_HISTOGRAM_AGGREGATE_QUERY_SQL = """
+SELECT histogram(%(bin_count)s)({aggregate_operation}) AS histogram
+SELECT {aggregate_operation} AS total, {breakdown_value} AS breakdown_value
+FROM events e
+{person_join}
+{groups_join}
+{sessions_join_condition}
+{breakdown_filter}
+GROUP BY breakdown_value
+ORDER BY breakdown_value
+"""
+
+
+SESSION_MATH_BREAKDOWN_AGGREGATE_QUERY_SQL = """
 SELECT {aggregate_operation} AS total, breakdown_value
 FROM (
     SELECT any(session_duration) as session_duration, breakdown_value FROM (
@@ -250,6 +278,11 @@ WHERE e.team_id = %(team_id)s {event_filter} {filters} {parsed_date_from_prev_ra
 BREAKDOWN_PROP_JOIN_SQL = """
 WHERE e.team_id = %(team_id)s {event_filter} {filters} {parsed_date_from} {parsed_date_to}
   AND {breakdown_value_expr} in (%(values)s)
+  {actions_query}
+"""
+
+BREAKDOWN_HISTOGRAM_PROP_JOIN_SQL = """
+WHERE e.team_id = %(team_id)s {event_filter} {filters} {parsed_date_from} {parsed_date_to}
   {actions_query}
 """
 
