@@ -327,7 +327,7 @@ class TestExports(APIBaseTest):
         self.assertIn(second_expected_event_id, file_content)
         for line in file_lines[1:]:  # every result has to match the filter though
             if line != "":  # skip the final empty line of the file
-                self.assertIn('{"$browser": "Safari"}', line)
+                self.assertIn('"{""$browser"": ""Safari""}"', line)
 
     def _get_insight_activity(self, insight_id: int, expected_status: int = status.HTTP_200_OK):
         url = f"/api/projects/{self.team.id}/insights/{insight_id}/activity"
