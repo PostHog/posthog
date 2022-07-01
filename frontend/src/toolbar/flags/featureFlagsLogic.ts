@@ -23,7 +23,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>({
         checkLocalOverrides: () => {
             const { posthog: clientPostHog } = toolbarLogic.values
             if (clientPostHog) {
-                const locallyOverrideFeatureFlags = clientPostHog.get_property('$override_feature_flags')
+                const locallyOverrideFeatureFlags = clientPostHog.get_property('$override_feature_flags') || {}
                 actions.storeLocalOverrides(locallyOverrideFeatureFlags)
             }
         },
@@ -41,7 +41,11 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>({
             if (clientPostHog) {
                 const updatedFlags = { ...values.localOverrides }
                 delete updatedFlags[flagKey]
-                clientPostHog.featureFlags.override({ ...updatedFlags })
+                if (Object.keys(updatedFlags).length > 0) {
+                    clientPostHog.featureFlags.override({ ...updatedFlags })
+                } else {
+                    clientPostHog.featureFlags.override(false)
+                }
                 posthog.capture('toolbar feature flag override removed')
                 actions.checkLocalOverrides()
                 toolbarLogic.values.posthog?.featureFlags.reloadFeatureFlags()
