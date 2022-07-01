@@ -1,16 +1,18 @@
+import logging
 import os
 import time
 from random import randrange
 
 from celery import Celery
 from celery.schedules import crontab
-from celery.signals import task_postrun, task_prerun
+from celery.signals import setup_logging, task_postrun, task_prerun
 from django.conf import settings
 from django.db import connection
 from django.utils import timezone
 from django_structlog.celery.steps import DjangoStructLogInitStep
 
 from posthog.redis import get_client
+from posthog.settings import logs
 from posthog.utils import get_crontab
 
 # set the default Django settings module for the 'celery' program.
@@ -41,6 +43,12 @@ EVENT_PROPERTY_USAGE_INTERVAL_SECONDS = settings.EVENT_PROPERTY_USAGE_INTERVAL_S
 
 # How frequently do we want to check if dashboard items need to be recalculated
 UPDATE_CACHED_DASHBOARD_ITEMS_INTERVAL_SECONDS = settings.UPDATE_CACHED_DASHBOARD_ITEMS_INTERVAL_SECONDS
+
+
+@setup_logging.connect
+def receiver_setup_logging(loglevel, logfile, format, colorize, **kwargs) -> None:
+    # following instructions from here https://django-structlog.readthedocs.io/en/latest/celery.html
+    logging.config.dictConfig(logs.LOGGING)
 
 
 @app.on_after_configure.connect
