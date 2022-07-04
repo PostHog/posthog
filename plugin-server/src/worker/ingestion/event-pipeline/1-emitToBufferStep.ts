@@ -60,7 +60,13 @@ export function shouldSendEventToBuffer(
 ): boolean {
     const isAnonymousEvent =
         event.properties && event.properties['$device_id'] && event.distinct_id === event.properties['$device_id']
-    const sendToBuffer = !person && !isAnonymousEvent && event.event !== '$identify'
+
+    // We do not send events from mobile libraries to the buffer because:
+    // a) that wouldn't help with the backend problem outlined above
+    // b) because of issues with $device_id in the mobile libraries, we often mislabel events
+    //  as being from an identified user when in fact they are not, leading to unnecessary buffering
+    const isMobileLibrary = !!event.properties && ['posthog-ios', 'posthog-android'].includes(event.properties['$lib'])
+    const sendToBuffer = !isMobileLibrary && !person && !isAnonymousEvent && event.event !== '$identify'
 
     if (sendToBuffer) {
         hub.statsd?.increment('conversion_events_buffer_size', { teamId: event.team_id.toString() })
