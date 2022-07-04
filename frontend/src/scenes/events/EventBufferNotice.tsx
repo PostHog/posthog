@@ -6,10 +6,11 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 export interface EventBufferNoticeProps {
     /** Include extra rationale. */
-    extended?: boolean
+    additionalInfo?: string
+    style?: Record<string, string | number>
 }
 
-export function EventBufferNotice({ extended }: EventBufferNoticeProps): JSX.Element | null {
+export function EventBufferNotice({ additionalInfo = '', style = {} }: EventBufferNoticeProps): JSX.Element | null {
     const { preflight, eventBufferAcknowledged } = useValues(preflightLogic)
     const { acknowledgeEventBuffer } = useActions(preflightLogic)
 
@@ -18,10 +19,10 @@ export function EventBufferNotice({ extended }: EventBufferNoticeProps): JSX.Ele
     }
 
     return (
-        <AlertMessage type="info" style={{ marginBottom: '1rem' }} onClose={acknowledgeEventBuffer}>
+        <AlertMessage type="info" style={{ marginBottom: '1rem', ...style }} onClose={acknowledgeEventBuffer}>
             Note that some events with a never-before-seen distinct ID are deliberately delayed by{' '}
             {pluralize(preflight?.buffer_conversion_seconds, 'second')}
-            {extended ? ' – this helps ensure accuracy of insights grouped by unique users' : ''}.{' '}
+            {additionalInfo}.{' '}
             <a href="https://posthog.com/docs/integrate/ingest-live-data/#event-ingestion-nuances">
                 Learn more about event buffering in PostHog Docs.
             </a>

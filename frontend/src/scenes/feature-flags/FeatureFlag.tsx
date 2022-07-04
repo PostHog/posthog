@@ -28,6 +28,7 @@ import { LemonInput } from 'lib/components/LemonInput/LemonInput'
 import { LemonCheckbox } from 'lib/components/LemonCheckbox'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic as enabledFeatureFlagsToCheckLogic } from 'lib/logic/featureFlagLogic'
+import { EventBufferNotice } from 'scenes/events/EventBufferNotice'
 
 export const scene: SceneExport = {
     component: FeatureFlag,
@@ -129,6 +130,10 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                 </LemonButton>
                             </div>
                         }
+                    />
+                    <EventBufferNotice
+                        style={{ marginBottom: '2em', marginTop: '2em' }}
+                        additionalInfo=", meaning it can take around 60 seconds for some flags to update for recently-identified persons"
                     />
                     <h3 className="l3">General configuration</h3>
                     <div className="text-muted mb">

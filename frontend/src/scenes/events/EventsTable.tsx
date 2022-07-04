@@ -461,7 +461,7 @@ export function EventsTable({
                         </div>
                     </div>
                 ) : null}
-                <EventBufferNotice extended />
+                <EventBufferNotice additionalInfo=" – this helps ensure accuracy of insights grouped by unique users" />
                 <LemonTable
                     dataSource={eventsFormatted}
                     loading={isLoading}
