@@ -232,7 +232,7 @@ export const eventsTableLogic = kea<eventsTableLogicType>({
             (teamId, exportParams) => `/api/projects/${teamId}/events.csv?${toParams(exportParams)}`,
         ],
         months: [() => [(_, prop) => prop.fetchMonths], (months) => months || 12],
-        minimumExportDate: [() => [], () => now().subtract(2, 'days').toISOString()],
+        minimumExportDate: [() => [selectors.months], () => now().subtract(1, 'months').toISOString()],
         minimumQueryDate: [() => [selectors.months], (months) => now().subtract(months, 'months').toISOString()],
         pollAfter: [
             () => [selectors.events],
