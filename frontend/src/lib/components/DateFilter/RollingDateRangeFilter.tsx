@@ -19,7 +19,7 @@ const dateOptions: LemonSelectOptions = {
         label: 'months',
     },
     quarter: {
-        label: 'quarter',
+        label: 'quarters',
     },
 }
 

@@ -5,7 +5,7 @@ import './RollingDateRangeFilter.scss'
 import { dateFilterToText } from 'lib/utils'
 
 const dateOptionsMap = {
-    q: 'quarter',
+    q: 'quarters',
     m: 'months',
     w: 'weeks',
     d: 'days',
@@ -83,7 +83,7 @@ export const rollingDateRangeFilterLogic = kea<rollingDateRangeFilterLogicType>(
                     return ''
                 }
                 switch (dateOption) {
-                    case 'quarter':
+                    case 'quarters':
                         return `-${counter}q`
                     case 'months':
                         return `-${counter}m`
