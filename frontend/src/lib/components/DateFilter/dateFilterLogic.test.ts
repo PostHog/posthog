@@ -10,6 +10,7 @@ describe('dateFilterLogic', () => {
 
     beforeEach(async () => {
         props = {
+            key: 'test',
             defaultValue: '-7d',
             onChange,
             dateFrom: null,
