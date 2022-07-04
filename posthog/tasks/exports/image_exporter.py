@@ -34,6 +34,7 @@ def get_driver() -> webdriver.Chrome:
     options.add_argument("--disable-software-rasterizer")
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-gpu")
+    options.add_argument("--disable-dev-shm-usage")  # This flag can make things slower but more reliable
 
     if os.environ.get("CHROMEDRIVER_BIN"):
 
