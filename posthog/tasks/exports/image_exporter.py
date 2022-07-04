@@ -37,7 +37,6 @@ def get_driver() -> webdriver.Chrome:
     options.add_argument("--disable-dev-shm-usage")  # This flag can make things slower but more reliable
 
     if os.environ.get("CHROMEDRIVER_BIN"):
-
         return webdriver.Chrome(os.environ["CHROMEDRIVER_BIN"], options=options)
 
     return webdriver.Chrome(

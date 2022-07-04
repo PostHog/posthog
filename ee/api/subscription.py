@@ -22,6 +22,9 @@ from posthog.permissions import (
 )
 from posthog.utils import str_to_bool
 
+# These values we ignore when considering whether to change the next delivery date or not
+non_rrule_properties = ["dashboard", "insight", "target_type", "target_value", "deleted", "title", "invite_message"]
+
 
 class SubscriptionSerializer(serializers.ModelSerializer):
     """Standard Subscription serializer."""
@@ -90,6 +93,10 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         previous_value = instance.target_value
         invite_message = validated_data.pop("invite_message", "")
         instance = super().update(instance, validated_data)
+
+        if len([x for x in validated_data.keys() if x not in non_rrule_properties]):
+            instance.set_next_delivery_date()
+            instance.save()
 
         subscriptions.handle_subscription_value_change.delay(instance.id, previous_value, invite_message)
 

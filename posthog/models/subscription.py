@@ -120,7 +120,8 @@ class Subscription(models.Model):
         self.next_delivery_date = self.rrule.after(dt=from_dt or timezone.now(), inc=False)
 
     def save(self, *args, **kwargs) -> None:
-        self.set_next_delivery_date()
+        if not self.id:
+            self.set_next_delivery_date()
         super(Subscription, self).save(*args, **kwargs)
 
     @property

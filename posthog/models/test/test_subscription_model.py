@@ -47,11 +47,24 @@ class TestSubscription(BaseTest):
         subscription.set_next_delivery_date(datetime(2022, 1, 2, 0, 0, 0).replace(tzinfo=pytz.UTC))
         assert subscription.next_delivery_date == datetime(2022, 1, 15, 0, 0).replace(tzinfo=pytz.UTC)
 
-    def test_update_next_delivery_date_on_update(self):
+    def test_update_next_delivery_date_on_save(self):
         subscription = self._create_insight_subscription()
         subscription.save()
 
         assert subscription.next_delivery_date >= timezone.now()
+
+    def test_does_not_update_next_delivery_date_on_update(self):
+        subscription = self._create_insight_subscription()
+        subscription.save()
+        old_date = subscription.next_delivery_date
+
+        subscription.start_date = datetime(2023, 1, 1, 0, 0, 0, 0).replace(tzinfo=pytz.UTC)
+        subscription.save()
+        assert old_date == subscription.next_delivery_date
+
+        subscription.set_next_delivery_date()
+        subscription.save()
+        assert old_date != subscription.next_delivery_date
 
     def test_generating_token(self):
 
