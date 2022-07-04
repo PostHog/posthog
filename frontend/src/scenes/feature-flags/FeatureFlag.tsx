@@ -333,7 +333,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                             if they match one or more release condition groups.
                         </div>
                         {multivariateEnabled && (
-                            <div className="variant-form-list">
+                            <div className="variant-form-list space-y-05">
                                 <Row gutter={8} className="label-row">
                                     <Col span={7}>Variant key</Col>
                                     <Col span={7}>Description</Col>
@@ -438,7 +438,6 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                         focusVariantKeyField(newIndex)
                                     }}
                                     style={{ margin: '1rem 0' }}
-                                    size="small"
                                     fullWidth
                                     center
                                 >
