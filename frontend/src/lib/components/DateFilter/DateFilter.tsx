@@ -1,7 +1,7 @@
 import React, { useRef, useMemo, useState } from 'react'
 import { Select } from 'antd'
 import { SelectProps } from 'antd/lib/select'
-import { dateMapping, dateMappingExperiment, isDate, dateFilterToText } from 'lib/utils'
+import { dateMapping, dateMappingExperiment, isDate, dateFilterToText, uuid } from 'lib/utils'
 import { DateFilterRange } from 'lib/components/DateFilter/DateFilterRange'
 import { DateFilterRangeExperiment } from 'lib/components/DateFilter/DateFilterRangeExperiment'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -195,7 +195,8 @@ function DateFilterExperiment({
     dateOptions = dateMappingExperiment,
     isDateFormatted = true,
 }: RawDateFilterProps): JSX.Element {
-    const logicProps = { dateFrom, dateTo, onChange, defaultValue, dateOptions, isDateFormatted }
+    const key = useRef(uuid()).current
+    const logicProps = { key, dateFrom, dateTo, onChange, defaultValue, dateOptions, isDateFormatted }
     const { open, openDateRange, close, setRangeDateFrom, setRangeDateTo, setDate } = useActions(
         dateFilterLogic(logicProps)
     )
