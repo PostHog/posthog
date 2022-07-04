@@ -7,7 +7,7 @@ import { DateFilterRangeExperiment } from 'lib/components/DateFilter/DateFilterR
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { dateMappingOption } from '~/types'
 import { dayjs } from 'lib/dayjs'
-import './DateFilterExperiment.scss'
+import './DateFilter.scss'
 import { Tooltip } from 'lib/components/Tooltip'
 import { dateFilterLogic } from './dateFilterLogic'
 import { RollingDateRangeFilter } from './RollingDateRangeFilter'
@@ -22,6 +22,7 @@ export interface DateFilterProps {
     bordered?: boolean // remove if experiment is successful
     showRollingRangePicker?: boolean // experimental
     makeLabel?: (key: React.ReactNode) => React.ReactNode
+    className?: string
     style?: React.CSSProperties
     onChange?: (fromDate: string, toDate: string) => void
     disabled?: boolean
@@ -184,6 +185,7 @@ function DateFilterExperiment({
     showCustom,
     showRollingRangePicker = true,
     style,
+    className,
     disabled,
     makeLabel,
     onChange,
@@ -230,36 +232,34 @@ function DateFilterExperiment({
         />
     ) : (
         <div ref={optionsRef} className="DateFilter" onClick={(e) => e.stopPropagation()}>
-            {[
-                dateOptions.map(({ key, values, inactive }) => {
-                    if (key === 'Custom' && !showCustom) {
-                        return null
-                    }
+            {dateOptions.map(({ key, values, inactive }) => {
+                if (key === 'Custom' && !showCustom) {
+                    return null
+                }
 
-                    if (inactive && value !== key) {
-                        return null
-                    }
+                if (inactive && value !== key) {
+                    return null
+                }
 
-                    const isHighlighted = dateFrom === values[0] && dateTo === values[1]
-                    const dateValue = dateFilterToText(values[0], values[1], defaultValue, dateOptions, isDateFormatted)
+                const isHighlighted = dateFrom === values[0] && dateTo === values[1]
+                const dateValue = dateFilterToText(values[0], values[1], defaultValue, dateOptions, isDateFormatted)
 
-                    return (
-                        <Tooltip key={key} title={makeLabel ? makeLabel(dateValue) : undefined}>
-                            <LemonButton
-                                key={key}
-                                onClick={() => {
-                                    setDate(values[0], values[1])
-                                    close()
-                                }}
-                                type={isHighlighted ? 'highlighted' : 'stealth'}
-                                fullWidth
-                            >
-                                {key}
-                            </LemonButton>
-                        </Tooltip>
-                    )
-                }),
-            ]}
+                return (
+                    <Tooltip key={key} title={makeLabel ? makeLabel(dateValue) : undefined}>
+                        <LemonButton
+                            key={key}
+                            onClick={() => {
+                                setDate(values[0], values[1])
+                                close()
+                            }}
+                            type={isHighlighted ? 'highlighted' : 'stealth'}
+                            fullWidth
+                        >
+                            {key}
+                        </LemonButton>
+                    </Tooltip>
+                )
+            })}
             {showRollingRangePicker && (
                 <RollingDateRangeFilter
                     dateFrom={dateFrom}
@@ -269,7 +269,9 @@ function DateFilterExperiment({
                         close()
                     }}
                     makeLabel={makeLabel}
-                    popupRef={rollingDateRangeRef}
+                    popup={{
+                        ref: rollingDateRangeRef,
+                    }}
                 />
             )}
             <LemonDivider />
@@ -286,6 +288,7 @@ function DateFilterExperiment({
             onClick={isOpen ? close : open}
             value={value}
             disabled={disabled}
+            className={className}
             style={{ ...style, border: '1px solid var(--border)' }} //TODO this is a css hack, so that this button aligns with others on the page which are still on antd
             size={'small'}
             type={'stealth'}

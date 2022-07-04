@@ -396,10 +396,10 @@ export function SavedInsights(): JSX.Element {
                                     ))}
                                 </Select>
                             </Col>
-                            <div style={{ display: 'flex', alignItems: 'center' }}>
+                            <div className="flex-center">
                                 Last modified:
                                 <DateFilter
-                                    style={{ marginLeft: '0.5rem' }}
+                                    className="ml-05"
                                     defaultValue="All time"
                                     disabled={false}
                                     bordered={true}

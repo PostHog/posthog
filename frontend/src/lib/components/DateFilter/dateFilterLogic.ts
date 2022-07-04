@@ -1,4 +1,4 @@
-import { actions, props, events, kea, listeners, path, reducers, selectors, defaults } from 'kea'
+import { actions, props, events, kea, listeners, path, reducers, selectors } from 'kea'
 import { dayjs, Dayjs } from 'lib/dayjs'
 import type { dateFilterLogicType } from './dateFilterLogicType'
 import { isDate, dateFilterToText } from 'lib/utils'
@@ -25,10 +25,7 @@ export const dateFilterLogic = kea<dateFilterLogicType>([
         setRangeDateTo: (range: Dayjs | string | undefined | null) => ({ range }),
         setValue: (value: string) => ({ value }),
     }),
-    defaults(({ props }) => ({
-        value: dateFilterToText(props.dateFrom, props.dateTo, props.defaultValue, props.dateOptions, false),
-    })),
-    reducers(({ props, defaults }) => ({
+    reducers(({ props }) => ({
         isOpen: [
             false,
             {
@@ -66,7 +63,7 @@ export const dateFilterLogic = kea<dateFilterLogicType>([
             },
         ],
         value: [
-            defaults.value,
+            dateFilterToText(props.dateFrom, props.dateTo, props.defaultValue, props.dateOptions, false),
             {
                 setValue: (_, { value }) => value,
             },
