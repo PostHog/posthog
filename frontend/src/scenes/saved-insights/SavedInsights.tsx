@@ -396,10 +396,9 @@ export function SavedInsights(): JSX.Element {
                                     ))}
                                 </Select>
                             </Col>
-                            <div className="flex-center">
-                                Last modified:
+                            <div className="flex-center gap-05">
+                                <span>Last modified:</span>
                                 <DateFilter
-                                    className="ml-05"
                                     defaultValue="All time"
                                     disabled={false}
                                     bordered={true}
