@@ -2,7 +2,7 @@ import { ReaderModel } from '@maxmind/geoip2-node'
 import Piscina from '@posthog/piscina'
 import * as Sentry from '@sentry/node'
 import { Server } from 'http'
-import { Consumer } from 'kafkajs'
+import { Consumer, KafkaJSProtocolError } from 'kafkajs'
 import net, { AddressInfo } from 'net'
 import * as schedule from 'node-schedule'
 
@@ -128,9 +128,23 @@ export async function startPluginsServer(
     })
 
     process.on('unhandledRejection', (error: Error) => {
-        Sentry.captureException(error)
         status.error('🤮', 'Unhandled Promise Rejection!')
         status.error('🤮', error)
+
+        // Don't send some Kafka normal operation "errors" to Sentry - kafkajs handles these correctly
+        if (error instanceof KafkaJSProtocolError) {
+            if (error.message.includes('The group is rebalancing, so a rejoin is needed')) {
+                hub!.statsd?.increment(`kafka_consumer_group_rebalancing`)
+                return
+            }
+
+            if (error.message.includes('Specified group generation id is not valid')) {
+                hub!.statsd?.increment(`kafka_consumer_invalid_group_generation_id`)
+                return
+            }
+        }
+
+        Sentry.captureException(error)
     })
 
     try {
