@@ -73,6 +73,10 @@ class Subscription(models.Model):
         SATURDAY = "saturday"
         SUNDAY = "sunday"
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._rrule = self.rrule
+
     # Relations - i.e. WHAT are we exporting?
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
     dashboard = models.ForeignKey("posthog.Dashboard", on_delete=models.CASCADE, null=True)
@@ -120,7 +124,8 @@ class Subscription(models.Model):
         self.next_delivery_date = self.rrule.after(dt=from_dt or timezone.now(), inc=False)
 
     def save(self, *args, **kwargs) -> None:
-        if not self.id:
+        # Only if the schedule has changed do we update the next delivery date
+        if not self.id or str(self._rrule) != str(self.rrule):
             self.set_next_delivery_date()
         super(Subscription, self).save(*args, **kwargs)
 

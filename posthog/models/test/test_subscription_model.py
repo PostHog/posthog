@@ -53,18 +53,23 @@ class TestSubscription(BaseTest):
 
         assert subscription.next_delivery_date >= timezone.now()
 
-    def test_does_not_update_next_delivery_date_on_update(self):
+    def test_only_updates_next_delivery_date_if_rrule_changes(self):
         subscription = self._create_insight_subscription()
         subscription.save()
+        assert subscription.next_delivery_date
         old_date = subscription.next_delivery_date
 
+        # Change a property that does affect it
         subscription.start_date = datetime(2023, 1, 1, 0, 0, 0, 0).replace(tzinfo=pytz.UTC)
         subscription.save()
-        assert old_date == subscription.next_delivery_date
-
-        subscription.set_next_delivery_date()
-        subscription.save()
         assert old_date != subscription.next_delivery_date
+        old_date = subscription.next_delivery_date
+
+        # Change a property that does not affect it
+        subscription.title = "My new title"
+        subscription.target_value = "other@example.com"
+        subscription.save()
+        assert old_date == subscription.next_delivery_date
 
     def test_generating_token(self):
 
