@@ -46,26 +46,24 @@ jobs:
                   # ref: 'master'
                   path: 'deploy/'
 
-            - name: Build image
+            - name: Build and push image
               uses: depot/build-push-action@v1
               with:
                   context: .
                   file: prod.web.Dockerfile
-                  load: true
+                  push: true
                   tags: |
                       ${{ steps.login-ecr.outputs.registry }}/posthog-production:${{ github.sha }}
                       ${{ steps.login-ecr.outputs.registry }}/posthog-production:latest
                   project: 1stsk4xt19 # posthog-cloud project
 
-            - name: Push image to Amazon ECR
+            - name: Pull image from Amazon ECR
               id: build-image
               env:
-                  ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-                  ECR_REPOSITORY: posthog-production
-                  IMAGE_TAG: ${{ github.sha }}
+                  IMAGE_REF: ${{ steps.login-ecr.outputs.registry }}/posthog-production:${{ github.sha }}
               run: |
-                  docker push --all-tags $ECR_REGISTRY/$ECR_REPOSITORY
-                  echo "::set-output name=image::$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
+                  docker pull $IMAGE_REF
+                  echo "::set-output name=image::$IMAGE_REF"
 
             - name: Extract and push the static assets to AWS S3
               run: |
