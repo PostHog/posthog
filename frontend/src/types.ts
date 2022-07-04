@@ -797,7 +797,7 @@ export interface InsightModel extends DashboardTile {
     /** The primary key in the database, used as well in API endpoints */
     id: number
     name: string
-    derived_name?: string
+    derived_name?: string | null
     description?: string
     favorited?: boolean
     order: number | null
@@ -814,7 +814,7 @@ export interface InsightModel extends DashboardTile {
     last_modified_by: UserBasicType | null
     effective_restriction_level: DashboardRestrictionLevel
     effective_privilege_level: DashboardPrivilegeLevel
-    timezone?: string
+    timezone?: string | null
     /** Only used in the frontend to store the next breakdown url */
     next?: string
 }

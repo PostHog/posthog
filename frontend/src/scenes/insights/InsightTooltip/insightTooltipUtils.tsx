@@ -45,7 +45,7 @@ export interface InsightTooltipProps extends TooltipConfig {
     seriesData?: SeriesDatum[]
     forceEntitiesAsColumns?: boolean
     groupTypeLabel?: string
-    timezone?: string
+    timezone?: string | null
 }
 
 export const COL_CUTOFF = 4
