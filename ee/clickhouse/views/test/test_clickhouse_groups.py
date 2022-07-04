@@ -91,7 +91,7 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
     @freeze_time("2021-05-10")
     @snapshot_clickhouse_queries
     def test_related_groups(self):
-        uuid = self._create_related_groups_data()
+        self._create_related_groups_data()
 
         response = self.client.get(f"/api/projects/{self.team.id}/groups/related?id=0::0&group_type_index=0").json()
         self.assertEqual(
@@ -242,9 +242,9 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
 
         uuid = UUID("01795392-cc00-0003-7dc7-67a694604d72")
 
-        p1 = Person.objects.create(uuid=uuid, team_id=self.team.pk, distinct_ids=["1", "2"])
-        p2 = Person.objects.create(team_id=self.team.pk, distinct_ids=["3"])
-        p3 = Person.objects.create(team_id=self.team.pk, distinct_ids=["4"])
+        Person.objects.create(uuid=uuid, team_id=self.team.pk, distinct_ids=["1", "2"])
+        Person.objects.create(team_id=self.team.pk, distinct_ids=["3"])
+        Person.objects.create(team_id=self.team.pk, distinct_ids=["4"])
 
         create_group(self.team.pk, 0, "0::0")
         create_group(self.team.pk, 0, "0::1")

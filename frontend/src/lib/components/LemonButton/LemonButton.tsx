@@ -11,7 +11,7 @@ export interface LemonButtonPopup extends Omit<PopupProps, 'children'> {
     closeOnClickInside?: boolean
 }
 export interface LemonButtonPropsBase extends Omit<LemonRowPropsBase<'button'>, 'tag' | 'type' | 'ref'> {
-    ref?: React.Ref<HTMLButtonElement>
+    ref?: React.Ref<HTMLElement>
     type?: 'default' | 'alt' | 'primary' | 'secondary' | 'tertiary' | 'stealth' | 'highlighted'
     htmlType?: LemonRowPropsBase<'button'>['type']
     /** Whether the button should have transparent background in its base state (i.e. non-hover). */
@@ -20,6 +20,7 @@ export interface LemonButtonPropsBase extends Omit<LemonRowPropsBase<'button'>, 
     active?: boolean
     /** URL to link to. */
     to?: string
+    className?: string
 }
 
 export interface LemonButtonProps extends LemonButtonPropsBase {
@@ -43,7 +44,7 @@ function LemonButtonInternal(
         disabled,
         ...buttonProps
     }: LemonButtonProps,
-    ref: React.Ref<HTMLButtonElement>
+    ref: React.Ref<HTMLElement>
 ): JSX.Element {
     const rowProps: LemonRowProps<'button'> = {
         tag: 'button',
@@ -137,7 +138,7 @@ export interface LemonButtonWithPopupProps extends LemonButtonPropsBase {
  * The difference vs. plain `LemonButton` is popup visibility being controlled internally, which is more convenient.
  */
 export function LemonButtonWithPopup({
-    popup: { onClickOutside, onClickInside, closeOnClickInside = true, ...popupProps },
+    popup: { onClickOutside, onClickInside, closeOnClickInside = true, className: popupClassName, ...popupProps },
     onClick,
     ...buttonProps
 }: LemonButtonWithPopupProps): JSX.Element {
@@ -158,11 +159,13 @@ export function LemonButtonWithPopup({
 
     return (
         <Popup
+            className={popupClassName}
             onClickOutside={(e) => {
                 setPopupVisible(false)
                 onClickOutside?.(e)
             }}
             onClickInside={(e) => {
+                e.stopPropagation()
                 closeOnClickInside && setPopupVisible(false)
                 onClickInside?.(e)
             }}

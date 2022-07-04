@@ -76,7 +76,9 @@ export class EventPipelineRunner {
         this.hub.statsd?.increment('kafka_queue.event_pipeline.start', { pipeline: 'buffer' })
         const person = await this.hub.db.fetchPerson(event.team_id, event.distinct_id)
         const result = await this.runPipeline('pluginsProcessEventStep', event, person)
-        this.hub.statsd?.increment('kafka_queue.buffer_event.processed_and_ingested')
+        this.hub.statsd?.increment('kafka_queue.buffer_event.processed_and_ingested', {
+            didPersonExistAtStart: String(!person),
+        })
         return result
     }
 

@@ -40,15 +40,6 @@ jobs:
                   push: true
                   tags: posthog/posthog:latest
 
-            - name: Build and push dev
-              id: docker-dev
-              uses: depot/build-push-action@v1
-              with:
-                  context: .
-                  file: dev.Dockerfile
-                  push: true
-                  tags: posthog/posthog:dev
-
             - name: Image digests
               run: |
                   echo "Pushed latest: ${{ steps.docker-latest.outputs.digest }}"

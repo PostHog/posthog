@@ -14,8 +14,8 @@ from freezegun import freeze_time
 from rest_framework import status
 
 from posthog.api.test.mock_sentry import mock_sentry_context_for_tagging
-from posthog.models import Person, PersonalAPIKey
-from posthog.models.feature_flag import FeatureFlag, FeatureFlagOverride
+from posthog.models import PersonalAPIKey
+from posthog.models.feature_flag import FeatureFlag
 from posthog.test.base import BaseTest
 
 
@@ -428,7 +428,7 @@ class TestCapture(BaseTest):
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_batch(self, kafka_produce):
         data = {"type": "capture", "event": "user signed up", "distinct_id": "2"}
-        response = self.client.post(
+        self.client.post(
             "/batch/", data={"api_key": self.team.api_token, "batch": [data]}, content_type="application/json",
         )
         arguments = self._to_arguments(kafka_produce)
@@ -472,7 +472,7 @@ class TestCapture(BaseTest):
             "batch": [{"type": "capture", "event": "user signed up", "distinct_id": "2",}],
         }
 
-        response = self.client.generic(
+        self.client.generic(
             "POST",
             "/batch/",
             data=gzip.compress(json.dumps(data).encode()),
@@ -501,7 +501,7 @@ class TestCapture(BaseTest):
             "batch": [{"type": "capture", "event": "user signed up", "distinct_id": "2"}],
         }
 
-        response = self.client.generic(
+        self.client.generic(
             "POST",
             "/batch/?compression=gzip",
             data=gzip.compress(json.dumps(data).encode()),
@@ -529,7 +529,7 @@ class TestCapture(BaseTest):
             "batch": [{"type": "capture", "event": "user signed up", "distinct_id": "2"}],
         }
 
-        response = self.client.generic(
+        self.client.generic(
             "POST",
             "/batch",
             data=lzstring.LZString().compressToBase64(json.dumps(data)).encode(),
@@ -621,7 +621,7 @@ class TestCapture(BaseTest):
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_engage(self, kafka_produce):
-        response = self.client.get(
+        self.client.get(
             "/engage/?data=%s"
             % quote(
                 self._to_json(
@@ -841,30 +841,6 @@ class TestCapture(BaseTest):
             },
         )
         arguments = self._to_arguments(kafka_produce)
-        self.assertEqual(arguments["data"]["properties"]["$active_feature_flags"], ["test-ff"])
-
-    @patch("posthog.kafka_client.client._KafkaProducer.produce")
-    def test_add_feature_flags_with_overrides_if_missing(self, kafka_produce) -> None:
-        feature_flag_instance = FeatureFlag.objects.create(
-            team=self.team, created_by=self.user, key="test-ff", rollout_percentage=0
-        )
-        Person.objects.create(
-            team=self.team, distinct_ids=[self.user.distinct_id], properties={"email": self.user.email},
-        )
-        FeatureFlagOverride.objects.create(
-            team=self.team, user=self.user, feature_flag=feature_flag_instance, override_value=True
-        )
-        self.client.post(
-            "/track/",
-            data={
-                "data": json.dumps(
-                    [{"event": "purchase", "properties": {"distinct_id": self.user.distinct_id, "$lib": "web"}}]
-                ),
-                "api_key": self.team.api_token,
-            },
-        )
-        arguments = self._to_arguments(kafka_produce)
-        self.assertEqual(arguments["data"]["properties"]["$feature/test-ff"], True)
         self.assertEqual(arguments["data"]["properties"]["$active_feature_flags"], ["test-ff"])
 
     def test_handle_lacking_event_name_field(self):

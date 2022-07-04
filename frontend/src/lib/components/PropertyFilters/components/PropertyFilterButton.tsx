@@ -14,7 +14,6 @@ import { Tooltip } from 'lib/components/Tooltip'
 export interface PropertyFilterButtonProps {
     onClick?: () => void
     onClose?: () => void
-    setRef?: (ref: HTMLElement) => void
     children?: string | JSX.Element
     item: AnyPropertyFilter
     style?: React.CSSProperties
@@ -61,34 +60,29 @@ function PropertyFilterIcon({ item }: { item: AnyPropertyFilter }): JSX.Element 
     return iconElement
 }
 
-export function PropertyFilterButton({
-    onClick,
-    onClose,
-    setRef,
-    children,
-    item,
-    style,
-}: PropertyFilterButtonProps): JSX.Element {
-    return (
-        <Button
-            shape="round"
-            style={{ ...style }}
-            onClick={onClick}
-            ref={setRef}
-            className="PropertyFilterButton ph-no-capture"
-        >
-            <PropertyFilterIcon item={item} />
-            <span className="PropertyFilterButton-content">
-                {children ? children : <PropertyFilterText item={item} />}
-            </span>
-            {onClose && (
-                <CloseButton
-                    onClick={(e: MouseEvent) => {
-                        e.stopPropagation()
-                        onClose()
-                    }}
-                />
-            )}
-        </Button>
-    )
-}
+export const PropertyFilterButton = React.forwardRef<HTMLElement, PropertyFilterButtonProps>(
+    function PropertyFilterButton({ onClick, onClose, children, item, style }, ref): JSX.Element {
+        return (
+            <Button
+                shape="round"
+                style={{ ...style }}
+                onClick={onClick}
+                ref={ref}
+                className="PropertyFilterButton ph-no-capture"
+            >
+                <PropertyFilterIcon item={item} />
+                <span className="PropertyFilterButton-content">
+                    {children ? children : <PropertyFilterText item={item} />}
+                </span>
+                {onClose && (
+                    <CloseButton
+                        onClick={(e: MouseEvent) => {
+                            e.stopPropagation()
+                            onClose()
+                        }}
+                    />
+                )}
+            </Button>
+        )
+    }
+)

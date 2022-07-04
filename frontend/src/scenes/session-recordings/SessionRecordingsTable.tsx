@@ -6,7 +6,7 @@ import { Button, Row, Typography } from 'antd'
 import { sessionRecordingsTableLogic } from './sessionRecordingsTableLogic'
 import { PlayCircleOutlined, CalendarOutlined, InfoCircleOutlined } from '@ant-design/icons'
 import { SessionPlayerDrawer } from './SessionPlayerDrawer'
-import { ActionFilter } from 'scenes/insights/ActionFilter/ActionFilter'
+import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { LeftOutlined, RightOutlined } from '@ant-design/icons'
 import { DurationFilter } from './DurationFilter'
 import { PersonHeader } from 'scenes/persons/PersonHeader'
@@ -20,7 +20,7 @@ import { LemonTable, LemonTableColumns } from 'lib/components/LemonTable'
 import { TZLabel } from 'lib/components/TimezoneAware'
 import { IconFilter } from 'lib/components/icons'
 import { LemonButton } from 'lib/components/LemonButton'
-import { MathAvailability } from 'scenes/insights/ActionFilter/ActionFilterRow/ActionFilterRow'
+import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 
 interface SessionRecordingsTableProps {
     personUUID?: string
@@ -135,7 +135,6 @@ export function SessionRecordingsTable({ personUUID, isPersonPage = false }: Ses
                                 </Tooltip>
                             </Typography.Text>
                             <PropertyFilters
-                                popoverPlacement="bottomRight"
                                 pageKey={isPersonPage ? `person-${personUUID}` : 'session-recordings'}
                                 taxonomicGroupTypes={[
                                     TaxonomicFilterGroupType.PersonProperties,
@@ -187,12 +186,12 @@ export function SessionRecordingsTable({ personUUID, isPersonPage = false }: Ses
                                 reportRecordingsListFilterAdded(SessionRecordingFilterType.DateRange)
                                 setDateRange(changedDateFrom, changedDateTo)
                             }}
-                            dateOptions={{
-                                Custom: { values: [] },
-                                'Last 24 hours': { values: ['-24h'] },
-                                'Last 7 days': { values: ['-7d'] },
-                                'Last 21 days': { values: ['-21d'] },
-                            }}
+                            dateOptions={[
+                                { key: 'Custom', values: [] },
+                                { key: 'Last 24 hours', values: ['-24h'] },
+                                { key: 'Last 7 days', values: ['-7d'] },
+                                { key: 'Last 21 days', values: ['-21d'] },
+                            ]}
                         />
                     </Row>
                     <Row className="time-filter">

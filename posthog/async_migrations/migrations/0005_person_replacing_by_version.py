@@ -98,7 +98,9 @@ class Migration(AsyncMigrationDefinition):
             {"database": settings.CLICKHOUSE_DATABASE, "name": "person"},
         )[0][0]
 
-        return not ("ReplicatedReplacingMergeTree" in person_table_engine and ", version)" in person_table_engine)
+        has_new_engine = "ReplicatedReplacingMergeTree" in person_table_engine and ", version)" in person_table_engine
+        persons_backfill_ongoing = get_client().get(REDIS_HIGHWATERMARK_KEY) is not None
+        return not has_new_engine or persons_backfill_ongoing
 
     @cached_property
     def operations(self):
@@ -147,6 +149,8 @@ class Migration(AsyncMigrationDefinition):
                     "max_insert_threads": 20,
                     "optimize_on_insert": 0,
                     "max_execution_time": 2 * 24 * 60 * 60,  # two days
+                    "send_timeout": 2 * 24 * 60 * 60,  # two days,
+                    "receive_timeout": 2 * 24 * 60 * 60,  # two days,
                 },
                 rollback=f"TRUNCATE TABLE IF EXISTS {TEMPORARY_TABLE_NAME} ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'",
             ),
@@ -208,6 +212,7 @@ class Migration(AsyncMigrationDefinition):
             should_continue = True
             while should_continue:
                 should_continue = self._copy_batch_from_postgres(query_id)
+            self.unset_highwatermark()
             optimize_table_fn(query_id)
         except Exception as err:
             logger.warn("Re-copying persons from postgres failed. Marking async migration as complete.", error=err)
@@ -243,7 +248,7 @@ class Migration(AsyncMigrationDefinition):
         values = []
         params: Dict = {}
         for i, person in enumerate(persons):
-            created_at = person.created_at.strftime("%Y-%m-%d %H:%M:%S.%f")
+            created_at = person.created_at.strftime("%Y-%m-%d %H:%M:%S")
             # :TRICKY: We use a custom _timestamp to identify rows migrated during this migration
             values.append(
                 f"(%(uuid_{i})s, '{created_at}', {person.team_id}, %(properties_{i})s, {'1' if person.is_identified else '0'}, '{PG_COPY_INSERT_TIMESTAMP}', 0, 0, {person.version or 0})"

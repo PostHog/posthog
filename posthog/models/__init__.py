@@ -19,6 +19,7 @@ from .group import Group
 from .group_type_mapping import GroupTypeMapping
 from .insight import Insight, InsightViewed
 from .instance_setting import InstanceSetting
+from .integration import Integration
 from .messaging import MessagingRecord
 from .organization import Organization, OrganizationInvite, OrganizationMembership
 from .organization_domain import OrganizationDomain
@@ -28,6 +29,7 @@ from .plugin import Plugin, PluginAttachment, PluginConfig, PluginSourceFile
 from .property import Property
 from .property_definition import PropertyDefinition
 from .session_recording_event import SessionRecordingEvent
+from .sharing_configuration import SharingConfiguration
 from .subscription import Subscription
 from .tag import Tag
 from .tagged_item import TaggedItem
@@ -43,9 +45,6 @@ __all__ = [
     "CohortPeople",
     "Dashboard",
     "DashboardTile",
-    "Insight",
-    "InsightViewed",
-    "InstanceSetting",
     "Element",
     "ElementGroup",
     "Entity",
@@ -58,6 +57,10 @@ __all__ = [
     "Filter",
     "Group",
     "GroupTypeMapping",
+    "Insight",
+    "InsightViewed",
+    "InstanceSetting",
+    "Integration",
     "MessagingRecord",
     "Organization",
     "OrganizationDomain",
@@ -75,6 +78,7 @@ __all__ = [
     "PropertyDefinition",
     "RetentionFilter",
     "SessionRecordingEvent",
+    "SharingConfiguration",
     "Subscription",
     "Tag",
     "TaggedItem",

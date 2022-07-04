@@ -1,5 +1,6 @@
+from dataclasses import dataclass
 from datetime import timedelta
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from dateutil.rrule import (
     FR,
@@ -37,6 +38,13 @@ RRULE_WEEKDAY_MAP = {
 }
 
 
+@dataclass
+class SubscriptionResourceInfo:
+    kind: str
+    name: str
+    url: str
+
+
 class Subscription(models.Model):
     """
     Rather than re-invent the wheel, we are roughly following the iCalender format for recurring schedules
@@ -47,7 +55,8 @@ class Subscription(models.Model):
 
     class SubscriptionTarget(models.TextChoices):
         EMAIL = "email"
-        # SLACK = "slack"
+        SLACK = "slack"
+        WEBHOOK = "webhook"
 
     class SubscriptionFrequency(models.TextChoices):
         DAILY = "daily"
@@ -123,6 +132,17 @@ class Subscription(models.Model):
         return None
 
     @property
+    def resource_info(self) -> Optional[SubscriptionResourceInfo]:
+        if self.insight:
+            return SubscriptionResourceInfo(
+                "Insight", f"{self.insight.name or self.insight.derived_name}", self.insight.url
+            )
+        elif self.dashboard:
+            return SubscriptionResourceInfo("Dashboard", self.dashboard.name, self.dashboard.url)
+
+        return None
+
+    @property
     def summary(self):
         try:
             human_frequency = {"daily": "day", "weekly": "week", "monthly": "month", "yearly": "year"}[self.frequency]
@@ -160,8 +180,8 @@ class Subscription(models.Model):
 def subscription_saved(sender, instance, created, raw, using, **kwargs):
     from posthog.event_usage import report_user_action
 
-    if instance.created_by:
-        event_name: str = "subscription created" if created else "subscription updated"
+    if instance.created_by and instance.resource_info:
+        event_name: str = f"{instance.resource_info.kind.lower()} subscription {'created' if created else 'updated'}"
         report_user_action(instance.created_by, event_name, instance.get_analytics_metadata())
 
 

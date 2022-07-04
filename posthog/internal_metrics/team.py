@@ -1,5 +1,4 @@
 import json
-import secrets
 from functools import lru_cache
 from typing import Dict, Optional
 
@@ -10,6 +9,7 @@ from sentry_sdk.api import capture_exception
 from posthog.models import DashboardTile
 from posthog.models.dashboard import Dashboard
 from posthog.models.insight import Insight
+from posthog.models.sharing_configuration import SharingConfiguration
 
 NAME = "PostHog Internal Metrics"
 CLICKHOUSE_DASHBOARD = {
@@ -387,7 +387,7 @@ def get_internal_metrics_dashboards() -> Dict:
 
     clickhouse_dashboard = get_or_create_dashboard(team_id, CLICKHOUSE_DASHBOARD)
 
-    return {"clickhouse": {"id": clickhouse_dashboard.id, "share_token": clickhouse_dashboard.share_token}}
+    return {"clickhouse": clickhouse_dashboard}
 
 
 def get_or_create_dashboard(team_id: int, definition: Dict) -> Dashboard:
@@ -398,13 +398,9 @@ def get_or_create_dashboard(team_id: int, definition: Dict) -> Dashboard:
     if dashboard is None:
         Dashboard.objects.filter(team_id=team_id, name=definition["name"]).delete()
         dashboard = Dashboard.objects.create(
-            name=definition["name"],
-            filters=definition["filters"],
-            description=description,
-            team_id=team_id,
-            is_shared=True,
-            share_token=secrets.token_urlsafe(22),
+            name=definition["name"], filters=definition["filters"], description=description, team_id=team_id
         )
+        SharingConfiguration.objects.create(team_id=team_id, dashboard=dashboard, enabled=True)
 
         for index, item in enumerate(definition["items"]):
             layouts = item.pop("layouts", {})

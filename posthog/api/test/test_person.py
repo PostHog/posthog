@@ -300,6 +300,12 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
+        ch_persons = sync_execute(
+            "SELECT version, is_deleted, properties FROM person FINAL WHERE team_id = %(team_id)s and id = %(uuid)s",
+            {"team_id": self.team.pk, "uuid": person.uuid},
+        )
+        self.assertEqual([(100, 1, "{}")], ch_persons)
+
     def test_filter_uuid(self) -> None:
         person1 = _create_person(
             team=self.team, properties={"$browser": "whatever", "$os": "Mac OS X"}, distinct_ids=["person1"]

@@ -1,12 +1,16 @@
+from django.db import connection
+
 from posthog.models import Cohort, FeatureFlag, GroupTypeMapping, Person
 from posthog.models.feature_flag import (
+    FeatureFlagHashKeyOverride,
     FeatureFlagMatch,
     FeatureFlagMatcher,
-    FeatureFlagOverride,
     get_overridden_feature_flags,
+    hash_key_overrides,
+    set_feature_flag_hash_key_overrides,
 )
 from posthog.models.group import Group
-from posthog.test.base import BaseTest, QueryMatchingTest, snapshot_postgres_queries
+from posthog.test.base import BaseTest, QueryMatchingTest
 
 
 class TestFeatureFlagMatcher(BaseTest):
@@ -218,115 +222,107 @@ class TestFeatureFlagMatcher(BaseTest):
         )
 
 
-# Integration + performance tests for get_overridden_feature_flags
-class TestFeatureFlagsWithOverrides(BaseTest, QueryMatchingTest):
-    feature_flag: FeatureFlag
+class TestFeatureFlagHashKeyOverrides(BaseTest, QueryMatchingTest):
+
+    person: Person
 
     @classmethod
     def setUpTestData(cls):
         super().setUpTestData()
-        person = Person.objects.create(
-            team=cls.team,
-            distinct_ids=["distinct_id", "another_id"],
-            properties={"email": "tim@posthog.com", "team": "posthog"},
-        )
-        GroupTypeMapping.objects.create(team=cls.team, group_type="organization", group_type_index=0)
-        Group.objects.create(
-            team=cls.team, group_type_index=0, group_key="PostHog", group_properties={"name": "foo.inc"}, version=1
-        )
-
         FeatureFlag.objects.create(
             team=cls.team,
-            name="feature-all",
-            key="feature-all",
+            rollout_percentage=30,
+            name="Beta feature",
+            key="beta-feature",
             created_by=cls.user,
-            filters={"groups": [{"rollout_percentage": 100}],},
+            ensure_experience_continuity=True,
         )
-
         FeatureFlag.objects.create(
             team=cls.team,
-            name="feature-posthog",
-            key="feature-posthog",
+            filters={"groups": [{"properties": [], "rollout_percentage": None}]},
+            name="This is a feature flag with default params, no filters.",
+            key="default-flag",
             created_by=cls.user,
+        )  # Should be enabled for everyone
+        FeatureFlag.objects.create(
+            team=cls.team,
             filters={
-                "groups": [
-                    {
-                        "properties": [
-                            {"key": "email", "type": "person", "value": "posthog.com", "operator": "icontains"}
-                        ],
-                    }
-                ],
+                "groups": [{"properties": [], "rollout_percentage": None}],
+                "multivariate": {
+                    "variants": [
+                        {"key": "first-variant", "name": "First Variant", "rollout_percentage": 50},
+                        {"key": "second-variant", "name": "Second Variant", "rollout_percentage": 25},
+                        {"key": "third-variant", "name": "Third Variant", "rollout_percentage": 25},
+                    ],
+                },
             },
-        )
-
-        tim_feature = FeatureFlag.objects.create(
-            team=cls.team,
-            name="feature-tim",
-            key="feature-tim",
+            name="This is a feature flag with multiple variants.",
+            key="multivariate-flag",
             created_by=cls.user,
-            filters={
-                "groups": [
-                    {
-                        "properties": [
-                            {"key": "email", "type": "person", "value": "tim@posthog.com", "operator": "exact"}
-                        ],
-                    }
-                ],
-            },
+            ensure_experience_continuity=True,
         )
 
-        FeatureFlag.objects.create(
-            team=cls.team,
-            name="feature-groups-all",
-            key="feature-groups-all",
-            created_by=cls.user,
-            filters={"aggregation_group_type_index": 0, "groups": [{"rollout_percentage": 100}],},
+        cls.person = Person.objects.create(
+            team=cls.team, distinct_ids=["example_id"], properties={"email": "tim@posthog.com", "team": "posthog"},
         )
 
-        FeatureFlag.objects.create(
-            team=cls.team,
-            name="feature-groups",
-            key="feature-groups",
-            created_by=cls.user,
-            filters={
-                "aggregation_group_type_index": 0,
-                "groups": [
-                    {"properties": [{"key": "name", "value": "foo.inc", "type": "group", "group_type_index": 0}],}
-                ],
-            },
+    def test_setting_overrides(self):
+
+        all_feature_flags = FeatureFlag.objects.filter(team_id=self.team.pk)
+
+        set_feature_flag_hash_key_overrides(
+            all_feature_flags, team_id=self.team.pk, person_id=self.person.id, hash_key_override="other_id"
         )
 
-        disabled_feature = FeatureFlag.objects.create(
-            team=cls.team,
-            name="feature-disabled",
-            key="feature-disabled",
-            created_by=cls.user,
-            filters={"aggregation_group_type_index": 0, "groups": [{"rollout_percentage": 0}],},
+        with connection.cursor() as cursor:
+            cursor.execute(
+                f"SELECT hash_key FROM posthog_featureflaghashkeyoverride WHERE team_id = {self.team.pk} AND person_id={self.person.id}"
+            )
+            res = cursor.fetchall()
+            self.assertEqual(len(res), 2)
+            self.assertEqual(set([var[0] for var in res]), set(["other_id"]))
+
+    def test_retrieving_hash_key_overrides(self):
+
+        all_feature_flags = FeatureFlag.objects.filter(team_id=self.team.pk)
+
+        set_feature_flag_hash_key_overrides(
+            all_feature_flags, team_id=self.team.pk, person_id=self.person.id, hash_key_override="other_id"
         )
 
-        cls.user.distinct_id = "distinct_id"
-        cls.user.save()
+        hash_keys = hash_key_overrides(self.team.pk, self.person.id)
 
-        FeatureFlagOverride.objects.create(
-            team=cls.team, user=cls.user, feature_flag=disabled_feature, override_value=True
+        self.assertEqual(hash_keys, {"beta-feature": "other_id", "multivariate-flag": "other_id"})
+
+    def test_setting_overrides_doesnt_balk_with_existing_overrides(self):
+
+        all_feature_flags = FeatureFlag.objects.filter(team_id=self.team.pk)
+
+        # existing overrides
+        hash_key = "bazinga"
+        FeatureFlagHashKeyOverride.objects.bulk_create(
+            [
+                FeatureFlagHashKeyOverride(
+                    team_id=self.team.pk, person_id=self.person.id, feature_flag_key=feature_flag.key, hash_key=hash_key
+                )
+                for feature_flag in all_feature_flags
+            ]
         )
-        FeatureFlagOverride.objects.create(team=cls.team, user=cls.user, feature_flag=tim_feature, override_value=False)
 
-    @snapshot_postgres_queries
-    def test_person_flags_with_overrides(self):
-        flags = get_overridden_feature_flags(self.team.pk, "distinct_id")
-        self.assertEqual(flags, {"feature-all": True, "feature-posthog": True, "feature-disabled": True})
-
-    @snapshot_postgres_queries
-    def test_group_flags_with_overrides(self):
-        flags = get_overridden_feature_flags(self.team.pk, "distinct_id", {"organization": "PostHog"})
-        self.assertEqual(
-            flags,
-            {
-                "feature-all": True,
-                "feature-posthog": True,
-                "feature-disabled": True,
-                "feature-groups": True,
-                "feature-groups-all": True,
-            },
+        # and now we come to get new overrides
+        set_feature_flag_hash_key_overrides(
+            all_feature_flags, team_id=self.team.pk, person_id=self.person.id, hash_key_override="other_id"
         )
+
+        with connection.cursor() as cursor:
+            cursor.execute(
+                f"SELECT hash_key FROM posthog_featureflaghashkeyoverride WHERE team_id = {self.team.pk} AND person_id={self.person.id}"
+            )
+            res = cursor.fetchall()
+            self.assertEqual(len(res), 3)
+            self.assertEqual(set([var[0] for var in res]), set([hash_key]))
+
+    def test_entire_flow_with_hash_key_override(self):
+        # get feature flags for 'other_id', with an override for 'example_id'
+        flags = get_overridden_feature_flags(self.team.pk, "other_id", {}, "example_id")
+        self.assertEqual(flags, {"beta-feature": True, "multivariate-flag": "first-variant", "default-flag": True,})

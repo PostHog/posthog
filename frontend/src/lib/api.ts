@@ -8,11 +8,16 @@ import {
     DashboardType,
     EventDefinition,
     EventType,
+    ExportedAssetType,
     FeatureFlagType,
     FilterType,
+    InsightModel,
+    IntegrationType,
     LicenseType,
     PluginLogEntry,
     PropertyDefinition,
+    SharingConfigurationType,
+    SlackChannelType,
     SubscriptionType,
     TeamType,
     UserType,
@@ -108,6 +113,18 @@ class ApiRequest {
 
     // API-aware endpoint composition
 
+    // # Organizations
+
+    public organizations(): ApiRequest {
+        return this.addPathComponent('organizations')
+    }
+
+    // # Current
+
+    public current(): ApiRequest {
+        return this.addPathComponent('@current')
+    }
+
     // # Projects
     public projects(): ApiRequest {
         return this.addPathComponent('projects')
@@ -118,6 +135,10 @@ class ApiRequest {
     }
 
     // # Plugins
+    public plugins(): ApiRequest {
+        return this.addPathComponent('plugins')
+    }
+
     public pluginLogs(pluginConfigId: number): ApiRequest {
         return this.addPathComponent('plugin_configs').addPathComponent(pluginConfigId).addPathComponent('logs')
     }
@@ -193,6 +214,10 @@ class ApiRequest {
         return this.dashboardsDetail(dashboardId, teamId).addPathComponent('collaborators')
     }
 
+    public dashboardSharing(dashboardId: DashboardType['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.dashboardsDetail(dashboardId, teamId).addPathComponent('sharing')
+    }
+
     public dashboardCollaboratorsDetail(
         dashboardId: DashboardType['id'],
         userUuid: UserType['uuid'],
@@ -245,12 +270,24 @@ class ApiRequest {
         return this.licenses().addPathComponent(id)
     }
 
-    public insights(teamId: TeamType['id']): ApiRequest {
+    public insights(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('insights')
     }
 
-    public insightsActivity(teamId: TeamType['id']): ApiRequest {
+    public insightsActivity(teamId?: TeamType['id']): ApiRequest {
         return this.insights(teamId).addPathComponent('activity')
+    }
+
+    public insight(id: InsightModel['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.insights(teamId).addPathComponent(id)
+    }
+
+    public insightSharing(id: InsightModel['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.insight(id, teamId).addPathComponent('sharing')
+    }
+
+    public pluginsActivity(): ApiRequest {
+        return this.organizations().current().plugins().addPathComponent('activity')
     }
 
     // # Subscriptions
@@ -262,10 +299,27 @@ class ApiRequest {
         return this.subscriptions(teamId).addPathComponent(id)
     }
 
+    // # Integrations
+    public integrations(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('integrations')
+    }
+
+    public integration(id: IntegrationType['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.integrations(teamId).addPathComponent(id)
+    }
+
+    public integrationSlackChannels(id: IntegrationType['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.integrations(teamId).addPathComponent(id).addPathComponent('channels')
+    }
+
     // Request finalization
 
     public async get(options?: { signal?: AbortSignal }): Promise<any> {
         return await api.get(this.assembleFullUrl(), options?.signal)
+    }
+
+    public async getRaw(options?: { signal?: AbortSignal }): Promise<Response> {
+        return await api.getRaw(this.assembleFullUrl(), options?.signal)
     }
 
     public async update(options?: { data: any }): Promise<any> {
@@ -373,6 +427,12 @@ const api = {
                 [ActivityScope.INSIGHT]: () => {
                     return new ApiRequest().insightsActivity(teamId)
                 },
+                [ActivityScope.PLUGIN]: () => {
+                    return new ApiRequest().pluginsActivity()
+                },
+                [ActivityScope.PLUGIN_CONFIG]: () => {
+                    return new ApiRequest().pluginsActivity()
+                },
             }
 
             const pagingParameters = { page: page || 1, limit: ACTIVITY_PAGE_SIZE }
@@ -389,6 +449,18 @@ const api = {
                 .withAction('content')
                 .withQueryString('download=true')
                 .assembleFullUrl(true)
+        },
+
+        async create(
+            data: Partial<ExportedAssetType>,
+            params: Record<string, any> = {},
+            teamId: TeamType['id'] = getCurrentTeamId()
+        ): Promise<ExportedAssetType> {
+            return new ApiRequest().exports(teamId).withQueryString(toParams(params)).create({ data })
+        },
+
+        async get(id: number, teamId: TeamType['id'] = getCurrentTeamId()): Promise<ExportedAssetType> {
+            return new ApiRequest().export(id, teamId).get()
         },
     },
 
@@ -587,6 +659,39 @@ const api = {
         },
     },
 
+    sharing: {
+        async get({
+            dashboardId,
+            insightId,
+        }: {
+            dashboardId?: DashboardType['id']
+            insightId?: InsightModel['id']
+        }): Promise<SharingConfigurationType | null> {
+            return dashboardId
+                ? new ApiRequest().dashboardSharing(dashboardId).get()
+                : insightId
+                ? new ApiRequest().insightSharing(insightId).get()
+                : null
+        },
+
+        async update(
+            {
+                dashboardId,
+                insightId,
+            }: {
+                dashboardId?: DashboardType['id']
+                insightId?: InsightModel['id']
+            },
+            data: Partial<SharingConfigurationType>
+        ): Promise<SharingConfigurationType | null> {
+            return dashboardId
+                ? new ApiRequest().dashboardSharing(dashboardId).update({ data })
+                : insightId
+                ? new ApiRequest().insightSharing(insightId).update({ data })
+                : null
+        },
+    },
+
     pluginLogs: {
         async search(
             pluginConfigId: number,
@@ -662,7 +767,30 @@ const api = {
         },
     },
 
+    integrations: {
+        async get(id: IntegrationType['id']): Promise<IntegrationType> {
+            return await new ApiRequest().integration(id).get()
+        },
+        async create(data: Partial<IntegrationType>): Promise<IntegrationType> {
+            return await new ApiRequest().integrations().create({ data })
+        },
+        async delete(integrationId: IntegrationType['id']): Promise<IntegrationType> {
+            return await new ApiRequest().integration(integrationId).delete()
+        },
+        async list(): Promise<PaginatedResponse<IntegrationType>> {
+            return await new ApiRequest().integrations().get()
+        },
+        async slackChannels(id: IntegrationType['id']): Promise<{ channels: SlackChannelType[] }> {
+            return await new ApiRequest().integrationSlackChannels(id).get()
+        },
+    },
+
     async get(url: string, signal?: AbortSignal): Promise<any> {
+        const res = await api.getRaw(url, signal)
+        return await getJSONOrThrow(res)
+    },
+
+    async getRaw(url: string, signal?: AbortSignal): Promise<Response> {
         url = normalizeUrl(url)
         ensureProjectIdNotInvalid(url)
         let response
@@ -678,7 +806,7 @@ const api = {
             const data = await getJSONOrThrow(response)
             throw { status: response.status, ...data }
         }
-        return await getJSONOrThrow(response)
+        return response
     },
 
     async update(url: string, data: any): Promise<any> {

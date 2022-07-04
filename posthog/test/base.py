@@ -294,7 +294,6 @@ class QueryMatchingTest:
 def snapshot_postgres_queries(fn):
     """
     Captures and snapshots select queries from test using `syrupy` library.
-
     Requires queries to be stable to avoid flakiness.
 
     Snapshots are automatically saved in a __snapshot__/*.ambr file.

@@ -1,4 +1,4 @@
-import { Button, Divider, Modal, Select } from 'antd'
+import { Divider, Modal } from 'antd'
 import { useActions, useValues } from 'kea'
 import { IconDelete, IconOpenInNew } from 'lib/components/icons'
 import { LemonTableColumns, LemonTable } from 'lib/components/LemonTable'
@@ -9,6 +9,8 @@ import { staffUsersLogic } from './staffUsersLogic'
 import { LemonButton } from 'lib/components/LemonButton'
 import { userLogic } from 'scenes/userLogic'
 import { LemonTag } from 'lib/components/LemonTag/LemonTag'
+import { LemonSelectMultiple } from 'lib/components/LemonSelectMultiple/LemonSelectMultiple'
+import { usersLemonSelectOptions } from 'lib/components/UserSelectItem'
 
 export function StaffUsersTab(): JSX.Element {
     const { user: myself } = useValues(userLogic)
@@ -111,43 +113,27 @@ export function StaffUsersTab(): JSX.Element {
             </div>
             <Divider style={{ margin: 0, marginBottom: 16 }} />
             <section>
-                <div style={{ display: 'flex', marginBottom: '0.75rem' }}>
-                    {/* TOOD: Use Lemon instead of Ant components here */}
-                    <Select
-                        mode="multiple"
-                        placeholder="Add staff users here…"
-                        loading={allUsersLoading}
-                        value={staffUsersToBeAdded}
-                        onChange={(newValues) => setStaffUsersToBeAdded(newValues)}
-                        showArrow
-                        showSearch
-                        style={{ flexGrow: 1 }}
-                    >
-                        {nonStaffUsers.map((user) => (
-                            <Select.Option
-                                key={user.uuid}
-                                value={user.uuid}
-                                title={`${user.first_name} (${user.email})`}
-                            >
-                                <ProfilePicture
-                                    name={user.first_name}
-                                    email={user.email}
-                                    size="sm"
-                                    style={{ display: 'inline-flex', marginRight: 8 }}
-                                />
-                                {user.first_name} ({user.email})
-                            </Select.Option>
-                        ))}
-                    </Select>
-                    <Button
+                <div className="flex gap-05 mb">
+                    <div style={{ flex: 1 }}>
+                        <LemonSelectMultiple
+                            placeholder="Add staff users here…"
+                            loading={allUsersLoading}
+                            value={staffUsersToBeAdded}
+                            onChange={(newValues) => setStaffUsersToBeAdded(newValues)}
+                            filterOption={false}
+                            mode="multiple"
+                            data-attr="subscribed-emails"
+                            options={usersLemonSelectOptions(nonStaffUsers)}
+                        />
+                    </div>
+                    <LemonButton
                         type="primary"
-                        style={{ flexShrink: 0, marginLeft: '0.5rem' }}
                         loading={allUsersLoading}
                         disabled={staffUsersToBeAdded.length === 0}
                         onClick={addStaffUsers}
                     >
                         Add
-                    </Button>
+                    </LemonButton>
                 </div>
             </section>
             <LemonTable dataSource={staffUsers} columns={columns} loading={allUsersLoading} rowKey="uuid" />

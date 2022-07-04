@@ -264,9 +264,8 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
             oldPropertyType?: string,
             newPropertyType?: string
         ) => ({ action, totalProperties, oldPropertyType, newPropertyType }),
-        reportDashboardViewed: (dashboard: DashboardType, hasShareToken: boolean, delay?: number) => ({
+        reportDashboardViewed: (dashboard: DashboardType, delay?: number) => ({
             dashboard,
-            hasShareToken,
             delay,
         }),
         reportDashboardModeToggled: (mode: DashboardMode, source: DashboardEventSource | null) => ({ mode, source }),
@@ -607,7 +606,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         reportCohortCreatedFromPersonsModal: async ({ filters }) => {
             posthog.capture('person modal cohort created', sanitizeFilterParams(filters))
         },
-        reportDashboardViewed: async ({ dashboard, hasShareToken, delay }, breakpoint) => {
+        reportDashboardViewed: async ({ dashboard, delay }, breakpoint) => {
             if (!delay) {
                 await breakpoint(500) // Debounce to avoid noisy events from continuous navigation
             }
@@ -620,7 +619,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
                 sample_items_count: 0,
                 item_count: dashboard.items?.length || 0,
                 created_by_system: !dashboard.created_by,
-                has_share_token: hasShareToken,
                 dashboard_id: id,
             }
 

@@ -3,12 +3,12 @@ import { Link } from 'lib/components/Link'
 import { urls } from 'scenes/urls'
 import { ChangeDescriptions, FilterType, InsightModel } from '~/types'
 import React from 'react'
-import { SentenceList } from 'scenes/feature-flags/activityDescriptions'
 import { BreakdownSummary, FiltersSummary, QuerySummary } from 'lib/components/InsightCard/InsightDetails'
 import '../../lib/components/InsightCard/InsightCard.scss'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { pluralize } from 'lib/utils'
 import { INSIGHT_TYPES_WHERE_DETAILS_UNSUPPORTED } from 'lib/components/InsightCard/InsightCard'
+import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 
 const nameOrLinkToInsight = (item: ActivityLogItem): string | JSX.Element => {
     const name = item.detail.name || '(empty string)'
@@ -212,6 +212,19 @@ export function insightActivityDescriber(logItem: ActivityLogItem): string | JSX
                 />
             )
         }
+    }
+    if (logItem.activity === 'exported') {
+        const exportFormat = logItem.detail.changes?.[0]?.after
+        let exportType = 'in an unknown format'
+        if (typeof exportFormat === 'string') {
+            exportType = exportFormat.split('/')[1]
+        }
+
+        return (
+            <>
+                exported the insight {nameOrLinkToInsight(logItem)} as a {exportType}
+            </>
+        )
     }
 
     return null

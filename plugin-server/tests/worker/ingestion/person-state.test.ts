@@ -6,7 +6,7 @@ import { createHub } from '../../../src/utils/db/hub'
 import { UUIDT } from '../../../src/utils/utils'
 import { PersonState } from '../../../src/worker/ingestion/person-state'
 import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../../helpers/clickhouse'
-import { resetTestDatabase } from '../../helpers/sql'
+import { insertRow, resetTestDatabase } from '../../helpers/sql'
 
 jest.mock('../../../src/utils/status')
 jest.setTimeout(60000) // 60 sec timeout
@@ -283,7 +283,7 @@ describe('PersonState.update()', () => {
         const distinctIds = await hub.db.fetchDistinctIdValues(persons[0])
         expect(distinctIds).toEqual(expect.arrayContaining(['new-user', 'old-user']))
 
-        const clickhousePersons = await delayUntilEventIngested(() => fetchPersonsRows({ final: true }), 2)
+        const clickhousePersons = await delayUntilEventIngested(() => fetchPersonsRows(), 2)
         expect(clickhousePersons.length).toEqual(2)
         expect(clickhousePersons).toEqual(
             expect.arrayContaining([
@@ -455,7 +455,7 @@ describe('PersonState.update()', () => {
         const distinctIds = await hub.db.fetchDistinctIdValues(persons[0])
         expect(distinctIds).toEqual(expect.arrayContaining(['new-user', 'old-user']))
 
-        const clickhousePersons = await delayUntilEventIngested(() => fetchPersonsRows({ final: true }), 2)
+        const clickhousePersons = await delayUntilEventIngested(() => fetchPersonsRows(), 2)
         expect(clickhousePersons.length).toEqual(2)
         expect(clickhousePersons).toEqual(
             expect.arrayContaining([
@@ -476,5 +476,212 @@ describe('PersonState.update()', () => {
 
         expect(hub.personManager.isNewPerson).toHaveBeenCalledTimes(0)
         expect(hub.db.fetchPerson).toHaveBeenCalledTimes(2)
+    })
+
+    describe('foreign key updates in other tables', () => {
+        test('feature flag hash key overrides with no conflicts', async () => {
+            const anonPerson = await hub.db.createPerson(timestamp, {}, {}, {}, 2, null, false, uuid.toString(), [
+                'anonymous_id',
+            ])
+            const identifiedPerson = await hub.db.createPerson(
+                timestamp,
+                {},
+                {},
+                {},
+                2,
+                null,
+                false,
+                uuid2.toString(),
+                ['new_distinct_id']
+            )
+
+            // existing overrides
+            await insertRow(hub.db.postgres, 'posthog_featureflaghashkeyoverride', {
+                team_id: 2,
+                person_id: anonPerson.id,
+                feature_flag_key: 'beta-feature',
+                hash_key: 'example_id',
+            })
+            await insertRow(hub.db.postgres, 'posthog_featureflaghashkeyoverride', {
+                team_id: 2,
+                person_id: anonPerson.id,
+                feature_flag_key: 'multivariate-flag',
+                hash_key: 'example_id',
+            })
+
+            // this event means the `anonPerson` will be deleted
+            // so hashkeyoverride should be updated to `identifiedPerson`'s id
+            await personState({
+                event: '$identify',
+                distinct_id: 'new_distinct_id',
+                properties: {
+                    $anon_distinct_id: 'anonymous_id',
+                    distinct_id: 'new_distinct_id',
+                },
+            }).update()
+            await hub.db.kafkaProducer.flush()
+
+            const [person] = await hub.db.fetchPersons()
+            expect(person.id).toEqual(identifiedPerson.id)
+            expect(await hub.db.fetchDistinctIdValues(person)).toEqual(['anonymous_id', 'new_distinct_id'])
+            expect(person.is_identified).toEqual(true)
+
+            const result = await hub.db.postgresQuery(
+                `SELECT "feature_flag_key", "person_id", "hash_key" FROM "posthog_featureflaghashkeyoverride" WHERE "team_id" = $1`,
+                [2],
+                'testQueryHashKeyOverride'
+            )
+            expect(result.rows).toEqual(
+                expect.arrayContaining([
+                    {
+                        feature_flag_key: 'beta-feature',
+                        person_id: identifiedPerson.id,
+                        hash_key: 'example_id',
+                    },
+                    {
+                        feature_flag_key: 'multivariate-flag',
+                        person_id: identifiedPerson.id,
+                        hash_key: 'example_id',
+                    },
+                ])
+            )
+        })
+
+        test('feature flag hash key overrides with some conflicts handled gracefully', async () => {
+            const anonPerson = await hub.db.createPerson(timestamp, {}, {}, {}, 2, null, false, uuid.toString(), [
+                'anonymous_id',
+            ])
+            const identifiedPerson = await hub.db.createPerson(
+                timestamp,
+                {},
+                {},
+                {},
+                2,
+                null,
+                false,
+                uuid2.toString(),
+                ['new_distinct_id']
+            )
+
+            // existing overrides for both anonPerson and identifiedPerson
+            // which implies a clash when anonPerson is deleted
+            await insertRow(hub.db.postgres, 'posthog_featureflaghashkeyoverride', {
+                team_id: 2,
+                person_id: anonPerson.id,
+                feature_flag_key: 'beta-feature',
+                hash_key: 'example_id',
+            })
+            await insertRow(hub.db.postgres, 'posthog_featureflaghashkeyoverride', {
+                team_id: 2,
+                person_id: identifiedPerson.id,
+                feature_flag_key: 'beta-feature',
+                hash_key: 'different_id',
+            })
+            await insertRow(hub.db.postgres, 'posthog_featureflaghashkeyoverride', {
+                team_id: 2,
+                person_id: anonPerson.id,
+                feature_flag_key: 'multivariate-flag',
+                hash_key: 'other_different_id',
+            })
+
+            // this event means the `anonPerson` will be deleted
+            // so hashkeyoverride should be updated to `identifiedPerson`'s id
+            await personState({
+                event: '$identify',
+                distinct_id: 'new_distinct_id',
+                properties: {
+                    $anon_distinct_id: 'anonymous_id',
+                    distinct_id: 'new_distinct_id',
+                },
+            }).update()
+            await hub.db.kafkaProducer.flush()
+
+            const [person] = await hub.db.fetchPersons()
+            expect(person.id).toEqual(identifiedPerson.id)
+            expect(await hub.db.fetchDistinctIdValues(person)).toEqual(['anonymous_id', 'new_distinct_id'])
+            expect(person.is_identified).toEqual(true)
+
+            const result = await hub.db.postgresQuery(
+                `SELECT "feature_flag_key", "person_id", "hash_key" FROM "posthog_featureflaghashkeyoverride" WHERE "team_id" = $1`,
+                [2],
+                'testQueryHashKeyOverride'
+            )
+            expect(result.rows).toEqual(
+                expect.arrayContaining([
+                    {
+                        feature_flag_key: 'beta-feature',
+                        person_id: identifiedPerson.id,
+                        hash_key: 'different_id', // wasn't overriden from anon flag, because override already exists
+                    },
+                    {
+                        feature_flag_key: 'multivariate-flag',
+                        person_id: identifiedPerson.id,
+                        hash_key: 'other_different_id',
+                    },
+                ])
+            )
+        })
+
+        test('feature flag hash key overrides with no old overrides but existing new person overrides', async () => {
+            await hub.db.createPerson(timestamp, {}, {}, {}, 2, null, false, uuid.toString(), ['anonymous_id'])
+            const identifiedPerson = await hub.db.createPerson(
+                timestamp,
+                {},
+                {},
+                {},
+                2,
+                null,
+                false,
+                uuid2.toString(),
+                ['new_distinct_id']
+            )
+
+            await insertRow(hub.db.postgres, 'posthog_featureflaghashkeyoverride', {
+                team_id: 2,
+                person_id: identifiedPerson.id,
+                feature_flag_key: 'beta-feature',
+                hash_key: 'example_id',
+            })
+            await insertRow(hub.db.postgres, 'posthog_featureflaghashkeyoverride', {
+                team_id: 2,
+                person_id: identifiedPerson.id,
+                feature_flag_key: 'multivariate-flag',
+                hash_key: 'different_id',
+            })
+
+            await personState({
+                event: '$identify',
+                distinct_id: 'new_distinct_id',
+                properties: {
+                    $anon_distinct_id: 'anonymous_id',
+                },
+            }).update()
+            await hub.db.kafkaProducer.flush()
+
+            const [person] = await hub.db.fetchPersons()
+            expect(person.id).toEqual(identifiedPerson.id)
+            expect(await hub.db.fetchDistinctIdValues(person)).toEqual(['anonymous_id', 'new_distinct_id'])
+            expect(person.is_identified).toEqual(true)
+
+            const result = await hub.db.postgresQuery(
+                `SELECT "feature_flag_key", "person_id", "hash_key" FROM "posthog_featureflaghashkeyoverride" WHERE "team_id" = $1`,
+                [2],
+                'testQueryHashKeyOverride'
+            )
+            expect(result.rows).toEqual(
+                expect.arrayContaining([
+                    {
+                        feature_flag_key: 'beta-feature',
+                        person_id: identifiedPerson.id,
+                        hash_key: 'example_id',
+                    },
+                    {
+                        feature_flag_key: 'multivariate-flag',
+                        person_id: identifiedPerson.id,
+                        hash_key: 'different_id',
+                    },
+                ])
+            )
+        })
     })
 })

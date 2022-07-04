@@ -101,7 +101,7 @@ class CohortSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Cohort:
         request = self.context["request"]
-        team: Team = Team.objects.get(pk=self.context["team_id"])
+        Team.objects.get(pk=self.context["team_id"])
         validated_data["created_by"] = request.user
 
         if not validated_data.get("is_static"):

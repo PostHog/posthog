@@ -6,6 +6,7 @@ from posthog.models.filters import Filter
 from posthog.models.group.util import create_group
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.queries.breakdown_props import get_breakdown_prop_values
+from posthog.queries.trends.util import process_math
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -244,3 +245,160 @@ class TestBreakdownProps(ClickhouseTestMixin, APIBaseTest):
         )
         result = get_breakdown_prop_values(filter, filter.entities[0], "count(*)", self.team)
         self.assertEqual(result, ["finance", "technology"])
+
+    @snapshot_clickhouse_queries
+    def test_breakdown_session_props(self):
+        _create_person(team_id=self.team.pk, distinct_ids=["p1"], properties={"$browser": "test", "$os": "test"})
+
+        # 20 second session that starts before the time range
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p1",
+            timestamp="2020-01-01T23:59:50Z",
+            properties={"$session_id": "1"},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p1",
+            timestamp="2020-01-02T00:00:10Z",
+            properties={"$session_id": "1"},
+        )
+
+        # 70 second session
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p1",
+            timestamp="2020-01-02T12:00:00Z",
+            properties={"$session_id": "2"},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p1",
+            timestamp="2020-01-02T12:01:10Z",
+            properties={"$session_id": "2"},
+        )
+
+        filter = Filter(
+            data={
+                "date_from": "2020-01-02T00:00:00Z",
+                "date_to": "2020-01-12T00:00:00Z",
+                "breakdown": "$session_duration",
+                "breakdown_type": "session",
+                "events": [{"id": "$pageview", "type": "events", "order": 0,}],
+            },
+        )
+        result = get_breakdown_prop_values(filter, filter.entities[0], "count(*)", self.team)
+        self.assertEqual(result, [70, 20])
+
+    @snapshot_clickhouse_queries
+    def test_breakdown_with_math_property_session(self):
+        _create_person(team_id=self.team.pk, distinct_ids=["p1"], properties={"$browser": "test", "$os": "test"})
+        _create_person(team_id=self.team.pk, distinct_ids=["p2"], properties={"$browser": "mac", "$os": "test"})
+
+        # 20 second session that starts before the time range
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p1",
+            timestamp="2020-01-01T23:59:50Z",
+            properties={"$session_id": "1"},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p1",
+            timestamp="2020-01-02T00:00:10Z",
+            properties={"$session_id": "1"},
+        )
+
+        # 70 second session
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p1",
+            timestamp="2020-01-02T12:00:00Z",
+            properties={"$session_id": "2"},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p1",
+            timestamp="2020-01-02T12:01:10Z",
+            properties={"$session_id": "2"},
+        )
+
+        # 10 second session for second person with different browser, but more absolute
+        # events than first person
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p2",
+            timestamp="2020-01-02T12:00:00Z",
+            properties={"$session_id": "3"},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p2",
+            timestamp="2020-01-02T12:00:01Z",
+            properties={"$session_id": "3"},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p2",
+            timestamp="2020-01-02T12:00:02Z",
+            properties={"$session_id": "3"},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p2",
+            timestamp="2020-01-02T12:00:03Z",
+            properties={"$session_id": "3"},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p2",
+            timestamp="2020-01-02T12:00:04Z",
+            properties={"$session_id": "3"},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p2",
+            timestamp="2020-01-02T12:00:10Z",
+            properties={"$session_id": "3"},
+        )
+
+        filter = Filter(
+            data={
+                "date_from": "2020-01-02T00:00:00Z",
+                "date_to": "2020-01-12T00:00:00Z",
+                "breakdown": "$browser",
+                "breakdown_type": "person",
+                "events": [
+                    {
+                        "id": "$pageview",
+                        "type": "events",
+                        "order": 0,
+                        "math": "sum",
+                        "math_property": "$session_duration",
+                    }
+                ],
+            },
+        )
+        aggregate_operation, _, _ = process_math(filter.entities[0], self.team,)
+
+        result = get_breakdown_prop_values(filter, filter.entities[0], aggregate_operation, self.team)
+        # test should come first, based on aggregate operation, even if absolute count of events for
+        # mac is higher
+        self.assertEqual(result, ["test", "mac"])
+
+        result = get_breakdown_prop_values(filter, filter.entities[0], "count(*)", self.team)
+        self.assertEqual(result, ["mac", "test"])

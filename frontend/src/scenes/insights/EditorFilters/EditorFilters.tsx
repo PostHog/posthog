@@ -7,46 +7,53 @@ import {
     InsightLogicProps,
     InsightType,
 } from '~/types'
-import { EFTrendsSteps } from 'scenes/insights/EditorFilters/EFTrendsSteps'
+import { CSSTransition } from 'react-transition-group'
+import { TrendsSteps } from 'scenes/insights/EditorFilters/TrendsSteps'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { EFTrendsGlobalAndOrFilters } from 'scenes/insights/EditorFilters/EFTrendsGlobalAndOrFilters'
-import { EFTrendsFormula } from 'scenes/insights/EditorFilters/EFTrendsFormula'
-import { EFTrendsBreakdown } from 'scenes/insights/EditorFilters/EFTrendsBreakdown'
-import { EFLifecycleToggles } from 'scenes/insights/EditorFilters/EFLifecycleToggles'
-import { EFLifecycleGlobalFilters } from 'scenes/insights/EditorFilters/EFLifecycleGlobalFilters'
+import { TrendsGlobalAndOrFilters } from 'scenes/insights/EditorFilters/TrendsGlobalAndOrFilters'
+import { TrendsFormula } from 'scenes/insights/EditorFilters/TrendsFormula'
+import { TrendsBreakdown } from 'scenes/insights/EditorFilters/TrendsBreakdown'
+import { LifecycleToggles } from 'scenes/insights/EditorFilters/LifecycleToggles'
+import { LifecycleGlobalFilters } from 'scenes/insights/EditorFilters/LifecycleGlobalFilters'
 import React from 'react'
-import { EFRetentionSummary } from './EFRetentionSummary'
-import { EFPathsEventTypes } from './EFPathsEventTypes'
-import { EFPathsWildcardGroups } from './EFPathsWildcardGroups'
-import { EFPathsTargetEnd, EFPathsTargetStart } from './EFPathsTarget'
-import { EFPathsAdvanced } from './EFPathsAdvanced'
-import { EFFunnelsQuerySteps } from './EFFunnelsQuerySteps'
-import { EFFunnelsAdvanced } from './EFFunnelsAdvanced'
-import { EFPathsExclusions } from './EFPathsExclusions'
+import { RetentionSummary } from './RetentionSummary'
+import { PathsEventTypes } from './PathsEventTypes'
+import { PathsWildcardGroups } from './PathsWildcardGroups'
+import { PathsTargetEnd, PathsTargetStart } from './PathsTarget'
+import { PathsAdvanced } from './PathsAdvanced'
+import { FunnelsQuerySteps } from './FunnelsQuerySteps'
+import { FunnelsAdvanced } from './FunnelsAdvanced'
+import { PathsExclusions } from './PathsExclusions'
 import { EditorFilterGroup } from './EditorFilterGroup'
 import { useValues } from 'kea'
 import { userLogic } from 'scenes/userLogic'
 import { insightLogic } from '../insightLogic'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { EFPathsAdvancedPaywall } from './EFPathsAdvancedPaywall'
+import { PathsAdvancedPaywall } from './PathsAdvancedPaywall'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { EFInsightType } from './EFInsightType'
+import { InsightTypeSelector } from './InsightTypeSelector'
+import './EditorFilters.scss'
+import clsx from 'clsx'
+import { Attribution } from './AttributionFilter'
 
 export interface EditorFiltersProps {
     insightProps: InsightLogicProps
+    showing: boolean
 }
 
-export function EditorFilters({ insightProps }: EditorFiltersProps): JSX.Element {
+export function EditorFilters({ insightProps, showing }: EditorFiltersProps): JSX.Element {
     const { user } = useValues(userLogic)
     const availableFeatures = user?.organization?.available_features || []
-    const { featureFlags } = useValues(featureFlagLogic)
 
     const logic = insightLogic(insightProps)
     const { filters, insight, filterPropertiesCount } = useValues(logic)
     const { preflight } = useValues(preflightLogic)
 
     const { advancedOptionsUsedCount } = useValues(funnelLogic(insightProps))
+
+    const { featureFlags } = useValues(featureFlagLogic)
+    const usingEditorPanels = featureFlags[FEATURE_FLAGS.INSIGHT_EDITOR_PANELS]
 
     const isTrends = !filters.insight || filters.insight === InsightType.TRENDS
     const isLifecycle = filters.insight === InsightType.LIFECYCLE
@@ -64,6 +71,10 @@ export function EditorFilters({ insightProps }: EditorFiltersProps): JSX.Element
         (isFunnels && filters.funnel_viz_type === FunnelVizType.Steps)
     const hasPropertyFilters = isTrends || isStickiness || isRetention || isPaths || isFunnels
     const hasPathsAdvanced = availableFeatures.includes(AvailableFeature.PATHS_ADVANCED)
+    const hasAttribution =
+        isFunnels &&
+        filters.funnel_viz_type === FunnelVizType.Steps &&
+        featureFlags[FEATURE_FLAGS.BREAKDOWN_ATTRIBUTION]
 
     const advancedOptionsCount = advancedOptionsUsedCount + (filters.formula ? 1 : 0)
     const advancedOptionsExpanded = !!advancedOptionsCount
@@ -72,27 +83,29 @@ export function EditorFilters({ insightProps }: EditorFiltersProps): JSX.Element
         {
             title: 'General',
             editorFilters: filterFalsy([
-                {
-                    key: 'insight',
-                    label: 'Type',
-                    component: EFInsightType,
-                },
+                usingEditorPanels
+                    ? {
+                          key: 'insight',
+                          label: 'Type',
+                          component: InsightTypeSelector,
+                      }
+                    : undefined,
                 isRetention && {
                     key: 'retention-summary',
                     label: 'Retention Summary',
-                    component: EFRetentionSummary,
+                    component: RetentionSummary,
                 },
                 ...(isPaths
                     ? filterFalsy([
                           {
                               key: 'event-types',
                               label: 'Event Types',
-                              component: EFPathsEventTypes,
+                              component: PathsEventTypes,
                           },
                           hasPathsAdvanced && {
                               key: 'wildcard-groups',
                               label: 'Wildcard Groups (optional)',
-                              component: EFPathsWildcardGroups,
+                              component: PathsWildcardGroups,
                               tooltip: (
                                   <>
                                       Use wildcard matching to group events by unique values in path item names. Use an
@@ -105,12 +118,12 @@ export function EditorFilters({ insightProps }: EditorFiltersProps): JSX.Element
                           {
                               key: 'start-target',
                               label: 'Starts at',
-                              component: EFPathsTargetStart,
+                              component: PathsTargetStart,
                           },
                           hasPathsAdvanced && {
                               key: 'ends-target',
                               label: 'Ends at',
-                              component: EFPathsTargetEnd,
+                              component: PathsTargetEnd,
                           },
                       ])
                     : []),
@@ -119,7 +132,7 @@ export function EditorFilters({ insightProps }: EditorFiltersProps): JSX.Element
                           {
                               key: 'query-steps',
                               //   label: 'Query Steps',
-                              component: EFFunnelsQuerySteps,
+                              component: FunnelsQuerySteps,
                           },
                       ])
                     : []),
@@ -127,34 +140,41 @@ export function EditorFilters({ insightProps }: EditorFiltersProps): JSX.Element
         },
         {
             title: 'Steps',
+
             editorFilters: filterFalsy([
                 isTrendsLike && {
                     key: 'steps',
-                    component: EFTrendsSteps,
+                    component: TrendsSteps,
                 },
             ]),
         },
         {
             title: 'Filters',
             count: filterPropertiesCount,
+
             editorFilters: filterFalsy([
                 isLifecycle
                     ? {
                           key: 'properties',
-                          component: EFLifecycleGlobalFilters,
+                          label: !usingEditorPanels ? 'Filters' : undefined,
+                          position: 'right',
+                          component: LifecycleGlobalFilters,
                       }
                     : null,
                 isLifecycle
                     ? {
                           key: 'toggles',
                           label: 'Lifecycle Toggles',
-                          component: EFLifecycleToggles,
+                          position: 'right',
+                          component: LifecycleToggles,
                       }
                     : null,
                 hasPropertyFilters && filters.properties
                     ? {
                           key: 'properties',
-                          component: EFTrendsGlobalAndOrFilters,
+                          label: !usingEditorPanels ? 'Filters' : undefined,
+                          position: 'right',
+                          component: TrendsGlobalAndOrFilters,
                       }
                     : null,
             ]),
@@ -162,11 +182,13 @@ export function EditorFilters({ insightProps }: EditorFiltersProps): JSX.Element
         {
             title: 'Breakdown',
             count: filters.breakdowns?.length || (filters.breakdown ? 1 : 0),
+            position: 'right',
             editorFilters: filterFalsy([
                 hasBreakdown
                     ? {
                           key: 'breakdown',
                           label: 'Breakdown by',
+                          position: 'right',
                           tooltip: (
                               <>
                                   Use breakdown to see the aggregation (total volume, active users, etc.) for each value
@@ -174,26 +196,52 @@ export function EditorFilters({ insightProps }: EditorFiltersProps): JSX.Element
                                   give you the event volume for each URL your users have visited.
                               </>
                           ),
-                          component: EFTrendsBreakdown,
+                          component: TrendsBreakdown,
+                      }
+                    : null,
+                hasAttribution
+                    ? {
+                          key: 'attribution',
+                          label: 'Attribution type',
+                          position: 'right',
+
+                          tooltip: (
+                              <div>
+                                  Attribution type determines which property value to use for the entire funnel.
+                                  <ul style={{ paddingLeft: '1.2rem' }}>
+                                      <li>First step: the first property value seen from all steps is chosen.</li>
+                                      <li>Last step: last property value seen from all steps is chosen.</li>
+                                      <li>Specific step: the property value seen at that specific step is chosen.</li>
+                                      <li>All steps: the property value must be seen in all steps.</li>
+                                      <li>
+                                          Any step: the property value must be seen on at least one step of the funnel.
+                                      </li>
+                                  </ul>
+                              </div>
+                          ),
+                          component: Attribution,
                       }
                     : null,
             ]),
         },
         {
             title: 'Exclusions',
+            position: 'right',
             editorFilters: filterFalsy([
                 isPaths && {
                     key: 'paths-exclusions',
                     label: 'Exclusions',
+                    position: 'right',
                     tooltip: (
                         <>Exclude events from Paths visualisation. You can use wildcard groups in exclusions as well.</>
                     ),
-                    component: EFPathsExclusions,
+                    component: PathsExclusions,
                 },
             ]),
         },
         {
             title: 'Advanced Options',
+            position: 'left',
             defaultExpanded: advancedOptionsExpanded,
             count: advancedOptionsCount,
             editorFilters: filterFalsy([
@@ -201,6 +249,7 @@ export function EditorFilters({ insightProps }: EditorFiltersProps): JSX.Element
                     ? {
                           key: 'formula',
                           label: 'Formula',
+                          position: 'right',
                           tooltip: (
                               <>
                                   Apply math operations to your series. You can do operations among series (e.g.{' '}
@@ -208,40 +257,75 @@ export function EditorFilters({ insightProps }: EditorFiltersProps): JSX.Element
                                   <code>A / 100</code>)
                               </>
                           ),
-                          component: EFTrendsFormula,
+                          component: TrendsFormula,
                       }
                     : null,
                 isPaths &&
                     (hasPathsAdvanced
                         ? {
                               key: 'paths-advanced',
-                              component: EFPathsAdvanced,
+                              component: PathsAdvanced,
                           }
                         : !preflight?.instance_preferences?.disable_paid_fs
                         ? {
                               key: 'paths-paywall',
-                              component: EFPathsAdvancedPaywall,
+                              component: PathsAdvancedPaywall,
                           }
                         : undefined),
                 isFunnels && {
                     key: 'funnels-advanced',
-                    component: EFFunnelsAdvanced,
+                    component: FunnelsAdvanced,
                 },
             ]),
         },
     ].filter((x) => x.editorFilters.length > 0)
 
+    let legacyEditorFilterGroups: InsightEditorFilterGroup[] = []
+
+    if (!usingEditorPanels) {
+        const leftFilters = editorFilters.reduce(
+            (acc, x) => acc.concat(x.editorFilters.filter((y) => y.position !== 'right')),
+            [] as InsightEditorFilter[]
+        )
+        const rightFilters = editorFilters.reduce(
+            (acc, x) => acc.concat(x.editorFilters.filter((y) => y.position === 'right')),
+            [] as InsightEditorFilter[]
+        )
+
+        legacyEditorFilterGroups = [
+            {
+                title: 'Left',
+                editorFilters: leftFilters,
+            },
+            {
+                title: 'right',
+                editorFilters: rightFilters,
+            },
+        ]
+    }
+
     return (
-        <>
-            {editorFilters.map((editorFilterGroup) => (
-                <EditorFilterGroup
-                    key={editorFilterGroup.title}
-                    editorFilterGroup={editorFilterGroup}
-                    insight={insight}
-                    insightProps={insightProps}
-                />
-            ))}
-        </>
+        <CSSTransition in={showing} timeout={250} classNames="anim-" mountOnEnter unmountOnExit>
+            <div
+                className={clsx('EditorFiltersWrapper', {
+                    'EditorFiltersWrapper--editorpanels': usingEditorPanels,
+                    'EditorFiltersWrapper--singlecolumn': !usingEditorPanels && isFunnels,
+                })}
+            >
+                <div className="EditorFilters">
+                    {(usingEditorPanels || isFunnels ? editorFilters : legacyEditorFilterGroups).map(
+                        (editorFilterGroup) => (
+                            <EditorFilterGroup
+                                key={editorFilterGroup.title}
+                                editorFilterGroup={editorFilterGroup}
+                                insight={insight}
+                                insightProps={insightProps}
+                            />
+                        )
+                    )}
+                </div>
+            </div>
+        </CSSTransition>
     )
 }
 

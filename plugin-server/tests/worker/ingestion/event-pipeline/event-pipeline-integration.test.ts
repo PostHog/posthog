@@ -113,6 +113,7 @@ describe('Event Pipeline integration test', () => {
             site_url: 'https://example.com',
             uuid: new UUIDT().toString(),
         }
+        await hub.actionManager.reloadAllActions()
 
         await ingestEvent(event)
 
@@ -151,6 +152,7 @@ describe('Event Pipeline integration test', () => {
             site_url: 'https://example.com',
             uuid: new UUIDT().toString(),
         }
+        await hub.actionManager.reloadAllActions()
 
         await ingestEvent(event)
 

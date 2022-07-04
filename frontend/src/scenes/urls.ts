@@ -1,5 +1,6 @@
 import { DashboardType, FilterType, InsightShortId } from '~/types'
 import { combineUrl } from 'kea-router'
+import { ExportOptions } from '~/exporter/types'
 
 /**
  * To add a new URL to the front end:
@@ -16,7 +17,7 @@ export const urls = {
     dashboards: (): string => '/dashboard',
     dashboard: (id: string | number, highlightInsightId?: string): string =>
         combineUrl(`/dashboard/${id}`, highlightInsightId ? { highlightInsightId } : {}).url,
-
+    dashboardSharing: (id: string | number): string => `/dashboard/${id}/sharing`,
     dashboardSubcriptions: (id: string | number): string => `/dashboard/${id}/subscriptions`,
     dashboardSubcription: (id: string | number, subscriptionId: string): string =>
         `/dashboard/${id}/subscriptions/${subscriptionId}`,
@@ -37,6 +38,7 @@ export const urls = {
     insightSubcriptions: (id: InsightShortId): string => `/insights/${id}/subscriptions`,
     insightSubcription: (id: InsightShortId, subscriptionId: string): string =>
         `/insights/${id}/subscriptions/${subscriptionId}`,
+    insightSharing: (id: InsightShortId): string => `/insights/${id}/sharing`,
     savedInsights: (): string => '/insights',
     webPerformance: (): string => '/web-performance',
     webPerformanceWaterfall: (id: string): string => `/web-performance/${id}/waterfall`,
@@ -86,4 +88,17 @@ export const urls = {
     asyncMigrations: (): string => '/instance/async_migrations',
     deadLetterQueue: (): string => '/instance/dead_letter_queue',
     unsubscribe: (): string => '/unsubscribe',
+    integrationsRedirect: (kind: string): string => `/integrations/${kind}/redirect`,
+    shared: (token: string, exportOptions?: ExportOptions): string =>
+        combineUrl(`/shared/${token}`, {
+            ...(exportOptions?.whitelabel ? { whitelabel: null } : {}),
+            ...(exportOptions?.legend ? { legend: null } : {}),
+            ...(exportOptions?.noHeader ? { legend: null } : {}),
+        }).url,
+    embedded: (token: string, exportOptions?: ExportOptions): string =>
+        combineUrl(`/embedded/${token}`, {
+            ...(exportOptions?.whitelabel ? { whitelabel: null } : {}),
+            ...(exportOptions?.legend ? { legend: null } : {}),
+            ...(exportOptions?.noHeader ? { noHeader: null } : {}),
+        }).url,
 }

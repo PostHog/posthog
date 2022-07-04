@@ -15,7 +15,7 @@ const insights = [trendsBarBreakdown, trendsPieBreakdown, funnelTopToBottom]
 
 export default {
     title: 'Scenes-App/Saved Insights',
-    parameters: { layout: 'fullscreen', options: { showPanel: false }, viewMode: 'canvas' },
+    parameters: { layout: 'fullscreen', options: { showPanel: false }, viewMode: 'story' },
     decorators: [
         mswDecorator({
             get: {

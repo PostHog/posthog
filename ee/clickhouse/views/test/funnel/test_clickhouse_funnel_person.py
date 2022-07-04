@@ -187,7 +187,7 @@ class TestFunnelPerson(ClickhouseTestMixin, APIBaseTest):
         }
 
         # event
-        person1 = _create_person(distinct_ids=["person1"], team_id=self.team.pk)
+        _create_person(distinct_ids=["person1"], team_id=self.team.pk)
         _create_event(
             team=self.team,
             event="sign up",
@@ -210,7 +210,7 @@ class TestFunnelPerson(ClickhouseTestMixin, APIBaseTest):
             timestamp="2020-01-01T15:00:00Z",
         )
 
-        person2 = _create_person(distinct_ids=["person2"], team_id=self.team.pk)
+        _create_person(distinct_ids=["person2"], team_id=self.team.pk)
         _create_event(
             team=self.team,
             event="sign up",
@@ -226,7 +226,7 @@ class TestFunnelPerson(ClickhouseTestMixin, APIBaseTest):
             timestamp="2020-01-02T16:00:00Z",
         )
 
-        person3 = _create_person(distinct_ids=["person3"], team_id=self.team.pk)
+        _create_person(distinct_ids=["person3"], team_id=self.team.pk)
         _create_event(
             team=self.team,
             event="sign up",

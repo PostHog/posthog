@@ -247,6 +247,7 @@ export const insightLogic = kea<insightLogicType>({
                     cache.abortController = new AbortController()
 
                     const { filters } = values
+
                     const insight = (filters.insight as InsightType | undefined) || InsightType.TRENDS
                     const params = { ...filters, ...(refresh ? { refresh: true } : {}) }
 

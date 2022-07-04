@@ -22,7 +22,8 @@ import {
     SortableElement as sortableElement,
 } from 'react-sortable-hoc'
 import { SortableDragIcon } from 'lib/components/icons'
-import { userLogic } from 'scenes/userLogic'
+import { RestrictedArea, RestrictedComponentProps, RestrictionScope } from '../RestrictedArea'
+import { OrganizationMembershipLevel } from 'lib/constants'
 
 const DragHandle = sortableHandle(() => (
     <span className="drag-handle">
@@ -70,8 +71,19 @@ function ColumnConfigurator({ immutableColumns, defaultColumns }: TableConfigPro
     const { selectColumn, unselectColumn, resetColumns, setColumns, toggleSaveAsDefault, save } =
         useActions(configuratorLogic)
     const { selectedColumns } = useValues(configuratorLogic)
-    const { user } = useValues(userLogic)
 
+    function SaveColumnsAsDefault({ isRestricted }: RestrictedComponentProps): JSX.Element {
+        return (
+            <LemonCheckbox
+                label="Save as default for all project members"
+                className="save-as-default-button mt"
+                data-attr="events-table-save-columns-as-default-toggle"
+                onChange={toggleSaveAsDefault}
+                defaultChecked={false}
+                disabled={isRestricted}
+            />
+        )
+    }
     const SelectedColumn = ({ column, disabled }: { column: string; disabled?: boolean }): JSX.Element => {
         return (
             <div
@@ -212,23 +224,10 @@ function ColumnConfigurator({ immutableColumns, defaultColumns }: TableConfigPro
                         </div>
                     </Col>
                 </Row>
-                <LemonCheckbox
-                    label={
-                        <Tooltip
-                            title={
-                                !user?.is_staff
-                                    ? `You don't have permission to set default columns for all project members`
-                                    : undefined
-                            }
-                        >
-                            Save as default for all project members
-                        </Tooltip>
-                    }
-                    className="save-as-default-button mt"
-                    data-attr="events-table-save-columns-as-default-toggle"
-                    onChange={toggleSaveAsDefault}
-                    defaultChecked={false}
-                    disabled={!user?.is_staff}
+                <RestrictedArea
+                    Component={SaveColumnsAsDefault}
+                    minimumAccessLevel={OrganizationMembershipLevel.Owner}
+                    scope={RestrictionScope.Project}
                 />
             </div>
         </Modal>

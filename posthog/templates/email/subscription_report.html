@@ -46,18 +46,19 @@
 <img class="insight-image mb" src="{{ image }}" />
 {% endfor %}
 
-<p class="text-center">
-    <a target="_blank" href="{{ subscription_url }}"><b>Manage this subscription in PostHog</b></a>
-    or
-    <a target="_blank" href="{{ unsubscribe_url }}"><b>unsubscribe now.</b></a>
-</p>
-
 <div class="mb mt text-center">
     <a class="button primary" href="{{ resource_url }}">View in PostHog</a>
 </div>
 
 <div class="mt text-center">
-    Are you finding subscriptions valuable? <a href="https://posthog.com/feedback?{{ utm_tags }}"><b>Share feedback</b></a>
+    Subscription is a new PostHog feature! <a href="mailto:hey@posthog.com?subject=Feedback%20on%20Subscriptions"><b>Share feedback</b></a>
 </div>
 
+<div class="divider"></div>
+
+<p class="text-center">
+    <a target="_blank" href="{{ subscription_url }}"><b>Manage this subscription in PostHog</b></a>
+    or
+    <a target="_blank" href="{{ unsubscribe_url }}"><b>unsubscribe now.</b></a>
+</p>
 {% endblock %}{% load posthog_filters %}

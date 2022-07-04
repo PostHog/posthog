@@ -130,7 +130,7 @@ def trend_test_factory(trends):
                     properties={"$some_property": "other_value"},
                 )
 
-            no_events = _create_action(team=self.team, name="no events")
+            _create_action(team=self.team, name="no events")
             sign_up_action = _create_action(team=self.team, name="sign up")
 
             return sign_up_action, person
@@ -143,7 +143,7 @@ def trend_test_factory(trends):
                     _create_event(
                         team=self.team, event="sign up", distinct_id="blabla", properties={"$some_property": i},
                     )
-            sign_up_action = _create_action(team=self.team, name="sign up")
+            _create_action(team=self.team, name="sign up")
 
         def test_trends_per_day(self):
             self._create_events()
@@ -161,7 +161,7 @@ def trend_test_factory(trends):
         # just make sure this doesn't error
         def test_no_props(self):
             with freeze_time("2020-01-04T13:01:01Z"):
-                event_response = trends().run(
+                trends().run(
                     Filter(
                         data={
                             "date_from": "-14d",
@@ -240,7 +240,7 @@ def trend_test_factory(trends):
 
         @test_with_materialized_columns(["$math_prop"])
         def test_trends_single_aggregate_math(self):
-            person = _create_person(
+            _create_person(
                 team_id=self.team.pk, distinct_ids=["blabla", "anonymous_id"], properties={"$some_prop": "some_val"}
             )
             with freeze_time("2020-01-01 00:06:34"):
@@ -295,11 +295,108 @@ def trend_test_factory(trends):
             self.assertEqual(daily_response[0]["aggregated_value"], 2.0)
             self.assertEqual(daily_response[0]["aggregated_value"], weekly_response[0]["aggregated_value"])
 
+        @snapshot_clickhouse_queries
+        def test_trends_with_session_property_single_aggregate_math(self):
+            _create_person(
+                team_id=self.team.pk, distinct_ids=["blabla", "anonymous_id"], properties={"$some_prop": "some_val"}
+            )
+            _create_person(team_id=self.team.pk, distinct_ids=["blabla2"], properties={"$some_prop": "some_val"})
+
+            _create_event(
+                team=self.team,
+                event="sign up before",
+                distinct_id="blabla",
+                properties={"$session_id": 1},
+                timestamp="2020-01-01 00:06:30",
+            )
+            _create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="blabla",
+                properties={"$session_id": 1},
+                timestamp="2020-01-01 00:06:34",
+            )
+            _create_event(
+                team=self.team,
+                event="sign up later",
+                distinct_id="blabla",
+                properties={"$session_id": 1},
+                timestamp="2020-01-01 00:06:35",
+            )
+            # First session lasted 5 seconds
+            _create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="blabla2",
+                properties={"$session_id": 2},
+                timestamp="2020-01-01 00:06:35",
+            )
+            _create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="blabla2",
+                properties={"$session_id": 2},
+                timestamp="2020-01-01 00:06:45",
+            )
+            # Second session lasted 10 seconds
+
+            _create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="blabla",
+                properties={"$session_id": 3},
+                timestamp="2020-01-01 00:06:45",
+            )
+            # Third session lasted 0 seconds
+
+            _create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="blabla",
+                properties={"$session_id": 4},
+                timestamp="2020-01-02 00:06:30",
+            )
+            _create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="blabla",
+                properties={"$session_id": 4},
+                timestamp="2020-01-02 00:06:45",
+            )
+            # Fourth session lasted 15 seconds
+
+            with freeze_time("2020-01-04T13:00:01Z"):
+                daily_response = trends().run(
+                    Filter(
+                        data={
+                            "display": TRENDS_TABLE,
+                            "interval": "week",
+                            "events": [{"id": "sign up", "math": "median", "math_property": "$session_duration",}],
+                        }
+                    ),
+                    self.team,
+                )
+
+            with freeze_time("2020-01-04T13:00:01Z"):
+                weekly_response = trends().run(
+                    Filter(
+                        data={
+                            "display": TRENDS_TABLE,
+                            "interval": "day",
+                            "events": [{"id": "sign up", "math": "median", "math_property": "$session_duration",}],
+                        }
+                    ),
+                    self.team,
+                )
+
+            self.assertEqual(daily_response[0]["aggregated_value"], 7.5)
+            self.assertEqual(daily_response[0]["aggregated_value"], weekly_response[0]["aggregated_value"])
+
         @test_with_materialized_columns(person_properties=["name"], verify_no_jsonextract=False)
         def test_trends_breakdown_single_aggregate_cohorts(self):
-            person_1 = _create_person(team_id=self.team.pk, distinct_ids=["Jane"], properties={"name": "Jane"})
-            person_2 = _create_person(team_id=self.team.pk, distinct_ids=["John"], properties={"name": "John"})
-            person_3 = _create_person(team_id=self.team.pk, distinct_ids=["Jill"], properties={"name": "Jill"})
+            _create_person(team_id=self.team.pk, distinct_ids=["Jane"], properties={"name": "Jane"})
+            _create_person(team_id=self.team.pk, distinct_ids=["John"], properties={"name": "John"})
+            _create_person(team_id=self.team.pk, distinct_ids=["Jill"], properties={"name": "Jill"})
             cohort1 = _create_cohort(
                 team=self.team,
                 name="cohort1",
@@ -384,7 +481,7 @@ def trend_test_factory(trends):
                     self.assertEqual(result["aggregated_value"], 7)
 
         def test_trends_breakdown_single_aggregate(self):
-            person = _create_person(
+            _create_person(
                 team_id=self.team.pk, distinct_ids=["blabla", "anonymous_id"], properties={"$some_prop": "some_val"}
             )
             with freeze_time("2020-01-01 00:06:34"):
@@ -446,7 +543,7 @@ def trend_test_factory(trends):
                     self.assertEqual(result["aggregated_value"], 5)
 
         def test_trends_breakdown_single_aggregate_math(self):
-            person = _create_person(
+            _create_person(
                 team_id=self.team.pk, distinct_ids=["blabla", "anonymous_id"], properties={"$some_prop": "some_val"}
             )
             with freeze_time("2020-01-01 00:06:34"):
@@ -524,12 +621,137 @@ def trend_test_factory(trends):
             self.assertEqual(daily_response[0]["aggregated_value"], 2.0)
             self.assertEqual(daily_response[0]["aggregated_value"], weekly_response[0]["aggregated_value"])
 
+        @snapshot_clickhouse_queries
+        def test_trends_breakdown_with_session_property_single_aggregate_math_and_breakdown(self):
+            _create_person(
+                team_id=self.team.pk, distinct_ids=["blabla", "anonymous_id"], properties={"$some_prop": "some_val"}
+            )
+            _create_person(team_id=self.team.pk, distinct_ids=["blabla2"], properties={"$some_prop": "some_val"})
+
+            _create_event(
+                team=self.team,
+                event="sign up before",
+                distinct_id="blabla",
+                properties={"$session_id": 1, "$some_property": "value1"},
+                timestamp="2020-01-01 00:06:30",
+            )
+            _create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="blabla",
+                properties={"$session_id": 1, "$some_property": "value1"},
+                timestamp="2020-01-01 00:06:34",
+            )
+            _create_event(
+                team=self.team,
+                event="sign up later",
+                distinct_id="blabla",
+                properties={"$session_id": 1, "$some_property": "value doesnt matter"},
+                timestamp="2020-01-01 00:06:35",
+            )
+            # First session lasted 5 seconds
+            _create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="blabla2",
+                properties={"$session_id": 2, "$some_property": "value2"},
+                timestamp="2020-01-01 00:06:35",
+            )
+            _create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="blabla2",
+                properties={"$session_id": 2, "$some_property": "value1"},
+                timestamp="2020-01-01 00:06:45",
+            )
+            # Second session lasted 10 seconds
+
+            _create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="blabla",
+                properties={"$session_id": 3},
+                timestamp="2020-01-01 00:06:45",
+            )
+            _create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="blabla",
+                properties={"$session_id": 3},
+                timestamp="2020-01-01 00:06:46",
+            )
+            # Third session lasted 1 seconds
+
+            _create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="blabla",
+                properties={"$session_id": 4, "$some_property": "value2"},
+                timestamp="2020-01-02 00:06:30",
+            )
+            _create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="blabla",
+                properties={"$session_id": 4, "$some_property": "value2"},
+                timestamp="2020-01-02 00:06:35",
+            )
+            _create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="blabla",
+                properties={"$session_id": 4, "$some_property": "value1"},
+                timestamp="2020-01-02 00:06:45",
+            )
+            # Fourth session lasted 15 seconds
+
+            with freeze_time("2020-01-04T13:00:01Z"):
+                daily_response = trends().run(
+                    Filter(
+                        data={
+                            "display": TRENDS_TABLE,
+                            "interval": "week",
+                            "breakdown": "$some_property",
+                            "events": [{"id": "sign up", "math": "median", "math_property": "$session_duration",}],
+                        }
+                    ),
+                    self.team,
+                )
+
+            # value1 has: 5 seconds, 10 seconds, 15 seconds
+            # value2 has: 10 seconds, 15 seconds (aggregated by session, so 15 is not double counted)
+            # empty has: 1 seconds
+            self.assertEqual([resp["breakdown_value"] for resp in daily_response], ["", "value1", "value2"])
+            self.assertEqual([resp["aggregated_value"] for resp in daily_response], [1, 10, 12.5])
+
+            with freeze_time("2020-01-04T13:00:01Z"):
+                weekly_response = trends().run(
+                    Filter(
+                        data={
+                            "display": TRENDS_TABLE,
+                            "interval": "day",
+                            "breakdown": "$some_property",
+                            "events": [{"id": "sign up", "math": "median", "math_property": "$session_duration",}],
+                        }
+                    ),
+                    self.team,
+                )
+
+            self.assertEqual(
+                [resp["breakdown_value"] for resp in daily_response],
+                [resp["breakdown_value"] for resp in weekly_response],
+            )
+            self.assertEqual(
+                [resp["aggregated_value"] for resp in daily_response],
+                [resp["aggregated_value"] for resp in weekly_response],
+            )
+
         @test_with_materialized_columns(["$math_prop", "$some_property"])
         def test_trends_breakdown_with_math_func(self):
 
             with freeze_time("2020-01-01 00:06:34"):
                 for i in range(20):
-                    person = _create_person(team_id=self.team.pk, distinct_ids=[f"person{i}"])
+                    _create_person(team_id=self.team.pk, distinct_ids=[f"person{i}"])
                     _create_event(
                         team=self.team,
                         event="sign up",
@@ -543,7 +765,7 @@ def trend_test_factory(trends):
                         properties={"$some_property": f"value_{i}", "$math_prop": 1},
                     )
 
-                person = _create_person(team_id=self.team.pk, distinct_ids=[f"person21"])
+                _create_person(team_id=self.team.pk, distinct_ids=[f"person21"])
                 _create_event(
                     team=self.team,
                     event="sign up",
@@ -622,7 +844,7 @@ def trend_test_factory(trends):
             self.assertEqual(no_compare_response[0]["data"][5], 1.0)
 
         def _test_events_with_dates(self, dates: List[str], result, query_time=None, **filter_params):
-            person1 = _create_person(team_id=self.team.pk, distinct_ids=["person_1"], properties={"name": "John"})
+            _create_person(team_id=self.team.pk, distinct_ids=["person_1"], properties={"name": "John"})
             for time in dates:
                 with freeze_time(time):
                     _create_event(
@@ -1343,18 +1565,364 @@ def trend_test_factory(trends):
             self.assertEqual(response[0]["labels"][5], "2-Jan-2020")
             self.assertEqual(response[0]["data"][5], 0)
 
+        @snapshot_clickhouse_queries
+        def test_trends_with_session_property_total_volume_math(self):
+            _create_person(
+                team_id=self.team.pk, distinct_ids=["blabla", "anonymous_id"], properties={"$some_prop": "some_val"}
+            )
+            _create_person(team_id=self.team.pk, distinct_ids=["blabla2"], properties={"$some_prop": "some_val"})
+
+            _create_event(
+                team=self.team,
+                event="sign up before",
+                distinct_id="blabla",
+                properties={"$session_id": 1},
+                timestamp="2020-01-01 00:06:30",
+            )
+            _create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="blabla",
+                properties={"$session_id": 1},
+                timestamp="2020-01-01 00:06:34",
+            )
+            _create_event(
+                team=self.team,
+                event="sign up later",
+                distinct_id="blabla",
+                properties={"$session_id": 1},
+                timestamp="2020-01-01 00:06:35",
+            )
+            # First session lasted 5 seconds
+            _create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="blabla2",
+                properties={"$session_id": 2},
+                timestamp="2020-01-01 00:06:35",
+            )
+            _create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="blabla2",
+                properties={"$session_id": 2},
+                timestamp="2020-01-01 00:06:45",
+            )
+            # Second session lasted 10 seconds
+
+            _create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="blabla",
+                properties={"$session_id": 3},
+                timestamp="2020-01-01 00:06:45",
+            )
+            # Third session lasted 0 seconds
+
+            _create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="blabla",
+                properties={"$session_id": 4},
+                timestamp="2020-01-02 00:06:30",
+            )
+            _create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="blabla",
+                properties={"$session_id": 4},
+                timestamp="2020-01-02 00:06:45",
+            )
+            # Fourth session lasted 15 seconds
+
+            _create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="blabla",
+                properties={"$session_id": 5},
+                timestamp="2020-01-02 00:06:40",
+            )
+            _create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="blabla",
+                properties={"$session_id": 5},
+                timestamp="2020-01-02 00:06:45",
+            )
+            # Fifth session lasted 5 seconds
+
+            with freeze_time("2020-01-04T13:00:01Z"):
+                daily_response = trends().run(
+                    Filter(
+                        data={
+                            "interval": "week",
+                            "events": [{"id": "sign up", "math": "median", "math_property": "$session_duration",}],
+                        }
+                    ),
+                    self.team,
+                )
+
+            with freeze_time("2020-01-04T13:00:01Z"):
+                weekly_response = trends().run(
+                    Filter(
+                        data={
+                            "interval": "day",
+                            "events": [{"id": "sign up", "math": "median", "math_property": "$session_duration",}],
+                        }
+                    ),
+                    self.team,
+                )
+
+            self.assertCountEqual(daily_response[0]["labels"], ["22-Dec-2019", "29-Dec-2019"])
+            self.assertCountEqual(daily_response[0]["data"], [0, 5])
+
+            self.assertCountEqual(
+                weekly_response[0]["labels"],
+                [
+                    "28-Dec-2019",
+                    "29-Dec-2019",
+                    "30-Dec-2019",
+                    "31-Dec-2019",
+                    "1-Jan-2020",
+                    "2-Jan-2020",
+                    "3-Jan-2020",
+                    "4-Jan-2020",
+                ],
+            )
+            self.assertCountEqual(weekly_response[0]["data"], [0, 0, 0, 0, 5, 10, 0, 0])
+
+        @snapshot_clickhouse_queries
+        def test_trends_with_session_property_total_volume_math_with_breakdowns(self):
+            _create_person(
+                team_id=self.team.pk, distinct_ids=["blabla", "anonymous_id"], properties={"$some_prop": "some_val"}
+            )
+            _create_person(team_id=self.team.pk, distinct_ids=["blabla2"], properties={"$some_prop": "some_val"})
+
+            _create_event(
+                team=self.team,
+                event="sign up before",
+                distinct_id="blabla",
+                properties={"$session_id": 1, "$some_property": "value1"},
+                timestamp="2020-01-01 00:06:30",
+            )
+            _create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="blabla",
+                properties={"$session_id": 1, "$some_property": "value2"},
+                timestamp="2020-01-01 00:06:34",
+            )
+            _create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="blabla",
+                properties={"$session_id": 1, "$some_property": "value2"},
+                timestamp="2020-01-01 00:06:35",
+            )
+            # First session lasted 5 seconds
+            _create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="blabla2",
+                properties={"$session_id": 2, "$some_property": "value2"},
+                timestamp="2020-01-01 00:06:35",
+            )
+            _create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="blabla2",
+                properties={"$session_id": 2, "$some_property": "value1"},
+                timestamp="2020-01-01 00:06:45",
+            )
+            # Second session lasted 10 seconds
+
+            _create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="blabla",
+                properties={"$session_id": 3, "$some_property": "value1"},
+                timestamp="2020-01-01 00:06:45",
+            )
+            # Third session lasted 0 seconds
+
+            _create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="blabla",
+                properties={"$session_id": 4, "$some_property": "value2"},
+                timestamp="2020-01-02 00:06:30",
+            )
+            _create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="blabla",
+                properties={"$session_id": 4, "$some_property": "value2"},
+                timestamp="2020-01-02 00:06:45",
+            )
+            # Fourth session lasted 15 seconds
+
+            _create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="blabla",
+                properties={"$session_id": 5, "$some_property": "value1"},
+                timestamp="2020-01-02 00:06:40",
+            )
+            _create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="blabla",
+                properties={"$session_id": 5, "$some_property": "value1"},
+                timestamp="2020-01-02 00:06:45",
+            )
+            # Fifth session lasted 5 seconds
+
+            with freeze_time("2020-01-04T13:00:01Z"):
+                daily_response = trends().run(
+                    Filter(
+                        data={
+                            "breakdown": "$some_property",
+                            "interval": "week",
+                            "events": [{"id": "sign up", "math": "median", "math_property": "$session_duration",}],
+                        }
+                    ),
+                    self.team,
+                )
+
+            with freeze_time("2020-01-04T13:00:01Z"):
+                weekly_response = trends().run(
+                    Filter(
+                        data={
+                            "breakdown": "$some_property",
+                            "interval": "day",
+                            "events": [{"id": "sign up", "math": "median", "math_property": "$session_duration",}],
+                        }
+                    ),
+                    self.team,
+                )
+
+            # value1 has 0,5,10 seconds (in second interval)
+            # value2 has 5,10,15 seconds (in second interval)
+            self.assertEqual([resp["breakdown_value"] for resp in daily_response], ["value1", "value2"])
+            self.assertCountEqual(daily_response[0]["labels"], ["22-Dec-2019", "29-Dec-2019"])
+            self.assertCountEqual(daily_response[0]["data"], [0, 5])
+            self.assertCountEqual(daily_response[1]["data"], [0, 10])
+
+            self.assertEqual([resp["breakdown_value"] for resp in weekly_response], ["value1", "value2"])
+            self.assertCountEqual(
+                weekly_response[0]["labels"],
+                [
+                    "28-Dec-2019",
+                    "29-Dec-2019",
+                    "30-Dec-2019",
+                    "31-Dec-2019",
+                    "1-Jan-2020",
+                    "2-Jan-2020",
+                    "3-Jan-2020",
+                    "4-Jan-2020",
+                ],
+            )
+            self.assertCountEqual(weekly_response[0]["data"], [0, 0, 0, 0, 5, 5, 0, 0])
+            self.assertCountEqual(weekly_response[1]["data"], [0, 0, 0, 0, 7.5, 15, 0, 0])
+
+        def test_trends_with_session_property_total_volume_math_with_sessions_spanning_multiple_intervals(self):
+            _create_person(
+                team_id=self.team.pk, distinct_ids=["blabla", "anonymous_id"], properties={"$some_prop": "some_val"}
+            )
+            _create_person(team_id=self.team.pk, distinct_ids=["blabla2"], properties={"$some_prop": "some_val"})
+
+            _create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="blabla",
+                properties={"$session_id": 1},
+                timestamp="2020-01-01 00:06:30",
+            )
+            _create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="blabla",
+                properties={"$session_id": 1},
+                timestamp="2020-01-02 00:06:34",
+            )
+            _create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="blabla",
+                properties={"$session_id": 1},
+                timestamp="2020-01-03 00:06:30",
+            )
+            # First Session lasted 48 hours = a lot of seconds
+            _create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="blabla2",
+                properties={"$session_id": 2},
+                timestamp="2020-01-01 00:06:35",
+            )
+            _create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="blabla2",
+                properties={"$session_id": 2},
+                timestamp="2020-01-05 00:06:35",
+            )
+            # Second session lasted 96 hours = a lot of seconds
+
+            with freeze_time("2020-01-06T13:00:01Z"):
+                weekly_response = trends().run(
+                    Filter(
+                        data={
+                            "interval": "day",
+                            "events": [{"id": "sign up", "math": "median", "math_property": "$session_duration",}],
+                        }
+                    ),
+                    self.team,
+                )
+
+            self.assertCountEqual(
+                weekly_response[0]["labels"],
+                [
+                    "30-Dec-2019",
+                    "31-Dec-2019",
+                    "1-Jan-2020",
+                    "2-Jan-2020",
+                    "3-Jan-2020",
+                    "4-Jan-2020",
+                    "5-Jan-2020",
+                    "6-Jan-2020",
+                ],
+            )
+
+            ONE_DAY_IN_SECONDS = 24 * 60 * 60
+            # math property is counted only in the intervals in which the session was active
+            # and the event in question happened (i.e. sign up event)
+            self.assertCountEqual(
+                weekly_response[0]["data"],
+                [
+                    0,
+                    0,
+                    3 * ONE_DAY_IN_SECONDS,
+                    2 * ONE_DAY_IN_SECONDS,
+                    2 * ONE_DAY_IN_SECONDS,
+                    0,
+                    4 * ONE_DAY_IN_SECONDS,
+                    0,
+                ],
+            )
+
         @test_with_materialized_columns(person_properties=["name"])
         def test_filter_events_by_cohort(self):
-            person1 = _create_person(team_id=self.team.pk, distinct_ids=["person_1"], properties={"name": "John"})
-            person2 = _create_person(team_id=self.team.pk, distinct_ids=["person_2"], properties={"name": "Jane"})
+            _create_person(team_id=self.team.pk, distinct_ids=["person_1"], properties={"name": "John"})
+            _create_person(team_id=self.team.pk, distinct_ids=["person_2"], properties={"name": "Jane"})
 
-            event1 = _create_event(
+            _create_event(
                 event="event_name", team=self.team, distinct_id="person_1", properties={"$browser": "Safari"},
             )
-            event2 = _create_event(
+            _create_event(
                 event="event_name", team=self.team, distinct_id="person_2", properties={"$browser": "Chrome"},
             )
-            event3 = _create_event(
+            _create_event(
                 event="event_name", team=self.team, distinct_id="person_2", properties={"$browser": "Safari"},
             )
 
@@ -1500,16 +2068,16 @@ def trend_test_factory(trends):
 
         @test_with_materialized_columns(person_properties=["email", "bar"])
         def test_trends_regression_filtering_by_action_with_person_properties(self):
-            person1 = _create_person(
+            _create_person(
                 team_id=self.team.pk, properties={"email": "foo@example.com", "bar": "aa"}, distinct_ids=["d1"]
             )
-            person2 = _create_person(
+            _create_person(
                 team_id=self.team.pk, properties={"email": "bar@example.com", "bar": "bb"}, distinct_ids=["d2"]
             )
-            person2 = _create_person(
+            _create_person(
                 team_id=self.team.pk, properties={"email": "efg@example.com", "bar": "ab"}, distinct_ids=["d3"]
             )
-            person3 = _create_person(team_id=self.team.pk, properties={"bar": "aa"}, distinct_ids=["d4"])
+            _create_person(team_id=self.team.pk, properties={"bar": "aa"}, distinct_ids=["d4"])
 
             with freeze_time("2020-01-02 16:34:34"):
                 _create_event(team=self.team, event="$pageview", distinct_id="d1")
@@ -1732,7 +2300,7 @@ def trend_test_factory(trends):
             self.assertEqual(response[0]["data"][5], 0)
 
         def test_breakdown_by_empty_cohort(self):
-            p1 = _create_person(team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "p1"})
+            _create_person(team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "p1"})
             _create_event(
                 team=self.team, event="$pageview", distinct_id="p1", timestamp="2020-01-04T12:00:00Z",
             )
@@ -1988,7 +2556,7 @@ def trend_test_factory(trends):
                 properties={"fake_prop": "value_1"},
             )
 
-            person4 = _create_person(team_id=self.team.pk, distinct_ids=["person4"], immediate=True)
+            _create_person(team_id=self.team.pk, distinct_ids=["person4"], immediate=True)
             _create_event(
                 team=self.team,
                 event="watched movie",
@@ -2174,7 +2742,7 @@ def trend_test_factory(trends):
         def test_trends_aggregate_by_distinct_id(self):
             # Stopgap until https://github.com/PostHog/meta/pull/39 is implemented
 
-            person = _create_person(
+            _create_person(
                 team_id=self.team.pk, distinct_ids=["blabla", "anonymous_id"], properties={"$some_prop": "some_val"}
             )
             _create_person(team_id=self.team.pk, distinct_ids=["third"])
@@ -2645,7 +3213,7 @@ def trend_test_factory(trends):
         # this ensures that the properties don't conflict when formatting params
         @test_with_materialized_columns(["$current_url"])
         def test_action_with_prop(self):
-            person = _create_person(
+            _create_person(
                 team_id=self.team.pk, distinct_ids=["blabla", "anonymous_id"], properties={"$some_prop": "some_val"}
             )
             sign_up_action = Action.objects.create(team=self.team, name="sign up")
@@ -2905,7 +3473,7 @@ def trend_test_factory(trends):
             self.assertEqual(response[0]["breakdown_value"], "test2@posthog.com")
 
         def _create_active_user_events(self):
-            p0 = _create_person(team_id=self.team.pk, distinct_ids=["p0"], properties={"name": "p1"})
+            _create_person(team_id=self.team.pk, distinct_ids=["p0"], properties={"name": "p1"})
             _create_event(
                 team=self.team,
                 event="$pageview",
@@ -2914,7 +3482,7 @@ def trend_test_factory(trends):
                 properties={"key": "val"},
             )
 
-            p1 = _create_person(team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "p1"})
+            _create_person(team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "p1"})
             _create_event(
                 team=self.team,
                 event="$pageview",
@@ -2937,7 +3505,7 @@ def trend_test_factory(trends):
                 properties={"key": "val"},
             )
 
-            p2 = _create_person(team_id=self.team.pk, distinct_ids=["p2"], properties={"name": "p2"})
+            _create_person(team_id=self.team.pk, distinct_ids=["p2"], properties={"name": "p2"})
             _create_event(
                 team=self.team,
                 event="$pageview",
@@ -2983,7 +3551,7 @@ def trend_test_factory(trends):
         @test_with_materialized_columns(["key"])
         def test_breakdown_active_user_math(self):
 
-            p1 = _create_person(team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "p1"})
+            _create_person(team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "p1"})
             _create_event(
                 team=self.team,
                 event="$pageview",
@@ -3006,7 +3574,7 @@ def trend_test_factory(trends):
                 properties={"key": "val"},
             )
 
-            p2 = _create_person(team_id=self.team.pk, distinct_ids=["p2"], properties={"name": "p2"})
+            _create_person(team_id=self.team.pk, distinct_ids=["p2"], properties={"name": "p2"})
             _create_event(
                 team=self.team,
                 event="$pageview",
@@ -3036,7 +3604,7 @@ def trend_test_factory(trends):
         @snapshot_clickhouse_queries
         def test_breakdown_active_user_math_with_actions(self):
 
-            p1 = _create_person(team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "p1"})
+            _create_person(team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "p1"})
             _create_event(
                 team=self.team,
                 event="$pageview",
@@ -3059,7 +3627,7 @@ def trend_test_factory(trends):
                 properties={"key": "val"},
             )
 
-            p2 = _create_person(team_id=self.team.pk, distinct_ids=["p2"], properties={"name": "p2"})
+            _create_person(team_id=self.team.pk, distinct_ids=["p2"], properties={"name": "p2"})
             _create_event(
                 team=self.team,
                 event="$pageview",
@@ -3075,7 +3643,7 @@ def trend_test_factory(trends):
                 properties={"key": "val"},
             )
 
-            p3 = _create_person(team_id=self.team.pk, distinct_ids=["p3"], properties={"name": "p3"})
+            _create_person(team_id=self.team.pk, distinct_ids=["p3"], properties={"name": "p3"})
             _create_event(
                 team=self.team,
                 event="$pageview",
@@ -3120,7 +3688,7 @@ def trend_test_factory(trends):
 
         @test_with_materialized_columns(event_properties=["key"], person_properties=["name"])
         def test_filter_test_accounts(self):
-            p1 = _create_person(team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "p1"})
+            _create_person(team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "p1"})
             _create_event(
                 team=self.team,
                 event="$pageview",
@@ -3129,7 +3697,7 @@ def trend_test_factory(trends):
                 properties={"key": "val"},
             )
 
-            p2 = _create_person(team_id=self.team.pk, distinct_ids=["p2"], properties={"name": "p2"})
+            _create_person(team_id=self.team.pk, distinct_ids=["p2"], properties={"name": "p2"})
             _create_event(
                 team=self.team,
                 event="$pageview",
@@ -3200,7 +3768,7 @@ def trend_test_factory(trends):
 
         @test_with_materialized_columns(person_properties=["key", "key_2"], verify_no_jsonextract=False)
         def test_breakdown_multiple_cohorts(self):
-            p1 = _create_person(team_id=self.team.pk, distinct_ids=["p1"], properties={"key": "value"})
+            _create_person(team_id=self.team.pk, distinct_ids=["p1"], properties={"key": "value"})
             _create_event(
                 team=self.team,
                 event="$pageview",
@@ -3209,7 +3777,7 @@ def trend_test_factory(trends):
                 properties={"key": "val"},
             )
 
-            p2 = _create_person(team_id=self.team.pk, distinct_ids=["p2"], properties={"key_2": "value_2"})
+            _create_person(team_id=self.team.pk, distinct_ids=["p2"], properties={"key_2": "value_2"})
             _create_event(
                 team=self.team,
                 event="$pageview",
@@ -3218,7 +3786,7 @@ def trend_test_factory(trends):
                 properties={"key": "val"},
             )
 
-            p3 = _create_person(team_id=self.team.pk, distinct_ids=["p3"], properties={"key_2": "value_2"})
+            _create_person(team_id=self.team.pk, distinct_ids=["p3"], properties={"key_2": "value_2"})
             _create_event(
                 team=self.team,
                 event="$pageview",
@@ -3261,7 +3829,7 @@ def trend_test_factory(trends):
 
         @test_with_materialized_columns(person_properties=["key", "key_2"], verify_no_jsonextract=False)
         def test_breakdown_single_cohort(self):
-            p1 = _create_person(team_id=self.team.pk, distinct_ids=["p1"], properties={"key": "value"})
+            _create_person(team_id=self.team.pk, distinct_ids=["p1"], properties={"key": "value"})
             _create_event(
                 team=self.team,
                 event="$pageview",
@@ -3270,7 +3838,7 @@ def trend_test_factory(trends):
                 properties={"key": "val"},
             )
 
-            p2 = _create_person(team_id=self.team.pk, distinct_ids=["p2"], properties={"key_2": "value_2"})
+            _create_person(team_id=self.team.pk, distinct_ids=["p2"], properties={"key_2": "value_2"})
             _create_event(
                 team=self.team,
                 event="$pageview",
@@ -3279,7 +3847,7 @@ def trend_test_factory(trends):
                 properties={"key": "val"},
             )
 
-            p3 = _create_person(team_id=self.team.pk, distinct_ids=["p3"], properties={"key_2": "value_2"})
+            _create_person(team_id=self.team.pk, distinct_ids=["p3"], properties={"key_2": "value_2"})
             _create_event(
                 team=self.team,
                 event="$pageview",
@@ -3362,7 +3930,7 @@ def trend_test_factory(trends):
             # test breakdown filtering
             with self.assertRaises(Exception):
                 with self.settings(TEST=False, DEBUG=False):
-                    response = trends().run(
+                    trends().run(
                         Filter(
                             data={"events": [{"id": "sign up", "name": "sign up", "type": "events", "order": 0,},],}
                         ),
@@ -3679,7 +4247,7 @@ def trend_test_factory(trends):
             # 2. Having multiple properties that filter on the same value
 
             with freeze_time("2020-01-04T13:01:01Z"):
-                event_response = trends().run(
+                trends().run(
                     Filter(
                         data={
                             "date_from": "-14d",

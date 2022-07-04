@@ -182,11 +182,12 @@ export function CohortNumberField({
     return (
         <LemonInput
             type="number"
-            value={(value as string | number) ?? undefined}
+            value={(value as number) ?? undefined}
             onChange={(nextNumber) => {
-                onChange({ [fieldKey]: parseInt(nextNumber) })
+                onChange({ [fieldKey]: nextNumber })
             }}
             min={1}
+            step={1}
             className={clsx('CohortField', 'CohortField__CohortNumberField')}
         />
     )

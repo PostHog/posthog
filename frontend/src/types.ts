@@ -23,6 +23,7 @@ import { LogLevel } from 'rrweb'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { BehavioralFilterKey, BehavioralFilterType } from 'scenes/cohorts/CohortFilters/types'
 import { LogicWrapper } from 'kea'
+import { ExporterFormat } from 'lib/components/ExportButton/exporterLogic'
 
 export type Optional<T, K extends string | number | symbol> = Omit<T, K> & { [K in keyof T]?: T[K] }
 
@@ -258,6 +259,7 @@ export interface ActionType {
     id: number
     is_calculating?: boolean
     last_calculated_at?: string
+    last_updated_at?: string // alias for last_calculated_at to achieve event and action parity
     name: string | null
     description?: string
     post_to_slack?: boolean
@@ -795,7 +797,7 @@ export interface InsightModel extends DashboardTile {
     /** The primary key in the database, used as well in API endpoints */
     id: number
     name: string
-    derived_name?: string
+    derived_name?: string | null
     description?: string
     favorited?: boolean
     order: number | null
@@ -812,7 +814,7 @@ export interface InsightModel extends DashboardTile {
     last_modified_by: UserBasicType | null
     effective_restriction_level: DashboardRestrictionLevel
     effective_privilege_level: DashboardPrivilegeLevel
-    timezone?: string
+    timezone?: string | null
     /** Only used in the frontend to store the next breakdown url */
     next?: string
 }
@@ -826,7 +828,6 @@ export interface DashboardType {
     created_at: string
     created_by: UserBasicType | null
     is_shared: boolean
-    share_token: string
     deleted: boolean
     filters: Record<string, any>
     creation_mode: 'default' | 'template' | 'duplicate'
@@ -1125,6 +1126,7 @@ export interface InsightEditorFilter {
     key: string
     label?: string
     tooltip?: JSX.Element
+    position?: 'left' | 'right'
     valueSelector?: (insight: Partial<InsightModel>) => any
     component?: (props: EditorFilterProps) => JSX.Element
 }
@@ -1145,10 +1147,7 @@ export interface SystemStatusRow {
 export interface SystemStatus {
     overview: SystemStatusRow[]
     internal_metrics: {
-        clickhouse?: {
-            id: number
-            share_token: string
-        }
+        clickhouse?: DashboardType
     }
 }
 
@@ -1385,19 +1384,12 @@ export interface FeatureFlagType {
     created_at: string | null
     is_simple_flag: boolean
     rollout_percentage: number | null
+    ensure_experience_continuity: boolean | null
 }
 
-export interface FeatureFlagOverrideType {
-    id: number
-    feature_flag: number
-    user: number
-    override_value: boolean | string
-}
-
-export interface CombinedFeatureFlagAndOverrideType {
+export interface CombinedFeatureFlagAndValueType {
     feature_flag: FeatureFlagType
-    value_for_user_without_override: boolean | string
-    override: FeatureFlagOverrideType | null
+    value: boolean | string
 }
 
 export interface PrevalidatedInvite {
@@ -1448,13 +1440,14 @@ export enum ItemMode { // todo: consolidate this and dashboardmode
     Edit = 'edit',
     View = 'view',
     Subscriptions = 'subscriptions',
+    Sharing = 'sharing',
 }
 
 export enum DashboardPlacement {
     Dashboard = 'dashboard', // When on the standard dashboard page
     InternalMetrics = 'internal-metrics', // When embedded in /instance/status
     ProjectHomepage = 'project-homepage', // When embedded on the project homepage
-    Public = 'public', // When viewing the dashboard publicly via a shareToken
+    Public = 'public', // When viewing the dashboard publicly
     Export = 'export', // When the dashboard is being exported (alike to being printed)
 }
 
@@ -1513,6 +1506,7 @@ export interface EventDefinition {
     owner?: UserBasicType | null
     created_at?: string
     last_seen_at?: string
+    last_updated_at?: string // alias for last_seen_at to achieve event and action parity
     updated_at?: string
     updated_by?: UserBasicType | null
     verified?: boolean
@@ -1739,9 +1733,11 @@ export interface VersionType {
 }
 
 export interface dateMappingOption {
+    key: string
     inactive?: boolean // Options removed due to low usage (see relevant PR); will not show up for new insights but will be kept for existing
     values: string[]
     getFormattedDate?: (date: dayjs.Dayjs, format: string) => string
+    defaultInterval?: IntervalType
 }
 
 export interface Breadcrumb {
@@ -1933,4 +1929,45 @@ export interface ChangeDescriptions {
     descriptions: Description[]
     // e.g. should description say "did deletion _to_ Y" or "deleted Y"
     bareName: boolean
+}
+
+export type SmallTimeUnit = 'hours' | 'minutes' | 'seconds'
+
+export type Duration = {
+    timeValue: number
+    unit: SmallTimeUnit
+}
+
+export type CombinedEvent = EventDefinition | ActionType
+
+export interface IntegrationType {
+    id: number
+    kind: 'slack'
+    config: any
+    created_by?: UserBasicType | null
+    created_at: string
+}
+
+export interface SlackChannelType {
+    id: string
+    name: string
+    is_private: boolean
+    is_ext_shared: boolean
+    is_member: boolean
+}
+
+export interface SharingConfigurationType {
+    enabled: boolean
+    access_token: string
+    created_at: string
+}
+
+export interface ExportedAssetType {
+    id: number
+    export_format: ExporterFormat
+    dashboard?: number
+    insight?: number
+    exportContext?: any
+    has_content: boolean
+    filename: string
 }

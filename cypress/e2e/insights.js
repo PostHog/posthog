@@ -12,7 +12,7 @@ describe('Insights', () => {
         cy.get('[data-attr-insight-type="TRENDS"').click()
 
         // apply filter
-        cy.get('[data-attr=trends-filters-add-filter-group]').click()
+        cy.get('[data-attr=insight-filters-add-filter-group]').click()
         cy.get('[data-attr=property-select-toggle-0]').click()
         cy.get('[data-attr=taxonomic-filter-searchfield]').click()
         cy.get('[data-attr=expand-list-event_properties]').click()
@@ -114,7 +114,7 @@ describe('Insights', () => {
     it('Lifecycle graph', () => {
         cy.get('[data-attr=trend-line-graph]').should('exist') // Wait until components are loaded
         cy.get('.ant-tabs-tab').contains('Lifecycle').click()
-        cy.get('h4').contains('Lifecycle Toggles').should('exist')
+        cy.get('div').contains('Lifecycle Toggles').should('exist')
         cy.get('[data-attr=trend-line-graph]').should('exist')
         cy.get('[data-attr=add-breakdown-button]').should('not.exist') // Can't do breakdown on this graph
         cy.get('[data-attr=add-action-event-button]').should('not.exist') // Can't add multiple series
@@ -136,5 +136,26 @@ describe('Insights', () => {
     it('Cannot see tags or description (non-FOSS feature)', () => {
         cy.get('.insight-description').should('not.exist')
         cy.get('[data-attr=insight-tags]').should('not.exist')
+    })
+
+    describe('insights date picker', () => {
+        it('Can set the date filter and show the right grouping interval', () => {
+            cy.get('[data-attr=date-filter]').click()
+            cy.get('div').contains('Yesterday').should('exist').click()
+            cy.get('[data-attr=interval-filter]').should('contain', 'Hour')
+        })
+
+        it('Can set a custom rolling date range', () => {
+            cy.get('[data-attr=date-filter]').click()
+            cy.get('[data-attr=rolling-date-range-input]').type('{selectall}5{enter}')
+            cy.get('[data-attr=rolling-date-range-date-options-selector]').click()
+            cy.get('.RollingDateRangeFilter__popup > div').contains('days').should('exist').click()
+            cy.get('[data-attr=rolling-date-range-filter] > .RollingDateRangeFilter__label')
+                .should('contain', 'In the last')
+                .click()
+
+            // Test that the button shows the correct formatted range
+            cy.get('[data-attr=date-filter]').get('span').contains('Last 5 days').should('exist')
+        })
     })
 })
