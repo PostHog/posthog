@@ -89,7 +89,7 @@ class TestUpdateCache(APIBaseTest):
             insight=insight_not_cached_because_dashboard_has_filters, dashboard=another_shared_dashboard_to_cache
         )
         # filters changed after dashboard linked to insight but should still affect filters hash
-        another_shared_dashboard_to_cache.filters = {"date_from": "-7d"}
+        another_shared_dashboard_to_cache.filters = {"date_from": "-14d"}
         another_shared_dashboard_to_cache.save()
 
         dashboard_do_not_cache = create_shared_dashboard(
@@ -438,7 +438,7 @@ class TestUpdateCache(APIBaseTest):
         but does touch the tile
         """
         dashboard_to_cache = create_shared_dashboard(
-            team=self.team, is_shared=True, last_accessed_at=now(), filters={"date_from": "-7d"}
+            team=self.team, is_shared=True, last_accessed_at=now(), filters={"date_from": "-14d"}
         )
         item_to_cache = Insight.objects.create(
             filters=Filter(

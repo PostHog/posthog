@@ -1,54 +1,35 @@
-import React, { useEffect, useRef, useState } from 'react'
+import React, { useState, useRef } from 'react'
 import { Button } from 'antd'
+import './DateFilterRangeExperiment.scss'
 import { dayjs } from 'lib/dayjs'
 import { DatePicker } from '../DatePicker'
+import clsx from 'clsx'
+import { useOutsideClickHandler } from 'lib/hooks/useOutsideClickHandler'
 
-export function DateFilterRange(props: {
+export function DateFilterRangeExperiment(props: {
     onClickOutside: () => void
     onClick: (e: React.MouseEvent) => void
     onDateFromChange: (date?: dayjs.Dayjs) => void
     onDateToChange: (date?: dayjs.Dayjs) => void
     onApplyClick: () => void
-    rangeDateFrom?: string | dayjs.Dayjs
-    rangeDateTo?: string | dayjs.Dayjs
+    rangeDateFrom?: string | dayjs.Dayjs | null
+    rangeDateTo?: string | dayjs.Dayjs | null
     getPopupContainer?: (props: any) => HTMLElement
     disableBeforeYear?: number
 }): JSX.Element {
     const dropdownRef = useRef<HTMLDivElement | null>(null)
-    const [calendarOpen, setCalendarOpen] = useState(false)
+    const [calendarOpen, setCalendarOpen] = useState(true)
 
-    const onClickOutside = (event: MouseEvent): void => {
-        const target = (event.composedPath?.()?.[0] || event.target) as HTMLElement
-
-        if (!target) {
-            return
-        }
-
-        const clickInPickerContainer = dropdownRef.current?.contains(target)
-        const clickInDateDropdown = event
-            .composedPath?.()
-            ?.find((e) => (e as HTMLElement)?.matches?.('.datefilter-datepicker'))
-
-        if (clickInPickerContainer && calendarOpen && target.tagName !== 'INPUT') {
-            setCalendarOpen(false)
-            return
-        }
-
-        if (!clickInPickerContainer && !clickInDateDropdown) {
+    useOutsideClickHandler(
+        '.datefilter-datepicker',
+        () => {
             if (calendarOpen) {
                 setCalendarOpen(false)
-            } else {
-                props.onClickOutside()
             }
-        }
-    }
-
-    useEffect(() => {
-        window.addEventListener('mousedown', onClickOutside)
-        return () => {
-            window.removeEventListener('mousedown', onClickOutside)
-        }
-    }, [calendarOpen])
+        },
+        [calendarOpen],
+        ['INPUT']
+    )
 
     return (
         <div ref={dropdownRef}>
@@ -96,7 +77,23 @@ export function DateFilterRange(props: {
                         }
                     }}
                     popupStyle={{ zIndex: 999999 }}
-                    disabledDate={(date) => !!props.disableBeforeYear && date.year() < props.disableBeforeYear}
+                    disabledDate={(date) =>
+                        (!!props.disableBeforeYear && date.year() < props.disableBeforeYear) || date.isAfter(dayjs())
+                    }
+                    dateRender={(current, today) => {
+                        return (
+                            <div
+                                className={clsx('ant-picker-cell-inner', {
+                                    ['DateFilterRange__calendartoday']:
+                                        current.date() === today.date() &&
+                                        current.month() === today.month() &&
+                                        current.year() === today.year(),
+                                })}
+                            >
+                                {current.date()}
+                            </div>
+                        )
+                    }}
                 />
                 <br />
                 <Button

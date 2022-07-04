@@ -20,6 +20,7 @@ export interface LemonButtonPropsBase extends Omit<LemonRowPropsBase<'button'>, 
     active?: boolean
     /** URL to link to. */
     to?: string
+    className?: string
 }
 
 export interface LemonButtonProps extends LemonButtonPropsBase {
@@ -137,7 +138,7 @@ export interface LemonButtonWithPopupProps extends LemonButtonPropsBase {
  * The difference vs. plain `LemonButton` is popup visibility being controlled internally, which is more convenient.
  */
 export function LemonButtonWithPopup({
-    popup: { onClickOutside, onClickInside, closeOnClickInside = true, ...popupProps },
+    popup: { onClickOutside, onClickInside, closeOnClickInside = true, className: popupClassName, ...popupProps },
     onClick,
     ...buttonProps
 }: LemonButtonWithPopupProps): JSX.Element {
@@ -158,11 +159,13 @@ export function LemonButtonWithPopup({
 
     return (
         <Popup
+            className={popupClassName}
             onClickOutside={(e) => {
                 setPopupVisible(false)
                 onClickOutside?.(e)
             }}
             onClickInside={(e) => {
+                e.stopPropagation()
                 closeOnClickInside && setPopupVisible(false)
                 onClickInside?.(e)
             }}

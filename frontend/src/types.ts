@@ -1733,9 +1733,11 @@ export interface VersionType {
 }
 
 export interface dateMappingOption {
+    key: string
     inactive?: boolean // Options removed due to low usage (see relevant PR); will not show up for new insights but will be kept for existing
     values: string[]
     getFormattedDate?: (date: dayjs.Dayjs, format: string) => string
+    defaultInterval?: IntervalType
 }
 
 export interface Breadcrumb {

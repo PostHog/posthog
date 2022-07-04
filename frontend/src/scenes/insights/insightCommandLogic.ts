@@ -33,7 +33,7 @@ export const insightCommandLogic = kea<insightCommandLogicType>({
                                 compareFilterLogic(props).actions.toggleCompare()
                             },
                         },
-                        ...Object.entries(dateMapping).map(([key, { values }]) => ({
+                        ...dateMapping.map(({ key, values }) => ({
                             icon: RiseOutlined,
                             display: `Set Time Range to ${key}`,
                             executor: () => {
