@@ -4,7 +4,7 @@ from unittest.mock import MagicMock, patch
 from posthog.models.dashboard import Dashboard
 from posthog.models.exported_asset import ExportedAsset
 from posthog.tasks import exporter
-from posthog.tasks.exports.insight_exporter import get_driver
+from posthog.tasks.exports.image_exporter import get_driver
 from posthog.test.base import APIBaseTest
 
 

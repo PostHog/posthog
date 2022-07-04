@@ -122,7 +122,7 @@ def _export_to_png(exported_asset: ExportedAsset) -> None:
             driver.close()
 
 
-def export_insight(exported_asset: ExportedAsset) -> None:
+def export_image(exported_asset: ExportedAsset) -> None:
     if exported_asset.insight:
         # NOTE: Dashboards are regularly updated but insights are not
         # so, we need to trigger a manual update to ensure the results are good
