@@ -1,7 +1,6 @@
 from posthog import settings
 from posthog.celery import app
 from posthog.models import ExportedAsset
-from posthog.tasks.exports import image_exporter
 
 
 @app.task(retries=3)
@@ -18,4 +17,4 @@ def export_asset(exported_asset_id: int, storage_root_bucket: str = settings.OBJ
         statsd.incr("csv_exporter.queued", tags={"team_id": str(exported_asset.team_id)})
     else:
         image_exporter.export_image(exported_asset)
-        statsd.incr("insight_exporter.queued", tags={"team_id": str(exported_asset.team_id)})
+        statsd.incr("image_exporter.queued", tags={"team_id": str(exported_asset.team_id)})
