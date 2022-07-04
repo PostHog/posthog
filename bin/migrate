@@ -1,7 +1,21 @@
 #!/bin/bash
 set -e
 
-python manage.py migrate
-python manage.py migrate_clickhouse
+# NOTE: we apply migrations for ClickHouse and PostgreSQL in parallel. These do
+# not have strong dependencies on the other so this should be safe. We do this
+# to improve migration time for new deployments, relevant to e.g. installation
+# with the Helm Chart.
+
+python manage.py migrate &
+migrate_pid=$!
+python manage.py migrate_clickhouse &
+migrate_clickhouse_pid=$1
+
+# We do not use just `wait` here as we want to ensure that the wait command
+# exits with the exit code of the migration commands, thereby failing if one of
+# them fails.
+wait $migrate_pid
+wait $migrate_clickhouse_pid
+
 python manage.py run_async_migrations --check
 python manage.py sync_replicated_schema
