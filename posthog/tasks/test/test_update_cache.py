@@ -14,7 +14,7 @@ from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.filters.utils import get_filter
 from posthog.queries.util import get_earliest_timestamp
-from posthog.tasks.update_cache import update_cache_item, update_cached_items
+from posthog.tasks.update_cache import update_cache_item, update_cached_items, update_insight_cache
 from posthog.test.base import APIBaseTest
 from posthog.types import FilterType
 from posthog.utils import generate_cache_key, get_safe_cache
@@ -576,3 +576,17 @@ class TestUpdateCache(APIBaseTest):
         update_cached_items()
 
         self.assertEquals(Insight.objects.get().refresh_attempt, 1)
+
+    def test_update_insight_filters_hash(self) -> None:
+        test_hash = "rongi rattad ragisevad"
+        filter_dict: Dict[str, Any] = {
+            "events": [{"id": "$pageview"}],
+            "properties": [{"key": "$browser", "value": "Mac OS X"}],
+        }
+        insight = Insight.objects.create(team=self.team, filters=filter_dict)
+        insight.filters_hash = test_hash
+        insight.save(update_fields=["filters_hash"])
+        insight.refresh_from_db()
+        assert insight.filters_hash == test_hash
+        update_insight_cache(insight, None)
+        assert insight.filters_hash != test_hash
