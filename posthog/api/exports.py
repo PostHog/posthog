@@ -38,10 +38,11 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
             "export_format",
             "created_at",
             "has_content",
+            # "resource_uri"
             "export_context",
             "filename",
         ]
-        read_only_fields = ["id", "created_at", "has_content", "export_context", "filename"]
+        read_only_fields = ["id", "created_at", "has_content", "filename"]
 
     def validate(self, attrs):
         if not attrs.get("export_format"):
@@ -92,16 +93,8 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> ExportedAsset:
         request = self.context["request"]
         validated_data["team_id"] = self.context["team_id"]
+        validated_data["created_by"] = request.user
 
-        is_csv_export = validated_data.get("export_format") == ExportedAsset.ExportFormat.CSV
-        if is_csv_export:
-            validated_data["export_context"] = {
-                "file_export_type": "list_events",  # hard code to just this one for now
-                "filter": Filter(request=request, team=Team.objects.get(pk=validated_data["team_id"])).to_dict(),
-                "request_get_query_dict": request.GET.dict(),
-                "order_by": parse_order_by(request.GET.get("orderBy")),
-                "action_id": request.GET.get("action_id"),
-            }
         instance: ExportedAsset = super().create(validated_data)
 
         task = exporter.export_asset.delay(instance.id)

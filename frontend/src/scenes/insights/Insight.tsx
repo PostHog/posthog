@@ -39,6 +39,8 @@ import { SubscriptionsModal, SubscribeButton } from 'lib/components/Subscription
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 import clsx from 'clsx'
 import { SharingModal } from 'lib/components/Sharing/SharingModal'
+import { ExportButtonV2 } from 'lib/components/ExportButton/ExportButtonV2'
+import { ExporterFormat } from 'lib/components/ExportButton/exporter'
 
 export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): JSX.Element {
     const { insightMode, subscriptionId } = useValues(insightSceneLogic)
@@ -58,6 +60,7 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
         insightChanged,
         tagLoading,
         insightSaving,
+        exporterResourceParams,
     } = useValues(logic)
     useMountedLogic(insightCommandLogic(insightProps))
     const { saveInsight, setInsightMetadata, saveAs, reportInsightViewedForRecentInsights } = useActions(logic)
@@ -173,6 +176,21 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                                                         <SubscribeButton insightShortId={insight.short_id} />
                                                     )}
                                                     <ExportButton insightShortId={insight.short_id} fullWidth />
+                                                    {exporterResourceParams ? (
+                                                        <ExportButtonV2
+                                                            fullWidth
+                                                            items={[
+                                                                {
+                                                                    format: ExporterFormat.PNG,
+                                                                    resource: exporterResourceParams,
+                                                                },
+                                                                {
+                                                                    format: ExporterFormat.CSV,
+                                                                    resource: exporterResourceParams,
+                                                                },
+                                                            ]}
+                                                        />
+                                                    ) : null}
                                                     <LemonDivider />
                                                 </>
                                             )}

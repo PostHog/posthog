@@ -9,6 +9,9 @@ from django.utils import timezone
 from rest_framework import authentication
 from rest_framework.exceptions import AuthenticationFailed
 from rest_framework.request import Request
+from posthog.jwt import PosthogJwtAudience, decode_jwt
+
+from posthog.models.user import User
 
 
 class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
@@ -111,6 +114,28 @@ class TemporaryTokenAuthentication(authentication.BaseAuthentication):
                 raise AuthenticationFailed(detail="User doesn't exist")
             return (user.first(), None)
         return None
+
+
+class ImpersonatedTokenAuthentication(authentication.BaseAuthentication):
+    """A way of authenticating with a JWT, primarily by background jobs.
+    """
+
+    keyword = "Bearer"
+
+    @classmethod
+    def authenticate(cls, request: Union[HttpRequest, Request]) -> Optional[Tuple[Any, None]]:
+        if "HTTP_AUTHORIZATION" in request.META:
+            authorization_match = re.match(fr"^Bearer\s+(\S.+)$", request.META["HTTP_AUTHORIZATION"])
+            if authorization_match:
+                try:
+                    token = authorization_match.group(1).strip()
+                    info = decode_jwt(token, PosthogJwtAudience.IMPERSONATED_USER)
+                    user = User.objects.get(pk=info["id"])
+                    return (user, None)
+                except Exception:
+                    raise AuthenticationFailed(detail=f"Token invalid.")
+            else:
+                raise AuthenticationFailed(detail=f"Authorization header malformed.")
 
 
 def authenticate_secondarily(endpoint):

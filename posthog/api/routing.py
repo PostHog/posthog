@@ -8,7 +8,7 @@ from rest_framework_extensions.routers import ExtendedDefaultRouter
 from rest_framework_extensions.settings import extensions_api_settings
 
 from posthog.api.utils import get_token
-from posthog.auth import PersonalAPIKeyAuthentication
+from posthog.auth import ImpersonatedTokenAuthentication, PersonalAPIKeyAuthentication
 from posthog.models.organization import Organization
 from posthog.models.team import Team
 from posthog.models.user import User
@@ -39,6 +39,7 @@ class StructuredViewSetMixin(_GenericViewSet):
     include_in_docs = True
 
     authentication_classes = [
+        ImpersonatedTokenAuthentication,
         PersonalAPIKeyAuthentication,
         authentication.SessionAuthentication,
         authentication.BasicAuthentication,
