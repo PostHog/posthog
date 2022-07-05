@@ -65,7 +65,7 @@ export function shouldSendEventToBuffer(
     // a) that wouldn't help with the backend problem outlined above
     // b) because of issues with $device_id in the mobile libraries, we often mislabel events
     //  as being from an identified user when in fact they are not, leading to unnecessary buffering
-    const isMobileLibrary = !!event.properties && ['posthog-ios', 'posthog-android'].includes(event.properties['$lib'])
+    const isMobileLibrary = !!event.properties && ['posthog-ios', 'posthog-android', 'posthog-react-native', 'posthog-flutter'].includes(event.properties['$lib'])
     const sendToBuffer = !isMobileLibrary && !person && !isAnonymousEvent && event.event !== '$identify'
 
     if (sendToBuffer) {
