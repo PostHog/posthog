@@ -138,7 +138,7 @@ class Migration(AsyncMigrationDefinition):
             ),
             AsyncMigrationOperation(
                 fn=lambda query_id: run_optimize_table(
-                    "0002_events_sample_by", query_id, f"OPTIMIZE TABLE {EVENTS_TABLE_NAME} FINAL"
+                    unique_name="0002_events_sample_by", query_id=query_id, table_name=EVENTS_TABLE_NAME, final=True
                 )
             ),
         ]

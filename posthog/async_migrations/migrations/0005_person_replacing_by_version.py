@@ -197,7 +197,9 @@ class Migration(AsyncMigrationDefinition):
             while should_continue:
                 should_continue = self._copy_batch_from_postgres(query_id)
             self.unset_highwatermark()
-            run_optimize_table("0005_person_replacing_by_version", query_id, f"OPTIMIZE TABLE {PERSON_TABLE} FINAL")
+            run_optimize_table(
+                unique_name="0005_person_replacing_by_version", query_id=query_id, table_name=PERSON_TABLE, final=True
+            )
         except Exception as err:
             logger.warn("Re-copying persons from postgres failed. Marking async migration as complete.", error=err)
             capture_exception(err)
