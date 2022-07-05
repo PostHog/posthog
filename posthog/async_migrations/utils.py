@@ -56,18 +56,21 @@ def execute_op_clickhouse(
     # If True, query is run on each shard.
     per_shard=False,
 ):
-    from posthog.client import sync_execute
+    from posthog import client
 
+    client._request_information = {"kind": "async_migration", "id": query_id}
     settings = settings if settings else {"max_execution_time": timeout_seconds}
-    sql = f"/* {query_id} */ " + sql
 
     try:
         if per_shard:
             execute_on_each_shard(sql, args, settings=settings)
         else:
-            sync_execute(sql, args, settings=settings)
+            client.sync_execute(sql, args, settings=settings)
     except Exception as e:
+        client._request_information = None
         raise Exception(f"Failed to execute ClickHouse op: sql={sql},\nquery_id={query_id},\nexception={str(e)}")
+
+    client._request_information = None
 
 
 def execute_on_each_shard(sql, args, settings=None) -> None:
@@ -140,7 +143,9 @@ def _sleep_until_finished(query_pattern: str) -> None:
         sleep(SLEEP_TIME_SECONDS)
 
 
-def run_optimize_table(unique_name: str, query_id: str, sql: str):
+def run_optimize_table(
+    unique_name: str, query_id: str, table_name: str, on_cluster_clause="", deduplicate=False, final=False
+):
     """
     Runs the passed OPTIMIZE TABLE query.
 
@@ -150,9 +155,12 @@ def run_optimize_table(unique_name: str, query_id: str, sql: str):
     if _get_number_running_on_cluster(f"%%optimize:{unique_name}%%") > 0:
         _sleep_until_finished(f"%%optimize:{unique_name}%%")
     else:
+        final_clause = "FINAL" if final else ""
+        deduplicate_clause = "DEDUPLICATE" if deduplicate else ""
+        sql = f"OPTIMIZE TABLE {table_name} {on_cluster_clause} {final_clause} {deduplicate_clause}"
         execute_op_clickhouse(
-            f"/* optimize:{unique_name} */ " + sql,
-            query_id=query_id,
+            sql,
+            query_id=f"optimize:{unique_name}/{query_id}",
             settings={"max_execution_time": ASYNC_MIGRATIONS_DEFAULT_TIMEOUT_SECONDS, "mutations_sync": 2},
             per_shard=True,
         )
