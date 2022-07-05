@@ -1,46 +1,39 @@
 import datetime
-import gzip
 import tempfile
-import uuid
-from typing import IO, List
-from django.shortcuts import render
+from typing import Any, List
 
 import requests
 import structlog
+from rest_framework_csv import renderers as csvrenderers
 from sentry_sdk import capture_exception, push_scope
 from statshog.defaults.django import statsd
 
 from posthog import settings
 from posthog.jwt import PosthogJwtAudience, encode_jwt
-from posthog.models import Filter
-from posthog.models.event.query_event_list import query_events_list
 from posthog.models.exported_asset import ExportedAsset
-from posthog.models.utils import UUIDT
-from posthog.storage import object_storage
 from posthog.utils import absolute_uri
-from rest_framework_csv import renderers as csvrenderers
 
 logger = structlog.get_logger(__name__)
 
 
 # SUPPORTED CSV TYPES
 
-## Insights - Trends (Series Linear, Series Cumulative, Totals)
+# - Insights - Trends (Series Linear, Series Cumulative, Totals)
 # Funnels - steps as data
 # Retention
 # Paths
 # Lifecycle
 # Via dashboard e.g. all of the above
 
-## People
+# - People
 # Cohorts
 # Retention
 # Funnel
 
-## Events
+# - Events
 # Filtered
 
-### HOW DOES THIS WORK
+# HOW DOES THIS WORK
 # 1. We receive an export task with a given resource uri (identical to the API)
 # 2. We call the actual API to load the data with the given params so that we receive a paginateable response
 # 3. We save the response to a chunk in object storage and then load the `next` page of results
@@ -48,24 +41,52 @@ logger = structlog.get_logger(__name__)
 # 5. We save the final blob output and update the ExportedAsset
 
 
-def _convert_response_to_csv_data(data):
-    csv_rows = []
-
-    if data.get("next") and isinstance(data.get("results"), list):
+def _convert_response_to_csv_data(data: Any) -> List[Any]:
+    if isinstance(data.get("results"), list):
         # Pagination object
         return data.get("results")
+    elif data.get("result") and isinstance(data.get("result"), list):
+        items = data["result"]
+        first_result = items[0]
 
-    elif data.get("result") and data["result"][0].get("data") and len(data["result"][0].get("data")):
-        # TRENDS LIKE
+        if first_result.get("appearances") and first_result.get("person"):
+            # RETENTION PERSONS LIKE
+            csv_rows = []
+            for item in items:
+                line = {
+                    "person": item["person"].get("properties").get("email")
+                    or item["person"].get("properties").get("id")
+                }
+                for index, data in enumerate(item["appearances"]):
+                    line[f"Day {index}"] = data
 
-        for item in data["result"]:
-            line = {"series": item["action"].get("custom_name") or item["label"]}
-            for index, data in enumerate(item["data"]):
-                line[item["labels"][index]] = data
+                csv_rows.append(line)
+            return csv_rows
 
-            csv_rows.append(line)
+        elif first_result.get("values") and first_result.get("label"):
+            csv_rows = []
+            # RETENTION LIKE
+            for item in items:
+                line = {"cohort": item["date"], "cohort size": item["values"][0]["count"]}
+                for index, data in enumerate(item["values"]):
+                    line[items[index]["label"]] = data["count"]
 
-        return csv_rows
+                csv_rows.append(line)
+            return csv_rows
+
+        elif isinstance(first_result.get("data"), list):
+            csv_rows = []
+            # TRENDS LIKE
+            for item in items:
+                line = {"series": item["action"].get("custom_name") or item["label"]}
+                for index, data in enumerate(item["data"]):
+                    line[item["labels"][index]] = data
+
+                csv_rows.append(line)
+
+            return csv_rows
+
+    return []
 
 
 def _export_to_csv(exported_asset: ExportedAsset, root_bucket: str) -> None:
@@ -79,19 +100,32 @@ def _export_to_csv(exported_asset: ExportedAsset, root_bucket: str) -> None:
         {"id": exported_asset.created_by_id}, datetime.timedelta(minutes=15), PosthogJwtAudience.IMPERSONATED_USER
     )
 
-    response = requests.request(
-        method=method.lower(), url=absolute_uri(path), data=body, headers={"Authorization": f"Bearer {access_token}"}
-    )
+    max_limit = 1_000_000
+    limit_size = 100_000
+    next_url = None
+    all_csv_rows: List[Any] = []
 
-    limit = 10_000
+    while len(all_csv_rows) < max_limit:
+        url = next_url or absolute_uri(path + f"&limit={limit_size}")
+        response = requests.request(
+            method=method.lower(), url=url, data=body, headers={"Authorization": f"Bearer {access_token}"}
+        )
 
-    data = response.json()
-    print({"uri": absolute_uri(path + f"&limit={limit}"), "next_uri": data.get("next")})
-    csv_rows = _convert_response_to_csv_data(data)
+        data = response.json()
+        csv_rows = _convert_response_to_csv_data(data)
+        all_csv_rows = all_csv_rows + csv_rows
+
+        if not data.get("next") or not csv_rows:
+            break
+
+        next_url = data.get("next")
+
     renderer = csvrenderers.CSVRenderer()
+    if len(all_csv_rows):
+        renderer.header = all_csv_rows[0].keys()
 
     with tempfile.TemporaryFile() as temporary_file:
-        temporary_file.write(renderer.render(csv_rows))
+        temporary_file.write(renderer.render(all_csv_rows))
         temporary_file.seek(0)
         exported_asset.content = temporary_file.read()
         exported_asset.save(update_fields=["content"])

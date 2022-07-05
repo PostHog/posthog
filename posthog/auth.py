@@ -9,8 +9,8 @@ from django.utils import timezone
 from rest_framework import authentication
 from rest_framework.exceptions import AuthenticationFailed
 from rest_framework.request import Request
-from posthog.jwt import PosthogJwtAudience, decode_jwt
 
+from posthog.jwt import PosthogJwtAudience, decode_jwt
 from posthog.models.user import User
 
 
@@ -136,6 +136,8 @@ class ImpersonatedTokenAuthentication(authentication.BaseAuthentication):
                     raise AuthenticationFailed(detail=f"Token invalid.")
             else:
                 raise AuthenticationFailed(detail=f"Authorization header malformed.")
+
+        return None
 
 
 def authenticate_secondarily(endpoint):
