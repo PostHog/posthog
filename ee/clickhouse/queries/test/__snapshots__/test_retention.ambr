@@ -432,7 +432,6 @@
           NULL as selected_interval,
           returning_event_query as
        (SELECT toStartOfDay(toDateTime(e.timestamp, 'UTC')) AS event_date,
-               e.uuid AS uuid,
                e.event AS event,
                pdi.person_id as target
         FROM events e
@@ -449,7 +448,6 @@
           AND toDateTime(e.timestamp) <= toDateTime('2020-06-21 00:00:00') ),
           target_event_query as
        (SELECT DISTINCT toStartOfDay(toDateTime(e.timestamp, 'UTC')) AS event_date,
-                        e.uuid AS uuid,
                         e.event AS event,
                         pdi.person_id as target,
                         [
@@ -506,7 +504,6 @@
           NULL as selected_interval,
           returning_event_query as
        (SELECT toStartOfDay(toDateTime(e.timestamp, 'US/Pacific')) AS event_date,
-               e.uuid AS uuid,
                e.event AS event,
                pdi.person_id as target
         FROM events e
@@ -523,7 +520,6 @@
           AND toDateTime(e.timestamp) <= toDateTime('2020-06-21 07:00:00') ),
           target_event_query as
        (SELECT DISTINCT toStartOfDay(toDateTime(e.timestamp, 'US/Pacific')) AS event_date,
-                        e.uuid AS uuid,
                         e.event AS event,
                         pdi.person_id as target,
                         [
