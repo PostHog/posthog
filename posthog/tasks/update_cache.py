@@ -107,8 +107,9 @@ def _update_cache_for_queryset(
 
 def update_insight_cache(insight: Insight, dashboard: Optional[Dashboard]) -> List[Dict[str, Any]]:
     cache_key, cache_type, payload = insight_update_task_params(insight, dashboard)
+
     # cache key changed, usually because of a new default filter
-    if insight.filters_hash and insight.filters_hash != cache_key:
+    if not dashboard and insight.filters_hash and insight.filters_hash != cache_key:
         insight.filters_hash = cache_key
         insight.save()
     result = update_cache_item(cache_key, cache_type, payload)
