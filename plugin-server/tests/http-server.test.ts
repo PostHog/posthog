@@ -62,7 +62,7 @@ describe('http server', () => {
                     WORKER_CONCURRENCY: 0,
                 },
                 makePiscina,
-                { http: true }
+                { http: true, ingestion: true }
             )
 
             http.get(`http://localhost:${HTTP_SERVER_PORT}/_ready`, (res) => {
