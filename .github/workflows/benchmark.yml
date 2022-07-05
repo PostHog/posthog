@@ -75,7 +75,7 @@ jobs:
                   python -m pip install -r requirements.txt
 
             - name: Install asv
-              run: python -m pip install pip install git+https://github.com/airspeed-velocity/asv.git virtualenv
+              run: python -m pip install asv==0.5.1
 
             - name: Set up PostHog
               run: |
