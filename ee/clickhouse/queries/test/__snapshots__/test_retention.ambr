@@ -6,7 +6,6 @@
           NULL as selected_interval,
           returning_event_query as
        (SELECT toStartOfWeek(toDateTime(e.timestamp, 'UTC')) AS event_date,
-               e.uuid AS uuid,
                e.event AS event,
                e."$group_0" as target
         FROM events e
@@ -17,7 +16,6 @@
           AND (NOT has([''], "$group_0")) ),
           target_event_query as
        (SELECT DISTINCT toStartOfWeek(toDateTime(e.timestamp, 'UTC')) AS event_date,
-                        e.uuid AS uuid,
                         e.event AS event,
                         e."$group_0" as target,
                         [
@@ -71,7 +69,6 @@
           0 as selected_interval,
           returning_event_query as
        (SELECT toStartOfWeek(toDateTime(e.timestamp, 'UTC')) AS event_date,
-               e.uuid AS uuid,
                e.event AS event,
                e."$group_0" as target
         FROM events e
@@ -82,7 +79,6 @@
           AND (NOT has([''], "$group_0")) ),
           target_event_query as
        (SELECT DISTINCT toStartOfWeek(toDateTime(e.timestamp, 'UTC')) AS event_date,
-                        e.uuid AS uuid,
                         e.event AS event,
                         e."$group_0" as target,
                         [
@@ -129,7 +125,6 @@
           NULL as selected_interval,
           returning_event_query as
        (SELECT toStartOfWeek(toDateTime(e.timestamp, 'UTC')) AS event_date,
-               e.uuid AS uuid,
                e.event AS event,
                e."$group_1" as target
         FROM events e
@@ -140,7 +135,6 @@
           AND (NOT has([''], "$group_1")) ),
           target_event_query as
        (SELECT DISTINCT toStartOfWeek(toDateTime(e.timestamp, 'UTC')) AS event_date,
-                        e.uuid AS uuid,
                         e.event AS event,
                         e."$group_1" as target,
                         [
@@ -191,7 +185,6 @@
           NULL as selected_interval,
           returning_event_query as
        (SELECT toStartOfWeek(toDateTime(e.timestamp, 'UTC')) AS event_date,
-               e.uuid AS uuid,
                e.event AS event,
                pdi.person_id as target
         FROM events e
@@ -216,7 +209,6 @@
           AND (has(['technology'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', ''))) ),
           target_event_query as
        (SELECT DISTINCT toStartOfWeek(toDateTime(e.timestamp, 'UTC')) AS event_date,
-                        e.uuid AS uuid,
                         e.event AS event,
                         pdi.person_id as target,
                         [
@@ -281,7 +273,6 @@
           NULL as selected_interval,
           returning_event_query as
        (SELECT toStartOfWeek(toDateTime(e.timestamp, 'UTC')) AS event_date,
-               e.uuid AS uuid,
                e.event AS event,
                pdi.person_id as target
         FROM events e
@@ -306,7 +297,6 @@
           AND (JSONHas(group_properties_0, 'industry')) ),
           target_event_query as
        (SELECT DISTINCT toStartOfWeek(toDateTime(e.timestamp, 'UTC')) AS event_date,
-                        e.uuid AS uuid,
                         e.event AS event,
                         pdi.person_id as target,
                         [
@@ -374,7 +364,6 @@
           NULL as selected_interval,
           returning_event_query as
        (SELECT toStartOfWeek(toDateTime(e.timestamp, 'UTC')) AS event_date,
-               e.uuid AS uuid,
                e.event AS event,
                e."$group_0" as target
         FROM events e
@@ -385,7 +374,6 @@
           AND (NOT has([''], "$group_0")) ),
           target_event_query as
        (SELECT DISTINCT toStartOfWeek(toDateTime(e.timestamp, 'UTC')) AS event_date,
-                        e.uuid AS uuid,
                         e.event AS event,
                         e."$group_0" as target,
                         [
@@ -422,6 +410,78 @@
   ORDER BY actor_id
   LIMIT 100
   OFFSET 0
+  '
+---
+# name: TestClickhouseRetention.test_retention_event_action
+  '
+  WITH actor_query AS
+    (WITH 'day' as period,
+          NULL as breakdown_values_filter,
+          NULL as selected_interval,
+          returning_event_query as
+       (SELECT toStartOfDay(toDateTime(e.timestamp, 'UTC')) AS event_date,
+               e.event AS event,
+               pdi.person_id as target
+        FROM events e
+        INNER JOIN
+          (SELECT distinct_id,
+                  argMax(person_id, version) as person_id
+           FROM person_distinct_id2
+           WHERE team_id = 2
+           GROUP BY distinct_id
+           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+        WHERE team_id = 2
+          AND e.event = '$some_event'
+          AND toDateTime(e.timestamp) >= toDateTime('2020-06-10 00:00:00')
+          AND toDateTime(e.timestamp) <= toDateTime('2020-06-17 00:00:00') ),
+          target_event_query as
+       (SELECT DISTINCT toStartOfDay(toDateTime(e.timestamp, 'UTC')) AS event_date,
+                        e.event AS event,
+                        pdi.person_id as target,
+                        [
+                          dateDiff(
+                              'Day',
+                              toStartOfDay(toDateTime('2020-06-10 00:00:00')),
+                              toStartOfDay(e.timestamp)
+                          )
+                      ] as breakdown_values
+        FROM events e
+        INNER JOIN
+          (SELECT distinct_id,
+                  argMax(person_id, version) as person_id
+           FROM person_distinct_id2
+           WHERE team_id = 2
+           GROUP BY distinct_id
+           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+        WHERE team_id = 2
+          AND ((event = 'sign up'))
+          AND toDateTime(e.timestamp) >= toDateTime('2020-06-10 00:00:00')
+          AND toDateTime(e.timestamp) <= toDateTime('2020-06-17 00:00:00') ) SELECT DISTINCT breakdown_values,
+                                                                                             intervals_from_base,
+                                                                                             actor_id
+     FROM
+       (SELECT target_event.breakdown_values AS breakdown_values,
+               datediff(period, target_event.event_date, returning_event.event_date) AS intervals_from_base,
+               returning_event.target AS actor_id
+        FROM target_event_query AS target_event
+        JOIN returning_event_query AS returning_event ON returning_event.target = target_event.target
+        WHERE returning_event.event_date > target_event.event_date
+        UNION ALL SELECT target_event.breakdown_values AS breakdown_values,
+                         0 AS intervals_from_base,
+                         target_event.target AS actor_id
+        FROM target_event_query AS target_event)
+     WHERE (breakdown_values_filter is NULL
+            OR breakdown_values = breakdown_values_filter)
+       AND (selected_interval is NULL
+            OR intervals_from_base = selected_interval) )
+  SELECT actor_activity.breakdown_values AS breakdown_values,
+         actor_activity.intervals_from_base AS intervals_from_base,
+         COUNT(DISTINCT actor_activity.actor_id) AS count
+  FROM actor_query AS actor_activity
+  GROUP BY breakdown_values,
+           intervals_from_base
+  ORDER BY breakdown_values,
+           intervals_from_base
   '
 ---
 # name: TestClickhouseRetention.test_timezones
