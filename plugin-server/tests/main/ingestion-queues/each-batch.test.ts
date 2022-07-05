@@ -82,6 +82,7 @@ describe('eachBatchX', () => {
                     timing: jest.fn(),
                     increment: jest.fn(),
                     histogram: jest.fn(),
+                    gauge: jest.fn(),
                 },
             },
             workerMethods: {
