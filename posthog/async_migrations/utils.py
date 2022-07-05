@@ -83,6 +83,8 @@ def execute_on_each_shard(sql, args, settings=None) -> None:
 
 
 def _get_all_shard_connections():
+    from posthog.client import ch_pool as default_ch_pool
+
     if CLICKHOUSE_ALLOW_PER_SHARD_EXECUTION:
         rows = sync_execute(
             """
@@ -99,9 +101,7 @@ def _get_all_shard_connections():
             with ch_pool.get_client() as connection:
                 yield shard, host, connection
     else:
-        from posthog.client import ch_pool
-
-        with ch_pool.get_client() as connection:
+        with default_ch_pool.get_client() as connection:
             yield None, None, connection
 
 
