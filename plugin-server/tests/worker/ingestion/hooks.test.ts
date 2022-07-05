@@ -1,7 +1,7 @@
 import { DateTime } from 'luxon'
 import * as fetch from 'node-fetch'
 
-import { Action, Person, PreIngestionEvent } from '../../../src/types'
+import { Action, IngestionEvent, Person } from '../../../src/types'
 import { UUIDT } from '../../../src/utils/utils'
 import {
     determineWebhookType,
@@ -37,7 +37,7 @@ describe('hooks', () => {
     })
 
     describe('getUserDetails', () => {
-        const event = { distinctId: 'WALL-E' } as unknown as PreIngestionEvent
+        const event = { distinctId: 'WALL-E' } as unknown as IngestionEvent
         const person = { properties: { email: 'test@posthog.com' } } as unknown as Person
 
         test('Slack', () => {
@@ -104,7 +104,7 @@ describe('hooks', () => {
 
     describe('getValueOfToken', () => {
         const action = { id: 1, name: 'action1' } as Action
-        const event = { distinctId: 'WALL-E', properties: { $browser: 'Chrome' } } as unknown as PreIngestionEvent
+        const event = { distinctId: 'WALL-E', properties: { $browser: 'Chrome' } } as unknown as IngestionEvent
         const person = { properties: { enjoys_broccoli_on_pizza: false } } as unknown as Person
 
         test('person with just distinct ID', () => {
@@ -208,7 +208,7 @@ describe('hooks', () => {
         const event = {
             distinctId: 2,
             properties: { $browser: 'Chrome', page_title: 'Pricing' },
-        } as unknown as PreIngestionEvent
+        } as unknown as IngestionEvent
         const person = {} as Person
 
         test('custom format', () => {

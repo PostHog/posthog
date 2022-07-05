@@ -1,6 +1,10 @@
+import hashlib
+import hmac
+import time
 from typing import Dict, List
 
 from django.db import models
+from rest_framework.request import Request
 from slack_sdk import WebClient
 
 from posthog.models.instance_setting import get_instance_settings
@@ -25,6 +29,10 @@ class Integration(models.Model):
     # Meta
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True, blank=True)
     created_by: models.ForeignKey = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)
+
+
+class SlackIntegrationError(Exception):
+    pass
 
 
 class SlackIntegration(object):
@@ -98,7 +106,40 @@ class SlackIntegration(object):
         return integration
 
     @classmethod
+    def validate_request(cls, request: Request):
+        """
+        Based on https://api.slack.com/authentication/verifying-requests-from-slack
+        """
+        slack_config = cls.slack_config()
+        slack_signature = request.headers.get("X-SLACK-SIGNATURE")
+        slack_time = request.headers.get("X-SLACK-REQUEST-TIMESTAMP")
+
+        if not slack_config["SLACK_APP_SIGNING_SECRET"] or not slack_signature or not slack_time:
+            raise SlackIntegrationError("Invalid")
+
+        # Check the token is not older than 5mins
+        try:
+            if time.time() - float(slack_time) > 300:
+                raise SlackIntegrationError("Expired")
+        except ValueError:
+            raise SlackIntegrationError("Invalid")
+
+        sig_basestring = f"v0:{slack_time}:{request.body.decode('utf-8')}"
+
+        my_signature = (
+            "v0="
+            + hmac.new(
+                slack_config["SLACK_APP_SIGNING_SECRET"].encode("utf-8"),
+                sig_basestring.encode("utf-8"),
+                digestmod=hashlib.sha256,
+            ).hexdigest()
+        )
+
+        if not hmac.compare_digest(my_signature, slack_signature):
+            raise SlackIntegrationError("Invalid")
+
+    @classmethod
     def slack_config(cls):
-        config = get_instance_settings(["SLACK_APP_CLIENT_ID", "SLACK_APP_CLIENT_SECRET"])
+        config = get_instance_settings(["SLACK_APP_CLIENT_ID", "SLACK_APP_CLIENT_SECRET", "SLACK_APP_SIGNING_SECRET"])
 
         return config

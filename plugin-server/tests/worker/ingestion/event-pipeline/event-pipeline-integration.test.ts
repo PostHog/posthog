@@ -1,4 +1,5 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
+import { DateTime } from 'luxon'
 import fetch from 'node-fetch'
 
 import { Hook, Hub } from '../../../../src/types'
@@ -69,7 +70,7 @@ describe('Event Pipeline integration test', () => {
                 uuid: event.uuid,
                 event: 'xyz',
                 team_id: 2,
-                timestamp: event.timestamp,
+                timestamp: DateTime.fromISO(event.timestamp!, { zone: 'utc' }),
                 // :KLUDGE: Ignore properties like $plugins_succeeded, etc
                 properties: expect.objectContaining({
                     foo: 'bar',
@@ -168,7 +169,7 @@ describe('Event Pipeline integration test', () => {
                     foo: 'bar',
                 },
                 eventUuid: expect.any(String),
-                timestamp: expect.any(String),
+                timestamp: expect.anything(),
                 teamId: 2,
                 distinctId: 'abc',
                 ip: null,

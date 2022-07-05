@@ -2,7 +2,7 @@ import { eachBatch } from '../../../src/main/ingestion-queues/batch-processing/e
 import { eachBatchAsyncHandlers } from '../../../src/main/ingestion-queues/batch-processing/each-batch-async-handlers'
 import { eachBatchBuffer } from '../../../src/main/ingestion-queues/batch-processing/each-batch-buffer'
 import { eachBatchIngestion } from '../../../src/main/ingestion-queues/batch-processing/each-batch-ingestion'
-import { ClickhouseEventKafka } from '../../../src/types'
+import { RawEvent } from '../../../src/types'
 import { groupIntoBatches } from '../../../src/utils/utils'
 
 jest.mock('../../../src/utils/status')
@@ -18,12 +18,11 @@ const event = {
     elementsList: [],
 }
 
-const clickhouseEvent: ClickhouseEventKafka = {
+const clickhouseEvent: RawEvent = {
     event: '$pageview',
     properties: JSON.stringify({
         $ip: '127.0.0.1',
     }),
-    person_properties: null,
     uuid: 'uuid1',
     elements_chain: '',
     timestamp: '2020-02-23 02:15:00.00',

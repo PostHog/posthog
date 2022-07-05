@@ -17,6 +17,9 @@ export const getSlackRedirectUri = (next: string = ''): string =>
         next ? '?next=' + encodeURIComponent(next) : ''
     }`
 
+export const getSlackEventsUri = (): string =>
+    `${window.location.origin.replace('http://', 'https://')}/api/integrations/slack/events`
+
 // Modified version of https://app.slack.com/app-settings/TSS5W8YQZ/A03KWE2FJJ2/app-manifest to match current instance
 export const getSlackAppManifest = (): any => ({
     display_information: {
@@ -26,7 +29,7 @@ export const getSlackAppManifest = (): any => ({
     },
     features: {
         app_home: {
-            home_tab_enabled: true,
+            home_tab_enabled: false,
             messages_tab_enabled: false,
             messages_tab_read_only_enabled: true,
         },
@@ -34,14 +37,19 @@ export const getSlackAppManifest = (): any => ({
             display_name: 'PostHog',
             always_online: false,
         },
+        unfurl_domains: [window.location.hostname],
     },
     oauth_config: {
         redirect_urls: [getSlackRedirectUri()],
         scopes: {
-            bot: ['channels:read', 'chat:write', 'groups:read'],
+            bot: ['channels:read', 'chat:write', 'groups:read', 'links:read', 'links:write'],
         },
     },
     settings: {
+        event_subscriptions: {
+            request_url: getSlackEventsUri(),
+            bot_events: ['link_shared'],
+        },
         org_deploy_enabled: false,
         socket_mode_enabled: false,
         token_rotation_enabled: false,

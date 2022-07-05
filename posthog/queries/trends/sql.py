@@ -6,6 +6,20 @@ VOLUME_TOTAL_AGGREGATE_SQL = """
 SELECT {aggregate_operation} as data FROM ({event_query}) events
 """
 
+SESSION_VOLUME_TOTAL_AGGREGATE_SQL = """
+SELECT {aggregate_operation} as data FROM (
+    SELECT any(session_duration) as session_duration FROM ({event_query}) events GROUP BY $session_id
+)
+"""
+
+SESSION_DURATION_VOLUME_SQL = """
+SELECT {aggregate_operation} as data, date FROM (
+    SELECT {interval}(toDateTime(timestamp), {start_of_week_fix} %(timezone)s) as date, any(session_duration) as session_duration
+    FROM ({event_query})
+    GROUP BY $session_id, date
+) GROUP BY date
+"""
+
 ACTIVE_USER_SQL = """
 SELECT counts as total, timestamp as day_start FROM (
     SELECT d.timestamp, COUNT(DISTINCT {aggregator}) counts FROM (
@@ -133,6 +147,24 @@ FROM events e
 GROUP BY day_start, breakdown_value
 """
 
+SESSION_BREAKDOWN_INNER_SQL = """
+SELECT
+    {aggregate_operation} as total, day_start, breakdown_value
+FROM (
+    SELECT any(session_duration) as session_duration, day_start, breakdown_value FROM (
+        SELECT $session_id, session_duration, {interval_annotation}(timestamp, {start_of_week_fix} %(timezone)s) as day_start,
+            {breakdown_value} as breakdown_value
+        FROM events e
+        {person_join}
+        {groups_join}
+        {sessions_join}
+        {breakdown_filter}
+    )
+    GROUP BY $session_id, day_start, breakdown_value
+)
+GROUP BY day_start, breakdown_value
+"""
+
 BREAKDOWN_CUMULATIVE_INNER_SQL = """
 SELECT
     {aggregate_operation} as total,
@@ -189,6 +221,24 @@ FROM events e
 {groups_join}
 {sessions_join_condition}
 {breakdown_filter}
+GROUP BY breakdown_value
+ORDER BY breakdown_value
+"""
+
+
+SESSION_BREAKDOWN_AGGREGATE_QUERY_SQL = """
+SELECT {aggregate_operation} AS total, breakdown_value
+FROM (
+    SELECT any(session_duration) as session_duration, breakdown_value FROM (
+        SELECT $session_id, session_duration, {breakdown_value} AS breakdown_value FROM
+            events e
+            {person_join}
+            {groups_join}
+            {sessions_join_condition}
+            {breakdown_filter}
+        )
+    GROUP BY $session_id, breakdown_value
+)
 GROUP BY breakdown_value
 ORDER BY breakdown_value
 """

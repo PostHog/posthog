@@ -883,3 +883,453 @@
   ORDER BY breakdown_value
   '
 ---
+# name: TestFOSSTrends.test_trends_breakdown_with_session_property_single_aggregate_math_and_breakdown
+  '
+  
+  SELECT groupArray(value)
+  FROM
+    (SELECT replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') AS value,
+            quantile(0.50)(session_duration) as count
+     FROM events e
+     INNER JOIN
+       (SELECT $session_id,
+               dateDiff('second', min(timestamp), max(timestamp)) as session_duration
+        FROM events
+        WHERE $session_id != ''
+          AND team_id = 2
+          AND timestamp >= toDateTime('2019-12-28 00:00:00') - INTERVAL 24 HOUR
+          AND timestamp <= toDateTime('2020-01-04 23:59:59') + INTERVAL 24 HOUR
+        GROUP BY $session_id) AS sessions ON sessions.$session_id = e.$session_id
+     WHERE team_id = 2
+       AND event = 'sign up'
+       AND timestamp >= toDateTime('2019-12-28 00:00:00')
+       AND timestamp <= toDateTime('2020-01-04 23:59:59')
+     GROUP BY value
+     ORDER BY count DESC, value DESC
+     LIMIT 25
+     OFFSET 0)
+  '
+---
+# name: TestFOSSTrends.test_trends_breakdown_with_session_property_single_aggregate_math_and_breakdown.1
+  '
+  
+  SELECT quantile(0.50)(session_duration) AS total,
+         breakdown_value
+  FROM
+    (SELECT any(session_duration) as session_duration,
+            breakdown_value
+     FROM
+       (SELECT $session_id,
+               session_duration,
+               replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') AS breakdown_value
+        FROM events e
+        INNER JOIN
+          (SELECT $session_id,
+                  dateDiff('second', min(timestamp), max(timestamp)) as session_duration
+           FROM events
+           WHERE $session_id != ''
+             AND team_id = 2
+             AND timestamp >= toDateTime('2019-12-28 00:00:00') - INTERVAL 24 HOUR
+             AND timestamp <= toDateTime('2020-01-04 23:59:59') + INTERVAL 24 HOUR
+           GROUP BY $session_id) sessions ON sessions.$session_id = e.$session_id
+        WHERE e.team_id = 2
+          AND event = 'sign up'
+          AND timestamp >= toStartOfWeek(toDateTime('2019-12-28 00:00:00'), 0, 'UTC')
+          AND timestamp <= toDateTime('2020-01-04 23:59:59')
+          AND replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') in (['value2', 'value1', '']) )
+     GROUP BY $session_id,
+              breakdown_value)
+  GROUP BY breakdown_value
+  ORDER BY breakdown_value
+  '
+---
+# name: TestFOSSTrends.test_trends_breakdown_with_session_property_single_aggregate_math_and_breakdown.2
+  '
+  
+  SELECT groupArray(value)
+  FROM
+    (SELECT replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') AS value,
+            quantile(0.50)(session_duration) as count
+     FROM events e
+     INNER JOIN
+       (SELECT $session_id,
+               dateDiff('second', min(timestamp), max(timestamp)) as session_duration
+        FROM events
+        WHERE $session_id != ''
+          AND team_id = 2
+          AND timestamp >= toDateTime('2019-12-28 00:00:00') - INTERVAL 24 HOUR
+          AND timestamp <= toDateTime('2020-01-04 23:59:59') + INTERVAL 24 HOUR
+        GROUP BY $session_id) AS sessions ON sessions.$session_id = e.$session_id
+     WHERE team_id = 2
+       AND event = 'sign up'
+       AND timestamp >= toDateTime('2019-12-28 00:00:00')
+       AND timestamp <= toDateTime('2020-01-04 23:59:59')
+     GROUP BY value
+     ORDER BY count DESC, value DESC
+     LIMIT 25
+     OFFSET 0)
+  '
+---
+# name: TestFOSSTrends.test_trends_breakdown_with_session_property_single_aggregate_math_and_breakdown.3
+  '
+  
+  SELECT quantile(0.50)(session_duration) AS total,
+         breakdown_value
+  FROM
+    (SELECT any(session_duration) as session_duration,
+            breakdown_value
+     FROM
+       (SELECT $session_id,
+               session_duration,
+               replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') AS breakdown_value
+        FROM events e
+        INNER JOIN
+          (SELECT $session_id,
+                  dateDiff('second', min(timestamp), max(timestamp)) as session_duration
+           FROM events
+           WHERE $session_id != ''
+             AND team_id = 2
+             AND timestamp >= toDateTime('2019-12-28 00:00:00') - INTERVAL 24 HOUR
+             AND timestamp <= toDateTime('2020-01-04 23:59:59') + INTERVAL 24 HOUR
+           GROUP BY $session_id) sessions ON sessions.$session_id = e.$session_id
+        WHERE e.team_id = 2
+          AND event = 'sign up'
+          AND timestamp >= toStartOfDay(toDateTime('2019-12-28 00:00:00'), 'UTC')
+          AND timestamp <= toDateTime('2020-01-04 23:59:59')
+          AND replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') in (['value2', 'value1', '']) )
+     GROUP BY $session_id,
+              breakdown_value)
+  GROUP BY breakdown_value
+  ORDER BY breakdown_value
+  '
+---
+# name: TestFOSSTrends.test_trends_with_session_property_single_aggregate_math
+  '
+  
+  SELECT quantile(0.50)(session_duration) as data
+  FROM
+    (SELECT any(session_duration) as session_duration
+     FROM
+       (SELECT e.timestamp as timestamp,
+               e."properties" as "properties",
+               sessions.session_duration as session_duration,
+               sessions.$session_id as $session_id
+        FROM events e
+        INNER JOIN
+          (SELECT $session_id,
+                  dateDiff('second', min(timestamp), max(timestamp)) as session_duration
+           FROM events
+           WHERE $session_id != ''
+             AND team_id = 2
+             AND timestamp >= toDateTime('2019-12-28 00:00:00') - INTERVAL 24 HOUR
+             AND timestamp <= toDateTime('2020-01-04 23:59:59') + INTERVAL 24 HOUR
+           GROUP BY $session_id) as sessions ON sessions.$session_id = e.$session_id
+        WHERE team_id = 2
+          AND event = 'sign up'
+          AND timestamp >= toStartOfWeek(toDateTime('2019-12-28 00:00:00'), 0, 'UTC')
+          AND timestamp <= toDateTime('2020-01-04 23:59:59') ) events
+     GROUP BY $session_id)
+  '
+---
+# name: TestFOSSTrends.test_trends_with_session_property_single_aggregate_math.1
+  '
+  
+  SELECT quantile(0.50)(session_duration) as data
+  FROM
+    (SELECT any(session_duration) as session_duration
+     FROM
+       (SELECT e.timestamp as timestamp,
+               e."properties" as "properties",
+               sessions.session_duration as session_duration,
+               sessions.$session_id as $session_id
+        FROM events e
+        INNER JOIN
+          (SELECT $session_id,
+                  dateDiff('second', min(timestamp), max(timestamp)) as session_duration
+           FROM events
+           WHERE $session_id != ''
+             AND team_id = 2
+             AND timestamp >= toDateTime('2019-12-28 00:00:00') - INTERVAL 24 HOUR
+             AND timestamp <= toDateTime('2020-01-04 23:59:59') + INTERVAL 24 HOUR
+           GROUP BY $session_id) as sessions ON sessions.$session_id = e.$session_id
+        WHERE team_id = 2
+          AND event = 'sign up'
+          AND timestamp >= toStartOfDay(toDateTime('2019-12-28 00:00:00'), 'UTC')
+          AND timestamp <= toDateTime('2020-01-04 23:59:59') ) events
+     GROUP BY $session_id)
+  '
+---
+# name: TestFOSSTrends.test_trends_with_session_property_total_volume_math
+  '
+  
+  SELECT groupArray(day_start) as date,
+         groupArray(count) as data
+  FROM
+    (SELECT SUM(total) AS count,
+            day_start
+     from
+       (SELECT toUInt16(0) AS total,
+               toStartOfWeek(toDateTime('2020-01-04 23:59:59') - toIntervalWeek(number), 0, 'UTC') AS day_start
+        FROM numbers(dateDiff('week', toStartOfWeek(toDateTime('2019-12-28 00:00:00'), 0, 'UTC'), toDateTime('2020-01-04 23:59:59'), 'UTC'))
+        UNION ALL SELECT toUInt16(0) AS total,
+                         toStartOfWeek(toDateTime('2019-12-28 00:00:00'), 0, 'UTC')
+        UNION ALL SELECT quantile(0.50)(session_duration) as data, date
+        FROM
+          (SELECT toStartOfWeek(toDateTime(timestamp), 0, 'UTC') as date,
+                  any(session_duration) as session_duration
+           FROM
+             (SELECT e.timestamp as timestamp,
+                     e."properties" as "properties",
+                     sessions.session_duration as session_duration,
+                     sessions.$session_id as $session_id
+              FROM events e
+              INNER JOIN
+                (SELECT $session_id,
+                        dateDiff('second', min(timestamp), max(timestamp)) as session_duration
+                 FROM events
+                 WHERE $session_id != ''
+                   AND team_id = 2
+                   AND timestamp >= toDateTime('2019-12-28 00:00:00') - INTERVAL 24 HOUR
+                   AND timestamp <= toDateTime('2020-01-04 23:59:59') + INTERVAL 24 HOUR
+                 GROUP BY $session_id) as sessions ON sessions.$session_id = e.$session_id
+              WHERE team_id = 2
+                AND event = 'sign up'
+                AND timestamp >= toStartOfWeek(toDateTime('2019-12-28 00:00:00'), 0, 'UTC')
+                AND timestamp <= toDateTime('2020-01-04 23:59:59') )
+           GROUP BY $session_id, date)
+        GROUP BY date)
+     group by day_start
+     order by day_start SETTINGS allow_experimental_window_functions = 1) SETTINGS timeout_before_checking_execution_speed = 60
+  '
+---
+# name: TestFOSSTrends.test_trends_with_session_property_total_volume_math.1
+  '
+  
+  SELECT groupArray(day_start) as date,
+         groupArray(count) as data
+  FROM
+    (SELECT SUM(total) AS count,
+            day_start
+     from
+       (SELECT toUInt16(0) AS total,
+               toStartOfDay(toDateTime('2020-01-04 23:59:59') - toIntervalDay(number), 'UTC') AS day_start
+        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2019-12-28 00:00:00'), 'UTC'), toDateTime('2020-01-04 23:59:59'), 'UTC'))
+        UNION ALL SELECT toUInt16(0) AS total,
+                         toStartOfDay(toDateTime('2019-12-28 00:00:00'), 'UTC')
+        UNION ALL SELECT quantile(0.50)(session_duration) as data, date
+        FROM
+          (SELECT toStartOfDay(toDateTime(timestamp), 'UTC') as date,
+                  any(session_duration) as session_duration
+           FROM
+             (SELECT e.timestamp as timestamp,
+                     e."properties" as "properties",
+                     sessions.session_duration as session_duration,
+                     sessions.$session_id as $session_id
+              FROM events e
+              INNER JOIN
+                (SELECT $session_id,
+                        dateDiff('second', min(timestamp), max(timestamp)) as session_duration
+                 FROM events
+                 WHERE $session_id != ''
+                   AND team_id = 2
+                   AND timestamp >= toDateTime('2019-12-28 00:00:00') - INTERVAL 24 HOUR
+                   AND timestamp <= toDateTime('2020-01-04 23:59:59') + INTERVAL 24 HOUR
+                 GROUP BY $session_id) as sessions ON sessions.$session_id = e.$session_id
+              WHERE team_id = 2
+                AND event = 'sign up'
+                AND timestamp >= toStartOfDay(toDateTime('2019-12-28 00:00:00'), 'UTC')
+                AND timestamp <= toDateTime('2020-01-04 23:59:59') )
+           GROUP BY $session_id, date)
+        GROUP BY date)
+     group by day_start
+     order by day_start SETTINGS allow_experimental_window_functions = 1) SETTINGS timeout_before_checking_execution_speed = 60
+  '
+---
+# name: TestFOSSTrends.test_trends_with_session_property_total_volume_math_with_breakdowns
+  '
+  
+  SELECT groupArray(value)
+  FROM
+    (SELECT replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') AS value,
+            quantile(0.50)(session_duration) as count
+     FROM events e
+     INNER JOIN
+       (SELECT $session_id,
+               dateDiff('second', min(timestamp), max(timestamp)) as session_duration
+        FROM events
+        WHERE $session_id != ''
+          AND team_id = 2
+          AND timestamp >= toDateTime('2019-12-28 00:00:00') - INTERVAL 24 HOUR
+          AND timestamp <= toDateTime('2020-01-04 23:59:59') + INTERVAL 24 HOUR
+        GROUP BY $session_id) AS sessions ON sessions.$session_id = e.$session_id
+     WHERE team_id = 2
+       AND event = 'sign up'
+       AND timestamp >= toDateTime('2019-12-28 00:00:00')
+       AND timestamp <= toDateTime('2020-01-04 23:59:59')
+     GROUP BY value
+     ORDER BY count DESC, value DESC
+     LIMIT 25
+     OFFSET 0)
+  '
+---
+# name: TestFOSSTrends.test_trends_with_session_property_total_volume_math_with_breakdowns.1
+  '
+  
+  SELECT groupArray(day_start) as date,
+         groupArray(count) as data,
+         breakdown_value
+  FROM
+    (SELECT SUM(total) as count,
+            day_start,
+            breakdown_value
+     FROM
+       (SELECT *
+        FROM
+          (SELECT toUInt16(0) AS total,
+                  ticks.day_start as day_start,
+                  breakdown_value
+           FROM
+             (SELECT toStartOfWeek(toDateTime('2020-01-04 23:59:59', 'UTC') - number * 604800) as day_start
+              FROM numbers(2)
+              UNION ALL SELECT toStartOfWeek(toDateTime('2019-12-28 00:00:00', 'UTC')) as day_start) as ticks
+           CROSS JOIN
+             (SELECT breakdown_value
+              FROM
+                (SELECT ['value2', 'value1'] as breakdown_value) ARRAY
+              JOIN breakdown_value) as sec
+           ORDER BY breakdown_value,
+                    day_start
+           UNION ALL SELECT quantile(0.50)(session_duration) as total,
+                            day_start,
+                            breakdown_value
+           FROM
+             (SELECT any(session_duration) as session_duration,
+                     day_start,
+                     breakdown_value
+              FROM
+                (SELECT $session_id,
+                        session_duration,
+                        toStartOfWeek(timestamp, 0, 'UTC') as day_start,
+                        replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') as breakdown_value
+                 FROM events e
+                 INNER JOIN
+                   (SELECT $session_id,
+                           dateDiff('second', min(timestamp), max(timestamp)) as session_duration
+                    FROM events
+                    WHERE $session_id != ''
+                      AND team_id = 2
+                      AND timestamp >= toDateTime('2019-12-28 00:00:00') - INTERVAL 24 HOUR
+                      AND timestamp <= toDateTime('2020-01-04 23:59:59') + INTERVAL 24 HOUR
+                    GROUP BY $session_id) sessions ON sessions.$session_id = e.$session_id
+                 WHERE e.team_id = 2
+                   AND event = 'sign up'
+                   AND timestamp >= toStartOfWeek(toDateTime('2019-12-28 00:00:00'), 0, 'UTC')
+                   AND timestamp <= toDateTime('2020-01-04 23:59:59')
+                   AND replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') in (['value2', 'value1']) )
+              GROUP BY $session_id,
+                       day_start,
+                       breakdown_value)
+           GROUP BY day_start,
+                    breakdown_value))
+     GROUP BY day_start,
+              breakdown_value
+     ORDER BY breakdown_value,
+              day_start)
+  GROUP BY breakdown_value
+  ORDER BY breakdown_value
+  '
+---
+# name: TestFOSSTrends.test_trends_with_session_property_total_volume_math_with_breakdowns.2
+  '
+  
+  SELECT groupArray(value)
+  FROM
+    (SELECT replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') AS value,
+            quantile(0.50)(session_duration) as count
+     FROM events e
+     INNER JOIN
+       (SELECT $session_id,
+               dateDiff('second', min(timestamp), max(timestamp)) as session_duration
+        FROM events
+        WHERE $session_id != ''
+          AND team_id = 2
+          AND timestamp >= toDateTime('2019-12-28 00:00:00') - INTERVAL 24 HOUR
+          AND timestamp <= toDateTime('2020-01-04 23:59:59') + INTERVAL 24 HOUR
+        GROUP BY $session_id) AS sessions ON sessions.$session_id = e.$session_id
+     WHERE team_id = 2
+       AND event = 'sign up'
+       AND timestamp >= toDateTime('2019-12-28 00:00:00')
+       AND timestamp <= toDateTime('2020-01-04 23:59:59')
+     GROUP BY value
+     ORDER BY count DESC, value DESC
+     LIMIT 25
+     OFFSET 0)
+  '
+---
+# name: TestFOSSTrends.test_trends_with_session_property_total_volume_math_with_breakdowns.3
+  '
+  
+  SELECT groupArray(day_start) as date,
+         groupArray(count) as data,
+         breakdown_value
+  FROM
+    (SELECT SUM(total) as count,
+            day_start,
+            breakdown_value
+     FROM
+       (SELECT *
+        FROM
+          (SELECT toUInt16(0) AS total,
+                  ticks.day_start as day_start,
+                  breakdown_value
+           FROM
+             (SELECT toStartOfDay(toDateTime('2020-01-04 23:59:59', 'UTC') - number * 86400) as day_start
+              FROM numbers(8)
+              UNION ALL SELECT toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')) as day_start) as ticks
+           CROSS JOIN
+             (SELECT breakdown_value
+              FROM
+                (SELECT ['value2', 'value1'] as breakdown_value) ARRAY
+              JOIN breakdown_value) as sec
+           ORDER BY breakdown_value,
+                    day_start
+           UNION ALL SELECT quantile(0.50)(session_duration) as total,
+                            day_start,
+                            breakdown_value
+           FROM
+             (SELECT any(session_duration) as session_duration,
+                     day_start,
+                     breakdown_value
+              FROM
+                (SELECT $session_id,
+                        session_duration,
+                        toStartOfDay(timestamp, 'UTC') as day_start,
+                        replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') as breakdown_value
+                 FROM events e
+                 INNER JOIN
+                   (SELECT $session_id,
+                           dateDiff('second', min(timestamp), max(timestamp)) as session_duration
+                    FROM events
+                    WHERE $session_id != ''
+                      AND team_id = 2
+                      AND timestamp >= toDateTime('2019-12-28 00:00:00') - INTERVAL 24 HOUR
+                      AND timestamp <= toDateTime('2020-01-04 23:59:59') + INTERVAL 24 HOUR
+                    GROUP BY $session_id) sessions ON sessions.$session_id = e.$session_id
+                 WHERE e.team_id = 2
+                   AND event = 'sign up'
+                   AND timestamp >= toStartOfDay(toDateTime('2019-12-28 00:00:00'), 'UTC')
+                   AND timestamp <= toDateTime('2020-01-04 23:59:59')
+                   AND replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') in (['value2', 'value1']) )
+              GROUP BY $session_id,
+                       day_start,
+                       breakdown_value)
+           GROUP BY day_start,
+                    breakdown_value))
+     GROUP BY day_start,
+              breakdown_value
+     ORDER BY breakdown_value,
+              day_start)
+  GROUP BY breakdown_value
+  ORDER BY breakdown_value
+  '
+---

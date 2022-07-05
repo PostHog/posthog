@@ -1387,17 +1387,9 @@ export interface FeatureFlagType {
     ensure_experience_continuity: boolean | null
 }
 
-export interface FeatureFlagOverrideType {
-    id: number
-    feature_flag: number
-    user: number
-    override_value: boolean | string
-}
-
-export interface CombinedFeatureFlagAndOverrideType {
+export interface CombinedFeatureFlagAndValueType {
     feature_flag: FeatureFlagType
-    value_for_user_without_override: boolean | string
-    override: FeatureFlagOverrideType | null
+    value: boolean | string
 }
 
 export interface PrevalidatedInvite {
@@ -1935,6 +1927,13 @@ export interface ChangeDescriptions {
     descriptions: Description[]
     // e.g. should description say "did deletion _to_ Y" or "deleted Y"
     bareName: boolean
+}
+
+export type SmallTimeUnit = 'hours' | 'minutes' | 'seconds'
+
+export type Duration = {
+    timeValue: number
+    unit: SmallTimeUnit
 }
 
 export type CombinedEvent = EventDefinition | ActionType

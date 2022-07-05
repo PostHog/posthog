@@ -164,7 +164,7 @@ export function EditSubscription({
                         )}
 
                         <Field name={'title'} label={'Name'}>
-                            <LemonInput placeholder="e.g. Weekly team report" disabled={emailDisabled} />
+                            <LemonInput placeholder="e.g. Weekly team report" />
                         </Field>
 
                         {featureFlags[FEATURE_FLAGS.SUBSCRIPTIONS_SLACK] && (

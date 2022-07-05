@@ -124,6 +124,11 @@ CONSTANCE_CONFIG = {
         "Used to enable the 'Add to Slack' button across all projects",
         str,
     ),
+    "SLACK_APP_SIGNING_SECRET": (
+        get_from_env("SLACK_APP_SIGNING_SECRET", default=""),
+        "Used to validate Slack events for example when unfurling links",
+        str,
+    ),
 }
 
 SETTINGS_ALLOWING_API_OVERRIDE = (
@@ -148,8 +153,9 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "STRICT_CACHING_TEAMS",
     "SLACK_APP_CLIENT_ID",
     "SLACK_APP_CLIENT_SECRET",
+    "SLACK_APP_SIGNING_SECRET",
 )
 
 # SECRET_SETTINGS can only be updated but will never be exposed through the API (we do store them plain text in the DB)
 # On the frontend UI will clearly show which configuration elements are secret and whether they have a set value or not.
-SECRET_SETTINGS = ["EMAIL_HOST_PASSWORD", "SLACK_APP_CLIENT_SECRET"]
+SECRET_SETTINGS = ["EMAIL_HOST_PASSWORD", "SLACK_APP_CLIENT_SECRET", "SLACK_APP_SIGNING_SECRET"]
