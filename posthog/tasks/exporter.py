@@ -3,11 +3,11 @@ from posthog.celery import app
 from posthog.models import ExportedAsset
 
 
-@app.task()
+@app.task(retries=3)
 def export_asset(exported_asset_id: int, storage_root_bucket: str = settings.OBJECT_STORAGE_EXPORTS_FOLDER) -> None:
     from statshog.defaults.django import statsd
 
-    from posthog.tasks.exports import csv_exporter, insight_exporter
+    from posthog.tasks.exports import csv_exporter, image_exporter
 
     exported_asset = ExportedAsset.objects.select_related("insight", "dashboard").get(pk=exported_asset_id)
 
@@ -16,5 +16,5 @@ def export_asset(exported_asset_id: int, storage_root_bucket: str = settings.OBJ
         csv_exporter.export_csv(exported_asset, storage_root_bucket)
         statsd.incr("csv_exporter.queued", tags={"team_id": str(exported_asset.team_id)})
     else:
-        insight_exporter.export_insight(exported_asset)
-        statsd.incr("insight_exporter.queued", tags={"team_id": str(exported_asset.team_id)})
+        image_exporter.export_image(exported_asset)
+        statsd.incr("image_exporter.queued", tags={"team_id": str(exported_asset.team_id)})

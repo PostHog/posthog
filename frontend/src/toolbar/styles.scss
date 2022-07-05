@@ -10,6 +10,7 @@
     background: white;
     color: black;
     font-size: 14px;
+
     &.no-padding {
         padding: 0;
     }
@@ -19,13 +20,16 @@
 .ant-modal-wrap {
     z-index: 2147483030 !important;
 }
+
 .ant-select-dropdown,
 .ant-picker-dropdown {
     z-index: 2147483031 !important;
 }
+
 .ant-tooltip {
     z-index: 2147483032 !important;
 }
+
 .ant-list-item {
     &:hover {
         background: #f0f0f0;
@@ -61,7 +65,12 @@
     right: 0;
     bottom: 0;
     pointer-events: none;
+
     > * {
         pointer-events: auto;
     }
+}
+
+.Popup {
+    z-index: 2147483020;
 }

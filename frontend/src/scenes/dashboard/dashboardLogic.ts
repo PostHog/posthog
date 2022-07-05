@@ -541,11 +541,7 @@ export const dashboardLogic = kea<dashboardLogicType>({
     events: ({ actions, cache, props }) => ({
         afterMount: () => {
             if (props.id) {
-                const exportedDashboard = window.POSTHOG_EXPORTED_DATA?.dashboard
-                if (exportedDashboard && exportedDashboard.id === props.id && exportedDashboard.items) {
-                    actions.loadExportedDashboard(exportedDashboard as DashboardType)
-                } else if (props.dashboard) {
-                    // When the scene is initially loaded, the dashboard ID is undefined
+                if (props.dashboard) {
                     actions.loadExportedDashboard(props.dashboard)
                 } else {
                     actions.loadDashboardItems({

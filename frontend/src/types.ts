@@ -797,7 +797,7 @@ export interface InsightModel extends DashboardTile {
     /** The primary key in the database, used as well in API endpoints */
     id: number
     name: string
-    derived_name?: string
+    derived_name?: string | null
     description?: string
     favorited?: boolean
     order: number | null
@@ -814,7 +814,7 @@ export interface InsightModel extends DashboardTile {
     last_modified_by: UserBasicType | null
     effective_restriction_level: DashboardRestrictionLevel
     effective_privilege_level: DashboardPrivilegeLevel
-    timezone?: string
+    timezone?: string | null
     /** Only used in the frontend to store the next breakdown url */
     next?: string
 }
@@ -1387,17 +1387,9 @@ export interface FeatureFlagType {
     ensure_experience_continuity: boolean | null
 }
 
-export interface FeatureFlagOverrideType {
-    id: number
-    feature_flag: number
-    user: number
-    override_value: boolean | string
-}
-
-export interface CombinedFeatureFlagAndOverrideType {
+export interface CombinedFeatureFlagAndValueType {
     feature_flag: FeatureFlagType
-    value_for_user_without_override: boolean | string
-    override: FeatureFlagOverrideType | null
+    value: boolean | string
 }
 
 export interface PrevalidatedInvite {
@@ -1742,9 +1734,11 @@ export interface VersionType {
 }
 
 export interface dateMappingOption {
+    key: string
     inactive?: boolean // Options removed due to low usage (see relevant PR); will not show up for new insights but will be kept for existing
     values: string[]
     getFormattedDate?: (date: dayjs.Dayjs, format: string) => string
+    defaultInterval?: IntervalType
 }
 
 export interface Breadcrumb {

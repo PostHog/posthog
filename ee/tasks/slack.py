@@ -32,7 +32,9 @@ def _block_for_asset(asset: ExportedAsset) -> Dict:
 def _handle_slack_event(event_payload: Any) -> None:
     slack_team_id = event_payload.get("team_id")
     channel = event_payload.get("event").get("channel")
-    thread_ts = event_payload.get("event").get("thread_ts")
+    message_ts = event_payload.get("event").get("message_ts")
+    unfurl_id = event_payload.get("event").get("unfurl_id")
+    source = event_payload.get("event").get("source")
     links_to_unfurl = event_payload.get("event").get("links")
 
     unfurls = {}
@@ -81,7 +83,14 @@ def _handle_slack_event(event_payload: Any) -> None:
                 }
 
     if unfurls:
-        slack_integration.client.chat_unfurl(unfurls=unfurls, channel=channel, ts=thread_ts)
+        try:
+            slack_integration.client.chat_unfurl(unfurls=unfurls, unfurl_id=unfurl_id, source=source, channel="", ts="")
+        except Exception as e:
+            # NOTE: This is temporary as a test to understand if the channel and ts are actually required as the docs are not clear
+            slack_integration.client.chat_unfurl(
+                unfurls=unfurls, unfurl_id=unfurl_id, source=source, channel=channel, ts=message_ts
+            )
+            raise e
 
 
 @app.task()

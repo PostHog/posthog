@@ -4,11 +4,11 @@ from unittest.mock import MagicMock, patch
 from posthog.models.dashboard import Dashboard
 from posthog.models.exported_asset import ExportedAsset
 from posthog.tasks import exporter
-from posthog.tasks.exports.insight_exporter import get_driver
+from posthog.tasks.exports.image_exporter import get_driver
 from posthog.test.base import APIBaseTest
 
 
-@patch("posthog.tasks.exports.insight_exporter.uuid")
+@patch("posthog.tasks.exports.image_exporter.uuid")
 class TestExporterTask(APIBaseTest):
     exported_asset: ExportedAsset = None  # type: ignore
 
@@ -25,7 +25,7 @@ class TestExporterTask(APIBaseTest):
         with open("/tmp/posthog_test_exporter.png", "wb") as fh:
             fh.write(base64.decodebytes(example_png))
 
-    @patch("posthog.tasks.exports.insight_exporter.get_driver")
+    @patch("posthog.tasks.exports.image_exporter.get_driver")
     def test_exporter_runs(self, mock_get_driver: MagicMock, mock_uuid: MagicMock) -> None:
         mock_uuid.uuid4.return_value = "posthog_test_exporter"
         assert self.exported_asset.content is None

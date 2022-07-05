@@ -609,7 +609,9 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         item = Insight.objects.create(filters={"events": [{"id": "$pageview"}]}, team=self.team, last_refresh=now(),)
         DashboardTile.objects.create(insight=item, dashboard=dashboard)
         response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard.pk}").json()
-        self.assertEqual(response["items"][0]["filters"], {"events": [{"id": "$pageview"}], "insight": "TRENDS"})
+        self.assertEqual(
+            response["items"][0]["filters"], {"events": [{"id": "$pageview"}], "insight": "TRENDS", "date_from": "-7d"}
+        )
 
     def test_retrieve_dashboard_different_team(self):
         team2 = Team.objects.create(organization=Organization.objects.create(name="a"))
