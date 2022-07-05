@@ -1,5 +1,4 @@
 import IORedis from 'ioredis'
-import { DateTime } from 'luxon'
 
 import { ONE_HOUR } from '../src/config/constants'
 import { KAFKA_BUFFER } from '../src/config/kafka-topics'
@@ -124,21 +123,15 @@ describe('E2E with buffer enabled', () => {
             expect(events.length).toBe(3)
 
             // At least BUFFER_CONVERSION_SECONDS must have elapsed for each event between queuing and saving
-            expect(
-                DateTime.fromSQL(events[0].created_at, { zone: 'utc' })
-                    .diff(DateTime.fromISO(events[0].timestamp))
-                    .toMillis()
-            ).toBeGreaterThan(hub.BUFFER_CONVERSION_SECONDS * 1000)
-            expect(
-                DateTime.fromSQL(events[1].created_at, { zone: 'utc' })
-                    .diff(DateTime.fromISO(events[1].timestamp))
-                    .toMillis()
-            ).toBeGreaterThan(hub.BUFFER_CONVERSION_SECONDS * 1000)
-            expect(
-                DateTime.fromSQL(events[2].created_at, { zone: 'utc' })
-                    .diff(DateTime.fromISO(events[2].timestamp))
-                    .toMillis()
-            ).toBeGreaterThan(hub.BUFFER_CONVERSION_SECONDS * 1000)
+            expect(events[0].created_at.diff(events[0].timestamp).toMillis()).toBeGreaterThan(
+                hub.BUFFER_CONVERSION_SECONDS * 1000
+            )
+            expect(events[1].created_at.diff(events[1].timestamp).toMillis()).toBeGreaterThan(
+                hub.BUFFER_CONVERSION_SECONDS * 1000
+            )
+            expect(events[2].created_at.diff(events[2].timestamp).toMillis()).toBeGreaterThan(
+                hub.BUFFER_CONVERSION_SECONDS * 1000
+            )
 
             // processEvent ran and modified
             expect(events[0].properties.processed).toEqual('hell yes')
