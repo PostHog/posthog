@@ -75,7 +75,7 @@ jobs:
                   python -m pip install -r requirements.txt
 
             - name: Install asv
-              run: python -m pip install asv==0.5.1
+              run: python -m pip install asv==0.5.1 virtualenv
 
             - name: Set up PostHog
               run: |
