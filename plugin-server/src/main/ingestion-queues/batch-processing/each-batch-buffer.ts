@@ -1,6 +1,6 @@
 import { EachBatchPayload, KafkaMessage } from 'kafkajs'
-import { status } from 'utils/status'
 
+import { status } from '../../../utils/status'
 import { runInstrumentedFunction } from '../../utils'
 import { KafkaQueue } from '../kafka-queue'
 
