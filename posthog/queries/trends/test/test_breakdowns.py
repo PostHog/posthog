@@ -51,30 +51,35 @@ class TestBreakdowns(ClickhouseTestMixin, APIBaseTest):
                     "properties": {"$session_id": "3"},
                 },
             ],
-            # Duration 120 seconds, with 2 events counted
-            "person5": [
-                {
-                    "event": "watched movie",
-                    "timestamp": datetime(2020, 1, 5, 12, 1),
-                    "properties": {"$session_id": "4", "movie_length": "25"},
-                },
-                {
-                    "event": "watched movie",
-                    "timestamp": datetime(2020, 1, 5, 12, 3),
-                    "properties": {"$session_id": "4", "movie_length": "not a number"},
-                },
-            ],
             # Duration 180 seconds, with 2 events counted, each in a different day bucket
             "person4": [
                 {
                     "event": "watched movie",
                     "timestamp": datetime(2020, 1, 4, 23, 59),
-                    "properties": {"$session_id": "5", "movie_length": 1000},
+                    "properties": {"$session_id": "4", "movie_length": 1000},
                 },
                 {
                     "event": "watched movie",
                     "timestamp": datetime(2020, 1, 5, 0, 2),
-                    "properties": {"$session_id": "5", "movie_length": 97.5},
+                    "properties": {"$session_id": "4", "movie_length": 97.5},
+                },
+            ],
+            # Duration 120 seconds, with 2 events counted. Movie length properties are strings
+            "person5": [
+                {
+                    "event": "watched movie",
+                    "timestamp": datetime(2020, 1, 5, 12, 1),
+                    "properties": {"$session_id": "5", "movie_length": "25"},
+                },
+                {
+                    "event": "watched movie",
+                    "timestamp": datetime(2020, 1, 5, 12, 1),
+                    "properties": {"$session_id": "5", "movie_length": 25},
+                },
+                {
+                    "event": "watched movie",
+                    "timestamp": datetime(2020, 1, 5, 12, 3),
+                    "properties": {"$session_id": "5", "movie_length": "not a number"},
                 },
             ],
         }
@@ -105,7 +110,7 @@ class TestBreakdowns(ClickhouseTestMixin, APIBaseTest):
                 (0, 1.0, [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
                 (60, 2.0, [2.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
                 (91, 1.0, [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
-                (120, 2.0, [0.0, 0.0, 0.0, 2.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
+                (120, 3.0, [0.0, 0.0, 0.0, 3.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
                 (180, 2.0, [0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
             ],
         )
@@ -121,7 +126,7 @@ class TestBreakdowns(ClickhouseTestMixin, APIBaseTest):
             [
                 ("[0.0,69.92]", 3.0, [3.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
                 ("[69.92,110.72000000000001]", 1.0, [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
-                ("[110.72000000000001,180.0]", 4.0, [0.0, 0.0, 1.0, 3.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
+                ("[110.72000000000001,180.0]", 5.0, [0.0, 0.0, 1.0, 4.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
             ],
         )
 
@@ -139,7 +144,7 @@ class TestBreakdowns(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(
             [(item["breakdown_value"], item["aggregated_value"]) for item in response],
-            [("[0.0,69.92]", 3), ("[69.92,110.72000000000001]", 1), ("[110.72000000000001,180.0]", 4)],
+            [("[0.0,69.92]", 3), ("[69.92,110.72000000000001]", 1), ("[110.72000000000001,180.0]", 5)],
         )
 
     @snapshot_clickhouse_queries
@@ -178,6 +183,22 @@ class TestBreakdowns(ClickhouseTestMixin, APIBaseTest):
     def test_breakdown_by_event_property_with_bucketing(self):
         response = self._run(
             {"breakdown": "movie_length", "breakdown_type": "event", "breakdown_histogram_bin_count": 3}
+        )
+
+        self.assertEqual(
+            [(item["breakdown_value"], item["count"], item["data"]) for item in response],
+            [
+                ("[25.0,66.25]", 4.0, [2.0, 0.0, 0.0, 2.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
+                ("[66.25,98.375]", 2.0, [1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
+                ("[98.375,1000.0]", 2.0, [1.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
+            ],
+        )
+
+    @snapshot_clickhouse_queries
+    def test_breakdown_by_event_property_of_unique_sessions_with_bucketing(self):
+        response = self._run(
+            {"breakdown": "movie_length", "breakdown_type": "event", "breakdown_histogram_bin_count": 3},
+            events_extra={"math": "unique_session"},
         )
 
         self.assertEqual(

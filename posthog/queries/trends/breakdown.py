@@ -348,6 +348,10 @@ class TrendsBreakdown:
         multi_if_conditionals = []
         values_arr = []
 
+        # TODO: We should clean up the bucket logic to create round number buckets when possible
+        # This should still support cases where the bucketed items might be <1, and make sure all
+        # edge values are included in a bucket.
+
         for i in range(len(buckets) - 1):
             last_bucket = i == len(buckets) - 2
 
