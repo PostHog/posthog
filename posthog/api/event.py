@@ -61,12 +61,12 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
 
     def _build_next_url(self, request: request.Request, last_event_timestamp: datetime) -> str:
         params = request.GET.dict()
-        reverse = request.GET.get("orderBy", "-timestamp") != "-timestamp"
+        reverse = "-timestamp" in parse_order_by(request.GET.get("orderBy"))
         timestamp = last_event_timestamp.astimezone().isoformat()
         if reverse:
-            params["after"] = timestamp
-        else:
             params["before"] = timestamp
+        else:
+            params["after"] = timestamp
         return request.build_absolute_uri(f"{request.path}?{urllib.parse.urlencode(params)}")
 
     @extend_schema(
