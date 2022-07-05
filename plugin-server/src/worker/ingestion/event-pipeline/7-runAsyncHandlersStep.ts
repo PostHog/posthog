@@ -1,5 +1,5 @@
 import { runInstrumentedFunction } from '../../../main/utils'
-import { Action, Element, IngestionEvent, IngestionPersonData } from '../../../types'
+import { Element, IngestionEvent, IngestionPersonData } from '../../../types'
 import { convertToProcessedPluginEvent } from '../../../utils/event'
 import { runOnEvent, runOnSnapshot } from '../../plugins/run'
 import { EventPipelineRunner, StepResult } from './runner'
@@ -35,10 +35,8 @@ async function processWebhooks(
     person: IngestionPersonData | undefined,
     elements: Element[] | undefined
 ) {
-    let actionMatches: Action[] = []
-
     if (event.event !== '$snapshot') {
-        actionMatches = await runner.hub.actionMatcher.match(event, person, elements)
+        const actionMatches = await runner.hub.actionMatcher.match(event, person, elements)
         await runner.hub.hookCannon.findAndFireHooks(event, person, actionMatches)
     }
 }

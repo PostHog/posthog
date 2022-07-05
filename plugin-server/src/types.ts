@@ -563,9 +563,14 @@ export interface IngestionEvent {
     teamId: TeamId
     distinctId: string
     properties: Properties
-    timestamp: DateTime | string
+    timestamp: DateTime
     elementsList: Element[]
     person?: IngestionPersonData | undefined
+}
+
+/** Variant of IngestionEvent that can be cloned by Piscina - only for communication between threads. */
+export interface ClonableIngestionEvent extends Omit<IngestionEvent, 'timestamp'> {
+    timestamp: string
 }
 
 export interface DeadLetterQueueEvent {

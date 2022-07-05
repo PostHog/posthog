@@ -1,6 +1,6 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
-import { IngestionEvent, IngestionPersonData } from '../../../types'
+import { IngestionPersonData } from '../../../types'
 import { parseEventTimestamp } from '../timestamps'
 import { EventPipelineRunner, StepResult } from './runner'
 
@@ -25,7 +25,7 @@ export async function prepareEventStep(
     if (preIngestionEvent && preIngestionEvent.event !== '$snapshot') {
         return runner.nextStep('createEventStep', preIngestionEvent)
     } else if (preIngestionEvent && preIngestionEvent.event === '$snapshot') {
-        return runner.nextStep('runAsyncHandlersStep', preIngestionEvent as IngestionEvent)
+        return runner.nextStep('runAsyncHandlersStep', preIngestionEvent)
     } else {
         return null
     }
