@@ -1967,7 +1967,12 @@ export interface ExportedAssetType {
     export_format: ExporterFormat
     dashboard?: number
     insight?: number
-    export_context?: any
+    export_context?: {
+        method?: string
+        path: string
+        body?: any
+        filename?: string
+    }
     has_content: boolean
     filename: string
 }

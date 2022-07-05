@@ -3,6 +3,7 @@ import gzip
 import tempfile
 import uuid
 from typing import IO, List
+from django.shortcuts import render
 
 import requests
 import structlog
@@ -17,6 +18,7 @@ from posthog.models.exported_asset import ExportedAsset
 from posthog.models.utils import UUIDT
 from posthog.storage import object_storage
 from posthog.utils import absolute_uri
+from rest_framework_csv import renderers as csvrenderers
 
 logger = structlog.get_logger(__name__)
 
@@ -44,37 +46,23 @@ logger = structlog.get_logger(__name__)
 # 3. We save the response to a chunk in object storage and then load the `next` page of results
 # 4. Repeat until exhausted or limit reached
 # 5. We save the final blob output and update the ExportedAsset
-# TRICKY: How to do auth with the API?
-# TRICKY: Can we bypass the API and use the raw ViewSets
-
-
-def quote(s: str) -> str:
-    escaped = s.replace('"', '""')
-    return f'"{escaped}"'
-
-
-def csv_encode(obj: object) -> str:
-    if isinstance(obj, uuid.UUID):
-        return quote(str(obj))
-
-    if isinstance(obj, datetime.datetime):
-        return quote(obj.isoformat())
-
-    return quote(str(obj))
-
-
-def join_to_csv_line(items: List[str]) -> str:
-    return f"{','.join(items)}\n"
 
 
 def _convert_response_to_csv_data(data):
     csv_rows = []
 
-    if data.get("result") and len(data["result"][0].get("data")) and data["result"]:
+    if data.get("next") and isinstance(data.get("results"), list):
+        # Pagination object
+        return data.get("results")
+
+    elif data.get("result") and data["result"][0].get("data") and len(data["result"][0].get("data")):
+        # TRENDS LIKE
+
         for item in data["result"]:
             line = {"series": item["action"].get("custom_name") or item["label"]}
             for index, data in enumerate(item["data"]):
                 line[item["labels"][index]] = data
+
             csv_rows.append(line)
 
         return csv_rows
@@ -95,18 +83,15 @@ def _export_to_csv(exported_asset: ExportedAsset, root_bucket: str) -> None:
         method=method.lower(), url=absolute_uri(path), data=body, headers={"Authorization": f"Bearer {access_token}"}
     )
 
+    limit = 10_000
+
     data = response.json()
+    print({"uri": absolute_uri(path + f"&limit={limit}"), "next_uri": data.get("next")})
     csv_rows = _convert_response_to_csv_data(data)
+    renderer = csvrenderers.CSVRenderer()
 
     with tempfile.TemporaryFile() as temporary_file:
-        # Write headers
-        temporary_file.write(join_to_csv_line(csv_rows[0].keys()).encode("utf-8"))
-
-        for values in [row.values() for row in csv_rows]:
-            line = [csv_encode(v) for v in values]
-            comma_separated_line = join_to_csv_line(line)
-            temporary_file.write(comma_separated_line.encode("utf-8"))
-
+        temporary_file.write(renderer.render(csv_rows))
         temporary_file.seek(0)
         exported_asset.content = temporary_file.read()
         exported_asset.save(update_fields=["content"])
