@@ -1433,6 +1433,7 @@ export interface PreflightStatus {
     licensed_users_available?: number | null
     site_url?: string
     instance_preferences?: InstancePreferencesInterface
+    buffer_conversion_seconds?: number
     object_storage: boolean
 }
 
