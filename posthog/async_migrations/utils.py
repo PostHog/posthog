@@ -10,10 +10,12 @@ from django.utils.timezone import now
 from posthog.async_migrations.definition import AsyncMigrationOperation
 from posthog.async_migrations.setup import DEPENDENCY_TO_ASYNC_MIGRATION
 from posthog.celery import app
+from posthog.client import make_ch_pool, sync_execute
 from posthog.email import is_email_available
 from posthog.models.async_migration import AsyncMigration, AsyncMigrationError, MigrationStatus
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.user import User
+from posthog.settings import CLICKHOUSE_ALLOW_PER_SHARD_EXECUTION, CLICKHOUSE_CLUSTER
 from posthog.utils import get_machine_id
 
 logger = structlog.get_logger(__name__)
@@ -45,15 +47,62 @@ def execute_op_clickhouse(
     query_id: str,
     timeout_seconds: int = settings.ASYNC_MIGRATIONS_DEFAULT_TIMEOUT_SECONDS,
     settings=None,
+    # If True, query is run on each shard.
+    per_shard=False,
 ):
     from posthog.client import sync_execute
 
     settings = settings if settings else {"max_execution_time": timeout_seconds}
+    sql = f"/* {query_id} */ " + sql
 
     try:
-        sync_execute(f"/* {query_id} */ " + sql, args, settings=settings)
+        if per_shard:
+            execute_on_each_shard(sql, args, settings=settings)
+        else:
+            sync_execute(sql, args, settings=settings)
     except Exception as e:
         raise Exception(f"Failed to execute ClickHouse op: sql={sql},\nquery_id={query_id},\nexception={str(e)}")
+
+
+def execute_on_each_shard(sql, args, settings=None) -> None:
+    """
+    Executes query on each shard separately (if enabled) or on cluster as a whole (if not enabled).
+
+    Note that the shard selection is stable - subsequent queries are guaranteed to hit the same shards!
+    """
+    if "{on_cluster_clause}" not in sql:
+        raise Exception("SQL must include {on_cluster_clause} to allow execution on each shard")
+
+    if CLICKHOUSE_ALLOW_PER_SHARD_EXECUTION:
+        sql = sql.format(on_cluster_clause="")
+    else:
+        sql = sql.format(on_cluster_clause=f"ON CLUSTER '{CLICKHOUSE_CLUSTER}'")
+
+    for _, _, connection in _get_all_shard_connections():
+        connection.execute(sql, args, settings=settings)
+
+
+def _get_all_shard_connections():
+    if CLICKHOUSE_ALLOW_PER_SHARD_EXECUTION:
+        rows = sync_execute(
+            """
+            SELECT shard_num, min(host_name) as host_name
+            FROM system.clusters
+            WHERE cluster = %(cluster)s
+            GROUP BY shard_num
+            ORDER BY shard_num
+            """,
+            {"cluster": CLICKHOUSE_CLUSTER},
+        )
+        for shard, host in rows:
+            ch_pool = make_ch_pool(host=host)
+            with ch_pool.get_client() as connection:
+                yield shard, host, connection
+    else:
+        from posthog.client import ch_pool
+
+        with ch_pool.get_client() as connection:
+            yield None, None, connection
 
 
 def execute_op_postgres(sql: str, query_id: str):
