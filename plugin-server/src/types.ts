@@ -563,7 +563,7 @@ export interface IngestionEvent {
     teamId: TeamId
     distinctId: string
     properties: Properties
-    timestamp: DateTime | string
+    timestamp: DateTime
     elementsList: Element[]
     person?: IngestionPersonData | undefined
 }

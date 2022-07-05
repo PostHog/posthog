@@ -3,7 +3,7 @@ import { PluginEvent, ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 import { Event, IngestionEvent, RawEvent } from '../types'
 import { chainToElements } from './db/elements-chain'
 import { personInitialAndUTMProperties } from './db/utils'
-import { clickHouseTimestampToDateTime, clickHouseTimestampToISO } from './utils'
+import { clickHouseTimestampToDateTime } from './utils'
 
 export function convertToProcessedPluginEvent(event: IngestionEvent): ProcessedPluginEvent {
     const timestamp = typeof event.timestamp === 'string' ? event.timestamp : event.timestamp.toUTC().toISO()
@@ -50,7 +50,7 @@ export function convertToIngestionEvent(event: RawEvent): IngestionEvent {
         teamId: event.team_id,
         distinctId: event.distinct_id,
         properties,
-        timestamp: clickHouseTimestampToISO(event.timestamp),
+        timestamp: clickHouseTimestampToDateTime(event.timestamp),
         elementsList: event.elements_chain ? chainToElements(event.elements_chain) : [],
     }
 }
