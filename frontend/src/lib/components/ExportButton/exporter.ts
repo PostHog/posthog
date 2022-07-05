@@ -34,7 +34,6 @@ export async function triggerExport(asset: TriggerExportProps): Promise<void> {
         }
         const startTime = performance.now()
 
-        console.log(trackingProperties)
         try {
             let exportedAsset = await api.exports.create({
                 export_format: asset.export_format,
