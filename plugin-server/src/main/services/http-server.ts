@@ -29,12 +29,6 @@ export function createHttpServer(hub: Hub, serverInstance: ServerInstance, serve
                 }
             }
 
-            // Unlike the above healthcheck, this is more of a "readiness" check that verifies that the consumer
-            // connected to the group successfully (thus being assigned a member id)
-            const mainConsumerHealthy = !serverInstance.queue || serverInstance.queue.consumerReady
-
-            serverHealthy = serverHealthy && mainConsumerHealthy
-
             if (serverHealthy) {
                 status.info('💚', 'Server healthcheck succeeded')
                 const responseBody = {
@@ -44,6 +38,24 @@ export function createHttpServer(hub: Hub, serverInstance: ServerInstance, serve
                 res.end(JSON.stringify(responseBody))
             } else {
                 status.info('💔', 'Server healthcheck failed')
+                const responseBody = {
+                    status: 'error',
+                }
+                res.statusCode = 503
+                res.end(JSON.stringify(responseBody))
+            }
+        } else if (req.url === '/_ready' && req.method === 'GET') {
+            // Check that, if the server should have a kafka queue,
+            // the Kafka consumer is ready to consume messages
+            if (!serverInstance.queue || serverInstance.queue.consumerReady) {
+                status.info('💚', 'Server readiness check succeeded')
+                const responseBody = {
+                    status: 'ok',
+                }
+                res.statusCode = 200
+                res.end(JSON.stringify(responseBody))
+            } else {
+                status.info('💔', 'Server readiness check failed')
                 const responseBody = {
                     status: 'error',
                 }

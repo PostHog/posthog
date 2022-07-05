@@ -21,28 +21,57 @@ jest.mock('../src/main/utils', () => {
 jest.setTimeout(60000) // 60 sec timeout
 
 describe('http server', () => {
-    test('_health', async () => {
-        const testCode = `
-            async function processEvent (event) {
-                return event
-            }
-        `
+    // these should simply pass under normal conditions
+    describe('health and readiness checks', () => {
+        test('_health', async () => {
+            const testCode = `
+                async function processEvent (event) {
+                    return event
+                }
+            `
 
-        await resetTestDatabase(testCode)
+            await resetTestDatabase(testCode)
 
-        const pluginsServer = await startPluginsServer(
-            {
-                WORKER_CONCURRENCY: 0,
-            },
-            makePiscina,
-            { http: true }
-        )
+            const pluginsServer = await startPluginsServer(
+                {
+                    WORKER_CONCURRENCY: 0,
+                },
+                makePiscina,
+                { http: true }
+            )
 
-        http.get(`http://localhost:${HTTP_SERVER_PORT}/_health`, (res) => {
-            const { statusCode } = res
-            expect(statusCode).toEqual(200)
+            http.get(`http://localhost:${HTTP_SERVER_PORT}/_health`, (res) => {
+                const { statusCode } = res
+                expect(statusCode).toEqual(200)
+            })
+
+            await pluginsServer.stop()
         })
 
-        await pluginsServer.stop()
+        test('_ready', async () => {
+            const testCode = `
+                async function processEvent (event) {
+                    return event
+                }
+            `
+
+            await resetTestDatabase(testCode)
+
+            const pluginsServer = await startPluginsServer(
+                {
+                    WORKER_CONCURRENCY: 0,
+                },
+                makePiscina,
+                { http: true }
+            )
+
+            http.get(`http://localhost:${HTTP_SERVER_PORT}/_ready`, (res) => {
+                const { statusCode } = res
+                expect(statusCode).toEqual(200)
+            })
+
+            expect(pluginsServer.queue?.consumerReady).toBeTruthy()
+            await pluginsServer.stop()
+        })
     })
 })
