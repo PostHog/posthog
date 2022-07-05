@@ -96,7 +96,7 @@ describe('prepareEventStep()', () => {
                     $ip: '127.0.0.1',
                 },
                 teamId: 2,
-                timestamp: '2020-02-23 02:15:00.000',
+                timestamp: expect.any(DateTime),
             },
         ])
         expect(hub.db.kafkaProducer!.queueMessage).toHaveBeenCalled()

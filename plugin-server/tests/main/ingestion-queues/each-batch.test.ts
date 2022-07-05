@@ -1,18 +1,20 @@
+import { DateTime } from 'luxon'
+
 import { eachBatch } from '../../../src/main/ingestion-queues/batch-processing/each-batch'
 import { eachBatchAsyncHandlers } from '../../../src/main/ingestion-queues/batch-processing/each-batch-async-handlers'
 import { eachBatchBuffer } from '../../../src/main/ingestion-queues/batch-processing/each-batch-buffer'
 import { eachBatchIngestion } from '../../../src/main/ingestion-queues/batch-processing/each-batch-ingestion'
-import { RawEvent } from '../../../src/types'
+import { IngestionEvent, RawEvent } from '../../../src/types'
 import { groupIntoBatches } from '../../../src/utils/utils'
 
 jest.mock('../../../src/utils/status')
 
-const event = {
+const event: IngestionEvent = {
     eventUuid: 'uuid1',
     distinctId: 'my_id',
     ip: '127.0.0.1',
     teamId: 2,
-    timestamp: '2020-02-23T02:15:00.000Z',
+    timestamp: DateTime.fromISO('2020-02-23T02:15:00.000Z', { zone: 'utc' }),
     event: '$pageview',
     properties: {},
     elementsList: [],
@@ -216,7 +218,10 @@ describe('eachBatchX', () => {
 
             await eachBatchBuffer(batch, queue)
 
-            expect(queue.workerMethods.runBufferEventPipeline).toHaveBeenCalledWith(event)
+            expect(queue.workerMethods.runBufferEventPipeline).toHaveBeenCalledWith({
+                ...event,
+                timestamp: event.timestamp.toISO(),
+            })
             expect(queue.bufferSleep).not.toHaveBeenCalled()
 
             jest.clearAllTimers()

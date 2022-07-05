@@ -568,6 +568,11 @@ export interface IngestionEvent {
     person?: IngestionPersonData | undefined
 }
 
+/** Variant of IngestionEvent that can be cloned by Piscina - only for communication between threads. */
+export interface ClonableIngestionEvent extends Omit<IngestionEvent, 'timestamp'> {
+    timestamp: string
+}
+
 export interface DeadLetterQueueEvent {
     id: string
     event_uuid: string
