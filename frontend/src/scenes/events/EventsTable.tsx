@@ -37,6 +37,7 @@ import { createActionFromEvent } from './createActionFromEvent'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { LemonTableConfig } from 'lib/components/ResizableTable/TableConfig'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { EventBufferNotice } from './EventBufferNotice'
 
 export interface FixedFilters {
     action_id?: ActionType['id']
@@ -426,7 +427,7 @@ export function EventsTable({
                 {showAutoload || showCustomizeColumns || showExport ? (
                     <div
                         className={clsx(
-                            'space-between-items pt pb',
+                            'space-between-items pt mb',
                             (showEventFilter || showPropertyFilter) && 'border-top'
                         )}
                     >
@@ -460,7 +461,7 @@ export function EventsTable({
                         </div>
                     </div>
                 ) : null}
-
+                <EventBufferNotice additionalInfo=" – this helps ensure accuracy of insights grouped by unique users" />
                 <LemonTable
                     dataSource={eventsFormatted}
                     loading={isLoading}
