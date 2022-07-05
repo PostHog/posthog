@@ -153,7 +153,7 @@ def run_optimize_table(unique_name: str, query_id: str, sql: str):
         execute_op_clickhouse(
             f"/* optimize:{unique_name} */ " + sql,
             query_id=query_id,
-            settings={"max_execution_time": ASYNC_MIGRATIONS_DEFAULT_TIMEOUT_SECONDS,},
+            settings={"max_execution_time": ASYNC_MIGRATIONS_DEFAULT_TIMEOUT_SECONDS, "mutations_sync": 2},
             per_shard=True,
         )
 
