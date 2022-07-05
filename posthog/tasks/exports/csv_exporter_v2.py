@@ -106,7 +106,9 @@ def _export_to_csv(exported_asset: ExportedAsset, root_bucket: str) -> None:
     all_csv_rows: List[Any] = []
 
     while len(all_csv_rows) < max_limit:
-        url = next_url or absolute_uri(path + f"&limit={limit_size}")
+        url = next_url or absolute_uri(path)
+        url += f"{'&' if '?' in url else '?'}limit={limit_size}"
+
         response = requests.request(
             method=method.lower(), url=url, data=body, headers={"Authorization": f"Bearer {access_token}"}
         )
@@ -121,8 +123,11 @@ def _export_to_csv(exported_asset: ExportedAsset, root_bucket: str) -> None:
         next_url = data.get("next")
 
     renderer = csvrenderers.CSVRenderer()
+
     if len(all_csv_rows):
-        renderer.header = all_csv_rows[0].keys()
+        if not [x for x in all_csv_rows[0].values() if isinstance(x, dict) or isinstance(x, list)]:
+            # If values are serialised then keep the order of the keys, else allow it to be unordered
+            renderer.header = all_csv_rows[0].keys()
 
     with tempfile.TemporaryFile() as temporary_file:
         temporary_file.write(renderer.render(all_csv_rows))

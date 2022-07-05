@@ -1971,6 +1971,7 @@ export interface ExportedAssetType {
     export_context?: {
         method?: string
         path: string
+        query?: any
         body?: any
         filename?: string
     }
