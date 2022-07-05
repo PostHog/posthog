@@ -15,10 +15,16 @@ from posthog.email import is_email_available
 from posthog.models.async_migration import AsyncMigration, AsyncMigrationError, MigrationStatus
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.user import User
-from posthog.settings import CLICKHOUSE_ALLOW_PER_SHARD_EXECUTION, CLICKHOUSE_CLUSTER
+from posthog.settings import (
+    ASYNC_MIGRATIONS_DEFAULT_TIMEOUT_SECONDS,
+    CLICKHOUSE_ALLOW_PER_SHARD_EXECUTION,
+    CLICKHOUSE_CLUSTER,
+)
 from posthog.utils import get_machine_id
 
 logger = structlog.get_logger(__name__)
+
+SLEEP_TIME_SECONDS = 20
 
 
 def send_analytics_to_posthog(event, data):
@@ -113,6 +119,43 @@ def execute_op_postgres(sql: str, query_id: str):
             cursor.execute(f"/* {query_id} */ " + sql)
     except Exception as e:
         raise Exception(f"Failed to execute postgres op: sql={sql},\nquery_id={query_id},\nexception={str(e)}")
+
+
+def _get_number_running_on_cluster(query_pattern: str) -> int:
+    return sync_execute(
+        """
+        SELECT count()
+        FROM clusterAllReplicas(%(cluster)s, system, 'processes')
+        WHERE query LIKE %(query_pattern)s
+        """,
+        {"cluster": CLICKHOUSE_CLUSTER, "query_pattern": query_pattern},
+    )[0][0]
+
+
+def _sleep_until_finished(query_pattern: str) -> None:
+    from time import sleep
+
+    while _get_number_running_on_cluster(query_pattern) > 0:
+        logger.debug("Query still running, waiting until it's complete", query_pattern=query_pattern)
+        sleep(SLEEP_TIME_SECONDS)
+
+
+def run_optimize_table(unique_name: str, query_id: str, sql: str):
+    """
+    Runs the passed OPTIMIZE TABLE query.
+
+    Note that this handles process restarts gracefully: If the query is still running on the cluster,
+    we'll wait for that to complete first.
+    """
+    if _get_number_running_on_cluster(f"%%optimize:{unique_name}%%") > 0:
+        _sleep_until_finished(f"%%optimize:{unique_name}%%")
+    else:
+        execute_op_clickhouse(
+            f"/* optimize:{unique_name} */ " + sql,
+            query_id=query_id,
+            settings={"max_execution_time": ASYNC_MIGRATIONS_DEFAULT_TIMEOUT_SECONDS,},
+            per_shard=True,
+        )
 
 
 def process_error(

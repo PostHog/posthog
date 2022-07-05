@@ -8,16 +8,11 @@ from posthog.async_migrations.definition import (
     AsyncMigrationOperation,
     AsyncMigrationOperationSQL,
 )
-from posthog.async_migrations.utils import execute_op_clickhouse
+from posthog.async_migrations.utils import run_optimize_table
 from posthog.client import sync_execute
 from posthog.constants import AnalyticsDBMS
 from posthog.models.instance_setting import set_instance_setting
-from posthog.settings import (
-    ASYNC_MIGRATIONS_DEFAULT_TIMEOUT_SECONDS,
-    CLICKHOUSE_CLUSTER,
-    CLICKHOUSE_DATABASE,
-    CLICKHOUSE_REPLICATION,
-)
+from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE, CLICKHOUSE_REPLICATION
 from posthog.version_requirement import ServiceVersionRequirement
 
 TEMPORARY_TABLE_NAME = f"{CLICKHOUSE_DATABASE}.temp_events_0002_events_sample_by"
@@ -116,21 +111,6 @@ class Migration(AsyncMigrationDefinition):
 
         last_partition_op = [generate_insert_into_op(self._partitions[-1] if len(self._partitions) > 0 else 0)]
 
-        def optimize_table_fn(query_id):
-            default_timeout = ASYNC_MIGRATIONS_DEFAULT_TIMEOUT_SECONDS
-            try:
-                execute_op_clickhouse(
-                    f"OPTIMIZE TABLE {EVENTS_TABLE_NAME} FINAL",
-                    query_id=query_id,
-                    settings={
-                        "max_execution_time": default_timeout,
-                        "send_timeout": default_timeout,
-                        "receive_timeout": default_timeout,
-                    },
-                )
-            except:  # TODO: we should only pass the timeout one here
-                pass
-
         post_insert_ops = [
             AsyncMigrationOperationSQL(
                 database=AnalyticsDBMS.CLICKHOUSE,
@@ -156,7 +136,11 @@ class Migration(AsyncMigrationDefinition):
                 fn=lambda _: set_instance_setting("COMPUTE_MATERIALIZED_COLUMNS_ENABLED", True),
                 rollback_fn=lambda _: set_instance_setting("COMPUTE_MATERIALIZED_COLUMNS_ENABLED", False),
             ),
-            AsyncMigrationOperation(fn=optimize_table_fn),
+            AsyncMigrationOperation(
+                fn=lambda query_id: run_optimize_table(
+                    "0002_events_sample_by", query_id, f"OPTIMIZE TABLE {EVENTS_TABLE_NAME} FINAL"
+                )
+            ),
         ]
 
         _operations = create_table_op + old_partition_ops + detach_mv_ops + last_partition_op + post_insert_ops
