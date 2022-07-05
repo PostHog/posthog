@@ -1,4 +1,4 @@
-from posthog.tasks.exports.csv_exporter import encode, join_to_csv_line
+from posthog.tasks.exports.csv_exporter_old import encode, join_to_csv_line
 
 
 def test_encoding_a_value() -> None:

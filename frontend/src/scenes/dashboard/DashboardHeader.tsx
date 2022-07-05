@@ -11,7 +11,7 @@ import { humanFriendlyDetailedTime } from 'lib/utils'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import React from 'react'
 import { dashboardsModel } from '~/models/dashboardsModel'
-import { AvailableFeature, DashboardMode, DashboardType } from '~/types'
+import { AvailableFeature, DashboardMode, DashboardType, ExporterFormat } from '~/types'
 import { dashboardLogic } from './dashboardLogic'
 import { dashboardsLogic } from './dashboardsLogic'
 import { DASHBOARD_RESTRICTION_OPTIONS } from './DashboardCollaborators'
@@ -29,7 +29,7 @@ import { router } from 'kea-router'
 import { SharingModal } from 'lib/components/Sharing/SharingModal'
 
 export function DashboardHeader(): JSX.Element | null {
-    const { dashboard, allItemsLoading, dashboardMode, canEditDashboard, showSubscriptions, subscriptionId } =
+    const { dashboard, allItemsLoading, dashboardMode, canEditDashboard, showSubscriptions, subscriptionId, apiUrl } =
         useValues(dashboardLogic)
     const { setDashboardMode, triggerDashboardUpdate } = useActions(dashboardLogic)
     const { dashboardTags } = useValues(dashboardsLogic)
@@ -183,7 +183,25 @@ export function DashboardHeader(): JSX.Element | null {
                                                 ))}
                                             {usingSubscriptionFeature && <SubscribeButton dashboardId={dashboard.id} />}
                                             {usingExportFeature && (
-                                                <ExportButton dashboardId={dashboard.id} fullWidth type="stealth" />
+                                                <ExportButton
+                                                    fullWidth
+                                                    type="stealth"
+                                                    items={[
+                                                        {
+                                                            format: ExporterFormat.PNG,
+                                                            resource: {
+                                                                path: apiUrl(),
+                                                            },
+                                                        },
+                                                        {
+                                                            format: ExporterFormat.CSV,
+                                                            resource: {
+                                                                path: apiUrl(),
+                                                            },
+                                                        },
+                                                    ]}
+                                                />
+                                                // <ExportButton dashboardId={dashboard.id} fullWidth type="stealth" />
                                             )}
                                             <LemonDivider />
                                             <LemonButton

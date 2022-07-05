@@ -14,7 +14,8 @@ import { urls } from 'scenes/urls'
 import { groupDisplayId } from 'scenes/persons/GroupActorHeader'
 import { asDisplay } from 'scenes/persons/PersonHeader'
 import { LemonButton } from '@posthog/lemon-ui'
-import { ExporterFormat, triggerExport } from 'lib/components/ExportButton/exporter'
+import { triggerExport } from 'lib/components/ExportButton/exporter'
+import { ExporterFormat } from '~/types'
 
 export function RetentionModal({
     results,

@@ -1,10 +1,10 @@
 import { kea } from 'kea'
 import api from 'lib/api'
 import type { cohortsModelType } from './cohortsModelType'
-import { CohortType } from '~/types'
+import { CohortType, ExporterFormat } from '~/types'
 import { personsLogic } from 'scenes/persons/personsLogic'
 import { deleteWithUndo, processCohort } from 'lib/utils'
-import { ExporterFormat, triggerExport } from 'lib/components/ExportButton/exporter'
+import { triggerExport } from 'lib/components/ExportButton/exporter'
 
 const POLL_TIMEOUT = 5000
 

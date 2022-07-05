@@ -1,21 +1,16 @@
 import datetime
-import gzip
 import tempfile
-import uuid
-from typing import IO, List
+from typing import Any, List
 
 import requests
 import structlog
+from rest_framework_csv import renderers as csvrenderers
 from sentry_sdk import capture_exception, push_scope
 from statshog.defaults.django import statsd
 
 from posthog import settings
 from posthog.jwt import PosthogJwtAudience, encode_jwt
-from posthog.models import Filter
-from posthog.models.event.query_event_list import query_events_list
 from posthog.models.exported_asset import ExportedAsset
-from posthog.models.utils import UUIDT
-from posthog.storage import object_storage
 from posthog.utils import absolute_uri
 
 logger = structlog.get_logger(__name__)
@@ -23,97 +18,122 @@ logger = structlog.get_logger(__name__)
 
 # SUPPORTED CSV TYPES
 
-## Insights - Trends (Series Linear, Series Cumulative, Totals)
+# - Insights - Trends (Series Linear, Series Cumulative, Totals)
 # Funnels - steps as data
 # Retention
 # Paths
 # Lifecycle
 # Via dashboard e.g. all of the above
 
-## People
+# - People
 # Cohorts
 # Retention
 # Funnel
 
-## Events
+# - Events
 # Filtered
 
-### HOW DOES THIS WORK
+# HOW DOES THIS WORK
 # 1. We receive an export task with a given resource uri (identical to the API)
 # 2. We call the actual API to load the data with the given params so that we receive a paginateable response
 # 3. We save the response to a chunk in object storage and then load the `next` page of results
 # 4. Repeat until exhausted or limit reached
 # 5. We save the final blob output and update the ExportedAsset
-# TRICKY: How to do auth with the API?
-# TRICKY: Can we bypass the API and use the raw ViewSets
 
 
-def quote(s: str) -> str:
-    escaped = s.replace('"', '""')
-    return f'"{escaped}"'
+def _convert_response_to_csv_data(data: Any) -> List[Any]:
+    if isinstance(data.get("results"), list):
+        # Pagination object
+        return data.get("results")
+    elif data.get("result") and isinstance(data.get("result"), list):
+        items = data["result"]
+        first_result = items[0]
 
+        if first_result.get("appearances") and first_result.get("person"):
+            # RETENTION PERSONS LIKE
+            csv_rows = []
+            for item in items:
+                line = {
+                    "person": item["person"].get("properties").get("email")
+                    or item["person"].get("properties").get("id")
+                }
+                for index, data in enumerate(item["appearances"]):
+                    line[f"Day {index}"] = data
 
-def encode(obj: object) -> str:
-    if isinstance(obj, uuid.UUID):
-        return quote(str(obj))
+                csv_rows.append(line)
+            return csv_rows
 
-    if isinstance(obj, datetime.datetime):
-        return quote(obj.isoformat())
+        elif first_result.get("values") and first_result.get("label"):
+            csv_rows = []
+            # RETENTION LIKE
+            for item in items:
+                line = {"cohort": item["date"], "cohort size": item["values"][0]["count"]}
+                for index, data in enumerate(item["values"]):
+                    line[items[index]["label"]] = data["count"]
 
-    return quote(str(obj))
+                csv_rows.append(line)
+            return csv_rows
 
+        elif isinstance(first_result.get("data"), list):
+            csv_rows = []
+            # TRENDS LIKE
+            for item in items:
+                line = {"series": item["action"].get("custom_name") or item["label"]}
+                for index, data in enumerate(item["data"]):
+                    line[item["labels"][index]] = data
 
-def join_to_csv_line(items: List[str]) -> str:
-    return f"{','.join(items)}\n"
+                csv_rows.append(line)
 
+            return csv_rows
 
-def stage_results_to_object_storage(
-    day_filter: Filter, exported_asset: ExportedAsset, temporary_file: IO, write_headers: bool
-) -> None:
-    # load results
-    result = query_events_list(
-        filter=day_filter,
-        team=exported_asset.team,
-        request_get_query_dict=exported_asset.export_context.get("request_get_query_dict"),
-        order_by=exported_asset.export_context.get("order_by"),
-        action_id=exported_asset.export_context.get("action_id"),
-        limit=exported_asset.export_context.get("limit", 10_000),
-    )
-    logger.info("csv_exporter.read_from_clickhouse", number_of_results=len(result))
-
-    if write_headers:
-        temporary_file.write(join_to_csv_line(result[0].keys()).encode("utf-8"))
-
-    for values in [row.values() for row in result]:
-        line = [encode(v) for v in values]
-        comma_separated_line = join_to_csv_line(line)
-        temporary_file.write(comma_separated_line.encode("utf-8"))
-
-    logger.info("csv_exporter.wrote_day_to_temp_file", day=day_filter.date_from)
-
-
-def concat_results_in_object_storage(temporary_file: IO, exported_asset: ExportedAsset, root_bucket: str) -> str:
-    object_path = f"/{root_bucket}/csvs/team-{exported_asset.team.id}/task-{exported_asset.id}/{UUIDT()}"
-    temporary_file.seek(0)
-    object_storage.write(object_path, gzip.compress(temporary_file.read()))
-    logger.info("csv_exporter.wrote_to_object_storage", object_path=object_path)
-    return object_path
+    return []
 
 
 def _export_to_csv(exported_asset: ExportedAsset, root_bucket: str) -> None:
-    if exported_asset.export_context.get("file_export_type", None) == "list_events":
-        filter = Filter(data=exported_asset.export_context.get("filter"))
-        logger.info("csv_exporter.built_filter_from_context", filter=filter.to_dict())
+    resource = exported_asset.export_context
 
-        write_headers = True
-        with tempfile.TemporaryFile() as temporary_file:
-            for day_filter in filter.split_by_day():
-                stage_results_to_object_storage(day_filter, exported_asset, temporary_file, write_headers)
-                write_headers = False
+    path: str = resource["path"]
+    method: str = resource.get("method", "GET")
+    body = resource.get("body", None)
 
-            object_path = concat_results_in_object_storage(temporary_file, exported_asset, root_bucket)
-            exported_asset.content_location = object_path
-            exported_asset.save(update_fields=["content_location"])
+    access_token = encode_jwt(
+        {"id": exported_asset.created_by_id}, datetime.timedelta(minutes=15), PosthogJwtAudience.IMPERSONATED_USER
+    )
+
+    max_limit = 1_000_000
+    limit_size = 100_000
+    next_url = None
+    all_csv_rows: List[Any] = []
+
+    while len(all_csv_rows) < max_limit:
+        url = next_url or absolute_uri(path)
+        url += f"{'&' if '?' in url else '?'}limit={limit_size}"
+
+        response = requests.request(
+            method=method.lower(), url=url, data=body, headers={"Authorization": f"Bearer {access_token}"}
+        )
+
+        data = response.json()
+        csv_rows = _convert_response_to_csv_data(data)
+        all_csv_rows = all_csv_rows + csv_rows
+
+        if not data.get("next") or not csv_rows:
+            break
+
+        next_url = data.get("next")
+
+    renderer = csvrenderers.CSVRenderer()
+
+    if len(all_csv_rows):
+        if not [x for x in all_csv_rows[0].values() if isinstance(x, dict) or isinstance(x, list)]:
+            # If values are serialised then keep the order of the keys, else allow it to be unordered
+            renderer.header = all_csv_rows[0].keys()
+
+    with tempfile.TemporaryFile() as temporary_file:
+        temporary_file.write(renderer.render(all_csv_rows))
+        temporary_file.seek(0)
+        exported_asset.content = temporary_file.read()
+        exported_asset.save(update_fields=["content"])
 
 
 def export_csv(exported_asset: ExportedAsset, root_bucket: str = settings.OBJECT_STORAGE_EXPORTS_FOLDER) -> None:
@@ -122,55 +142,6 @@ def export_csv(exported_asset: ExportedAsset, root_bucket: str = settings.OBJECT
     try:
         if exported_asset.export_format == "text/csv":
             _export_to_csv(exported_asset, root_bucket)
-            statsd.incr("csv_exporter.succeeded", tags={"team_id": exported_asset.team.id})
-        else:
-            statsd.incr("csv_exporter.unknown_asset", tags={"team_id": exported_asset.team.id})
-            raise NotImplementedError(f"Export to format {exported_asset.export_format} is not supported")
-    except Exception as e:
-        if exported_asset:
-            team_id = str(exported_asset.team.id)
-        else:
-            team_id = "unknown"
-
-        with push_scope() as scope:
-            scope.set_tag("celery_task", "csv_export")
-            capture_exception(e)
-
-        logger.error("csv_exporter.failed", exception=e)
-        statsd.incr("csv_exporter.failed", tags={"team_id": team_id})
-        raise e
-    finally:
-        timer.stop()
-
-
-def _export_to_csv_via_api(exported_asset: ExportedAsset, root_bucket: str) -> None:
-    resource = exported_asset.export_context
-
-    path: str = resource["path"]
-    method: str = resource.get("method", "GET")
-    body = resource.get("body", None)
-
-    print(path, method, body)
-    access_token = encode_jwt(
-        {"id": exported_asset.created_by_id}, datetime.timedelta(minutes=15), PosthogJwtAudience.IMPERSONATED_USER
-    )
-
-    response = requests.request(
-        method=method.lower(), url=absolute_uri(path), data=body, headers={"Authorization": f"Bearer {access_token}"}
-    )
-
-    data = response.json()
-    print(data)
-
-
-def export_csv_via_api(
-    exported_asset: ExportedAsset, root_bucket: str = settings.OBJECT_STORAGE_EXPORTS_FOLDER
-) -> None:
-    timer = statsd.timer("csv_exporter").start()
-
-    try:
-        if exported_asset.export_format == "text/csv":
-            _export_to_csv_via_api(exported_asset, root_bucket)
             statsd.incr("csv_exporter.succeeded", tags={"team_id": exported_asset.team.id})
         else:
             statsd.incr("csv_exporter.unknown_asset", tags={"team_id": exported_asset.team.id})

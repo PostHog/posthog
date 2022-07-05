@@ -4,12 +4,18 @@ import { router } from 'kea-router'
 import api from 'lib/api'
 import type { eventsTableLogicType } from './eventsTableLogicType'
 import { FixedFilters } from 'scenes/events/EventsTable'
-import { AnyPropertyFilter, EventsTableRowItem, EventType, PropertyFilter, PropertyGroupFilter } from '~/types'
+import {
+    AnyPropertyFilter,
+    EventsTableRowItem,
+    EventType,
+    ExporterFormat,
+    PropertyFilter,
+    PropertyGroupFilter,
+} from '~/types'
 import { teamLogic } from '../teamLogic'
 import { dayjs, now } from 'lib/dayjs'
 import { lemonToast } from 'lib/components/lemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { ExporterFormat, exporterLogic } from 'lib/components/ExportButton/exporterLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { triggerExport } from 'lib/components/ExportButton/exporter'
 
@@ -74,7 +80,6 @@ export const eventsTableLogic = kea<eventsTableLogicType>({
             .join('-'),
     connect: {
         values: [teamLogic, ['currentTeamId'], featureFlagLogic, ['featureFlags']],
-        actions: [exporterLogic, ['exportItem']],
     },
     actions: {
         setPollingActive: (pollingActive: boolean) => ({
@@ -292,7 +297,6 @@ export const eventsTableLogic = kea<eventsTableLogicType>({
     listeners: ({ actions, values, props }) => ({
         startDownload: () => {
             if (!!values.featureFlags[FEATURE_FLAGS.ASYNC_EXPORT_CSV_FOR_LIVE_EVENTS]) {
-                // actions.exportItem(ExporterFormat.CSV, {}, values.exportParams)
                 triggerExport({
                     export_format: ExporterFormat.CSV,
                     export_context: {

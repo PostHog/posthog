@@ -7,12 +7,6 @@ import { lemonToast } from '../lemonToast'
 const POLL_DELAY_MS = 1000
 const MAX_POLL = 10
 
-export enum ExporterFormat {
-    PNG = 'image/png',
-    CSV = 'text/csv',
-    PDF = 'application/pdf',
-}
-
 async function downloadExportedAsset(asset: ExportedAssetType): Promise<void> {
     const downloadUrl = api.exports.determineExportUrl(asset.id)
     const res = await api.getRaw(downloadUrl)

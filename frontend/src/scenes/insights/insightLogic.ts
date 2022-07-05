@@ -39,7 +39,7 @@ import { cohortsModel } from '~/models/cohortsModel'
 import { mathsLogic } from 'scenes/trends/mathsLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { mergeWithDashboardTile } from 'scenes/insights/utils/dashboardTiles'
-import { ExportButtonItemResource } from 'lib/components/ExportButton/ExportButtonV2'
+import { ExportButtonItemResource } from 'lib/components/ExportButton/ExportButton'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 const SHOW_TIMEOUT_MESSAGE_AFTER = 15000
