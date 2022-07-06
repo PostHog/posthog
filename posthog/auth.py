@@ -3,6 +3,7 @@ import re
 from typing import Any, Dict, Optional, Tuple, Union
 from urllib.parse import urlsplit
 
+import jwt
 from django.apps import apps
 from django.http import HttpRequest, JsonResponse
 from django.utils import timezone
@@ -116,8 +117,9 @@ class TemporaryTokenAuthentication(authentication.BaseAuthentication):
         return None
 
 
-class ImpersonatedTokenAuthentication(authentication.BaseAuthentication):
-    """A way of authenticating with a JWT, primarily by background jobs.
+class JwtAuthentication(authentication.BaseAuthentication):
+    """
+    A way of authenticating with a JWT, primarily by background jobs impersonating a User
     """
 
     keyword = "Bearer"
@@ -132,10 +134,14 @@ class ImpersonatedTokenAuthentication(authentication.BaseAuthentication):
                     info = decode_jwt(token, PosthogJwtAudience.IMPERSONATED_USER)
                     user = User.objects.get(pk=info["id"])
                     return (user, None)
+                except jwt.DecodeError:
+                    # If it doesn't look like a JWT then we allow the PersonalAPIKeyAuthentication to have a go
+                    return None
                 except Exception:
                     raise AuthenticationFailed(detail=f"Token invalid.")
             else:
-                raise AuthenticationFailed(detail=f"Authorization header malformed.")
+                # We don't throw so that the PersonalAPIKeyAuthentication can have a go
+                return None
 
         return None
 

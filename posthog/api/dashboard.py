@@ -230,11 +230,6 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
 class DashboardsViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     queryset = Dashboard.objects.order_by("name")
     serializer_class = DashboardSerializer
-    authentication_classes = [
-        PersonalAPIKeyAuthentication,
-        SessionAuthentication,
-        BasicAuthentication,
-    ]
     permission_classes = [
         IsAuthenticated,
         ProjectMembershipNecessaryPermissions,
