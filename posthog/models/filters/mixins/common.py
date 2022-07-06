@@ -36,7 +36,6 @@ from posthog.constants import (
     LIMIT,
     OFFSET,
     SELECTOR,
-    SESSION,
     SHOWN_AS,
     SMOOTHING_INTERVALS,
     TREND_FILTER_TYPE_ACTIONS,
@@ -258,18 +257,6 @@ class DisplayDerivedMixin(InsightMixin):
     @include_dict
     def display_to_dict(self):
         return {"display": self.display}
-
-
-class SessionMixin(BaseParamMixin):
-    @cached_property
-    def session(self) -> Optional[str]:
-        return self._data.get(SESSION, None)
-
-    # TODO: unused, remove?
-
-    @include_dict
-    def session_to_dict(self):
-        return {"session": self.session} if self.session else {}
 
 
 class OffsetMixin(BaseParamMixin):

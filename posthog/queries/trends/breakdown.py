@@ -348,21 +348,27 @@ class TrendsBreakdown:
         multi_if_conditionals = []
         values_arr = []
 
-        # TODO: We should clean up the bucket logic to create round number buckets when possible
-        # This should still support cases where the bucketed items might be <1, and make sure all
-        # edge values are included in a bucket.
-
         for i in range(len(buckets) - 1):
             last_bucket = i == len(buckets) - 2
 
-            multi_if_conditionals.append(
-                f"{raw_breakdown_value} >= {buckets[i]} AND {raw_breakdown_value} {'<=' if last_bucket else '<'} {buckets[i+1]}"
-            )
-            multi_if_conditionals.append(f"'[{buckets[i]},{buckets[i+1]}]'")
-            values_arr.append(f"[{buckets[i]},{buckets[i+1]}]")
+            if last_bucket:
+                # Don't have an upper bound on the last bucket,
+                # so we can easily distinguish when querying persons
+                # and don't miss any values in the last bucket due to rounding down.
+                multi_if_conditionals.append(f"{raw_breakdown_value} >= {buckets[i]}")
+                bucket_value = f'[{buckets[i]},""]'
+                multi_if_conditionals.append(f"'{bucket_value}'")
+                values_arr.append(bucket_value)
+            else:
+                multi_if_conditionals.append(
+                    f"{raw_breakdown_value} >= {buckets[i]} AND {raw_breakdown_value} < {buckets[i+1]}"
+                )
+                bucket_value = f"[{buckets[i]},{buckets[i+1]}]"
+                multi_if_conditionals.append(f"'{bucket_value}'")
+                values_arr.append(bucket_value)
 
         # else condition
-        multi_if_conditionals.append(f"','")
+        multi_if_conditionals.append(f"""'["",""]'""")
 
         return f"multiIf({','.join(multi_if_conditionals)})", values_arr
 

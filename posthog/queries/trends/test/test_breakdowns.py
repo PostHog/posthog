@@ -51,7 +51,7 @@ class TestBreakdowns(ClickhouseTestMixin, APIBaseTest):
                     "properties": {"$session_id": "3"},
                 },
             ],
-            # Duration 180 seconds, with 2 events counted, each in a different day bucket
+            # Duration 180.5 seconds, with 2 events counted, each in a different day bucket
             "person4": [
                 {
                     "event": "watched movie",
@@ -60,7 +60,7 @@ class TestBreakdowns(ClickhouseTestMixin, APIBaseTest):
                 },
                 {
                     "event": "watched movie",
-                    "timestamp": datetime(2020, 1, 5, 0, 2),
+                    "timestamp": datetime(2020, 1, 5, 0, 2, 0, 500000),
                     "properties": {"$session_id": "4", "movie_length": 97.5},
                 },
             ],
@@ -125,26 +125,25 @@ class TestBreakdowns(ClickhouseTestMixin, APIBaseTest):
             [(item["breakdown_value"], item["count"], item["data"]) for item in response],
             [
                 ("[0.0,69.92]", 3.0, [3.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
-                ("[69.92,110.72000000000001]", 1.0, [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
-                ("[110.72000000000001,180.0]", 5.0, [0.0, 0.0, 1.0, 4.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
+                ("[69.92,110.72]", 1.0, [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
+                ('[110.72,""]', 5.0, [0.0, 0.0, 1.0, 4.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
             ],
         )
 
     @snapshot_clickhouse_queries
     def test_breakdown_by_session_duration_of_events_single_aggregate(self):
-        with self.settings(SHELL_PLUS_PRINT_SQL=True):
-            response = self._run(
-                {
-                    "breakdown": "$session_duration",
-                    "breakdown_type": "session",
-                    "breakdown_histogram_bin_count": 3,
-                    "display": TRENDS_TABLE,
-                }
-            )
+        response = self._run(
+            {
+                "breakdown": "$session_duration",
+                "breakdown_type": "session",
+                "breakdown_histogram_bin_count": 3,
+                "display": TRENDS_TABLE,
+            }
+        )
 
         self.assertEqual(
             [(item["breakdown_value"], item["aggregated_value"]) for item in response],
-            [("[0.0,69.92]", 3), ("[69.92,110.72000000000001]", 1), ("[110.72000000000001,180.0]", 5)],
+            [("[0.0,69.92]", 3), ("[69.92,110.72]", 1), ('[110.72,""]', 5)],
         )
 
     @snapshot_clickhouse_queries
@@ -174,8 +173,8 @@ class TestBreakdowns(ClickhouseTestMixin, APIBaseTest):
             [(item["breakdown_value"], item["count"], item["data"]) for item in response],
             [
                 ("[0.0,69.92]", 2.0, [2.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
-                ("[69.92,110.72000000000001]", 1.0, [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
-                ("[110.72000000000001,180.0]", 3.0, [0.0, 0.0, 1.0, 2.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
+                ("[69.92,110.72]", 1.0, [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
+                ('[110.72,""]', 3.0, [0.0, 0.0, 1.0, 2.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
             ],
         )
 
@@ -189,8 +188,8 @@ class TestBreakdowns(ClickhouseTestMixin, APIBaseTest):
             [(item["breakdown_value"], item["count"], item["data"]) for item in response],
             [
                 ("[25.0,66.25]", 4.0, [2.0, 0.0, 0.0, 2.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
-                ("[66.25,98.375]", 2.0, [1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
-                ("[98.375,1000.0]", 2.0, [1.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
+                ("[66.25,98.37]", 2.0, [1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
+                ('[98.37,""]', 2.0, [1.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
             ],
         )
 
@@ -205,7 +204,7 @@ class TestBreakdowns(ClickhouseTestMixin, APIBaseTest):
             [(item["breakdown_value"], item["count"], item["data"]) for item in response],
             [
                 ("[25.0,66.25]", 3.0, [2.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
-                ("[66.25,98.375]", 2.0, [1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
-                ("[98.375,1000.0]", 2.0, [1.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
+                ("[66.25,98.37]", 2.0, [1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
+                ('[98.37,""]', 2.0, [1.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
             ],
         )

@@ -214,17 +214,17 @@ def _to_value_expression(
 
 
 def _to_bucketing_expression(bin_count: int) -> str:
-    # TODO: needs tests!
-
     if bin_count <= 1:
-        return "quantiles(0, 1)"
+        qunatile_expression = "quantiles(0,1)(value)"
+    else:
+        quantiles = []
+        bin_size = 1.0 / bin_count
+        for i in range(bin_count + 1):
+            quantiles.append(i * bin_size)
 
-    quantiles = []
-    bin_size = 1.0 / bin_count
-    for i in range(bin_count + 1):
-        quantiles.append(i * bin_size)
+        qunatile_expression = f"quantiles({','.join([f'{quantile:.2f}' for quantile in quantiles])})(value)"
 
-    return f"quantiles({','.join([f'{quantile:.2f}' for quantile in quantiles])})(value)"
+    return f"arrayMap(x -> floor(x, 2), {qunatile_expression})"
 
 
 def _format_all_query(team: Team, filter: Filter, **kwargs) -> Tuple[str, Dict]:

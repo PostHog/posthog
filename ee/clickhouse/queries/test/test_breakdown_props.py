@@ -1,3 +1,4 @@
+import pytest
 from freezegun import freeze_time
 
 from posthog.models.cohort import Cohort
@@ -5,7 +6,7 @@ from posthog.models.entity import Entity
 from posthog.models.filters import Filter
 from posthog.models.group.util import create_group
 from posthog.models.group_type_mapping import GroupTypeMapping
-from posthog.queries.breakdown_props import get_breakdown_prop_values
+from posthog.queries.breakdown_props import _to_bucketing_expression, get_breakdown_prop_values
 from posthog.queries.trends.util import process_math
 from posthog.test.base import (
     APIBaseTest,
@@ -402,3 +403,22 @@ class TestBreakdownProps(ClickhouseTestMixin, APIBaseTest):
 
         result = get_breakdown_prop_values(filter, filter.entities[0], "count(*)", self.team)
         self.assertEqual(result, ["mac", "test"])
+
+
+@pytest.mark.parametrize(
+    "test_input,expected",
+    [
+        (0, "arrayMap(x -> floor(x, 2), quantiles(0,1)(value))"),
+        (1, "arrayMap(x -> floor(x, 2), quantiles(0,1)(value))"),
+        (2, "arrayMap(x -> floor(x, 2), quantiles(0.00,0.50,1.00)(value))"),
+        (3, "arrayMap(x -> floor(x, 2), quantiles(0.00,0.33,0.67,1.00)(value))"),
+        (5, "arrayMap(x -> floor(x, 2), quantiles(0.00,0.20,0.40,0.60,0.80,1.00)(value))"),
+        (7, "arrayMap(x -> floor(x, 2), quantiles(0.00,0.14,0.29,0.43,0.57,0.71,0.86,1.00)(value))"),
+        (10, "arrayMap(x -> floor(x, 2), quantiles(0.00,0.10,0.20,0.30,0.40,0.50,0.60,0.70,0.80,0.90,1.00)(value))"),
+    ],
+)
+def test_bucketing_expression(test_input, expected):
+
+    result = _to_bucketing_expression(test_input)
+
+    assert result == expected
