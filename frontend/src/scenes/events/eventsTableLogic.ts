@@ -234,8 +234,9 @@ export const eventsTableLogic = kea<eventsTableLogicType>({
             }),
         ],
         exportUrl: [
-            () => [selectors.currentTeamId, selectors.listParams],
-            (teamId, params) => `/api/projects/${teamId}/events.csv?${toParams(params)}`,
+            () => [selectors.currentTeamId, selectors.listParams, selectors.minimumExportDate],
+            (teamId, listParams, minimumExportDate) =>
+                `/api/projects/${teamId}/events.csv?${toParams({ ...listParams, after: minimumExportDate })}`,
         ],
 
         eventsUrl: [

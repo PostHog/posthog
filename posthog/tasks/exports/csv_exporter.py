@@ -1,6 +1,4 @@
 import datetime
-import json
-import tempfile
 from typing import Any, List
 
 import requests
@@ -113,6 +111,11 @@ def _export_to_csv(exported_asset: ExportedAsset, root_bucket: str) -> None:
     resource = exported_asset.export_context
 
     path: str = resource["path"]
+    if path == "TBD":
+        raise Exception(
+            "cannot export CSV if path is not provided. The `insightLogic` needs to know how to generate an API path for this type of insight"
+        )
+
     method: str = resource.get("method", "GET")
     body = resource.get("body", None)
 
@@ -120,14 +123,14 @@ def _export_to_csv(exported_asset: ExportedAsset, root_bucket: str) -> None:
         {"id": exported_asset.created_by_id}, datetime.timedelta(minutes=15), PosthogJwtAudience.IMPERSONATED_USER
     )
 
-    max_limit = 1_000_000
-    limit_size = 100_000
+    max_limit = 10_000
+    limit_size = 1_000
     next_url = None
     all_csv_rows: List[Any] = []
 
     while len(all_csv_rows) < max_limit:
         url = next_url or absolute_uri(path)
-        url += f"{'&' if '?' in url else '?'}limit={limit_size}"
+        url += f"{'&' if '?' in url else '?'}limit={limit_size}"  # todo what if limit is already in URL
 
         response = requests.request(
             method=method.lower(), url=url, json=body, headers={"Authorization": f"Bearer {access_token}"},
@@ -151,11 +154,8 @@ def _export_to_csv(exported_asset: ExportedAsset, root_bucket: str) -> None:
             # If values are serialised then keep the order of the keys, else allow it to be unordered
             renderer.header = all_csv_rows[0].keys()
 
-    with tempfile.TemporaryFile() as temporary_file:
-        temporary_file.write(renderer.render(all_csv_rows))
-        temporary_file.seek(0)
-        exported_asset.content = temporary_file.read()
-        exported_asset.save(update_fields=["content"])
+    exported_asset.content = renderer.render(all_csv_rows)
+    exported_asset.save(update_fields=["content"])
 
 
 def export_csv(exported_asset: ExportedAsset, root_bucket: str = settings.OBJECT_STORAGE_EXPORTS_FOLDER) -> None:

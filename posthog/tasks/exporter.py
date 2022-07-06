@@ -7,8 +7,7 @@ from posthog.models import ExportedAsset
 def export_asset(exported_asset_id: int, storage_root_bucket: str = settings.OBJECT_STORAGE_EXPORTS_FOLDER) -> None:
     from statshog.defaults.django import statsd
 
-    from posthog.tasks.exports import image_exporter
-    from posthog.tasks.exports import csv_exporter
+    from posthog.tasks.exports import csv_exporter, image_exporter
 
     exported_asset = ExportedAsset.objects.select_related("insight", "dashboard").get(pk=exported_asset_id)
 

@@ -38,7 +38,7 @@ import { SubscriptionsModal, SubscribeButton } from 'lib/components/Subscription
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 import clsx from 'clsx'
 import { SharingModal } from 'lib/components/Sharing/SharingModal'
-import { ExportButton } from 'lib/components/ExportButton/ExportButton'
+import { ExportButton, ExportButtonItem, ExportButtonItemResource } from 'lib/components/ExportButton/ExportButton'
 
 export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): JSX.Element {
     const { insightMode, subscriptionId } = useValues(insightSceneLogic)
@@ -59,6 +59,7 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
         tagLoading,
         insightSaving,
         exporterResourceParams,
+        supportsCsvExport,
     } = useValues(logic)
     useMountedLogic(insightCommandLogic(insightProps))
     const { saveInsight, setInsightMetadata, saveAs, reportInsightViewedForRecentInsights } = useActions(logic)
@@ -85,6 +86,23 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
     // This helps with the UX flickering and showing placeholder "name" text.
     if (insightId !== 'new' && insightLoading && !filtersKnown) {
         return <InsightSkeleton />
+    }
+
+    const exportOptions = (exporterResourceParams: ExportButtonItemResource): ExportButtonItem[] => {
+        const supportedExportOptions: ExportButtonItem[] = [
+            {
+                format: ExporterFormat.PNG,
+                insight: insight.id,
+                resource: exporterResourceParams,
+            },
+        ]
+        if (supportsCsvExport) {
+            supportedExportOptions.push({
+                format: ExporterFormat.CSV,
+                resource: exporterResourceParams,
+            })
+        }
+        return supportedExportOptions
     }
 
     const insightScene = (
@@ -176,16 +194,7 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                                                     {exporterResourceParams ? (
                                                         <ExportButton
                                                             fullWidth
-                                                            items={[
-                                                                {
-                                                                    format: ExporterFormat.PNG,
-                                                                    insightId: insight.id,
-                                                                },
-                                                                {
-                                                                    format: ExporterFormat.CSV,
-                                                                    resource: exporterResourceParams,
-                                                                },
-                                                            ]}
+                                                            items={exportOptions(exporterResourceParams)}
                                                         />
                                                     ) : null}
                                                     <LemonDivider />

@@ -1,11 +1,12 @@
 import api from 'lib/api'
 import { delay } from 'lib/utils'
 import posthog from 'posthog-js'
-import { ExportedAssetType } from '~/types'
+import { ExportedAssetType, ExporterFormat } from '~/types'
 import { lemonToast } from '../lemonToast'
 
 const POLL_DELAY_MS = 1000
-const MAX_POLL = 10
+const MAX_PNG_POLL = 10
+const MAX_CSV_POLL = 60
 
 async function downloadExportedAsset(asset: ExportedAssetType): Promise<void> {
     const downloadUrl = api.exports.determineExportUrl(asset.id)
@@ -49,7 +50,8 @@ export async function triggerExport(asset: TriggerExportProps): Promise<void> {
 
             let attempts = 0
 
-            while (attempts < MAX_POLL) {
+            const maxPoll = asset.export_format === ExporterFormat.CSV ? MAX_CSV_POLL : MAX_PNG_POLL
+            while (attempts < maxPoll) {
                 attempts++
 
                 if (exportedAsset.has_content) {

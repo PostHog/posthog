@@ -39,7 +39,7 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ["id", "created_at", "has_content", "filename"]
 
-    def validate(self, attrs):
+    def validate(self, attrs: Dict) -> Dict:
         if not attrs.get("export_format"):
             raise ValidationError("Must provide export format")
 

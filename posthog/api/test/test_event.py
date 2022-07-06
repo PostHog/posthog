@@ -402,7 +402,6 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         self.assertLess(
             parser.parse(response["results"][0]["timestamp"]), parser.parse(response["results"][-1]["timestamp"])
         )
-        print(response.keys(), response["next"])
         assert "after=" in response["next"]
 
     def test_default_descending_order_timestamp(self):
