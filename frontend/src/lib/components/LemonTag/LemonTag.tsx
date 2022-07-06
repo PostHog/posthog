@@ -29,14 +29,14 @@ export function LemonTag({
         <div className={clsx('LemonTag', type, className)} {...props}>
             {icon && <span className="LemonTag__icon">{icon}</span>}
             {children}
-            {popup && (
+            {popup?.overlay && (
                 <LemonButtonWithPopup
                     popup={popup}
                     type="stealth"
                     size="small"
                     className="LemonTag__right-button"
                     icon={<IconEllipsis />}
-                 />
+                />
             )}
             {closable && (
                 <LemonButton onClick={onClose} type="stealth" size="small" className="LemonTag__right-button">

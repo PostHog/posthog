@@ -49,7 +49,7 @@ export function BreakdownTag({
                                 fullWidth={false}
                                 type="number"
                                 className="histogram-bin-input"
-                             />
+                            />
                             bins
                         </LemonButton>
                         <LemonButton

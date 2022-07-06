@@ -10,9 +10,8 @@
         vertical-align: bottom;
         padding: 8px 12px;
         line-height: 16px;
-        color: var(--bg-depth);
-        background-color: var(--border);
-        border: 1px solid var(--border);
+        color: var(--primary-alt);
+        background-color: var(--primary-bg-hover);
         border-radius: 40px;
         font-weight: 400;
         font-size: 14px;
@@ -33,11 +32,10 @@
         display: flex;
         white-space: unset;
         align-items: center;
-        font-size: 1rem;
-        line-height: 1.25rem;
+        font-size: 0.9rem;
+        line-height: 1.1rem;
 
         .property-key-info-logo {
-            height: 1rem;
             margin-right: 0.25rem;
         }
     }

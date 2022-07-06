@@ -79,10 +79,11 @@ export function BreakdownFilter({
           }
         : undefined
 
+    const isHistogramable = !useMultiBreakdown && breakdownArray.every((t) => getPropertyDefinition(t)?.is_numerical)
+
     const tags = !breakdown_type
         ? []
         : breakdownArray.map((t, index) => {
-              const isHistogramable = !!(getPropertyDefinition(t)?.is_numerical && !useMultiBreakdown)
               return (
                   <BreakdownTag
                       key={t}
@@ -91,11 +92,13 @@ export function BreakdownFilter({
                       onClose={onCloseFor ? onCloseFor(t, index) : undefined}
                       filters={filters}
                       setFilters={setFilters}
-                   />
+                  />
               )
           })
 
-    const onChange = setFilters ? onFilterChange({ useMultiBreakdown, breakdownParts, setFilters }) : undefined
+    const onChange = setFilters
+        ? onFilterChange({ useMultiBreakdown, breakdownParts, setFilters, isHistogramable })
+        : undefined
 
     return (
         <div className="flex flex-wrap gap-05 items-center">
