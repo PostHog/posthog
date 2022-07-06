@@ -201,7 +201,6 @@ export function DashboardHeader(): JSX.Element | null {
                                                         },
                                                     ]}
                                                 />
-                                                // <ExportButton dashboardId={dashboard.id} fullWidth type="stealth" />
                                             )}
                                             <LemonDivider />
                                             <LemonButton
