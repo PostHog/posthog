@@ -144,7 +144,7 @@ class TestExports(APIBaseTest):
             {
                 "attr": None,
                 "code": "invalid_input",
-                "detail": "Either dashboard or insight is required for an export.",
+                "detail": "Either dashboard, insight or export_context is required for an export.",
                 "type": "validation_error",
             },
         )
