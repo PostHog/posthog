@@ -139,6 +139,10 @@ class ImpersonatedTokenAuthentication(authentication.BaseAuthentication):
 
         return None
 
+    @classmethod
+    def authenticate_header(cls, request) -> str:
+        return cls.keyword
+
 
 def authenticate_secondarily(endpoint):
     """
