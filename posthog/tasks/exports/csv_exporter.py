@@ -149,11 +149,6 @@ def _export_to_csv(
         "quoting": csv.QUOTE_ALL,
     }
 
-    if len(all_csv_rows):
-        if not [x for x in all_csv_rows[0].values() if isinstance(x, dict) or isinstance(x, list)]:
-            # If values are serialised then keep the order of the keys, else allow it to be unordered
-            renderer.header = all_csv_rows[0].keys()
-
     exported_asset.content = renderer.render(all_csv_rows)
     exported_asset.save(update_fields=["content"])
 
