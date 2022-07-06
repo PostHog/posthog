@@ -2041,4 +2041,12 @@ export class DB {
         )
         return response.rowCount > 0
     }
+
+    public async addEventToBuffer(event: Record<string, any>, processAt: DateTime): Promise<void> {
+        await this.postgresQuery(
+            `INSERT INTO posthog_eventbuffer (event, process_at) VALUES ($1, $2)`,
+            [event, processAt.toISO()],
+            'addEventToBuffer'
+        )
+    }
 }

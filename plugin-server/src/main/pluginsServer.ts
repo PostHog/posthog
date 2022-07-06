@@ -23,6 +23,7 @@ import { cancelAllScheduledJobs } from '../utils/node-schedule'
 import { PubSub } from '../utils/pubsub'
 import { status } from '../utils/status'
 import { delay, getPiscinaStats, stalenessCheck } from '../utils/utils'
+import { runBuffer } from './ingestion-queues/buffer'
 import { KafkaQueue } from './ingestion-queues/kafka-queue'
 import { startQueues } from './ingestion-queues/queue'
 import { startJobQueueConsumer } from './job-queues/job-queue-consumer'
@@ -231,6 +232,12 @@ export async function startPluginsServer(
                         hub!.statsd?.gauge(`piscina.${key}`, value)
                     }
                 }
+            }
+        })
+
+        schedule.scheduleJob('*/5 * * * * *', async () => {
+            if (piscina) {
+                await runBuffer(hub!, piscina)
             }
         })
 
