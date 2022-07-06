@@ -147,6 +147,8 @@ def run_optimize_table(
     unique_name: str, query_id: str, table_name: str, on_cluster_clause="", deduplicate=False, final=False
 ):
     """
+    Runs the passed OPTIMIZE TABLE query.
+
     Note that this handles process restarts gracefully: If the query is still running on the cluster,
     we'll wait for that to complete first.
     """
