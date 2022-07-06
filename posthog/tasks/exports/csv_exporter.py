@@ -137,6 +137,12 @@ def _export_to_csv(
 
         data = response.json()
         csv_rows = _convert_response_to_csv_data(data)
+
+        print("data")  # noqa: T001
+        print(data)  # noqa: T001
+        print("csv_rows")  # noqa: T001
+        print(csv_rows)  # noqa: T001
+
         all_csv_rows = all_csv_rows + csv_rows
 
         if not data.get("next") or not csv_rows:
