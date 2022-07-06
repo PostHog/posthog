@@ -1,5 +1,5 @@
 import datetime
-from typing import Any, List
+from typing import Any, List, Optional
 
 import requests
 import structlog
@@ -107,7 +107,9 @@ def _convert_response_to_csv_data(data: Any) -> List[Any]:
     return []
 
 
-def _export_to_csv(exported_asset: ExportedAsset, root_bucket: str) -> None:
+def _export_to_csv(
+    exported_asset: ExportedAsset, root_bucket: str, limit: int = 1000, max_limit: int = 10_000,
+) -> None:
     resource = exported_asset.export_context
 
     path: str = resource["path"]
@@ -119,14 +121,12 @@ def _export_to_csv(exported_asset: ExportedAsset, root_bucket: str) -> None:
         {"id": exported_asset.created_by_id}, datetime.timedelta(minutes=15), PosthogJwtAudience.IMPERSONATED_USER
     )
 
-    max_limit = 10_000
-    limit_size = 1_000
     next_url = None
     all_csv_rows: List[Any] = []
 
     while len(all_csv_rows) < max_limit:
         url = next_url or absolute_uri(path)
-        url += f"{'&' if '?' in url else '?'}limit={limit_size}"  # todo what if limit is already in URL
+        url += f"{'&' if '?' in url else '?'}limit={limit}"  # todo what if limit is already in URL
 
         response = requests.request(
             method=method.lower(), url=url, json=body, headers={"Authorization": f"Bearer {access_token}"},
@@ -154,12 +154,20 @@ def _export_to_csv(exported_asset: ExportedAsset, root_bucket: str) -> None:
     exported_asset.save(update_fields=["content"])
 
 
-def export_csv(exported_asset: ExportedAsset, root_bucket: str = settings.OBJECT_STORAGE_EXPORTS_FOLDER) -> None:
+def export_csv(
+    exported_asset: ExportedAsset,
+    root_bucket: str = settings.OBJECT_STORAGE_EXPORTS_FOLDER,
+    limit: Optional[int] = None,
+    max_limit: int = 10_000,
+) -> None:
     timer = statsd.timer("csv_exporter").start()
+
+    if not limit:
+        limit = 1000
 
     try:
         if exported_asset.export_format == "text/csv":
-            _export_to_csv(exported_asset, root_bucket)
+            _export_to_csv(exported_asset, root_bucket, limit, max_limit)
             statsd.incr("csv_exporter.succeeded", tags={"team_id": exported_asset.team.id})
         else:
             statsd.incr("csv_exporter.unknown_asset", tags={"team_id": exported_asset.team.id})

@@ -1,3 +1,4 @@
+import datetime
 from typing import Dict, List, Optional
 from unittest.mock import patch
 
@@ -266,30 +267,43 @@ class TestExports(APIBaseTest):
         second_expected_event_id = _create_event(
             event="event_name", team=self.team, distinct_id="2", properties={"$browser": "Safari"},
         )
+        third_expected_event_id = _create_event(
+            event="event_name", team=self.team, distinct_id="2", properties={"$browser": "Safari"},
+        )
         flush_persons_and_events()
+
+        after = (datetime.datetime.now() - datetime.timedelta(minutes=10)).isoformat()
 
         instance = ExportedAsset.objects.create(
             team=self.team,
             dashboard=None,
             insight=None,
             export_format=ExportedAsset.ExportFormat.CSV,
+            # has to have after param to allow paging to be tested
             export_context={
-                "path": f"/api/projects/{self.team.id}/events?properties=%5B%7B%22key%22%3A%22%24browser%22%2C%22value%22%3A%5B%22Safari%22%5D%2C%22operator%22%3A%22exact%22%2C%22type%22%3A%22event%22%7D%5D&orderBy=%5B%22-timestamp%22%5D"
+                "path": "&".join(
+                    [
+                        f"/api/projects/{self.team.id}/events?orderBy=%5B%22-timestamp%22%5D",
+                        "properties=%5B%7B%22key%22%3A%22%24browser%22%2C%22value%22%3A%5B%22Safari%22%5D%2C%22operator%22%3A%22exact%22%2C%22type%22%3A%22event%22%7D%5D",
+                        f"after={after}",
+                    ]
+                )
             },
             created_by=self.user,
         )
 
         def requests_side_effect(*args, **kwargs):
-            return self.client.get(kwargs["url"], kwargs["data"], **kwargs["headers"])
+            return self.client.get(kwargs["url"], kwargs["json"], **kwargs["headers"])
 
         patched_request.side_effect = requests_side_effect
 
         # pass the root in because django/celery refused to override it otherwise
-        exporter.export_asset(instance.id, TEST_ROOT_BUCKET)
+        # limit the query to force it to page against the API
+        exporter.export_asset(instance.id, TEST_ROOT_BUCKET, limit=1)
 
         response: Optional[HttpResponse] = None
         attempt_count = 0
-        while attempt_count < 10 and (not response or response.status_code == status.HTTP_409_CONFLICT):
+        while attempt_count < 10 and not response:
             response = self.client.get(f"/api/projects/{self.team.id}/exports/{instance.id}/content?download=true")
             attempt_count += 1
 
@@ -302,9 +316,10 @@ class TestExports(APIBaseTest):
         file_lines = file_content.split("\n")
         # has a header row and at least two other rows
         # don't care if the DB hasn't been reset before the test
-        self.assertTrue(len(file_lines) > 2)
+        self.assertTrue(len(file_lines) > 3)
         self.assertIn(expected_event_id, file_content)
         self.assertIn(second_expected_event_id, file_content)
+        self.assertIn(third_expected_event_id, file_content)
         for line in file_lines[1:]:  # every result has to match the filter though
             if line != "":  # skip the final empty line of the file
                 self.assertIn("Safari", line)
