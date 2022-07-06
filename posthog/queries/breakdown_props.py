@@ -184,7 +184,7 @@ def _to_value_expression(
         if breakdown == "$session_duration":
             # Return the session duration expression right away because it's already an number,
             # so it doesn't need casting for the histogram case (like the other properties)
-            return f"{SessionQuery.SESSION_TABLE_ALIAS}.session_duration as value"
+            value_expression = f"{SessionQuery.SESSION_TABLE_ALIAS}.session_duration"
         else:
             raise ValidationError(f'Invalid breakdown "{breakdown}" for breakdown type "session"')
     elif breakdown_type == "person":
@@ -209,7 +209,7 @@ def _to_value_expression(
         )
 
     if cast_as_float:
-        value_expression = f"toFloat64OrNull({value_expression})"
+        value_expression = f"toFloat64OrNull(toString({value_expression}))"
     return f"{value_expression} AS value"
 
 

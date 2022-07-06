@@ -1,9 +1,9 @@
 # name: TestBreakdowns.test_breakdown_by_event_property_of_unique_sessions_with_bucketing
   '
   
-  SELECT arrayMap(x -> floor(x, 2), quantiles(0.00, 0.33, 0.67, 1.00)(value))
+  SELECT arrayCompact(arrayMap(x -> floor(x, 2), quantiles(0.00, 0.33, 0.67, 1.00)(value)))
   FROM
-    (SELECT toFloat64OrNull(replaceRegexpAll(JSONExtractRaw(properties, 'movie_length'), '^"|"$', '')) AS value,
+    (SELECT toFloat64OrNull(toString(replaceRegexpAll(JSONExtractRaw(properties, 'movie_length'), '^"|"$', ''))) AS value,
             count(DISTINCT $session_id) as count
      FROM events e
      WHERE team_id = 2
@@ -45,19 +45,19 @@
   SELECT
       count(DISTINCT $session_id) as total,
       toStartOfDay(timestamp,  'UTC') as day_start,
-      multiIf(toFloat64OrNull(replaceRegexpAll(JSONExtractRaw(properties, 'movie_length'), '^"|"$', '')) >= 25.0 AND toFloat64OrNull(replaceRegexpAll(JSONExtractRaw(properties, 'movie_length'), '^"|"$', '')) < 66.25,'[25.0,66.25]',toFloat64OrNull(replaceRegexpAll(JSONExtractRaw(properties, 'movie_length'), '^"|"$', '')) >= 66.25 AND toFloat64OrNull(replaceRegexpAll(JSONExtractRaw(properties, 'movie_length'), '^"|"$', '')) < 98.37,'[66.25,98.37]',toFloat64OrNull(replaceRegexpAll(JSONExtractRaw(properties, 'movie_length'), '^"|"$', '')) >= 98.37,'[98.37,""]','["",""]') as breakdown_value
+      multiIf(toFloat64OrNull(toString(replaceRegexpAll(JSONExtractRaw(properties, 'movie_length'), '^"|"$', ''))) >= 25.0 AND toFloat64OrNull(toString(replaceRegexpAll(JSONExtractRaw(properties, 'movie_length'), '^"|"$', ''))) < 66.25,'[25.0,66.25]',toFloat64OrNull(toString(replaceRegexpAll(JSONExtractRaw(properties, 'movie_length'), '^"|"$', ''))) >= 66.25 AND toFloat64OrNull(toString(replaceRegexpAll(JSONExtractRaw(properties, 'movie_length'), '^"|"$', ''))) < 98.37,'[66.25,98.37]',toFloat64OrNull(toString(replaceRegexpAll(JSONExtractRaw(properties, 'movie_length'), '^"|"$', ''))) >= 98.37,'[98.37,""]','["",""]') as breakdown_value
   FROM events e
   
   
   
   
-  WHERE e.team_id = 2 AND event = 'watched movie'  AND timestamp >= toStartOfDay(toDateTime('2020-01-02 00:00:00'), 'UTC') AND timestamp <= toDateTime('2020-01-12 23:59:59') AND toFloat64OrNull(replaceRegexpAll(JSONExtractRaw(properties, 'movie_length'), '^"|"$', '')) is not null
-           GROUP BY day_start,
-                    breakdown_value))
-     GROUP BY day_start,
-              breakdown_value
-     ORDER BY breakdown_value,
-              day_start)
+  WHERE e.team_id = 2 AND event = 'watched movie'  AND timestamp >= toStartOfDay(toDateTime('2020-01-02 00:00:00'), 'UTC') AND timestamp <= toDateTime('2020-01-12 23:59:59') AND toFloat64OrNull(toString(replaceRegexpAll(JSONExtractRaw(properties, 'movie_length'), '^"|"$', ''))) is not null
+        GROUP BY day_start,
+                 breakdown_value))
+  GROUP BY day_start,
+           breakdown_value
+  ORDER BY breakdown_value,
+           day_start )
   GROUP BY breakdown_value
   ORDER BY breakdown_value
   '
@@ -65,9 +65,9 @@
 # name: TestBreakdowns.test_breakdown_by_event_property_with_bucketing
   '
   
-  SELECT arrayMap(x -> floor(x, 2), quantiles(0.00, 0.33, 0.67, 1.00)(value))
+  SELECT arrayCompact(arrayMap(x -> floor(x, 2), quantiles(0.00, 0.33, 0.67, 1.00)(value)))
   FROM
-    (SELECT toFloat64OrNull(replaceRegexpAll(JSONExtractRaw(properties, 'movie_length'), '^"|"$', '')) AS value,
+    (SELECT toFloat64OrNull(toString(replaceRegexpAll(JSONExtractRaw(properties, 'movie_length'), '^"|"$', ''))) AS value,
             count(*) as count
      FROM events e
      WHERE team_id = 2
@@ -109,19 +109,19 @@
   SELECT
       count(*) as total,
       toStartOfDay(timestamp,  'UTC') as day_start,
-      multiIf(toFloat64OrNull(replaceRegexpAll(JSONExtractRaw(properties, 'movie_length'), '^"|"$', '')) >= 25.0 AND toFloat64OrNull(replaceRegexpAll(JSONExtractRaw(properties, 'movie_length'), '^"|"$', '')) < 66.25,'[25.0,66.25]',toFloat64OrNull(replaceRegexpAll(JSONExtractRaw(properties, 'movie_length'), '^"|"$', '')) >= 66.25 AND toFloat64OrNull(replaceRegexpAll(JSONExtractRaw(properties, 'movie_length'), '^"|"$', '')) < 98.37,'[66.25,98.37]',toFloat64OrNull(replaceRegexpAll(JSONExtractRaw(properties, 'movie_length'), '^"|"$', '')) >= 98.37,'[98.37,""]','["",""]') as breakdown_value
+      multiIf(toFloat64OrNull(toString(replaceRegexpAll(JSONExtractRaw(properties, 'movie_length'), '^"|"$', ''))) >= 25.0 AND toFloat64OrNull(toString(replaceRegexpAll(JSONExtractRaw(properties, 'movie_length'), '^"|"$', ''))) < 66.25,'[25.0,66.25]',toFloat64OrNull(toString(replaceRegexpAll(JSONExtractRaw(properties, 'movie_length'), '^"|"$', ''))) >= 66.25 AND toFloat64OrNull(toString(replaceRegexpAll(JSONExtractRaw(properties, 'movie_length'), '^"|"$', ''))) < 98.37,'[66.25,98.37]',toFloat64OrNull(toString(replaceRegexpAll(JSONExtractRaw(properties, 'movie_length'), '^"|"$', ''))) >= 98.37,'[98.37,""]','["",""]') as breakdown_value
   FROM events e
   
   
   
   
-  WHERE e.team_id = 2 AND event = 'watched movie'  AND timestamp >= toStartOfDay(toDateTime('2020-01-02 00:00:00'), 'UTC') AND timestamp <= toDateTime('2020-01-12 23:59:59') AND toFloat64OrNull(replaceRegexpAll(JSONExtractRaw(properties, 'movie_length'), '^"|"$', '')) is not null
-           GROUP BY day_start,
-                    breakdown_value))
-     GROUP BY day_start,
-              breakdown_value
-     ORDER BY breakdown_value,
-              day_start)
+  WHERE e.team_id = 2 AND event = 'watched movie'  AND timestamp >= toStartOfDay(toDateTime('2020-01-02 00:00:00'), 'UTC') AND timestamp <= toDateTime('2020-01-12 23:59:59') AND toFloat64OrNull(toString(replaceRegexpAll(JSONExtractRaw(properties, 'movie_length'), '^"|"$', ''))) is not null
+        GROUP BY day_start,
+                 breakdown_value))
+  GROUP BY day_start,
+           breakdown_value
+  ORDER BY breakdown_value,
+           day_start )
   GROUP BY breakdown_value
   ORDER BY breakdown_value
   '
@@ -131,7 +131,7 @@
   
   SELECT groupArray(value)
   FROM
-    (SELECT sessions.session_duration as value,
+    (SELECT sessions.session_duration AS value,
             count(*) as count
      FROM events e
      INNER JOIN
@@ -211,9 +211,9 @@
 # name: TestBreakdowns.test_breakdown_by_session_duration_of_events_single_aggregate
   '
   
-  SELECT arrayMap(x -> floor(x, 2), quantiles(0.00, 0.33, 0.67, 1.00)(value))
+  SELECT arrayCompact(arrayMap(x -> floor(x, 2), quantiles(0.00, 0.33, 0.67, 1.00)(value)))
   FROM
-    (SELECT sessions.session_duration as value,
+    (SELECT toFloat64OrNull(toString(sessions.session_duration)) AS value,
             count(*) as count
      FROM events e
      INNER JOIN
@@ -236,9 +236,9 @@
   '
   
   SELECT count(*) AS total,
-         multiIf(sessions.session_duration >= 0.0
-                 AND sessions.session_duration < 69.92, '[0.0,69.92]', sessions.session_duration >= 69.92
-                 AND sessions.session_duration < 110.72, '[69.92,110.72]', sessions.session_duration >= 110.72, '[110.72,""]', '["",""]') AS breakdown_value
+         multiIf(toFloat64OrNull(toString(sessions.session_duration)) >= 0.0
+                 AND toFloat64OrNull(toString(sessions.session_duration)) < 69.92, '[0.0,69.92]', toFloat64OrNull(toString(sessions.session_duration)) >= 69.92
+                 AND toFloat64OrNull(toString(sessions.session_duration)) < 110.72, '[69.92,110.72]', toFloat64OrNull(toString(sessions.session_duration)) >= 110.72, '[110.72,""]', '["",""]') AS breakdown_value
   FROM events e
   INNER JOIN
     (SELECT $session_id,
@@ -253,7 +253,7 @@
     AND event = 'watched movie'
     AND timestamp >= toStartOfDay(toDateTime('2020-01-02 00:00:00'), 'UTC')
     AND timestamp <= toDateTime('2020-01-12 23:59:59')
-    AND sessions.session_duration is not null
+    AND toFloat64OrNull(toString(sessions.session_duration)) is not null
   GROUP BY breakdown_value
   ORDER BY breakdown_value
   '
@@ -261,9 +261,9 @@
 # name: TestBreakdowns.test_breakdown_by_session_duration_of_events_with_bucketing
   '
   
-  SELECT arrayMap(x -> floor(x, 2), quantiles(0.00, 0.33, 0.67, 1.00)(value))
+  SELECT arrayCompact(arrayMap(x -> floor(x, 2), quantiles(0.00, 0.33, 0.67, 1.00)(value)))
   FROM
-    (SELECT sessions.session_duration as value,
+    (SELECT toFloat64OrNull(toString(sessions.session_duration)) AS value,
             count(*) as count
      FROM events e
      INNER JOIN
@@ -314,7 +314,7 @@
   SELECT
       count(*) as total,
       toStartOfDay(timestamp,  'UTC') as day_start,
-      multiIf(sessions.session_duration >= 0.0 AND sessions.session_duration < 69.92,'[0.0,69.92]',sessions.session_duration >= 69.92 AND sessions.session_duration < 110.72,'[69.92,110.72]',sessions.session_duration >= 110.72,'[110.72,""]','["",""]') as breakdown_value
+      multiIf(toFloat64OrNull(toString(sessions.session_duration)) >= 0.0 AND toFloat64OrNull(toString(sessions.session_duration)) < 69.92,'[0.0,69.92]',toFloat64OrNull(toString(sessions.session_duration)) >= 69.92 AND toFloat64OrNull(toString(sessions.session_duration)) < 110.72,'[69.92,110.72]',toFloat64OrNull(toString(sessions.session_duration)) >= 110.72,'[110.72,""]','["",""]') as breakdown_value
   FROM events e
   
   
@@ -336,7 +336,7 @@
   
   
   WHERE e.team_id = 2 AND event = 'watched movie'  AND timestamp >= toStartOfDay(toDateTime('2020-01-02 00:00:00'), 'UTC') AND timestamp <= toDateTime('2020-01-12 23:59:59')
-           AND sessions.session_duration is not null
+           AND toFloat64OrNull(toString(sessions.session_duration)) is not null
            GROUP BY day_start,
                     breakdown_value))
      GROUP BY day_start,
@@ -352,7 +352,7 @@
   
   SELECT groupArray(value)
   FROM
-    (SELECT sessions.session_duration as value,
+    (SELECT sessions.session_duration AS value,
             count(DISTINCT $session_id) as count
      FROM events e
      INNER JOIN
@@ -432,9 +432,9 @@
 # name: TestBreakdowns.test_breakdown_by_session_duration_of_unique_sessions_with_bucketing
   '
   
-  SELECT arrayMap(x -> floor(x, 2), quantiles(0.00, 0.33, 0.67, 1.00)(value))
+  SELECT arrayCompact(arrayMap(x -> floor(x, 2), quantiles(0.00, 0.33, 0.67, 1.00)(value)))
   FROM
-    (SELECT sessions.session_duration as value,
+    (SELECT toFloat64OrNull(toString(sessions.session_duration)) AS value,
             count(DISTINCT $session_id) as count
      FROM events e
      INNER JOIN
@@ -485,7 +485,7 @@
   SELECT
       count(DISTINCT $session_id) as total,
       toStartOfDay(timestamp,  'UTC') as day_start,
-      multiIf(sessions.session_duration >= 0.0 AND sessions.session_duration < 69.92,'[0.0,69.92]',sessions.session_duration >= 69.92 AND sessions.session_duration < 110.72,'[69.92,110.72]',sessions.session_duration >= 110.72,'[110.72,""]','["",""]') as breakdown_value
+      multiIf(toFloat64OrNull(toString(sessions.session_duration)) >= 0.0 AND toFloat64OrNull(toString(sessions.session_duration)) < 69.92,'[0.0,69.92]',toFloat64OrNull(toString(sessions.session_duration)) >= 69.92 AND toFloat64OrNull(toString(sessions.session_duration)) < 110.72,'[69.92,110.72]',toFloat64OrNull(toString(sessions.session_duration)) >= 110.72,'[110.72,""]','["",""]') as breakdown_value
   FROM events e
   
   
@@ -507,7 +507,7 @@
   
   
   WHERE e.team_id = 2 AND event = 'watched movie'  AND timestamp >= toStartOfDay(toDateTime('2020-01-02 00:00:00'), 'UTC') AND timestamp <= toDateTime('2020-01-12 23:59:59')
-           AND sessions.session_duration is not null
+           AND toFloat64OrNull(toString(sessions.session_duration)) is not null
            GROUP BY day_start,
                     breakdown_value))
      GROUP BY day_start,

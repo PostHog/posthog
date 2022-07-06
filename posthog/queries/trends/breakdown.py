@@ -318,7 +318,7 @@ class TrendsBreakdown:
             if breakdown == "$session_duration":
                 # Return the session duration expression right away because it's already an number,
                 # so it doesn't need casting for the histogram case (like the other properties)
-                return f"{SessionQuery.SESSION_TABLE_ALIAS}.session_duration"
+                breakdown_value = f"{SessionQuery.SESSION_TABLE_ALIAS}.session_duration"
             else:
                 raise ValidationError(f'Invalid breakdown "{breakdown}" for breakdown type "session"')
 
@@ -340,7 +340,7 @@ class TrendsBreakdown:
                 breakdown_value, _ = get_property_string_expr("events", breakdown, "%(key)s", "properties")
 
         if self.filter.using_histogram:
-            return f"toFloat64OrNull({breakdown_value})"
+            return f"toFloat64OrNull(toString({breakdown_value}))"
         return breakdown_value
 
     def _get_histogram_breakdown_values(self, raw_breakdown_value: str, buckets: List[int]):
