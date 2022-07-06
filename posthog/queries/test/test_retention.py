@@ -612,6 +612,7 @@ def retention_test_factory(retention):
                 [[2, 0, 0, 0, 0, 2, 1], [2, 0, 0, 0, 2, 1], [2, 0, 0, 2, 1], [2, 0, 2, 1], [0, 0, 0], [1, 0], [0]],
             )
 
+        @snapshot_clickhouse_queries
         def test_retention_event_action(self):
             _create_person(team=self.team, distinct_ids=["person1", "alias1"])
             _create_person(team=self.team, distinct_ids=["person2"])

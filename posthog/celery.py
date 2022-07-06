@@ -8,6 +8,7 @@ from celery.signals import task_postrun, task_prerun
 from django.conf import settings
 from django.db import connection
 from django.utils import timezone
+from django_structlog.celery.steps import DjangoStructLogInitStep
 
 from posthog.redis import get_client
 from posthog.utils import get_crontab
@@ -29,6 +30,8 @@ app.autodiscover_tasks()
 # Make sure Redis doesn't add too many connections
 # https://stackoverflow.com/questions/47106592/redis-connections-not-being-released-after-celery-task-is-complete
 app.conf.broker_pool_limit = 0
+
+app.steps["worker"].add(DjangoStructLogInitStep)
 
 # How frequently do we want to calculate action -> event relationships if async is enabled
 ACTION_EVENT_MAPPING_INTERVAL_SECONDS = settings.ACTION_EVENT_MAPPING_INTERVAL_SECONDS

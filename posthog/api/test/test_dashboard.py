@@ -1,7 +1,6 @@
 import json
 from typing import Any, Dict, List, Literal, Optional, Tuple
 
-import pytest
 from dateutil import parser
 from django.db import connection
 from django.utils import timezone
@@ -31,7 +30,6 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         response_data = response.json()
         self.assertEqual([dashboard["name"] for dashboard in response_data["results"]], dashboard_names)
 
-    @pytest.mark.skip(reason="Unexpected failure because of snapshot bug")
     @snapshot_postgres_queries
     def test_retrieve_dashboard_list_query_count_does_not_increase_with_the_dashboard_count(self):
         self.client.post(f"/api/projects/{self.team.id}/dashboards/", {"name": "a dashboard"})
@@ -43,9 +41,11 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
         self.client.post(f"/api/projects/{self.team.id}/dashboards/", {"name": "b dashboard"})
         self.client.post(f"/api/projects/{self.team.id}/dashboards/", {"name": "c dashboard"})
+        self.client.post(f"/api/projects/{self.team.id}/dashboards/", {"name": "d dashboard"})
 
-        # Verify that the query count is the same when there are multiple dashboards
-        with self.assertNumQueries(expected_query_count):
+        # Verify that the query count only increases by one per additional dashboard
+        # sharing configuration is a prefetch and so adds another query
+        with self.assertNumQueries(expected_query_count + 3):
             self.client.get(f"/api/projects/{self.team.id}/dashboards/")
 
     @snapshot_postgres_queries
@@ -609,7 +609,9 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         item = Insight.objects.create(filters={"events": [{"id": "$pageview"}]}, team=self.team, last_refresh=now(),)
         DashboardTile.objects.create(insight=item, dashboard=dashboard)
         response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard.pk}").json()
-        self.assertEqual(response["items"][0]["filters"], {"events": [{"id": "$pageview"}], "insight": "TRENDS"})
+        self.assertEqual(
+            response["items"][0]["filters"], {"events": [{"id": "$pageview"}], "insight": "TRENDS", "date_from": "-7d"}
+        )
 
     def test_retrieve_dashboard_different_team(self):
         team2 = Team.objects.create(organization=Organization.objects.create(name="a"))

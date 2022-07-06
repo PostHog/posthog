@@ -430,6 +430,9 @@ const api = {
                 [ActivityScope.PLUGIN]: () => {
                     return new ApiRequest().pluginsActivity()
                 },
+                [ActivityScope.PLUGIN_CONFIG]: () => {
+                    return new ApiRequest().pluginsActivity()
+                },
             }
 
             const pagingParameters = { page: page || 1, limit: ACTIVITY_PAGE_SIZE }
@@ -450,9 +453,10 @@ const api = {
 
         async create(
             data: Partial<ExportedAssetType>,
+            params: Record<string, any> = {},
             teamId: TeamType['id'] = getCurrentTeamId()
         ): Promise<ExportedAssetType> {
-            return new ApiRequest().exports(teamId).create({ data })
+            return new ApiRequest().exports(teamId).withQueryString(toParams(params)).create({ data })
         },
 
         async get(id: number, teamId: TeamType['id'] = getCurrentTeamId()): Promise<ExportedAssetType> {

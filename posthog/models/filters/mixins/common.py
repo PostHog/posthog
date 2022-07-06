@@ -47,7 +47,7 @@ from posthog.models.entity import MATH_TYPE, Entity, ExclusionEntity
 from posthog.models.filters.mixins.base import BaseParamMixin, BreakdownType
 from posthog.models.filters.mixins.utils import cached_property, include_dict, process_bool
 from posthog.models.filters.utils import GroupTypeIndex, validate_group_type_index
-from posthog.utils import relative_date_parse
+from posthog.utils import DEFAULT_DATE_FROM_DAYS, relative_date_parse
 
 # When updating this regex, remember to update the regex with the same name in TrendsFormula.tsx
 ALLOWED_FORMULA_CHARACTERS = r"([a-zA-Z \-\*\^0-9\+\/\(\)\.]+)"
@@ -324,7 +324,9 @@ class DateMixin(BaseParamMixin):
                 return relative_date_parse(self._date_from)
             else:
                 return self._date_from
-        return timezone.now().replace(hour=0, minute=0, second=0, microsecond=0) - relativedelta(days=7)
+        return timezone.now().replace(hour=0, minute=0, second=0, microsecond=0) - relativedelta(
+            days=DEFAULT_DATE_FROM_DAYS
+        )
 
     @cached_property
     def date_to(self) -> datetime.datetime:
@@ -357,6 +359,8 @@ class DateMixin(BaseParamMixin):
                     else self._date_from
                 }
             )
+        else:
+            result_dict.update({"date_from": f"-{DEFAULT_DATE_FROM_DAYS}d"})
 
         if self._date_to:
             result_dict.update(

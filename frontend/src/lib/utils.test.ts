@@ -260,11 +260,9 @@ describe('dateFilterToText()', () => {
         })
 
         it('can have overridden date options', () => {
-            expect(
-                dateFilterToText('-21d', null, 'default', {
-                    'Last 3 weeks': { values: ['-21d'] },
-                })
-            ).toEqual('Last 3 weeks')
+            expect(dateFilterToText('-21d', null, 'default', [{ key: 'Last 3 weeks', values: ['-21d'] }])).toEqual(
+                'Last 3 weeks'
+            )
         })
     })
 
@@ -301,9 +299,7 @@ describe('dateFilterToText()', () => {
                     '-21d',
                     null,
                     'default',
-                    {
-                        'Last 3 weeks': { values: ['-21d'], getFormattedDate: () => 'custom formatted date' },
-                    },
+                    [{ key: 'Last 3 weeks', values: ['-21d'], getFormattedDate: () => 'custom formatted date' }],
                     true
                 )
             ).toEqual('custom formatted date')

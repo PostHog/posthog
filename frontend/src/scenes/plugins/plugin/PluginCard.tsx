@@ -13,6 +13,7 @@ import {
     InfoCircleOutlined,
     DownOutlined,
     GlobalOutlined,
+    ClockCircleOutlined,
 } from '@ant-design/icons'
 import { PluginImage } from './PluginImage'
 import { PluginError } from './PluginError'
@@ -80,8 +81,15 @@ export function PluginCard({
         organization_name,
     } = plugin
 
-    const { editPlugin, toggleEnabled, installPlugin, resetPluginConfigError, rearrange, showPluginLogs } =
-        useActions(pluginsLogic)
+    const {
+        editPlugin,
+        toggleEnabled,
+        installPlugin,
+        resetPluginConfigError,
+        rearrange,
+        showPluginLogs,
+        showPluginHistory,
+    } = useActions(pluginsLogic)
     const { loading, installingPluginUrl, checkingForUpdates, pluginUrlToMaintainer } = useValues(pluginsLogic)
     const { user } = useValues(userLogic)
 
@@ -200,6 +208,16 @@ export function PluginCard({
                                 />
                             ) : pluginId ? (
                                 <>
+                                    <Tooltip title="Activity history">
+                                        <Button
+                                            className="padding-under-500"
+                                            disabled={rearranging}
+                                            onClick={() => showPluginHistory(pluginId)}
+                                            data-attr="plugin-history"
+                                        >
+                                            <ClockCircleOutlined />
+                                        </Button>
+                                    </Tooltip>
                                     <Tooltip
                                         title={
                                             pluginConfig?.id

@@ -427,7 +427,7 @@ export function EventsTable({
                 {showAutoload || showCustomizeColumns || showExport ? (
                     <div
                         className={clsx(
-                            'space-between-items pt pb',
+                            'space-between-items pt mb',
                             (showEventFilter || showPropertyFilter) && 'border-top'
                         )}
                     >
@@ -461,7 +461,7 @@ export function EventsTable({
                         </div>
                     </div>
                 ) : null}
-                <EventBufferNotice extended />
+                <EventBufferNotice additionalInfo=" – this helps ensure accuracy of insights grouped by unique users" />
                 <LemonTable
                     dataSource={eventsFormatted}
                     loading={isLoading}

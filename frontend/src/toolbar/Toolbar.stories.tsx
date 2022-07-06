@@ -21,7 +21,7 @@ const editorParams: EditorProps = {
 
 export default {
     title: 'Scenes-Other/Toolbar',
-    parameters: { layout: 'fullscreen', options: { showPanel: false }, viewMode: 'canvas' },
+    parameters: { layout: 'fullscreen', options: { showPanel: false }, viewMode: 'story' },
 } as Meta
 
 function useToolbarStyles(): void {

@@ -42,6 +42,8 @@ from posthog.queries.trends.sql import (
     BREAKDOWN_INNER_SQL,
     BREAKDOWN_PROP_JOIN_SQL,
     BREAKDOWN_QUERY_SQL,
+    SESSION_BREAKDOWN_AGGREGATE_QUERY_SQL,
+    SESSION_BREAKDOWN_INNER_SQL,
 )
 from posthog.queries.trends.util import enumerate_time_range, get_active_user_params, parse_response, process_math
 from posthog.queries.util import date_from_clause, get_time_diff, get_trunc_func_ch, parse_timestamps, start_of_week_fix
@@ -172,14 +174,27 @@ class TrendsBreakdown:
 
         if self.filter.display in NON_TIME_SERIES_DISPLAY_TYPES:
             breakdown_filter = breakdown_filter.format(**breakdown_filter_params)
-            content_sql = BREAKDOWN_AGGREGATE_QUERY_SQL.format(
-                breakdown_filter=breakdown_filter,
-                person_join=person_join_condition,
-                groups_join=groups_join_condition,
-                sessions_join_condition=sessions_join_condition,
-                aggregate_operation=aggregate_operation,
-                breakdown_value=breakdown_value,
-            )
+
+            if self.entity.math_property == "$session_duration":
+                # TODO: When we add more person/group properties to math_property,
+                # generalise this query to work for everything, not just sessions.
+                content_sql = SESSION_BREAKDOWN_AGGREGATE_QUERY_SQL.format(
+                    breakdown_filter=breakdown_filter,
+                    person_join=person_join_condition,
+                    groups_join=groups_join_condition,
+                    sessions_join_condition=sessions_join_condition,
+                    aggregate_operation=aggregate_operation,
+                    breakdown_value=breakdown_value,
+                )
+            else:
+                content_sql = BREAKDOWN_AGGREGATE_QUERY_SQL.format(
+                    breakdown_filter=breakdown_filter,
+                    person_join=person_join_condition,
+                    groups_join=groups_join_condition,
+                    sessions_join_condition=sessions_join_condition,
+                    aggregate_operation=aggregate_operation,
+                    breakdown_value=breakdown_value,
+                )
             time_range = enumerate_time_range(self.filter, seconds_in_interval)
 
             return (
@@ -223,6 +238,19 @@ class TrendsBreakdown:
                     breakdown_value=breakdown_value,
                     start_of_week_fix=start_of_week_fix(self.filter),
                     **breakdown_filter_params,
+                )
+            elif self.entity.math_property == "$session_duration":
+                # TODO: When we add more person/group properties to math_property,
+                # generalise this query to work for everything, not just sessions.
+                inner_sql = SESSION_BREAKDOWN_INNER_SQL.format(
+                    breakdown_filter=breakdown_filter,
+                    person_join=person_join_condition,
+                    groups_join=groups_join_condition,
+                    sessions_join=sessions_join_condition,
+                    aggregate_operation=aggregate_operation,
+                    interval_annotation=interval_annotation,
+                    breakdown_value=breakdown_value,
+                    start_of_week_fix=start_of_week_fix(self.filter),
                 )
             else:
                 inner_sql = BREAKDOWN_INNER_SQL.format(
@@ -452,7 +480,7 @@ class TrendsBreakdown:
         ).get_join_query()
 
     def _sessions_join_condition(self) -> Tuple[str, Dict]:
-        if self.filter.breakdown_type == "session":
+        if self.filter.breakdown_type == "session" or self.entity.math_property == "$session_duration":
             session_query, session_params = SessionQuery(filter=self.filter, team=self.team).get_query()
             return (
                 f"""
