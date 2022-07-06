@@ -24,7 +24,7 @@ export async function runBuffer(hub: Hub, piscina: Piscina): Promise<void> {
         const eventsResult = await client.query(`
             UPDATE posthog_eventbuffer SET locked=true WHERE id IN (
                 SELECT id FROM posthog_eventbuffer 
-                WHERE process_at <= now() AND process_at > (now() - INTERVAL '1 hour') AND locked=false 
+                WHERE process_at <= now() AND process_at > (now() - INTERVAL '30 minute') AND locked=false 
                 ORDER BY id 
                 LIMIT 10 
                 FOR UPDATE SKIP LOCKED
@@ -67,7 +67,7 @@ export async function runBuffer(hub: Hub, piscina: Piscina): Promise<void> {
         await hub.db.postgresQuery(
             `
             UPDATE posthog_eventbuffer 
-            SET locked=false, process_at = (now() + INTERVAL '5 minute') 
+            SET locked=false 
             WHERE id IN (${idsToUnlock.join(',')})
             `,
             [],
